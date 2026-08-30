@@ -57,15 +57,20 @@ extension ContentView {
         dock: DockSplitStore? = nil,
         preferredWindow: @escaping () -> NSWindow?
     ) {
+        let resolvedDock: () -> DockSplitStore? = {
+            dock ?? AppDelegate.shared?.focusedDockStoreForShortcut(
+                preferredWindow: preferredWindow()
+            )
+        }
         registry.register(commandId: "palette.nextTabInPane") {
-            if let dock {
+            if let dock = resolvedDock() {
                 _ = dock.performShortcutCommand(.selectNextSurface)
                 return
             }
             tabManager.selectNextSurface()
         }
         registry.register(commandId: "palette.previousTabInPane") {
-            if let dock {
+            if let dock = resolvedDock() {
                 _ = dock.performShortcutCommand(.selectPreviousSurface)
                 return
             }
@@ -73,7 +78,7 @@ extension ContentView {
         }
         for movement in SurfacePaneMovement.allCases {
             registry.register(commandId: movement.commandID) {
-                if let dock {
+                if let dock = resolvedDock() {
                     if !dock.performShortcutCommand(
                         .moveSurfaceToPane(
                             movement,

@@ -13,6 +13,20 @@ extension AppDelegate {
             return false
         }
 
+        let action: KeyboardShortcutSettings.Action = switch direction {
+        case .right: .splitBrowserRight
+        case .down: .splitBrowserDown
+        case .left, .up: .splitBrowserRight
+        }
+        if routeSplitToFocusedDock(
+            kind: .browser,
+            direction: direction,
+            action: action,
+            preferredWindow: shortcutRoutingActiveWindow
+        ) {
+            return true
+        }
+
         _ = synchronizeActiveMainWindowContext(preferredWindow: shortcutRoutingActiveWindow)
 
         if let workspace = tabManager?.selectedWorkspace, workspace.layoutMode == .canvas {
@@ -64,6 +78,13 @@ extension AppDelegate {
     }
 
     func performToggleSplitZoomShortcut(tabManager routedManager: TabManager?) {
+        if let dock = focusedDockStoreForShortcut(
+            action: .toggleSplitZoom,
+            preferredWindow: shortcutRoutingActiveWindow
+        ) {
+            _ = dock.performShortcutCommand(.togglePaneZoom)
+            return
+        }
         if let workspace = routedManager?.selectedWorkspace, workspace.layoutMode == .canvas {
             _ = CanvasActionExecutor(workspace: workspace).perform(.toggleOverview)
         } else {

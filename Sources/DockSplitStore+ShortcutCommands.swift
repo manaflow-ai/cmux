@@ -25,6 +25,7 @@ enum DockShortcutCommand {
     case renameSurface(presentingWindow: NSWindow?)
     case closeOtherTabsInPane
     case toggleTerminalCopyMode
+    case toggleTerminalTextBox
     case focusTextBoxInput
     case attachTextBoxFile
     case sendCtrlFToTerminal
@@ -110,6 +111,8 @@ extension DockSplitStore {
                 return false
             }
             return terminal.surface.toggleKeyboardCopyMode()
+        case .toggleTerminalTextBox:
+            return focusedDockTerminalPanel?.toggleTextBoxInput() ?? false
         case .focusTextBoxInput:
             return focusedDockTerminalPanel?
                 .focusTextBoxInputOrTerminal() ?? false

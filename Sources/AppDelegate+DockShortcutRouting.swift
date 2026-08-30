@@ -125,6 +125,28 @@ extension KeyboardShortcutSettings.Action {
 /// the gate is `activeRightSidebarMode == .dock`, and the right-sidebar Dock is
 /// that window's own Dock (`RightSidebarPanelView` renders the per-window store).
 extension AppDelegate {
+    /// Returns the sidebar mode that should be published for shortcut context
+    /// evaluation. A Dock terminal/browser can be the first responder while the
+    /// focus coordinator is between intent updates, so derive `.dock` from the
+    /// same owner resolver before allowing a surface shortcut to be gated out.
+    func focusedSidebarModeForShortcutContext(for window: NSWindow?) -> RightSidebarMode? {
+        if let mode = keyboardFocusCoordinator(for: window)?.activeRightSidebarMode {
+            if mode == .dock {
+                return focusedDockStoreForShortcut(preferredWindow: window) == nil
+                    ? nil
+                    : .dock
+            }
+            if mode != .dock,
+               focusedDockStoreForShortcut(preferredWindow: window) != nil {
+                return .dock
+            }
+            return mode
+        }
+        return focusedDockStoreForShortcut(preferredWindow: window) == nil
+            ? nil
+            : .dock
+    }
+
     /// The Dock store that should receive a creation/split shortcut when the Dock
     /// owns keyboard focus in `preferredWindow`, else `nil` (caller falls through
     /// to the main-area path).
@@ -132,14 +154,53 @@ extension AppDelegate {
         guard let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow) else {
             return nil
         }
-        guard context.keyboardFocusCoordinator.activeRightSidebarMode == .dock else {
+        let activeMode = context.keyboardFocusCoordinator.activeRightSidebarMode
+        if activeMode == .dock {
+            if let sidebarState = context.fileExplorerState,
+               !sidebarState.isVisible {
+                return nil
+            }
+            // A mode switch can publish focus before SwiftUI has mounted the
+            // Dock host. Preserve the existing lazy-creation contract for that
+            // explicit Dock focus, while responder-based fallback remains
+            // read-only for non-Dock focus.
+            guard let dock = existingWindowDock(forWindowId: context.windowId)
+                ?? windowDock(forWindowId: context.windowId)
+            else { return nil }
+            guard !dock.isRetired else { return nil }
+            return dock
+        }
+        return existingFocusedDockStoreForShortcut(context: context)
+    }
+
+    /// Read-only variant used while SwiftUI builds menus or command snapshots.
+    /// It never lazily creates a Dock, so evaluating a menu's `body` cannot
+    /// mutate the window context or trigger an AttributeGraph invalidation.
+    func existingFocusedDockStoreForShortcut(
+        preferredWindow: NSWindow?
+    ) -> DockSplitStore? {
+        guard let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow) else {
             return nil
         }
-        // Dock mode showing means the right sidebar rendered this window's own
-        // Dock (which created it), so this resolves the store already on screen.
-        // No workspace-Dock fallback: the sidebar never renders one, so routing
-        // a creation shortcut there would target an invisible tree.
-        return windowDock(forWindowId: context.windowId)
+        return existingFocusedDockStoreForShortcut(context: context)
+    }
+
+    private func existingFocusedDockStoreForShortcut(
+        context: MainWindowContext
+    ) -> DockSplitStore? {
+        if let sidebarState = context.fileExplorerState,
+           !sidebarState.isVisible {
+            return nil
+        }
+        guard let dock = existingWindowDock(forWindowId: context.windowId),
+              !dock.isRetired,
+              dock.isVisibleInUI else { return nil }
+        if context.keyboardFocusCoordinator.activeRightSidebarMode == .dock {
+            return dock
+        }
+        guard let window = context.window ?? mainWindow(for: context.windowId),
+              dockOwnsFocusedResponder(dock, in: window) else { return nil }
+        return dock
     }
 
     func focusedDockStoreForShortcut(
@@ -206,11 +267,18 @@ extension AppDelegate {
         ) else {
             return false
         }
+        let sourcePanelId = store.focusedPanelId
+        let sourceBrowser = kind == .browser
+            ? sourcePanelId.flatMap { store.browserPanel(for: $0) }
+            : nil
         guard let panelId = store.newSplit(
             kind: kind,
             orientation: direction.orientation,
             insertFirst: direction.insertFirst,
-            sourcePanelId: store.focusedPanelId,
+            sourcePanelId: sourcePanelId,
+            preferredProfileID: sourceBrowser?.profileID,
+            chromeVisibility: sourceBrowser?.chromeVisibility ?? .visible,
+            websiteDataStore: sourceBrowser?.explicitEphemeralWebsiteDataStoreForSibling,
             focus: true
         ) else {
             return false
@@ -231,9 +299,26 @@ extension AppDelegate {
         action: KeyboardShortcutSettings.Action,
         event: NSEvent
     ) -> Bool {
-        guard let store = focusedDockStoreForShortcut(
+        performFocusedDockCommand(
+            command,
             action: action,
             preferredWindow: event.window
+        )
+    }
+
+    /// Executes a Dock-owned command from a menu or another synchronous entry
+    /// point that has no key event. Keyboard and menu dispatch share this path so
+    /// focus-history guards, failed-command beeps, and Dock ownership cannot
+    /// diverge between entrypoints.
+    @discardableResult
+    func performFocusedDockCommand(
+        _ command: DockShortcutCommand,
+        action: KeyboardShortcutSettings.Action,
+        preferredWindow: NSWindow?
+    ) -> Bool {
+        guard let store = focusedDockStoreForShortcut(
+            action: action,
+            preferredWindow: preferredWindow
         ) else {
             return false
         }
@@ -242,6 +327,21 @@ extension AppDelegate {
         }
         if !store.performShortcutCommand(command) { NSSound.beep() }
         return true
+    }
+
+    private func dockOwnsFocusedResponder(
+        _ dock: DockSplitStore,
+        in window: NSWindow
+    ) -> Bool {
+        guard let responder = window.firstResponder else { return false }
+        if let terminalSurface = responder.cmuxTerminalFocusOwningGhosttyView()?.terminalSurface,
+           terminalSurface.focusPlacement == .rightSidebarDock {
+            return dock.panelIsSelectedInVisibleDockPane(terminalSurface.id)
+        }
+        guard let browser = dock.browserPanel(owning: responder, in: window) else {
+            return false
+        }
+        return dock.panelIsSelectedInVisibleDockPane(browser.id)
     }
 
     func matchesLegacyNextSurfaceShortcut(event: NSEvent) -> Bool {

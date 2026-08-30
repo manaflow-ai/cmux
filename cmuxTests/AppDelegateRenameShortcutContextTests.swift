@@ -326,8 +326,15 @@ struct AppDelegateRenameShortcutContextTests {
             )
             dock.bonsplitController.focusPane(pane)
             dock.bonsplitController.selectTab(selectedTabId)
+            dock.bonsplitController.updateTab(selectedTabId, title: "Custom Dock Tab", hasCustomTitle: true)
+            dock.bonsplitController.requestTabContextAction(
+                .clearName,
+                for: selectedTabId,
+                inPane: pane
+            )
 
             #expect(appDelegate.focusedDockStoreForShortcut(preferredWindow: window) === dock)
+            #expect(dock.bonsplitController.tab(selectedTabId)?.hasCustomTitle == false)
             let renameEvent = try #require(makeKeyDownEvent(
                 key: "r",
                 modifiers: [.command],

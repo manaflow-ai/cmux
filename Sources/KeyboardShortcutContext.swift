@@ -157,7 +157,7 @@ extension AppDelegate {
                 )
             }
         }
-        if let mode = window.flatMap({ keyboardFocusCoordinator(for: $0)?.activeRightSidebarMode }) {
+        if let mode = focusedSidebarModeForShortcutContext(for: window) {
             context.setString(ShortcutContextKnownKey.sidebarMode.rawValue, mode.rawValue)
         }
         return context

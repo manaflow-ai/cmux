@@ -38,7 +38,7 @@ final class KeyboardShortcutContextTests: XCTestCase {
         let renameTabShortcut = KeyboardShortcutSettings.Action.renameTab.defaultShortcut
 
         XCTAssertEqual(renameTabShortcut, KeyboardShortcutSettings.Action.browserReload.defaultShortcut)
-        XCTAssertEqual(KeyboardShortcutSettings.Action.renameTab.shortcutContext, .nonBrowserPanel)
+        XCTAssertEqual(KeyboardShortcutSettings.Action.renameTab.shortcutContext, .surfacePanel)
         XCTAssertEqual(KeyboardShortcutSettings.Action.browserReload.shortcutContext, .browserPanel)
         XCTAssertFalse(
             KeyboardShortcutSettings.Action.renameTab.conflicts(
@@ -165,11 +165,33 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertFalse(context.isAvailable(focusedBrowserPanel: false, focusedMarkdownPanel: false, rightSidebarFocused: false))
         XCTAssertTrue(context.isAvailable(focusedBrowserPanel: false, focusedMarkdownPanel: false, rightSidebarFocused: true))
         XCTAssertFalse(
-            KeyboardShortcutSettings.Action.renameTab.shortcutContext
+            KeyboardShortcutSettings.Action.renameWorkspace.shortcutContext
                 .isAvailable(focusedBrowserPanel: false, focusedMarkdownPanel: false, rightSidebarFocused: true)
         )
         XCTAssertTrue(context.overlaps(KeyboardShortcutSettings.Action.commandPalette.shortcutContext))
-        XCTAssertFalse(context.overlaps(KeyboardShortcutSettings.Action.renameTab.shortcutContext))
+        XCTAssertFalse(context.overlaps(KeyboardShortcutSettings.Action.renameWorkspace.shortcutContext))
+        XCTAssertTrue(context.overlaps(KeyboardShortcutSettings.Action.renameTab.shortcutContext))
+    }
+
+    func testSurfacePanelContextAllowsDockSidebarFocusOnly() {
+        let context = KeyboardShortcutSettings.Action.renameTab.shortcutContext
+
+        XCTAssertFalse(
+            context.isAvailable(
+                focusedBrowserPanel: false,
+                focusedMarkdownPanel: false,
+                rightSidebarFocused: true,
+                sidebarMode: "files"
+            )
+        )
+        XCTAssertTrue(
+            context.isAvailable(
+                focusedBrowserPanel: false,
+                focusedMarkdownPanel: false,
+                rightSidebarFocused: true,
+                sidebarMode: "dock"
+            )
+        )
     }
 
     func testReactGrabStaysApplicationScopedForTerminalPastebackRouting() {
@@ -227,7 +249,7 @@ final class KeyboardShortcutContextTests: XCTestCase {
         // A focused markdown viewer is also a non-browser panel, so those two
         // contexts CAN be active together and must be treated as overlapping.
         let nonBrowser = KeyboardShortcutSettings.Action.renameTab.shortcutContext
-        XCTAssertEqual(nonBrowser, .nonBrowserPanel)
+        XCTAssertEqual(nonBrowser, .surfacePanel)
         XCTAssertTrue(markdown.overlaps(nonBrowser))
         XCTAssertTrue(nonBrowser.overlaps(markdown))
     }

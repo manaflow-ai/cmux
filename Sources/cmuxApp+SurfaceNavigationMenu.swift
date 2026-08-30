@@ -11,10 +11,11 @@ extension cmuxApp {
             ),
             shortcut: menuShortcut(for: .nextSurface)
         ) {
-            if let dock = AppDelegate.shared?.focusedDockStoreForShortcut(
+            if AppDelegate.shared?.performFocusedDockCommand(
+                .selectNextSurface,
+                action: .nextSurface,
                 preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
-            ) {
-                _ = dock.performShortcutCommand(.selectNextSurface)
+            ) == true {
                 return
             }
             activeTabManager.selectNextSurface()
@@ -26,10 +27,11 @@ extension cmuxApp {
             ),
             shortcut: menuShortcut(for: .prevSurface)
         ) {
-            if let dock = AppDelegate.shared?.focusedDockStoreForShortcut(
+            if AppDelegate.shared?.performFocusedDockCommand(
+                .selectPreviousSurface,
+                action: .prevSurface,
                 preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
-            ) {
-                _ = dock.performShortcutCommand(.selectPreviousSurface)
+            ) == true {
                 return
             }
             activeTabManager.selectPreviousSurface()
@@ -41,10 +43,11 @@ extension cmuxApp {
             ),
             shortcut: menuShortcut(for: .moveSurfaceLeft)
         ) {
-            if let dock = AppDelegate.shared?.focusedDockStoreForShortcut(
+            if AppDelegate.shared?.performFocusedDockCommand(
+                .moveSurface(offset: -1),
+                action: .moveSurfaceLeft,
                 preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
-            ) {
-                _ = dock.performShortcutCommand(.moveSurface(offset: -1))
+            ) == true {
                 return
             }
             activeTabManager.selectedWorkspace?.moveSelectedSurface(by: -1)
@@ -56,10 +59,11 @@ extension cmuxApp {
             ),
             shortcut: menuShortcut(for: .moveSurfaceRight)
         ) {
-            if let dock = AppDelegate.shared?.focusedDockStoreForShortcut(
+            if AppDelegate.shared?.performFocusedDockCommand(
+                .moveSurface(offset: 1),
+                action: .moveSurfaceRight,
                 preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
-            ) {
-                _ = dock.performShortcutCommand(.moveSurface(offset: 1))
+            ) == true {
                 return
             }
             activeTabManager.selectedWorkspace?.moveSelectedSurface(by: 1)

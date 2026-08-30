@@ -127,6 +127,11 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     /// delegate skips the interactive auto-create / placeholder-repair path.
     /// Mirrors `Workspace.isProgrammaticSplit`.
     @ObservationIgnored var isProgrammaticDockSplit = false
+    /// Bonsplit reports selection callbacks for both pointer input and
+    /// programmatic state restoration. Keep restoration callbacks from
+    /// publishing Dock keyboard focus when a caller explicitly requested that
+    /// the current window focus be preserved.
+    @ObservationIgnored private var programmaticSelectionRestorationDepth = 0
     @ObservationIgnored var forceCloseDockTabIds: Set<TabID> = []
     @ObservationIgnored var pendingCloseConfirmDockTabIds: Set<TabID> = []
     @ObservationIgnored var tabCloseButtonCloseDockTabIds: Set<TabID> = []
@@ -355,8 +360,30 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             guard source == .closeButton else { return }
             self?.tabCloseButtonCloseDockTabIds.insert(tabId)
         }
-        self.bonsplitController.onTabZoomToggleRequest = { [weak self] _, paneId in
-            self?.toggleDockPaneZoom(inPane: paneId) ?? false
+        self.bonsplitController.onTabZoomToggleRequest = { [weak self] tabId, paneId in
+            guard let self,
+                  let panelId = self.surfaceIdToPanelId[tabId] else {
+                return false
+            }
+            self.focusPanelFromDockInteraction(
+                panelId,
+                window: NSApp.currentEvent?.window
+            )
+            return self.toggleDockPaneZoom(inPane: paneId)
+        }
+        self.bonsplitController.onTabFullWidthToggleRequest = { [weak self] tabId, _ in
+            guard let self,
+                  let panelId = self.surfaceIdToPanelId[tabId] else {
+                return false
+            }
+            self.focusPanelFromDockInteraction(
+                panelId,
+                window: NSApp.currentEvent?.window
+            )
+            guard let paneId = self.paneId(forPanelId: panelId) else {
+                return false
+            }
+            return self.bonsplitController.toggleFullWidthTabMode(inPane: paneId)
         }
         // Accept tabs dragged in from the main split area or another Dock. A
         // drag that started in a different controller is "external" to this one,
@@ -815,6 +842,19 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         isProgrammaticDockSplit = true
         defer { isProgrammaticDockSplit = previous }
         return body()
+    }
+
+    /// Runs Bonsplit selection mutations that restore an existing Dock state
+    /// without changing which container owns the window's keyboard focus.
+    @discardableResult
+    func withProgrammaticDockSelectionRestoration<T>(_ body: () -> T) -> T {
+        programmaticSelectionRestorationDepth += 1
+        defer { programmaticSelectionRestorationDepth -= 1 }
+        return body()
+    }
+
+    var isRestoringDockSelection: Bool {
+        programmaticSelectionRestorationDepth > 0
     }
 
 #if DEBUG

@@ -62,7 +62,7 @@ struct CanvasShortcutContextTests {
         let sidebar = KeyboardShortcutSettings.Action.fileExplorerOpenSelection.shortcutContext
 
         #expect(canvas == .canvasLayout)
-        #expect(nonBrowser == .nonBrowserPanel)
+        #expect(nonBrowser == .surfacePanel)
         #expect(canvas.isAvailable(
             focusedBrowserPanel: false,
             focusedMarkdownPanel: false,

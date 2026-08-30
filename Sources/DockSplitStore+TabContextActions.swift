@@ -21,11 +21,19 @@ extension DockSplitStore {
             return
         }
 
+        // A tab-bar context menu is an interaction with the tab even when the
+        // right-click never reached the panel's content view. Commit the same
+        // selection/window-focus transaction used by pointer and keyboard paths
+        // before dispatching the action so subsequent menu/shortcut commands do
+        // not fall through to the main workspace.
+        let presentingWindow = dockContextMenuWindow
+        focusPanelFromDockInteraction(panelId, window: presentingWindow)
+
         switch action {
         case .rename:
             _ = promptRenameDockSurface(
                 tabId: tab.id,
-                presentingWindow: dockContextMenuWindow
+                presentingWindow: presentingWindow
             )
         case .clearName:
             _ = setDockPanelCustomTitle(panelId: panelId, title: nil)
@@ -200,12 +208,22 @@ extension DockSplitStore {
     }
 
     private var dockContextMenuWindow: NSWindow? {
-        guard let app = AppDelegate.shared,
-              let manager = app.dockReferenceTabManager(for: self),
-              let windowId = app.windowId(for: manager) else {
-            return NSApp.keyWindow ?? NSApp.mainWindow
+        if let eventWindow = NSApp.currentEvent?.window,
+           AppDelegate.shared?.contextForMainWindow(eventWindow) != nil {
+            return eventWindow
         }
-        return app.mainWindow(for: windowId)
+        if let app = AppDelegate.shared,
+           scope == .global,
+           let ownerWindow = app.mainWindow(for: workspaceId) {
+            return ownerWindow
+        }
+        if let app = AppDelegate.shared,
+           let manager = app.dockReferenceTabManager(for: self),
+           let windowId = app.windowId(for: manager),
+           let ownerWindow = app.mainWindow(for: windowId) {
+            return ownerWindow
+        }
+        return NSApp.currentEvent?.window ?? NSApp.keyWindow ?? NSApp.mainWindow
     }
 
     private func copyDockIdentifiers(

@@ -147,11 +147,13 @@ extension DockSplitStore {
 
     func restoreDockPaneSelection(_ selection: (pane: PaneID?, tab: TabID?)?) {
         guard let selection else { return }
-        if let pane = selection.pane {
-            bonsplitController.focusPane(pane)
-        }
-        if let tab = selection.tab {
-            bonsplitController.selectTab(tab)
+        withProgrammaticDockSelectionRestoration {
+            if let pane = selection.pane {
+                bonsplitController.focusPane(pane)
+            }
+            if let tab = selection.tab {
+                bonsplitController.selectTab(tab)
+            }
         }
     }
 
@@ -282,10 +284,12 @@ extension DockSplitStore {
     }
 
     func splitTabBar(_ controller: BonsplitController, didSelectTab tab: Bonsplit.Tab, inPane pane: PaneID) {
+        noteVisibleDockInteraction()
         applyDockSelection(tabId: tab.id, inPane: pane)
     }
 
     func splitTabBar(_ controller: BonsplitController, didFocusPane pane: PaneID) {
+        noteVisibleDockInteraction()
         guard let tab = controller.selectedTab(inPane: pane) else {
             applyVisibilityToAllPanels()
             return
@@ -342,6 +346,7 @@ extension DockSplitStore {
         // Bonsplit auto-closes an emptied source pane during a cross-pane move
         // without emitting `didClosePane`, so this callback must reconcile the
         // full ownership snapshot.
+        noteVisibleDockInteraction()
         synchronizeOwnedPaneIds(with: controller)
         applyDockSelection(tabId: tab.id, inPane: destination)
         let movedPanel = panel(for: tab.id)
@@ -406,5 +411,18 @@ extension DockSplitStore {
                 browser.hideBrowserPortalView(source: "dockHidden")
             }
         }
+    }
+
+    /// Commits Dock ownership for a visible Bonsplit interaction. Bonsplit uses
+    /// the same delegate callbacks for programmatic mutations and tab-bar input;
+    /// limiting the transaction to a visible Dock prevents hidden config/restore
+    /// work from stealing the main window's keyboard focus while still making
+    /// tab selection, pane focus, and drag moves one routing event.
+    private func noteVisibleDockInteraction() {
+        guard isVisibleInUI,
+              scope == .global,
+              !isRestoringDockSelection,
+              sessionRestoreDepth == 0 else { return }
+        noteKeyboardFocusIntent(window: NSApp.currentEvent?.window)
     }
 }

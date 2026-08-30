@@ -1516,6 +1516,56 @@ struct DockShortcutRoutingTests {
         }
     }
 
+    @Test("View surface movement follows Dock tab-strip focus")
+    @MainActor
+    func viewSurfaceMovementFollowsDockTabStripFocus() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let firstPanel = try #require(
+                    harness.dock.newSurface(kind: .terminal, inPane: harness.rootPane, focus: false)
+                )
+                let movedPanel = try #require(
+                    harness.dock.newSurface(kind: .terminal, inPane: harness.rootPane, focus: false)
+                )
+                let movedTab = try #require(harness.dock.surfaceId(forPanelId: movedPanel))
+                let destinationPanel = try #require(
+                    harness.dock.newSplit(
+                        kind: .terminal,
+                        orientation: .horizontal,
+                        insertFirst: false,
+                        sourcePanelId: movedPanel,
+                        focus: false
+                    )
+                )
+                let destinationPane = try #require(
+                    harness.dock.paneId(forPanelId: destinationPanel)
+                )
+                let mainPanelBefore = try #require(harness.mainWorkspace.focusedPanelId)
+                harness.appDelegate.noteMainPanelKeyboardFocusIntent(
+                    workspaceId: harness.mainWorkspace.id,
+                    panelId: mainPanelBefore,
+                    in: harness.window
+                )
+
+                // This is the Bonsplit tab-strip path: it selects/focuses the
+                // pane directly, without going through DockSplitStore.focusPanel.
+                harness.dock.bonsplitController.focusPane(harness.rootPane)
+                harness.dock.bonsplitController.selectTab(movedTab)
+
+                #expect(
+                    harness.appDelegate.performSurfacePaneMovement(
+                        .right,
+                        tabManager: harness.tabManager,
+                        preferredWindow: harness.window
+                    )
+                )
+                #expect(harness.dock.paneId(forPanelId: movedPanel) == destinationPane)
+                #expect(harness.mainWorkspace.focusedPanelId == mainPanelBefore)
+                _ = firstPanel
+            }
+        }
+    }
+
     @Test("Repeated move-to-pane shortcut does not create a missing pane")
     @MainActor
     func repeatedMoveToPaneDoesNotCreateMissingPane() async throws {
@@ -1919,6 +1969,93 @@ struct DockShortcutRoutingTests {
                 let focusedId = try #require(harness.dock.focusedPanelId)
                 #expect(focusedId != sourceId)
                 #expect(harness.dock.browserPanel(for: focusedId) != nil)
+            }
+        }
+    }
+
+    @Test("Dock tab context actions commit target focus before mutation")
+    @MainActor
+    func dockTabContextActionsCommitTargetFocusBeforeMutation() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let first = try harness.dock.seedShortcutTestPanel(
+                    inPane: harness.rootPane
+                )
+                let second = try harness.dock.seedShortcutTestPanel(
+                    inPane: harness.rootPane
+                )
+                let secondTab = try #require(
+                    harness.dock.surfaceId(forPanelId: second.id)
+                )
+                harness.dock.focusPanel(first.id)
+                let mainPanelBefore = try #require(
+                    harness.mainWorkspace.focusedPanelId
+                )
+                harness.dock.setDockPanelCustomTitle(
+                    panelId: second.id,
+                    title: "Custom Dock Tab"
+                )
+
+                harness.dock.bonsplitController.requestTabContextAction(
+                    .clearName,
+                    for: secondTab,
+                    inPane: harness.rootPane
+                )
+
+                #expect(harness.dock.focusedPanelId == second.id)
+                #expect(
+                    harness.dock.bonsplitController.tab(secondTab)?
+                        .hasCustomTitle == false
+                )
+                #expect(harness.mainWorkspace.focusedPanelId == mainPanelBefore)
+
+                // Bonsplit handles full-width toggles through its host callback;
+                // this also guards against recursively re-entering that request.
+                harness.dock.bonsplitController.requestTabContextAction(
+                    .toggleFullWidthTab,
+                    for: secondTab,
+                    inPane: harness.rootPane
+                )
+                #expect(
+                    harness.dock.bonsplitController.isFullWidthTabMode(
+                        inPane: harness.rootPane
+                    )
+                )
+            }
+        }
+    }
+
+    @Test("Focus-neutral Dock selection restoration preserves main focus")
+    @MainActor
+    func focusNeutralDockSelectionRestorationPreservesMainFocus() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let panel = try harness.dock.seedShortcutTestPanel(
+                    inPane: harness.rootPane
+                )
+                harness.dock.focusPanel(panel.id)
+                let mainPanelId = try #require(
+                    harness.mainWorkspace.focusedPanelId
+                )
+                harness.appDelegate.noteMainPanelKeyboardFocusIntent(
+                    workspaceId: harness.mainWorkspace.id,
+                    panelId: mainPanelId,
+                    in: harness.window
+                )
+
+                let selection = harness.dock.focusedDockPaneSelection()
+                harness.dock.restoreDockPaneSelection(selection)
+
+                #expect(
+                    harness.appDelegate.keyboardFocusCoordinator(
+                        for: harness.window
+                    )?.activeRightSidebarMode == nil
+                )
+                #expect(
+                    harness.appDelegate.focusedDockStoreForShortcut(
+                        preferredWindow: harness.window
+                    ) == nil
+                )
             }
         }
     }

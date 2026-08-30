@@ -4,10 +4,11 @@ import SwiftUI
 extension cmuxApp {
     func equalizeSplitsCommandButton() -> some View {
         splitCommandButton(title: String(localized: "command.equalizeSplits.title", defaultValue: "Equalize Splits"), shortcut: menuShortcut(for: .equalizeSplits)) {
-            if let dock = AppDelegate.shared?.focusedDockStoreForShortcut(
+            if AppDelegate.shared?.performFocusedDockCommand(
+                .equalizeSplits,
+                action: .equalizeSplits,
                 preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
-            ) {
-                _ = dock.performShortcutCommand(.equalizeSplits)
+            ) == true {
                 return
             }
             let manager = activeTabManager

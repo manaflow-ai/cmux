@@ -5754,11 +5754,12 @@ struct ContentView: View {
     private func resolveCommandPaletteTerminalOpenTargets(
         for scope: CommandPaletteListScope
     ) -> Set<TerminalDirectoryOpenTarget> {
-        guard scope == .commands,
-              focusedPanelContext?.panel.panelType == .terminal else {
-            return []
+        guard scope == .commands else { return [] }
+        if focusedPanelContext?.panel.panelType == .terminal
+            || commandPaletteDockSurfaceTarget()?.panel.panelType == .terminal {
+            return TerminalDirectoryOpenTarget.availableTargets()
         }
-        return TerminalDirectoryOpenTarget.availableTargets()
+        return []
     }
 
     static func commandPaletteForkableAgentPanelKey(workspaceId: UUID, panelId: UUID) -> String {
@@ -6895,6 +6896,57 @@ struct ContentView: View {
                     CommandPaletteContextKeys.panelHasUnread,
                     dock.panelIsUnread(browserTarget.panelId)
                 )
+        } else if let dockSurface = commandPaletteDockSurfaceTarget(),
+                  let tabId = dockSurface.dock.surfaceId(
+                      forPanelId: dockSurface.panelId
+                  ),
+                  let tab = dockSurface.dock.bonsplitController.tab(tabId) {
+            let isTerminal = dockSurface.panel.panelType == .terminal
+            let isBrowser = dockSurface.panel.panelType == .browser
+            snapshot.setBool(CommandPaletteContextKeys.hasFocusedPanel, true)
+            snapshot.setString(CommandPaletteContextKeys.panelName, tab.title)
+            snapshot.setBool(CommandPaletteContextKeys.panelIsTerminal, isTerminal)
+            snapshot.setBool(CommandPaletteContextKeys.panelIsBrowser, isBrowser)
+            snapshot.setBool(CommandPaletteContextKeys.panelIsSimulator, false)
+            snapshot.setBool(CommandPaletteContextKeys.panelIsMarkdown, false)
+            snapshot.setBool(CommandPaletteContextKeys.panelIsFilePreviewTextEditor, false)
+            snapshot.setBool(
+                CommandPaletteContextKeys.panelBrowserOmnibarVisible,
+                (dockSurface.panel as? BrowserPanel)?.isOmnibarVisible ?? false
+            )
+            snapshot.setBool(
+                CommandPaletteContextKeys.panelBrowserFocusModeActive,
+                (dockSurface.panel as? BrowserPanel)?.isBrowserFocusModeActive ?? false
+            )
+            snapshot.setBool(
+                CommandPaletteContextKeys.panelHasPane,
+                dockSurface.dock.paneId(forPanelId: dockSurface.panelId) != nil
+            )
+            snapshot.setBool(CommandPaletteContextKeys.panelSupportsDeepLinks, false)
+            snapshot.setBool(CommandPaletteContextKeys.panelHasForkableAgent, false)
+            snapshot.setBool(CommandPaletteContextKeys.panelHasCustomName, tab.hasCustomTitle)
+            snapshot.setBool(CommandPaletteContextKeys.panelShouldPin, !tab.isPinned)
+            snapshot.setBool(
+                CommandPaletteContextKeys.panelCanMoveToNewWorkspace,
+                dockSurface.dock.panels.count > 1
+            )
+            snapshot.setBool(
+                CommandPaletteContextKeys.workspaceHasSplits,
+                dockSurface.dock.bonsplitController.allPaneIds.count > 1
+            )
+            snapshot.setBool(
+                CommandPaletteContextKeys.panelHasUnread,
+                dockSurface.dock.panelIsUnread(dockSurface.panelId)
+            )
+            if isTerminal {
+                let availableTargets = terminalOpenTargets ?? TerminalDirectoryOpenTarget.availableTargets()
+                for target in TerminalDirectoryOpenTarget.commandPaletteShortcutTargets {
+                    snapshot.setBool(
+                        CommandPaletteContextKeys.terminalOpenTargetAvailable(target),
+                        availableTargets.contains(target)
+                    )
+                }
+            }
         } else if let panelContext = focusedPanelContext {
             let workspace = panelContext.workspace
             let panelId = panelContext.panelId
@@ -8289,10 +8341,9 @@ struct ContentView: View {
         let browserDispatcher = AppDelegate.shared.map {
             BrowserActionDispatcher(appDelegate: $0)
         }
-        let dockBrowserStore = browserTarget.flatMap {
-            AppDelegate.shared?.dock(resolving: $0)
-        }
-        let dockBrowserTarget = dockBrowserStore == nil ? nil : browserTarget
+        let dockSurfaceTarget = commandPaletteDockSurfaceTarget()
+        let dockSurfaceStore = dockSurfaceTarget?.dock
+        let dockSurfacePanelId = dockSurfaceTarget?.panelId
         let performBrowserAction: (BrowserAction) -> Bool = {
             action in
             guard let browserTarget, let browserDispatcher else {
@@ -8357,13 +8408,13 @@ struct ContentView: View {
             AppDelegate.shared?.uninstallCmuxCLIInPath(nil)
         }
         registry.register(commandId: "palette.newTerminalTab") {
-            if let dockBrowserStore, let browserTarget {
-                guard let paneId = dockBrowserStore.paneId(
-                    forPanelId: browserTarget.panelId
-                ), dockBrowserStore.newSurface(
+            if let dockSurfaceStore {
+                guard let paneId = dockSurfaceStore.resolvePane(
+                    requestedPaneID: nil
+                ), dockSurfaceStore.newSurface(
                     kind: .terminal,
                     inPane: paneId,
-                    sourcePanelId: browserTarget.panelId,
+                    sourcePanelId: dockSurfacePanelId,
                     focus: true
                 ) != nil else {
                     NSSound.beep()
@@ -8376,19 +8427,19 @@ struct ContentView: View {
             }
         }
         registry.register(commandId: "palette.newBrowserTab") {
-            if let dockBrowserStore, let browserTarget {
+            if let dockSurfaceStore {
                 Task { @MainActor in
                     await Task.yield()
-                    guard let paneId = dockBrowserStore.paneId(
-                        forPanelId: browserTarget.panelId
+                    guard let paneId = dockSurfaceStore.resolvePane(
+                        requestedPaneID: nil
                     ),
-                    let panelId = dockBrowserStore.newSurface(
+                    let panelId = dockSurfaceStore.newSurface(
                         kind: .browser,
                         inPane: paneId,
-                        sourcePanelId: browserTarget.panelId,
+                        sourcePanelId: dockSurfacePanelId,
                         focus: true
                     ),
-                    let browser = dockBrowserStore.browserPanel(
+                    let browser = dockSurfaceStore.browserPanel(
                         for: panelId
                     ) else {
                         NSSound.beep()
@@ -8411,15 +8462,19 @@ struct ContentView: View {
         }
         registry.registerNewSimulatorPane(tabManager: tabManager, windowId: windowId)
         registry.register(commandId: "palette.closeTab") {
-            if let dockBrowserStore, let browserTarget {
-                guard dockBrowserStore.containsPanel(
-                    browserTarget.panelId
+            if let dockSurfaceStore {
+                guard let dockSurfacePanelId else {
+                    NSSound.beep()
+                    return
+                }
+                guard dockSurfaceStore.containsPanel(
+                    dockSurfacePanelId
                 ) else {
                     NSSound.beep()
                     return
                 }
-                _ = dockBrowserStore.closePanel(
-                    browserTarget.panelId,
+                _ = dockSurfaceStore.closePanel(
+                    dockSurfacePanelId,
                     force: false
                 )
                 return
@@ -8448,8 +8503,8 @@ struct ContentView: View {
             window.toggleFullScreen(nil)
         }
         registry.register(commandId: "palette.reopenClosedBrowserTab") {
-            if let dockBrowserStore {
-                if !dockBrowserStore.performShortcutCommand(
+            if let dockSurfaceStore {
+                if !dockSurfaceStore.performShortcutCommand(
                     .reopenClosedPanel
                 ) {
                     NSSound.beep()
@@ -8682,16 +8737,22 @@ struct ContentView: View {
         }
         registerIdentifierCopyCommandHandlers(
             &registry,
-            dockTarget: dockBrowserTarget
+            dockTarget: dockSurfaceTarget.map {
+                BrowserActionTarget(
+                    host: AppDelegate.shared?.panelHost(for: $0.dock)
+                        ?? .windowDock($0.dock.workspaceId),
+                    panelId: $0.panelId
+                )
+            }
         )
 
         registry.register(commandId: "palette.renameTab") {
             beginRenameTabFlow()
         }
         registry.register(commandId: "palette.clearTabName") {
-            if let dockBrowserStore, let browserTarget {
-                if !dockBrowserStore.setDockPanelCustomTitle(
-                    panelId: browserTarget.panelId,
+            if let dockSurfaceStore, let dockSurfacePanelId {
+                if !dockSurfaceStore.setDockPanelCustomTitle(
+                    panelId: dockSurfacePanelId,
                     title: nil
                 ) {
                     NSSound.beep()
@@ -8705,8 +8766,17 @@ struct ContentView: View {
             panelContext.workspace.setPanelCustomTitle(panelId: panelContext.panelId, title: nil)
         }
         registry.register(commandId: "palette.moveTabToNewWorkspace") {
-            if dockBrowserStore != nil {
-                guard performBrowserAction(.moveToNewWorkspace) else {
+            if let dockSurfaceStore, let dockSurfacePanelId {
+                guard dockSurfaceStore.panels.count > 1 else {
+                    NSSound.beep()
+                    return
+                }
+                guard AppDelegate.shared?.moveDockSurfaceToNewWorkspace(
+                    sourceDock: dockSurfaceStore,
+                    panelId: dockSurfacePanelId,
+                    focus: true,
+                    focusWindow: false
+                ) == true else {
                     NSSound.beep()
                     return
                 }
@@ -8715,17 +8785,17 @@ struct ContentView: View {
             guard moveFocusedPanelToNewWorkspace() else { NSSound.beep(); return }
         }
         registry.register(commandId: "palette.toggleTabPin") {
-            if let dockBrowserStore, let browserTarget {
-                guard let tabId = dockBrowserStore.surfaceId(
-                    forPanelId: browserTarget.panelId
-                ), let tab = dockBrowserStore.bonsplitController.tab(
+            if let dockSurfaceStore, let dockSurfacePanelId {
+                guard let tabId = dockSurfaceStore.surfaceId(
+                    forPanelId: dockSurfacePanelId
+                ), let tab = dockSurfaceStore.bonsplitController.tab(
                     tabId
                 ) else {
                     NSSound.beep()
                     return
                 }
-                if !dockBrowserStore.setDockPanelPinned(
-                    panelId: browserTarget.panelId,
+                if !dockSurfaceStore.setDockPanelPinned(
+                    panelId: dockSurfacePanelId,
                     pinned: !tab.isPinned
                 ) {
                     NSSound.beep()
@@ -8742,9 +8812,9 @@ struct ContentView: View {
             )
         }
         registry.register(commandId: "palette.toggleTabUnread") {
-            if let dockBrowserStore, let browserTarget {
-                if !dockBrowserStore.togglePanelUnread(
-                    browserTarget.panelId
+            if let dockSurfaceStore, let dockSurfacePanelId {
+                if !dockSurfaceStore.togglePanelUnread(
+                    dockSurfacePanelId
                 ) {
                     NSSound.beep()
                 }
@@ -8762,7 +8832,7 @@ struct ContentView: View {
         }
         registerSurfaceNavigationCommandHandlers(
             &registry,
-            dock: dockBrowserStore
+            dock: dockSurfaceStore
         ) { observedWindow }
         registry.register(commandId: "palette.openWorkspacePullRequests") {
             DispatchQueue.main.async {
@@ -8901,46 +8971,119 @@ struct ContentView: View {
             }
         }
         registry.register(commandId: "palette.terminalFind") {
+            if let dockSurfaceStore {
+                if !dockSurfaceStore.performShortcutCommand(.startFind) {
+                    NSSound.beep()
+                }
+                return
+            }
             tabManager.startSearch()
         }
         registry.register(commandId: "palette.terminalFindNext") {
+            if let dockSurfaceStore {
+                if !dockSurfaceStore.performShortcutCommand(.findNext) {
+                    NSSound.beep()
+                }
+                return
+            }
             tabManager.findNext()
         }
         registry.register(commandId: "palette.terminalFindPrevious") {
+            if let dockSurfaceStore {
+                if !dockSurfaceStore.performShortcutCommand(.findPrevious) {
+                    NSSound.beep()
+                }
+                return
+            }
             tabManager.findPrevious()
         }
         registry.register(commandId: "palette.terminalHideFind") {
+            if let dockSurfaceStore {
+                if !dockSurfaceStore.performShortcutCommand(.hideFind) {
+                    NSSound.beep()
+                }
+                return
+            }
             tabManager.hideFind()
         }
         registry.register(commandId: "palette.terminalUseSelectionForFind") {
+            if let dockSurfaceStore {
+                if !dockSurfaceStore.performShortcutCommand(.useSelectionForFind) {
+                    NSSound.beep()
+                }
+                return
+            }
             tabManager.searchSelection()
         }
         registry.register(commandId: "palette.terminalToggleTextBoxInput") {
+            if let dockSurfaceStore {
+                if !dockSurfaceStore.performShortcutCommand(.toggleTerminalTextBox) {
+                    NSSound.beep()
+                }
+                return
+            }
             if !tabManager.toggleFocusedTerminalTextBox() {
                 NSSound.beep()
             }
         }
         registry.register(commandId: "palette.terminalFocusTextBoxInput") {
+            if let dockSurfaceStore {
+                if !dockSurfaceStore.performShortcutCommand(.focusTextBoxInput) {
+                    NSSound.beep()
+                }
+                return
+            }
             if !tabManager.focusFocusedTerminalTextBoxInputOrTerminal() {
                 NSSound.beep()
             }
         }
         registry.register(commandId: "palette.terminalAttachTextBoxFile") {
+            if let dockSurfaceStore {
+                if !dockSurfaceStore.performShortcutCommand(.attachTextBoxFile) {
+                    NSSound.beep()
+                }
+                return
+            }
             if !tabManager.attachFileToFocusedTerminalTextBoxInput() {
                 NSSound.beep()
             }
         }
         registry.register(commandId: "palette.terminalSendCtrlF") {
+            if let dockSurfaceStore {
+                if !dockSurfaceStore.performShortcutCommand(.sendCtrlFToTerminal) {
+                    NSSound.beep()
+                }
+                return
+            }
             if !tabManager.sendCtrlFToFocusedTerminal() {
                 NSSound.beep()
             }
         }
         registry.register(commandId: "palette.terminalClearScreenKeepScrollback") {
+            if let dockSurfaceStore {
+                if !dockSurfaceStore.performShortcutCommand(.clearScreenKeepScrollback) {
+                    NSSound.beep()
+                }
+                return
+            }
             if !tabManager.clearFocusedTerminalKeepingScrollback() {
                 NSSound.beep()
             }
         }
         registry.register(commandId: "palette.terminalSplitRight") {
+            if let dockSurfaceStore, let dockSurfacePanelId {
+                guard dockSurfaceStore.newSplit(
+                    kind: .terminal,
+                    orientation: .horizontal,
+                    insertFirst: false,
+                    sourcePanelId: dockSurfacePanelId,
+                    focus: true
+                ) != nil else {
+                    NSSound.beep()
+                    return
+                }
+                return
+            }
             if !executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.splitRight.configID) {
                 tabManager.createSplit(direction: .right)
             }
@@ -8964,25 +9107,70 @@ struct ContentView: View {
             forkFocusedAgentConversationToNewWorkspace()
         }
         registry.register(commandId: "palette.terminalSplitDown") {
+            if let dockSurfaceStore, let dockSurfacePanelId {
+                guard dockSurfaceStore.newSplit(
+                    kind: .terminal,
+                    orientation: .vertical,
+                    insertFirst: false,
+                    sourcePanelId: dockSurfacePanelId,
+                    focus: true
+                ) != nil else {
+                    NSSound.beep()
+                    return
+                }
+                return
+            }
             if !executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.splitDown.configID) {
                 tabManager.createSplit(direction: .down)
             }
         }
         registry.register(commandId: "palette.terminalSplitBrowserRight") {
+            if let dockSurfaceStore, let dockSurfacePanelId {
+                guard dockSurfaceStore.newSplit(
+                    kind: .browser,
+                    orientation: .horizontal,
+                    insertFirst: false,
+                    sourcePanelId: dockSurfacePanelId,
+                    focus: true
+                ) != nil else {
+                    NSSound.beep()
+                    return
+                }
+                return
+            }
             _ = tabManager.createBrowserSplit(direction: .right)
         }
         registry.register(commandId: "palette.terminalSplitBrowserDown") {
+            if let dockSurfaceStore, let dockSurfacePanelId {
+                guard dockSurfaceStore.newSplit(
+                    kind: .browser,
+                    orientation: .vertical,
+                    insertFirst: false,
+                    sourcePanelId: dockSurfacePanelId,
+                    focus: true
+                ) != nil else {
+                    NSSound.beep()
+                    return
+                }
+                return
+            }
             _ = tabManager.createBrowserSplit(direction: .down)
         }
         registry.register(commandId: "palette.toggleSplitZoom") {
+            if let dockSurfaceStore {
+                if !dockSurfaceStore.performShortcutCommand(.togglePaneZoom) {
+                    NSSound.beep()
+                }
+                return
+            }
             if !tabManager.toggleFocusedSplitZoom() {
                 NSSound.beep()
             }
         }
         registry.register(commandId: "palette.toggleFullWidthTab") {
-            if let dockBrowserStore, let browserTarget {
-                if !dockBrowserStore.toggleDockFullWidthTab(
-                    panelId: browserTarget.panelId
+            if let dockSurfaceStore, let dockSurfacePanelId {
+                if !dockSurfaceStore.toggleDockFullWidthTab(
+                    panelId: dockSurfacePanelId
                 ) {
                     NSSound.beep()
                 }
@@ -8993,14 +9181,14 @@ struct ContentView: View {
             }
         }
         registry.register(commandId: "palette.equalizeSplits") {
-            if let dockBrowserStore {
-                if !dockBrowserStore.performShortcutCommand(
+            if let dockSurfaceStore {
+                if !dockSurfaceStore.performShortcutCommand(
                     .equalizeSplits
                 ) {
 #if DEBUG
                     cmuxDebugLog(
                         "palette.equalizeSplits result=noSplitOrFailed " +
-                            "dock=\(dockBrowserStore.workspaceId)"
+                            "dock=\(dockSurfaceStore.workspaceId)"
                     )
 #endif
                 }
@@ -9069,6 +9257,37 @@ struct ContentView: View {
             return nil
         }
         return (workspace, panelId, panel)
+    }
+
+    /// Resolves the panel captured when the command palette opened if it lives
+    /// in a Dock. The restore target is retained while the palette owns the
+    /// first responder, so terminal and browser commands do not fall back to
+    /// the selected main-workspace panel.
+    private func commandPaletteDockSurfaceTarget() -> (
+        dock: DockSplitStore,
+        panelId: UUID,
+        panel: any Panel
+    )? {
+        guard let target = commandPaletteRestoreFocusTarget else {
+            return nil
+        }
+        switch target.host {
+        case .workspace:
+            return nil
+        case .workspaceDock, .windowDock:
+            break
+        }
+        guard let appDelegate = AppDelegate.shared,
+              let dock = appDelegate.dock(
+                  resolving: BrowserActionTarget(
+                      host: target.host,
+                      panelId: target.panelId
+                  )
+              ),
+              let panel = dock.panels[target.panelId] else {
+            return nil
+        }
+        return (dock, target.panelId, panel)
     }
 
     private static func commandPaletteWorkspaceDisplayName(_ workspace: Workspace) -> String {
@@ -9439,10 +9658,18 @@ struct ContentView: View {
     }
 
     private func commandPalettePostRunFocusTarget(for command: CommandPaletteCommand) -> CommandPaletteRestoreFocusTarget? {
-        guard let intent = Self.commandPalettePostRunRestoreFocusIntent(forCommandId: command.id),
-              let panelContext = focusedPanelContext else {
+        guard let intent = Self.commandPalettePostRunRestoreFocusIntent(forCommandId: command.id) else {
             return nil
         }
+        if let target = commandPaletteRestoreFocusTarget,
+           let dockSurface = commandPaletteDockSurfaceTarget() {
+            return CommandPaletteRestoreFocusTarget(
+                host: target.host,
+                panelId: dockSurface.panelId,
+                intent: intent
+            )
+        }
+        guard let panelContext = focusedPanelContext else { return nil }
         return CommandPaletteRestoreFocusTarget(
             workspaceId: panelContext.workspace.id,
             panelId: panelContext.panelId,
@@ -9623,28 +9850,38 @@ struct ContentView: View {
     private func presentCommandPalette(initialQuery: String) {
         refreshCachedDefaultTerminalStatus(refreshSearchCorpusIfPresented: false)
         commandPaletteFocusRestoreCoordinator.clear()
-        let browserTarget = AppDelegate.shared?.focusedBrowserActionTarget(
-            preferredWindow: observedWindow ?? NSApp.keyWindow
-                ?? NSApp.mainWindow
+        let preferredWindow = observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+        let appDelegate = AppDelegate.shared
+        let browserTarget = appDelegate?.focusedBrowserActionTarget(
+            preferredWindow: preferredWindow
         )
         commandPaletteBrowserActionTarget = browserTarget
         if let browserTarget,
-           let browserPanel = AppDelegate.shared?.browserPanel(
+           let browserPanel = appDelegate?.browserPanel(
                resolving: browserTarget
            ) {
-            commandPaletteRestoreFocusTarget =
-                CommandPaletteRestoreFocusTarget(
-                    host: browserTarget.host,
-                    panelId: browserTarget.panelId,
-                    intent: browserPanel.captureFocusIntent(
-                        in: observedWindow
-                    )
+            commandPaletteRestoreFocusTarget = CommandPaletteRestoreFocusTarget(
+                host: browserTarget.host,
+                panelId: browserTarget.panelId,
+                intent: browserPanel.captureFocusIntent(
+                    in: preferredWindow
                 )
+            )
+        } else if let dock = appDelegate?.focusedDockStoreForShortcut(
+            preferredWindow: preferredWindow
+        ),
+                  let panelId = dock.focusedPanelId,
+                  let panel = dock.panels[panelId] {
+            commandPaletteRestoreFocusTarget = CommandPaletteRestoreFocusTarget(
+                host: appDelegate?.panelHost(for: dock) ?? .windowDock(dock.workspaceId),
+                panelId: panelId,
+                intent: panel.captureFocusIntent(in: preferredWindow)
+            )
         } else if let panelContext = focusedPanelContext {
             commandPaletteRestoreFocusTarget = CommandPaletteRestoreFocusTarget(
                 workspaceId: panelContext.workspace.id,
                 panelId: panelContext.panelId,
-                intent: panelContext.panel.captureFocusIntent(in: observedWindow)
+                intent: panelContext.panel.captureFocusIntent(in: preferredWindow)
             )
         } else {
             commandPaletteRestoreFocusTarget = nil
@@ -9708,8 +9945,21 @@ struct ContentView: View {
     ) -> CommandPaletteRestoreFocusTarget? {
         if let terminalView = TerminalWindowPortalRegistry.terminalViewAtWindowPoint(windowPoint, in: window),
            let workspaceId = terminalView.tabId,
-           let panelId = terminalView.terminalSurface?.id,
-           let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) {
+           let panelId = terminalView.terminalSurface?.id {
+            if let app = AppDelegate.shared,
+               let dock = app.windowDockContainingPanel(panelId) {
+                return CommandPaletteRestoreFocusTarget(
+                    host: app.panelHost(for: dock),
+                    panelId: panelId,
+                    intent: dock.panels[panelId]?.captureFocusIntent(in: window)
+                        ?? .terminal(.surface)
+                )
+            }
+            guard let workspace = tabManager.tabs.first(where: {
+                $0.id == workspaceId
+            }) else {
+                return nil
+            }
             return CommandPaletteRestoreFocusTarget(
                 workspaceId: workspaceId,
                 panelId: panelId,
@@ -10206,6 +10456,21 @@ struct ContentView: View {
     }
 
     private func beginRenameTabFlow() {
+        if let dockSurface = commandPaletteDockSurfaceTarget(),
+           let tabId = dockSurface.dock.surfaceId(
+               forPanelId: dockSurface.panelId
+           ), let tab = dockSurface.dock.bonsplitController.tab(tabId) {
+            startRenameFlow(
+                CommandPaletteRenameTarget(
+                    kind: .tab(
+                        workspaceId: dockSurface.dock.workspaceId,
+                        panelId: dockSurface.panelId
+                    ),
+                    currentName: tab.title
+                )
+            )
+            return
+        }
         if let browserTarget = commandPaletteBrowserActionTarget,
            let dock = AppDelegate.shared?.dock(
                resolving: browserTarget
@@ -10289,11 +10554,9 @@ struct ContentView: View {
         case .workspace(let workspaceId):
             tabManager.setCustomTitle(tabId: workspaceId, title: normalizedName)
         case .tab(let workspaceId, let panelId):
-            if let browserTarget = commandPaletteBrowserActionTarget,
-               browserTarget.panelId == panelId,
-               let dock = AppDelegate.shared?.dock(
-                   resolving: browserTarget
-               ), dock.setDockPanelCustomTitle(
+            if let dockSurface = commandPaletteDockSurfaceTarget(),
+               dockSurface.panelId == panelId,
+               dockSurface.dock.setDockPanelCustomTitle(
                    panelId: panelId,
                    title: normalizedName
                ) {
@@ -10406,7 +10669,13 @@ struct ContentView: View {
     }
 
     private func openFocusedDirectoryInInlineVSCode(_ directoryURL: URL) -> Bool {
-        AppDelegate.shared?.openDirectoryInInlineVSCode(directoryURL, tabManager: tabManager) ?? false
+        let targetManager = commandPaletteDockSurfaceTarget().flatMap {
+            AppDelegate.shared?.dockReferenceTabManager(for: $0.dock)
+        } ?? tabManager
+        return AppDelegate.shared?.openDirectoryInInlineVSCode(
+            directoryURL,
+            tabManager: targetManager
+        ) ?? false
     }
 
     private func stopInlineVSCodeServeWeb() {
@@ -10426,6 +10695,13 @@ struct ContentView: View {
     }
 
     private func focusedTerminalDirectoryURL() -> URL? {
+        if let dockSurface = commandPaletteDockSurfaceTarget(),
+           let terminal = dockSurface.panel as? TerminalPanel {
+            let rawDirectory = terminal.directory.isEmpty
+                ? (terminal.requestedWorkingDirectory ?? "")
+                : terminal.directory
+            return validatedLocalDirectoryURL(rawDirectory)
+        }
         guard let workspace = tabManager.selectedWorkspace else { return nil }
         let rawDirectory: String = {
             if let focusedPanelId = workspace.focusedPanelId {
@@ -10440,9 +10716,15 @@ struct ContentView: View {
             guard !workspace.isRemoteWorkspace else { return "" }
             return workspace.currentDirectory
         }()
+        return validatedLocalDirectoryURL(rawDirectory)
+    }
+
+    private func validatedLocalDirectoryURL(_ rawDirectory: String) -> URL? {
         let trimmed = rawDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        guard FileManager.default.fileExists(atPath: trimmed) else { return nil }
+        guard !trimmed.isEmpty,
+              FileManager.default.fileExists(atPath: trimmed) else {
+            return nil
+        }
         return URL(fileURLWithPath: trimmed, isDirectory: true)
     }
 

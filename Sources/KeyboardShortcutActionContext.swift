@@ -46,6 +46,8 @@ extension KeyboardShortcutSettings.Action {
         case application
         case commandPaletteVisible
         case nonBrowserPanel
+        /// A terminal-like surface, including a terminal hosted in the Dock.
+        case surfacePanel
         case outsideBrowserPanel
         case browserPanel
         case viewerPanel
@@ -73,12 +75,16 @@ extension KeyboardShortcutSettings.Action {
             focusedSimulatorPanel: Bool = false,
             focusedFilePreviewTextEditor: Bool = false,
             rightSidebarFocused: Bool,
+            sidebarMode: String? = nil,
             workspaceCanvasLayout: Bool = false
         ) -> Bool {
             switch self {
             case .application: return true
             case .commandPaletteVisible: return false
             case .nonBrowserPanel: return !focusedBrowserPanel && !rightSidebarFocused
+            case .surfacePanel:
+                let dockIsFocused = sidebarMode == "dock"
+                return !focusedBrowserPanel && (!rightSidebarFocused || dockIsFocused)
             case .outsideBrowserPanel: return !focusedBrowserPanel
             case .browserPanel: return focusedBrowserPanel
             case .viewerPanel: return focusedBrowserPanel || focusedMarkdownPanel
@@ -103,6 +109,9 @@ extension KeyboardShortcutSettings.Action {
                 focusedSimulatorPanel: context.shortcutContext.bool(ShortcutContextKnownKey.simulatorFocus.rawValue),
                 focusedFilePreviewTextEditor: context.filePreviewTextEditorFocused,
                 rightSidebarFocused: context.rightSidebarFocused,
+                sidebarMode: context.shortcutContext.string(
+                    ShortcutContextKnownKey.sidebarMode.rawValue
+                ),
                 workspaceCanvasLayout: context.shortcutContext.bool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue)
             )
         }
@@ -126,6 +135,18 @@ extension KeyboardShortcutSettings.Action {
             case .application: return .always
             case .commandPaletteVisible: return .key(ShortcutContextKnownKey.commandPaletteVisible.rawValue)
             case .nonBrowserPanel: return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
+            case .surfacePanel:
+                return .and(
+                    .not(.atom(.browserFocus)),
+                    .or(
+                        .not(.atom(.sidebarFocus)),
+                        .compare(
+                            key: ShortcutContextKnownKey.sidebarMode.rawValue,
+                            op: .equals,
+                            operand: .string("dock")
+                        )
+                    )
+                )
             case .outsideBrowserPanel: return .not(.atom(.browserFocus))
             case .browserPanel: return .atom(.browserFocus)
             case .viewerPanel: return .or(.atom(.browserFocus), .atom(.markdownFocus))
@@ -155,6 +176,10 @@ extension KeyboardShortcutSettings.Action {
         func overlaps(_ other: ShortcutContext) -> Bool {
             if self == .application || other == .application || self == other {
                 return true
+            }
+            if self == .surfacePanel || other == .surfacePanel {
+                let paired = self == .surfacePanel ? other : self
+                return paired != .browserPanel && paired != .commandPaletteVisible
             }
             if self == .outsideBrowserPanel || other == .outsideBrowserPanel {
                 let paired = self == .outsideBrowserPanel ? other : self
@@ -232,7 +257,9 @@ extension KeyboardShortcutSettings.Action {
              .switchRightSidebarToFeed, .switchRightSidebarToDock, .switchRightSidebarToMachines, .fileExplorerOpenSelection,
              .fileExplorerOpenSelectionFinderAlias:
             return .rightSidebarFocus
-        case .renameTab, .renameWorkspace, .sendCtrlFToTerminal, .clearScreenKeepScrollback:
+        case .renameTab, .sendCtrlFToTerminal, .clearScreenKeepScrollback:
+            return .surfacePanel
+        case .renameWorkspace:
             return .nonBrowserPanel
         case .focusHistoryBack, .focusHistoryForward:
             return .outsideBrowserPanel
