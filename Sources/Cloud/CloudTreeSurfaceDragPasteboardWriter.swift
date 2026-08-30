@@ -56,7 +56,4 @@ final class CloudTreeSurfaceDragPasteboardWriter: NSPasteboardItem {
 
     /// The exact outline source that requested this writer.
     var sourceViewForDrag: NSOutlineView { sourceView }
-
-    /// The coordinator retained across SwiftUI/outline reconstruction.
-    var coordinatorForDrag: CloudTreeOutlineView.Coordinator { coordinator }
 }
