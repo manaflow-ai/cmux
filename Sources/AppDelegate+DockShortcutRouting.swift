@@ -229,6 +229,17 @@ extension AppDelegate {
         )
     }
 
+    /// Resolves the visible Dock for a surface-tree command that is not tied to
+    /// one particular shortcut binding (for example, a left/up menu split).
+    /// The focus/visibility predicate is shared with configured shortcuts, but
+    /// the command is intentionally independent of any unrelated action's
+    /// custom binding or `when` clause.
+    func focusedDockStoreForSurfaceCommand(
+        preferredWindow: NSWindow?
+    ) -> DockSplitStore? {
+        focusedDockStoreForShortcut(preferredWindow: preferredWindow)
+    }
+
     /// Creates a New Terminal / New Browser surface in the focused Dock pane.
     /// Returns the created Dock panel id when handled, or `nil` to fall through to
     /// the main-area creation path.
@@ -264,7 +275,7 @@ extension AppDelegate {
     func routeSplitToFocusedDock(
         kind: DockSurfaceKind,
         direction: SplitDirection,
-        action: KeyboardShortcutSettings.Action,
+        action _: KeyboardShortcutSettings.Action,
         preferredWindow: NSWindow?,
         preferredDock: DockSplitStore? = nil,
         preferredDockPanelId: UUID? = nil
@@ -288,8 +299,7 @@ extension AppDelegate {
                 ) ? preferredDock : nil
             }
         } else {
-            store = focusedDockStoreForShortcut(
-                action: action,
+            store = focusedDockStoreForSurfaceCommand(
                 preferredWindow: preferredWindow
             )
         }

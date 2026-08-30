@@ -1362,8 +1362,9 @@ struct cmuxApp: App {
         let action: KeyboardShortcutSettings.Action = switch direction {
         case .right: .splitRight
         case .down: .splitDown
-        // Left/up have no configurable action; reuse a dock-scoped action only
-        // as the shared authorization gate.
+        // Left/up have no separate configurable action. The Dock resolver uses
+        // the direction-agnostic surface-command gate; this value only keeps
+        // the existing call shape for keyboard-bound right/down actions.
         case .left, .up: .splitRight
         }
         if appDelegate.routeSplitToFocusedDock(
@@ -1384,8 +1385,9 @@ struct cmuxApp: App {
         let action: KeyboardShortcutSettings.Action = switch direction {
         case .right: .splitBrowserRight
         case .down: .splitBrowserDown
-        // Left/up have no configurable action; reuse a dock-scoped browser
-        // action only as the shared authorization gate.
+        // Left/up have no separate configurable action. The Dock resolver uses
+        // the direction-agnostic surface-command gate; this value only keeps
+        // the existing call shape for keyboard-bound right/down actions.
         case .left, .up: .splitBrowserRight
         }
         if appDelegate.routeSplitToFocusedDock(
