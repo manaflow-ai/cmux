@@ -1484,6 +1484,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     /// Closes and removes any panels whose Bonsplit tab is no longer present in
     /// the tree (tab close, pane close, or merge).
     func reconcilePanels() {
+        cancelDockPointerInteraction()
         let live = Set(bonsplitController.allTabIds)
         let staleTabIds = surfaceIdToPanelId.keys.filter { !live.contains($0) }
         let stalePanelIds = Set(staleTabIds.compactMap { surfaceIdToPanelId[$0] })

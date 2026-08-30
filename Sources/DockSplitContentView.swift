@@ -76,8 +76,12 @@ struct DockPointerInteractionHost: NSViewRepresentable {
         _ nsView: DockPointerInteractionHostView,
         context: Context
     ) {
+        if nsView.store !== store {
+            nsView.store?.cancelDockPointerInteraction()
+        }
         nsView.store = store
         nsView.isEnabled = isEnabled
+        nsView.refreshTeardownCleanup()
         if isEnabled {
             nsView.installMonitorIfNeeded()
         } else {
@@ -191,19 +195,29 @@ final class DockPointerInteractionHostView: NSView {
         ) { [weak self, weak window] _ in
             self?.store?.cancelDockPointerInteraction(window: window)
         }
+        refreshTeardownCleanup()
+    }
+
+    /// Rebinds the deinit cleanup to the store currently used by this host.
+    /// SwiftUI may reuse the AppKit view while replacing its store.
+    func refreshTeardownCleanup() {
+        guard let eventMonitor else {
+            teardownBox.replace(with: nil)
+            return
+        }
         let ownerStore = store
         let installedWindowObserver = windowResignKeyObserver
         let installedApplicationObserver = applicationResignActiveObserver
-        teardownBox.replace { [weak ownerStore] in
+        teardownBox.replace(with: { [weak ownerStore] in
             ownerStore?.cancelDockPointerInteraction()
-            NSEvent.removeMonitor(monitor)
+            NSEvent.removeMonitor(eventMonitor)
             if let installedWindowObserver {
                 NotificationCenter.default.removeObserver(installedWindowObserver)
             }
             if let installedApplicationObserver {
                 NotificationCenter.default.removeObserver(installedApplicationObserver)
             }
-        }
+        })
     }
 
     func stopMonitoring() {
@@ -379,13 +393,6 @@ final class DockPointerInteractionHostView: NSView {
                 return true
             }
             if let textView = current as? NSTextView, textView.isEditable {
-                return true
-            }
-            if let control = current as? NSControl,
-               control.isEnabled,
-               control.target != nil,
-               control.action != nil,
-               current !== view {
                 return true
             }
             candidate = current.superview
