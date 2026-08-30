@@ -11542,6 +11542,176 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         return condition()
     }
 
+    func testLeaderCommaRoutesBeforeFocusedTerminalTextFastPath() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected a main window with a focused terminal panel")
+            return
+        }
+
+        focusHostedTerminalForRepairTesting(window: window, hostedView: terminalPanel.hostedView)
+        XCTAssertTrue(
+            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+            "Leader chord fixture must have the terminal surface as first responder"
+        )
+
+        var requestedWorkspaceId: UUID?
+#if DEBUG
+        appDelegate.debugWorkspaceTagPromptHandler = { candidate in
+            requestedWorkspaceId = candidate.id
+            return AppDelegate.DebugWorkspaceTagPromptResult(
+                response: .alertSecondButtonReturn,
+                tag: candidate.tag ?? ""
+            )
+        }
+#endif
+
+        defer {
+#if DEBUG
+            if appDelegate.isLeaderKeyWaitingForSecondKey,
+               let escapeEvent = makeKeyDownEvent(
+                   key: "\u{1b}",
+                   modifiers: [],
+                   keyCode: 53,
+                   windowNumber: 0
+               ) {
+                _ = appDelegate.debugHandleShortcutMonitorEvent(event: escapeEvent)
+            }
+#endif
+        }
+
+        withTemporaryLeaderWorkspaceTagSettings(workspaceTagsEnabled: true) {
+            guard let leaderEvent = makeKeyDownEvent(
+                key: "b",
+                modifiers: [.control],
+                keyCode: 11,
+                windowNumber: 0
+            ), let commaEvent = makeKeyDownEvent(
+                key: ",",
+                modifiers: [],
+                keyCode: 43,
+                windowNumber: 0
+            ) else {
+                XCTFail("Failed to construct focused-terminal leader comma events")
+                return
+            }
+
+#if DEBUG
+            XCTAssertTrue(
+                appDelegate.debugHandleShortcutMonitorEvent(event: leaderEvent),
+                "Ctrl+B should be consumed while a focused terminal owns first responder"
+            )
+            XCTAssertTrue(
+                appDelegate.isLeaderKeyWaitingForSecondKey,
+                "Ctrl+B should arm leader mode before the focused terminal receives text"
+            )
+            XCTAssertTrue(
+                appDelegate.debugHandleShortcutMonitorEvent(event: commaEvent),
+                "Comma should be consumed as the leader second stroke before terminal text routing"
+            )
+#else
+            XCTFail("debugHandleShortcutMonitorEvent is only available in DEBUG")
+#endif
+        }
+
+        XCTAssertEqual(
+            requestedWorkspaceId,
+            workspace.id,
+            "Leader comma should request a tag for the selected focused-terminal workspace"
+        )
+    }
+
+    func testLeaderBareActionRoutesBeforeFocusedTerminalTextFastPath() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected a main window with a focused terminal panel")
+            return
+        }
+
+        focusHostedTerminalForRepairTesting(window: window, hostedView: terminalPanel.hostedView)
+        XCTAssertTrue(
+            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+            "Leader chord fixture must have the terminal surface as first responder"
+        )
+        let panelCountBefore = workspace.panels.count
+
+        defer {
+#if DEBUG
+            if appDelegate.isLeaderKeyWaitingForSecondKey,
+               let escapeEvent = makeKeyDownEvent(
+                   key: "\u{1b}",
+                   modifiers: [],
+                   keyCode: 53,
+                   windowNumber: 0
+               ) {
+                _ = appDelegate.debugHandleShortcutMonitorEvent(event: escapeEvent)
+            }
+#endif
+        }
+
+        withTemporaryLeaderKeySettings {
+            guard let leaderEvent = makeKeyDownEvent(
+                key: "b",
+                modifiers: [.control],
+                keyCode: 11,
+                windowNumber: 0
+            ), let createEvent = makeKeyDownEvent(
+                key: "c",
+                modifiers: [],
+                keyCode: 8,
+                windowNumber: 0
+            ) else {
+                XCTFail("Failed to construct focused-terminal leader action events")
+                return
+            }
+
+#if DEBUG
+            XCTAssertTrue(
+                appDelegate.debugHandleShortcutMonitorEvent(event: leaderEvent),
+                "Ctrl+B should be consumed while a focused terminal owns first responder"
+            )
+            XCTAssertTrue(
+                appDelegate.isLeaderKeyWaitingForSecondKey,
+                "Ctrl+B should arm leader mode before the focused terminal receives text"
+            )
+            XCTAssertTrue(
+                appDelegate.debugHandleShortcutMonitorEvent(event: createEvent),
+                "Bare c should be consumed as the leader second stroke before terminal text routing"
+            )
+#else
+            XCTFail("debugHandleShortcutMonitorEvent is only available in DEBUG")
+#endif
+        }
+
+        XCTAssertEqual(
+            workspace.panels.count,
+            panelCountBefore + 1,
+            "Leader c should create exactly one terminal surface in the selected workspace"
+        )
+    }
+
     func testLeaderCommaRequestsWorkspaceTagDialogWhenWorkspaceTagsEnabled() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
