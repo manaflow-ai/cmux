@@ -45,6 +45,10 @@ formatter cursor restoration at `f76c132e5`, VT stream-boundary visibility at
     `9fd00e0e4` pointer because it is not on current fork main. Keep the
     conditional-state assignment with `Surface.updateConfig` when that method
     is reconciled again.
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-23df1f4d0e5f471d1c352a2bf2ae61ece8d1ef63-crashsubdir-cmux-crash-sentry-off-v1
+  - SHA-256 `82b39302527ff3034e42a2d6c16ae30327c6cf0bfd6552de7317e9d8c3b44d06`
+    is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### iOS tokened render disposition and nonblocking prompt reveal
 
