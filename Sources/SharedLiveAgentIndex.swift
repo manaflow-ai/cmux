@@ -531,7 +531,9 @@ final class SharedLiveAgentIndex {
 
     /// Whether an agent-index refresh has been scheduled and has not completed yet.
     var hasScheduledRefresh: Bool {
-        refreshTask != nil || forkAvailabilityRefreshTask != nil
+        refreshTask != nil
+            || forkAvailabilityRefreshTask != nil
+            || sidebarLivenessRefreshTask != nil
     }
 
     /// Starts a full refresh for an ownership-sensitive restore.
