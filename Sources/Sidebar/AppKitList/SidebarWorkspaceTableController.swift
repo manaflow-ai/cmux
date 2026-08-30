@@ -1117,15 +1117,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             return
         }
         if isWorkspaceDragSourceActive {
-            // A second begin callback with the same generation is AppKit's
-            // reconstruction duplicate. A newer generation, however, is an
+            // A second begin callback with the same session is AppKit's
+            // reconstruction duplicate. Any distinct session is an
             // authoritative native boundary: the old source can no longer be
             // in its drag loop, even if its `endedAt` callback was suppressed.
             if activeWorkspaceDraggingSession === session {
-                return
-            }
-            if let activeSequence = activeWorkspaceDragSequenceNumber,
-               session.draggingSequenceNumber <= activeSequence {
                 return
             }
             let supersededSession = activeWorkspaceDraggingSession
