@@ -138,6 +138,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     private struct NotificationIndexes {
+        var notificationIDs: Set<UUID> = []
         var unreadCount = 0
         var unreadCountByTabId: [UUID: Int] = [:]
         var unreadByTabSurface = Set<TabSurfaceKey>()
@@ -1314,7 +1315,9 @@ final class TerminalNotificationStore: ObservableObject {
             // A pre-registered request may still be queued behind an earlier
             // policy evaluation. Do not expose its id until that evaluation
             // has synchronously recorded the notification.
-            return nil
+            return indexes.notificationIDs.contains(reservedNotificationID)
+                ? reservedNotificationID
+                : nil
         }
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -2864,6 +2867,7 @@ final class TerminalNotificationStore: ObservableObject {
     private static func buildIndexes(for notifications: [TerminalNotification]) -> NotificationIndexes {
         var indexes = NotificationIndexes()
         for notification in notifications {
+            indexes.notificationIDs.insert(notification.id)
             if indexes.latestByTabId[notification.tabId] == nil {
                 indexes.latestByTabId[notification.tabId] = notification
             }
