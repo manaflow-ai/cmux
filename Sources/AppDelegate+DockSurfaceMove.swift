@@ -214,11 +214,13 @@ extension AppDelegate {
                 _ = focusMainWindow(windowId: destinationWindowId)
             }
             destinationManager.focusTab(targetWorkspaceId, surfaceId: panelId, suppressFlash: true)
-            noteMainPanelKeyboardFocusIntent(
-                workspaceId: targetWorkspaceId,
-                panelId: panelId,
-                in: destinationWindow
-            )
+            if let destinationWindow {
+                noteMainPanelKeyboardFocusIntent(
+                    workspaceId: targetWorkspaceId,
+                    panelId: panelId,
+                    in: destinationWindow
+                )
+            }
         }
         return true
     }
@@ -260,11 +262,13 @@ extension AppDelegate {
             if focusWindow, let destinationWindowId = windowId(for: manager) {
                 _ = focusMainWindow(windowId: destinationWindowId)
             }
-            noteMainPanelKeyboardFocusIntent(
-                workspaceId: destinationWorkspace.id,
-                panelId: panelId,
-                in: destinationWindow
-            )
+            if let destinationWindow {
+                noteMainPanelKeyboardFocusIntent(
+                    workspaceId: destinationWorkspace.id,
+                    panelId: panelId,
+                    in: destinationWindow
+                )
+            }
         }
         return true
     }

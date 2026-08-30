@@ -1261,13 +1261,6 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
                     refreshCapabilities: true,
                     refreshMetadata: false
                 ) }
-                .merge(with: NotificationCenter.default.publisher(
-                    for: .browserFindCapabilityDidChange,
-                    object: browser
-                ).map { _ in BrowserDockSubscriptionEvent(
-                    refreshCapabilities: true,
-                    refreshMetadata: false
-                ) })
             let browserWebViewInstanceChanges = browser.$webViewInstanceID
                 .removeDuplicates()
                 .map { _ in BrowserDockSubscriptionEvent(
