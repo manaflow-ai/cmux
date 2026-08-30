@@ -405,10 +405,6 @@ extension TerminalController: ControlNotificationContext {
                 localized: "socket.notification.clear.workspaceIdInvalid",
                 defaultValue: "Missing or invalid workspace_id"
             ),
-            tabManagerUnavailable: String(
-                localized: "socket.workspace.reorderMany.tabManagerUnavailable",
-                defaultValue: "TabManager not available"
-            ),
             workspaceNotFound: String(
                 localized: "socket.workspace.reorderMany.workspaceNotFound",
                 defaultValue: "Workspace not found"

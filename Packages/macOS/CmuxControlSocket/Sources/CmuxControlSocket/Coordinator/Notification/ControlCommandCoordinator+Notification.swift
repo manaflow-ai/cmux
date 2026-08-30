@@ -56,7 +56,7 @@ extension ControlCommandCoordinator {
 
         switch resolution {
         case .tabManagerUnavailable:
-            return .err(code: "unavailable", message: notificationTabManagerUnavailableMessage, data: nil)
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
         case .workspaceNotFound:
             return .err(code: "not_found", message: notificationWorkspaceNotFoundMessage, data: nil)
         case .surfaceNotFound(let surfaceID):
@@ -125,7 +125,7 @@ extension ControlCommandCoordinator {
     ) -> ControlCallResult {
         switch resolution {
         case .tabManagerUnavailable:
-            return .err(code: "unavailable", message: notificationTabManagerUnavailableMessage, data: nil)
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
         case .workspaceNotFound(let workspaceID):
             let data: JSONValue? = workspaceID.map { .object(["workspace_id": .string($0.uuidString)]) }
             return .err(code: "not_found", message: notificationWorkspaceNotFoundMessage, data: data)
@@ -516,7 +516,6 @@ extension ControlCommandCoordinator {
             clearPreferredSurfaceIDInvalid: "Missing or invalid preferred_surface_id",
             clearSurfaceIDRequiresWorkspace: "surface_id requires workspace_id",
             clearWorkspaceIDInvalid: "Missing or invalid workspace_id",
-            tabManagerUnavailable: "TabManager not available",
             workspaceNotFound: "Workspace not found",
             surfaceNotFound: "Surface not found",
             clearUnavailable: "Notifications are unavailable. Try again."
@@ -577,10 +576,6 @@ extension ControlCommandCoordinator {
 
     private var notificationClearWorkspaceIDInvalidMessage: String {
         notificationStrings.clearWorkspaceIDInvalid
-    }
-
-    private var notificationTabManagerUnavailableMessage: String {
-        notificationStrings.tabManagerUnavailable
     }
 
     private var notificationWorkspaceNotFoundMessage: String {

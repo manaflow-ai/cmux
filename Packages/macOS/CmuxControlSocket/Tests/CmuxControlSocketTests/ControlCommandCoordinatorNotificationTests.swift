@@ -101,7 +101,6 @@ private final class UnavailableNotificationControlContext: ControlCommandContext
             clearPreferredSurfaceIDInvalid: "",
             clearSurfaceIDRequiresWorkspace: "",
             clearWorkspaceIDInvalid: "",
-            tabManagerUnavailable: "legacy unavailable",
             workspaceNotFound: "workspace missing",
             surfaceNotFound: "surface missing",
             clearUnavailable: "notifications unavailable"
