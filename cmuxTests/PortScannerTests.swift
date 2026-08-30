@@ -1235,6 +1235,7 @@ struct PortScannerGenerationTests {
 
         let publishedPorts = try #require(await iterator.next())
         #expect(publishedPorts == [5173])
+    }
 }
 
 @Suite("Port scanner lsof batching")
