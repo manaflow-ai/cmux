@@ -130,7 +130,6 @@ fn encode_overflow_frame() -> Vec<u8> {
     encode_control_frame(&json!({
         "t": "error",
         "code": "overflow",
-        "message": "terminal output queue is full; reconnect to resume",
     }))
 }
 
