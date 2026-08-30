@@ -766,7 +766,7 @@ async fn relay_session(
             Wake::Heartbeat => {
                 critical_burst = 0;
                 let frame = heartbeat_frame(now_ms()).to_string();
-                if send_socket_text(&socket, frame, cancellation).await.is_err() {
+                if send_socket_text(&socket, frame, &connection_cancellation).await.is_err() {
                     break Ok(connected);
                 }
             }
@@ -809,7 +809,7 @@ async fn relay_session(
                 }
                 let text = frame.text;
                 let size = text.len() as u64;
-                let sent = send_socket_text(&socket, text, cancellation).await;
+                let sent = send_socket_text(&socket, text, &connection_cancellation).await;
                 pending.fetch_sub(size.min(pending.load(Ordering::SeqCst)), Ordering::SeqCst);
                 if sent.is_err() {
                     break Ok(connected);
@@ -834,8 +834,12 @@ async fn relay_session(
                 let text = match message {
                     Message::Text(text) => text,
                     Message::Ping(payload) => {
-                        let _ = send_socket_message(&socket, Message::Pong(payload), cancellation)
-                            .await;
+                        let _ = send_socket_message(
+                            &socket,
+                            Message::Pong(payload),
+                            &connection_cancellation,
+                        )
+                        .await;
                         continue;
                     }
                     Message::Close(_) => break Ok(connected),
@@ -917,7 +921,10 @@ async fn relay_session(
                                 || local_trust == Trust::Autonomous)
                         {
                             let frame = set_trust_frame(local_trust.as_str()).to_string();
-                            if send_socket_text(&socket, frame, cancellation).await.is_err() {
+                            if send_socket_text(&socket, frame, &connection_cancellation)
+                                .await
+                                .is_err()
+                            {
                                 break Ok(connected);
                             }
                         } else if !state.managed {
@@ -976,7 +983,7 @@ async fn relay_session(
                                 save(config, config_path);
                             }
                             let frame = set_trust_frame(DEFAULT_RELAY_TRUST.as_str()).to_string();
-                            let _ = send_socket_text(&socket, frame, cancellation).await;
+                            let _ = send_socket_text(&socket, frame, &connection_cancellation).await;
                             workspace.set_local_observe(DEFAULT_RELAY_TRUST == Trust::Observe);
                             eprintln!(
                                 "Refused an autonomous trust acknowledgement without this \
@@ -1322,13 +1329,52 @@ mod liveness_tests {
 
 #[cfg(test)]
 mod cancellation_tests {
-    use super::{shutdown_connection_tasks, wait_for_reconnect};
+    use super::{send_socket_text, shutdown_connection_tasks, wait_for_reconnect};
+    use futures_util::Sink;
+    use std::pin::Pin;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
+    use std::task::{Context, Poll};
     use std::time::Duration;
 
+    use tokio::sync::{Mutex as AsyncMutex, Notify};
     use tokio::task::JoinSet;
+    use tokio_tungstenite::tungstenite::Message;
     use tokio_util::sync::CancellationToken;
+
+    struct PendingSink {
+        started: Arc<Notify>,
+    }
+
+    impl Sink<Message> for PendingSink {
+        type Error = ();
+
+        fn poll_ready(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Result<(), Self::Error>> {
+            self.started.notify_one();
+            Poll::Pending
+        }
+
+        fn start_send(self: Pin<&mut Self>, _item: Message) -> Result<(), Self::Error> {
+            Ok(())
+        }
+
+        fn poll_flush(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn poll_close(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+    }
 
     #[tokio::test]
     async fn reconnect_backoff_stops_when_process_is_cancelled() {
@@ -1375,6 +1421,24 @@ mod cancellation_tests {
         assert!(shutdown_connection_tasks(&mut tasks, &cancellation).await);
         assert!(completed.load(Ordering::Acquire));
         assert!(tasks.is_empty());
+    }
+
+    #[tokio::test]
+    async fn cancellation_unblocks_a_send_waiting_on_the_socket() {
+        let started = Arc::new(Notify::new());
+        let socket = Arc::new(AsyncMutex::new(PendingSink {
+            started: Arc::clone(&started),
+        }));
+        let cancellation = CancellationToken::new();
+        let task_socket = Arc::clone(&socket);
+        let task_cancellation = cancellation.clone();
+        let send = tokio::spawn(async move {
+            send_socket_text(&task_socket, "blocked".to_owned(), &task_cancellation).await
+        });
+
+        started.notified().await;
+        cancellation.cancel();
+        assert!(send.await.expect("send task joined").is_err());
     }
 }
 
