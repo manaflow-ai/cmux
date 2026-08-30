@@ -1460,7 +1460,24 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
         let createParams = try XCTUnwrap(createRequest["params"] as? [String: Any])
         let startupCommand = try XCTUnwrap(createParams["initial_command"] as? String)
-        return try rewritingSystemSSH(in: startupCommand, with: fakeSSH)
+        // VM startup now persists the reusable bootstrap as a quoted script
+        // path. Rewrite the script in place so this fixture always invokes its
+        // fake SSH binary instead of touching the host network.
+        let scriptPath = startupCommand.trimmingCharacters(in: CharacterSet(charactersIn: "'"))
+        let scriptURL = URL(fileURLWithPath: scriptPath)
+        let script = try String(contentsOf: scriptURL, encoding: .utf8)
+        XCTAssertTrue(
+            script.contains("/usr/bin/ssh"),
+            "Expected the VM startup script to invoke the system SSH executable"
+        )
+        try script
+            .replacingOccurrences(of: "/usr/bin/ssh", with: fakeSSH.path)
+            .write(to: scriptURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: scriptURL.path
+        )
+        return startupCommand
     }
 
     private func rewritingSystemSSH(
@@ -1468,8 +1485,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         with fakeSSH: URL
     ) throws -> String {
         let systemSSHPath = "/usr/bin/ssh"
+        let rawPath = startupCommand.trimmingCharacters(in: .whitespacesAndNewlines)
         let commandURL = URL(
-            fileURLWithPath: startupCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+            fileURLWithPath: rawPath.trimmingCharacters(in: CharacterSet(charactersIn: "'"))
         )
         var isDirectory: ObjCBool = false
         if FileManager.default.fileExists(atPath: commandURL.path, isDirectory: &isDirectory),
@@ -1490,17 +1508,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
             return startupCommand.replacingOccurrences(of: systemSSHPath, with: fakeSSH.path)
         }
 
-        let encodedPrefix = "(printf %s "
-        let encodedSuffix = " | base64"
-        guard let prefixRange = startupCommand.range(of: encodedPrefix),
-              let suffixRange = startupCommand.range(
-                  of: encodedSuffix,
-                  range: prefixRange.upperBound..<startupCommand.endIndex
-              ) else {
+        // Reusable startup commands embed a base64 script after `printf %s`.
+        // Locate the first whitespace-delimited payload rather than relying on
+        // one exact parenthesized spelling; the shell wrapper has changed shape
+        // across app-host revisions.
+        let marker = "printf %s "
+        guard let markerRange = startupCommand.range(of: marker) else {
             XCTFail("Generated startup command did not pin \(systemSSHPath): \(startupCommand)")
             return startupCommand
         }
-        let encodedRange = prefixRange.upperBound..<suffixRange.lowerBound
+        let encodedStart = markerRange.upperBound
+        let encodedEnd = startupCommand[encodedStart...]
+            .firstIndex(where: \.isWhitespace) ?? startupCommand.endIndex
+        let encodedRange = encodedStart..<encodedEnd
         let encodedScript = String(startupCommand[encodedRange])
         let scriptData = try XCTUnwrap(Data(base64Encoded: encodedScript))
         let script = try XCTUnwrap(String(data: scriptData, encoding: .utf8))
