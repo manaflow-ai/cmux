@@ -20,6 +20,7 @@
 //! empty frames; unknown ptyIds tolerated; refusals answer pty_error.
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -349,6 +350,43 @@ struct TransportOwner {
     kind: TransportKind,
 }
 
+/// A bounded, one-way fence for disconnected transport identities. A Bloom
+/// filter cannot forget a tombstone, so stale frames never regain authority;
+/// false positives only reject a fresh identity and are preferable to an
+/// unbounded exact set.
+struct TransportTombstones {
+    bits: [u64; 64],
+}
+
+impl Default for TransportTombstones {
+    fn default() -> Self { Self { bits: [0; 64] } }
+}
+
+impl TransportTombstones {
+    fn index(owner: &TransportOwner, seed: u64) -> usize {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        seed.hash(&mut hasher);
+        owner.hash(&mut hasher);
+        (hasher.finish() as usize) & 4095
+    }
+
+    fn contains(&self, owner: &TransportOwner) -> bool {
+        [0x9e37_79b9_7f4a_7c15, 0xc2b2_ae3d_27d4_eb4f, 0x1656_67b1_9e37_79f9]
+            .into_iter()
+            .all(|seed| {
+                let bit = Self::index(owner, seed);
+                self.bits[bit / 64] & (1_u64 << (bit % 64)) != 0
+            })
+    }
+
+    fn insert(&mut self, owner: TransportOwner) {
+        for seed in [0x9e37_79b9_7f4a_7c15, 0xc2b2_ae3d_27d4_eb4f, 0x1656_67b1_9e37_79f9] {
+            let bit = Self::index(&owner, seed);
+            self.bits[bit / 64] |= 1_u64 << (bit % 64);
+        }
+    }
+}
+
 impl TransportOwner {
     fn from_context(context: &FrameContext) -> Self {
         Self { id: context.transport_id.clone(), kind: context.transport_kind }
@@ -480,7 +518,7 @@ struct Inner {
     /// must never be reused, so a late frame cannot clear this tombstone by
     /// publishing another snapshot with the same id. A reconnect receives a
     /// new owner instead.
-    detached_transports: Mutex<HashSet<TransportOwner>>,
+    detached_transports: Mutex<TransportTombstones>,
     /// Serializes short authority and attachment state transitions. It is
     /// never held while a PTY control method, callback, or provider await runs.
     tunnel_state: Mutex<()>,
@@ -666,7 +704,7 @@ impl PtyManager {
                 shell_starting: Mutex::new(HashMap::new()),
                 transport_auth: Mutex::new(HashMap::new()),
                 revoked_transports: Mutex::new(HashSet::new()),
-                detached_transports: Mutex::new(HashSet::new()),
+                detached_transports: Mutex::new(TransportTombstones::default()),
                 tunnel_state: Mutex::new(()),
                 tunnel_authority_generation: AtomicU64::new(0),
                 next_open_attempt: AtomicU64::new(1),
@@ -697,7 +735,7 @@ impl PtyManager {
                 shell_starting: Mutex::new(HashMap::new()),
                 transport_auth: Mutex::new(HashMap::new()),
                 revoked_transports: Mutex::new(HashSet::new()),
-                detached_transports: Mutex::new(HashSet::new()),
+                detached_transports: Mutex::new(TransportTombstones::default()),
                 tunnel_state: Mutex::new(()),
                 tunnel_authority_generation: AtomicU64::new(0),
                 next_open_attempt: AtomicU64::new(1),
@@ -848,7 +886,7 @@ impl PtyManager {
             changed
         };
         if changed {
-            self.inner.detach_matching(|candidate| candidate == &owner, false).retire();
+            self.detach_matching(|candidate| candidate == &owner, false).retire();
         }
         let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
         if !self.inner.tunnel_authority_generation_current(context) {
@@ -2283,9 +2321,10 @@ impl Inner {
                 }
             };
             if !owner {
+                let cancellation_token = cancellation.token();
                 tokio::select! {
                     biased;
-                    _ = cancellation.token().cancelled() => {
+                    _ = cancellation_token.cancelled() => {
                         return Err("terminal open cancelled".to_owned());
                     }
                     _ = waiter.expect("shell waiter") => {}
@@ -3011,7 +3050,13 @@ impl Inner {
         } else {
             json!({ "surface": surface_id })
         };
-        let attached = control.request("attach-surface", attach_params).await;
+        let attached = request_control_with_cancellation(
+            &control,
+            "attach-surface",
+            attach_params,
+            cancellation,
+        )
+        .await;
         if attached.as_ref().and_then(|v| v.get("ok")).and_then(Value::as_bool) != Some(true) {
             control.end();
             let reason = attached
@@ -4213,8 +4258,9 @@ mod tests {
         let task_manager = Arc::new(h.manager);
         let task_context = context.clone();
         let task_cancellation = cancellation.clone();
+        let task_manager_for_task = Arc::clone(&task_manager);
         let task = tokio::spawn(async move {
-            task_manager
+            task_manager_for_task
                 .handle_frame_with_open_cancellation(&frame, &task_context, Some(task_cancellation))
                 .await;
         });
@@ -4313,6 +4359,21 @@ mod tests {
         });
         h.manager.handle_frame(&fresh_frame, &fresh).await;
         assert_eq!(h.spawned().len(), 1, "a new transport identity remains usable");
+    }
+
+    #[test]
+    fn detached_transport_tombstones_are_bounded_and_never_evicted() {
+        let mut tombstones = TransportTombstones::default();
+        let first = TransportOwner { id: Some("old-transport".to_owned()), kind: TransportKind::Relay };
+        tombstones.insert(first.clone());
+        for index in 0..100_000 {
+            tombstones.insert(TransportOwner {
+                id: Some(format!("transport-{index}")),
+                kind: TransportKind::Relay,
+            });
+        }
+        assert!(tombstones.contains(&first));
+        assert_eq!(std::mem::size_of_val(&tombstones.bits), 512);
     }
 
     #[test]
