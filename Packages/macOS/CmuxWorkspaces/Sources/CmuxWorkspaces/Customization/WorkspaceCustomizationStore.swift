@@ -75,6 +75,18 @@ public struct WorkspaceCustomizationStore {
         loadSnapshot().entries[stableId.uuidString]?.titleMutationRevision
     }
 
+    /// Reads the recovery value and its title-mutation fence from one snapshot.
+    ///
+    /// Automatic title notifications use this combined read because decoding
+    /// the complete journal is synchronous. Keeping the two fields together
+    /// avoids decoding the journal twice for one high-frequency notification.
+    public func customizationAndTitleMutationRevision(
+        for stableId: UUID
+    ) -> (customization: WorkspaceCustomization, titleMutationRevision: UInt64)? {
+        guard let entry = loadSnapshot().entries[stableId.uuidString] else { return nil }
+        return (entry.customization, entry.titleMutationRevision)
+    }
+
     /// Reads a batch of recovery records with one defaults decode.
     ///
     /// - Parameter stableIds: The stable workspace identities to read.

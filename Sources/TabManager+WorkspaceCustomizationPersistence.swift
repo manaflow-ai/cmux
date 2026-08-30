@@ -134,28 +134,23 @@ extension TabManager {
         // subsequent automatic value so a stale snapshot cannot roll the title
         // back to an earlier refresh.
         if source == .auto {
-            guard let field = workspaceCustomizationStore
-                .customization(for: workspace.stableId)?
-                .customTitle else {
+            guard let record = workspaceCustomizationStore
+                .customizationAndTitleMutationRevision(for: workspace.stableId) else {
                 return
             }
+            let field = record.customization.customTitle
             switch field {
             case .cleared, .autoValue:
                 break
             case .absent, .value:
                 return
             }
-            guard let titleMutationRevision = workspaceCustomizationStore
-                .customizationTitleMutationRevision(
-                for: workspace.stableId
-            ) else {
-                return
-            }
             let pending = pendingAutomaticWorkspaceTitles[workspace.stableId]
             pendingAutomaticWorkspaceTitles[workspace.stableId] =
                 PendingAutomaticWorkspaceTitle(
                     title: workspace.customTitle,
-                    titleMutationRevision: pending?.titleMutationRevision ?? titleMutationRevision
+                    titleMutationRevision: pending?.titleMutationRevision
+                        ?? record.titleMutationRevision
                 )
             scheduleAutomaticWorkspaceTitlePersistence()
             return
