@@ -137,7 +137,8 @@ struct AgentHibernationPlannerSwiftTests {
             containsUnrelatedProcess: false,
             panelProcessIDs: [],
             processIDs: [],
-            processIdentities: [:]
+            processIdentities: [:],
+            processLiveness: .unknown
         )
         #expect(record.isStillOwnedByOriginalWorkspace)
 
@@ -526,7 +527,8 @@ struct AgentHibernationPlannerSwiftTests {
             containsUnrelatedProcess: false,
             panelProcessIDs: [],
             processIDs: [],
-            processIdentities: [:]
+            processIdentities: [:],
+            processLiveness: .unknown
         )
 
         #expect(controller.postSnapshotLifecycle(for: record, index: index) == .running)
