@@ -1575,6 +1575,17 @@ _cmux_watcher_parent_identity_valid() {
     (( ${#identity} >= 10 && ${#identity} <= 11 ))
 }
 
+_cmux_watcher_parent_state_valid() {
+    local pid="${1:-}" state
+    state="$(LC_ALL=C /bin/ps -o state= -p "$pid" 2>/dev/null)" || return 1
+    state="${state#"${state%%[![:space:]]*}"}"
+    state="${state%%[[:space:]]*}"
+    case "$state" in
+        ''|Z*) return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
 _cmux_watcher_parent_alive() {
     # $1 = parent PID, $2 = numeric start time recorded at watcher spawn. A
     # mismatch means the PID was recycled; a failed /bin/ps counts as
@@ -1583,6 +1594,7 @@ _cmux_watcher_parent_alive() {
     local pid="${1:-}" expected="${2:-}" actual
     _cmux_watcher_parent_identity_valid "$pid" "$expected" || return 1
     kill -0 "$pid" >/dev/null 2>&1 || return 1
+    _cmux_watcher_parent_state_valid "$pid" || return 1
     actual="$(_cmux_watcher_parent_start_time "$pid")" || return 1
     [[ "$actual" == "$expected" ]]
 }
