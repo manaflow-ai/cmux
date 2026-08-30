@@ -300,13 +300,16 @@ final class MainWindowFocusController {
            responderView.window === window,
            let mode = rightSidebarModeOwning(responder) {
             let isFallbackSidebarHost = rightSidebarHost.map { responder === $0 } ?? false
-            guard canAcceptRightSidebarResponderFocus(
+            if canAcceptRightSidebarResponderFocus(
                 mode: mode,
                 isFallbackSidebarHost: isFallbackSidebarHost
-            ) else {
-                return nil
+            ) {
+                return mode
             }
-            return mode
+            // A live sidebar responder still owns this window while a mode
+            // switch is pending; keep the active/requested mode visible until
+            // the destination endpoint reports focus.
+            return activeMode ?? mode
         }
         if activeMode != nil, responder is NSWindow {
             return activeMode
