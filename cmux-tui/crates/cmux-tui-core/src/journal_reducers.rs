@@ -27,8 +27,9 @@ use crate::{AgentSource, AgentState, JournalSubject};
 
 pub(crate) const AGENT_ROSTER_REDUCER_ID: &str = "agent_roster";
 /// Bump to discard persisted snapshots and re-fold from the journal head.
-/// Version 2 added the agent adapter id to roster entries.
-pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 2;
+/// Version 2 added the agent adapter id to roster entries. Version 3 retains
+/// ended hook fences after their live roster entries are removed.
+pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 3;
 
 /// The adapter id and native event the socket report path uses for its echo
 /// journal events. The echo carries the explicit state in `normalized`, so
@@ -117,6 +118,13 @@ impl<'a> RosterEvent<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct RosterFence {
+    session_id: String,
+    sequence: u64,
+    ended: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct RosterEntry {
     pub(crate) state: String,
     pub(crate) source: String,
@@ -156,6 +164,11 @@ pub(crate) enum RosterDelta {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub(crate) struct AgentRoster {
     pub(crate) entries: HashMap<String, RosterEntry>,
+    /// Hook generation watermarks remain after an ended session leaves the
+    /// live roster. Socket echoes cannot recreate an ended entry, and delayed
+    /// events from an old named session cannot cross into a newer lifecycle.
+    #[serde(default)]
+    hook_fences: HashMap<String, RosterFence>,
     /// Terminals removed from the resource tree remain fenced in the durable
     /// reducer. The value is the highest committed journal cursor observed at
     /// retirement, so delayed records from that terminal cannot recreate it.
@@ -172,37 +185,83 @@ impl AgentRoster {
             return Vec::new();
         }
         let Some(terminal_id) = event.terminal_id() else { return Vec::new() };
+        let socket_echo = event.adapter_id() == Some(SOCKET_REPORT_ADAPTER);
         if let Some(retired_at) = self.retired_terminals.get(terminal_id).copied() {
             // A terminal can only become live again through a newer explicit
             // session start. All other delayed records remain fenced forever.
-            if event.kind != "agent.session.started" || event.sequence <= retired_at {
+            if socket_echo || event.kind != "agent.session.started" || event.sequence <= retired_at
+            {
                 return Vec::new();
             }
             self.retired_terminals.remove(terminal_id);
+            self.hook_fences.remove(terminal_id);
         }
-        let (state, source, session, agent, updated_at_ms) =
-            if event.adapter_id() == Some(SOCKET_REPORT_ADAPTER) {
-                // Socket echo: explicit state and timestamp carried in the
-                // payload, so the roster mirrors the direct projection
-                // commit exactly. The reporter does not know the agent type.
-                let Some(state) = event.normalized("state").and_then(agent_state_from_str) else {
-                    return Vec::new();
-                };
-                // The socket adapter is authoritative about origin. Do not
-                // trust the user-controlled normalized source field, or it
-                // could bypass hook-over-socket precedence.
-                let source = AgentSource::Socket;
-                let updated_at_ms = event
-                    .normalized("updated_at_ms")
-                    .and_then(|value| value.parse::<u64>().ok())
-                    .unwrap_or(event.committed_at_ms);
-                let session = event.normalized("source_session").map(str::to_string);
-                (state, source, session, None, updated_at_ms)
-            } else {
-                let Some(state) = state_for_hook_kind(event.kind) else { return Vec::new() };
-                let agent = event.adapter_id().map(str::to_string);
-                (state, AgentSource::Hook, None, agent, event.committed_at_ms)
+        let (state, source, session, agent, updated_at_ms) = if socket_echo {
+            // Socket echo: explicit state and timestamp carried in the
+            // payload, so the roster mirrors the direct projection
+            // commit exactly. The reporter does not know the agent type.
+            let Some(state) = event.normalized("state").and_then(agent_state_from_str) else {
+                return Vec::new();
             };
+            // The socket adapter is authoritative about origin. Do not
+            // trust the user-controlled normalized source field, or it
+            // could bypass hook-over-socket precedence.
+            let source = AgentSource::Socket;
+            let updated_at_ms = event
+                .normalized("updated_at_ms")
+                .and_then(|value| value.parse::<u64>().ok())
+                .unwrap_or(event.committed_at_ms);
+            let session = event.normalized("source_session").map(str::to_string);
+            if self.hook_fences.get(terminal_id).is_some_and(|fence| fence.ended) {
+                return Vec::new();
+            }
+            (state, source, session, None, updated_at_ms)
+        } else {
+            let Some(state) = state_for_hook_kind(event.kind) else { return Vec::new() };
+            let agent = event.adapter_id().map(str::to_string);
+            let explicit_session = event
+                .normalized("agent_session_id")
+                .filter(|session| !session.is_empty())
+                .map(str::to_owned);
+            let is_session_start = event.kind == "agent.session.started";
+            let previous_fence = self.hook_fences.get(terminal_id).cloned();
+            // Once an adapter supplies a native identity, a later
+            // session-less event is ambiguous and cannot attach to that
+            // generation.
+            if explicit_session.is_none()
+                && previous_fence
+                    .as_ref()
+                    .is_some_and(|fence| !fence.session_id.starts_with("legacy:"))
+            {
+                return Vec::new();
+            }
+            let session_id = explicit_session
+                .or_else(|| {
+                    (!is_session_start)
+                        .then(|| previous_fence.as_ref().filter(|fence| !fence.ended))
+                        .flatten()
+                        .map(|fence| fence.session_id.clone())
+                })
+                .unwrap_or_else(|| format!("legacy:{terminal_id}:{}", event.sequence));
+            if let Some(fence) = previous_fence.as_ref() {
+                if fence.session_id == session_id {
+                    if fence.ended || event.sequence <= fence.sequence {
+                        return Vec::new();
+                    }
+                } else if !is_session_start || !fence.ended || event.sequence <= fence.sequence {
+                    return Vec::new();
+                }
+            }
+            self.hook_fences.insert(
+                terminal_id.to_string(),
+                RosterFence {
+                    session_id,
+                    sequence: event.sequence,
+                    ended: state == AgentState::Done,
+                },
+            );
+            (state, AgentSource::Hook, None, agent, event.committed_at_ms)
+        };
         if source == AgentSource::Socket
             && self
                 .entries
@@ -271,6 +330,10 @@ impl AgentRoster {
 
     pub(crate) fn is_retired(&self, terminal_id: &str) -> bool {
         self.retired_terminals.contains_key(terminal_id)
+    }
+
+    pub(crate) fn has_ended_hook_fence(&self, terminal_id: &str) -> bool {
+        self.hook_fences.get(terminal_id).is_some_and(|fence| fence.ended)
     }
 
     pub(crate) fn snapshot(&self) -> Value {
@@ -379,6 +442,62 @@ mod tests {
         );
         assert_eq!(roster.entries["term_a"].state, "working");
         assert_eq!(roster.entries["term_a"].source, "hook");
+    }
+
+    #[test]
+    fn ended_hook_fence_survives_snapshot_and_rejects_fresh_socket_echoes() {
+        let subjects = terminal_subject("term_a");
+        let old_hook_payload = json!({
+            "adapter": {"id": "claude", "version": 1},
+            "normalized": {"agent_session_id": "old-hook-session"}
+        });
+        let new_hook_payload = json!({
+            "adapter": {"id": "claude", "version": 1},
+            "normalized": {"agent_session_id": "new-hook-session"}
+        });
+        let socket_payload = json!({
+            "adapter": {"id": SOCKET_REPORT_ADAPTER, "version": 1},
+            "normalized": {
+                "state": "working",
+                "source": "socket",
+                "source_session": "fresh-socket-session"
+            }
+        });
+        let mut roster = AgentRoster::default();
+
+        roster.apply(&hook_event(1, "agent.session.started", &subjects, &old_hook_payload));
+        roster.apply(&hook_event(5, "agent.session.ended", &subjects, &old_hook_payload));
+        assert!(roster.has_ended_hook_fence("term_a"));
+        assert!(
+            roster
+                .apply(&hook_event(6, "agent.state.changed", &subjects, &socket_payload))
+                .is_empty()
+        );
+
+        let mut restored = AgentRoster::restore(&roster.snapshot().to_string()).unwrap();
+        assert!(restored.has_ended_hook_fence("term_a"));
+        assert!(
+            restored
+                .apply(&hook_event(7, "agent.state.changed", &subjects, &socket_payload))
+                .is_empty()
+        );
+        assert!(
+            restored
+                .apply(&hook_event(5, "agent.session.started", &subjects, &new_hook_payload))
+                .is_empty()
+        );
+        assert!(restored.has_ended_hook_fence("term_a"));
+
+        let deltas =
+            restored.apply(&hook_event(6, "agent.session.started", &subjects, &new_hook_payload));
+        assert_eq!(deltas.len(), 1);
+        assert!(!restored.has_ended_hook_fence("term_a"));
+        assert!(
+            restored
+                .apply(&hook_event(7, "agent.turn.started", &subjects, &old_hook_payload))
+                .is_empty()
+        );
+        assert_eq!(restored.entries["term_a"].state, "idle");
     }
 
     #[test]

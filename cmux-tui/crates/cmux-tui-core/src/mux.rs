@@ -9497,22 +9497,19 @@ impl Mux {
                 (surface, (*terminal_id).clone())
             }
         };
-        if self.agent_roster.lock().unwrap().roster.is_retired(terminal_id.as_str()) {
+        let roster = self.agent_roster.lock().unwrap();
+        if roster.roster.is_retired(terminal_id.as_str()) {
             anyhow::bail!("terminal {terminal_id} has been retired");
         }
+        let durable_hook_end = roster.roster.has_ended_hook_fence(terminal_id.as_str());
+        drop(roster);
         let mut direct_hook_state = None;
         if source != AgentSource::Hook {
             let ended_fence = sequence_guard
                 .as_ref()
                 .and_then(|guard| guard.get(&terminal_id))
                 .filter(|fence| fence.ended);
-            let fresh_session = source_session.as_deref().filter(|session| {
-                !session.starts_with("cmux-hook-sequence:")
-                    && !session.starts_with("cmux-hook-ended:")
-            });
-            if ended_fence.is_some_and(|fence| {
-                fresh_session.is_none_or(|session| session == fence.session_id)
-            }) {
+            if durable_hook_end || ended_fence.is_some() {
                 anyhow::bail!("agent_session_ended");
             }
         } else if let Some(fence) = sequence_guard
@@ -23468,55 +23465,75 @@ mod tests {
     }
 
     #[test]
-    fn new_non_hook_session_can_start_after_hook_session_end() {
+    fn fresh_socket_session_remains_fenced_until_explicit_hook_start() {
         let root = std::env::temp_dir()
             .join(format!("cmux-agent-hook-restart-{}", crate::workspace_registry::new_uuid_v4()));
         let mux =
             Mux::open_persistent("agent-hook-restart", SurfaceOptions::default(), &root).unwrap();
         let surface = mux.new_workspace(None, None).unwrap();
         let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
-        let hook = |event: &str| {
+        let hook = |event: &str, session_id: &str| {
             crate::agent_hooks::agent_hook_journal_ingress(
                 "claude",
                 event,
                 Some(&terminal_id.to_string()),
-                serde_json::json!({"session_id":"old-hook"}),
+                serde_json::json!({"session_id":session_id}),
             )
             .unwrap()
         };
-        mux.apply_agent_hook_record(&hook("SessionEnd"), 1).unwrap();
+        mux.append_journal_ingress(&hook("SessionEnd", "old-hook"), "test", "ended-hook").unwrap();
 
-        mux.report_agent(
-            surface.id,
-            AgentState::Working,
-            AgentSource::Socket,
-            Some("new-socket-session".into()),
-        )
-        .unwrap();
-        let record = &mux.list_agents(Some(surface.id), None)[0];
-        assert_eq!(record.source, AgentSource::Socket);
-        assert_eq!(record.session.as_deref(), Some("new-socket-session"));
-
-        let public = crate::resource_api::public_session_snapshot(&mux).unwrap();
-        assert_eq!(public["agents"][0]["source_session"], "new-socket-session");
-
-        // A late event from the ended hook session remains fenced.
-        mux.apply_agent_hook_record(&hook("UserPromptSubmit"), 2).unwrap();
-        let record = &mux.list_agents(Some(surface.id), None)[0];
-        assert_eq!(record.source, AgentSource::Socket);
-        assert_eq!(record.session.as_deref(), Some("new-socket-session"));
+        assert!(
+            mux.report_agent(
+                surface.id,
+                AgentState::Working,
+                AgentSource::Socket,
+                Some("new-socket-session".into()),
+            )
+            .is_err()
+        );
+        assert!(mux.list_agents(Some(surface.id), None).is_empty());
 
         mux.shutdown();
         drop(mux);
         let reopened =
             Mux::open_persistent("agent-hook-restart", SurfaceOptions::default(), &root).unwrap();
-        let reopened_record = &reopened.list_agents(Some(surface.id), None)[0];
-        assert_eq!(reopened_record.source, AgentSource::Socket);
-        assert_eq!(reopened_record.session.as_deref(), Some("new-socket-session"));
-        assert_eq!(
-            crate::resource_api::public_session_snapshot(&reopened).unwrap()["agents"][0]["source_session"],
-            "new-socket-session"
+        let reopened_surface = reopened.resource_surface_for_terminal(&terminal_id).unwrap();
+        assert!(
+            reopened
+                .report_agent(
+                    reopened_surface,
+                    AgentState::Working,
+                    AgentSource::Socket,
+                    Some("new-socket-session".into()),
+                )
+                .is_err()
         );
+        assert!(reopened.list_agents(Some(reopened_surface), None).is_empty());
+
+        reopened
+            .append_journal_ingress(&hook("SessionStart", "new-hook"), "test", "new-hook-start")
+            .unwrap();
+        assert!(
+            !reopened
+                .agent_roster
+                .lock()
+                .unwrap()
+                .roster
+                .has_ended_hook_fence(terminal_id.as_str())
+        );
+        assert!(
+            reopened
+                .report_agent(
+                    reopened_surface,
+                    AgentState::Working,
+                    AgentSource::Socket,
+                    Some("new-socket-session".into()),
+                )
+                .is_ok()
+        );
+        let reopened_record = &reopened.list_agents(Some(reopened_surface), None)[0];
+        assert_eq!(reopened_record.source, AgentSource::Hook);
         reopened.shutdown();
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -23535,7 +23552,8 @@ mod tests {
             )
             .unwrap()
         };
-        mux.apply_agent_hook_record(&hook("SessionEnd", "old"), 1).unwrap();
+        mux.append_journal_ingress(&hook("SessionEnd", "old"), "test", "direct-hook-session-end")
+            .unwrap();
         assert!(
             mux.report_agent(
                 surface.id,
