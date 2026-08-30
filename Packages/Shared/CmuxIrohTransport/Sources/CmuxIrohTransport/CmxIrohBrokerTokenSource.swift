@@ -3,8 +3,7 @@
 /// The only construction input is `credentialPair`, which returns both tokens
 /// from one capture and makes torn access/refresh pairs unrepresentable.
 public struct CmxIrohBrokerTokenSource: Sendable {
-    public let accessToken: @Sendable () async throws -> String?
-    public let refreshToken: @Sendable () async throws -> String?
+    /// Captures both bearer credentials atomically for one request.
     public let credentialPair: @Sendable () async throws -> CmxIrohBrokerCredentials?
     /// Replaces a pair the broker just rejected. The broker request retries at
     /// most once with the returned pair.
@@ -20,8 +19,6 @@ public struct CmxIrohBrokerTokenSource: Sendable {
     ) {
         self.credentialPair = credentialPair
         self.recoveredCredentialPair = recoveredCredentialPair
-        self.accessToken = { try await credentialPair()?.accessToken }
-        self.refreshToken = { try await credentialPair()?.refreshToken }
     }
 
     /// Builds a live token source pinned to one account.

@@ -99,7 +99,7 @@ final class MobileHostIrxRuntime {
         activationRetryFailureCount = 0
         lastBrokerFailure = nil
         setActivationState(.activating)
-        Self.journal.record("host-runtime", "activating", ["account": accountID])
+        Self.journal.record("host-runtime", "activating")
         activationTask = Task { @MainActor [weak self] in
             await self?.activate(accountID: accountID)
         }

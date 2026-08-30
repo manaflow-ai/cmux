@@ -450,6 +450,26 @@ struct MobileHostTransportRouteCompositionTests {
         #expect(snapshot.irohBrokerOperation == "register")
         #expect(snapshot.irohBrokerErrorCode == "unauthorized")
     }
+
+    @Test func routeCleanupPreservesIrxLifecycleState() {
+        let failure = IrxBrokerFailure(
+            operation: .discover,
+            error: CmxIrohBrokerTokenRecoveryError.authenticationRequired
+        )
+        MobileHostPublicStatusCache.update(
+            irxActivationState: .reauthenticationRequired,
+            failure: failure
+        )
+        defer {
+            MobileHostPublicStatusCache.update(irxActivationState: .inactive)
+        }
+
+        MobileHostPublicStatusCache.removeAll()
+
+        let status = MobileHostPublicStatusCache.irxActivationStatus()
+        #expect(status.state == .reauthenticationRequired)
+        #expect(status.failure == failure)
+    }
 }
 
 @Suite(.serialized)

@@ -114,7 +114,7 @@ public struct MobileSection: View {
                     // The Iroh endpoint hosts for every signed-in Mac even when
                     // the legacy pairing listener is toggled off, so diagnostics
                     // follow the live snapshot rather than the toggle alone.
-                    if iOSPairingHost.current || status.current?.isRunning == true || status.current?.irohStatus != .inactive {
+                    if iOSPairingHost.current || status.current?.isRunning == true || (status.current != nil && status.current?.irohStatus != .inactive) {
                         SettingsCardDivider()
                         diagnostics
                     }

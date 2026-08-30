@@ -271373,8 +271373,8 @@
     "settings.mobile.iroh.status.failed.subtitle": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "The endpoint stopped after a non-retryable broker error." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "再試行できないブローカーエラーの後、エンドポイントが停止しました。" } }
+        "en": { "stringUnit": { "state": "translated", "value": "This Mac's connection is unavailable. Check your account and try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "この Mac の接続を利用できません。アカウントを確認して、もう一度お試しください。" } }
       }
     },
     "settings.mobile.iroh.status.reauth": {
@@ -271387,29 +271387,22 @@
     "settings.mobile.iroh.status.subtitle": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Authenticated endpoint used by iPhone connections." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "iPhone 接続で使用する認証済みエンドポイントです。" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Connection status for this Mac on iPhone." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "iPhone でのこの Mac の接続状態です。" } }
       }
     },
     "settings.mobile.iroh.status.reauth.subtitle": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "The broker rejected this Mac's session. Sign in again to make it visible on iPhone." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ブローカーがこの Mac のセッションを拒否しました。iPhone に表示するには再度サインインしてください。" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Sign in again to make this Mac visible on iPhone." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "iPhone にこの Mac を表示するには再度サインインしてください。" } }
       }
     },
     "settings.mobile.iroh.status.retrying.subtitle": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "The %@ operation is temporarily unavailable; cmux will retry with backoff." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@ 操作は一時的に利用できません。cmux はバックオフして再試行します。" } }
-      }
-    },
-    "settings.mobile.iroh.status.retrying.subtitle.generic": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "The broker is temporarily unavailable; cmux will retry with backoff." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ブローカーは一時的に利用できません。cmux はバックオフして再試行します。" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Connection is temporarily unavailable; cmux will retry automatically." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "接続は一時的に利用できません。cmux は自動的に再試行します。" } }
       }
     },
     "settings.networking.status.reauthenticationRequired": {
@@ -271422,8 +271415,15 @@
     "settings.networking.status.reauthenticationRequired.detail": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "The broker rejected this Mac's session. Sign in again to restore iPhone connectivity." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ブローカーがこの Mac のセッションを拒否しました。iPhone 接続を復元するには再度サインインしてください。" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Sign in again to restore iPhone connectivity." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "iPhone 接続を復元するには再度サインインしてください。" } }
+      }
+    },
+    "settings.networking.relay.automaticOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Relay selection is managed automatically for this connection." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "この接続のリレー選択は自動的に管理されます。" } }
       }
     }
   },

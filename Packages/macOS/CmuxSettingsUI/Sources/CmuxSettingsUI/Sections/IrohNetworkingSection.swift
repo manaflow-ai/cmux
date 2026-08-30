@@ -36,8 +36,17 @@ public struct IrohNetworkingSection: View {
                 }
             }
             Group {
-                relayPolicyCard
-                customRelayCard
+                if model.snapshot.supportsRelayConfiguration {
+                    relayPolicyCard
+                    customRelayCard
+                } else {
+                    SettingsCard {
+                        SettingsCardNote(String(
+                            localized: "settings.networking.relay.automaticOnly",
+                            defaultValue: "Relay selection is managed automatically for this connection."
+                        ))
+                    }
+                }
                 privateNetworkCard
                 connectionCheckCard
             }

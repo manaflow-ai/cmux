@@ -21,12 +21,6 @@ extension MobileHostIrxRuntime: CmxIrohSettingsControlling {
             endpointOnline: online,
             homeRelayURL: homeRelay
         )
-        #if DEBUG
-        let debugMode: CmxIrohTransportVerificationMode? =
-            Self.forceRelayOnly ? .relayOnly : .automatic
-        #else
-        let debugMode: CmxIrohTransportVerificationMode? = nil
-        #endif
         let runtimeStatus: CmxIrohSettingsSnapshot.RuntimeStatus = switch activationState {
         case .inactive:
             .inactive
@@ -57,7 +51,8 @@ extension MobileHostIrxRuntime: CmxIrohSettingsControlling {
                 ? lastBrokerFailure?.errorCode
                 : nil,
             requiresReauthentication: activationState == .reauthenticationRequired,
-            debugTransportVerificationMode: debugMode
+            supportsRelayConfiguration: false,
+            debugTransportVerificationMode: nil
         )
     }
 
@@ -141,9 +136,7 @@ extension MobileHostIrxRuntime: CmxIrohSettingsControlling {
             publishIrxSettingsUpdate()
             return
         }
-        if (try? await broker.discover(maximumAge: 0)) != nil {
-            hadLiveDiscovery = true
-        }
+        hadLiveDiscovery = (try? await broker.discover(maximumAge: 0)) != nil
         publishIrxSettingsUpdate()
     }
 

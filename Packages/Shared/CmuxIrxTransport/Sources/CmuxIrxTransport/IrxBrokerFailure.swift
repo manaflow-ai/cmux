@@ -87,7 +87,7 @@ public struct IrxBrokerFailure: Error, Codable, Equatable, Sendable {
         default:
             kind = .invalid
             statusCode = nil
-            errorCode = String(reflecting: type(of: error))
+            errorCode = "unclassified"
             retryAfterSeconds = nil
         }
     }
@@ -150,6 +150,9 @@ public struct IrxBrokerFailure: Error, Codable, Equatable, Sendable {
     ) -> IrxBrokerFailureKind {
         switch statusCode {
         case 401:
+            // A final 401 has already exhausted the shared client's one
+            // account refresh attempt. Activation must fail closed so the
+            // host cannot retry the same rejected session forever.
             .authenticationRequired
         case 403 where code == "binding_request_proof_required"
             || code == "invalid_binding_request_proof":

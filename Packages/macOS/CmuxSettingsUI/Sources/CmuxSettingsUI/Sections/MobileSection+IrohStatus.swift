@@ -40,31 +40,22 @@ extension MobileSection {
         case .reauthenticationRequired:
             return String(
                 localized: "settings.mobile.iroh.status.reauth.subtitle",
-                defaultValue: "The broker rejected this Mac's session. Sign in again to make it visible on iPhone."
+                defaultValue: "Sign in again to make this Mac visible on iPhone."
             )
         case .retrying:
-            if let operation = snapshot.irohBrokerOperation {
-                return String(
-                    format: String(
-                        localized: "settings.mobile.iroh.status.retrying.subtitle",
-                        defaultValue: "The %@ operation is temporarily unavailable; cmux will retry with backoff."
-                    ),
-                    operation
-                )
-            }
             return String(
-                localized: "settings.mobile.iroh.status.retrying.subtitle.generic",
-                defaultValue: "The broker is temporarily unavailable; cmux will retry with backoff."
+                localized: "settings.mobile.iroh.status.retrying.subtitle",
+                defaultValue: "Connection is temporarily unavailable; cmux will retry automatically."
             )
         case .failed:
             return String(
                 localized: "settings.mobile.iroh.status.failed.subtitle",
-                defaultValue: "The endpoint stopped after a non-retryable broker error."
+                defaultValue: "This Mac's connection is unavailable. Check your account and try again."
             )
         default:
             return String(
                 localized: "settings.mobile.iroh.status.subtitle",
-                defaultValue: "Authenticated endpoint used by iPhone connections."
+                defaultValue: "Connection status for this Mac on iPhone."
             )
         }
     }

@@ -68,6 +68,20 @@ struct CmxIrohSettingsSnapshotTests {
     }
 
     @Test
+    func unsupportedRuntimeCanAdvertiseAutomaticRelayManagement() {
+        let snapshot = CmxIrohSettingsSnapshot(
+            runtimeStatus: .active,
+            preference: .automatic,
+            managedRelays: [],
+            customRelays: [],
+            policySource: .server,
+            supportsRelayConfiguration: false
+        )
+
+        #expect(!snapshot.supportsRelayConfiguration)
+    }
+
+    @Test
     func activeRuntimeStatusPreservesOnlyRedactedPathLabels() {
         #expect(CmxIrohSettingsSnapshot.RuntimeStatus(
             activePath: .direct

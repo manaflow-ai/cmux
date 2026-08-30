@@ -67,7 +67,7 @@ public actor MobileIrxRuntimeComposition {
     public nonisolated let tag: String
     private let stateDirectory: URL
 
-    private weak var auth: AuthCoordinator?
+    weak var auth: AuthCoordinator?
     /// Identity donor (identity adoption): the legacy composition owns the
     /// Keychain identity, app-instance scope, and durable device ID.
     private weak var legacyComposition: MobileIrohRuntimeComposition?
@@ -256,11 +256,7 @@ public actor MobileIrxRuntimeComposition {
                 identityGeneration: adopted.material.generation
             ),
             identity: identity,
-            accessTokenPair: { [weak auth] in
-                guard let auth else { return nil }
-                let session = try await auth.authenticatedSessionSnapshot()
-                return (session.accessToken, session.refreshToken)
-            },
+            tokenSource: brokerTokenSource(accountID: session.accountID),
             journal: Self.journal
         )
         let supervisor = IrxEndpointSupervisor(

@@ -10,7 +10,7 @@ struct IrohNetworkingAttentionNote: View {
         if snapshot.requiresReauthentication {
             SettingsCardNote(String(
                 localized: "settings.networking.status.reauthenticationRequired.detail",
-                defaultValue: "The broker rejected this Mac's session. Sign in again to restore iPhone connectivity."
+                defaultValue: "Sign in again to restore iPhone connectivity."
             ))
         } else if !snapshot.staleRelayIDs.isEmpty || snapshot.failureDescription != nil {
             SettingsCardNote(String(

@@ -160,6 +160,35 @@ struct CmxIrohTrustBrokerClientAuthRecoveryTests {
     }
 
     @Test
+    func accountPinnedTransientRefreshFailureStaysRetryable() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(status: 401, body: #"{"error":"unauthorized"}"#),
+        ])
+        let client = try CmxIrohTrustBrokerClient(
+            baseURL: #require(URL(string: "https://cmux.example")),
+            tokenSource: .accountPinned(
+                to: "account-a",
+                snapshot: {
+                    Self.accountSnapshot(
+                        accountID: "account-a",
+                        accessToken: "stale-access"
+                    )
+                },
+                forceRefresh: {
+                    throw CmxIrohBrokerTokenRecoveryError.transient
+                }
+            ),
+            clientNamespace: "legacy",
+            transport: transport
+        )
+
+        await #expect(throws: CmxIrohTrustBrokerClientError.connectivity) {
+            _ = try await client.issueChallenge(try Self.challengeRequest)
+        }
+        #expect(await transport.requests().count == 1)
+    }
+
+    @Test
     func forbiddenRejectionDoesNotInvokeRecovery() async throws {
         let transport = RecordingBrokerTransport(responses: [
             .json(status: 403, body: #"{"error":"forbidden"}"#),
