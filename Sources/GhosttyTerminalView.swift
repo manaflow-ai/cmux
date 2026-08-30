@@ -4066,13 +4066,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                       let terminalSurface = self.terminalSurface,
                       GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(
                           id: terminalSurface.id
-                      ),
-                      let currentSurface = GhosttyApp.terminalSurfaceRegistry.surface(
-                          id: terminalSurface.id
                       ) else { return }
                 NotificationCenter.default.post(
                     name: .terminalSelectionDidChange,
-                    object: currentSurface
+                    object: terminalSurface
                 )
             }
         )

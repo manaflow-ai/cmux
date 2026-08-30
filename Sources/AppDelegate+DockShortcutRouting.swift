@@ -126,17 +126,12 @@ extension KeyboardShortcutSettings.Action {
 /// that window's own Dock (`RightSidebarPanelView` renders the per-window store).
 extension AppDelegate {
     /// Returns the reconciled sidebar mode for shortcut context evaluation.
-    /// Dock mode is exposed only once its visible per-window Dock owns focus,
-    /// keeping `sidebarMode`, `sidebarFocus`, and `dockFocus` coherent.
+    /// Pending intent remains visible to right-sidebar-scoped shortcuts; the
+    /// separate `dockFocus` key is the delivered/executable Dock gate.
     func focusedSidebarModeForShortcutContext(for window: NSWindow?) -> RightSidebarMode? {
         guard let coordinator = keyboardFocusCoordinator(for: window),
               let mode = coordinator.resolvedRightSidebarModeForShortcut(in: window) else {
             return nil
-        }
-        if mode == .dock {
-            guard coordinator.focusedRightSidebarMode == .dock else {
-                return nil
-            }
         }
         return mode
     }
@@ -195,10 +190,8 @@ extension AppDelegate {
     private func dockStoreForShortcut(
         context: MainWindowContext
     ) -> DockSplitStore? {
-        if let sidebarState = context.fileExplorerState,
-           !sidebarState.isVisible {
-            return nil
-        }
+        guard let sidebarState = context.fileExplorerState,
+              sidebarState.isVisible else { return nil }
         guard let dock = existingWindowDock(forWindowId: context.windowId),
               !dock.isRetired,
               dock.isVisibleInUI,
