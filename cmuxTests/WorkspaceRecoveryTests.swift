@@ -419,10 +419,22 @@ struct WorkspaceRecoveryTests {
                 WorkspaceCustomization(customTitle: .cleared, customColor: .absent)
         )
 
-        // Simulate a later session where auto-naming derived a title for the
-        // same workspace; the snapshot persists it with `.auto` provenance.
+        // Simulate a later auto-naming pass. The journal must advance past the
+        // clear so the title remains recoverable even if autosave is stale.
+        #expect(sourceManager.setCustomTitle(
+            tabId: sourceWorkspace.id,
+            title: "Auto Derived Title",
+            source: .auto
+        ))
+        #expect(
+            store.customization(for: sourceWorkspace.stableId) ==
+                WorkspaceCustomization(customTitle: .autoValue("Auto Derived Title"), customColor: .absent)
+        )
+
+        // Restore an older snapshot to prove the journal, rather than snapshot
+        // timing, supplies the latest auto title.
         var snapshot = sourceWorkspace.sessionSnapshot(includeScrollback: false)
-        snapshot.customTitle = "Auto Derived Title"
+        snapshot.customTitle = "Stale Auto Title"
         snapshot.customTitleSource = .auto
 
         let restoredManager = TabManager(
@@ -436,6 +448,43 @@ struct WorkspaceRecoveryTests {
         let restoredWorkspace = try #require(restoredManager.selectedWorkspace)
         #expect(restoredWorkspace.customTitle == "Auto Derived Title")
         #expect(restoredWorkspace.effectiveCustomTitleSource == .auto)
+    }
+
+    @Test
+    func clearedJournalRemovesStaleAutoTitleBeforeAutosave() throws {
+        let fixture = try makeCustomizationStore()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let store = fixture.store
+
+        let sourceManager = TabManager(
+            initialWorkingDirectory: "/tmp/cleared-stale-auto",
+            autoWelcomeIfNeeded: false,
+            workspaceCustomizationStore: store
+        )
+        let sourceWorkspace = try #require(sourceManager.selectedWorkspace)
+        #expect(sourceManager.setCustomTitle(
+            tabId: sourceWorkspace.id,
+            title: "Auto Before Clear",
+            source: .auto
+        ))
+        let staleSnapshot = sourceWorkspace.sessionSnapshot(includeScrollback: false)
+        sourceManager.clearCustomTitle(tabId: sourceWorkspace.id)
+        #expect(
+            store.customization(for: sourceWorkspace.stableId) ==
+                WorkspaceCustomization(customTitle: .cleared, customColor: .absent)
+        )
+
+        let restoredManager = TabManager(
+            autoWelcomeIfNeeded: false,
+            workspaceCustomizationStore: store
+        )
+        restoredManager.restoreSessionSnapshot(SessionTabManagerSnapshot(
+            selectedWorkspaceIndex: 0,
+            workspaces: [staleSnapshot]
+        ))
+        let restoredWorkspace = try #require(restoredManager.selectedWorkspace)
+        #expect(restoredWorkspace.customTitle == nil)
+        #expect(restoredWorkspace.effectiveCustomTitleSource == nil)
     }
 
     @Test
