@@ -100,18 +100,19 @@ use crate::ui::{
 };
 
 const DEFERRED_INPUT_CAPACITY: usize = 512;
+const CROSSTERM_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 fn read_crossterm_event(
     timeout: Option<Duration>,
     mut poll: impl FnMut(Duration) -> std::io::Result<bool>,
     mut read: impl FnMut() -> std::io::Result<Event>,
 ) -> std::io::Result<Option<Event>> {
-    if let Some(timeout) = timeout.map(|timeout| timeout.min(Duration::from_millis(100)))
-        && !poll(timeout)?
-    {
-        return Ok(None);
-    }
-    if timeout.is_none() && !poll(Duration::from_millis(100))? {
+    // Keep the input thread interruptible even when no graphics response is
+    // pending. A single normalized poll avoids separate timed and untimed
+    // branches drifting apart as the reader evolves.
+    let poll_timeout =
+        timeout.map_or(CROSSTERM_POLL_INTERVAL, |timeout| timeout.min(CROSSTERM_POLL_INTERVAL));
+    if !poll(poll_timeout)? {
         return Ok(None);
     }
     read().map(Some)
@@ -23848,6 +23849,24 @@ mod tests {
             poll_durations,
             vec![Duration::from_millis(100), Duration::from_millis(10), Duration::from_millis(10),]
         );
+    }
+
+    #[test]
+    fn crossterm_reader_propagates_poll_errors_without_reading() {
+        let mut read_calls = 0;
+        let error = std::io::Error::new(std::io::ErrorKind::Interrupted, "poll interrupted");
+
+        let result = super::read_crossterm_event(
+            None,
+            |_| Err(std::io::Error::new(error.kind(), error.to_string())),
+            || {
+                read_calls += 1;
+                Ok(Event::Resize(80, 24))
+            },
+        );
+
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::Interrupted);
+        assert_eq!(read_calls, 0);
     }
 
     use super::{
