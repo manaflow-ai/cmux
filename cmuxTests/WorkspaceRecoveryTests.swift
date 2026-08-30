@@ -531,6 +531,40 @@ struct WorkspaceRecoveryTests {
     }
 
     @Test
+    func automaticTitleJournalWritesCoalesceUntilFlush() throws {
+        let fixture = try makeCustomizationStore()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+
+        let manager = TabManager(
+            initialWorkingDirectory: "/tmp/coalesced-auto-title",
+            autoWelcomeIfNeeded: false,
+            workspaceCustomizationStore: fixture.store
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+        #expect(manager.setCustomTitle(tabId: workspace.id, title: "User Name"))
+        manager.clearCustomTitle(tabId: workspace.id)
+        let dataBeforeAutomaticUpdates = fixture.defaults.data(forKey: "test.customizations")
+
+        #expect(manager.setCustomTitle(
+            tabId: workspace.id,
+            title: "First Auto Title",
+            source: .auto
+        ))
+        #expect(manager.setCustomTitle(
+            tabId: workspace.id,
+            title: "Latest Auto Title",
+            source: .auto
+        ))
+        #expect(fixture.defaults.data(forKey: "test.customizations") == dataBeforeAutomaticUpdates)
+
+        manager.flushPendingWorkspaceCustomizationWrites()
+        #expect(
+            fixture.store.customization(for: workspace.stableId)?.customTitle ==
+                .autoValue("Latest Auto Title")
+        )
+    }
+
+    @Test
     func autoTitleRecoveryPreservesIndependentColor() throws {
         let fixture = try makeCustomizationStore()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
