@@ -64,7 +64,7 @@ struct FileExplorerNativeDragOwnershipTests {
                 willBeginAt: .zero,
                 forRowIndexes: IndexSet(integer: 0)
             )
-            #expect(activeContainer.searchResultsView.activeNativeDragOwner === coordinator)
+            #expect(activeContainer.searchResultsView.activeNativeDragOwner === activeContainer)
             #expect(activeContainer.searchResultsView.activeNativeDragSession === session)
 
             // This is the SwiftUI representable's dismantle boundary. The

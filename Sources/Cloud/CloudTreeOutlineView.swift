@@ -108,6 +108,16 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             SurfaceResourceDragRegistry.shared.discard(id: pending.dragID)
         }
 
+        private func discardAllPendingDrags() {
+            let pending = pendingDrags.values
+            pendingDrags.removeAll(keepingCapacity: false)
+            dragWriterOwnership.removeAll()
+            latestPendingDragWriter = nil
+            for pending in pending {
+                discardPendingDrag(pending)
+            }
+        }
+
         private func pendingDragWriterDidDeallocate(tokenID: UUID) {
             guard let pending = pendingDrags.removeValue(forKey: tokenID) else { return }
             if latestPendingDragWriter?.provisionalToken.id == tokenID {
@@ -121,14 +131,18 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             if activeDrag == nil {
                 outlineView?.activeNativeDragOwner = nil
                 outlineView?.activeNativeDragSession = nil
+                setDragging(false)
             }
         }
 
-        private func reclaimSupersededNativeDragIfNeeded() {
+        private func reclaimSupersededNativeDragIfNeeded(
+            keepPresentationFrozen: Bool = false
+        ) {
             guard let activeDrag else {
                 // A stale `isDragging` bit without a registration can only be
-                // presentation residue; a new writer request is its boundary.
-                if isDragging { setDragging(false) }
+                // presentation residue. Keep the tree frozen while AppKit is
+                // still deciding whether the new writer becomes a session;
+                // its deallocation path will release that presentation.
                 return
             }
             self.activeDrag = nil
@@ -141,7 +155,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 outlineView.activeNativeDragOwner = nil
                 outlineView.activeNativeDragSession = nil
             }
-            setDragging(false)
+            if !keepPresentationFrozen {
+                setDragging(false)
+            }
         }
 
         // MARK: Snapshot application
@@ -609,7 +625,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             // AppKit suppressed the prior source's `endedAt`, retire only that
             // superseded registration before publishing the new capability.
             if activeDrag != nil || isDragging {
-                reclaimSupersededNativeDragIfNeeded()
+                reclaimSupersededNativeDragIfNeeded(keepPresentationFrozen: true)
             }
             let dragID = SurfaceResourceDragRegistry.shared.register(group)
             guard let registration = SurfaceResourceDragPayload(group: group, leadKind: lead.kind, dragID: dragID)
@@ -655,7 +671,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 // A newer begin is a native boundary even when the older
                 // outline omitted `endedAt`; retire the older registration
                 // before promoting this writer.
-                reclaimSupersededNativeDragIfNeeded()
+                reclaimSupersededNativeDragIfNeeded(keepPresentationFrozen: true)
             }
             let pendingToken: UUID? = {
                 if let writer = latestPendingDragWriter,
@@ -666,19 +682,24 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }()
             guard let pendingToken,
                   let pending = pendingDrags.removeValue(forKey: pendingToken) else {
+                // Even if a bookkeeping token was released before this
+                // callback, AppKit has already started a native drag. Freeze
+                // the outline for its terminal callback so catalog updates
+                // cannot reload rows under the live session.
+                if let outlineView = outlineView as? CloudTreeNSOutlineView {
+                    outlineView.activeNativeDragOwner = self
+                    outlineView.activeNativeDragSession = session
+                }
+                activeDragSequenceNumber = session.draggingSequenceNumber
+                setDragging(true)
                 return
             }
             // Cloud rows are single-selection sources, so any additional
             // provisional writers belong to the same pre-session query and
             // must be revoked rather than left in the capability registries.
-            let abandonedPending = pendingDrags.values
-            pendingDrags.removeAll(keepingCapacity: false)
-            for pending in abandonedPending {
-                discardPendingDrag(pending)
-            }
-            dragWriterOwnership.remove(id: pendingToken)
-            dragWriterOwnership.removeAll()
-            latestPendingDragWriter = nil
+            discardAllPendingDrags()
+            // The promoted registration was removed with the pending map;
+            // retain it as the active session's sole capability.
             activeDrag = ActiveDrag(
                 id: pending.dragID,
                 registration: pending.registration,
@@ -715,7 +736,13 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 activeDragSequenceNumber = nil
                 setDragging(false)
             }
-            guard let activeDrag else { return }
+            guard let activeDrag else {
+                // A native callback can still arrive after the provisional
+                // lookup was pruned. It remains a terminal boundary for any
+                // registrations that were waiting on that writer.
+                discardAllPendingDrags()
+                return
+            }
 #if DEBUG
             cmuxDebugLog("surfaces.drag.end drag=\(activeDrag.id.uuidString.prefix(5)) operation=\(operation.rawValue)")
 #endif

@@ -1653,7 +1653,9 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
             searchResultsView.activeNativeDragOwner = nil
             searchResultsView.activeNativeDragSession = nil
         }
-        searchResultsView.activeNativeDragOwner = coordinator
+        // The search table's delegate/data source is this container. Keep that
+        // exact object alive until the matching native terminal callback.
+        searchResultsView.activeNativeDragOwner = self
         searchResultsView.activeNativeDragSession = session
     }
 

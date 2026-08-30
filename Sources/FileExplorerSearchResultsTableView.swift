@@ -2,7 +2,8 @@ import AppKit
 
 final class FileExplorerSearchResultsTableView: NSTableView {
     var fileExplorerPanelPlacement: FileExplorerPanelPlacement = .rightSidebar
-    /// Retains the table delegate until AppKit reports native drag completion.
+    /// Retains the table delegate until AppKit reports completion or a newer
+    /// native begin proves that an older session's callback was suppressed.
     var activeNativeDragOwner: AnyObject?
     var activeNativeDragSession: NSDraggingSession?
     var onCancel: (() -> Void)?

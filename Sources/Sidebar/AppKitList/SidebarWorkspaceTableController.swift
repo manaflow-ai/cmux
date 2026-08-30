@@ -1353,6 +1353,12 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         activeWorkspaceDragTableView = nil
 
         let abandonedContainer = activeWorkspaceDragContainerView
+        let deferredContainer = deferredProvisionalCellDetachContainer
+        let deferredCellDetachActions: [@MainActor () -> Void] = {
+            guard let container = deferredProvisionalCellDetachContainer else { return [] }
+            deferredProvisionalCellDetachContainer = nil
+            return detachLoadedCells(in: container)
+        }()
         if let retainedContainer = abandonedContainer {
             clearDropViewActions(in: retainedContainer)
             detachController(from: retainedContainer.tableView)
@@ -1362,15 +1368,16 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         }
         workspaceDragSourceCompletionReceived = false
         clearPendingWorkspaceDragWriters()
-        deferredProvisionalCellDetachContainer = nil
 
-        guard containerView == nil else { return }
-        let postUpdateActions: [@MainActor () -> Void]
-        if let abandonedContainer {
-            postUpdateActions = detachLoadedCells(in: abandonedContainer)
-        } else {
-            postUpdateActions = detachLoadedCells()
+        guard containerView == nil else {
+            mutationScheduler.stagePostUpdateActions(deferredCellDetachActions)
+            return
         }
+        let postUpdateActions: [@MainActor () -> Void] = {
+            guard let abandonedContainer else { return deferredCellDetachActions }
+            guard deferredContainer !== abandonedContainer else { return deferredCellDetachActions }
+            return deferredCellDetachActions + detachLoadedCells(in: abandonedContainer)
+        }()
         rows.removeAll(keepingCapacity: false)
         workspaceIds.removeAll(keepingCapacity: false)
         selectedScrollTargetWorkspaceId = nil
