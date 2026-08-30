@@ -113,10 +113,18 @@ extension MobileHostIrxRuntime {
                 a: DiagnosticTransportKind.iroh.rawValue,
                 b: failure.requiresReauthentication
                     ? DiagnosticFailureKind.authorizationFailed.rawValue
-                    : DiagnosticFailureKind.offline.rawValue
+                    : (failure.kind == .transient
+                        ? DiagnosticFailureKind.offline.rawValue
+                        : DiagnosticFailureKind.policyUnavailable.rawValue)
             )
         )
-        if failure.requiresReauthentication {
+        let decision = activationRetryPolicy.decision(
+            for: failure,
+            failureCount: activationRetryFailureCount,
+            jitterUnitInterval: 0
+        )
+        switch decision {
+        case .reauthenticationRequired:
             activationRetryTask?.cancel()
             activationRetryTask = nil
             setActivationState(.reauthenticationRequired, failure: failure)
@@ -124,8 +132,16 @@ extension MobileHostIrxRuntime {
                 .reauthenticationRequired.rawValue
             Self.journal.record("host-runtime", "reauthentication-required", attributes)
             await cleanupActivationResources()
-        } else {
+        case .retry:
             setActivationState(.retrying, failure: failure)
+            activationRetryFailureCount = min(activationRetryFailureCount + 1, 20)
+        case .stopped:
+            activationRetryTask?.cancel()
+            activationRetryTask = nil
+            setActivationState(.failed, failure: failure)
+            attributes["state"] = IrxHostActivationState.failed.rawValue
+            Self.journal.record("host-runtime", "activation-stopped", attributes)
+            await cleanupActivationResources()
         }
     }
 

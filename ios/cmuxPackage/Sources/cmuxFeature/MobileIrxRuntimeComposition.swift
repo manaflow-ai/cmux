@@ -71,20 +71,23 @@ public actor MobileIrxRuntimeComposition {
     /// Identity donor (identity adoption): the legacy composition owns the
     /// Keychain identity, app-instance scope, and durable device ID.
     private weak var legacyComposition: MobileIrohRuntimeComposition?
-    private var broker: IrxBrokerService?
-    private var endpointSupervisor: IrxEndpointSupervisor?
-    private var autopilot: IrxRelayCredentialAutopilot?
-    private var identity: IrxIdentity?
-    private var provisioningTask: Task<Void, Never>?
-    private var provisionInFlight: Task<IrxBrokerService, any Error>?
+    // Internal for the lifecycle extension, which is the sole additional
+    // owner of sign-out teardown for this actor.
+    var broker: IrxBrokerService?
+    var endpointSupervisor: IrxEndpointSupervisor?
+    var autopilot: IrxRelayCredentialAutopilot?
+    var identity: IrxIdentity?
+    var provisionedAccountID: String?
+    var provisioningTask: Task<Void, Never>?
+    var provisionInFlight: Task<IrxBrokerService, any Error>?
     /// One reconnect owner per Mac endpoint (contract: the single dialer).
-    private var enginesByPeer: [String: IrxPeerEngine] = [:]
+    var enginesByPeer: [String: IrxPeerEngine] = [:]
     /// Route material per peer, refreshed on every transport request.
-    private var routesByPeer: [String: (relayURL: String?, directAddresses: [String])] = [:]
+    var routesByPeer: [String: (relayURL: String?, directAddresses: [String])] = [:]
     /// The control lane is single-consumer: one claim per admitted session.
-    private var claimedControlSessions: Set<String> = []
+    var claimedControlSessions: Set<String> = []
     /// The events uni-lane accept is single-consumer per session too.
-    private var claimedEventSessions: Set<String> = []
+    var claimedEventSessions: Set<String> = []
 
     @MainActor
     public init(
@@ -193,7 +196,7 @@ public actor MobileIrxRuntimeComposition {
         guard let session = try? await auth.authenticatedSessionSnapshot() else {
             return false
         }
-        _ = session
+        await resetIfAccountChanged(to: session.accountID)
         do {
             _ = try await provisionedBroker()
             Self.journal.record("client-runtime", "provisioned")
@@ -312,6 +315,7 @@ public actor MobileIrxRuntimeComposition {
         Task { _ = try? await supervisor.readyEndpoint(credentials: credentials) }
         await pilot.start()
         self.identity = identity
+        self.provisionedAccountID = session.accountID
         self.broker = broker
         endpointSupervisor = supervisor
         autopilot = pilot

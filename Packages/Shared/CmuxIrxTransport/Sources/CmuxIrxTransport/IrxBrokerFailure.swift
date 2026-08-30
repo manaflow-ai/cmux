@@ -15,6 +15,8 @@ public enum IrxBrokerOperation: String, Codable, Equatable, Sendable {
     case pairGrant = "pair_grant"
     /// Binding revocation.
     case revoke
+    /// Local endpoint binding or rebind work (not a broker HTTP operation).
+    case endpoint
 }
 
 /// A privacy-safe classification of one irx broker failure.
@@ -40,7 +42,13 @@ public struct IrxBrokerFailure: Error, Codable, Equatable, Sendable {
     public let errorCode: String?
     public let retryAfterSeconds: Int?
 
-    public init(operation: IrxBrokerOperation, error: any Error) {
+    /// Creates a classified failure, using `fallbackKind` only for errors that
+    /// did not cross the shared broker error boundary.
+    public init(
+        operation: IrxBrokerOperation,
+        error: any Error,
+        fallbackKind: IrxBrokerFailureKind = .invalid
+    ) {
         self.operation = operation
         switch error {
         case let recovery as CmxIrohBrokerTokenRecoveryError:
@@ -85,7 +93,7 @@ public struct IrxBrokerFailure: Error, Codable, Equatable, Sendable {
                 retryAfterSeconds = nil
             }
         default:
-            kind = .invalid
+            kind = fallbackKind
             statusCode = nil
             errorCode = "unclassified"
             retryAfterSeconds = nil
@@ -150,14 +158,20 @@ public struct IrxBrokerFailure: Error, Codable, Equatable, Sendable {
     ) -> IrxBrokerFailureKind {
         switch statusCode {
         case 401:
-            // A final 401 has already exhausted the shared client's one
-            // account refresh attempt. Activation must fail closed so the
-            // host cannot retry the same rejected session forever.
-            .authenticationRequired
+            // The shared client has already attempted exactly one recovery at
+            // this point. A second broker 401 is not evidence that the auth
+            // refresh itself was rejected (that outcome is carried explicitly
+            // by CmxIrohBrokerTokenRecoveryError.authenticationRequired); it
+            // can still be a broker-side propagation race. Keep it on the
+            // bounded activation ladder rather than forcing a needless sign-in.
+            .transient
         case 403 where code == "binding_request_proof_required"
             || code == "invalid_binding_request_proof":
             .transient
-        case 403:
+        case 403 where [
+            "unauthorized", "invalid_token", "token_expired", "auth_required",
+            "account_mismatch"
+        ].contains(code?.lowercased() ?? ""):
             .authenticationRequired
         case 408, 425, 429, 500 ... 599:
             .transient

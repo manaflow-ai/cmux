@@ -111,6 +111,8 @@ final class MobileHostIrxRuntime {
         generationToken = UUID()
         let token = generationToken
         let tag = MobileHostIrohRuntime.currentTag()
+        var activationOperation: IrxBrokerOperation = .register
+        var deferredHintFailure: IrxBrokerFailure?
         guard let brokerBaseURL = AuthEnvironment.irohBrokerBaseURL,
             let namespace = CmxIrohMacBundleNamespace(
                 bundleIdentifier: Bundle.main.bundleIdentifier)
@@ -226,19 +228,32 @@ final class MobileHostIrxRuntime {
                 relayURLHint: nil
             )
             localBinding = binding
+            activationOperation = .mint
             let credentials = try await pilot.usableCredentials()
+            activationOperation = .discover
             _ = try await broker.discover()
             hadLiveDiscovery = true
 
             guard generationToken == token else { return }
+            activationOperation = .endpoint
             _ = try await supervisor.readyEndpoint(credentials: credentials)
             // Advertise the relay the endpoint ACTUALLY homes on, then
             // refresh the binding so registry consumers see it too.
             let homeRelay = await supervisor.homeRelayURL() ?? credentials.first?.relayURL
-            _ = try await broker.registerHintIfNeeded(
-                pairingEnabled: true,
-                relayURLHint: homeRelay
-            )
+            activationOperation = .hintRefresh
+            do {
+                try await broker.registerHintIfNeeded(
+                    pairingEnabled: true,
+                    relayURLHint: homeRelay
+                )
+            } catch let failure as IrxBrokerFailure where failure.isRetryable {
+                deferredHintFailure = failure
+                await handleAutopilotFailure(
+                    failure,
+                    accountID: accountID,
+                    token: token
+                )
+            }
             // Relay hints are server-capped at 1h; refresh the registration on
             // every credential rotation so the advertised hint never expires.
             await pilot.setOnRotation { [weak self, weak broker, weak supervisor] in
@@ -271,13 +286,24 @@ final class MobileHostIrxRuntime {
                 ]
             )
             activationRetryFailureCount = 0
-            setActivationState(.active)
+            if let deferredHintFailure {
+                setActivationState(.retrying, failure: deferredHintFailure)
+            } else {
+                setActivationState(.active)
+            }
+            if deferredHintFailure != nil {
+                await pilot.kick()
+            }
         } catch is CancellationError {
             return
         } catch {
             guard generationToken == token, activeAccountID == accountID else { return }
             let failure = error as? IrxBrokerFailure
-                ?? IrxBrokerFailure(operation: .register, error: error)
+                ?? IrxBrokerFailure(
+                    operation: activationOperation,
+                    error: error,
+                    fallbackKind: .transient
+                )
             await handleActivationFailure(failure, accountID: accountID, token: token)
         }
     }
@@ -318,7 +344,7 @@ final class MobileHostIrxRuntime {
             journal.record(
                 "host-runtime", "activation-failed",
                 [
-                    "operation": "endpoint",
+                    "operation": IrxBrokerOperation.endpoint.rawValue,
                     "failure_kind": "invalid",
                     "error_code": "acceptor_tuple",
                 ]

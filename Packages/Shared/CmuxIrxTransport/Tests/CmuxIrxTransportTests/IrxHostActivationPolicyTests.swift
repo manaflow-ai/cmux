@@ -33,6 +33,26 @@ struct IrxHostActivationPolicyTests {
         #expect(failure.journalAttributes["error_code"] == "unauthorized")
     }
 
+    @Test("a second broker 401 stays on the bounded transient ladder")
+    func finalBrokerUnauthorizedIsRetryableAfterRecovery() {
+        let failure = IrxBrokerFailure(
+            operation: .discover,
+            error: CmxIrohTrustBrokerClientError.rejected(
+                statusCode: 401,
+                code: "unauthorized"
+            )
+        )
+
+        #expect(!failure.requiresReauthentication)
+        #expect(
+            policy.decision(
+                for: failure,
+                failureCount: 0,
+                jitterUnitInterval: 0
+            ) == .retry(delay: 1, retryAfterSeconds: nil)
+        )
+    }
+
     @Test("transient broker failures use a bounded exponential ladder")
     func transientFailuresBackOff() {
         let failure = IrxBrokerFailure(

@@ -67,16 +67,18 @@ public actor IrxRelayCredentialAutopilot {
     }
 
     /// Foreground/resume kick: restart the loop so a suspension can never
-    /// leave a stale sleep deadline in charge of renewal.
+    /// leave a stale sleep deadline in charge of renewal. A kick also forces
+    /// one immediate mint so deferred hint recovery does not wait for the
+    /// cached credential's normal refresh deadline.
     public func kick() {
         loop?.cancel()
-        loop = Task { await self.run() }
+        loop = Task { await self.run(bypassRefreshDeadlineOnce: true) }
         journal.record("credential-autopilot", "kicked")
     }
 
-    private func run() async {
+    private func run(bypassRefreshDeadlineOnce: Bool = false) async {
+        var bypassRefreshDeadlineOnce = bypassRefreshDeadlineOnce
         var failureCount = 0
-        var bypassRefreshDeadlineOnce = false
         while !Task.isCancelled {
             let now = Date()
             let credentials = await broker.cachedRelayCredentials()

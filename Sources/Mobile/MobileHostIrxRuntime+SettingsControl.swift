@@ -133,10 +133,45 @@ extension MobileHostIrxRuntime: CmxIrohSettingsControlling {
 
     func refreshIrohSettings() async {
         guard let broker = brokerService else {
+            hadLiveDiscovery = false
             publishIrxSettingsUpdate()
             return
         }
-        hadLiveDiscovery = (try? await broker.discover(maximumAge: 0)) != nil
+        let token = generationToken
+        let accountID = activeAccountID
+        do {
+            _ = try await broker.discover(maximumAge: 0)
+            guard generationToken == token,
+                  activeAccountID == accountID,
+                  brokerService === broker else { return }
+            // Only a discovery completed by this runtime generation may label
+            // the retained trust snapshot as server-confirmed.
+            hadLiveDiscovery = true
+        } catch is CancellationError {
+            return
+        } catch let failure as IrxBrokerFailure {
+            guard generationToken == token,
+                  activeAccountID == accountID,
+                  brokerService === broker else { return }
+            // The disk snapshot remains usable for diagnostics, but it is no
+            // longer a server-confirmed snapshot after a failed refresh.
+            hadLiveDiscovery = false
+            if failure.requiresReauthentication, let accountID {
+                await handleActivationFailure(
+                    failure,
+                    accountID: accountID,
+                    token: token
+                )
+            } else {
+                publishIrxSettingsUpdate()
+            }
+        } catch {
+            guard generationToken == token,
+                  activeAccountID == accountID,
+                  brokerService === broker else { return }
+            hadLiveDiscovery = false
+            publishIrxSettingsUpdate()
+        }
         publishIrxSettingsUpdate()
     }
 
