@@ -42,7 +42,8 @@ JSON line
 code 0 means the terminal ended or the embedder closed stdin (do not
 respawn); exit code 2 means the daemon connection was lost and a respawn
 reattaches and resyncs from a fresh replay. `--cols` and `--rows` set the
-initial viewer size (default 80x24). `--pipe-io` requires `--terminal`.
+initial viewer size (default 80x24). Input lines are limited to 2 MiB and
+decoded `input` payloads to 1 MiB. `--pipe-io` requires `--terminal`.
 
 Interactive and headless ownership are intentionally separate:
 
