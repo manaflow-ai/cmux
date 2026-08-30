@@ -1,6 +1,28 @@
 import AppKit
 import Bonsplit
 
+enum DockPointerHitTarget: Equatable {
+    case tabItem
+    case panel
+}
+
+/// Pure policy for turning AppKit hit-test signals into Dock ownership. The
+/// geometry/portal lookups stay in the host view, while this bounded decision
+/// is executable in unit tests without constructing a Bonsplit hierarchy.
+enum DockPointerHitClassification {
+    nonisolated static func target(
+        registryTabItemHit: Bool,
+        hierarchyTabItemHit: Bool,
+        interactiveChromeHit: Bool,
+        selectedPanelHit: Bool
+    ) -> DockPointerHitTarget? {
+        if registryTabItemHit || hierarchyTabItemHit {
+            return interactiveChromeHit ? nil : .tabItem
+        }
+        return selectedPanelHit ? .panel : nil
+    }
+}
+
 /// Delivers Dock pointer events through one process-wide AppKit monitor.
 /// `NSEvent.addLocalMonitorForEvents` is application-scoped, so installing one
 /// monitor per visible Dock makes every click fan out through every window's

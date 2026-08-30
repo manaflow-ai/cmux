@@ -126,11 +126,6 @@ private final class DockPointerTeardownBox: @unchecked Sendable {
 
 @MainActor
 final class DockPointerInteractionHostView: NSView {
-    private enum DockPointerHitTarget {
-        case tabItem
-        case panel
-    }
-
     var store: DockSplitStore?
     var isEnabled = false
     private weak var registeredWindow: NSWindow?
@@ -283,22 +278,14 @@ final class DockPointerInteractionHostView: NSView {
             windowPoint,
             in: window
         )
-        if registryTabItemHit {
-            // A missing hit view is a transient SwiftUI remount; the registry
-            // still identifies this point as a tab item. The registry is kept
-            // by Bonsplit's AppKit tab regions, which are more precise than the
-            // root hosting view returned by `hitTest` during remounts.
-            return isInteractiveChrome ? nil : .tabItem
-        }
-        if tabItemHitInViewHierarchy(view, at: windowPoint) {
-            return isInteractiveChrome ? nil : .tabItem
-        }
+        let hierarchyTabItemHit = tabItemHitInViewHierarchy(view, at: windowPoint)
 
         guard let store else { return nil }
         // Surface portals are intentionally reparented to a window-level host.
         // Resolve their stable panel identity directly from the portal hit
         // registry when available; the root host remains the authoritative Dock
         // ownership region when a portal/tab registry is between remounts.
+        let selectedPanelHit: Bool
         if let view,
            let terminalView = TerminalWindowPortalRegistry.terminalViewAtWindowPoint(
             windowPoint,
@@ -307,26 +294,45 @@ final class DockPointerInteractionHostView: NSView {
            isView(view, within: terminalView),
            let panelId = terminalView.terminalSurface?.id,
            store.panelIsSelectedInVisibleDockPane(panelId) {
-            return .panel
+            selectedPanelHit = true
+        } else if let view,
+                  let webView = BrowserWindowPortalRegistry.webViewAtWindowPoint(
+                      windowPoint,
+                      in: window
+                  ),
+                  isView(view, within: webView),
+                  let context = BrowserWindowPortalRegistry.paneDropContext(for: webView),
+                  context.isDockHosted,
+                  context.workspaceId == store.workspaceId,
+                  store.panelIsSelectedInVisibleDockPane(context.panelId) {
+            selectedPanelHit = true
+        } else {
+            selectedPanelHit = selectedDockNativePanelHit(
+                view: view,
+                store: store,
+                window: window
+            )
         }
-        if let view,
-           let webView = BrowserWindowPortalRegistry.webViewAtWindowPoint(
-            windowPoint,
-            in: window
-        ),
-           isView(view, within: webView),
-           let context = BrowserWindowPortalRegistry.paneDropContext(for: webView),
-           context.isDockHosted,
-           context.workspaceId == store.workspaceId,
-           store.panelIsSelectedInVisibleDockPane(context.panelId) {
-            return .panel
-        }
+
+        return DockPointerHitClassification.target(
+            registryTabItemHit: registryTabItemHit,
+            hierarchyTabItemHit: hierarchyTabItemHit,
+            interactiveChromeHit: isInteractiveChrome,
+            selectedPanelHit: selectedPanelHit
+        )
+    }
+
+    private func selectedDockNativePanelHit(
+        view: NSView?,
+        store: DockSplitStore,
+        window: NSWindow
+    ) -> Bool {
 
         // File previews and other Dock-native panels do not have a window-level
         // portal identity. Resolve only the selected panel in each rendered
         // pane; an unrelated overlay has no panel-owned focus intent and fails
         // closed here.
-        guard let view else { return nil }
+        guard let view else { return false }
         let renderedPaneIDs = store.bonsplitController.zoomedPaneId.map { [$0] }
             ?? store.bonsplitController.allPaneIds
         for paneID in renderedPaneIDs {
@@ -337,10 +343,10 @@ final class DockPointerInteractionHostView: NSView {
                 continue
             }
             if panel.ownedFocusIntent(for: view, in: window) != nil {
-                return .panel
+                return true
             }
         }
-        return nil
+        return false
     }
 
     private func tabItemHitInViewHierarchy(

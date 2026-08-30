@@ -191,26 +191,34 @@ extension AppDelegate {
     /// reports only an existing, visible Dock owned by either the delivered
     /// coordinator state or its structured responder fallback, so context and
     /// command/menu gates agree during SwiftUI remounts.
-    func dockFocusForShortcutContext(preferredWindow: NSWindow?) -> Bool {
+    func dockFocusForShortcutContext(
+        preferredWindow: NSWindow?,
+        resolvedSidebarMode: RightSidebarMode? = nil
+    ) -> Bool {
         guard let context = preferredRegisteredMainWindowContext(
             preferredWindow: preferredWindow
         ) else {
             return false
         }
-        return dockStoreForShortcut(context: context) != nil
+        return dockStoreForShortcut(
+            context: context,
+            resolvedSidebarMode: resolvedSidebarMode
+        ) != nil
     }
 
     private func dockStoreForShortcut(
-        context: MainWindowContext
+        context: MainWindowContext,
+        resolvedSidebarMode: RightSidebarMode? = nil
     ) -> DockSplitStore? {
         guard let sidebarState = context.fileExplorerState,
               sidebarState.isVisible else { return nil }
         guard let dock = existingWindowDock(forWindowId: context.windowId),
               !dock.isRetired,
               dock.isVisibleInUI,
-              context.keyboardFocusCoordinator.resolvedRightSidebarModeForShortcut(
-                  in: context.window
-              ) == .dock,
+              (resolvedSidebarMode
+                  ?? context.keyboardFocusCoordinator.resolvedRightSidebarModeForShortcut(
+                      in: context.window
+                  )) == .dock,
               context.keyboardFocusCoordinator.focusedRightSidebarMode == .dock
                   || dockResponderOwnsFocus(dock, in: context.window) else {
             return nil
@@ -358,7 +366,11 @@ extension AppDelegate {
             insertFirst: direction.insertFirst,
             sourcePanelId: sourcePanelId,
             preferredProfileID: sourceBrowser?.profileID,
-            chromeVisibility: sourceBrowser?.chromeVisibility ?? .visible,
+            // This is a new, URL-less split rather than a duplicate. Keep the
+            // address bar visible even when the source browser is chromeless;
+            // inheriting that fixed pane policy would create an unreachable
+            // blank browser and diverge from the main split behavior.
+            chromeVisibility: .visible,
             websiteDataStore: sourceBrowser?.explicitEphemeralWebsiteDataStoreForSibling,
             focus: true
         ) else {

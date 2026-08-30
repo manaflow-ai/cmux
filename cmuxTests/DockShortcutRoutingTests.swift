@@ -382,6 +382,44 @@ struct DockShortcutRoutingTests {
         }
     }
 
+    @Test("Dock browser split keeps a reachable chrome bar from a chromeless source")
+    @MainActor
+    func dockBrowserSplitDoesNotInheritChromelessPanePolicy() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let sourceID = try #require(
+                    harness.dock.newSurface(
+                        kind: .browser,
+                        inPane: harness.rootPane,
+                        url: URL(string: "https://example.com/source"),
+                        focus: true,
+                        chromeVisibility: .chromeless
+                    )
+                )
+                let source = try #require(harness.dock.browserPanel(for: sourceID))
+                #expect(source.chromeVisibility == .chromeless)
+
+                let splitCountBefore = harness.dock.panels.count
+                #expect(
+                    harness.appDelegate.routeSplitToFocusedDock(
+                        kind: .browser,
+                        direction: .right,
+                        preferredWindow: harness.window,
+                        preferredDock: harness.dock,
+                        preferredDockPanelId: sourceID
+                    )
+                )
+                #expect(harness.dock.panels.count == splitCountBefore + 1)
+                let splitID = try #require(
+                    harness.dock.focusedPanelId
+                )
+                let split = try #require(harness.dock.browserPanel(for: splitID))
+                #expect(split.id != source.id)
+                #expect(split.chromeVisibility == .visible)
+            }
+        }
+    }
+
     @Test("Dock browser web context menu moves its live tab to a workspace")
     @MainActor
     func dockBrowserWebContextMenuMovesLiveTabToWorkspace() async throws {
@@ -1746,6 +1784,51 @@ struct DockShortcutRoutingTests {
             ) == nil
         )
         #expect(coordinator.phase == .idle)
+    }
+
+    @Test("Dock pointer hit policy keeps tab accessories out of focus ownership")
+    @MainActor
+    func dockPointerHitPolicyClassifiesOwnershipSignals() {
+        #expect(
+            DockPointerHitClassification.target(
+                registryTabItemHit: true,
+                hierarchyTabItemHit: false,
+                interactiveChromeHit: false,
+                selectedPanelHit: false
+            ) == .tabItem
+        )
+        #expect(
+            DockPointerHitClassification.target(
+                registryTabItemHit: true,
+                hierarchyTabItemHit: false,
+                interactiveChromeHit: true,
+                selectedPanelHit: false
+            ) == nil
+        )
+        #expect(
+            DockPointerHitClassification.target(
+                registryTabItemHit: false,
+                hierarchyTabItemHit: false,
+                interactiveChromeHit: false,
+                selectedPanelHit: true
+            ) == .panel
+        )
+        #expect(
+            DockPointerHitClassification.target(
+                registryTabItemHit: false,
+                hierarchyTabItemHit: true,
+                interactiveChromeHit: true,
+                selectedPanelHit: true
+            ) == nil
+        )
+        #expect(
+            DockPointerHitClassification.target(
+                registryTabItemHit: false,
+                hierarchyTabItemHit: false,
+                interactiveChromeHit: false,
+                selectedPanelHit: false
+            ) == nil
+        )
     }
 
     @Test("Repeated move-to-pane shortcut does not create a missing pane")
