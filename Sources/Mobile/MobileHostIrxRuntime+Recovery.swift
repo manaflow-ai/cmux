@@ -8,10 +8,22 @@ extension MobileHostIrxRuntime {
     /// Starts an activation through the lifecycle-owned task so sign-out and
     /// account changes can cancel every retry-triggered activation as well.
     func startActivation(accountID: String) {
+        cancelActivationRetry()
         activationTask?.cancel()
         activationTask = Task { @MainActor [weak self] in
             await self?.activate(accountID: accountID)
         }
+    }
+
+    /// Cancels and forgets the one pending activation recovery task.
+    ///
+    /// A finished task can remain in its property after any early return, so
+    /// the handle alone is not a reliable pending marker. The id is cleared
+    /// with it so an older task cannot block a later recovery.
+    func cancelActivationRetry() {
+        activationRetryTask?.cancel()
+        activationRetryTask = nil
+        activationRetryID = nil
     }
 
     func handleAutopilotSuccess(accountID: String, token: UUID) {
@@ -89,8 +101,7 @@ extension MobileHostIrxRuntime {
         )
         switch decision {
         case .reauthenticationRequired:
-            activationRetryTask?.cancel()
-            activationRetryTask = nil
+            cancelActivationRetry()
             setActivationState(.reauthenticationRequired, failure: failure)
             attributes["state"] = IrxHostActivationState
                 .reauthenticationRequired.rawValue
@@ -117,8 +128,15 @@ extension MobileHostIrxRuntime {
             }
             let clock = activationRetryClock
             let deadline = clock.now().addingTimeInterval(delay)
-            activationRetryTask?.cancel()
+            cancelActivationRetry()
+            let retryID = UUID()
+            activationRetryID = retryID
             activationRetryTask = Task { @MainActor [weak self] in
+                defer {
+                    guard let self, self.activationRetryID == retryID else { return }
+                    self.activationRetryTask = nil
+                    self.activationRetryID = nil
+                }
                 do {
                     try await clock.sleep(until: deadline)
                 } catch {
@@ -128,12 +146,10 @@ extension MobileHostIrxRuntime {
                       !Task.isCancelled,
                       self.generationToken == retryToken,
                       self.activeAccountID == accountID else { return }
-                self.activationRetryTask = nil
                 self.startActivation(accountID: accountID)
             }
         case .stopped:
-            activationRetryTask?.cancel()
-            activationRetryTask = nil
+            cancelActivationRetry()
             setActivationState(.failed, failure: failure)
             attributes["state"] = IrxHostActivationState.failed.rawValue
             Self.journal.record("host-runtime", "activation-stopped", attributes)
@@ -190,8 +206,7 @@ extension MobileHostIrxRuntime {
             let requiresReauthentication = failure.requiresReauthentication
                 || failure.statusCode == 401
             if requiresReauthentication {
-                activationRetryTask?.cancel()
-                activationRetryTask = nil
+                cancelActivationRetry()
                 setActivationState(.reauthenticationRequired, failure: failure)
                 var attributes = failure.journalAttributes
                 attributes["state"] = IrxHostActivationState
@@ -209,15 +224,21 @@ extension MobileHostIrxRuntime {
                   activeAccountID == accountID else { return }
             if healthy, credentials.contains(where: { $0.isUsable(at: Date()) }) {
                 setActivationState(.active, failure: failure)
-                scheduleAutopilotRecovery(
+                if !scheduleAutopilotRecovery(
                     failure: failure,
                     accountID: accountID,
                     token: currentToken
-                )
+                ) {
+                    setActivationState(.failed, failure: failure)
+                    var attributes = failure.journalAttributes
+                    attributes["state"] = IrxHostActivationState.failed.rawValue
+                    Self.journal.record(
+                        "host-runtime", "activation-stopped", attributes)
+                    await cleanupActivationResources(invalidateGeneration: true)
+                }
                 return
             }
-            activationRetryTask?.cancel()
-            activationRetryTask = nil
+            cancelActivationRetry()
             setActivationState(.failed, failure: failure)
             var attributes = failure.journalAttributes
             attributes["state"] = IrxHostActivationState.failed.rawValue
@@ -229,19 +250,21 @@ extension MobileHostIrxRuntime {
 
     /// Restarts only credential renewal while a still-healthy endpoint keeps
     /// serving existing sessions after a terminal mint response.
+    @discardableResult
     private func scheduleAutopilotRecovery(
         failure: IrxBrokerFailure,
         accountID: String,
         token: UUID
-    ) {
-        guard activationRetryTask == nil, terminalRecoveryCount < 3 else {
+    ) -> Bool {
+        guard activationRetryTask == nil else { return true }
+        guard terminalRecoveryCount < 3 else {
             if terminalRecoveryCount >= 3 {
                 Self.journal.record(
                     "host-runtime", "autopilot-recovery-exhausted",
                     failure.journalAttributes
                 )
             }
-            return
+            return false
         }
         let delay = activationRetryPolicy.retrySchedule.delay(
             failureCount: terminalRecoveryCount,
@@ -254,7 +277,14 @@ extension MobileHostIrxRuntime {
         var attributes = failure.journalAttributes
         attributes["delay_s"] = String(Int(delay.rounded()))
         Self.journal.record("host-runtime", "autopilot-retry-scheduled", attributes)
+        let retryID = UUID()
+        activationRetryID = retryID
         activationRetryTask = Task { @MainActor [weak self] in
+            defer {
+                guard let self, self.activationRetryID == retryID else { return }
+                self.activationRetryTask = nil
+                self.activationRetryID = nil
+            }
             do {
                 try await clock.sleep(until: deadline)
             } catch {
@@ -264,9 +294,9 @@ extension MobileHostIrxRuntime {
                   !Task.isCancelled,
                   self.generationToken == token,
                   self.activeAccountID == accountID else { return }
-            self.activationRetryTask = nil
             await self.autopilot?.kick()
         }
+        return true
     }
 
     /// Keeps non-auth terminal failures recoverable without a tight retry loop.
@@ -300,7 +330,14 @@ extension MobileHostIrxRuntime {
         attributes["delay_s"] = String(Int(delay.rounded()))
         attributes["state"] = IrxHostActivationState.failed.rawValue
         Self.journal.record("host-runtime", "activation-retry-scheduled", attributes)
+        let retryID = UUID()
+        activationRetryID = retryID
         activationRetryTask = Task { @MainActor [weak self] in
+            defer {
+                guard let self, self.activationRetryID == retryID else { return }
+                self.activationRetryTask = nil
+                self.activationRetryID = nil
+            }
             do {
                 try await clock.sleep(until: deadline)
             } catch {
@@ -310,7 +347,6 @@ extension MobileHostIrxRuntime {
                   !Task.isCancelled,
                   self.generationToken == token,
                   self.activeAccountID == accountID else { return }
-            self.activationRetryTask = nil
             self.setActivationState(.activating)
             self.startActivation(accountID: accountID)
         }
@@ -342,8 +378,7 @@ extension MobileHostIrxRuntime {
 
     func deactivate(preserveReauthentication: Bool = false) async {
         generationToken = UUID()
-        activationRetryTask?.cancel()
-        activationRetryTask = nil
+        cancelActivationRetry()
         activationRetryFailureCount = 0
         activationUnauthorizedFailureCount = 0
         terminalRecoveryCount = 0

@@ -60,6 +60,7 @@ final class MobileHostIrxRuntime {
     var lastBrokerFailure: IrxBrokerFailure?
     var hadLiveDiscovery = false
     var activationRetryTask: Task<Void, Never>?
+    var activationRetryID: UUID?
     var activationRetryFailureCount = 0
     var activationUnauthorizedFailureCount = 0
     var terminalRecoveryCount = 0

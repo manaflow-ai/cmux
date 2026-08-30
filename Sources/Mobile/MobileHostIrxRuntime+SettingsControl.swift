@@ -139,6 +139,7 @@ extension MobileHostIrxRuntime: CmxIrohSettingsControlling {
             || activationState == .retrying
             || activationState == .reauthenticationRequired),
            let accountID = activeAccountID {
+            cancelActivationRetry()
             activationRetryFailureCount = 0
             activationUnauthorizedFailureCount = 0
             terminalRecoveryCount = 0
