@@ -149,4 +149,21 @@ struct IrxHostActivationPolicyTests {
             return
         }
     }
+
+    @Test("empty or stale relay responses stay on the retry ladder")
+    func serviceMintFailuresRemainRetryable() {
+        let failure = IrxBrokerFailure(
+            operation: .mint,
+            error: IrxBrokerServiceError.noCredentialsIssued
+        )
+        #expect(failure.kind == .transient)
+        #expect(failure.errorCode == "no_credentials_issued")
+        #expect(
+            policy.decision(
+                for: failure,
+                failureCount: 0,
+                jitterUnitInterval: 0
+            ) == .retry(delay: 1, retryAfterSeconds: nil)
+        )
+    }
 }

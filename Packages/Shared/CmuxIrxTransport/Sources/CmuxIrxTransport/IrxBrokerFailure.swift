@@ -64,6 +64,29 @@ public struct IrxBrokerFailure: Error, Codable, Equatable, Sendable {
                 errorCode = "auth_refresh_transient"
                 retryAfterSeconds = nil
             }
+        case let service as IrxBrokerServiceError:
+            switch service {
+            case .invalidIdentity:
+                kind = .invalid
+                errorCode = "invalid_identity"
+            case .notRegistered:
+                // A binding can disappear between registration and minting;
+                // the next activation attempt must be allowed to restore it.
+                kind = .transient
+                errorCode = "not_registered"
+            case .noCredentialsIssued:
+                // Empty or malformed relay responses are recoverable broker
+                // availability failures, not a reason to stop renewal.
+                kind = .transient
+                errorCode = "no_credentials_issued"
+            case .unknownRelayURL:
+                // The trust cache may lag a rotated fleet; retry after the
+                // authoritative discovery path catches up. Never log the URL.
+                kind = .transient
+                errorCode = "unknown_relay_url"
+            }
+            statusCode = nil
+            retryAfterSeconds = nil
         case let broker as CmxIrohTrustBrokerClientError:
             switch broker {
             case .missingAuthentication, .invalidAuthentication:

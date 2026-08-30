@@ -110,7 +110,11 @@ public actor IrxRelayCredentialAutopilot {
             } catch {
                 guard !Task.isCancelled else { return }
                 let failure = error as? IrxBrokerFailure
-                    ?? IrxBrokerFailure(operation: .mint, error: error)
+                    ?? IrxBrokerFailure(
+                        operation: .mint,
+                        error: error,
+                        fallbackKind: .transient
+                    )
                 let expiry = credentials.map(\.expiresAt).max()
                 let decision = IrxHostActivationPolicy().decision(
                     for: failure,
