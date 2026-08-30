@@ -178,6 +178,27 @@ struct ChromePaletteTests {
     }
 
     @Test
+    func readableForegroundTracksCustomizedStatusFill() throws {
+        let overrides = try #require(ChromeTokenOverrides(hexValues: [
+            "textPrimary": "#FFFFFF",
+            "surface": "#202020",
+            "agentIdle": "#FFFFFF",
+        ]))
+        let palette = ChromePalette.resolve(
+            theme: .default,
+            colorScheme: .dark,
+            overrides: overrides
+        )
+
+        let foreground = palette.readableForeground(for: palette.agentIdle)
+        #expect(foreground.contrastRatio(
+            with: palette.agentIdle,
+            underlying: palette.surface
+        ) >= 4.5)
+        #expect(foreground == .black)
+    }
+
+    @Test
     func colorHexRoundTripsAndRejectsAmbiguousInput() throws {
         let opaque = try #require(ChromeColor(hex: "#0088ff"))
         #expect(opaque.hex == "#0088FF")

@@ -106,7 +106,7 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
         .background {
             if isSelected {
                 Rectangle()
-                    .fill(chromePalette.surfaceSelected.swiftUIColor.opacity(0.9))
+                    .fill(chromePalette.surfaceSelected.swiftUIColor)
             }
         }
         .contentShape(Rectangle())

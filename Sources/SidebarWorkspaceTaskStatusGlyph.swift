@@ -263,7 +263,10 @@ struct SidebarWorkspaceTaskStatusGlyph: View {
     }
 
     private var checkmarkColor: Color {
-        usesMonochrome ? Color.black.opacity(0.7) : Color.white
+        guard !usesMonochrome else { return Color.black.opacity(0.7) }
+        return chromePalette
+            .readableForeground(for: chromePalette.agentIdle)
+            .cmuxColor
     }
 }
 

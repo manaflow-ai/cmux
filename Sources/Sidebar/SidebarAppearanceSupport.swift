@@ -165,17 +165,29 @@ func cmuxAccentNSColor(for appAppearance: NSAppearance?) -> NSColor {
     return cmuxAccentNSColor(for: scheme)
 }
 
+/// Resolves the accent from an explicit palette when one is available.
+///
+/// Callers that participate in the chrome environment should pass their
+/// immutable snapshot here. The no-argument helper below remains only as a
+/// system-appearance fallback for legacy AppKit/WebKit construction paths.
+func cmuxAccentNSColor(
+    palette: ChromePalette?,
+    appAppearance: NSAppearance? = nil
+) -> NSColor {
+    palette?.cmuxAccentNSColor ?? cmuxAccentNSColor(for: appAppearance)
+}
+
 func cmuxAccentNSColor() -> NSColor {
     NSColor(name: nil) { appearance in
-        if let palette = AppDelegate.shared?.chromePalette {
-            return palette.cmuxAccentNSColor
-        }
         return cmuxAccentNSColor(for: appearance)
     }
 }
 
-func cmuxAccentColor() -> Color {
-    Color(nsColor: cmuxAccentNSColor())
+func cmuxAccentColor(palette: ChromePalette? = nil) -> Color {
+    if let palette {
+        return palette.cmuxAccentColor
+    }
+    return Color(nsColor: cmuxAccentNSColor())
 }
 
 func cmuxReadableColorScheme(for backgroundColor: NSColor) -> ColorScheme {

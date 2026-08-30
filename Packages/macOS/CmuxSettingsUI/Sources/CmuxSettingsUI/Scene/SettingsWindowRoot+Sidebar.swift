@@ -4,7 +4,7 @@ extension SettingsWindowRoot {
     @ViewBuilder
     var sidebar: some View {
         List(selection: sidebarSelectionBinding) {
-            let matches = sidebarEntries(matching: searchText).filter(isEntryVisible)
+            let matches = sidebarEntries(matching: settingsSearchText).filter(isEntryVisible)
             if matches.isEmpty {
                 Text(String(localized: "settings.search.noResults", defaultValue: "No Results"))
                     .foregroundStyle(chromePalette.textSecondary.swiftUIColor)
@@ -24,7 +24,7 @@ extension SettingsWindowRoot {
         .background(chromePalette.surface.swiftUIColor)
         .navigationTitle(String(localized: "settings.title", defaultValue: "Settings"))
         .searchable(
-            text: $searchText,
+            text: settingsSearchTextBinding,
             placement: .sidebar,
             prompt: Text(String(localized: "settings.search.prompt", defaultValue: "Search"))
         )

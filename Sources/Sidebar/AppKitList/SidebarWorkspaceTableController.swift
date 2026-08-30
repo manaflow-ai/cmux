@@ -1915,7 +1915,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             if cell.currentModelForMeasurement != model {
                 releasePumpHeightOverride(for: configuration.id, ownedBy: cell)
             }
-            cell.configurePresentation(model: model, chromePalette: configuration.chromePalette)
+            cell.configurePresentation(model: model, chromePalette: chromePalette)
             return
         }
         let rowId = configuration.id
@@ -1930,7 +1930,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         cell.configure(
             model: model,
             actions: actions,
-            chromePalette: configuration.chromePalette,
+            chromePalette: chromePalette,
             isPointerHovering: hoveredRowId == rowId && contextMenuRowId != rowId,
             contextMenuDidOpen: { [weak self] in
                 self?.contextMenuDidOpen(rowId: rowId)
@@ -2170,14 +2170,14 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let configuration = rows[row]
         guard let model = configuration.appKitGroupHeaderModel else { return }
         guard let actions = configuration.appKitGroupHeaderActions else {
-            cell.configurePresentation(model: model, chromePalette: configuration.chromePalette)
+            cell.configurePresentation(model: model, chromePalette: chromePalette)
             return
         }
         let rowId = configuration.id
         cell.configure(
             model: model,
             actions: actions,
-            chromePalette: configuration.chromePalette,
+            chromePalette: chromePalette,
             isPointerHovering: hoveredRowId == rowId && contextMenuRowId != rowId,
             contextMenuDidOpen: { [weak self] in
                 self?.contextMenuDidOpen(rowId: rowId)

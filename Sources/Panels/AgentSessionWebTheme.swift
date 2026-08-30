@@ -80,7 +80,7 @@ struct AgentSessionWebTheme: Equatable {
         var textCSSColor = foreground.markdownCSSColor
         var mutedTextCSSColor = foreground.withAlphaComponent(0.58).markdownCSSColor
         var softTextCSSColor = foreground.withAlphaComponent(0.78).markdownCSSColor
-        let defaultAccent = cmuxAccentNSColor()
+        let defaultAccent = cmuxAccentNSColor(palette: chromePalette)
         var accentCSSColor = (chromePalette.map {
             Self.nsColor(for: $0.accent)
         } ?? defaultAccent).markdownCSSColor

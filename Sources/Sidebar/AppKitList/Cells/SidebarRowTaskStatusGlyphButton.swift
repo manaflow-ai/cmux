@@ -151,9 +151,10 @@ final class SidebarRowTaskStatusGlyphButton: NSControl {
                 y: circleRect.minY + circleRect.height * 0.34
             ))
             context.addPath(checkmark)
-            context.setStrokeColor(
-                (model.usesMonochrome ? NSColor.black.withAlphaComponent(0.7) : .white).cgColor
-            )
+            let checkmarkColor = model.usesMonochrome
+                ? NSColor.black.withAlphaComponent(0.7)
+                : chromePalette.readableForeground(for: chromePalette.agentIdle).cmuxNSColor
+            context.setStrokeColor(checkmarkColor.cgColor)
             context.setLineWidth(1.2)
             context.setLineCap(.round)
             context.setLineJoin(.round)

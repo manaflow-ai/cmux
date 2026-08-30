@@ -60,7 +60,7 @@ struct CommandPaletteResultLabel: View {
                     .padding(.horizontal, 4)
                     .padding(.vertical, 1)
                     .background(
-                        chromePalette.surfaceHover.swiftUIColor.opacity(0.65),
+                        shortcutPillBackground,
                         in: RoundedRectangle(cornerRadius: 4, style: .continuous)
                     )
             case .kind:
@@ -74,5 +74,15 @@ struct CommandPaletteResultLabel: View {
 
     private var trailingForeground: ChromeColor {
         isSelected ? chromePalette.textOnSelected : chromePalette.textSecondary
+    }
+
+    private var shortcutPillBackground: Color {
+        // `textOnSelected` is contrast-repaired against the full selected
+        // surface. Keep that exact surface behind selected-row shortcut
+        // hints; applying a translucent hover wash would invalidate the
+        // guarantee for independently overridden tokens.
+        isSelected
+            ? chromePalette.surfaceSelected.swiftUIColor
+            : chromePalette.surfaceHover.swiftUIColor.opacity(0.65)
     }
 }

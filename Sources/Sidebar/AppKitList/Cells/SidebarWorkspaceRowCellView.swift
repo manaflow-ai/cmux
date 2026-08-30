@@ -628,9 +628,19 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             }
             return model.isActive ? palette.primaryText.withAlphaComponent(0.25) : chromePalette.cmuxAccentNSColor
         }()
-        let badgeText: NSColor = model.isActive
-            ? palette.primaryText
-            : (chromePalette.textOnAccent).cmuxNSColor
+        let badgeBackingSurface = model.isActive
+            ? palette.selectedBackground
+            : chromePalette.surface.cmuxNSColor
+        let visibleBadgeFill = cmuxCompositedNSColor(badgeFill, over: badgeBackingSurface)
+        let badgeText: NSColor = {
+            if model.settings.notificationBadgeColorHex != nil || model.isActive {
+                return cmuxReadableForegroundNSColor(on: visibleBadgeFill, opacity: 1)
+            }
+            // Preserve the palette's explicit accent foreground for the
+            // built-in accent fallback; custom and active fills above are
+            // derived from the fill that is actually painted.
+            return chromePalette.textOnAccent.cmuxNSColor
+        }()
         let badgeFont = NSFont.systemFont(ofSize: model.scaled(9), weight: .semibold)
 
         let leadingBadgeVisible = badgeVisible && model.settings.notificationBadgePosition == .leading

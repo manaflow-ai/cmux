@@ -20,7 +20,12 @@ public struct SettingsWindowRoot: View {
         self.searchIndex = runtime.searchIndex
     }
 
-    @State var searchText: String = ""
+    @State private var searchText: String = ""
+
+    /// Read-only accessors used by the sidebar extension without exposing
+    /// SwiftUI's backing state storage to package-internal callers.
+    var settingsSearchText: String { searchText }
+    var settingsSearchTextBinding: Binding<String> { $searchText }
     // Legacy SettingsRootView persists two distinct pieces of state:
     // `selectedSettingsSection` (the top-level section pane shown in
     // the detail) and `selectedSettingsSidebarEntry` (the specific

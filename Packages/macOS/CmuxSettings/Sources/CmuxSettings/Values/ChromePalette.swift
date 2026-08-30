@@ -69,6 +69,23 @@ public struct ChromePalette: Sendable, Equatable {
             ? primary
             : Self.readableTextColor(on: accent, underlying: opaqueSurface)
     }
+
+    /// Returns a foreground suitable for text drawn over an arbitrary token.
+    ///
+    /// This is used by small chrome controls whose fill can be customized
+    /// independently of the text roles (for example, status glyphs and
+    /// notification badges). The selected palette's opaque surface is used
+    /// when the background token is translucent, so the result reflects the
+    /// color that is actually visible to the user.
+    public func readableForeground(
+        for background: ChromeColor,
+        minimumContrast: Double = 4.5
+    ) -> ChromeColor {
+        let preferred = textPrimary
+        return preferred.contrastRatio(with: background, underlying: opaqueSurface) >= minimumContrast
+            ? preferred
+            : Self.readableTextColor(on: background, underlying: opaqueSurface)
+    }
     /// Strong divider and outline color.
     public var border: ChromeColor { self[.border] }
     /// Low-emphasis divider and outline color.
