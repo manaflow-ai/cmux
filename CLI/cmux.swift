@@ -7504,8 +7504,8 @@ struct CMUXCLI {
                     printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: okText)
                 case .surface(_, _, _, _):
                     throw CLIError(message: String(
-                        localized: "cli.error.clearNotificationsSurfaceRequiresTarget",
-                        defaultValue: "notify --clear --surface requires a workspace or window context"
+                        localized: "cli.error.notifyClearSurfaceRequiresTarget",
+                        defaultValue: "notify --clear --surface requires workspace or window context; specify --workspace or --window"
                     ))
                 case let .workspace(workspaceID):
                     let payload = try client.sendV2(method: "notification.clear", params: [
@@ -18167,7 +18167,7 @@ struct CMUXCLI {
                 } else {
                     if resolveExplicitSurface, explicitWorkspaceArg == nil, windowHandle == nil {
                         throw CLIError(message: String(
-                            localized: "cli.error.clearNotificationsSurfaceRequiresTarget",
+                            localized: "cli.error.notifyClearSurfaceRequiresTarget",
                             defaultValue: "notify --clear --surface requires workspace or window context; specify --workspace or --window"
                         ))
                     }

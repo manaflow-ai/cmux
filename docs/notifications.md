@@ -289,9 +289,9 @@ cmux sets these in child shells:
 ```
 cmux notify [--title <text>] [--subtitle <text>] [--body <text>] [--reply] [--clear] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
 cmux list-notifications
-cmux dismiss-notification (--id <notification-id> | --all-read)
-cmux mark-notification-read (--id <notification-id> | --workspace <id|ref> [--surface <id|ref>] | --all)
-cmux open-notification --id <notification-id>
+cmux dismiss-notification (--id <uuid|notification:<uuid>> | --all-read)
+cmux mark-notification-read (--id <uuid|notification:<uuid>> | --workspace <id|ref> [--surface <id|ref>] | --all)
+cmux open-notification --id <uuid|notification:<uuid>>
 cmux jump-to-unread
 cmux clear-notifications [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
 cmux set-status <key> <value>
