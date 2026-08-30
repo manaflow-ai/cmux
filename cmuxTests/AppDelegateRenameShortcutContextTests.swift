@@ -301,6 +301,43 @@ struct AppDelegateRenameShortcutContextTests {
         }
     }
 
+    @Test func dockTabSelectionFeedsSharedSurfaceRouting() throws {
+        try withIsolatedShortcutSettings {
+            let appDelegate = try #require(AppDelegate.shared)
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let window = try #require(mainWindow(withId: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspace = try #require(manager.selectedWorkspace)
+            let mainPanelId = try #require(workspace.focusedPanelId)
+            let dock = appDelegate.windowDock(forWindowId: windowId)
+            dock.setVisibleInUI(true)
+            defer { dock.setVisibleInUI(false) }
+            let pane = try #require(dock.resolvePane(requestedPaneID: nil))
+            _ = try #require(dock.newSurface(kind: .terminal, inPane: pane, focus: false))
+            let selectedPanelId = try #require(dock.newSurface(kind: .terminal, inPane: pane, focus: false))
+            let selectedTabId = try #require(dock.surfaceId(forPanelId: selectedPanelId))
+
+            appDelegate.noteMainPanelKeyboardFocusIntent(
+                workspaceId: workspace.id,
+                panelId: mainPanelId,
+                in: window
+            )
+            dock.bonsplitController.focusPane(pane)
+            dock.bonsplitController.selectTab(selectedTabId)
+
+            #expect(appDelegate.focusedDockStoreForShortcut(preferredWindow: window) === dock)
+            let renameEvent = try #require(makeKeyDownEvent(
+                key: "r",
+                modifiers: [.command],
+                keyCode: 15,
+                windowNumber: window.windowNumber
+            ))
+            #expect(appDelegate.shortcutWhenClauseAllows(action: .renameTab, event: renameEvent))
+        }
+    }
+
     @Test func reactGrabShortcutRoutesFromFocusedTerminalToSingleBrowserPane() throws {
         try withIsolatedShortcutSettings {
             let appDelegate = try #require(AppDelegate.shared)
