@@ -76,6 +76,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     // current pre-session generation so no earlier container loses its
     // controlled detach/commit callback when SwiftUI rebuilds repeatedly.
     private var deferredProvisionalCellDetachContainers: [SidebarWorkspaceTableContainerView] = []
+    private let maximumDeferredProvisionalContainers = 8
     private var activeWorkspaceDragSessionId: UUID?
     private var activeWorkspaceDragCapabilityValue: String?
     // Retain and identity-check the exact AppKit session. A late callback from
@@ -258,6 +259,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         if preserveProvisionalWorkspaceDrag {
             if !deferredProvisionalCellDetachContainers.contains(where: { $0 === container }) {
                 deferredProvisionalCellDetachContainers.append(container)
+                while deferredProvisionalCellDetachContainers.count > maximumDeferredProvisionalContainers {
+                    let evicted = deferredProvisionalCellDetachContainers.removeFirst()
+                    let postUpdateActions = detachLoadedCells(in: evicted)
+                    mutationScheduler.stagePostUpdateActions(postUpdateActions)
+                }
             }
         }
         if preserveNativeDragPresentation, activeWorkspaceDragContainerView == nil {
@@ -1378,25 +1384,32 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         pendingWorkspaceDragWorkspaceId = nil
         activeWorkspaceDraggingSession = nil
         activeWorkspaceDragSequenceNumber = nil
-        activeWorkspaceDragTableView?.activeWorkspaceDragController = nil
-        activeWorkspaceDragTableView = nil
+        let retainedCurrentTable = retainedCurrentContainer
+            && activeWorkspaceDragTableView === containerView?.tableView
+        if !retainedCurrentTable {
+            activeWorkspaceDragTableView?.activeWorkspaceDragController = nil
+            activeWorkspaceDragTableView = nil
+        }
         activeWorkspaceDragWriter?.releaseSourceGraph()
         activeWorkspaceDragWriter = nil
 
         let abandonedContainer = activeWorkspaceDragContainerView
+        let retainedCurrentContainer = abandonedContainer === containerView
         let deferredContainers = deferredProvisionalCellDetachContainers
         deferredProvisionalCellDetachContainers.removeAll(keepingCapacity: false)
         let deferredCellDetachActions: [@MainActor () -> Void] = {
             deferredContainers.flatMap { detachLoadedCells(in: $0) }
         }()
-        if let retainedContainer = abandonedContainer {
+        if let retainedContainer = abandonedContainer, !retainedCurrentContainer {
             clearDropViewActions(in: retainedContainer)
             detachController(from: retainedContainer.tableView)
             retainedContainer.clipView.workspaceController = nil
             retainedContainer.reorderDropView.onPendingDropLifecycleEnded = nil
             activeWorkspaceDragContainerView = nil
         }
-        workspaceDragSourceCompletionReceived = false
+        if !retainedCurrentContainer {
+            workspaceDragSourceCompletionReceived = false
+        }
         clearPendingWorkspaceDragWriters()
 
         guard containerView == nil else {
