@@ -283,7 +283,8 @@ struct MobileHostServiceSettingsTests {
             activeConnectionCount: 0,
             lastErrorDescription: nil,
             irxActivationState: .active,
-            irxBrokerFailure: nil
+            irxBrokerFailure: nil,
+            effectiveIrohActivationState: .active
         )
 
         let snapshot = HostSettingsActions.mobilePairingSnapshot(from: status, now: now)
@@ -442,7 +443,8 @@ struct MobileHostTransportRouteCompositionTests {
             activeConnectionCount: 0,
             lastErrorDescription: nil,
             irxActivationState: .reauthenticationRequired,
-            irxBrokerFailure: failure
+            irxBrokerFailure: failure,
+            effectiveIrohActivationState: .reauthenticationRequired
         )
 
         let snapshot = HostSettingsActions.mobilePairingSnapshot(from: status)

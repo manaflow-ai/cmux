@@ -16,13 +16,8 @@ struct MobileHostServiceStatus {
     let irxBrokerFailure: IrxBrokerFailure?
     /// Lifecycle projection owned by the legacy Iroh runtime when irx is off.
     var legacyIrohActivationState: IrxHostActivationState = .inactive
-
-    /// Lifecycle state for the runtime that currently owns the Iroh binding.
-    var effectiveIrohActivationState: IrxHostActivationState {
-        MobileHostIrxRuntime.isEnabled
-            ? irxActivationState
-            : legacyIrohActivationState
-    }
+    /// Lifecycle state selected from the owning runtime when this snapshot was captured.
+    var effectiveIrohActivationState: IrxHostActivationState = .inactive
 
     var payload: [String: Any] {
         let now = Date()

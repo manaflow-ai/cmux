@@ -1238,6 +1238,9 @@ final class MobileHostService {
             lastErrorDescription: lastErrorDescription,
             irxActivationState: irxStatus.state,
             irxBrokerFailure: irxStatus.failure,
+            effectiveIrohActivationState: MobileHostIrxRuntime.isEnabled
+                ? irxStatus.state
+                : MobileHostIrohRuntime.shared.publishedIrohActivationState,
             legacyIrohActivationState: MobileHostIrohRuntime.shared
                 .publishedIrohActivationState
         )

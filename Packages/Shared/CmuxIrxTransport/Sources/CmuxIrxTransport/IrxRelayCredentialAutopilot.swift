@@ -275,6 +275,8 @@ public actor IrxRelayCredentialAutopilot {
                 jitterUnitInterval: Double.random(in: 0 ... 1)
             )
         }
+        let decisionFailureCount = isPostRecoveryUnauthorized
+            ? unauthorizedFailureCount : failureCount
         let event = failure.operation == .hintRefresh
             ? "hint-refresh-failed" : "mint-failed"
         switch decision {
@@ -292,11 +294,11 @@ public actor IrxRelayCredentialAutopilot {
                 now: Date(),
                 policyDelay: policyDelay,
                 retryAfterSeconds: retryAfterSeconds,
-                failureCount: failureCount
+                failureCount: decisionFailureCount
             )
             var attributes = failure.journalAttributes
             attributes["retry_delay_s"] = String(Int(delaySeconds.rounded()))
-            attributes["failure_count"] = String(failureCount)
+            attributes["failure_count"] = String(decisionFailureCount)
             journal.record("credential-autopilot", event, attributes)
             await onFailure?(failure, .retry(delay: delaySeconds))
             guard !Task.isCancelled else { return nil }
