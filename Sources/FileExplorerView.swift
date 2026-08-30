@@ -1626,7 +1626,7 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
             filePath: result.path,
             displayTitle: (result.relativePath as NSString).lastPathComponent,
             nativeSourceView: tableView,
-            nativeSourceOwner: coordinator
+            nativeSourceOwner: self
         )
     }
 
@@ -1639,7 +1639,7 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         _ = screenPoint
         _ = rowIndexes
         guard tableView === searchResultsView else { return }
-        searchResultsView.activeNativeDragOwner = coordinator
+        searchResultsView.activeNativeDragOwner = self
         searchResultsView.activeNativeDragSession = session
     }
 
