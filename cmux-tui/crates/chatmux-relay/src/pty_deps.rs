@@ -27,8 +27,8 @@ use tokio_util::sync::CancellationToken;
 
 use crate::control::{CONTROL_TIMEOUT_MS, ControlHandle, connect_control};
 use crate::pty::{
-    CmuxTui, DataSink, EnsureDaemon, ExitSink, PtyControl, PtyDeps, PtyHandle, PtyOutput,
-    SpawnSpec, session_name_ok,
+    CmuxTui, DataSink, EnsureDaemon, ExitSink, OpenPermit, PtyControl, PtyDeps, PtyHandle,
+    SpawnSpec, session_name_ok, spawn_blocking_with_open_permit,
 };
 
 const DAEMON_SOCKET_WAIT_MS: u64 = 5_000;
@@ -1088,7 +1088,12 @@ impl Drop for DaemonProcessGuard {
 
 #[async_trait]
 impl PtyDeps for RealPtyDeps {
-    async fn spawn_pty(&self, spec: SpawnSpec, cancellation: CancellationToken) -> PtyHandle {
+    async fn spawn_pty(
+        &self,
+        spec: SpawnSpec,
+        cancellation: CancellationToken,
+        permit: OpenPermit,
+    ) -> PtyHandle {
         // PTY allocation and thread setup are blocking; run off the reactor.
         // On PTY allocation failure (ptmx exhaustion et al) degrade to a
         // pipe-mode shell so the terminal still functions, with a banner.
@@ -1097,8 +1102,8 @@ impl PtyDeps for RealPtyDeps {
         let worker_handoff = Arc::clone(&handoff);
         let worker_output = Arc::clone(&output);
         let mut cancel_guard = CancelOnDrop::new(handoff);
-        let mut worker =
-            tokio::task::spawn_blocking(move || match spawn_real_pty(&spec, &worker_handoff) {
+        let mut worker = spawn_blocking_with_open_permit(permit, move || {
+            match spawn_real_pty(&spec, &worker_handoff) {
                 Ok(handle) => handle,
                 Err(error) if worker_handoff.is_cancelled() => {
                     let _ = error;
@@ -1110,7 +1115,8 @@ impl PtyDeps for RealPtyDeps {
                     }
                 }
                 Err(error) => spawn_pipe_mode(&spec, &error.to_string(), &worker_handoff),
-            });
+            }
+        });
         let result = tokio::select! {
             result = &mut worker => result,
             _ = cancellation.cancelled() => {

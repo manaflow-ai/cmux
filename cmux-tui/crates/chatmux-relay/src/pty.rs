@@ -23,7 +23,7 @@ use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use tokio::sync::{Notify, Semaphore};
+use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore};
 use tokio_util::sync::CancellationToken;
 
 use async_trait::async_trait;
@@ -249,12 +249,43 @@ pub struct EnsureDaemon {
     pub socket_path: PathBuf,
 }
 
+/// Capacity owned by one in-flight PTY open. Blocking setup workers retain a
+/// clone until their closure returns, including when the async caller is
+/// cancelled.
+#[derive(Clone)]
+pub(crate) struct OpenPermit(Arc<OwnedSemaphorePermit>);
+
+impl OpenPermit {
+    fn new(permit: OwnedSemaphorePermit) -> Self {
+        Self(Arc::new(permit))
+    }
+}
+
+/// Start blocking PTY setup without releasing its open capacity when the
+/// async owner is cancelled.
+pub(crate) fn spawn_blocking_with_open_permit<T, F>(
+    permit: OpenPermit,
+    operation: F,
+) -> tokio::task::JoinHandle<T>
+where
+    T: Send + 'static,
+    F: FnOnce() -> T + Send + 'static,
+{
+    let _ = permit;
+    tokio::task::spawn_blocking(operation)
+}
+
 #[async_trait]
 pub trait PtyDeps: Send + Sync {
     /// Start a PTY while observing the lifetime of its open operation. An
     /// implementation must reclaim any process or descriptor it creates when
     /// the token is cancelled before ownership is returned.
-    async fn spawn_pty(&self, spec: SpawnSpec, cancellation: CancellationToken) -> PtyHandle;
+    async fn spawn_pty(
+        &self,
+        spec: SpawnSpec,
+        cancellation: CancellationToken,
+        permit: OpenPermit,
+    ) -> PtyHandle;
     async fn resolve_cmux_tui(&self, cancellation: CancellationToken) -> Option<CmuxTui>;
     async fn ensure_daemon(
         &self,
@@ -965,8 +996,8 @@ impl Inner {
         // leave that task unwinding in the background, so the permit remains
         // owned until the task returns. This is the supervisor boundary that
         // makes stalled providers consume only the finite terminal budget.
-        let _open_permit = match self.open_slots.clone().try_acquire_owned() {
-            Ok(permit) => permit,
+        let open_permit = match self.open_slots.clone().try_acquire_owned() {
+            Ok(permit) => OpenPermit::new(permit),
             Err(_) => {
                 send_pty_error(context, &pty_id, "session_limit", "terminal limit reached");
                 return;
@@ -1091,6 +1122,7 @@ impl Inner {
                     server_roots.as_deref(),
                     context,
                     &cancellation,
+                    &open_permit,
                 )
                 .await
             {
@@ -1120,6 +1152,7 @@ impl Inner {
                             server_roots.as_deref(),
                             context,
                             &cancellation,
+                            &open_permit,
                         )
                         .await
                 } else {
@@ -1134,6 +1167,7 @@ impl Inner {
                             server_roots.as_deref(),
                             context,
                             &cancellation,
+                            &open_permit,
                         )
                         .await
                 };
@@ -1666,6 +1700,7 @@ impl Inner {
         server_roots: Option<&[String]>,
         context: &FrameContext,
         cancellation: &OpenCancellation,
+        open_permit: &OpenPermit,
     ) -> Result<Opened, String> {
         let socket_dir = self.deps.socket_dir();
         let cancellation_token = cancellation.token();
@@ -1787,6 +1822,7 @@ impl Inner {
                     cancellation: cancellation.token(),
                 },
                 cancellation.token(),
+                open_permit.clone(),
             )
             .await;
         let control = Arc::clone(&handle.control);
@@ -1817,6 +1853,7 @@ impl Inner {
         server_roots: Option<&[String]>,
         context: &FrameContext,
         cancellation: &OpenCancellation,
+        open_permit: &OpenPermit,
     ) -> Result<Opened, String> {
         let mut created = false;
         let shell_session = loop {
@@ -1876,6 +1913,7 @@ impl Inner {
                             cancellation: cancellation.token(),
                         },
                         cancellation.token(),
+                        open_permit.clone(),
                     )
                     .await;
                 if cancellation.is_cancelled() {
@@ -2395,6 +2433,7 @@ impl Inner {
         server_roots: Option<&[String]>,
         context: &FrameContext,
         cancellation: &OpenCancellation,
+        open_permit: &OpenPermit,
     ) -> Result<Option<Opened>, (RelayPtyErrorCode, String)> {
         let socket_dir = self.deps.socket_dir();
         let ensured = self
@@ -2888,7 +2927,12 @@ mod tests {
 
     #[async_trait]
     impl PtyDeps for FakeDeps {
-        async fn spawn_pty(&self, spec: SpawnSpec, _cancellation: CancellationToken) -> PtyHandle {
+        async fn spawn_pty(
+            &self,
+            spec: SpawnSpec,
+            _cancellation: CancellationToken,
+            _permit: OpenPermit,
+        ) -> PtyHandle {
             let pty = FakePty {
                 state: Arc::new(StdMutex::new(FakeState::default())),
                 spawn_file: spec.file.clone(),
@@ -3259,11 +3303,25 @@ mod tests {
         cancellation.cancel();
         let context = h.context("supervised", h.owner.clone());
         let env = env_map(&h.home);
+        let open_permit = OpenPermit::new(
+            h.manager.inner.open_slots.clone().try_acquire_owned().expect("open permit"),
+        );
 
         // The fake returns a handle even for a cancelled token. This models a
         // blocking provider that finishes its spawn while cancellation wins.
         let result = Arc::clone(&h.manager.inner)
-            .open_shell("cancelled", 80, 24, &h.home, &env, "p1", None, &context, &cancellation)
+            .open_shell(
+                "cancelled",
+                80,
+                24,
+                &h.home,
+                &env,
+                "p1",
+                None,
+                &context,
+                &cancellation,
+                &open_permit,
+            )
             .await;
 
         assert_eq!(result.err().as_deref(), Some("terminal open cancelled"));
@@ -3902,6 +3960,28 @@ mod tests {
         task.await.unwrap();
         assert!(h.recorded.lock().unwrap().spawned.is_empty());
         assert_eq!(manager.attachment_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn blocking_open_worker_keeps_its_permit_until_completion() {
+        let slots = Arc::new(Semaphore::new(1));
+        let permit = OpenPermit::new(slots.clone().try_acquire_owned().expect("open permit"));
+        let (started_tx, started_rx) = sync_channel(1);
+        let (release_tx, release_rx) = sync_channel(1);
+        let worker = spawn_blocking_with_open_permit(permit, move || {
+            started_tx.send(()).expect("worker start receiver");
+            release_rx.recv().expect("worker release sender");
+        });
+
+        started_rx.recv_timeout(Duration::from_secs(1)).expect("blocking worker must start");
+        assert!(
+            slots.clone().try_acquire_owned().is_err(),
+            "cancelled open capacity must stay held by the blocking worker"
+        );
+
+        release_tx.send(()).expect("worker release receiver");
+        worker.await.expect("blocking worker join");
+        assert!(slots.try_acquire_owned().is_ok(), "open permit returns after worker completion");
     }
 
     #[tokio::test]

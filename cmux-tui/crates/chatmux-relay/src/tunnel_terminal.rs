@@ -1035,7 +1035,12 @@ mod tests {
 
     #[async_trait]
     impl PtyDeps for FakeDeps {
-        async fn spawn_pty(&self, _spec: SpawnSpec, _cancellation: CancellationToken) -> PtyHandle {
+        async fn spawn_pty(
+            &self,
+            _spec: SpawnSpec,
+            _cancellation: CancellationToken,
+            _permit: crate::pty::OpenPermit,
+        ) -> PtyHandle {
             let pty = FakePty { state: Arc::new(StdMutex::new(FakeState::default())) };
             self.spawned.lock().unwrap().push(pty.clone());
             PtyHandle {
@@ -1271,7 +1276,7 @@ mod tests {
         while let Some(message) = writer_rx.recv().await {
             match message {
                 WriterMessage::Frame(frame)
-                    if frame.len() > 1 && frame[1] == FRAME_KIND_CONTROL =>
+                    if frame.len() > HEADER_BYTES && frame[4] == FRAME_KIND_CONTROL =>
                 {
                     let payload = &frame[5..];
                     let value: Value = serde_json::from_slice(payload).expect("error frame");
