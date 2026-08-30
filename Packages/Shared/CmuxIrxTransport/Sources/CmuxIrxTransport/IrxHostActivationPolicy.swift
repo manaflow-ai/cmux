@@ -23,11 +23,13 @@ public enum IrxHostActivationState: String, Codable, Equatable, Sendable {
 /// owns the injected ``CmxIrohRelayClock`` and performs the cancellable wait;
 /// this type only derives a bounded delay from the classified broker result.
 public struct IrxHostActivationPolicy: Equatable, Sendable {
-    private static let maximumPostRecoveryUnauthorizedFailures = 2
-    private static let maximumMissingAuthenticationFailures = 2
+    private static let defaultPostRecoveryUnauthorizedFailureLimit = 2
+    private static let defaultMissingAuthenticationFailureLimit = 2
 
     /// The first and maximum retry bounds used by an irx host.
     public let retrySchedule: CmxIrohRetrySchedule
+    private let postRecoveryUnauthorizedFailureLimit: Int
+    private let missingAuthenticationFailureLimit: Int
 
     /// The outcome of classifying one activation failure.
     public enum Decision: Equatable, Sendable {
@@ -38,9 +40,17 @@ public struct IrxHostActivationPolicy: Equatable, Sendable {
 
     /// Creates an activation policy.
     public init(
-        retrySchedule: CmxIrohRetrySchedule = .foregroundClient
+        retrySchedule: CmxIrohRetrySchedule = .foregroundClient,
+        postRecoveryUnauthorizedFailureLimit: Int =
+            Self.defaultPostRecoveryUnauthorizedFailureLimit,
+        missingAuthenticationFailureLimit: Int =
+            Self.defaultMissingAuthenticationFailureLimit
     ) {
         self.retrySchedule = retrySchedule
+        self.postRecoveryUnauthorizedFailureLimit = max(
+            1, min(20, postRecoveryUnauthorizedFailureLimit))
+        self.missingAuthenticationFailureLimit = max(
+            1, min(20, missingAuthenticationFailureLimit))
     }
 
     /// Classifies a failure and computes its next bounded retry delay.
@@ -67,13 +77,13 @@ public struct IrxHostActivationPolicy: Equatable, Sendable {
         // broker persistently rejects the rotated pair.
         if escalateUnauthorized,
            failure.statusCode == 401,
-           failureCount >= Self.maximumPostRecoveryUnauthorizedFailures {
+           failureCount >= postRecoveryUnauthorizedFailureLimit {
             return .reauthenticationRequired
         }
         if escalateUnauthorized,
            failure.statusCode == nil,
            failure.errorCode == "missing_authentication",
-           failureCount >= Self.maximumMissingAuthenticationFailures {
+           failureCount >= missingAuthenticationFailureLimit {
             return .reauthenticationRequired
         }
         if failure.requiresReauthentication {
