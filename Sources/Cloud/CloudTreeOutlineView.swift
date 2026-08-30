@@ -297,13 +297,17 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 }
             case .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .browsersGroup:
                 toggle(node)
-            case .workspace(let machine, let workspace, _):
-                // Open-or-focus (D13). Already showing in a pane -> focus that pane.
+            case .workspace(let machine, let workspace, _, let openIn):
+                // Open-or-focus (D13). Already showing in a local workspace -> go there
+                // (the row's open mark says so) instead of opening a second copy; a
+                // stray pane showing one of its terminals -> focus that pane.
                 // Otherwise the remote workspace opens as its OWN local workspace —
                 // remote and local workspaces never intermingle. D9: open never
                 // creates — an empty workspace row opens nothing here; its "+" and
                 // menu own creation.
-                if let shown = node.children.first(where: { child in
+                if let openIn {
+                    nodeActions.selectLocalWorkspace(openIn)
+                } else if let shown = node.children.first(where: { child in
                     if case .terminal(let row) = child.kind { return row.isOpen }
                     return false
                 }), case .terminal(let openRow) = shown.kind {
@@ -440,13 +444,17 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     item(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) { [nodeActions] in nodeActions.newTerminal(machine, nil) },
                     item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
                 ]
-            case .workspace(let machine, let workspace, _):
+            case .workspace(let machine, let workspace, _, let openIn):
+                // One open verb, THE SAME PATH as double-click and Return (`open`):
+                // jump to the local workspace already showing it (the verb says so),
+                // focus a stray pane showing one of its terminals, refuse an empty
+                // group, else open as an own local workspace (remote and local never
+                // intermingle, D13).
+                let openTitle = openIn == nil
+                    ? String(localized: "cloudTree.menu.openWorkspace", defaultValue: "Open Workspace")
+                    : String(localized: "cloudTree.menu.selectWorkspace", defaultValue: "Go to Workspace")
                 return [
-                    // One open verb, THE SAME PATH as double-click and Return (`open`):
-                    // focus the pane already showing the workspace instead of opening a
-                    // duplicate, refuse an empty group, else open as an own local
-                    // workspace (remote and local never intermingle, D13).
-                    item(String(localized: "cloudTree.menu.openWorkspace", defaultValue: "Open Workspace")) { [weak self] in self?.open(node) },
+                    item(openTitle) { [weak self] in self?.open(node) },
                     item(String(localized: "cloudTree.menu.newTerminalHere", defaultValue: "New Terminal Here")) { [nodeActions] in nodeActions.newTerminal(machine, workspace.id) },
                     .separator(),
                     item(String(localized: "cloudTree.menu.renameWorkspace", defaultValue: "Rename\u{2026}")) { [nodeActions] in nodeActions.renameWorkspace(machine, workspace) },
