@@ -667,6 +667,23 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         func outlineView(_ outlineView: NSOutlineView, draggingSession session: NSDraggingSession, willBeginAt screenPoint: NSPoint, forItems draggedItems: [Any]) {
             _ = screenPoint
             _ = draggedItems
+            if activeDrag != nil {
+                if let activeSession = (outlineView as? CloudTreeNSOutlineView)?.activeNativeDragSession,
+                   activeSession === session {
+                    // AppKit may repeat begin while it hands the same native
+                    // session across a reconstructed outline. The first
+                    // promotion owns the registration and source generation.
+                    return
+                }
+                if let activeSequenceNumber,
+                   session.draggingSequenceNumber <= activeSequenceNumber {
+                    return
+                }
+                // A newer begin is a native boundary even when the older
+                // outline omitted `endedAt`; retire the older registration
+                // before promoting this writer.
+                reclaimSupersededNativeDragIfNeeded()
+            }
             let pendingToken: UUID? = {
                 if let writer = latestPendingDragWriter,
                    writer.sourceViewForDrag === outlineView {
