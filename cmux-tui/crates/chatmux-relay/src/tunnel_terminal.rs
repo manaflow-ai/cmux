@@ -1237,6 +1237,7 @@ mod tests {
         (
             Connection {
                 pty_id: "queue-test".to_owned(),
+                transport_generation: 0,
                 manager,
                 writer_tx,
                 end_permit: StdMutex::new(Some(end_permit)),
