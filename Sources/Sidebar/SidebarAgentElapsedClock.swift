@@ -21,10 +21,6 @@ final class SidebarAgentElapsedClock {
         self.scheduler = MainActorDeferredActionScheduler(clock: clock)
     }
 
-    deinit {
-        scheduler.cancel()
-    }
-
     /// Diagnostic demand state for tests and owner introspection. Registration
     /// is intentionally non-observed by the lazy sidebar parent.
     @ObservationIgnored
