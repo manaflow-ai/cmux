@@ -621,12 +621,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             guard let node = item as? CloudTreeNode, node.isDragSource,
                   let group = node.dragGroup, let lead = group.resources.first,
                   let transferRegistry = tabDragTransferRegistry() else { return nil }
-            // A fresh writer request is the next native pointer boundary. If
-            // AppKit suppressed the prior source's `endedAt`, retire only that
-            // superseded registration before publishing the new capability.
-            if activeDrag != nil || isDragging {
-                reclaimSupersededNativeDragIfNeeded(keepPresentationFrozen: true)
-            }
+            // Do not mutate the outline while AppKit is asking for this
+            // writer. The `willBeginAt` callback below is the next native
+            // boundary and performs any superseded-source reclamation after
+            // this data-source callback has returned.
             let dragID = SurfaceResourceDragRegistry.shared.register(group)
             guard let registration = SurfaceResourceDragPayload(group: group, leadKind: lead.kind, dragID: dragID)
                 .register(with: transferRegistry) else {

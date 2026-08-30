@@ -95,6 +95,93 @@ struct FileExplorerNativeDragOwnershipTests {
         }
     }
 
+    @Test("A newer search drag fences a source whose endedAt was lost")
+    func newerSearchDragReclaimsSupersededSource() throws {
+        let searchController = SearchResultsDragTestSearchController()
+        let store = FileExplorerStore()
+        let state = FileExplorerState()
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .find,
+            searchController: searchController
+        )
+        searchController.publish(FileSearchSnapshot(
+            query: "needle",
+            results: [FileSearchResult(
+                path: "/tmp/search-result.txt",
+                relativePath: "search-result.txt",
+                lineNumber: 1,
+                columnNumber: 1,
+                preview: "needle"
+            )],
+            status: .matches,
+            isSearching: false
+        ))
+
+        var firstWriter: (any NSPasteboardWriting)? = container.tableView(
+            container.searchResultsView,
+            pasteboardWriterForRow: 0
+        )
+        let firstSession = SearchResultsDragTestSession(
+            sequence: 1,
+            pasteboard: NSPasteboard(
+                name: NSPasteboard.Name("file-explorer-first-\(UUID().uuidString)")
+            )
+        )
+        container.tableView(
+            container.searchResultsView,
+            draggingSession: firstSession,
+            willBeginAt: .zero,
+            forRowIndexes: IndexSet(integer: 0)
+        )
+
+        var secondWriter: (any NSPasteboardWriting)? = container.tableView(
+            container.searchResultsView,
+            pasteboardWriterForRow: 0
+        )
+        let secondSession = SearchResultsDragTestSession(
+            sequence: 2,
+            pasteboard: NSPasteboard(
+                name: NSPasteboard.Name("file-explorer-second-\(UUID().uuidString)")
+            )
+        )
+        container.tableView(
+            container.searchResultsView,
+            draggingSession: secondSession,
+            willBeginAt: .zero,
+            forRowIndexes: IndexSet(integer: 0)
+        )
+
+        #expect(container.searchResultsView.activeNativeDragOwner === container)
+        #expect(container.searchResultsView.activeNativeDragSession === secondSession)
+
+        // A late callback from the superseded source must not clear the new
+        // owner/session pair.
+        container.tableView(
+            container.searchResultsView,
+            draggingSession: firstSession,
+            endedAt: .zero,
+            operation: []
+        )
+        #expect(container.searchResultsView.activeNativeDragSession === secondSession)
+
+        container.tableView(
+            container.searchResultsView,
+            draggingSession: secondSession,
+            endedAt: .zero,
+            operation: []
+        )
+        #expect(container.searchResultsView.activeNativeDragOwner == nil)
+        #expect(container.searchResultsView.activeNativeDragSession == nil)
+        firstWriter = nil
+        secondWriter = nil
+    }
+
     @MainActor
     private final class SearchResultsDragTestSession: NSDraggingSession {
         private let sessionPasteboard: NSPasteboard
