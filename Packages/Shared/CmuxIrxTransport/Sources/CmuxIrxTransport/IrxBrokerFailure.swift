@@ -109,8 +109,15 @@ public struct IrxBrokerFailure: Error, Codable, Equatable, Sendable {
                 statusCode = status
                 errorCode = code ?? "http_\(status)"
                 retryAfterSeconds = nil
-            case .invalidBaseURL, .nonHTTPResponse, .invalidResponse:
+            case .invalidBaseURL, .nonHTTPResponse:
                 kind = .invalid
+                statusCode = nil
+                errorCode = broker.code
+                retryAfterSeconds = nil
+            case .invalidResponse:
+                // A malformed broker response is commonly a deploy/proxy
+                // blip. Keep it retryable while preserving a stable code.
+                kind = .transient
                 statusCode = nil
                 errorCode = broker.code
                 retryAfterSeconds = nil
@@ -196,7 +203,7 @@ public struct IrxBrokerFailure: Error, Codable, Equatable, Sendable {
             "account_mismatch"
         ].contains(code?.lowercased() ?? ""):
             .authenticationRequired
-        case 408, 425, 429, 500 ... 599:
+        case 404, 408, 425, 429, 500 ... 599:
             .transient
         default:
             .rejected

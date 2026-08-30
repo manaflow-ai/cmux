@@ -18,7 +18,14 @@ extension IrxBrokerService {
             throw failure.with(operation: operation)
         } catch {
             onError?(error)
-            throw IrxBrokerFailure(operation: operation, error: error)
+            // Broker responses can be malformed during a deploy or proxy
+            // transition. Keep them on the bounded recovery ladder; callers
+            // that know an input is permanently invalid classify it explicitly.
+            throw IrxBrokerFailure(
+                operation: operation,
+                error: error,
+                fallbackKind: .transient
+            )
         }
     }
 }

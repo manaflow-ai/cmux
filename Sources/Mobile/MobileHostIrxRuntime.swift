@@ -290,7 +290,7 @@ final class MobileHostIrxRuntime {
                 setActivationState(.active)
             }
             if deferredHintFailure != nil {
-                await pilot.kick()
+                await pilot.kick(immediately: true)
             }
         } catch is CancellationError {
             return

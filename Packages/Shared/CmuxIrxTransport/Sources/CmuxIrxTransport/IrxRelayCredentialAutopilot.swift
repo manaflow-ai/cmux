@@ -67,12 +67,12 @@ public actor IrxRelayCredentialAutopilot {
     }
 
     /// Foreground/resume kick: restart the loop so a suspension can never
-    /// leave a stale sleep deadline in charge of renewal. A kick also forces
-    /// one immediate mint so deferred hint recovery does not wait for the
-    /// cached credential's normal refresh deadline.
-    public func kick() {
+    /// leave a stale sleep deadline in charge of renewal. Pass `immediately`
+    /// only when the caller has a known pending rotation that must run now;
+    /// ordinary foregrounding re-evaluates credential freshness first.
+    public func kick(immediately: Bool = false) {
         loop?.cancel()
-        loop = Task { await self.run(bypassRefreshDeadlineOnce: true) }
+        loop = Task { await self.run(bypassRefreshDeadlineOnce: immediately) }
         journal.record("credential-autopilot", "kicked")
     }
 
@@ -102,8 +102,7 @@ public actor IrxRelayCredentialAutopilot {
                 guard !Task.isCancelled else { return }
                 await endpoint.rotateCredentials(minted)
                 guard !Task.isCancelled else { return }
-                try await onRotation?()
-                guard !Task.isCancelled else { return }
+                guard await refreshHint(initialFailureCount: 0) else { return }
                 failureCount = 0
             } catch is CancellationError {
                 return
@@ -116,48 +115,88 @@ public actor IrxRelayCredentialAutopilot {
                         fallbackKind: .transient
                     )
                 let expiry = credentials.map(\.expiresAt).max()
-                let decision = IrxHostActivationPolicy().decision(
-                    for: failure,
+                guard let nextFailureCount = await waitForRetry(
+                    after: failure,
                     failureCount: failureCount,
-                    jitterUnitInterval: Double.random(in: 0 ... 1)
-                )
-                if case .reauthenticationRequired = decision {
-                    journal.record(
-                        "credential-autopilot", "mint-failed", failure.journalAttributes)
-                    await onFailure?(failure)
-                    return
-                }
-                if case .stopped = decision {
-                    journal.record(
-                        "credential-autopilot", "mint-stopped", failure.journalAttributes)
-                    await onFailure?(failure)
-                    return
-                }
-                let policyDelay: TimeInterval
-                switch decision {
-                case let .retry(delay, _): policyDelay = delay
-                case .stopped, .reauthenticationRequired: policyDelay = 1
-                }
-                let delaySeconds = IrxRelayCredentialPolicy.boundedRetryDelay(
-                    expiresAt: expiry,
-                    now: Date(),
-                    policyDelay: policyDelay,
-                    retryAfterSeconds: failure.retryAfterSeconds
-                )
-                var failureAttributes = failure.journalAttributes
-                failureAttributes["retry_delay_s"] = String(Int(delaySeconds.rounded()))
-                failureAttributes["failure_count"] = String(failureCount)
-                journal.record(
-                    "credential-autopilot", "mint-failed",
-                    failureAttributes
-                )
-                await onFailure?(failure)
-                failureCount = min(failureCount + 1, 20)
+                    credentialExpiry: expiry
+                ) else { return }
+                failureCount = nextFailureCount
                 bypassRefreshDeadlineOnce = true
-                try? await clock.sleep(
-                    until: clock.now().addingTimeInterval(delaySeconds)
-                )
             }
+        }
+    }
+
+    /// Retries a failed hint registration without minting another credential.
+    /// A hint outage must not turn a healthy credential into a mint loop.
+    private func refreshHint(initialFailureCount: Int) async -> Bool {
+        var failureCount = initialFailureCount
+        while !Task.isCancelled {
+            do {
+                try await onRotation?()
+                return !Task.isCancelled
+            } catch is CancellationError {
+                return false
+            } catch {
+                guard !Task.isCancelled else { return false }
+                let failure = error as? IrxBrokerFailure
+                    ?? IrxBrokerFailure(
+                        operation: .hintRefresh,
+                        error: error,
+                        fallbackKind: .transient
+                    )
+                guard let nextFailureCount = await waitForRetry(
+                    after: failure,
+                    failureCount: failureCount,
+                    credentialExpiry: nil
+                ) else { return false }
+                failureCount = nextFailureCount
+            }
+        }
+        return false
+    }
+
+    /// Journals one classified failure, notifies the lifecycle owner, and
+    /// performs its cancellable bounded wait. `nil` means the owner chose a
+    /// terminal state such as reauthentication or an explicit failure.
+    private func waitForRetry(
+        after failure: IrxBrokerFailure,
+        failureCount: Int,
+        credentialExpiry: Date?
+    ) async -> Int? {
+        let decision = IrxHostActivationPolicy().decision(
+            for: failure,
+            failureCount: failureCount,
+            jitterUnitInterval: Double.random(in: 0 ... 1)
+        )
+        let event = failure.operation == .hintRefresh
+            ? "hint-refresh-failed" : "mint-failed"
+        switch decision {
+        case .reauthenticationRequired:
+            journal.record("credential-autopilot", event, failure.journalAttributes)
+            await onFailure?(failure)
+            return nil
+        case .stopped:
+            journal.record("credential-autopilot", "mint-stopped", failure.journalAttributes)
+            await onFailure?(failure)
+            return nil
+        case let .retry(policyDelay, retryAfterSeconds):
+            let delaySeconds = IrxRelayCredentialPolicy.boundedRetryDelay(
+                expiresAt: credentialExpiry,
+                now: Date(),
+                policyDelay: policyDelay,
+                retryAfterSeconds: retryAfterSeconds
+            )
+            var attributes = failure.journalAttributes
+            attributes["retry_delay_s"] = String(Int(delaySeconds.rounded()))
+            attributes["failure_count"] = String(failureCount)
+            journal.record("credential-autopilot", event, attributes)
+            await onFailure?(failure)
+            guard !Task.isCancelled else { return nil }
+            try? await clock.sleep(
+                until: clock.now().addingTimeInterval(delaySeconds)
+            )
+            guard !Task.isCancelled else { return nil }
+            return min(failureCount + 1, 20)
         }
     }
 

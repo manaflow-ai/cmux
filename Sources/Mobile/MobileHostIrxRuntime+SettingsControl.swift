@@ -132,6 +132,13 @@ extension MobileHostIrxRuntime: CmxIrohSettingsControlling {
     func resetIrohSettingsToDefaults() async throws {}
 
     func refreshIrohSettings() async {
+        if activationState == .failed, let accountID = activeAccountID {
+            activationRetryFailureCount = 0
+            setActivationState(.activating)
+            Self.journal.record("host-runtime", "activation-retry-requested")
+            startActivation(accountID: accountID)
+            return
+        }
         guard let broker = brokerService else {
             hadLiveDiscovery = false
             publishIrxSettingsUpdate()
