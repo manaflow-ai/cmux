@@ -21,6 +21,7 @@ path = "src/bin/cmux-tui-hook.rs"
 [dependencies]
 ghostty-vt.workspace = true
 cmux-tui-core.workspace = true
+cmux-tui-cdp.workspace = true
 cmux-tui-machine-agent-protocol.workspace = true
 cmux-tui-machine-protocol.workspace = true
 ratatui.workspace = true
@@ -54,6 +55,7 @@ url.workspace = true
 async-trait.workspace = true
 
 [target.'cfg(windows)'.dependencies]
+tokio.workspace = true
 windows-sys.workspace = true
 
 [dev-dependencies]
