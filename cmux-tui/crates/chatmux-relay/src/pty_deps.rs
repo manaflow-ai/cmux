@@ -643,9 +643,7 @@ impl PtyControl for MasterControl {
     fn pause(&self) {}
     fn resume(&self) {}
     fn kill(&self) {
-        if let Ok(mut killer) = self.killer.lock() {
-            let _ = killer.kill();
-        }
+        self.terminate();
     }
 }
 
