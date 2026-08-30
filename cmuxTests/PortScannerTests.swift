@@ -1088,6 +1088,56 @@ private actor ScriptedCommandRunner: CommandRunning {
 
 @Suite("Port scanner lifecycle")
 struct PortScannerLifecycleTests {
+    @Test("A stale completion preserves a pending rescan under the current generation")
+    func staleCompletionDoesNotConsumePendingRescan() async {
+        let runner = ScriptedCommandRunner(results: [])
+        let scanner = PortScanner(commandRunner: runner)
+        let workspaceID = UUID()
+        let panelID = UUID()
+        await MainActor.run {
+            scanner.registerTTY(workspaceId: workspaceID, panelId: panelID, ttyName: "ttys999")
+        }
+
+        // Simulate an in-flight scan from generation zero, then invalidate it.
+        scanner.queue.sync {
+            _ = scanner.scanCoordination.beginPanelScan()
+            _ = scanner.scanCoordination.beginPanelScan()
+        }
+        await MainActor.run {
+            scanner.unregisterPanel(workspaceId: workspaceID, panelId: panelID)
+        }
+        scanner.queue.sync {}
+        await MainActor.run {
+            scanner.registerTTY(workspaceId: workspaceID, panelId: panelID, ttyName: "ttys999")
+        }
+        scanner.queue.sync {
+            scanner.completePanelScan(
+                generation: 0,
+                [],
+                panelTTYs: [:],
+                panelRevisions: [:],
+                workspaceIds: [],
+                agentPortsByWorkspace: [:],
+                panelPortOwnersByKey: [:],
+                panelProcessIdentitiesByKey: [:],
+                agentPortOwnersByWorkspace: [:],
+                agentProcessIdentitiesByWorkspace: [:],
+                agentRevisions: [:],
+                panelCompletenessByKey: [:],
+                panelProcessScopeCompletenessByKey: [:],
+                agentCompletenessByWorkspace: [:],
+                agentProcessScopeCompletenessByWorkspace: [:],
+                panelLsofEvidence: PortLsofScanResult(values: [:], globallyComplete: true, incompletePIDs: []),
+                agentLsofEvidence: nil,
+                inspectedPIDs: [],
+                requestID: 0
+            )
+        }
+        await runner.waitForInvocation()
+        let calls = await runner.recordedArguments
+        #expect(!calls.isEmpty)
+    }
+
     @Test("Unregister preserves a pending burst for other panels")
     func unregisterPreservesOtherPanelBurst() async {
         let runner = ScriptedCommandRunner(results: [])
