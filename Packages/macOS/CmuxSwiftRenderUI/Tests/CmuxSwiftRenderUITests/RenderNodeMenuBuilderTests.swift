@@ -189,6 +189,39 @@ struct RenderNodeMenuBuilderTests {
         #expect(menu.items[2].isEnabled)
     }
 
+    @Test("container onTapGesture actions become menu items while descendants remain")
+    func containerActionsPreserved() throws {
+        let box = MenuActionCapture()
+        let stackAction = ButtonAction(commands: [.log("stack")])
+        let sectionAction = ButtonAction(commands: [.log("section")])
+        let menuAction = ButtonAction(commands: [.log("menu")])
+        let nodes = [
+            RenderNode(kind: .vstack, text: "Stack", children: [
+                RenderNode(kind: .button, text: "Stack child", action: ButtonAction(commands: [.log("stack-child")])),
+            ], action: stackAction),
+            RenderNode(kind: .section, text: "Section", children: [
+                RenderNode(kind: .button, text: "Section child", action: ButtonAction(commands: [.log("section-child")])),
+            ], action: sectionAction),
+            RenderNode(kind: .menu, text: "Menu", children: [
+                RenderNode(kind: .button, text: "Menu child", action: ButtonAction(commands: [.log("menu-child")])),
+            ], action: menuAction),
+        ]
+
+        let menu = RenderNodeContextMenuBuilder(dispatch: capturingDispatch(box)).makeMenu(nodes: nodes)
+
+        #expect(menu.items.map(\.title) == ["Stack", "Stack child", "Section", "Section child", "Menu", "Menu"])
+        #expect(menu.items[0].isEnabled)
+        #expect(menu.items[2].isEnabled)
+        #expect(menu.items[4].isEnabled)
+        let submenu = try #require(menu.items[5].submenu)
+        #expect(submenu.items.map(\.title) == ["Menu child"])
+
+        fire(menu.items[0])
+        fire(menu.items[2])
+        fire(menu.items[4])
+        #expect(box.actions == [stackAction, sectionAction, menuAction])
+    }
+
     @Test("non-representable kinds fall back to text-only rows or are skipped")
     func nonRepresentableFallback() {
         let nodes = [
