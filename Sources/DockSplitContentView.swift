@@ -94,42 +94,6 @@ struct DockPointerInteractionHost: NSViewRepresentable {
     }
 }
 
-/// Carries immutable AppKit teardown handles into a MainActor cleanup call when
-/// an AppKit view is released off-main. The handles are consumed once by the
-/// owning view's deinit and are never inspected by background code.
-private final class DockPointerTeardown: @unchecked Sendable {
-    let store: DockSplitStore?
-    let eventMonitor: Any?
-    let windowResignKeyObserver: NSObjectProtocol?
-    let applicationResignActiveObserver: NSObjectProtocol?
-
-    init(
-        store: DockSplitStore?,
-        eventMonitor: Any?,
-        windowResignKeyObserver: NSObjectProtocol?,
-        applicationResignActiveObserver: NSObjectProtocol?
-    ) {
-        self.store = store
-        self.eventMonitor = eventMonitor
-        self.windowResignKeyObserver = windowResignKeyObserver
-        self.applicationResignActiveObserver = applicationResignActiveObserver
-    }
-
-    @MainActor
-    func perform() {
-        store?.cancelDockPointerInteraction()
-        if let eventMonitor {
-            NSEvent.removeMonitor(eventMonitor)
-        }
-        if let windowResignKeyObserver {
-            NotificationCenter.default.removeObserver(windowResignKeyObserver)
-        }
-        if let applicationResignActiveObserver {
-            NotificationCenter.default.removeObserver(applicationResignActiveObserver)
-        }
-    }
-}
-
 @MainActor
 final class DockPointerInteractionHostView: NSView {
     private enum DockPointerHitTarget {
@@ -144,25 +108,20 @@ final class DockPointerInteractionHostView: NSView {
     private var applicationResignActiveObserver: NSObjectProtocol?
 
     deinit {
-        // `deinit` is nonisolated under Swift 6. Remove AppKit monitors and
-        // observers directly so a skipped SwiftUI dismantle cannot leak a
-        // process-wide callback.
-        let teardown = DockPointerTeardown(
-            store: store,
-            eventMonitor: eventMonitor,
-            windowResignKeyObserver: windowResignKeyObserver,
-            applicationResignActiveObserver: applicationResignActiveObserver
-        )
-        if Thread.isMainThread {
-            MainActor.assumeIsolated {
-                teardown.perform()
+        // `deinit` is nonisolated under Swift 6. SwiftUI's dismantle callback
+        // owns off-main teardown; this fallback reads AppKit state only after
+        // proving that deallocation is on the MainActor.
+        guard Thread.isMainThread else { return }
+        MainActor.assumeIsolated {
+            store?.cancelDockPointerInteraction()
+            if let eventMonitor {
+                NSEvent.removeMonitor(eventMonitor)
             }
-        } else {
-            // AppKit normally releases this view on the main thread. Keep the
-            // uncommon off-main teardown safe without touching actor state
-            // synchronously from the wrong executor.
-            Task { @MainActor [teardown] in
-                teardown.perform()
+            if let windowResignKeyObserver {
+                NotificationCenter.default.removeObserver(windowResignKeyObserver)
+            }
+            if let applicationResignActiveObserver {
+                NotificationCenter.default.removeObserver(applicationResignActiveObserver)
             }
         }
     }
@@ -183,13 +142,11 @@ final class DockPointerInteractionHostView: NSView {
         let monitor = NSEvent.addLocalMonitorForEvents(
             matching: [
                 .leftMouseDown,
-                .leftMouseDragged,
                 .leftMouseUp,
                 .rightMouseDown,
                 .rightMouseUp,
                 .otherMouseDown,
                 .otherMouseUp,
-                .keyDown,
             ]
         ) { [weak self] event in
             self?.handle(event: event)
@@ -235,13 +192,11 @@ final class DockPointerInteractionHostView: NSView {
         guard let window else { return }
         guard event.window === window else {
             if event.type == .leftMouseDown
-                || event.type == .leftMouseDragged
                 || event.type == .leftMouseUp
                 || event.type == .rightMouseDown
                 || event.type == .rightMouseUp
                 || event.type == .otherMouseDown
-                || event.type == .otherMouseUp
-                || event.type == .keyDown {
+                || event.type == .otherMouseUp {
                 store?.cancelDockPointerInteraction()
             }
             return
@@ -278,14 +233,8 @@ final class DockPointerInteractionHostView: NSView {
                 // consume.
                 store?.noteKeyboardFocusIntent(window: window)
             }
-        case .leftMouseDragged:
-            store?.markDockPointerInteractionDragging(window: window)
         case .leftMouseUp:
             store?.releaseDockPointerInteraction(window: window)
-        case .keyDown:
-            // A released origin that never produced a Bonsplit callback must
-            // not survive into a later programmatic selection.
-            store?.cancelDockPointerInteraction(window: window)
         case .rightMouseDown, .rightMouseUp, .otherMouseDown, .otherMouseUp:
             store?.cancelDockPointerInteraction(window: window)
         default:

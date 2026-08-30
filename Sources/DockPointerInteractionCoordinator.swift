@@ -9,7 +9,6 @@ final class DockPointerInteractionCoordinator {
     enum Phase: Equatable {
         case idle
         case pressed
-        case dragging
         case released
     }
 
@@ -36,16 +35,22 @@ final class DockPointerInteractionCoordinator {
         phase = .pressed
     }
 
-    /// Records that the pointer crossed into a tab drag.
-    func markDragging(in window: NSWindow?) {
-        guard phase == .pressed, matches(window: window) else { return }
-        phase = .dragging
-    }
-
-    /// Retains the transaction after mouse-up so a delayed Bonsplit selection
-    /// callback can still consume its explicit user origin.
-    func markReleased(in window: NSWindow?) {
-        guard (phase == .pressed || phase == .dragging), matches(window: window) else {
+    /// Retains the transaction after mouse-up only when Bonsplit's selection
+    /// identity already changed. A click that produced no selection change is
+    /// complete, so its origin is cancelled before a later programmatic event.
+    func markReleased(
+        in window: NSWindow?,
+        currentPaneID: PaneID? = nil,
+        currentTabID: TabID? = nil
+    ) {
+        guard phase == .pressed, matches(window: window) else {
+            return
+        }
+        if let currentPaneID,
+           let currentTabID,
+           initialPaneID == currentPaneID,
+           initialTabID == currentTabID {
+            cancel()
             return
         }
         phase = .released
@@ -63,8 +68,7 @@ final class DockPointerInteractionCoordinator {
 
     /// Consumes the origin for a selection callback whose pane/tab changed.
     /// Returns the originating window so the caller can publish focus to the
-    /// correct window-scoped coordinator. A drag is allowed to consume even
-    /// when Bonsplit reports the same selection identity during reparenting.
+    /// correct window-scoped coordinator.
     func consumeSelection(
         in window: NSWindow?,
         paneID: PaneID,
@@ -78,7 +82,15 @@ final class DockPointerInteractionCoordinator {
             return nil
         }
         let selectionChanged = initialPaneID != paneID || initialTabID != tabID
-        guard selectionChanged || phase == .dragging else { return nil }
+        guard selectionChanged else {
+            // A released callback that reports the original selection is the
+            // terminal callback for this pointer sequence. Keeping it alive
+            // would let a later programmatic reselection consume the origin.
+            if phase == .released {
+                cancel()
+            }
+            return nil
+        }
         let owner = originWindow ?? window
         cancel()
         return owner
@@ -105,16 +117,15 @@ extension DockSplitStore {
         noteKeyboardFocusIntent(window: window)
     }
 
-    /// Advances a Dock pointer transaction into its drag phase.
-    func markDockPointerInteractionDragging(window: NSWindow?) {
-        guard isVisibleInUI, scope == .global else { return }
-        dockPointerInteractionCoordinator.markDragging(in: window)
-    }
-
     /// Retains a Dock pointer origin after mouse-up for delayed Bonsplit
     /// callbacks; the next unrelated pointer/key/lifecycle event cancels it.
     func releaseDockPointerInteraction(window: NSWindow?) {
-        dockPointerInteractionCoordinator.markReleased(in: window)
+        let selection = focusedDockSurfaceSelection()
+        dockPointerInteractionCoordinator.markReleased(
+            in: window,
+            currentPaneID: selection?.paneId,
+            currentTabID: selection.map { TabID(uuid: $0.tab.id) }
+        )
     }
 
     /// Cancels an unconsumed Dock pointer origin at a real event/lifecycle

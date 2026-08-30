@@ -1709,6 +1709,21 @@ struct DockShortcutRoutingTests {
                 tabID: selectedTab
             ) == nil
         )
+
+        coordinator.begin(
+            window: window,
+            initialPaneID: pane,
+            initialTabID: selectedTab
+        )
+        coordinator.markReleased(in: window)
+        #expect(
+            coordinator.consumeSelection(
+                in: window,
+                paneID: pane,
+                tabID: selectedTab
+            ) == nil
+        )
+        #expect(coordinator.phase == .idle)
     }
 
     @Test("Programmatic Dock selection has no pointer origin to consume")

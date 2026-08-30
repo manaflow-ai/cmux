@@ -275,11 +275,17 @@ extension AppDelegate {
     func routeSplitToFocusedDock(
         kind: DockSurfaceKind,
         direction: SplitDirection,
-        action _: KeyboardShortcutSettings.Action,
+        action: KeyboardShortcutSettings.Action,
         preferredWindow: NSWindow?,
         preferredDock: DockSplitStore? = nil,
         preferredDockPanelId: UUID? = nil
     ) -> Bool {
+        // Keep the exhaustive action classification as the authorization
+        // source of truth, while the actual focus predicate remains
+        // direction-agnostic for menu-generated left/up splits.
+        guard case .dockScoped = action.dockShortcutRoutingDisposition else {
+            return false
+        }
         if kind == .browser, !BrowserAvailabilitySettings.isEnabled() {
             return false
         }
