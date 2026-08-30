@@ -310,12 +310,6 @@ pub enum TransportKind {
     Tunnel,
 }
 
-impl Default for TransportKind {
-    fn default() -> Self {
-        Self::Legacy
-    }
-}
-
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct TransportOwner {
     id: Option<String>,
@@ -1878,6 +1872,10 @@ impl Inner {
                         cancellation.token(),
                     )
                     .await;
+                if cancellation.is_cancelled() {
+                    handle.control.kill();
+                    return Err("terminal open cancelled".to_owned());
+                }
                 let PtyHandle { control, output, banner } = handle;
                 let shell_session = Arc::new(ShellSession {
                     control,
@@ -1925,6 +1923,10 @@ impl Inner {
                         (viewer.on_exit)(code);
                     }
                 });
+                if cancellation.is_cancelled() {
+                    shell_session.control.kill();
+                    return Err("terminal open cancelled".to_owned());
+                }
                 output.subscribe(on_session_data, on_session_exit);
                 self.shell_sessions
                     .lock()
@@ -3241,6 +3243,28 @@ mod tests {
         assert!(pty.state.lock().unwrap().paused);
         h.frame(serde_json::json!({ "type": "pty_flow", "ptyId": "p1", "pause": false })).await;
         assert!(!pty.state.lock().unwrap().paused);
+    }
+
+    #[tokio::test]
+    async fn cancelled_shell_spawn_is_not_cached() {
+        let h = harness(None, None);
+        let cancellation = h.manager.new_open_cancellation().expect("open attempt token");
+        cancellation.cancel();
+        let context = h.context("supervised", h.owner.clone());
+        let env = env_map(&h.home);
+
+        // The fake returns a handle even for a cancelled token. This models a
+        // blocking provider that finishes its spawn while cancellation wins.
+        let result = Arc::clone(&h.manager.inner)
+            .open_shell("cancelled", 80, 24, &h.home, &env, "p1", None, &context, &cancellation)
+            .await;
+
+        assert_eq!(result.err().as_deref(), Some("terminal open cancelled"));
+        assert!(h.manager.inner.shell_sessions.lock().unwrap().is_empty());
+        assert!(h.manager.inner.shell_starting.lock().unwrap().is_empty());
+        let spawned = h.spawned();
+        assert_eq!(spawned.len(), 1);
+        assert!(spawned[0].state.lock().unwrap().killed);
     }
 
     #[tokio::test]
