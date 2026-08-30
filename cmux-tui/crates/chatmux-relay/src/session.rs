@@ -650,23 +650,24 @@ async fn relay_session(
         let out = out_tx.clone();
         let pending = Arc::clone(&pending);
         let auth = Arc::clone(&auth);
-        let cancellation = connection_cancellation.clone();
+        let connection_token = connection_cancellation.clone();
         let transport = transport_id.clone();
         connection_tasks.spawn(async move {
             loop {
                 let frame = tokio::select! {
                     biased;
-                    _ = cancellation.cancelled() => break,
+                    _ = connection_token.cancelled() => break,
                     frame = pty_rx.recv() => {
                         let Some(frame) = frame else { break };
                         frame
                     }
                 };
                 let snapshot = auth.lock().expect("auth lock").clone();
-                let context = make_context(&out, &pending, &snapshot, &transport, &cancellation);
+                let context =
+                    make_context(&out, &pending, &snapshot, &transport, &connection_token);
                 tokio::select! {
                     biased;
-                    _ = cancellation.cancelled() => break,
+                    _ = connection_token.cancelled() => break,
                     _ = manager.handle_frame(&frame, &context) => {}
                 }
             }
