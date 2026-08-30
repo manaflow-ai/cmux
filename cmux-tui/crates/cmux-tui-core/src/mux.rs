@@ -1102,6 +1102,10 @@ struct AgentRosterHost {
 /// Bound synchronous reducer metadata writes while keeping restart replay
 /// finite. Retirement and shutdown paths still force an immediate snapshot.
 const AGENT_ROSTER_SNAPSHOT_INTERVAL: u64 = 32;
+/// Maximum number of journal rows one synchronous report may reduce. A stale
+/// reducer cursor must not turn a polling request into an unbounded replay.
+/// Later journal activity or a retry call continues from the durable cursor.
+const AGENT_ROSTER_FOLD_RECORD_LIMIT: usize = 512;
 
 fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRosterHost> {
     use crate::journal_reducers::{
@@ -5744,6 +5748,7 @@ impl Mux {
                 return;
             }
         };
+        let mut folded_records = 0usize;
         loop {
             let page = match self
                 .workspace_registry
@@ -5760,12 +5765,17 @@ impl Mux {
             let mut advanced = false;
             let mut semantic_change = false;
             let mut removal = false;
+            let mut reached_record_limit = false;
             for record in page.records {
                 if record.sequence <= read_cursor {
                     continue;
                 }
                 if record.sequence > commit.sequence {
                     return;
+                }
+                if folded_records >= AGENT_ROSTER_FOLD_RECORD_LIMIT {
+                    reached_record_limit = true;
+                    break;
                 }
                 // The journal is durable before its resource projection. Do
                 // not advance the reducer across a pending row, because that
@@ -5791,7 +5801,12 @@ impl Mux {
                 }
                 read_cursor = record.sequence;
                 advanced = true;
+                folded_records += 1;
                 if read_cursor == commit.sequence {
+                    break;
+                }
+                if folded_records >= AGENT_ROSTER_FOLD_RECORD_LIMIT {
+                    reached_record_limit = true;
                     break;
                 }
             }
@@ -5825,6 +5840,9 @@ impl Mux {
                     }
                 }
             } else {
+                return;
+            }
+            if reached_record_limit {
                 return;
             }
             if read_cursor >= commit.sequence {
