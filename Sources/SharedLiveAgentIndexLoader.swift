@@ -62,18 +62,28 @@ struct SharedLiveAgentIndexLoader {
             capturedAt: capturedAtProvider(),
             processArgumentsProvider: processArgumentsProvider
         )
+        let hibernationProcessScopes = detectedSnapshots.mapValues { detected in
+            processSnapshot.agentHibernationProcessScope(
+                panelProcessIDs: detected.processIDs,
+                agentProcessIDs: detected.agentProcessIDs
+            )
+        }
         let index = RestorableAgentSessionIndex.load(
             homeDirectory: homeDirectory,
             fileManager: fileManager,
             registry: resolvedRegistry,
             detectedSnapshots: detectedSnapshots,
+            hibernationProcessScopes: hibernationProcessScopes,
             processArgumentsProvider: processArgumentsProvider,
             processIdentityProvider: processIdentityProvider
         )
         return (
             index: index,
             liveAgentProcessFingerprint: index.liveAgentProcessFingerprint(),
-            processScopeFingerprint: Self.processScopeFingerprint(from: processSnapshot),
+            processScopeFingerprint: Self.processScopeFingerprint(
+                from: processSnapshot,
+                hibernationProcessScopes: hibernationProcessScopes
+            ).union(Self.terminationProcessIdentityFingerprint(from: index)),
             forkValidatedPanels: Self.forkValidatedPanels(
                 in: index,
                 processArgumentsProvider: processArgumentsProvider,
@@ -90,6 +100,71 @@ struct SharedLiveAgentIndexLoader {
                 process.cmuxSurfaceID?.uuidString ?? "",
                 String(process.pid),
                 String(process.parentPID)
+            ].joined(separator: "|")
+        })
+    }
+
+    /// Fingerprints the process scope and generation metadata consumed by
+    /// hibernation safety checks, so cache reloads publish scope changes even
+    /// when the cmux-attributed process set is unchanged.
+    static func processScopeFingerprint(
+        from snapshot: CmuxTopProcessSnapshot,
+        hibernationProcessScopes: [
+            RestorableAgentSessionIndex.PanelKey:
+                RestorableAgentSessionIndex.HibernationProcessScope
+        ]
+    ) -> Set<String> {
+        var fingerprint = processScopeFingerprint(from: snapshot)
+        fingerprint.formUnion(hibernationProcessScopes.map { key, scope in
+            [
+                "hibernation",
+                key.workspaceId.uuidString,
+                key.panelId.uuidString,
+                boundedProcessIDFingerprint(scope.panelProcessIDs),
+                boundedProcessIDFingerprint(scope.terminationProcessIDs),
+                scope.containsUnrelatedProcess ? "unrelated" : "exclusive"
+            ].joined(separator: "|")
+        })
+        return fingerprint
+    }
+
+    /// Avoids sorting or materializing oversized scopes that cannot be signaled.
+    private static func boundedProcessIDFingerprint(_ processIDs: Set<Int>) -> String {
+        guard processIDs.count <=
+            AgentHibernationController.maximumScopedProcessTerminationCount else {
+            return "over-limit:\(processIDs.count)"
+        }
+        return processIDs.sorted().map(String.init).joined(separator: ",")
+    }
+
+    /// Fingerprints every authorized termination generation so a PID reuse or
+    /// transient identity lookup change replaces the cached index.
+    private static func terminationProcessIdentityFingerprint(
+        from index: RestorableAgentSessionIndex
+    ) -> Set<String> {
+        Set(index.forkValidationEntries().compactMap { key, entry in
+            guard entry.processLiveness == .running,
+                  !entry.terminationProcessIDs.isEmpty else {
+                return nil
+            }
+            let identities: String
+            if entry.terminationProcessIDs.count >
+                AgentHibernationController.maximumScopedProcessTerminationCount {
+                identities = "over-limit:\(entry.terminationProcessIDs.count)"
+            } else {
+                identities = entry.terminationProcessIdentities
+                    .sorted { $0.key < $1.key }
+                    .map { processID, identity in
+                        "\(processID):\(identity.startSeconds):\(identity.startMicroseconds)"
+                    }
+                    .joined(separator: ",")
+            }
+            return [
+                "hibernation-identities",
+                key.workspaceId.uuidString,
+                key.panelId.uuidString,
+                boundedProcessIDFingerprint(entry.terminationProcessIDs),
+                identities
             ].joined(separator: "|")
         })
     }
