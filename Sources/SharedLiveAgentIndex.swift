@@ -866,7 +866,7 @@ final class SharedLiveAgentIndex {
                 ? entry.processIdentities
                 : entry.agentProcessIdentities
             for processID in processIdentities.keys {
-                guard processID > 0 else { continue }
+                guard processID > 0, processID <= Int(Int32.max) else { continue }
                 sidebarProcessPanelIDsByPID[processID, default: []].insert(panelID)
                 sidebarProcessWorkspaceIDsByPID[processID, default: [:]][panelID] = workspaceID
                 armSidebarProcessExitWatcher(pid: processID)
@@ -880,7 +880,9 @@ final class SharedLiveAgentIndex {
         panelID: UUID? = nil,
         workspaceID: UUID? = nil
     ) {
-        guard sidebarProcessMonitoringEnabled, pid > 0 else { return }
+        guard sidebarProcessMonitoringEnabled,
+              pid > 0,
+              pid <= Int(Int32.max) else { return }
         if let panelID {
             sidebarProcessPanelIDsByPID[pid, default: []].insert(panelID)
             if let workspaceID {
