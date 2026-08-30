@@ -1144,16 +1144,33 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
     };
     let initial_cursor = host.cursor;
     loop {
-        let page = registry.session_journal_after(host.cursor, 512)?;
+        let page = registry.session_journal_after(host.cursor, AGENT_ROSTER_FOLD_RECORD_LIMIT)?;
         if page.records.is_empty() {
             break;
         }
+        let (pending_sequences, quarantined_sequences) =
+            registry.agent_hook_projection_sequence_states(host.cursor, page.head_sequence)?;
         let previous_cursor = host.cursor;
+        let mut blocked_on_pending = false;
         for record in &page.records {
+            if pending_sequences.contains(&record.sequence) {
+                // Do not restore later rows across a projection that may
+                // still succeed. Startup retry will clear this marker before
+                // the live reducer continues from the same cursor.
+                blocked_on_pending = true;
+                break;
+            }
+            if quarantined_sequences.contains(&record.sequence) {
+                // A permanently failed resource projection is an explicit
+                // skip. Replaying its rejected event would recreate state
+                // that the authoritative projection refused.
+                host.cursor = record.sequence;
+                continue;
+            }
             host.roster.apply(&RosterEvent::from_record(record));
             host.cursor = host.cursor.max(record.sequence);
         }
-        if host.cursor == previous_cursor {
+        if blocked_on_pending || host.cursor == previous_cursor {
             break;
         }
     }
@@ -2801,9 +2818,25 @@ impl Mux {
         &self,
         pending: Vec<(String, String, String, u64, crate::JournalIngress)>,
     ) -> anyhow::Result<usize> {
+        // Keep projection completion and removal of its pending marker in the
+        // same serialization domain as roster folding. This prevents a fold
+        // from observing a dead-letter marker while a recovery clears it.
+        let _fold = self.agent_roster_fold.lock().unwrap();
         let mut applied = 0;
         let mut fold_ingress = None;
         for (producer_id, origin, key, sequence, ingress) in pending {
+            // The page was selected before this lock was acquired. Another
+            // retry can therefore have exhausted this receipt in the
+            // meantime. Recheck under the fold lock before applying or
+            // clearing anything, otherwise a stale successful retry could
+            // erase a durable dead-letter skip marker.
+            if self.workspace_registry.lock().unwrap().agent_hook_pending_is_quarantined(
+                &producer_id,
+                &origin,
+                &key,
+            )? {
+                continue;
+            }
             match self.apply_agent_hook_record(&ingress, sequence) {
                 Ok(()) => {
                     if self
@@ -2857,6 +2890,7 @@ impl Mux {
                 }
             }
         }
+        drop(_fold);
         if applied > 0 {
             if let Some(ingress) = fold_ingress {
                 let head_sequence = self
@@ -5672,57 +5706,76 @@ impl Mux {
         // a no-op for already-applied events while allowing restart repair.
         let lifecycle_event = agent_state_for_hook_kind(&ingress.kind).is_some();
         let mut should_fold_roster = !lifecycle_event;
-        if let Err(error) = self.apply_agent_hook_record(ingress, commit.sequence) {
-            should_fold_roster = false;
-            if agent_hook_terminal_gone(&error) {
+        {
+            // The pending/quarantine decision, projection, and receipt cleanup
+            // are one serialized operation. The reducer takes this same lock
+            // while reading its status sets, so it cannot observe a live row
+            // being cleared or a dead letter being reclassified mid-fold.
+            let _fold = self.agent_roster_fold.lock().unwrap();
+            let quarantined = self
+                .workspace_registry
+                .lock()
+                .unwrap()
+                .agent_hook_pending_is_quarantined(&ingress.producer_id, origin, idempotency_key)?;
+            if quarantined {
+                // A replay of a quarantined commit is an explicit no-op. Keep
+                // the receipt durable so the reducer can apply its skip rule.
+                should_fold_roster = true;
+            } else if let Err(error) = self.apply_agent_hook_record(ingress, commit.sequence) {
+                should_fold_roster = false;
+                if agent_hook_terminal_gone(&error) {
+                    if let Err(_bookkeeping_error) = self
+                        .workspace_registry
+                        .lock()
+                        .unwrap()
+                        .clear_agent_hook_pending(&ingress.producer_id, origin, idempotency_key)
+                    {
+                        self.report_internal_diagnostic(
+                            "terminal-gone agent hook cleanup deferred",
+                        );
+                    }
+                } else {
+                    if let Err(_bookkeeping_error) =
+                        self.workspace_registry.lock().unwrap().enqueue_agent_hook_pending(
+                            &ingress.producer_id,
+                            origin,
+                            idempotency_key,
+                            commit.sequence,
+                            ingress,
+                            AGENT_HOOK_RETRY_ERROR,
+                            agent_hook_retry_class(&error),
+                        )
+                    {
+                        self.report_internal_diagnostic(
+                            "durable agent hook receipt remains staged after retry bookkeeping failure",
+                        );
+                    }
+                }
+            } else {
+                if lifecycle_event {
+                    // A stale or fenced hook can be accepted as a durable
+                    // journal replay without advancing the projection
+                    // watermark. Fold it only when this commit was the
+                    // projection that advanced the watermark, so the roster
+                    // cannot resurrect old state.
+                    should_fold_roster = self
+                        .workspace_registry
+                        .lock()
+                        .unwrap()
+                        .agent_hook_apply_cursor()
+                        .ok()
+                        .is_some_and(|cursor| cursor == commit.sequence);
+                }
                 if let Err(_bookkeeping_error) = self
                     .workspace_registry
                     .lock()
                     .unwrap()
                     .clear_agent_hook_pending(&ingress.producer_id, origin, idempotency_key)
                 {
-                    self.report_internal_diagnostic("terminal-gone agent hook cleanup deferred");
-                }
-            } else {
-                if let Err(_bookkeeping_error) =
-                    self.workspace_registry.lock().unwrap().enqueue_agent_hook_pending(
-                        &ingress.producer_id,
-                        origin,
-                        idempotency_key,
-                        commit.sequence,
-                        ingress,
-                        AGENT_HOOK_RETRY_ERROR,
-                        agent_hook_retry_class(&error),
-                    )
-                {
                     self.report_internal_diagnostic(
-                        "durable agent hook receipt remains staged after retry bookkeeping failure",
+                        "agent hook projection applied; retry bookkeeping cleanup deferred",
                     );
                 }
-            }
-        } else {
-            if lifecycle_event {
-                // A stale or fenced hook can be accepted as a durable journal
-                // replay without advancing the projection watermark. Fold it
-                // only when this commit was the projection that advanced the
-                // watermark, so the roster cannot resurrect old state.
-                should_fold_roster = self
-                    .workspace_registry
-                    .lock()
-                    .unwrap()
-                    .agent_hook_apply_cursor()
-                    .ok()
-                    .is_some_and(|cursor| cursor == commit.sequence);
-            }
-            if let Err(_bookkeeping_error) = self
-                .workspace_registry
-                .lock()
-                .unwrap()
-                .clear_agent_hook_pending(&ingress.producer_id, origin, idempotency_key)
-            {
-                self.report_internal_diagnostic(
-                    "agent hook projection applied; retry bookkeeping cleanup deferred",
-                );
             }
         }
         if should_fold_roster {
@@ -24453,6 +24506,57 @@ mod tests {
         let later_commit = mux.append_journal_ingress(&later, "test", "after-dead-letter").unwrap();
         assert_eq!(mux.agent_roster.lock().unwrap().cursor, later_commit.sequence);
         assert!(mux.agent_roster.lock().unwrap().roster.entries.contains_key(terminal_id.as_str()));
+    }
+
+    #[test]
+    fn quarantined_hook_is_skipped_during_restart_replay() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-roster-quarantine-restart-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let session = "roster-quarantine-restart";
+        let mux = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "UserPromptSubmit",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({}),
+        )
+        .unwrap();
+        mux.set_resource_patch_failures_remaining_for_test(
+            crate::workspace_registry::AGENT_HOOK_MAX_ATTEMPTS as u64 + 1,
+        );
+        let commit = mux.append_journal_ingress(&ingress, "test", "restart-dead-letter").unwrap();
+        for _ in 0..crate::workspace_registry::AGENT_HOOK_MAX_RETRY_PAGES_PER_WAKE {
+            mux.retry_pending_agent_hooks_for_terminal(&terminal_id).unwrap();
+        }
+        mux.set_resource_patch_failures_remaining_for_test(0);
+        assert_eq!(mux.agent_roster.lock().unwrap().cursor, 0);
+        assert_eq!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .agent_hook_pending_retry_state_for_test(
+                    crate::agent_hooks::AGENT_HOOK_PRODUCER_ID,
+                    "test",
+                    "restart-dead-letter",
+                )
+                .unwrap()
+                .expect("quarantined receipt")
+                .0,
+            crate::workspace_registry::AGENT_HOOK_MAX_ATTEMPTS
+        );
+        mux.shutdown();
+        drop(mux);
+
+        let reopened = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
+        assert_eq!(reopened.agent_roster.lock().unwrap().cursor, commit.sequence);
+        assert!(reopened.agent_roster.lock().unwrap().roster.entries.is_empty());
+        reopened.shutdown();
+        drop(reopened);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

@@ -626,11 +626,24 @@ impl WorkspaceRegistry {
                 AGENT_HOOK_MAX_ATTEMPTS,
             ],
         )?;
-        // Keep quarantined failures bounded. Live retry rows remain untouched;
-        // only the oldest dead letters beyond the retention cap are evicted.
+        // Keep quarantined failures bounded once journal retention has removed
+        // their source records. Until then, every marker is needed to prevent
+        // an append-only journal replay from resurrecting the rejected event.
+        // Live retry rows remain untouched; only old dead letters beyond the
+        // retention cap and outside both active and sealed journal storage are
+        // evicted.
         self.connection.execute(
             "DELETE FROM resource_agent_hook_pending
              WHERE attempt >= ?1
+               AND NOT EXISTS (
+                 SELECT 1 FROM session_journal
+                 WHERE session_journal.sequence = resource_agent_hook_pending.event_sequence
+               )
+               AND NOT EXISTS (
+                 SELECT 1 FROM journal_segments
+                 WHERE journal_segments.start_sequence <= resource_agent_hook_pending.event_sequence
+                   AND journal_segments.end_sequence >= resource_agent_hook_pending.event_sequence
+               )
                AND rowid NOT IN (
                  SELECT rowid
                  FROM resource_agent_hook_pending
@@ -666,6 +679,28 @@ impl WorkspaceRegistry {
             params![producer_id, origin, idempotency_key],
         )?;
         Ok(())
+    }
+
+    /// Return whether a pending hook receipt has exhausted its retry budget.
+    /// Quarantined receipts are immutable dead letters. A replay must leave
+    /// them staged so the journal reducer can apply the explicit skip rule.
+    pub(crate) fn agent_hook_pending_is_quarantined(
+        &self,
+        producer_id: &str,
+        origin: &str,
+        idempotency_key: &str,
+    ) -> anyhow::Result<bool> {
+        self.connection
+            .query_row(
+                "SELECT attempt >= ?4
+                 FROM resource_agent_hook_pending
+                 WHERE producer_id = ?1 AND origin = ?2 AND idempotency_key = ?3",
+                params![producer_id, origin, idempotency_key, AGENT_HOOK_MAX_ATTEMPTS],
+                |row| row.get::<_, bool>(0),
+            )
+            .optional()
+            .map(|value| value.unwrap_or(false))
+            .map_err(Into::into)
     }
 
     fn record_agent_hook_pending_failure(
