@@ -100,7 +100,47 @@ struct WorkspaceCustomizationStoreTests {
         #expect(fixture.defaults.object(forKey: fixture.legacyStorageKey) == nil)
     }
 
-    private func makeFixture(capacity: Int = 512) throws -> (
+@Test("automatic title records remain decodable by the previous schema")
+func automaticTitleRecordIsLegacyDecodable() throws {
+    let fixture = try makeFixture()
+    defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+
+    let stableId = UUID()
+    fixture.store.setCustomTitle("Auto title", for: stableId, source: .auto)
+    let data = try #require(fixture.defaults.data(forKey: fixture.storageKey))
+    let legacy = try JSONDecoder().decode(LegacyWorkspaceCustomizationSnapshot.self, from: data)
+    let entry = try #require(legacy.entries[stableId.uuidString])
+
+    // The pre-provenance decoder must still read the record as a normal value.
+    // The new decoder retains automatic provenance through its extension key.
+    #expect(entry.customization.customTitle == .value("Auto title"))
+    #expect(entry.customization.customColor == .absent)
+    #expect(fixture.store.customization(for: stableId)?.customTitle == .autoValue("Auto title"))
+}
+
+private enum LegacyWorkspaceCustomizationField: Codable, Equatable {
+    case absent
+    case value(String)
+    case cleared
+}
+
+private struct LegacyWorkspaceCustomization: Codable, Equatable {
+    let customTitle: LegacyWorkspaceCustomizationField
+    let customColor: LegacyWorkspaceCustomizationField
+}
+
+private struct LegacyWorkspaceCustomizationPersistenceEntry: Codable, Equatable {
+    let customization: LegacyWorkspaceCustomization
+    let revision: UInt64
+}
+
+private struct LegacyWorkspaceCustomizationSnapshot: Codable, Equatable {
+    let version: Int
+    let nextRevision: UInt64
+    let entries: [String: LegacyWorkspaceCustomizationPersistenceEntry]
+}
+
+private func makeFixture(capacity: Int = 512) throws -> (
         store: WorkspaceCustomizationStore,
         defaults: UserDefaults,
         suiteName: String,
