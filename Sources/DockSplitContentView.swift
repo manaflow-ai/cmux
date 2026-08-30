@@ -134,12 +134,62 @@ private final class DockPointerInteractionHostView: NSView {
     private func handle(event: NSEvent) {
         guard let window, event.window === window else { return }
         let point = convert(event.locationInWindow, from: nil)
-        guard bounds.contains(point) else { return }
-        guard let hitView = window.contentView?.hitTest(event.locationInWindow),
+        let hitView = window.contentView?.hitTest(event.locationInWindow)
+
+        // Bonsplit's tab-bar registry is window-point based and can cover a
+        // strip hosted just outside this background view's local bounds. Check
+        // that path first, while still requiring the hit to belong to this
+        // Dock's host region so another workspace tab bar in the same window
+        // cannot claim Dock focus.
+        if BonsplitTabBarHitRegionRegistry.containsWindowPoint(
+            event.locationInWindow,
+            in: window
+        ),
+           let hitView,
+           isDockTabBarHitView(hitView, at: event.locationInWindow, in: window) {
+            store?.noteUserDockPointerInteraction(window: window)
+            return
+        }
+
+        guard bounds.contains(point),
+              let hitView,
               isDockHitView(hitView, at: event.locationInWindow, in: window) else {
             return
         }
         store?.noteUserDockPointerInteraction(window: window)
+    }
+
+    private func isDockTabBarHitView(
+        _ view: NSView,
+        at windowPoint: NSPoint,
+        in window: NSWindow
+    ) -> Bool {
+        isDescendantOfDockPanel(view)
+            || dockHostFrameInWindow(in: window)?.contains(windowPoint) == true
+    }
+
+    private func isDescendantOfDockPanel(_ view: NSView) -> Bool {
+        var candidate: NSView? = view
+        while let current = candidate {
+            if current.accessibilityIdentifier == "DockPanel" {
+                return true
+            }
+            candidate = current.superview
+        }
+        return false
+    }
+
+    private func dockHostFrameInWindow(in window: NSWindow) -> NSRect? {
+        var candidate: NSView? = self
+        while let current = candidate {
+            if current.accessibilityIdentifier == "DockPanel",
+               current.window === window {
+                return current.convert(current.bounds, to: nil)
+            }
+            candidate = current.superview
+        }
+        guard let superview, superview.window === window else { return nil }
+        return superview.convert(superview.bounds, to: nil)
     }
 
     private func isDockHitView(
@@ -153,7 +203,8 @@ private final class DockPointerInteractionHostView: NSView {
         if BonsplitTabBarHitRegionRegistry.containsWindowPoint(
             windowPoint,
             in: window
-        ) {
+        ),
+           isDockTabBarHitView(view, at: windowPoint, in: window) {
             return true
         }
 
