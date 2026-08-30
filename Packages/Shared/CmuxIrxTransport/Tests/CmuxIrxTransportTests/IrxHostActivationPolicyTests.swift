@@ -33,6 +33,23 @@ struct IrxHostActivationPolicyTests {
         #expect(failure.journalAttributes["error_code"] == "unauthorized")
     }
 
+    @Test("a missing snapshot stays retryable during account transitions")
+    func missingAuthenticationRetries() {
+        let failure = IrxBrokerFailure(
+            operation: .register,
+            error: CmxIrohTrustBrokerClientError.missingAuthentication
+        )
+        #expect(!failure.requiresReauthentication)
+        guard case .retry = policy.decision(
+            for: failure,
+            failureCount: 0,
+            jitterUnitInterval: 0
+        ) else {
+            Issue.record("a missing snapshot should use the transient ladder")
+            return
+        }
+    }
+
     @Test("a second broker 401 stays on the bounded transient ladder")
     func finalBrokerUnauthorizedIsRetryableAfterRecovery() {
         let failure = IrxBrokerFailure(

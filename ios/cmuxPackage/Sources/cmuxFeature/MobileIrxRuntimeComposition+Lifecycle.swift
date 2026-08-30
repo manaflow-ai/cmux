@@ -169,9 +169,10 @@ extension MobileIrxRuntimeComposition {
         )
         autopilotRecoveryTask = Task { [weak self] in
             defer {
-                guard let self, self.autopilotRecoveryID == recoveryID else { return }
-                self.autopilotRecoveryTask = nil
-                self.autopilotRecoveryID = nil
+                if let self, self.autopilotRecoveryID == recoveryID {
+                    self.autopilotRecoveryTask = nil
+                    self.autopilotRecoveryID = nil
+                }
             }
             do {
                 try await clock.sleep(until: deadline)

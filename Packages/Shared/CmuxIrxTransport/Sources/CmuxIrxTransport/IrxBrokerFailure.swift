@@ -89,7 +89,16 @@ public struct IrxBrokerFailure: Error, Codable, Equatable, Sendable {
             retryAfterSeconds = nil
         case let broker as CmxIrohTrustBrokerClientError:
             switch broker {
-            case .missingAuthentication, .invalidAuthentication:
+            case .missingAuthentication:
+                // A nil account-pinned snapshot also represents a brief
+                // account transition. The auth identity stream owns the
+                // definitive sign-out signal, so keep this request retryable
+                // instead of stranding a valid session on its first read.
+                kind = .transient
+                statusCode = nil
+                errorCode = broker.code
+                retryAfterSeconds = nil
+            case .invalidAuthentication:
                 kind = .authenticationRequired
                 statusCode = nil
                 errorCode = broker.code

@@ -193,9 +193,10 @@ extension MobileHostIrxRuntime {
             activationRetryID = retryID
             activationRetryTask = Task { @MainActor [weak self] in
                 defer {
-                    guard let self, self.activationRetryID == retryID else { return }
-                    self.activationRetryTask = nil
-                    self.activationRetryID = nil
+                    if let self, self.activationRetryID == retryID {
+                        self.activationRetryTask = nil
+                        self.activationRetryID = nil
+                    }
                 }
                 do {
                     try await clock.sleep(until: deadline)
@@ -342,9 +343,10 @@ extension MobileHostIrxRuntime {
         autopilotRecoveryID = retryID
         autopilotRecoveryTask = Task { @MainActor [weak self] in
             defer {
-                guard let self, self.autopilotRecoveryID == retryID else { return }
-                self.autopilotRecoveryTask = nil
-                self.autopilotRecoveryID = nil
+                if let self, self.autopilotRecoveryID == retryID {
+                    self.autopilotRecoveryTask = nil
+                    self.autopilotRecoveryID = nil
+                }
             }
             do {
                 try await clock.sleep(until: deadline)
@@ -396,9 +398,10 @@ extension MobileHostIrxRuntime {
         activationRetryID = retryID
         activationRetryTask = Task { @MainActor [weak self] in
             defer {
-                guard let self, self.activationRetryID == retryID else { return }
-                self.activationRetryTask = nil
-                self.activationRetryID = nil
+                if let self, self.activationRetryID == retryID {
+                    self.activationRetryTask = nil
+                    self.activationRetryID = nil
+                }
             }
             do {
                 try await clock.sleep(until: deadline)
