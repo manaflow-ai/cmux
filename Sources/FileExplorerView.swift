@@ -1769,6 +1769,12 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
            previousSession === session {
             return
         }
+        let promotedWriter = searchResultsView.pendingNativeDragWriter
+        // A multi-selection asks for one writer per row. Only the promoted
+        // writer represents the native session; revoke every sibling before
+        // AppKit starts routing the session so their registrations cannot
+        // linger until an unordered token-deallocation callback.
+        pendingPreviewDrag.finishPending(excluding: promotedWriter)
         coordinator.supersedeNativeDragIfNeeded(
             previousSession: searchResultsView.activeNativeDragSession,
             newSession: session,

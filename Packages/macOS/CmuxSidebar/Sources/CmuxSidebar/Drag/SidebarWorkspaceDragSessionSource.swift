@@ -9,6 +9,8 @@ final class SidebarWorkspaceDragSessionSource: NSObject, NSDraggingSource {
     private var didFinish = false
     private var sourceView: NSView?
 
+    var sessionIdentifier: UUID { sessionId }
+
     deinit {}
 
     init(

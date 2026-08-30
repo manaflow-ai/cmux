@@ -70,7 +70,7 @@ public final class SidebarWorkspaceDragRegistry: SidebarWorkspaceDragSessionRegi
     public func beginSession(workspaceId: UUID) -> SidebarWorkspaceDragSession {
         // A new session is an authoritative pointer boundary: AppKit cannot
         // start it while an older native source is still in its drag loop.
-        reclaimSupersededNativeSources()
+        reclaimAllNativeSourcesBeforeNewSession()
         endCurrentSession()
         let session = SidebarWorkspaceDragSession(workspaceId: workspaceId)
         currentSession = session
@@ -127,16 +127,11 @@ public final class SidebarWorkspaceDragRegistry: SidebarWorkspaceDragSessionRegi
         return true
     }
 
-    /// Releases source holds superseded by a new pointer/native-session
-    /// boundary. A real new drag cannot be delivered while an older AppKit
-    /// session is still active, so this is the bounded recovery for an OS path
-    /// that omitted the older source's `endedAt` callback.
-    public func reclaimSupersededNativeSources() {
-        let supersededSources = nativeDragSources.values
-        nativeDragSources.removeAll(keepingCapacity: false)
-        for source in supersededSources {
-            source.finishAfterNativeBoundary()
-        }
+    /// Releases source holds other than `excludingSessionId` after a pointer
+    /// boundary. The explicit exclusion keeps a still-live native source owned
+    /// when a table receives a new mouse-down during the same event turn.
+    public func reclaimSupersededNativeSources(excludingSessionId: UUID) {
+        reclaimNativeSources { $0 != excludingSessionId }
     }
 
     /// Handles the terminal callback from a native source or table controller.
@@ -183,5 +178,19 @@ public final class SidebarWorkspaceDragRegistry: SidebarWorkspaceDragSessionRegi
         // Do not destroy unrelated values merely because this session ended.
         guard (pasteboard.types ?? []).allSatisfy({ $0 == type }) else { return }
         pasteboard.clearContents()
+    }
+
+    private func reclaimAllNativeSourcesBeforeNewSession() {
+        reclaimNativeSources { _ in true }
+    }
+
+    private func reclaimNativeSources(
+        where shouldReclaim: (UUID) -> Bool
+    ) {
+        let supersededSources = nativeDragSources.filter { shouldReclaim($0.key) }.values
+        for source in supersededSources {
+            nativeDragSources[source.sessionIdentifier] = nil
+            source.finishAfterNativeBoundary()
+        }
     }
 }

@@ -114,7 +114,7 @@ struct SidebarWorkspaceDragRegistryNativeLifecycleTests {
             capabilityValue: session.pasteboardValue
         ))
 
-        registry.reclaimSupersededNativeSources(excluding: session.id)
+        registry.reclaimSupersededNativeSources(excludingSessionId: session.id)
 
         #expect(startedSource != nil)
         #expect(registry.currentSessionId == session.id)

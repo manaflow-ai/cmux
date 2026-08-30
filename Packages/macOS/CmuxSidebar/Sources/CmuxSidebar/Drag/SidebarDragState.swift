@@ -174,8 +174,10 @@ public final class SidebarDragState {
     /// presentation teardown may clear logical state while AppKit still owns a
     /// live source, whereas a new pointer boundary proves that older native
     /// sessions are no longer in their event loop.
-    public func reclaimSupersededNativeSources() {
-        sessionRegistry?.reclaimSupersededNativeSources()
+    public func reclaimSupersededNativeSources(excludingSessionId: UUID) {
+        sessionRegistry?.reclaimSupersededNativeSources(
+            excludingSessionId: excludingSessionId
+        )
     }
 
     /// Mirrors the coordinator's current session into a destination window.

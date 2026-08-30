@@ -8,7 +8,7 @@ import Foundation
 typealias SidebarWorkspaceTableNativeDragLifecycle = (
     currentSessionId: () -> UUID?,
     finish: (UUID, String) -> Void,
-    reclaimSupersededNativeSources: () -> Void
+    reclaimSupersededNativeSources: (UUID) -> Void
 )
 
 /// Accepted reorder plan for the pointer's current position. The AppKit table

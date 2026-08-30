@@ -45,9 +45,11 @@ public protocol SidebarWorkspaceDragSessionRegistering: SidebarWorkspaceDragRegi
     /// Completes a native drag and clears only its matching capability.
     func nativeDraggingSessionDidEnd(sessionId: UUID, capabilityValue: String)
 
-    /// Reclaims native sources superseded by a new pointer/native-session
-    /// boundary. AppKit cannot deliver that boundary while an older native
-    /// session is still live, so implementations may release only those older
-    /// source holds; a missing `endedAt` callback remains generation-fenced.
-    func reclaimSupersededNativeSources()
+    /// Reclaims native sources other than the source identified by
+    /// `excludingSessionId` after a pointer/native-session boundary.
+    ///
+    /// Callers must pass the session whose native loop is still being
+    /// completed. Requiring the exclusion in the API prevents a pointer
+    /// boundary from accidentally releasing a source that is still live.
+    func reclaimSupersededNativeSources(excludingSessionId: UUID)
 }

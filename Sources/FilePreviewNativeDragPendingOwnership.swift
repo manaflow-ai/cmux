@@ -45,7 +45,7 @@ final class FilePreviewNativeDragPendingOwnership {
         let pendingWriters = writers.allObjects
         for writer in pendingWriters where writer !== preservedWriter {
             if let tokenID = writer.provisionalToken?.id {
-                ownershipByToken[tokenID]?.finish(from: NSPasteboard(name: .drag))
+                ownershipByToken[tokenID]?.revokeRouting()
                 ownershipByToken.removeValue(forKey: tokenID)
                 tokenOwnership.remove(id: tokenID)
             }
@@ -53,7 +53,7 @@ final class FilePreviewNativeDragPendingOwnership {
         }
         let remainingOwnership = ownershipByToken.filter { $0.key != preservedTokenID }
         for (tokenID, ownership) in remainingOwnership {
-            ownership.finish(from: NSPasteboard(name: .drag))
+            ownership.revokeRouting()
             ownershipByToken.removeValue(forKey: tokenID)
             tokenOwnership.remove(id: tokenID)
         }
@@ -65,7 +65,7 @@ final class FilePreviewNativeDragPendingOwnership {
 
     private func writerDidDeallocate(tokenID: UUID) {
         guard let ownership = ownershipByToken.removeValue(forKey: tokenID) else { return }
-        ownership.finish(from: NSPasteboard(name: .drag))
+        ownership.revokeRouting()
         onWriterDeallocated(tokenID)
     }
 }

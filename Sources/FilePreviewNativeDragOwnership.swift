@@ -11,6 +11,18 @@ struct FilePreviewNativeDragOwnership {
     let transferRegistration: TabDragTransferRegistration?
     let transferRegistry: TabDragTransferRegistry?
 
+    /// Revokes process-local routing without touching any pasteboard.
+    ///
+    /// A provisional writer has no native session-owned pasteboard yet. Its
+    /// materialized bytes may remain cached by AppKit, but resolver lookups are
+    /// fenced by these registries and therefore cannot route a later drop.
+    func revokeRouting() {
+        if let transferRegistration {
+            transferRegistry?.end(transferRegistration)
+        }
+        FilePreviewDragRegistry.shared.discard(id: dragID)
+    }
+
     /// Revokes only this drag's registrations and residual representations.
     func finish(from pasteboard: NSPasteboard) {
         transferRegistration?.clearResidualCapability(from: pasteboard)

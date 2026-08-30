@@ -68,7 +68,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         private var selectedNodeID: String?
         private var isUpdatingProgrammatically = false
         private var activeDrag: ActiveDrag?
-        private var activeDragWriter: CloudTreeSurfaceDragPasteboardWriter?
+        // NSDraggingItem retains the writer for the live native session. A weak
+        // coordinator edge prevents a retained writer/container cycle.
+        private weak var activeDragWriter: CloudTreeSurfaceDragPasteboardWriter?
         private var activeDragSequenceNumber: Int?
         private var activeDragSession: NSDraggingSession?
         private weak var activeDragSourceView: CloudTreeNSOutlineView?

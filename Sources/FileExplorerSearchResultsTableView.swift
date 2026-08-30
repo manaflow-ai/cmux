@@ -10,7 +10,10 @@ final class FileExplorerSearchResultsTableView: NSTableView {
     weak var pendingNativeDragWriter: FilePreviewDragPasteboardWriter?
     var pendingNativeDragTokenID: UUID?
     var pendingNativeDragOwnership: FilePreviewNativeDragOwnership?
-    var activeNativeDragWriter: FilePreviewDragPasteboardWriter?
+    // NSDraggingItem owns the writer while AppKit runs the session. A weak
+    // table edge prevents the writer's retained container from forming a
+    // container → table → writer cycle when endedAt is delayed.
+    weak var activeNativeDragWriter: FilePreviewDragPasteboardWriter?
     var activeNativeDragOwnership: FilePreviewNativeDragOwnership?
     /// Called before AppKit evaluates a new pointer gesture. A new
     /// `mouseDown` cannot arrive while the old native drag loop is still live,

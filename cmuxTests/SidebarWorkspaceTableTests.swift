@@ -204,7 +204,7 @@ struct SidebarWorkspaceTableTests {
                 #expect(endedID == sessionID)
                 sessionID = nil
             },
-            reclaimSupersededNativeSources: {}
+            reclaimSupersededNativeSources: { _ in }
         )
         controller.apply(
             rows: [first, second],
@@ -355,7 +355,7 @@ struct SidebarWorkspaceTableTests {
                 finishCount += 1
                 currentSessionId = nil
             },
-            reclaimSupersededNativeSources: {
+            reclaimSupersededNativeSources: { _ in
                 reclaimCount += 1
             }
         )
@@ -420,7 +420,7 @@ struct SidebarWorkspaceTableTests {
                 finishCount += 1
                 currentSessionId = nil
             },
-            reclaimSupersededNativeSources: {
+            reclaimSupersededNativeSources: { _ in
                 reclaimCount += 1
             }
         )
