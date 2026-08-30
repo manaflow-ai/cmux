@@ -9390,10 +9390,10 @@ impl Mux {
                     .with_context(|| format!("unknown surface {surface}"))?;
                 let identity =
                     runtime.resource_identity().context("surface has no resource identity")?;
-                let crate::resource::ContentPublicId::Terminal(id) = identity.content_id else {
+                let crate::resource::ContentPublicId::Terminal(id) = &identity.content_id else {
                     anyhow::bail!("surface {surface} is not a terminal")
                 };
-                id
+                id.clone()
             };
             let timestamp = now_ms();
             match self.agent_report_echo_key(&terminal_id, state, source, session.as_deref()) {
