@@ -2880,7 +2880,7 @@ impl WorkspaceRegistry {
         let mut statement = self.connection.prepare(
             "SELECT rt.public_id
              FROM resource_terminals AS rt
-             JOIN terminal_hosts AS th ON th.terminal_id = rt.terminal_id
+             LEFT JOIN terminal_hosts AS th ON th.terminal_id = rt.terminal_id
              WHERE rt.lifecycle = 'tombstoned' OR th.lifecycle = 'tombstoned'
              ORDER BY rt.deleted_revision ASC, rt.public_id ASC",
         )?;

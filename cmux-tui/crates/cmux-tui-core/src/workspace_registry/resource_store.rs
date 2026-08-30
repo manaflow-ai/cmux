@@ -720,6 +720,37 @@ impl WorkspaceRegistry {
             .collect()
     }
 
+    /// Return pending hook journal sequences in a reducer replay range.
+    ///
+    /// A pending row means the durable journal event exists but its resource
+    /// projection has not been confirmed. Reducers must stop before that
+    /// sequence instead of folding later rows and creating a split-brain
+    /// projection.
+    pub(crate) fn pending_agent_hook_projection_sequences(
+        &self,
+        after_sequence: u64,
+        through_sequence: u64,
+    ) -> anyhow::Result<HashSet<u64>> {
+        if after_sequence >= through_sequence {
+            return Ok(HashSet::new());
+        }
+        let mut statement = self.connection.prepare(
+            "SELECT event_sequence
+             FROM resource_agent_hook_pending
+             WHERE event_sequence > ?1 AND event_sequence <= ?2",
+        )?;
+        statement
+            .query_map(
+                params![i64::try_from(after_sequence)?, i64::try_from(through_sequence)?,],
+                |row| row.get::<_, i64>(0),
+            )?
+            .map(|row| {
+                let sequence = row?;
+                u64::try_from(sequence).context("pending hook sequence is negative")
+            })
+            .collect()
+    }
+
     pub fn pending_agent_hook_projections_for_terminal(
         &self,
         terminal_id: &crate::resource::TerminalPublicId,
