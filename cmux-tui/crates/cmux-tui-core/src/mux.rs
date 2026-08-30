@@ -5749,6 +5749,12 @@ impl Mux {
         match delta {
             RosterDelta::Upsert { terminal_id, entry } => {
                 let Ok(terminal_id) = TerminalPublicId::parse(terminal_id) else { return };
+                if records
+                    .get(&terminal_id)
+                    .is_some_and(|existing| existing.updated_at_ms > entry.updated_at_ms)
+                {
+                    return;
+                }
                 records.insert(
                     terminal_id,
                     TerminalAgentRecord {
