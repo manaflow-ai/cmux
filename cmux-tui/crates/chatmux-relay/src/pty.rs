@@ -1401,6 +1401,9 @@ impl Inner {
             let mut opening = self.opening_state.lock().expect("opening state lock");
             if let Some(owner) = opening.reservations.get(pty_id).cloned() {
                 opening.reservations.remove(pty_id);
+                if let Some(cancellation) = opening.cancellations.remove(&owner) {
+                    cancellation.cancel();
+                }
                 opening.cancelled.insert(pty_id.to_owned(), owner);
                 return;
             }
