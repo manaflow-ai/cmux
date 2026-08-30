@@ -794,6 +794,11 @@ public actor MobileIrxRuntimeComposition {
         )
         // Credit the server-opened events lane now that admission holds.
         await connection.raiseRemoteStreamCredit(bi: 0, uni: 4)
+        // Automatic path mode: authorize NAT traversal so iroh can upgrade
+        // this session off the relay make-before-break (direct/LAN paths).
+        if !Self.forceRelayOnly {
+            await connection.authorizeDirectPaths()
+        }
         return IrxClientSession(
             connection: connection,
             admit: admit,

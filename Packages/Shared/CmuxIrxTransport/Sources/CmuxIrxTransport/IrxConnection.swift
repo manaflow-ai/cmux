@@ -306,6 +306,26 @@ public actor IrxConnection {
         }
     }
 
+    /// Authorizes NAT traversal for this connection (automatic path mode
+    /// only): iroh then exchanges direct candidates over the relay side
+    /// channel and upgrades off the relay make-before-break. Failure is
+    /// journaled, never fatal — the relay path keeps carrying the session
+    /// when traversal cannot.
+    public func authorizeDirectPaths() async {
+        do {
+            try await connection.authorizeNatTraversal()
+            journal.record(
+                "endpoint", "nat-traversal-authorized",
+                ["remote": String(remoteEndpointIDHex.prefix(12))]
+            )
+        } catch {
+            journal.record(
+                "endpoint", "nat-traversal-authorize-failed",
+                ["error": String(describing: error)]
+            )
+        }
+    }
+
     /// Server-side keepalive responder for one accepted keepalive lane.
     public nonisolated func respondKeepalive(on lane: IrxLaneStream) -> Task<Void, Never> {
         Task { [journal] in

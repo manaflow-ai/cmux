@@ -651,6 +651,11 @@ final class MobileHostIrxRuntime {
             )
         else { return }
         await registry.admit(deviceID: peer.deviceID, sessionID: sessionID, connection: irx)
+        // Automatic path mode: authorize NAT traversal so the admitted session
+        // can upgrade to a direct/LAN path make-before-break.
+        if !Self.forceRelayOnly {
+            await irx.authorizeDirectPaths()
+        }
 
         let admittedPeer: CmxIrohAdmittedPeer
         do {
