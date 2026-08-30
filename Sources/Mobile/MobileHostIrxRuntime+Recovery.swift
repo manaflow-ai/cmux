@@ -347,12 +347,10 @@ extension MobileHostIrxRuntime {
     ) -> Bool {
         guard autopilotRecoveryTask == nil else { return true }
         guard terminalRecoveryCount < 3 else {
-            if terminalRecoveryCount >= 3 {
-                Self.journal.record(
-                    "host-runtime", "autopilot-recovery-exhausted",
-                    failure.journalAttributes
-                )
-            }
+            Self.journal.record(
+                "host-runtime", "autopilot-recovery-exhausted",
+                failure.journalAttributes
+            )
             return false
         }
         let delay = activationRetryPolicy.retrySchedule.delay(
@@ -396,15 +394,12 @@ extension MobileHostIrxRuntime {
         failure: IrxBrokerFailure,
         accountID: String
     ) {
-        guard activeAccountID == accountID,
-              activationRetryTask == nil,
-              terminalRecoveryCount < 3 else {
-            if terminalRecoveryCount >= 3 {
-                Self.journal.record(
-                    "host-runtime", "activation-recovery-exhausted",
-                    failure.journalAttributes
-                )
-            }
+        guard activeAccountID == accountID, activationRetryTask == nil else { return }
+        guard terminalRecoveryCount < 3 else {
+            Self.journal.record(
+                "host-runtime", "activation-recovery-exhausted",
+                failure.journalAttributes
+            )
             return
         }
         let delay = activationRetryPolicy.retrySchedule.delay(
