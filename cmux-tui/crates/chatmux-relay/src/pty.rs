@@ -984,7 +984,16 @@ fn send_typed_pty_error(
         RelayPtyErrorCode::TerminalGone => "terminal_gone",
         RelayPtyErrorCode::Failed => "failed",
     };
-    send_pty_error(context, pty_id, wire_code, message);
+    // Do not reflect provider or filesystem details to remote callers.
+    let safe_message = match code {
+        RelayPtyErrorCode::BadRequest => "invalid terminal request",
+        RelayPtyErrorCode::TrustRefused => "terminal access denied",
+        RelayPtyErrorCode::SessionLimit => "terminal session limit reached",
+        RelayPtyErrorCode::TerminalGone => "terminal is no longer available",
+        RelayPtyErrorCode::Failed => "terminal open failed",
+    };
+    let _ = message;
+    send_pty_error(context, pty_id, wire_code, safe_message);
 }
 
 impl Inner {
