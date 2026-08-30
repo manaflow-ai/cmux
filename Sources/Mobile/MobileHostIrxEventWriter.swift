@@ -3,6 +3,10 @@ import Foundation
 
 /// Lazy server-events lane writer for the irx host connection.
 actor MobileHostIrxEventWriter: MobileHostIndependentEventWriting {
+    private enum WriterOpenError: Error {
+        case superseded
+    }
+
     private let connection: IrxConnection
     private let journal: IrxJournal
     private var writer: IrxStreamWriter?
@@ -24,17 +28,32 @@ actor MobileHostIrxEventWriter: MobileHostIndependentEventWriting {
     }
 
     func send(_ framedData: Data) async throws {
-        let writer = try await openedWriter()
-        do {
-            try await writer.write(framedData)
-        } catch {
-            // A failed QUIC lane cannot be reused. Drop it before finishing so
-            // a reentrant sender opens a fresh lane on its next attempt.
-            if self.writer === writer {
-                self.writer = nil
+        var supersededOpen = false
+        while true {
+            let writer: IrxStreamWriter
+            do {
+                writer = try await openedWriter()
+            } catch is WriterOpenError {
+                // reset()/close() can supersede an open after the QUIC lane
+                // has been created. The creator owns finishing that lane; one
+                // sender may immediately establish the replacement lane.
+                guard !supersededOpen else { throw CancellationError() }
+                supersededOpen = true
+                continue
             }
-            await writer.finish()
-            throw error
+            do {
+                try await writer.write(framedData)
+                return
+            } catch {
+                // A failed QUIC lane cannot be reused. Drop it before
+                // finishing so a reentrant sender opens a fresh lane on its
+                // next attempt.
+                if self.writer === writer {
+                    self.writer = nil
+                }
+                await writer.finish()
+                throw error
+            }
         }
     }
 
@@ -66,8 +85,9 @@ actor MobileHostIrxEventWriter: MobileHostIndependentEventWriting {
             let opened = try await openingWriter.value
             if let writer { return writer }
             guard let openingID, openingWriterID == openingID else {
-                await opened.finish()
-                throw CancellationError()
+                // The creator of the open owns cleanup. A follower must not
+                // finish the same writer while the creator is still unwinding.
+                throw WriterOpenError.superseded
             }
             openingWriter = nil
             openingWriterID = nil
@@ -94,7 +114,7 @@ actor MobileHostIrxEventWriter: MobileHostIndependentEventWriting {
             if let writer { return writer }
             guard openingWriterID == id else {
                 await opened.finish()
-                throw CancellationError()
+                throw WriterOpenError.superseded
             }
             openingWriter = nil
             openingWriterID = nil
