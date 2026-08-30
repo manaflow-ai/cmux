@@ -1115,10 +1115,7 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
             match AgentRoster::restore(&snapshot) {
                 Some(roster) => {
                     snapshot_valid = true;
-                    let authoritative = cursor > 0
-                        || !roster.entries.is_empty()
-                        || !roster.hook_fences.is_empty()
-                        || !roster.retired_terminals.is_empty();
+                    let authoritative = roster.is_authoritative();
                     AgentRosterHost { roster, cursor, authoritative }
                 }
                 None => {
@@ -1130,20 +1127,26 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
         _ => AgentRosterHost::default(),
     };
     let initial_cursor = host.cursor;
-    let mut saw_agent_event = false;
     loop {
         let page = registry.session_journal_after(host.cursor, 512)?;
         if page.records.is_empty() {
             break;
         }
         for record in &page.records {
-            saw_agent_event |= record.producer.id == crate::agent_hooks::AGENT_HOOK_PRODUCER_ID;
             host.roster.apply(&RosterEvent::from_record(record));
             host.cursor = host.cursor.max(record.sequence);
         }
     }
-    host.authoritative |= saw_agent_event;
-    if host.authoritative && (host.cursor != initial_cursor || !snapshot_valid) {
+    let before_topology_prune = host.roster.snapshot();
+    let live_terminal_ids = registry
+        .live_terminal_resource_ids()?
+        .into_iter()
+        .map(|(_, terminal_id)| terminal_id.to_string())
+        .collect::<HashSet<_>>();
+    host.roster.retain_live_terminals(&live_terminal_ids);
+    let topology_pruned = host.roster.snapshot() != before_topology_prune;
+    host.authoritative |= host.roster.is_authoritative();
+    if host.authoritative && (host.cursor != initial_cursor || !snapshot_valid || topology_pruned) {
         registry.put_journal_reducer_state(
             AGENT_ROSTER_REDUCER_ID,
             AGENT_ROSTER_REDUCER_VERSION,
@@ -5724,7 +5727,28 @@ impl Mux {
                 // yet. Keep the cursor unchanged so another callback retries.
                 return;
             }
+            let live_terminal_ids =
+                match self.workspace_registry.lock().unwrap().live_terminal_resource_ids() {
+                    Ok(terminals) => terminals
+                        .into_iter()
+                        .map(|(_, terminal_id)| terminal_id.to_string())
+                        .collect::<HashSet<_>>(),
+                    Err(error) => {
+                        eprintln!(
+                            "cmux-tui: reading live terminals before roster prune failed: {error}"
+                        );
+                        return;
+                    }
+                };
+            candidate.retain_live_terminals(&live_terminal_ids);
+            deltas.retain(|delta| match delta {
+                crate::journal_reducers::RosterDelta::Upsert { terminal_id, .. }
+                | crate::journal_reducers::RosterDelta::Remove { terminal_id } => {
+                    live_terminal_ids.contains(terminal_id)
+                }
+            });
             let snapshot = candidate.snapshot().to_string();
+            let candidate_authoritative = candidate.is_authoritative();
             if let Err(error) = self.workspace_registry.lock().unwrap().put_journal_reducer_state(
                 AGENT_ROSTER_REDUCER_ID,
                 AGENT_ROSTER_REDUCER_VERSION,
@@ -5743,6 +5767,7 @@ impl Mux {
                 }
                 host.roster = candidate;
                 host.cursor = next_cursor;
+                host.authoritative |= candidate_authoritative;
             }
             for delta in deltas {
                 self.apply_roster_delta_to_record_cache(delta);
@@ -9612,8 +9637,18 @@ impl Mux {
                 && source == AgentSource::Socket
                 && !effective_hook_state.is_some_and(|state| state.ended)
         });
+        let socket_report_unchanged = source == AgentSource::Socket
+            && records.get(&terminal_id).is_some_and(|existing| {
+                existing.source == AgentSource::Socket
+                    && existing.state == agent_state
+                    && existing.session.as_ref() == source_session.as_ref()
+                    && existing.agent.as_ref() == agent_adapter.as_ref()
+            });
+        // The echo reducer coalesces this semantic no-op. Keep its original
+        // timestamp too, so the compatibility projection and durable roster
+        // retain identical values across a restart.
         let record = match records.get(&terminal_id) {
-            Some(existing) if socket_report_ignored => existing.clone(),
+            Some(existing) if socket_report_ignored || socket_report_unchanged => existing.clone(),
             _ => TerminalAgentRecord {
                 state: agent_state,
                 source,

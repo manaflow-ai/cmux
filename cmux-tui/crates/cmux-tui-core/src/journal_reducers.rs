@@ -16,7 +16,7 @@
 //! echo event after its direct projection commit), so the roster never has
 //! a second writer to diverge from.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -28,8 +28,15 @@ use crate::{AgentSource, AgentState, JournalSubject};
 pub(crate) const AGENT_ROSTER_REDUCER_ID: &str = "agent_roster";
 /// Bump to discard persisted snapshots and re-fold from the journal head.
 /// Version 2 added the agent adapter id to roster entries. Version 3 retains
-/// ended hook fences after their live roster entries are removed.
-pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 3;
+/// ended hook fences after their live roster entries are removed. Version 4
+/// records whether a semantically valid roster event has been folded, so an
+/// unrelated hook row cannot make the compatibility projection authoritative.
+pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 4;
+
+/// Retirement tombstones are only needed while a terminal is still visible
+/// to the durable topology. Keep a bounded safety net for a close/reconcile
+/// race, then let topology reconciliation drop tombstones for gone terminals.
+pub(crate) const MAX_RETIRED_TERMINAL_FENCES: usize = 1_024;
 
 /// The adapter id and native event the socket report path uses for its echo
 /// journal events. The echo carries the explicit state in `normalized`, so
@@ -164,6 +171,11 @@ pub(crate) enum RosterDelta {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub(crate) struct AgentRoster {
     pub(crate) entries: HashMap<String, RosterEntry>,
+    /// True only after a valid terminal-scoped roster event or an explicit
+    /// terminal retirement has been folded. This flag is persisted separately
+    /// from the cursor because unrelated producer rows can advance the latter.
+    #[serde(default)]
+    authoritative: bool,
     /// Hook generation watermarks remain after an ended session leaves the
     /// live roster. Socket echoes cannot recreate an ended entry, and delayed
     /// events from an old named session cannot cross into a newer lifecycle.
@@ -215,6 +227,7 @@ impl AgentRoster {
             if self.hook_fences.get(terminal_id).is_some_and(|fence| fence.ended) {
                 return Vec::new();
             }
+            self.authoritative = true;
             (state, source, session, None, updated_at_ms)
         } else {
             let Some(state) = state_for_hook_kind(event.kind) else { return Vec::new() };
@@ -252,6 +265,7 @@ impl AgentRoster {
                     return Vec::new();
                 }
             }
+            self.authoritative = true;
             self.hook_fences.insert(
                 terminal_id.to_string(),
                 RosterFence {
@@ -313,8 +327,12 @@ impl AgentRoster {
     /// tombstoned). Terminal lifecycle does not flow through `agent.*`
     /// events yet, so the host retires entries explicitly.
     pub(crate) fn retire_terminal(&mut self, terminal_id: &str, retired_at: u64) -> bool {
+        self.authoritative = true;
         let removed_entry = self.entries.remove(terminal_id).is_some();
-        match self.retired_terminals.entry(terminal_id.to_string()) {
+        // A retired terminal is no longer allowed to receive socket echoes,
+        // and its ended hook fence is redundant with the retirement cursor.
+        let removed_fence = self.hook_fences.remove(terminal_id).is_some();
+        let retired_changed = match self.retired_terminals.entry(terminal_id.to_string()) {
             std::collections::btree_map::Entry::Occupied(mut entry) => {
                 let previous = *entry.get();
                 let effective = previous.max(retired_at);
@@ -325,7 +343,37 @@ impl AgentRoster {
                 entry.insert(retired_at);
                 true
             }
+        };
+        let pruned = self.prune_retired_terminals();
+        removed_entry || removed_fence || retired_changed || pruned
+    }
+
+    fn prune_retired_terminals(&mut self) -> bool {
+        let mut changed = false;
+        while self.retired_terminals.len() > MAX_RETIRED_TERMINAL_FENCES {
+            let oldest = self
+                .retired_terminals
+                .iter()
+                .min_by_key(|(terminal_id, sequence)| (**sequence, terminal_id.as_str()))
+                .map(|(terminal_id, _)| terminal_id.clone());
+            let Some(oldest) = oldest else { break };
+            self.retired_terminals.remove(&oldest);
+            changed = true;
         }
+        changed
+    }
+
+    /// Remove fences for terminals no longer present in the durable resource
+    /// topology. This keeps snapshots proportional to live terminals and is
+    /// safe because direct reports cannot resolve a tombstoned terminal.
+    pub(crate) fn retain_live_terminals(&mut self, live_terminal_ids: &HashSet<String>) {
+        self.entries.retain(|terminal_id, _| live_terminal_ids.contains(terminal_id));
+        self.hook_fences.retain(|terminal_id, _| live_terminal_ids.contains(terminal_id));
+        self.retired_terminals.retain(|terminal_id, _| live_terminal_ids.contains(terminal_id));
+    }
+
+    pub(crate) fn is_authoritative(&self) -> bool {
+        self.authoritative
     }
 
     pub(crate) fn is_retired(&self, terminal_id: &str) -> bool {
