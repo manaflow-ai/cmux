@@ -3,7 +3,7 @@ import Foundation
 
 extension GitMetadataService {
     /// Keeps a conservative root watcher when an index format cannot be parsed.
-    fileprivate nonisolated func applyingForcedWorkTreeRoots(
+    nonisolated func applyingForcedWorkTreeRoots(
         _ descriptor: GitWorkspaceMetadataWatchDescriptor,
         repositories: Set<String>
     ) -> GitWorkspaceMetadataWatchDescriptor {
