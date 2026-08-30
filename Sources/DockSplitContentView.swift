@@ -187,7 +187,9 @@ private final class DockPointerInteractionHostView: NSView {
             // A drag can leave the app before mouse-up is delivered to the
             // local monitor. No in-app SwiftUI tap follows this callback, so
             // clear immediately.
-            self?.store?.endUserDockInteraction()
+            self?.store?.endUserDockInteraction(
+                sourceID: self?.interactionSourceID
+            )
         }
         if windowResignKeyObserver == nil, let window {
             windowResignKeyObserver = NotificationCenter.default.addObserver(
@@ -195,7 +197,9 @@ private final class DockPointerInteractionHostView: NSView {
                 object: window,
                 queue: .main
             ) { [weak self] _ in
-                self?.store?.endUserDockInteraction()
+                self?.store?.endUserDockInteraction(
+                    sourceID: self?.interactionSourceID
+                )
             }
         }
         if applicationResignActiveObserver == nil {
@@ -204,7 +208,9 @@ private final class DockPointerInteractionHostView: NSView {
                 object: NSApp,
                 queue: .main
             ) { [weak self] _ in
-                self?.store?.endUserDockInteraction()
+                self?.store?.endUserDockInteraction(
+                    sourceID: self?.interactionSourceID
+                )
             }
         }
     }

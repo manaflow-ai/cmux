@@ -8389,6 +8389,18 @@ struct ContentView: View {
             }
             return browserDispatcher.perform(action, on: browserTarget)
         }
+        let performDockShortcutCommand: (DockShortcutCommand) -> Bool = {
+            command in
+            guard let dockSurfaceStore else { return false }
+            guard focusCapturedDockSurface() else {
+                NSSound.beep()
+                return true
+            }
+            if !dockSurfaceStore.performShortcutCommand(command) {
+                NSSound.beep()
+            }
+            return true
+        }
 
         registry.register(commandId: "palette.newWorkspace") {
             AppDelegate.shared?.performNewWorkspaceAction(
@@ -9039,141 +9051,51 @@ struct ContentView: View {
             }
         }
         registry.register(commandId: "palette.terminalFind") {
-            if let dockSurfaceStore {
-                guard focusCapturedDockSurface() else {
-                    NSSound.beep()
-                    return
-                }
-                if !dockSurfaceStore.performShortcutCommand(.startFind) {
-                    NSSound.beep()
-                }
-                return
-            }
+            if performDockShortcutCommand(.startFind) { return }
             tabManager.startSearch()
         }
         registry.register(commandId: "palette.terminalFindNext") {
-            if let dockSurfaceStore {
-                guard focusCapturedDockSurface() else {
-                    NSSound.beep()
-                    return
-                }
-                if !dockSurfaceStore.performShortcutCommand(.findNext) {
-                    NSSound.beep()
-                }
-                return
-            }
+            if performDockShortcutCommand(.findNext) { return }
             tabManager.findNext()
         }
         registry.register(commandId: "palette.terminalFindPrevious") {
-            if let dockSurfaceStore {
-                guard focusCapturedDockSurface() else {
-                    NSSound.beep()
-                    return
-                }
-                if !dockSurfaceStore.performShortcutCommand(.findPrevious) {
-                    NSSound.beep()
-                }
-                return
-            }
+            if performDockShortcutCommand(.findPrevious) { return }
             tabManager.findPrevious()
         }
         registry.register(commandId: "palette.terminalHideFind") {
-            if let dockSurfaceStore {
-                guard focusCapturedDockSurface() else {
-                    NSSound.beep()
-                    return
-                }
-                if !dockSurfaceStore.performShortcutCommand(.hideFind) {
-                    NSSound.beep()
-                }
-                return
-            }
+            if performDockShortcutCommand(.hideFind) { return }
             tabManager.hideFind()
         }
         registry.register(commandId: "palette.terminalUseSelectionForFind") {
-            if let dockSurfaceStore {
-                guard focusCapturedDockSurface() else {
-                    NSSound.beep()
-                    return
-                }
-                if !dockSurfaceStore.performShortcutCommand(.useSelectionForFind) {
-                    NSSound.beep()
-                }
-                return
-            }
+            if performDockShortcutCommand(.useSelectionForFind) { return }
             tabManager.searchSelection()
         }
         registry.register(commandId: "palette.terminalToggleTextBoxInput") {
-            if let dockSurfaceStore {
-                guard focusCapturedDockSurface() else {
-                    NSSound.beep()
-                    return
-                }
-                if !dockSurfaceStore.performShortcutCommand(.toggleTerminalTextBox) {
-                    NSSound.beep()
-                }
-                return
-            }
+            if performDockShortcutCommand(.toggleTerminalTextBox) { return }
             if !tabManager.toggleFocusedTerminalTextBox() {
                 NSSound.beep()
             }
         }
         registry.register(commandId: "palette.terminalFocusTextBoxInput") {
-            if let dockSurfaceStore {
-                guard focusCapturedDockSurface() else {
-                    NSSound.beep()
-                    return
-                }
-                if !dockSurfaceStore.performShortcutCommand(.focusTextBoxInput) {
-                    NSSound.beep()
-                }
-                return
-            }
+            if performDockShortcutCommand(.focusTextBoxInput) { return }
             if !tabManager.focusFocusedTerminalTextBoxInputOrTerminal() {
                 NSSound.beep()
             }
         }
         registry.register(commandId: "palette.terminalAttachTextBoxFile") {
-            if let dockSurfaceStore {
-                guard focusCapturedDockSurface() else {
-                    NSSound.beep()
-                    return
-                }
-                if !dockSurfaceStore.performShortcutCommand(.attachTextBoxFile) {
-                    NSSound.beep()
-                }
-                return
-            }
+            if performDockShortcutCommand(.attachTextBoxFile) { return }
             if !tabManager.attachFileToFocusedTerminalTextBoxInput() {
                 NSSound.beep()
             }
         }
         registry.register(commandId: "palette.terminalSendCtrlF") {
-            if let dockSurfaceStore {
-                guard focusCapturedDockSurface() else {
-                    NSSound.beep()
-                    return
-                }
-                if !dockSurfaceStore.performShortcutCommand(.sendCtrlFToTerminal) {
-                    NSSound.beep()
-                }
-                return
-            }
+            if performDockShortcutCommand(.sendCtrlFToTerminal) { return }
             if !tabManager.sendCtrlFToFocusedTerminal() {
                 NSSound.beep()
             }
         }
         registry.register(commandId: "palette.terminalClearScreenKeepScrollback") {
-            if let dockSurfaceStore {
-                guard focusCapturedDockSurface() else {
-                    NSSound.beep()
-                    return
-                }
-                if !dockSurfaceStore.performShortcutCommand(.clearScreenKeepScrollback) {
-                    NSSound.beep()
-                }
-                return
-            }
+            if performDockShortcutCommand(.clearScreenKeepScrollback) { return }
             if !tabManager.clearFocusedTerminalKeepingScrollback() {
                 NSSound.beep()
             }

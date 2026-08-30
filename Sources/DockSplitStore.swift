@@ -896,7 +896,12 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     /// of being mistaken for a click.
     func beginUserDockDragInteraction(sourceID: UUID? = nil) {
         guard isVisibleInUI, scope == .global else { return }
-        guard !pendingUserInteraction else { return }
+        if pendingUserInteraction {
+            guard pendingUserInteractionSourceID == sourceID else { return }
+            pendingUserInteractionReleased = false
+            pendingUserInteractionDragging = true
+            return
+        }
         pendingUserInteraction = true
         pendingUserInteractionReleased = false
         pendingUserInteractionDragging = true
@@ -1319,7 +1324,6 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             panelCancellables[panel.id] = terminal.$searchState
                 .map { $0 != nil }
                 .removeDuplicates()
-                .receive(on: DispatchQueue.main)
                 .sink { [weak self] _ in
                     self?.refreshDockMenuCapabilities()
                 }
