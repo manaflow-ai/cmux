@@ -1076,6 +1076,129 @@ private actor ScriptedCommandRunner: CommandRunning {
     }
 }
 
+/// Returns an empty, successful `ps` result and signals each command call.
+/// The lifecycle tests use the signal to position an unregister between burst
+/// scans without depending on a wall-clock sleep.
+private actor BurstInvocationCommandRunner: CommandRunning {
+    private(set) var invocationCount = 0
+    private var invocationStreams: [UUID: AsyncStream<Int>.Continuation] = [:]
+
+    func run(
+        directory: String,
+        executable: String,
+        arguments: [String],
+        timeout: TimeInterval?
+    ) async -> CommandResult {
+        invocationCount += 1
+        for continuation in invocationStreams.values {
+            continuation.yield(invocationCount)
+        }
+        return CommandResult(
+            stdout: "",
+            stderr: "",
+            exitStatus: 0,
+            timedOut: false,
+            executionError: nil
+        )
+    }
+
+    func waitForInvocation(_ target: Int, timeout: Duration) async -> Bool {
+        guard invocationCount < target else { return true }
+
+        let streamID = UUID()
+        var streamContinuation: AsyncStream<Int>.Continuation!
+        let stream = AsyncStream<Int> { continuation in
+            streamContinuation = continuation
+        }
+        invocationStreams[streamID] = streamContinuation
+        defer {
+            invocationStreams.removeValue(forKey: streamID)?.finish()
+        }
+
+        return await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                for await count in stream where count >= target {
+                    return true
+                }
+                return false
+            }
+            group.addTask {
+                do {
+                    try await Task.sleep(for: timeout)
+                    return false
+                } catch {
+                    return false
+                }
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
+        }
+    }
+}
+
+private func waitForScannerQueue(_ scanner: PortScanner) async {
+    await withCheckedContinuation { continuation in
+        scanner.queue.async { continuation.resume() }
+    }
+}
+
+@Suite("Port scanner lifecycle")
+struct PortScannerLifecycleTests {
+    @Test("Unregister cancels a pending coalesce and burst generation")
+    func unregisterCancelsPendingBurst() async {
+        let runner = ScriptedCommandRunner(results: [])
+        let scanner = PortScanner(commandRunner: runner)
+        let workspaceID = UUID()
+        let panelID = UUID()
+        await MainActor.run {
+            scanner.registerTTY(workspaceId: workspaceID, panelId: panelID, ttyName: "ttys999")
+        }
+        scanner.kick(workspaceId: workspaceID, panelId: panelID)
+        await MainActor.run {
+            scanner.unregisterPanel(workspaceId: workspaceID, panelId: panelID)
+        }
+        await waitForScannerQueue(scanner)
+        let calls = await runner.recordedArguments
+        #expect(calls.isEmpty)
+    }
+
+    @Test("Unregistering one panel preserves another panel's active burst")
+    func unregisteringOnePanelPreservesOtherBurst() async {
+        let runner = BurstInvocationCommandRunner()
+        let scanner = PortScanner(commandRunner: runner)
+        let workspaceID = UUID()
+        let removedPanelID = UUID()
+        let retainedPanelID = UUID()
+
+        await MainActor.run {
+            scanner.registerTTY(
+                workspaceId: workspaceID,
+                panelId: removedPanelID,
+                ttyName: "ttys998"
+            )
+            scanner.registerTTY(
+                workspaceId: workspaceID,
+                panelId: retainedPanelID,
+                ttyName: "ttys997"
+            )
+        }
+        scanner.kick(workspaceId: workspaceID, panelId: removedPanelID)
+        scanner.kick(workspaceId: workspaceID, panelId: retainedPanelID)
+
+        // The third scan consumes the pending-kick budget. The original PR
+        // then cancels the remaining global burst when the first panel closes.
+        #expect(await runner.waitForInvocation(3, timeout: .seconds(6)))
+        await MainActor.run {
+            scanner.unregisterPanel(workspaceId: workspaceID, panelId: removedPanelID)
+        }
+        #expect(await runner.waitForInvocation(4, timeout: .seconds(7)))
+
+        let calls = await runner.invocationCount
+        #expect(calls >= 4)
+    }
+}
+
 @Suite("Port scanner retirement end to end")
 struct PortScannerPortRetirementTests {
     /// Drives the whole scanner — TTY registration, kick, coalesce, burst,
