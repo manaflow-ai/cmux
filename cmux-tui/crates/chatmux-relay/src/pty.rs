@@ -3782,6 +3782,58 @@ mod tests {
     }
 
     #[test]
+    fn tunnel_output_progresses_while_input_is_blocked() {
+        let h = harness(None, None);
+        let inner = Arc::clone(&h.manager.inner);
+        let entered = Arc::new(Barrier::new(2));
+        let release = Arc::new(Barrier::new(2));
+        let owner = TransportOwner { id: Some("tunnel-a".to_owned()), kind: TransportKind::Tunnel };
+        {
+            let mut attachments = inner.attachments.lock().unwrap();
+            attachments.insert(
+                "p1".to_owned(),
+                Attachment {
+                    closing: Arc::new(AtomicBool::new(false)),
+                    operation_gate: Arc::new(Mutex::new(())),
+                    control: Arc::new(BlockingControl {
+                        entered: Arc::clone(&entered),
+                        release: Arc::clone(&release),
+                    }),
+                    actor_id: "user_owner".to_owned(),
+                    owner,
+                },
+            );
+        }
+        let mut context = h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
+        context.transport_kind = TransportKind::Tunnel;
+        inner.cache_transport_auth(&context);
+
+        let operation_inner = Arc::clone(&inner);
+        let operation_context = context.clone();
+        let operation = thread::spawn(move || {
+            operation_inner.with_authorized("p1", &operation_context, "input", |attachment| {
+                attachment.control.write(b"blocked");
+            });
+        });
+        entered.wait();
+
+        let (output_tx, output_rx) = sync_channel(1);
+        let output_inner = Arc::clone(&inner);
+        let output_context = context;
+        let output = thread::spawn(move || {
+            output_inner.emit_output("p1", &Bytes::from_static(b"output"), &output_context);
+            output_tx.send(()).unwrap();
+        });
+        let progressed = output_rx.recv_timeout(Duration::from_millis(250)).is_ok();
+
+        release.wait();
+        operation.join().unwrap();
+        output.join().unwrap();
+        assert!(progressed, "output must not wait for a blocking PTY input operation");
+        assert!(h.sent().iter().any(|frame| frame["type"] == "pty_output"));
+    }
+
+    #[test]
     fn tunnel_revocation_does_not_wait_for_a_blocking_operation() {
         let h = harness(None, None);
         let inner = Arc::clone(&h.manager.inner);
