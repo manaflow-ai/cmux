@@ -720,35 +720,52 @@ impl WorkspaceRegistry {
             .collect()
     }
 
-    /// Return pending hook journal sequences in a reducer replay range.
-    ///
-    /// A pending row means the durable journal event exists but its resource
-    /// projection has not been confirmed. Reducers must stop before that
-    /// sequence instead of folding later rows and creating a split-brain
-    /// projection.
+    /// Return live and quarantined hook journal sequences in a reducer replay
+    /// range. A live pending row means the durable journal event exists but
+    /// its resource projection has not been confirmed, so reducers must stop
+    /// before that sequence. A quarantined row exhausted its retry budget and
+    /// is intentionally skipped, otherwise it would permanently block every
+    /// later reducer record.
+    pub(crate) fn agent_hook_projection_sequence_states(
+        &self,
+        after_sequence: u64,
+        through_sequence: u64,
+    ) -> anyhow::Result<(HashSet<u64>, HashSet<u64>)> {
+        if after_sequence >= through_sequence {
+            return Ok((HashSet::new(), HashSet::new()));
+        }
+        let mut statement = self.connection.prepare(
+            "SELECT event_sequence, attempt
+             FROM resource_agent_hook_pending
+             WHERE event_sequence > ?1 AND event_sequence <= ?2",
+        )?;
+        let mut pending = HashSet::new();
+        let mut quarantined = HashSet::new();
+        for row in statement.query_map(
+            params![i64::try_from(after_sequence)?, i64::try_from(through_sequence)?],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+        )? {
+            let (sequence, attempt) = row?;
+            let sequence = u64::try_from(sequence).context("pending hook sequence is negative")?;
+            if attempt >= AGENT_HOOK_MAX_ATTEMPTS {
+                quarantined.insert(sequence);
+            } else {
+                pending.insert(sequence);
+            }
+        }
+        Ok((pending, quarantined))
+    }
+
+    /// Return live pending hook journal sequences in a reducer replay range.
+    /// Quarantined rows are excluded because they are handled as explicit
+    /// reducer skips by `agent_hook_projection_sequence_states`.
     pub(crate) fn pending_agent_hook_projection_sequences(
         &self,
         after_sequence: u64,
         through_sequence: u64,
     ) -> anyhow::Result<HashSet<u64>> {
-        if after_sequence >= through_sequence {
-            return Ok(HashSet::new());
-        }
-        let mut statement = self.connection.prepare(
-            "SELECT event_sequence
-             FROM resource_agent_hook_pending
-             WHERE event_sequence > ?1 AND event_sequence <= ?2",
-        )?;
-        statement
-            .query_map(
-                params![i64::try_from(after_sequence)?, i64::try_from(through_sequence)?,],
-                |row| row.get::<_, i64>(0),
-            )?
-            .map(|row| {
-                let sequence = row?;
-                u64::try_from(sequence).context("pending hook sequence is negative")
-            })
-            .collect()
+        self.agent_hook_projection_sequence_states(after_sequence, through_sequence)
+            .map(|(pending, _)| pending)
     }
 
     pub fn pending_agent_hook_projections_for_terminal(

@@ -1104,8 +1104,19 @@ struct AgentRosterHost {
 const AGENT_ROSTER_SNAPSHOT_INTERVAL: u64 = 32;
 /// Maximum number of journal rows one synchronous report may reduce. A stale
 /// reducer cursor must not turn a polling request into an unbounded replay.
-/// Later journal activity or a retry call continues from the durable cursor.
+/// A coalesced background worker continues from the durable cursor.
 const AGENT_ROSTER_FOLD_RECORD_LIMIT: usize = 512;
+/// A blocked roster fold must not keep a worker thread alive forever when the
+/// projection is waiting on an external retry. The timeout is only a wake-up
+/// bound; SQLite remains the source of truth and no state is inferred from it.
+const AGENT_ROSTER_FOLD_WORKER_WAIT: Duration = Duration::from_secs(1);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum AgentRosterFoldProgress {
+    ReachedTarget,
+    MoreAvailable,
+    WaitingForProjection,
+}
 
 fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRosterHost> {
     use crate::journal_reducers::{
@@ -2193,6 +2204,13 @@ pub struct Mux {
     /// Serialize journal folds so a later commit cannot advance the reducer
     /// cursor past an earlier committed record.
     agent_roster_fold: Mutex<()>,
+    /// A single coalesced worker drains replay work that exceeds the bounded
+    /// synchronous report budget. The journal remains the source of truth.
+    agent_roster_fold_worker_running: AtomicBool,
+    /// Weak self-reference used to start the reducer worker from `&self`
+    /// entrypoints without creating a reference cycle. It is initialized once
+    /// immediately after the owning `Arc<Mux>` is constructed.
+    self_reference: OnceLock<Weak<Mux>>,
     agent_records: Mutex<HashMap<TerminalPublicId, TerminalAgentRecord>>,
     agent_hook_fences: Mutex<HashMap<TerminalPublicId, HookFence>>,
     /// Nonterminal notifications remain placement-local. Terminal unread
@@ -2611,6 +2629,8 @@ impl Mux {
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
             agent_roster: Mutex::new(agent_roster),
             agent_roster_fold: Mutex::new(()),
+            agent_roster_fold_worker_running: AtomicBool::new(false),
+            self_reference: OnceLock::new(),
             agent_records: Mutex::new(agent_records),
             agent_hook_fences: Mutex::new(agent_hook_fences),
             placement_notifications: Mutex::new(HashMap::new()),
@@ -2653,6 +2673,10 @@ impl Mux {
             test_surface_runtime,
             session,
         });
+        assert!(
+            mux.self_reference.set(Arc::downgrade(&mux)).is_ok(),
+            "mux self-reference must be initialized exactly once"
+        );
         crate::journal_ingress::start(&mux, journal_ingress_receiver)?;
         mux.materialize_interrupted_resource_workspaces()?;
         mux.materialize_restored_browsers(&contents)?;
@@ -5717,10 +5741,20 @@ impl Mux {
         ingress: &crate::JournalIngress,
         commit: &crate::JournalAppendCommit,
     ) {
-        use crate::journal_reducers::RosterEvent;
         if ingress.producer_id != crate::agent_hooks::AGENT_HOOK_PRODUCER_ID {
             return;
         }
+        if self.fold_agent_roster_through(commit.sequence) != AgentRosterFoldProgress::ReachedTarget
+        {
+            self.schedule_agent_roster_fold_worker();
+        }
+    }
+
+    /// Reduce at most one bounded batch of committed journal rows. The caller
+    /// owns continuation scheduling so this method never performs unbounded
+    /// work on a report or socket request.
+    fn fold_agent_roster_through(&self, target_sequence: u64) -> AgentRosterFoldProgress {
+        use crate::journal_reducers::RosterEvent;
         // Journal callbacks can complete out of order. Serialize folds and
         // replay the contiguous committed prefix, so a later sequence never
         // advances the cursor past an earlier event that has not been folded.
@@ -5731,21 +5765,21 @@ impl Mux {
         // number of terminals.
         let _fold = self.agent_roster_fold.lock().unwrap();
         let mut read_cursor = self.agent_roster.lock().unwrap().cursor;
-        if commit.sequence <= read_cursor {
-            return;
+        if target_sequence <= read_cursor {
+            return AgentRosterFoldProgress::ReachedTarget;
         }
-        let pending_sequences = match self
+        let (pending_sequences, quarantined_sequences) = match self
             .workspace_registry
             .lock()
             .unwrap()
-            .pending_agent_hook_projection_sequences(read_cursor, commit.sequence)
+            .agent_hook_projection_sequence_states(read_cursor, target_sequence)
         {
             Ok(sequences) => sequences,
             Err(error) => {
                 eprintln!(
                     "cmux-tui: reading pending agent hook projections before roster fold failed: {error}"
                 );
-                return;
+                return AgentRosterFoldProgress::WaitingForProjection;
             }
         };
         let mut folded_records = 0usize;
@@ -5759,19 +5793,20 @@ impl Mux {
                 Ok(page) => page,
                 Err(error) => {
                     eprintln!("cmux-tui: reading committed agent events back failed: {error}");
-                    return;
+                    return AgentRosterFoldProgress::WaitingForProjection;
                 }
             };
             let mut advanced = false;
             let mut semantic_change = false;
             let mut removal = false;
+            let mut skipped_quarantined = false;
             let mut reached_record_limit = false;
             for record in page.records {
                 if record.sequence <= read_cursor {
                     continue;
                 }
-                if record.sequence > commit.sequence {
-                    return;
+                if record.sequence > target_sequence {
+                    return AgentRosterFoldProgress::WaitingForProjection;
                 }
                 if folded_records >= AGENT_ROSTER_FOLD_RECORD_LIMIT {
                     reached_record_limit = true;
@@ -5782,7 +5817,26 @@ impl Mux {
                 // would publish agent state that the authoritative projection
                 // rejected. A later retry will call this fold again.
                 if pending_sequences.contains(&record.sequence) {
-                    return;
+                    return AgentRosterFoldProgress::WaitingForProjection;
+                }
+                if quarantined_sequences.contains(&record.sequence) {
+                    // A dead-letter projection is an explicit authority
+                    // decision not to apply the resource mutation. Advance
+                    // the reducer cursor without replaying that rejected
+                    // event, then allow later durable records to converge.
+                    self.agent_roster.lock().unwrap().cursor = record.sequence;
+                    read_cursor = record.sequence;
+                    advanced = true;
+                    skipped_quarantined = true;
+                    folded_records += 1;
+                    if read_cursor == target_sequence {
+                        break;
+                    }
+                    if folded_records >= AGENT_ROSTER_FOLD_RECORD_LIMIT {
+                        reached_record_limit = true;
+                        break;
+                    }
+                    continue;
                 }
                 let deltas = {
                     let mut host = self.agent_roster.lock().unwrap();
@@ -5802,7 +5856,7 @@ impl Mux {
                 read_cursor = record.sequence;
                 advanced = true;
                 folded_records += 1;
-                if read_cursor == commit.sequence {
+                if read_cursor == target_sequence {
                     break;
                 }
                 if folded_records >= AGENT_ROSTER_FOLD_RECORD_LIMIT {
@@ -5814,9 +5868,10 @@ impl Mux {
                 let snapshot = {
                     let host = self.agent_roster.lock().unwrap();
                     let distance = host.cursor.saturating_sub(host.persisted_cursor);
-                    let should_persist = semantic_change
+                    let should_persist = (semantic_change || skipped_quarantined)
                         && (host.persisted_cursor == 0
                             || removal
+                            || skipped_quarantined
                             || distance >= AGENT_ROSTER_SNAPSHOT_INTERVAL);
                     should_persist.then(|| (host.cursor, host.roster.snapshot().to_string()))
                 };
@@ -5840,13 +5895,118 @@ impl Mux {
                     }
                 }
             } else {
-                return;
+                return AgentRosterFoldProgress::WaitingForProjection;
             }
             if reached_record_limit {
+                return AgentRosterFoldProgress::MoreAvailable;
+            }
+            if read_cursor >= target_sequence {
+                return AgentRosterFoldProgress::ReachedTarget;
+            }
+        }
+    }
+
+    /// Start one detached reducer worker when a bounded synchronous fold did
+    /// not reach its target. The worker owns no durable state and is woken by
+    /// the journal epoch; every pass rereads SQLite from the reducer cursor.
+    fn schedule_agent_roster_fold_worker(&self) {
+        if self
+            .agent_roster_fold_worker_running
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return;
+        }
+
+        let Some(mux) = self.self_reference.get().cloned() else {
+            self.agent_roster_fold_worker_running.store(false, Ordering::Release);
+            return;
+        };
+        if let Err(error) = std::thread::Builder::new()
+            .name("agent-roster-fold".into())
+            .spawn(move || Self::run_agent_roster_fold_worker(mux))
+        {
+            self.agent_roster_fold_worker_running.store(false, Ordering::Release);
+            eprintln!("cmux-tui: could not start agent roster fold worker: {error}");
+        }
+    }
+
+    fn run_agent_roster_fold_worker(mux: Weak<Self>) {
+        loop {
+            let Some(mux) = mux.upgrade() else { return };
+            if mux.shutting_down.load(Ordering::Acquire) {
+                mux.agent_roster_fold_worker_running.store(false, Ordering::Release);
                 return;
             }
-            if read_cursor >= commit.sequence {
-                return;
+
+            let target_sequence = match mux
+                .workspace_registry
+                .lock()
+                .unwrap()
+                .session_journal_after(0, 1)
+            {
+                Ok(page) => page.head_sequence,
+                Err(error) => {
+                    eprintln!(
+                        "cmux-tui: reading the agent roster journal head in the worker failed: {error}"
+                    );
+                    let epoch = mux.journal_event_epoch();
+                    mux.wait_for_journal_event(epoch, AGENT_ROSTER_FOLD_WORKER_WAIT);
+                    continue;
+                }
+            };
+
+            match mux.fold_agent_roster_through(target_sequence) {
+                AgentRosterFoldProgress::MoreAvailable => {
+                    // Keep each pass bounded and yield between pages so a
+                    // large restored journal cannot monopolize a core.
+                    std::thread::yield_now();
+                }
+                AgentRosterFoldProgress::WaitingForProjection => {
+                    // A retry may clear the pending projection without
+                    // appending a journal row. The bounded timeout handles
+                    // that case while the epoch handles normal commits.
+                    let epoch = mux.journal_event_epoch();
+                    mux.wait_for_journal_event(epoch, AGENT_ROSTER_FOLD_WORKER_WAIT);
+                }
+                AgentRosterFoldProgress::ReachedTarget => {
+                    // Close the worker only after a race-safe epoch/head
+                    // handshake. A commit that arrives before the flag is
+                    // cleared is either visible in the head or changes the
+                    // epoch and causes this worker to retain ownership.
+                    let observed_epoch = mux.journal_event_epoch();
+                    let current_head = match mux
+                        .workspace_registry
+                        .lock()
+                        .unwrap()
+                        .session_journal_after(0, 1)
+                    {
+                        Ok(page) => page.head_sequence,
+                        Err(error) => {
+                            eprintln!(
+                                "cmux-tui: rechecking the agent roster journal head failed: {error}"
+                            );
+                            let epoch = mux.journal_event_epoch();
+                            mux.wait_for_journal_event(epoch, AGENT_ROSTER_FOLD_WORKER_WAIT);
+                            continue;
+                        }
+                    };
+                    let current_cursor = mux.agent_roster.lock().unwrap().cursor;
+                    if current_cursor < current_head {
+                        continue;
+                    }
+
+                    mux.agent_roster_fold_worker_running.store(false, Ordering::Release);
+                    if mux.journal_event_epoch() != observed_epoch
+                        && mux
+                            .agent_roster_fold_worker_running
+                            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                            .is_ok()
+                    {
+                        continue;
+                    }
+                    return;
+                }
             }
         }
     }
@@ -10140,6 +10300,7 @@ impl Mux {
     pub fn shutdown(&self) {
         self.shutting_down.store(true, Ordering::Release);
         self.config_reload_changed.notify_all();
+        self.journal_event_changed.notify_all();
         self.journal_kernel.wake_waiters();
         let hook_deadline = Instant::now() + crate::journal_hooks::SHUTDOWN_WAIT;
         if !self.journal_hook_runtime.shutdown_until(hook_deadline) {
@@ -18267,6 +18428,19 @@ mod tests {
         Mux::new_for_test("test", SurfaceOptions::default())
     }
 
+    /// Direct registry appends stage a pending hook receipt by design. Tests
+    /// that exercise only journal replay use this helper to model the paired
+    /// projection having already committed, without invoking the live report
+    /// path a second time.
+    fn mark_agent_hook_projections_applied_for_test(mux: &Mux) {
+        let pending =
+            mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap();
+        let mut registry = mux.workspace_registry.lock().unwrap();
+        for (producer_id, origin, idempotency_key, _, _) in pending {
+            registry.clear_agent_hook_pending(&producer_id, &origin, &idempotency_key).unwrap();
+        }
+    }
+
     /// A machine resume reconnects every hosted terminal at once. Checkpoint
     /// capture can lose its consistency race while those reconnects append to
     /// the journal, but the skipped optimization is recovered by replaying
@@ -23074,6 +23248,7 @@ mod tests {
                 .unwrap()
         };
 
+        mark_agent_hook_projections_applied_for_test(&mux);
         mux.fold_agent_roster(&second_event, &second_commit);
         let host = mux.agent_roster.lock().unwrap();
         assert_eq!(host.cursor, second_commit.sequence);
@@ -23177,18 +23352,54 @@ mod tests {
             );
         }
         let target = target.expect("target commit");
+        mark_agent_hook_projections_applied_for_test(&mux);
 
-        mux.fold_agent_roster(&event, &target);
+        assert_eq!(
+            mux.fold_agent_roster_through(target.sequence),
+            AgentRosterFoldProgress::MoreAvailable,
+            "the direct reducer pass must stop at the synchronous budget"
+        );
         let first_pass_cursor = mux.agent_roster.lock().unwrap().cursor;
         assert!(
             first_pass_cursor < target.sequence,
             "a report must process only a bounded journal prefix"
         );
-        mux.fold_agent_roster(&event, &target);
+        assert_eq!(
+            mux.fold_agent_roster_through(target.sequence),
+            AgentRosterFoldProgress::ReachedTarget
+        );
         let host = mux.agent_roster.lock().unwrap();
         assert_eq!(host.cursor, target.sequence);
         assert!(host.roster.entries.contains_key(terminal_id.as_str()));
         drop(host);
+
+        // A later report must hand off a second oversized backlog to the
+        // coalesced worker. This proves that the synchronous cap does not
+        // leave the durable cursor permanently stale.
+        let mut worker_target = target;
+        for index in 513..1026 {
+            worker_target = mux
+                .workspace_registry
+                .lock()
+                .unwrap()
+                .append_journal_ingress(
+                    &event,
+                    &validated,
+                    "test",
+                    &format!("roster-multiple-pages-worker-{index}"),
+                )
+                .unwrap();
+        }
+        mark_agent_hook_projections_applied_for_test(&mux);
+        mux.fold_agent_roster(&event, &worker_target);
+        let worker_deadline = Instant::now() + Duration::from_secs(2);
+        while mux.agent_roster.lock().unwrap().cursor < worker_target.sequence {
+            assert!(
+                Instant::now() < worker_deadline,
+                "bounded roster fold worker did not drain the durable backlog"
+            );
+            std::thread::yield_now();
+        }
         mux.shutdown();
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
@@ -23889,7 +24100,7 @@ mod tests {
         // The first journal row is durable, but its resource projection is
         // deliberately unavailable. The next row can still commit for a
         // different terminal.
-        mux.set_resource_patch_failure_for_test(true);
+        mux.set_resource_patch_failures_remaining_for_test(1);
         let first_receipt = mux
             .append_journal_ingress(
                 &ingress(&first_terminal, "UserPromptSubmit"),
@@ -23897,7 +24108,7 @@ mod tests {
                 "pending-before-fold",
             )
             .unwrap();
-        mux.set_resource_patch_failure_for_test(false);
+        mux.set_resource_patch_failures_remaining_for_test(0);
         mux.append_journal_ingress(
             &ingress(&second_terminal, "UserPromptSubmit"),
             "test",
@@ -23984,9 +24195,9 @@ mod tests {
             serde_json::json!({}),
         )
         .unwrap();
-        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
+        mux.set_resource_patch_failures_remaining_for_test(1);
         mux.append_journal_ingress(&ingress, "test", "hook-wake").unwrap();
-        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
+        mux.set_resource_patch_failures_remaining_for_test(0);
 
         mux.report_agent(surface.id, AgentState::Working, AgentSource::Socket, None).unwrap();
         assert!(
@@ -24194,13 +24405,15 @@ mod tests {
             serde_json::json!({}),
         )
         .unwrap();
-        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
+        mux.set_resource_patch_failures_remaining_for_test(
+            crate::workspace_registry::AGENT_HOOK_MAX_ATTEMPTS as u64 + 1,
+        );
         let receipt = mux.append_journal_ingress(&ingress, "test", "dead-letter").unwrap();
         assert!(receipt.sequence > 0);
         for _ in 0..crate::workspace_registry::AGENT_HOOK_MAX_RETRY_PAGES_PER_WAKE {
             mux.retry_pending_agent_hooks_for_terminal(&terminal_id).unwrap();
         }
-        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
+        mux.set_resource_patch_failures_remaining_for_test(0);
 
         let retry_state = mux
             .workspace_registry
@@ -24227,6 +24440,19 @@ mod tests {
             mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().len(),
             1
         );
+
+        // A quarantined row must be skipped by the reducer. It must not hold
+        // every later, valid journal event behind a permanent retry fence.
+        let later = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "UserPromptSubmit",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({"later": true}),
+        )
+        .unwrap();
+        let later_commit = mux.append_journal_ingress(&later, "test", "after-dead-letter").unwrap();
+        assert_eq!(mux.agent_roster.lock().unwrap().cursor, later_commit.sequence);
+        assert!(mux.agent_roster.lock().unwrap().roster.entries.contains_key(terminal_id.as_str()));
     }
 
     #[test]
