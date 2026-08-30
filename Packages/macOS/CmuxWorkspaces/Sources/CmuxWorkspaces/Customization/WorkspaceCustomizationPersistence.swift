@@ -310,7 +310,7 @@ final class WorkspaceCustomizationSynchronousWriter: @unchecked Sendable {
         guard let defaults else { return }
         let data = defaults.data(forKey: storageKey)
         cacheLock.lock()
-        guard let cachedSnapshot, cachedSnapshot.data != data else {
+        if let cachedSnapshot, cachedSnapshot.data == data {
             cacheLock.unlock()
             return
         }

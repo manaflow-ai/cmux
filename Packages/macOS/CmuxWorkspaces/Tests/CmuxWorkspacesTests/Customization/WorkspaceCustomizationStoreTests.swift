@@ -197,6 +197,18 @@ func titleRecoveryRecordIncludesMutationFence() throws {
         #expect(fixture.store.customization(for: stableId)?.customTitle == .value("Direct"))
     }
 
+    @Test("advances generation when backing value changes before the cache is populated")
+    func backingMutationBeforeInitialLoadAdvancesGeneration() throws {
+        let fixture = try makeFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+
+        let generationBeforeMutation = fixture.store.changeGeneration()
+        let snapshot = WorkspaceCustomizationPersistenceSnapshot()
+        fixture.defaults.set(try JSONEncoder().encode(snapshot), forKey: fixture.storageKey)
+
+        #expect(fixture.store.changeGeneration() > generationBeforeMutation)
+    }
+
     @Test("ignores unrelated UserDefaults changes")
     func snapshotCacheIgnoresUnrelatedDefaultsChanges() throws {
         let fixture = try makeFixture()
