@@ -292,11 +292,7 @@ extension ShortcutAction {
                 .not(.atom(.browserFocus)),
                 .or(
                     .not(.atom(.sidebarFocus)),
-                    .compare(
-                        key: ShortcutContextKnownKey.sidebarMode.rawValue,
-                        op: .equals,
-                        operand: .string("dock")
-                    )
+                    .key(ShortcutContextKnownKey.dockFocus.rawValue)
                 )
             )
         case .renameWorkspace:
@@ -306,11 +302,7 @@ extension ShortcutAction {
                 .not(.atom(.browserFocus)),
                 .or(
                     .not(.atom(.sidebarFocus)),
-                    .compare(
-                        key: ShortcutContextKnownKey.sidebarMode.rawValue,
-                        op: .equals,
-                        operand: .string("dock")
-                    )
+                    .key(ShortcutContextKnownKey.dockFocus.rawValue)
                 )
             )
         case .focusHistoryBack, .focusHistoryForward:

@@ -76,6 +76,9 @@ extension KeyboardShortcutSettings.Action {
             focusedFilePreviewTextEditor: Bool = false,
             rightSidebarFocused: Bool,
             sidebarMode: String? = nil,
+            /// Independent Dock ownership, so `sidebarMode` remains the
+            /// coordinator's authoritative user-visible mode.
+            dockFocused: Bool = false,
             workspaceCanvasLayout: Bool = false
         ) -> Bool {
             switch self {
@@ -83,7 +86,7 @@ extension KeyboardShortcutSettings.Action {
             case .commandPaletteVisible: return false
             case .nonBrowserPanel: return !focusedBrowserPanel && !rightSidebarFocused
             case .surfacePanel:
-                let dockIsFocused = sidebarMode == "dock"
+                let dockIsFocused = dockFocused || sidebarMode == "dock"
                 return !focusedBrowserPanel && (!rightSidebarFocused || dockIsFocused)
             case .outsideBrowserPanel: return !focusedBrowserPanel
             case .browserPanel: return focusedBrowserPanel
@@ -111,6 +114,9 @@ extension KeyboardShortcutSettings.Action {
                 rightSidebarFocused: context.rightSidebarFocused,
                 sidebarMode: context.shortcutContext.string(
                     ShortcutContextKnownKey.sidebarMode.rawValue
+                ),
+                dockFocused: context.shortcutContext.bool(
+                    ShortcutContextKnownKey.dockFocus.rawValue
                 ),
                 workspaceCanvasLayout: context.shortcutContext.bool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue)
             )
@@ -140,11 +146,7 @@ extension KeyboardShortcutSettings.Action {
                     .not(.atom(.browserFocus)),
                     .or(
                         .not(.atom(.sidebarFocus)),
-                        .compare(
-                            key: ShortcutContextKnownKey.sidebarMode.rawValue,
-                            op: .equals,
-                            operand: .string("dock")
-                        )
+                        .key(ShortcutContextKnownKey.dockFocus.rawValue)
                     )
                 )
             case .outsideBrowserPanel: return .not(.atom(.browserFocus))

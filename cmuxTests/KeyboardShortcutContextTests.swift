@@ -192,6 +192,30 @@ final class KeyboardShortcutContextTests: XCTestCase {
                 sidebarMode: "dock"
             )
         )
+        XCTAssertTrue(
+            context.isAvailable(
+                focusedBrowserPanel: false,
+                focusedMarkdownPanel: false,
+                rightSidebarFocused: true,
+                sidebarMode: "files",
+                dockFocused: true
+            )
+        )
+
+        var shortcutContext = ShortcutContext()
+        shortcutContext.setBool(
+            ShortcutContextKnownKey.sidebarFocus.rawValue,
+            true
+        )
+        shortcutContext.setBool(
+            ShortcutContextKnownKey.dockFocus.rawValue,
+            true
+        )
+        XCTAssertTrue(
+            KeyboardShortcutSettings.Action.renameTab
+                .defaultWhenClause
+                .evaluate(shortcutContext)
+        )
     }
 
     func testReactGrabStaysApplicationScopedForTerminalPastebackRouting() {

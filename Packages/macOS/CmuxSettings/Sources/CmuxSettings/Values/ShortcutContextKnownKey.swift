@@ -38,6 +38,9 @@ public enum ShortcutContextKnownKey: String, CaseIterable, Sendable {
     case workspaceCanvasLayout
     /// The right sidebar's active mode (`files`, `find`, `sessions`, `feed`, `dock`).
     case sidebarMode
+    /// A Dock surface owns the current event, even when the sidebar coordinator
+    /// is still publishing another mode during a focus transition.
+    case dockFocus
     /// The number of panes in the focused workspace.
     case paneCount
     /// The number of open workspaces in the focused window.
@@ -52,6 +55,8 @@ public enum ShortcutContextKnownKey: String, CaseIterable, Sendable {
             return .bool
         case .sidebarMode:
             return .string
+        case .dockFocus:
+            return .bool
         case .paneCount, .workspaceCount:
             return .int
         }

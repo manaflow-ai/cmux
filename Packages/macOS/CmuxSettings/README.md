@@ -198,6 +198,7 @@ Known boolean keys are `sidebarFocus`, `browserFocus`, `markdownFocus`,
 var context = ShortcutContext()
 context.setBool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue, true)
 context.setString(ShortcutContextKnownKey.sidebarMode.rawValue, "find")
+context.setBool(ShortcutContextKnownKey.dockFocus.rawValue, true)
 context.setInt(ShortcutContextKnownKey.paneCount.rawValue, 2)
 
 let clause = ShortcutWhenClause.parse("workspaceCanvasLayout && paneCount > 1")

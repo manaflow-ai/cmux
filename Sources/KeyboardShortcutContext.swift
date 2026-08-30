@@ -160,6 +160,10 @@ extension AppDelegate {
         if let mode = focusedSidebarModeForShortcutContext(for: window) {
             context.setString(ShortcutContextKnownKey.sidebarMode.rawValue, mode.rawValue)
         }
+        context.setBool(
+            ShortcutContextKnownKey.dockFocus.rawValue,
+            focusedDockStoreForShortcut(preferredWindow: window) != nil
+        )
         return context
     }
 

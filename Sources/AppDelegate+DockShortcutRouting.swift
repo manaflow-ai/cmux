@@ -125,26 +125,11 @@ extension KeyboardShortcutSettings.Action {
 /// the gate is `activeRightSidebarMode == .dock`, and the right-sidebar Dock is
 /// that window's own Dock (`RightSidebarPanelView` renders the per-window store).
 extension AppDelegate {
-    /// Returns the sidebar mode that should be published for shortcut context
-    /// evaluation. A Dock terminal/browser can be the first responder while the
-    /// focus coordinator is between intent updates, so derive `.dock` from the
-    /// same owner resolver before allowing a surface shortcut to be gated out.
+    /// Returns the coordinator's sidebar mode for shortcut context evaluation.
+    /// Dock ownership is published separately as the `dockFocus` context key so
+    /// a responder fallback never overwrites a user-visible sidebar mode.
     func focusedSidebarModeForShortcutContext(for window: NSWindow?) -> RightSidebarMode? {
-        if let mode = keyboardFocusCoordinator(for: window)?.activeRightSidebarMode {
-            if mode == .dock {
-                return focusedDockStoreForShortcut(preferredWindow: window) == nil
-                    ? nil
-                    : .dock
-            }
-            if mode != .dock,
-               focusedDockStoreForShortcut(preferredWindow: window) != nil {
-                return .dock
-            }
-            return mode
-        }
-        return focusedDockStoreForShortcut(preferredWindow: window) == nil
-            ? nil
-            : .dock
+        keyboardFocusCoordinator(for: window)?.activeRightSidebarMode
     }
 
     /// The Dock store that should receive a creation/split shortcut when the Dock
