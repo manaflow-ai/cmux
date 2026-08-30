@@ -34,7 +34,9 @@ extension TabManager {
 
     private func scheduleAutomaticWorkspaceTitlePersistence() {
         guard automaticWorkspaceTitlePersistenceTask == nil else { return }
-        automaticWorkspaceTitlePersistenceTask = Task { [weak self] in
+        // The delayed task may resume on any executor after its clock wait.
+        // Keep every access to TabManager's queued state on its owning actor.
+        automaticWorkspaceTitlePersistenceTask = Task { @MainActor [weak self] in
             do {
                 try await ContinuousClock().sleep(
                     for: Self.automaticWorkspaceTitlePersistenceDelay
