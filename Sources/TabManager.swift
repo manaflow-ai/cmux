@@ -471,7 +471,10 @@ class TabManager: ObservableObject {
     // across same-type extensions in separate source files.
     var pendingAutomaticWorkspaceTitles: [UUID: PendingAutomaticWorkspaceTitle] = [:]
     var automaticWorkspaceTitlePersistenceTask: Task<Void, Never>?
-    private static var nextAutomaticWorkspaceTitleOrdering: UInt64 = 0
+    // This counter is shared with the persistence extension in this module.
+    // TabManager is main-actor isolated, so incrementing it does not need a
+    // second lock on the high-frequency title path.
+    static var nextAutomaticWorkspaceTitleOrdering: UInt64 = 0
     private var pendingWorkspaceUnfocusTarget: (tabId: UUID, panelId: UUID)?
     var sidebarSelectedWorkspaceIds: Set<UUID> { sidebarMultiSelection.selectedWorkspaceIds }
     private var currentWindowTabBarLeadingInset: CGFloat?
@@ -747,7 +750,7 @@ class TabManager: ObservableObject {
                 stableId: $0.key,
                 title: $0.value.title,
                 titleMutationRevision: $0.value.titleMutationRevision,
-                ordering: $0.value.ordering
+                automaticTitleOrdering: $0.value.automaticTitleOrdering
             )
         }
         let workspaceCustomizationStore = workspaceCustomizationStore

@@ -23,7 +23,7 @@ extension TabManager {
                     stableId: stableId,
                     title: pendingTitle.title,
                     titleMutationRevision: pendingTitle.titleMutationRevision,
-                    automaticTitleOrdering: pendingTitle.automaticTitleOrdering
+                automaticTitleOrdering: pendingTitle.automaticTitleOrdering
                 )
             }
         )
