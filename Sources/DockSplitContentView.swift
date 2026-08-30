@@ -106,6 +106,19 @@ final class DockPointerInteractionHostView: NSView {
         // `deinit` is nonisolated under Swift 6. Remove AppKit monitors and
         // observers directly so a skipped SwiftUI dismantle cannot leak a
         // process-wide callback.
+        let retainedStore = store
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                retainedStore?.cancelDockPointerInteraction()
+            }
+        } else if let retainedStore {
+            // AppKit normally releases this view on the main thread. Keep the
+            // uncommon off-main teardown safe without touching actor state
+            // synchronously from the wrong executor.
+            Task { @MainActor in
+                retainedStore.cancelDockPointerInteraction()
+            }
+        }
         let eventMonitor = eventMonitor
         let windowResignKeyObserver = windowResignKeyObserver
         let applicationResignActiveObserver = applicationResignActiveObserver
