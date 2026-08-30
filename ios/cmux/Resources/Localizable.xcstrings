@@ -19602,6 +19602,23 @@
         }
       }
     },
+    "mobile.iroh.status.retrying": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retrying"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試行中"
+          }
+        }
+      }
+    },
     "mobile.iroh.test": {
       "extractionState": "manual",
       "localizations": {

@@ -1,3 +1,4 @@
+import CmuxAuthRuntime
 import CmuxIrxTransport
 
 extension MobileIrxRuntimeComposition {
@@ -45,18 +46,45 @@ extension MobileIrxRuntimeComposition {
         provisionedAccountID = accountID
     }
 
+    /// Confirms that an asynchronous provisioning continuation still belongs
+    /// to the same account and auth-session generation.
+    func isCurrentProvisioning(session: AuthenticatedSessionSnapshot) async -> Bool {
+        guard provisionedAccountID == session.accountID,
+              let auth else { return false }
+        return await auth.isAuthenticatedSessionIdentityCurrent(
+            AuthenticatedSessionIdentity(
+                generation: session.generation,
+                accountID: session.accountID
+            )
+        )
+    }
+
+    /// Also verifies that the broker and endpoint captured by an auxiliary
+    /// task are still the instances owned by this composition.
+    func isCurrentProvisioning(
+        session: AuthenticatedSessionSnapshot,
+        broker: IrxBrokerService,
+        endpoint: IrxEndpointSupervisor
+    ) async -> Bool {
+        guard await isCurrentProvisioning(session: session) else { return false }
+        return self.broker === broker && endpointSupervisor === endpoint
+    }
+
     /// Stops irx-owned sessions before auth clears the account's credentials.
     ///
     /// The provisioning loop itself remains installed so a later sign-in can
-    /// provision a new account. Its current broker operation is cancelled and
-    /// drained first, which prevents the old account's broker from being
-    /// retained when the next account starts.
+    /// provision a new account. Current broker and auxiliary operations are
+    /// cancelled before ownership is cleared; their session/instance fences
+    /// make late completions harmless without blocking sign-out on a network
+    /// request.
     public func resetForSignOut() async {
         if let provisionInFlight {
             provisionInFlight.cancel()
-            _ = try? await provisionInFlight.value
         }
         provisionInFlight = nil
+
+        backgroundProvisioningTask?.cancel()
+        backgroundProvisioningTask = nil
 
         if let autopilot {
             await autopilot.stop()

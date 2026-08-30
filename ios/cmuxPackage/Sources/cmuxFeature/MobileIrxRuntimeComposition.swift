@@ -80,6 +80,7 @@ public actor MobileIrxRuntimeComposition {
     var provisionedAccountID: String?
     var provisioningTask: Task<Void, Never>?
     var provisionInFlight: Task<IrxBrokerService, any Error>?
+    var backgroundProvisioningTask: Task<Void, Never>?
     /// One reconnect owner per Mac endpoint (contract: the single dialer).
     var enginesByPeer: [String: IrxPeerEngine] = [:]
     /// Route material per peer, refreshed on every transport request.
@@ -227,98 +228,6 @@ public actor MobileIrxRuntimeComposition {
         provisionInFlight = task
         defer { provisionInFlight = nil }
         return try await task.value
-    }
-
-    private func provisionOnce() async throws -> IrxBrokerService {
-        guard let auth, let brokerBaseURL else {
-            throw CompositionError.notSignedIn
-        }
-        let session = try await auth.authenticatedSessionSnapshot()
-        // IDENTITY ADOPTION: same identity/device/app-instance as the legacy
-        // stack, so the binding refreshes in place and stored routes + pair
-        // grants stay valid across the transport switch.
-        guard let legacyComposition,
-            let adopted = try await legacyComposition.irxAdoptedIdentity(
-                accountID: session.accountID, tag: tag)
-        else {
-            throw CompositionError.notSignedIn
-        }
-        let identity = IrxIdentity(
-            privateKeyData: adopted.material.secretKey.bytes,
-            deviceID: adopted.deviceID,
-            appInstanceID: adopted.appInstanceID
-        )
-        let broker = try IrxBrokerService(
-            configuration: .init(
-                baseURL: brokerBaseURL,
-                clientNamespace: clientNamespace,
-                tag: tag,
-                platform: .ios,
-                displayName: nil,
-                cacheDirectory: stateDirectory,
-                identityGeneration: adopted.material.generation
-            ),
-            identity: identity,
-            tokenSource: brokerTokenSource(accountID: session.accountID, auth: auth),
-            journal: Self.journal
-        )
-        let supervisor = IrxEndpointSupervisor(
-            configuration: .init(
-                identity: identity,
-                pathMode: Self.forceRelayOnly ? .relayOnly : .automatic,
-                preferredBindAddress: nil,
-                // The Mac opens no bidi streams toward the phone; the events
-                // lane is unidirectional and credited post-admission.
-                initialRemoteBiStreams: 0,
-                initialRemoteUniStreams: 0
-            ),
-            journal: Self.journal
-        )
-        let pilot = await makeAutopilot(broker: broker, endpoint: supervisor)
-        // Launch-latency shape (measured on device: registration 636ms +
-        // discovery 445ms + lazy bind-to-online 1186ms serialized into a
-        // 3.3s first connect): when the binding and trust snapshot are
-        // already on disk, publish immediately and refresh registration +
-        // discovery in the BACKGROUND; and warm the endpoint's relay link
-        // during provisioning so the first dial never pays for it.
-        let cachedBinding = await broker.cachedBinding()
-        let cachedTrust = await broker.cachedTrust()
-        let cachedCredentials = await broker.cachedRelayCredentials()
-        if cachedBinding == nil || cachedTrust == nil {
-            // First run for this identity: the full serial path, correctness
-            // over speed (registration must precede mint/discovery).
-            _ = try await broker.register(pairingEnabled: false, relayURLHint: nil)
-            _ = try await pilot.usableCredentials()
-            _ = try? await broker.discover()
-        } else if cachedCredentials.isEmpty {
-            // Cached identity but stale relay passes: the mint below MUST
-            // follow a registration on THIS client instance. register() arms
-            // the client's per-request binding proof, and the broker's mint
-            // policy rejects proofless non-legacy mints; a mint racing a
-            // background register 403s (`binding_request_proof_required`)
-            // and wedges provisioning in a retry loop.
-            _ = try await broker.register(pairingEnabled: false, relayURLHint: nil)
-            Task { _ = try? await broker.discover() }
-        } else {
-            // Fresh passes on disk: nothing needs the broker before dialing,
-            // so registration + discovery refresh entirely in the background
-            // (the true zero-RTT launch).
-            Task {
-                _ = try? await broker.register(pairingEnabled: false, relayURLHint: nil)
-                _ = try? await broker.discover()
-            }
-        }
-        let credentials = try await pilot.usableCredentials()
-        // Fire-and-forget relay-link warm-up: bind + come online now, in
-        // parallel with whatever the UI is doing.
-        Task { _ = try? await supervisor.readyEndpoint(credentials: credentials) }
-        await pilot.start()
-        self.identity = identity
-        self.provisionedAccountID = session.accountID
-        self.broker = broker
-        endpointSupervisor = supervisor
-        autopilot = pilot
-        return broker
     }
 
     // MARK: - First-pair picker surface

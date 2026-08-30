@@ -5,6 +5,9 @@ public struct CmxIrohSettingsSnapshot: Equatable, Sendable {
     public enum RuntimeStatus: Equatable, Sendable {
         case inactive
         case starting
+        /// The endpoint remains available while a transient broker operation
+        /// waits on its bounded retry delay.
+        case retrying
         /// Endpoint is active, but no live peer path is currently attributable.
         case active
         case direct

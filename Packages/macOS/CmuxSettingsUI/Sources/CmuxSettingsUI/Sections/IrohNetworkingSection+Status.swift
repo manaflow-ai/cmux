@@ -12,6 +12,11 @@ struct IrohNetworkingAttentionNote: View {
                 localized: "settings.networking.status.reauthenticationRequired.detail",
                 defaultValue: "Sign in again to restore iPhone connectivity."
             ))
+        } else if snapshot.runtimeStatus == .retrying {
+            SettingsCardNote(String(
+                localized: "settings.mobile.iroh.status.retrying.subtitle",
+                defaultValue: "Connection is temporarily unavailable; cmux will retry automatically."
+            ))
         } else if snapshot.supportsRelayConfiguration
             && (!snapshot.staleRelayIDs.isEmpty || snapshot.failureDescription != nil) {
             SettingsCardNote(String(
@@ -37,6 +42,8 @@ extension IrohNetworkingSection {
             String(localized: "settings.networking.status.inactive", defaultValue: "Inactive")
         case .starting:
             String(localized: "settings.networking.status.starting", defaultValue: "Starting")
+        case .retrying:
+            String(localized: "settings.mobile.iroh.status.retrying", defaultValue: "Retrying")
         case .active:
             String(localized: "settings.networking.status.active", defaultValue: "Iroh endpoint active")
         case .direct:

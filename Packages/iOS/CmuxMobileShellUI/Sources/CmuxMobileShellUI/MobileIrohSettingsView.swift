@@ -386,6 +386,7 @@ struct MobileIrohSettingsView: View {
         switch model.snapshot.runtimeStatus {
         case .inactive: L10n.string("mobile.iroh.status.inactive", defaultValue: "Inactive")
         case .starting: L10n.string("mobile.iroh.status.starting", defaultValue: "Starting")
+        case .retrying: L10n.string("mobile.iroh.status.retrying", defaultValue: "Retrying")
         case .active: L10n.string("mobile.iroh.status.active", defaultValue: "Iroh Active")
         case .direct: L10n.string("mobile.iroh.status.direct", defaultValue: "Direct Peer-to-Peer")
         case .relayed: L10n.string("mobile.iroh.status.relayed", defaultValue: "Relayed")

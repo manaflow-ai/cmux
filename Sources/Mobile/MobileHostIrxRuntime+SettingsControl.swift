@@ -24,8 +24,10 @@ extension MobileHostIrxRuntime: CmxIrohSettingsControlling {
         let runtimeStatus: CmxIrohSettingsSnapshot.RuntimeStatus = switch activationState {
         case .inactive:
             .inactive
-        case .activating, .retrying:
+        case .activating:
             .starting
+        case .retrying:
+            .retrying
         case .failed:
             .degraded
         case .reauthenticationRequired:
@@ -47,6 +49,7 @@ extension MobileHostIrxRuntime: CmxIrohSettingsControlling {
                 : (hadLiveDiscovery ? .server : .cached),
             policyExpiresAt: credentials.map(\.expiresAt).max(),
             failureDescription: activationState == .failed
+                || activationState == .retrying
                 || activationState == .reauthenticationRequired
                 ? lastBrokerFailure?.errorCode
                 : nil,

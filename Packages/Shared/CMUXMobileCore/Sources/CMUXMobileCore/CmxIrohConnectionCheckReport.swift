@@ -78,7 +78,7 @@ public struct CmxIrohConnectionCheckReport: Equatable, Sendable {
 
         let transportStatus: StageStatus = switch snapshot.runtimeStatus {
         case .inactive, .degraded: .failed
-        case .starting: .warning
+        case .starting, .retrying: .warning
         case .active, .direct, .relayed, .privateNetwork: .passed
         }
         let policyStatus: StageStatus = switch snapshot.policySource {
