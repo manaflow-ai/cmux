@@ -1714,7 +1714,21 @@ impl Inner {
             // renegotiated. Do not let that stale frame overwrite the
             // authoritative snapshot; session code calls
             // `update_transport_auth` at each reconciliation boundary.
-            transport_auth.entry(owner).or_insert(snapshot);
+            match transport_auth.entry(owner) {
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    entry.insert(snapshot);
+                }
+                std::collections::hash_map::Entry::Occupied(entry) => {
+                    let cached = entry.get();
+                    if cached.trust != snapshot.trust
+                        || cached.local_roots != snapshot.local_roots
+                        || cached.owner_user_id != snapshot.owner_user_id
+                        || cached.auth_generation != snapshot.auth_generation
+                    {
+                        return false;
+                    }
+                }
+            }
         }
         true
     }
