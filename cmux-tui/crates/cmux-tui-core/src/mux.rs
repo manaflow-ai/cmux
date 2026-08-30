@@ -5811,15 +5811,15 @@ impl Mux {
 
     /// Echo direct reports into the journal so a restart can rebuild the
     /// socket-owned roster entry from the same durable event stream.
-    fn append_agent_report_echo(
+    fn agent_report_echo_ingress(
         &self,
         terminal_id: &TerminalPublicId,
         state: AgentState,
         source: AgentSource,
         session: Option<&str>,
         updated_at_ms: u64,
-        idempotency_key: &str,
-    ) -> anyhow::Result<crate::JournalAppendCommit> {
+        _idempotency_key: &str,
+    ) -> anyhow::Result<crate::JournalIngress> {
         use crate::journal_reducers::{SOCKET_REPORT_ADAPTER, SOCKET_REPORT_NATIVE_EVENT};
         let ingress = crate::JournalIngress {
             producer_id: crate::agent_hooks::AGENT_HOOK_PRODUCER_ID.into(),
@@ -5847,7 +5847,7 @@ impl Mux {
             causation_id: None,
             correlation_id: None,
         };
-        self.append_journal_ingress(&ingress, "agent-report", idempotency_key)
+        Ok(ingress)
     }
 
     /// Committed agent hook events double as the live agent-status feed:
@@ -9380,7 +9380,7 @@ impl Mux {
             "source":source.as_str(),
             "source_session":session,
         });
-        let (echo_sequence, echo_timestamp) = if source == AgentSource::Socket {
+        let (echo_sequence, echo_timestamp, echo_ingress) = if source == AgentSource::Socket {
             let terminal_id = {
                 let state_guard = self.state.lock().unwrap();
                 let runtime = state_guard
@@ -9398,7 +9398,7 @@ impl Mux {
             let timestamp = now_ms();
             match self.agent_report_echo_key(&terminal_id, state, source, session.as_deref()) {
                 Some(key) => {
-                    let commit = self.append_agent_report_echo(
+                    let ingress = self.agent_report_echo_ingress(
                         &terminal_id,
                         state,
                         source,
@@ -9406,12 +9406,12 @@ impl Mux {
                         timestamp,
                         &key,
                     )?;
-                    (Some(commit.sequence), Some(timestamp))
+                    (None, Some(timestamp), Some((ingress, key)))
                 }
-                None => (None, Some(timestamp)),
+                None => (None, Some(timestamp), None),
             }
         } else {
-            (journal_sequence, None)
+            (journal_sequence, None, None)
         };
         let (_, record) = self.commit_agent_report(
             AgentReportTarget::Surface(surface),
@@ -9427,6 +9427,7 @@ impl Mux {
             origin,
             agent_adapter,
             echo_timestamp,
+            echo_ingress.as_ref(),
         )?;
         let record = record.context("fresh raw agent report unexpectedly replayed")?;
         if source != AgentSource::Hook {
@@ -9456,7 +9457,7 @@ impl Mux {
             "source":source.as_str(),
             "source_session":source_session,
         });
-        let (journal_sequence, reported_at_ms) = if source == AgentSource::Socket {
+        let (journal_sequence, reported_at_ms, echo_ingress) = if source == AgentSource::Socket {
             let timestamp = now_ms();
             match self.agent_report_echo_key(
                 terminal_id,
@@ -9465,7 +9466,7 @@ impl Mux {
                 source_session.as_deref(),
             ) {
                 Some(key) => {
-                    let echo = self.append_agent_report_echo(
+                    let ingress = self.agent_report_echo_ingress(
                         terminal_id,
                         agent_state,
                         source,
@@ -9473,12 +9474,12 @@ impl Mux {
                         timestamp,
                         &key,
                     )?;
-                    (Some(echo.sequence), Some(timestamp))
+                    (None, Some(timestamp), Some((ingress, key)))
                 }
-                None => (None, Some(timestamp)),
+                None => (None, Some(timestamp), None),
             }
         } else {
-            (None, None)
+            (None, None, None)
         };
         let result = self.commit_agent_report(
             AgentReportTarget::Resource { selectors: &selectors, terminal_id },
@@ -9494,6 +9495,7 @@ impl Mux {
             AgentReportOrigin::Direct,
             None,
             reported_at_ms,
+            echo_ingress.as_ref(),
         );
         if result.is_ok() && source != AgentSource::Hook {
             let _ = self.retry_pending_agent_hooks_for_terminal(terminal_id);
@@ -9517,6 +9519,7 @@ impl Mux {
         origin: AgentReportOrigin,
         agent_adapter: Option<String>,
         reported_at_ms: Option<u64>,
+        echo_ingress: Option<&(crate::JournalIngress, String)>,
     ) -> anyhow::Result<(ResourcePatchCommit, Option<AgentRecord>)> {
         // Hook state is accepted only through the validated journal ingress.
         // A direct Hook report has no durable event to replay, so allowing it
@@ -9703,8 +9706,24 @@ impl Mux {
                 "value":public_value,
             }])
         };
-        let commit = match journal_sequence {
-            Some(sequence) => registry.commit_agent_projection_with_hook_state_and_sequence(
+        let commit = match (journal_sequence, echo_ingress) {
+            (None, Some((ingress, key))) => {
+                let validated = self.journal_kernel.validate_ingress(ingress)?;
+                registry.commit_agent_projection_with_hook_state_and_journal(
+                    mutation,
+                    fingerprint,
+                    expected_revision,
+                    &terminal_id,
+                    &value,
+                    &deltas,
+                    effective_hook_state,
+                    ingress,
+                    &validated,
+                    "agent-report",
+                    key,
+                )?
+            }
+            (Some(sequence), _) => registry.commit_agent_projection_with_hook_state_and_sequence(
                 mutation,
                 fingerprint,
                 expected_revision,
@@ -9714,7 +9733,7 @@ impl Mux {
                 effective_hook_state,
                 sequence,
             )?,
-            None => registry.commit_agent_projection_with_hook_state(
+            (None, None) => registry.commit_agent_projection_with_hook_state(
                 mutation,
                 fingerprint,
                 expected_revision,
@@ -24386,6 +24405,13 @@ mod tests {
         let surface = mux.new_workspace(None, None).unwrap();
         let revision = mux.with_state(|state| state.resource_revision);
         let epoch = mux.resource_event_epoch();
+        let journal_head = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .session_journal_after(0, 1)
+            .unwrap()
+            .head_sequence;
         mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
 
         let error = mux
@@ -24401,6 +24427,15 @@ mod tests {
         assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 0);
         assert_eq!(mux.with_state(|state| state.resource_revision), revision);
         assert_eq!(mux.resource_event_epoch(), epoch);
+        assert_eq!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .session_journal_after(0, 1)
+                .unwrap()
+                .head_sequence,
+            journal_head
+        );
         assert!(mux.resource_events_after(revision).unwrap().batches.is_empty());
         mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
     }

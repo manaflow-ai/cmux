@@ -1407,7 +1407,7 @@ impl WorkspaceRegistry {
     }
 }
 
-fn append_journal_ingress_transaction(
+pub(crate) fn append_journal_ingress_transaction(
     tx: &Transaction<'_>,
     ingress: &JournalIngress,
     validated: &crate::journal_kernel::ValidatedJournalIngress,

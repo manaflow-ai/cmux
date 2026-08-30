@@ -842,6 +842,7 @@ impl WorkspaceRegistry {
             deltas,
             hook_state,
             None,
+            None,
         )
     }
 
@@ -865,6 +866,34 @@ impl WorkspaceRegistry {
             deltas,
             hook_state,
             Some(journal_sequence),
+            None,
+        )
+    }
+
+    pub fn commit_agent_projection_with_hook_state_and_journal(
+        &mut self,
+        mutation: &WorkspaceMutation,
+        fingerprint: &Value,
+        expected_revision: Option<u64>,
+        terminal_id: &TerminalPublicId,
+        result: &Value,
+        deltas: &Value,
+        hook_state: Option<&AgentHookProjectionState>,
+        ingress: &crate::JournalIngress,
+        validated: &crate::journal_kernel::ValidatedJournalIngress,
+        origin: &str,
+        idempotency_key: &str,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        self.commit_agent_projection_inner(
+            mutation,
+            fingerprint,
+            expected_revision,
+            terminal_id,
+            result,
+            deltas,
+            hook_state,
+            None,
+            Some((ingress, validated, origin, idempotency_key)),
         )
     }
 
@@ -899,6 +928,7 @@ impl WorkspaceRegistry {
             deltas,
             None,
             None,
+            None,
         )
     }
 
@@ -913,6 +943,12 @@ impl WorkspaceRegistry {
         deltas: &Value,
         hook_state: Option<&AgentHookProjectionState>,
         journal_sequence: Option<u64>,
+        journal_echo: Option<(
+            &crate::JournalIngress,
+            &crate::journal_kernel::ValidatedJournalIngress,
+            &str,
+            &str,
+        )>,
     ) -> anyhow::Result<ResourcePatchCommit> {
         const OPERATION: &str = "agent.report";
         validate_identifier("mutation id", &mutation.id)?;
@@ -924,6 +960,21 @@ impl WorkspaceRegistry {
         let fingerprint = canonical_json(fingerprint)?;
         let result_json = canonical_json(result)?;
         let tx = self.connection.transaction()?;
+        let journal_sequence =
+            if let Some((ingress, validated, origin, idempotency_key)) = journal_echo {
+                Some(
+                    super::journal_extensions::append_journal_ingress_transaction(
+                        &tx,
+                        ingress,
+                        validated,
+                        origin,
+                        idempotency_key,
+                    )?
+                    .sequence,
+                )
+            } else {
+                journal_sequence
+            };
         if let Some(replayed) = resource_patch_replay(&tx, mutation, OPERATION, &fingerprint)? {
             if let Some(sequence) = journal_sequence {
                 advance_agent_hook_apply_cursor_transaction(&tx, sequence)?;
