@@ -2865,6 +2865,11 @@ impl Mux {
                         .is_ok()
                     {
                         applied += 1;
+                        // Removing a pending marker can release a contiguous
+                        // roster prefix even when the terminal is gone. Keep
+                        // one representative ingress so the reducer is
+                        // retried after the durable skip is recorded.
+                        fold_ingress = Some(ingress);
                     } else {
                         self.report_internal_diagnostic("agent hook retry cleanup deferred");
                     }
@@ -2892,6 +2897,10 @@ impl Mux {
         }
         drop(_fold);
         if applied > 0 {
+            // Pending-marker removal does not append a journal row. Wake a
+            // worker that is waiting on the journal epoch so it rereads the
+            // projection status immediately instead of relying on its timer.
+            self.wake_journal_event_waiters();
             if let Some(ingress) = fold_ingress {
                 let head_sequence = self
                     .workspace_registry
@@ -5377,6 +5386,10 @@ impl Mux {
 
     fn publish_journal_event(&self) {
         self.journal_kernel.notify_commit();
+        self.wake_journal_event_waiters();
+    }
+
+    fn wake_journal_event_waiters(&self) {
         let mut epoch = self.journal_event_epoch.lock().unwrap();
         *epoch = epoch.wrapping_add(1);
         self.journal_event_changed.notify_all();
@@ -23355,8 +23368,15 @@ mod tests {
             "cmux-roster-multiple-pages-{}",
             crate::workspace_registry::new_uuid_v4()
         ));
-        let mux = Mux::open_persistent("roster-multiple-pages", SurfaceOptions::default(), &root)
-            .unwrap();
+        let registry = WorkspaceRegistry::open(&root, "roster-multiple-pages").unwrap();
+        let mux = Mux::from_workspace_registry(
+            "roster-multiple-pages".into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap();
         let surface = mux.new_workspace(None, None).unwrap();
         let terminal_id = surface.terminal_public_id().cloned().expect("terminal");
         let event = crate::JournalIngress {

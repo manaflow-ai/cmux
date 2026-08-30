@@ -1042,6 +1042,12 @@ impl WorkspaceRegistry {
         const OPERATION: &str = "agent.report";
         validate_identifier("mutation id", &mutation.id)?;
         validate_identifier("mutation origin", &mutation.origin)?;
+        #[cfg(test)]
+        if self.resource_patch_failures_remaining.get() > 0 {
+            self.resource_patch_failures_remaining
+                .set(self.resource_patch_failures_remaining.get() - 1);
+            anyhow::bail!("forced one-shot resource patch failure");
+        }
         anyhow::ensure!(
             result.get("terminal_id").and_then(Value::as_str) == Some(terminal_id.as_str()),
             "agent projection terminal does not match {terminal_id}"
