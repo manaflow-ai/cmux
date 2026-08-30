@@ -19,7 +19,7 @@
 //! every non-empty allowed root list; env scrubbed; per-pty buffered output capped; no
 //! empty frames; unknown ptyIds tolerated; refusals answer pty_error.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -247,14 +247,17 @@ pub struct EnsureDaemon {
     pub socket_path: PathBuf,
 }
 
-/// Capacity owned by one in-flight PTY open. Blocking setup workers retain a
-/// clone until their closure returns, including when the async caller is
-/// cancelled.
+/// Opaque capacity owned by one in-flight PTY open.
+///
+/// `PtyDeps` implementations receive this value and must keep it alive until
+/// all blocking setup for the open has returned. Cloning the value is safe,
+/// and dropping every clone releases one slot. The constructor is private so
+/// callers cannot mint capacity outside `PtyManager` admission.
 #[derive(Clone)]
-pub(crate) struct OpenPermit(Arc<OwnedSemaphorePermit>);
+pub struct OpenPermit(Arc<OwnedSemaphorePermit>);
 
 impl OpenPermit {
-    fn new(permit: OwnedSemaphorePermit) -> Self {
+    pub(crate) fn new(permit: OwnedSemaphorePermit) -> Self {
         Self(Arc::new(permit))
     }
 }
@@ -382,6 +385,14 @@ impl AuthSnapshot {
     }
 }
 
+fn auth_snapshot_matches(left: &AuthSnapshot, right: &AuthSnapshot) -> bool {
+    left.trust == right.trust
+        && left.local_roots == right.local_roots
+        && left.owner_user_id == right.owner_user_id
+        && left.auth_generation == right.auth_generation
+        && left.transport_kind == right.transport_kind
+}
+
 /// Scrubbed env for interactive PTYs (actions.mjs base, real TERM).
 pub fn pty_env(base: &HashMap<String, String>) -> HashMap<String, String> {
     let mut env = scrubbed_env(base);
@@ -473,16 +484,11 @@ struct Inner {
     /// one global snapshot would let the last frame on either transport
     /// authorize asynchronous output for every other attachment.
     transport_auth: Mutex<HashMap<TransportOwner, AuthSnapshot>>,
-    /// A transport being replaced is fenced before its old snapshot is
-    /// removed. This closes the gap in which a stale frame could otherwise
-    /// repopulate the cache while its opening is being cancelled.
-    revoked_transports: Mutex<HashSet<TransportOwner>>,
-    /// A transport that has disconnected is permanently fenced for the life
-    /// of this manager. Relay transport ids are random per connection and
-    /// must never be reused, so a late frame cannot clear this tombstone by
-    /// publishing another snapshot with the same id. A reconnect receives a
-    /// new owner instead.
-    detached_transports: Mutex<HashSet<TransportOwner>>,
+    /// Serializes authority replacement. The lock spans the short map
+    /// transition and the detached-attachment scan, but never platform I/O.
+    /// Without this separate lock, two concurrent refreshes could each
+    /// observe the same old snapshot and publish in reverse order.
+    transport_auth_updates: Mutex<()>,
     /// Serializes short authority and attachment state transitions. It is
     /// never held while a PTY control method, callback, or provider await runs.
     tunnel_state: Mutex<()>,
@@ -667,8 +673,7 @@ impl PtyManager {
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
                 transport_auth: Mutex::new(HashMap::new()),
-                revoked_transports: Mutex::new(HashSet::new()),
-                detached_transports: Mutex::new(HashSet::new()),
+                transport_auth_updates: Mutex::new(()),
                 tunnel_state: Mutex::new(()),
                 tunnel_authority_generation: AtomicU64::new(0),
                 next_open_attempt: AtomicU64::new(1),
@@ -698,8 +703,7 @@ impl PtyManager {
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
                 transport_auth: Mutex::new(HashMap::new()),
-                revoked_transports: Mutex::new(HashSet::new()),
-                detached_transports: Mutex::new(HashSet::new()),
+                transport_auth_updates: Mutex::new(()),
                 tunnel_state: Mutex::new(()),
                 tunnel_authority_generation: AtomicU64::new(0),
                 next_open_attempt: AtomicU64::new(1),
@@ -809,65 +813,50 @@ impl PtyManager {
 
     /// Publish the authoritative snapshot for one live transport. This is
     /// called only after the relay has reconciled trust, roots, and owner.
-    /// Network frames never get to replace an existing snapshot implicitly.
+    /// Network frames never get to register or replace an existing snapshot
+    /// implicitly. Callers must publish this snapshot before dispatching the
+    /// first frame for an identified transport.
     pub fn update_transport_auth(&self, context: &FrameContext) {
         debug_assert!(context.transport_id.is_some(), "transport refresh needs an id");
-        if Trust::parse(&context.trust).is_none() {
+        if context.transport_id.is_none()
+            || context.cancellation.is_cancelled()
+            || Trust::parse(&context.trust).is_none()
+        {
             return;
         }
         let owner = TransportOwner::from_context(context);
         let snapshot = AuthSnapshot::from_context(context);
-        // Fence a changed snapshot before removing its reservations. The
-        // marker makes stale frames fail closed while the per-attachment gate
-        // drains any operation already in progress.
+        // Serialize replacement. A changed snapshot is removed before the
+        // new one is published, so stale frames cannot re-register it during
+        // attachment cleanup.
+        let _update = self.inner.transport_auth_updates.lock().expect("transport auth update lock");
         let changed = {
             let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
-            if !self.inner.tunnel_authority_generation_current(context) {
-                return;
-            }
-            if self
-                .inner
-                .detached_transports
-                .lock()
-                .expect("detached transport lock")
-                .contains(&owner)
+            if context.cancellation.is_cancelled()
+                || !self.inner.tunnel_authority_generation_current(context)
             {
-                // A disconnected owner is never re-authorized. A reconnect
-                // must use its freshly generated transport id.
                 return;
             }
-            let mut revoked = self.inner.revoked_transports.lock().expect("revoked transport lock");
             let transport_auth = self.inner.transport_auth.lock().expect("transport auth lock");
-            let changed = transport_auth.get(&owner).is_some_and(|current| {
-                current.trust != snapshot.trust
-                    || current.local_roots != snapshot.local_roots
-                    || current.owner_user_id != snapshot.owner_user_id
-                    || current.auth_generation != snapshot.auth_generation
-                    || current.transport_kind != snapshot.transport_kind
-            });
-            if changed {
-                revoked.insert(owner.clone());
-            }
+            let changed = transport_auth
+                .get(&owner)
+                .is_some_and(|current| !auth_snapshot_matches(current, &snapshot));
             changed
         };
         if changed {
-            self.inner.detach_matching(|candidate| candidate == &owner, false).retire();
+            self.inner.detach_matching_locked(|candidate| candidate == &owner).retire();
         }
         let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
-        if !self.inner.tunnel_authority_generation_current(context) {
-            return;
-        }
-        if self.inner.detached_transports.lock().expect("detached transport lock").contains(&owner)
+        if context.cancellation.is_cancelled()
+            || !self.inner.tunnel_authority_generation_current(context)
         {
             return;
         }
-        let mut revoked = self.inner.revoked_transports.lock().expect("revoked transport lock");
         self.inner
             .transport_auth
             .lock()
             .expect("transport auth lock")
             .insert(owner.clone(), snapshot);
-        revoked.remove(&owner);
     }
 
     /// Advance the managed tunnel authority floor before publishing the
@@ -906,24 +895,13 @@ impl PtyManager {
     /// must use `detach_transport` so it cannot detach attachments the
     /// managed tunnel listener (or another socket) owns.
     pub fn detach_all(&self) {
-        self.detach_matching(|_| true, true).retire();
+        self.detach_matching(|_| true).retire();
     }
 
     /// One transport dropped: release only its attachments and cancel only
     /// its in-flight opens. Sessions live on either way (docs/TERMINAL.md).
     pub fn detach_transport(&self, transport_id: &str) {
-        // This legacy entry point does not carry a transport class. Fence
-        // every possible typed identity before scanning cached state, so an
-        // owner that disconnects before its first frame cannot be recreated.
-        {
-            let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
-            let mut detached =
-                self.inner.detached_transports.lock().expect("detached transport lock");
-            for kind in [TransportKind::Legacy, TransportKind::Relay, TransportKind::Tunnel] {
-                detached.insert(TransportOwner { id: Some(transport_id.to_owned()), kind });
-            }
-        }
-        self.detach_matching(|owner| owner.id.as_deref() == Some(transport_id), true).retire();
+        self.detach_matching(|owner| owner.id.as_deref() == Some(transport_id)).retire();
     }
 
     /// One typed transport dropped. This avoids treating an opaque relay ID
@@ -931,22 +909,11 @@ impl PtyManager {
     pub fn detach_transport_kind(&self, transport_id: &str, kind: TransportKind) {
         let owner = TransportOwner { id: Some(transport_id.to_owned()), kind };
         let target_owner = owner;
-        // Publish the exact owner fence before scanning cached state. The
-        // owner may disconnect before its first frame, so there may be no
-        // auth snapshot, reservation, or attachment for `detach_matching` to
-        // discover. `cache_transport_auth` takes the same state boundary and
-        // therefore cannot recreate this owner after the fence is visible.
-        {
-            let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
-            self.inner
-                .detached_transports
-                .lock()
-                .expect("detached transport lock")
-                .insert(owner.clone());
-        }
-        // The matcher publishes the disconnect fence before removing state.
-        // A queued frame can then never repopulate the vacant cache.
-        self.detach_matching(move |candidate| candidate == &target_owner, true).retire();
+        // Identified transports must be registered explicitly. Removing the
+        // active snapshot is therefore sufficient to reject a queued frame,
+        // including one from a connection that disconnected before its first
+        // frame. A reconnect gets a fresh random identity.
+        self.detach_matching(move |candidate| candidate == &target_owner).retire();
     }
 
     /// Release all managed tunnel attachments. The relay connection clears
@@ -961,7 +928,7 @@ impl PtyManager {
     /// This lets session reconciliation release the global trust lock before
     /// touching platform PTY state.
     pub fn detach_tunnel_transports_deferred(&self) -> RetiredAttachments {
-        self.detach_matching(|owner| owner.kind == TransportKind::Tunnel, true)
+        self.detach_matching(|owner| owner.kind == TransportKind::Tunnel)
     }
 
     /// Cancel one opening reservation at the timeout boundary. The capability
@@ -989,31 +956,24 @@ impl PtyManager {
         }
     }
 
-    fn detach_matching(
-        &self,
-        owns: impl Fn(&TransportOwner) -> bool,
-        fence_detached: bool,
-    ) -> RetiredAttachments {
+    fn detach_matching(&self, owns: impl Fn(&TransportOwner) -> bool) -> RetiredAttachments {
+        let _update = self.inner.transport_auth_updates.lock().expect("transport auth update lock");
+        self.detach_matching_locked(owns)
+    }
+
+    /// Remove one ownership set while the authority-update lock is held.
+    /// Callers must retire the returned controls after the state boundary.
+    fn detach_matching_locked(&self, owns: impl Fn(&TransportOwner) -> bool) -> RetiredAttachments {
         // Revoke the transport snapshot and opening reservations at one
         // authority boundary. Do not wait for an attachment operation while
         // holding the state lock: output/control callbacks take the gate
         // before that lock, so waiting here would deadlock the relay.
         let candidates = {
             let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
-            let mut detached =
-                self.inner.detached_transports.lock().expect("detached transport lock");
             let mut transport_auth = self.inner.transport_auth.lock().expect("transport auth lock");
-            // Every live opening and attachment is admitted through an auth
-            // snapshot. On a real disconnect, fence matching identities
-            // before removing state. Authority replacement uses the same
-            // cleanup without a terminal disconnect fence.
-            if fence_detached {
-                for owner in transport_auth.keys().filter(|owner| owns(owner)) {
-                    if owner.id.is_some() {
-                        detached.insert(owner.clone());
-                    }
-                }
-            }
+            // Every identified opening and attachment is admitted through an
+            // active auth snapshot. Removing that snapshot is the disconnect
+            // fence. No historical tombstone is stored.
             transport_auth.retain(|owner, _| !owns(owner));
             let mut opening = self.inner.opening_state.lock().expect("opening state lock");
             let cancelled: Vec<(String, OpeningOwner)> = opening
@@ -1022,13 +982,6 @@ impl PtyManager {
                 .filter(|(_, owner)| owns(&owner.owner))
                 .map(|(id, owner)| (id.clone(), owner.clone()))
                 .collect();
-            if fence_detached {
-                for (_, owner) in &cancelled {
-                    if owner.owner.id.is_some() {
-                        detached.insert(owner.owner.clone());
-                    }
-                }
-            }
             for (id, owner) in cancelled {
                 opening.reservations.remove(&id);
                 if let Some(cancellation) = opening.cancellations.remove(&owner) {
@@ -1044,10 +997,7 @@ impl PtyManager {
                     (id.clone(), owner.clone(), cancellation.clone())
                 })
                 .collect();
-            for (id, owner, cancellation) in active {
-                if fence_detached && owner.owner.id.is_some() {
-                    detached.insert(owner.owner.clone());
-                }
+            for (id, _owner, cancellation) in active {
                 opening.active_openings.remove(&id);
                 cancellation.cancel();
             }
@@ -1061,13 +1011,6 @@ impl PtyManager {
                 .filter(|(_, attachment)| owns(&attachment.owner))
                 .map(|(id, attachment)| (id.clone(), attachment.clone()))
                 .collect::<Vec<_>>();
-            if fence_detached {
-                for (_, attachment) in &candidates {
-                    if attachment.owner.id.is_some() {
-                        detached.insert(attachment.owner.clone());
-                    }
-                }
-            }
             candidates
         };
 
@@ -1776,14 +1719,11 @@ impl Inner {
     }
 
     fn auth_for_transport(&self, context: &FrameContext) -> Option<AuthSnapshot> {
+        if context.cancellation.is_cancelled() {
+            return None;
+        }
         let key = TransportOwner::from_context(context);
         let _state = self.tunnel_state.lock().expect("tunnel state lock");
-        if self.detached_transports.lock().expect("detached transport lock").contains(&key) {
-            return None;
-        }
-        if self.revoked_transports.lock().expect("revoked transport lock").contains(&key) {
-            return None;
-        }
         self.transport_auth.lock().expect("transport auth lock").get(&key).cloned()
     }
 
@@ -1908,20 +1848,15 @@ impl Inner {
     }
 
     fn transport_auth_is_current(&self, context: &FrameContext, auth: &AuthSnapshot) -> bool {
-        if Self::matching_trust(auth, context).is_none() {
+        if context.cancellation.is_cancelled() || Self::matching_trust(auth, context).is_none() {
             return false;
         }
         let key = TransportOwner::from_context(context);
-        if self.revoked_transports.lock().expect("revoked transport lock").contains(&key) {
-            return false;
-        }
-        self.transport_auth.lock().expect("transport auth lock").get(&key).is_some_and(|current| {
-            current.trust == auth.trust
-                && current.local_roots == auth.local_roots
-                && current.owner_user_id == auth.owner_user_id
-                && current.auth_generation == auth.auth_generation
-                && current.transport_kind == auth.transport_kind
-        })
+        self.transport_auth
+            .lock()
+            .expect("transport auth lock")
+            .get(&key)
+            .is_some_and(|current| auth_snapshot_matches(current, auth))
     }
 
     fn handle_authorization_failure(
@@ -2056,53 +1991,32 @@ impl Inner {
     fn cache_transport_auth(&self, context: &FrameContext) -> bool {
         // The frame context is a security boundary. Never let an unknown
         // trust string reuse a previously cached valid snapshot.
-        if Trust::parse(&context.trust).is_none() {
+        if context.cancellation.is_cancelled() || Trust::parse(&context.trust).is_none() {
             return false;
         }
         let _state = self.tunnel_state.lock().expect("tunnel state lock");
-        if !self.tunnel_authority_generation_current(context) {
+        if context.cancellation.is_cancelled() || !self.tunnel_authority_generation_current(context)
+        {
             return false;
         }
         let snapshot = AuthSnapshot::from_context(context);
         let owner = TransportOwner::from_context(context);
-        if self.detached_transports.lock().expect("detached transport lock").contains(&owner) {
-            // Disconnect is terminal for this transport identity. Do not let
-            // a queued frame recreate an entry after detach removed it.
-            return false;
-        }
-        let revoked =
-            self.revoked_transports.lock().expect("revoked transport lock").contains(&owner);
-        if revoked {
-            return false;
-        }
-        let mut transport_auth = self.transport_auth.lock().expect("transport auth lock");
         if context.transport_id.is_none() {
             // Legacy whole-manager callers use `None` and provide the
             // current trust on each frame. Keep that contract for non-
             // transport code.
-            transport_auth.insert(owner, snapshot);
-        } else {
-            // A connection can have an open in flight while trust is
-            // renegotiated. Do not let that stale frame overwrite the
-            // authoritative snapshot; session code calls
-            // `update_transport_auth` at each reconciliation boundary.
-            match transport_auth.entry(owner) {
-                std::collections::hash_map::Entry::Vacant(entry) => {
-                    entry.insert(snapshot);
-                }
-                std::collections::hash_map::Entry::Occupied(entry) => {
-                    let cached = entry.get();
-                    if cached.trust != snapshot.trust
-                        || cached.local_roots != snapshot.local_roots
-                        || cached.owner_user_id != snapshot.owner_user_id
-                        || cached.auth_generation != snapshot.auth_generation
-                    {
-                        return false;
-                    }
-                }
-            }
+            self.transport_auth.lock().expect("transport auth lock").insert(owner, snapshot);
+            return true;
         }
-        true
+        // Identified transports must publish authority through
+        // `update_transport_auth` before their first frame. A frame cannot
+        // create a new map entry, so removing the active snapshot is a
+        // complete disconnect fence without an unbounded tombstone set.
+        self.transport_auth
+            .lock()
+            .expect("transport auth lock")
+            .get(&owner)
+            .is_some_and(|cached| auth_snapshot_matches(cached, &snapshot))
     }
 
     fn matching_trust(auth: &AuthSnapshot, context: &FrameContext) -> Option<Trust> {
@@ -3621,6 +3535,7 @@ mod tests {
             });
             let context =
                 self.context_with_transport("supervised", self.owner.clone(), Some(transport_id));
+            self.manager.update_transport_auth(&context);
             self.manager.handle_frame(&frame, &context).await;
         }
 
@@ -3766,6 +3681,7 @@ mod tests {
         });
         let mut trusted = h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
         trusted.transport_kind = TransportKind::Tunnel;
+        h.manager.update_transport_auth(&trusted);
         h.manager.handle_frame(&frame, &trusted).await;
         let pty = h.spawned()[0].clone();
 
