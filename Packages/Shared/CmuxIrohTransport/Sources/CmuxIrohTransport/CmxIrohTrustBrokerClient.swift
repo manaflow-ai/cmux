@@ -659,10 +659,17 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             // and cached-policy fallbacks keep working on a cancelled task.
             throw CancellationError()
         } catch let error as CmxIrohBrokerTokenRecoveryError {
-            // Preserve an auth owner's definitive classification across the
-            // transport boundary; collapsing it into connectivity would let a
-            // host retry a session that the auth coordinator already rejected.
-            throw error
+            switch error {
+            case .authenticationRequired:
+                // Preserve an auth owner's definitive classification across
+                // the transport boundary; a rejected refresh must fail closed.
+                throw error
+            case .transient:
+                // A temporary token-store read is still a connectivity
+                // failure at the initial capture boundary, so existing
+                // cached-policy and retry consumers keep their fallback.
+                throw CmxIrohTrustBrokerClientError.connectivity
+            }
         } catch {
             // The source could not read a coherent pair right now (token store
             // mid-transition, re-mint in flight or offline). That is transient

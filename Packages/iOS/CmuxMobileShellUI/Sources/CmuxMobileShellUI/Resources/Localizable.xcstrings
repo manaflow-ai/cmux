@@ -1277,6 +1277,13 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "サインアウトして再度サインイン" } }
       }
     },
+    "mobile.settings.iroh.reauth.fallback" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Open the account section above and sign in again to reconnect." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "上のアカウントセクションを開き、再接続するためにもう一度サインインしてください。" } }
+      }
+    },
     "mobile.iroh.saveFailed" : {
       "extractionState" : "manual",
       "localizations" : {

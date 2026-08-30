@@ -32,20 +32,25 @@ struct CmxIrohTrustBrokerClientAuthRecoveryTests {
     }
 
     private actor FlakyAccountSnapshotSource {
+        private let stale: CmxIrohAccountCredentialSnapshot
         private let fresh: CmxIrohAccountCredentialSnapshot
-        private var hasFailed = false
+        private var snapshotCount = 0
         private(set) var forceRefreshCount = 0
 
-        init(fresh: CmxIrohAccountCredentialSnapshot) {
+        init(
+            stale: CmxIrohAccountCredentialSnapshot,
+            fresh: CmxIrohAccountCredentialSnapshot
+        ) {
+            self.stale = stale
             self.fresh = fresh
         }
 
         func snapshot() throws -> CmxIrohAccountCredentialSnapshot? {
-            if !hasFailed {
-                hasFailed = true
+            snapshotCount += 1
+            if snapshotCount == 2 {
                 throw CmxIrohBrokerTokenRecoveryError.transient
             }
-            return fresh
+            return snapshotCount == 1 ? stale : fresh
         }
 
         func forceRefresh() {
@@ -298,6 +303,10 @@ struct CmxIrohTrustBrokerClientAuthRecoveryTests {
     @Test
     func transientSnapshotReadStillUsesOneForceRefresh() async throws {
         let source = FlakyAccountSnapshotSource(
+            stale: Self.accountSnapshot(
+                accountID: "account-a",
+                accessToken: "stale-access"
+            ),
             fresh: Self.accountSnapshot(
                 accountID: "account-a",
                 accessToken: "fresh-access"
