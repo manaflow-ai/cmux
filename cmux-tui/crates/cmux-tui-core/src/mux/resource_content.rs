@@ -8,7 +8,7 @@ use crate::browser::{BrowserSource, BrowserStatus};
 use crate::model::{Node, State};
 use crate::resource::{
     ContentPublicId, PanePublicId, SplitPublicId, TabPublicId, TabResourceIdentity,
-    WorkspacePublicId,
+    TerminalPublicId, WorkspacePublicId,
 };
 use crate::resource_api::{public_terminal_snapshot, terminal_tab_ids_in_canonical_order};
 use crate::workspace_registry::{
@@ -583,6 +583,64 @@ pub(crate) struct ResourceEffectProjection {
     pub(crate) patch: ResourcePatch,
     pub(crate) changes: Value,
     pub(crate) result: Value,
+}
+
+impl ResourceEffectProjection {
+    /// Explicit terminal close is the only operation that retires an exited
+    /// receipt. Full tree projection cannot infer that intent because exited
+    /// terminals have no runtime or views, so their tombstone and public
+    /// delete never fall out of the detached-tab diff.
+    pub(super) fn ensure_terminal_close(
+        &mut self,
+        terminal_id: &TerminalPublicId,
+        expected_incarnation: Option<&str>,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            !self.patch.changes.iter().any(|change| matches!(
+                change,
+                ResourceChange::UpsertTerminal { public_id, .. } if public_id == terminal_id
+            )),
+            "terminal close projection retained {terminal_id}"
+        );
+        if let Some(existing) = self.patch.changes.iter_mut().find_map(|change| match change {
+            ResourceChange::TombstoneTerminal { public_id, expected_incarnation }
+                if public_id == terminal_id =>
+            {
+                Some(expected_incarnation)
+            }
+            _ => None,
+        }) {
+            if existing.is_none() {
+                *existing = expected_incarnation.map(ToOwned::to_owned);
+            }
+        } else {
+            self.patch.changes.push(ResourceChange::TombstoneTerminal {
+                public_id: terminal_id.clone(),
+                expected_incarnation: expected_incarnation.map(ToOwned::to_owned),
+            });
+        }
+
+        let changes = self
+            .changes
+            .as_array_mut()
+            .context("terminal close topology changes are not an array")?;
+        anyhow::ensure!(
+            !changes.iter().any(|change| {
+                change["kind"] == "upsert"
+                    && change["resource"] == "terminal"
+                    && change["id"].as_str() == Some(terminal_id.as_str())
+            }),
+            "terminal close public projection retained {terminal_id}"
+        );
+        if !changes.iter().any(|change| {
+            change["kind"] == "delete"
+                && change["resource"] == "terminal"
+                && change["id"].as_str() == Some(terminal_id.as_str())
+        }) {
+            push_delete_delta(changes, "terminal", terminal_id.as_str());
+        }
+        Ok(())
+    }
 }
 
 impl Mux {

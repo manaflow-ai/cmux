@@ -150,15 +150,111 @@
     },
     {
       "provider": "blaxel",
+      "version": "blaxel-cmux-devbox-20260827a",
+      "imageId": "sandbox/cmux-devbox:latest",
+      "envVar": "BLAXEL_SANDBOX_IMAGE",
+      "defaultForLocalDev": true,
+      "kind": "desktop",
+      "defaultForKind": true,
+      "cmuxdRemoteCommit": "none-cmux-tui",
+      "builtAt": "2026-08-28T00:55:00.000Z",
+      "builderScriptVersion": "cmux-devbox-2026-08-27-r7",
+      "agentToolResolvedVersions": {
+        "@anthropic-ai/claude-code": "2.1.246",
+        "@openai/codex": "0.150.0",
+        "opencode-ai": "1.18.23",
+        "@earendil-works/pi-coding-agent": "0.84.3",
+        "agent-browser": "0.35.1"
+      },
+      "validationStatus": "passed",
+      "notes": "Baked cmux machine image (services/vms/images/blaxel, deployed with web/scripts/build-blaxel-image.sh): chatmux-devbox tool parity (mise node/python/bun, uv, gh, devtools, pinned coding agents, ble.sh ghost text, half-life prompt, seeded history) plus an openbox/TigerVNC desktop with Ghostty, Chrome, Thunar, and noVNC on 6901. Keeps the stock desktop driver contract: start-vnc.sh as user cua, RFB 5901. /etc/cmux/image-stamp makes the driver skip create-time provisioning. The session daemon is not baked: the driver installs the pinned cmux-tui build at create time exactly as on stock images. Validated 2026-08-26 on tag bb86c85e4ea70d04351d5 (epoch r6) in us-pdx-1: driver E2E on the cmux-tui transport (create, cmux-tui install, cmux-remote route upgrade, enrollment, smart-sleep watcher), agents/toolchain/Ghostty/Chrome versions, half-life prompt + seeded history, 5901+6901 listening, noVNC through a tokened gateway preview, and screenshots showing the wallpaper, the Chrome/Files/Ghostty dock, Chrome opening straight to DuckDuckGo with first run pre-accepted, and Ghostty rendering with the prompt. Blaxel's deploy-time rootfs slimming strips /usr/share/applications and raster icon themes, so dock launchers and icons bake under /etc/cmux. r7 (2026-08-27, digest sandbox/cmux-devbox:b3c3cdc9cfe048515743e): the tint2 dock paints again (panel background defined before it is referenced); wallpaper re-fills on noVNC remote resize."
+    },
+    {
+      "provider": "blaxel",
       "version": "blaxel-bootstrap-20260820a",
       "imageId": "blaxel/xfce-vnc:latest",
       "envVar": "BLAXEL_SANDBOX_IMAGE",
-      "defaultForLocalDev": true,
-      "cmuxdRemoteCommit": "bootstrap-on-create",
+      "defaultForLocalDev": false,
+      "kind": "desktop",
+      "cmuxdRemoteCommit": "none-cmux-tui",
       "builtAt": "2026-08-20T04:30:00.000Z",
       "builderScriptVersion": "bootstrap-on-create",
       "validationStatus": "passed",
-      "notes": "Stock Blaxel xfce + noVNC image (a machine comes with its screen; `cmux vm new --base` picks blaxel/base-image:latest explicitly); the driver injects cmuxd-remote at create time via the sandbox filesystem API (gzip+base64) and starts serve --ws as a keepAlive process, so no baked template is required. Validated WS PTY lease auth, shell round trip, healthz through a private preview URL + minted preview token, and standby/wake process preservation in us-pdx-1."
+      "notes": "Stock Blaxel xfce + TigerVNC/noVNC image (a machine comes with its screen; `cmux vm new --base` picks blaxel/base-image:latest explicitly). No cmuxd-remote: at create time the sandbox installs the pinned cmux-tui build from the artifacts manifest onto its persistent home volume and the supervisor runs `cmux-tui server start --remote-ws 0.0.0.0:1337`, so no baked template is required. Validated cmux-remote attach (route + enrollment), exec, private preview URL + minted preview token, and standby/wake process preservation in us-pdx-1."
+    },
+    {
+      "provider": "blaxel",
+      "version": "blaxel-base-bootstrap-20260824a",
+      "imageId": "blaxel/base-image:latest",
+      "envVar": "BLAXEL_SANDBOX_IMAGE",
+      "defaultForLocalDev": false,
+      "cmuxdRemoteCommit": "none-cmux-tui",
+      "builtAt": "2026-08-24T23:07:01.000Z",
+      "builderScriptVersion": "bootstrap-on-create",
+      "validationStatus": "passed",
+      "notes": "Stock Blaxel Alpine shell image, no desktop; `cmux vm new --base` and `vm run` pool provisioning send this id explicitly. Nothing is baked: the driver bootstraps every image at create time, installing the pinned cmux-tui build onto the persistent home volume (the installer adds curl via apk first, since the stock image ships without it). Validated live in #10478 in us-pdx-1: create + bootstrap, cmux-remote attach (route + enrollment), exec, and standby/wake process preservation. Listed so deployed runtimes accept the id the CLI sends; it was missing from the manifest between #10478 and this entry, so `vm new --base` failed closed in production."
+    },
+    {
+      "provider": "e2b",
+      "version": "e2b-devbox-20260828b",
+      "imageId": "cmux-devbox:devbox-20260828b",
+      "envVar": "E2B_CMUXD_WS_TEMPLATE",
+      "defaultForLocalDev": false,
+      "kind": "base",
+      "cmuxdRemoteCommit": "none-cmux-tui",
+      "builtAt": "2026-08-28T10:01:44.701Z",
+      "builderScriptVersion": "b87b2a7d33d83e2213f0afc407bae5d2fdd90083bbba2a9fccffaa368d1d3aa6",
+      "agentToolResolvedVersions": {
+        "@anthropic-ai/claude-code": "2.1.246",
+        "@openai/codex": "0.150.0",
+        "opencode-ai": "1.18.23",
+        "@earendil-works/pi-coding-agent": "0.84.3",
+        "agent-browser": "0.35.1"
+      },
+      "validationStatus": "passed",
+      "notes": "Shared devbox image (services/vms/images/devbox) at epoch 2026-08-28-r1 (#11099: agent-config also wires pi models.json and the opencode config fetch to the coderouter model plane), cmux-tui transport. Supersedes cmux-devbox:devbox-20260828a. Baked with build-devbox-e2b.ts (templateId 3fktz2o6rxgms895lclw). Validated 2026-08-28 with verify-devbox-image.ts against cmux-tui pin fa77ad23364aa12993644b357b425513d61ca632: pinned agents, mise toolchain, devtools, Chrome + DuckDuckGo managed policy, cua-driver, ffmpeg/Xvfb, byte-identical baked files, ble.sh ghost text under a tmux PTY, agent-config generator (codex custom provider + pi models.json with the x-coderouter-route-token env reference and no literal token; no opencode.json when the config endpoint is unreachable), cmux-tui install + daemon serving session cloud on 1337. Inbound firewall proven live again: after the driver's default-deny INPUT (allow lo/established/icmp + envd 49983 + cmux-tui 1337) envd control and 1337 stayed reachable while a scratch dev server on 4820 was reachable before and blocked after. Not the default provider; Blaxel stays default."
+    },
+    {
+      "provider": "daytona",
+      "version": "daytona-cmux-devbox-20260828b",
+      "imageId": "cmux-devbox-20260828b",
+      "envVar": "DAYTONA_SANDBOX_SNAPSHOT",
+      "defaultForLocalDev": false,
+      "kind": "base",
+      "cmuxdRemoteCommit": "none-cmux-tui",
+      "builtAt": "2026-08-28T10:02:08.431Z",
+      "builderScriptVersion": "64efcb7124e5e135ad25939b11568c940c69ee208d32ffdd38d466ddade5d643",
+      "agentToolResolvedVersions": {
+        "@anthropic-ai/claude-code": "2.1.246",
+        "@openai/codex": "0.150.0",
+        "opencode-ai": "1.18.23",
+        "@earendil-works/pi-coding-agent": "0.84.3",
+        "agent-browser": "0.35.1"
+      },
+      "validationStatus": "passed",
+      "notes": "Shared devbox image (services/vms/images/devbox) at epoch 2026-08-28-r1 (#11099: agent-config also wires pi models.json and the opencode config fetch to the coderouter model plane), cmux-tui transport. Supersedes cmux-devbox-20260828a. Baked fresh (never trusting Daytona's layer cache) with build-devbox-daytona.ts; the cmux-devbox-boot supervisor is the registered snapshot entrypoint (Daytona stop kills processes, start re-runs it). Validated 2026-08-28 with verify-devbox-image.ts against cmux-tui pin fa77ad23364aa12993644b357b425513d61ca632: pinned agents, mise toolchain, devtools, Chrome + DuckDuckGo managed policy, cua-driver, ffmpeg/Xvfb, byte-identical baked files, ble.sh ghost text under a tmux PTY, agent-config generator (codex custom provider + pi models.json with the x-coderouter-route-token env reference and no literal token; no opencode.json when the config endpoint is unreachable), cmux-tui install + daemon serving session cloud on 1337 through the entrypoint supervisor, and the preview proxy route with the DAYTONA_SANDBOX_AUTH_KEY query token. Region shared us. Not the default provider; Blaxel stays default."
+    },
+    {
+      "provider": "freestyle",
+      "version": "freestyle-cmux-devbox-beta1",
+      "imageId": "sh-fb3dcf7b47894114889b10186626af5b",
+      "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
+      "defaultForLocalDev": false,
+      "features": {
+        "freestylePlatform": "beta"
+      },
+      "cmuxdRemoteCommit": "none-cmux-tui",
+      "builtAt": "2026-08-28T10:35:57.736Z",
+      "builderScriptVersion": "6e40d373a9e25289770d1bfbfc515becafbd905f3b448741df4cc4ea2f2c6cd1",
+      "agentToolResolvedVersions": {
+        "@anthropic-ai/claude-code": "2.1.246",
+        "@openai/codex": "0.150.0",
+        "opencode-ai": "1.18.23",
+        "@earendil-works/pi-coding-agent": "0.84.3",
+        "agent-browser": "0.35.1"
+      },
+      "validationStatus": "passed",
+      "notes": "cmux devbox epoch 2026-08-28-r1 on the Freestyle BETA platform (beta-api.freestyle.sh; slug cmux-devbox-beta1). cmux-tui transport over the VM public IPv6; systemd unit binds [::]:1337. verify-devbox-image.ts passed all toolchain, agent-pin, ghost-text, baked-file, and daemon checks 2026-08-28. Requires the beta driver arm; the legacy driver cannot boot it."
     }
   ]
 }

@@ -1,12 +1,11 @@
 import {
   jsonResponse,
-  notFoundVm,
   resolveVmRouteAccountScope,
+  vmResourceErrorResponse,
   vmErrorResponse,
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
-import { isVmNotFoundError } from "../../../../../services/vms/errors";
 import { openVmPort, runVmWorkflow } from "../../../../../services/vms/workflows";
 import { desktopWrapperUrl } from "../../../../../services/vms/desktopWrapper";
 
@@ -60,6 +59,7 @@ export async function POST(
         const endpoint = await runVmWorkflow(openVmPort({
           userId: user.id,
           billingTeamId: account.entitlements.billingTeamId,
+          callerPlanId: account.entitlements.planId,
           teamIds: user.teamIds,
           providerVmId: id,
           port,
@@ -76,7 +76,8 @@ export async function POST(
         });
         return jsonResponse(wrapped ? { ...endpoint, openUrl: wrapped } : endpoint);
       } catch (err) {
-        if (isVmNotFoundError(err)) return notFoundVm(id);
+        const response = vmResourceErrorResponse(err, id);
+        if (response) return response;
         throw err;
       }
     },

@@ -203,6 +203,12 @@ extension DockSplitStore {
                 restorableAgent: restorableAgent
             )
             : nil
+        // A persisted agent snapshot can coexist with a non-agent binding
+        // (for example, a process-detected tmux attach). Keep that snapshot
+        // available for manual continuation, but do not synthesize an agent
+        // resume command on top of the non-agent startup path.
+        let restorableAgentCanAutoResume = restorableAgent != nil &&
+            (resumeBinding == nil || resumeBinding?.isAgentHookBinding == true)
         let managedResumeBinding: SurfaceResumeBindingSnapshot? = if localTmuxStartCommand == nil {
             (
                 terminalSnapshot.managedAgentResumeBinding.flatMap {
@@ -232,7 +238,7 @@ extension DockSplitStore {
             defaults: agentSessionAutoResumeDefaults
         ) && agentWasRunning
         let shouldCheckAgentOwnership = shouldAutoResumeAgent &&
-            (restorableAgent != nil || resumeBinding?.isAgentHookBinding == true)
+            (restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true)
         let restoreAgentIndex = shouldCheckAgentOwnership ? restorableAgentIndex : nil
         let restoreIndexUnavailable = shouldCheckAgentOwnership && restoreAgentIndex == nil
         let expectedAgentKind = restorableAgent?.kind.rawValue ?? resumeBinding?.kind
@@ -315,11 +321,13 @@ extension DockSplitStore {
         let agentSessionAlreadyActive = sessionAgentAlreadyActive(
             restorableAgent: restorableAgent,
             snapshotPanelId: snapshot.id,
-            shouldAutoResume: shouldAutoResumeAgent && hibernation == nil && bindingLaunch == nil,
+            shouldAutoResume: shouldAutoResumeAgent && restorableAgentCanAutoResume &&
+                hibernation == nil && bindingLaunch == nil,
             liveIndex: restoreAgentIndex,
             restoreStartupBlocked: restoreStartupBlocked
         )
-        let agentLaunch = shouldAutoResumeAgent && hibernation == nil && bindingLaunch == nil
+        let agentLaunch = shouldAutoResumeAgent && restorableAgentCanAutoResume &&
+            hibernation == nil && bindingLaunch == nil
             && !agentSessionAlreadyActive
             ? restorableAgent?.resumeStartupInput(
                 restoringWorkingDirectory: resumeSessionWorkingDirectory
@@ -330,8 +338,8 @@ extension DockSplitStore {
         // ordinary shell instead of waiting behind deferred admission.
         let deferredAgentResumeCandidateInput: String? = if restoreIndexUnavailable,
             hibernation == nil,
-            restorableAgent != nil || resumeBinding?.isAgentHookBinding == true {
-            if let restorableAgent {
+            restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true {
+            if let restorableAgent, restorableAgentCanAutoResume {
                 restorableAgent.resumeStartupInput(
                     restoringWorkingDirectory: resumeSessionWorkingDirectory
                 )
@@ -437,7 +445,9 @@ extension DockSplitStore {
             terminal.adoptStableSurfaceId(stableSurfaceId)
         }
         if let resumeBinding {
-            surfaceResumeBindingsByPanelId[terminal.id] = resumeBinding
+            if surfaceResumeBindingMutationAllowed(resumeBinding, panelId: terminal.id) {
+                surfaceResumeBindingsByPanelId[terminal.id] = resumeBinding
+            }
         }
         if let managedResumeBinding {
             managedAgentResumeBindingsByPanelId[terminal.id] = managedResumeBinding
