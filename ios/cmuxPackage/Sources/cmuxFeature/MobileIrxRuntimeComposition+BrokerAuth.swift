@@ -3,8 +3,10 @@ import CmuxIrohTransport
 
 extension MobileIrxRuntimeComposition {
     /// Creates the account-pinned source shared by every iOS irx broker call.
-    func brokerTokenSource(accountID: String) -> CmxIrohBrokerTokenSource {
-        let auth = self.auth
+    func brokerTokenSource(
+        accountID: String,
+        auth: AuthCoordinator
+    ) -> CmxIrohBrokerTokenSource {
         return .accountPinned(
             to: accountID,
             snapshot: { [weak auth] in
