@@ -1,6 +1,7 @@
 import CmuxCore
 import CmuxFoundation
 import Foundation
+import os
 import Testing
 
 #if canImport(cmux_DEV)
@@ -434,6 +435,197 @@ struct PortScannerAgentPublicationIntegrationTests {
         }
         scanner.unregisterAgentWorkspace(workspaceId: workspaceID)
         scanner.queue.sync {}
+    }
+}
+
+@MainActor
+@Suite("Agent port retirement")
+struct PortScannerAgentPortRetirementTests {
+    @Test(
+        "An exited agent listener retires despite an unrelated incomplete PID",
+        .timeLimit(.minutes(1))
+    )
+    func exitedListenerRetiresWithUnrelatedIncompleteProcess() async throws {
+        let workspaceID = UUID()
+        let rootIdentity = AgentPIDProcessIdentity(
+            pid: 100,
+            startSeconds: 10,
+            startMicroseconds: 0
+        )
+        let listenerIdentity = AgentPIDProcessIdentity(
+            pid: 101,
+            startSeconds: 11,
+            startMicroseconds: 0
+        )
+        let unrelatedIdentity = AgentPIDProcessIdentity(
+            pid: 102,
+            startSeconds: 12,
+            startMicroseconds: 0
+        )
+        let root = AgentPortRootIdentity(pid: 100, processIdentity: rootIdentity)
+        // Test seam only: synchronous liveness callbacks and the command-runner
+        // actor must observe one small mutable fixture state atomically.
+        let state = OSAllocatedUnfairLock(initialState: AgentPortChurnState(
+            rootIdentity: rootIdentity,
+            listenerIdentity: listenerIdentity,
+            unrelatedIdentity: unrelatedIdentity
+        ))
+        let runner = AgentPortChurnCommandRunner(state: state, port: 4321)
+        let scanner = PortScanner(
+            commandRunner: runner,
+            processIdentityProvider: { pid in
+                state.withLock { $0.identity(for: Int(pid)) }
+            },
+            processPresenceProvider: { pid in
+                state.withLock { $0.presence(for: Int(pid)) }
+            }
+        )
+        let (publications, continuation) = AsyncStream<[Int]>.makeStream(
+            bufferingPolicy: .unbounded
+        )
+        var iterator = publications.makeAsyncIterator()
+        scanner.onAgentPortsUpdated = { callbackWorkspaceID, ports in
+            guard callbackWorkspaceID == workspaceID else { return false }
+            continuation.yield(ports)
+            return true
+        }
+        defer {
+            continuation.finish()
+            scanner.onAgentPortsUpdated = nil
+        }
+
+        scanner.refreshAgentPorts(workspaceId: workspaceID, agentRoots: [root])
+        let initialPorts = try #require(await iterator.next())
+        #expect(initialPorts == [4321])
+        let requestedPIDsAfterInitialScan = await runner.lsofRequestedPIDs
+        let initialRequestedPIDs = requestedPIDsAfterInitialScan.first
+        #expect(initialRequestedPIDs == [100, 101, 102])
+        scanner.setTrackedAgentScanningPaused(true)
+        await runner.stopListening()
+
+        let firstLsofInvocation = await runner.lsofInvocationCount
+        for expectedInvocation in (firstLsofInvocation + 1)...(firstLsofInvocation + 3) {
+            scanner.refreshAgentPorts(workspaceId: workspaceID, agentRoots: [root])
+            try await runner.waitForLsofInvocation(expectedInvocation)
+        }
+
+        let retiredPorts = try #require(await iterator.next())
+        #expect(retiredPorts.isEmpty)
+        let postExitRequestedPIDs = (await runner.lsofRequestedPIDs).dropFirst()
+        #expect(postExitRequestedPIDs.allSatisfy { $0 == [100] })
+
+        scanner.unregisterAgentWorkspace(workspaceId: workspaceID)
+        scanner.queue.sync {}
+    }
+}
+
+private struct AgentPortChurnState: Sendable {
+    let rootIdentity: AgentPIDProcessIdentity
+    let listenerIdentity: AgentPIDProcessIdentity
+    let unrelatedIdentity: AgentPIDProcessIdentity
+    var listenerIsRunning = true
+    var unrelatedPIDIsReadable = true
+
+    func identity(for pid: Int) -> AgentPIDProcessIdentity? {
+        switch pid {
+        case Int(rootIdentity.pid):
+            rootIdentity
+        case Int(listenerIdentity.pid):
+            listenerIsRunning ? listenerIdentity : nil
+        case Int(unrelatedIdentity.pid):
+            unrelatedPIDIsReadable ? unrelatedIdentity : nil
+        default:
+            // Unknown PIDs are not attributed to the workspace in this fixture.
+            nil
+        }
+    }
+
+    func presence(for pid: Int) -> PIDPresence {
+        switch pid {
+        case Int(rootIdentity.pid):
+            .present
+        case Int(listenerIdentity.pid):
+            listenerIsRunning ? .present : .absent
+        case 102:
+            .present
+        default:
+            .absent
+        }
+    }
+}
+
+private actor AgentPortChurnCommandRunner: CommandRunning {
+    private let state: OSAllocatedUnfairLock<AgentPortChurnState>
+    private let port: Int
+    private(set) var lsofInvocationCount = 0
+    private(set) var lsofRequestedPIDs: [[Int]] = []
+
+    init(state: OSAllocatedUnfairLock<AgentPortChurnState>, port: Int) {
+        self.state = state
+        self.port = port
+    }
+
+    func stopListening() {
+        state.withLock {
+            $0.listenerIsRunning = false
+            $0.unrelatedPIDIsReadable = false
+        }
+    }
+
+    func waitForLsofInvocation(_ target: Int) async throws {
+        let deadline = ContinuousClock.now + .seconds(10)
+        while lsofInvocationCount < target, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        try #require(lsofInvocationCount >= target, "lsof invocation \(target) did not arrive")
+    }
+
+    func run(
+        directory: String,
+        executable: String,
+        arguments: [String],
+        timeout: TimeInterval?
+    ) async -> CommandResult {
+        _ = (directory, timeout)
+        if executable == "/bin/ps" {
+            return Self.result(stdout: "100 1\n101 100\n102 100\n")
+        }
+
+        lsofInvocationCount += 1
+        let requestedPIDs = Self.selectedPIDs(for: "-p", in: arguments)
+        lsofRequestedPIDs.append(requestedPIDs)
+        let listening = state.withLock { $0.listenerIsRunning }
+        guard listening, requestedPIDs.contains(101) else { return Self.noSelectedFiles() }
+        return Self.result(stdout: "p101\nf3\nn*:\(port)\n")
+    }
+
+    private static func selectedPIDs(for flag: String, in arguments: [String]) -> [Int] {
+        guard let flagIndex = arguments.firstIndex(of: flag) else { return [] }
+        let valueIndex = arguments.index(after: flagIndex)
+        guard valueIndex < arguments.endIndex else { return [] }
+        return arguments[valueIndex]
+            .split(separator: ",")
+            .compactMap { Int($0) }
+    }
+
+    private static func result(stdout: String) -> CommandResult {
+        CommandResult(
+            stdout: stdout,
+            stderr: "",
+            exitStatus: 0,
+            timedOut: false,
+            executionError: nil
+        )
+    }
+
+    private static func noSelectedFiles() -> CommandResult {
+        CommandResult(
+            stdout: "",
+            stderr: "",
+            exitStatus: 1,
+            timedOut: false,
+            executionError: nil
+        )
     }
 }
 

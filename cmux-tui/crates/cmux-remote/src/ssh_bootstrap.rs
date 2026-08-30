@@ -794,6 +794,21 @@ impl BootstrapError {
 mod tests {
     use super::*;
 
+    /// A FIFO no writer ever opens. A fake ssh that ends in `exec < fifo`
+    /// blocks in the shell's own open() forever, so the hang needs no second
+    /// process; `exec /bin/sleep` here used to fail under full-suite fork
+    /// pressure, exit the fake early, and turn the expected error into a
+    /// different variant (issue #10384).
+    #[cfg(unix)]
+    fn make_blocking_fifo(directory: &Path) -> String {
+        use std::os::unix::ffi::OsStrExt;
+
+        let fifo = directory.join("block");
+        let path = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+        fifo.to_string_lossy().into_owned()
+    }
+
     #[test]
     fn upload_command_writes_only_after_exclusive_directory_creation() {
         let command = upload_command(
@@ -1215,9 +1230,10 @@ mod tests {
         let script = directory.path().join("ssh");
         let pid_file = directory.path().join("pid");
         let pid_file_path = pid_file.display();
+        let fifo_path = make_blocking_fifo(directory.path());
         fs::write(
             &script,
-            format!("#!/bin/sh\nprintf '%s' \"$$\" > '{pid_file_path}'\nexec /bin/sleep 30\n"),
+            format!("#!/bin/sh\nprintf '%s' \"$$\" > '{pid_file_path}'\nexec < '{fifo_path}'\n"),
         )
         .unwrap();
         fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
@@ -1226,7 +1242,10 @@ mod tests {
         config.ssh_binary = script.to_string_lossy().into_owned();
         config.timeout = Duration::from_secs(5);
         let error = SshBootstrapper::new(config).unwrap().probe().await.unwrap_err();
-        assert!(matches!(error, BootstrapError::Timeout));
+        assert!(
+            matches!(error, BootstrapError::Timeout),
+            "a hung ssh must surface BootstrapError::Timeout, got {error:?}"
+        );
 
         let pid = fs::read_to_string(pid_file).unwrap().parse::<libc::pid_t>().unwrap();
         assert_eq!(unsafe { libc::kill(pid, 0) }, -1);
@@ -1247,10 +1266,11 @@ mod tests {
             "stderr" => " >&2",
             _ => panic!("unsupported test stream {stream}"),
         };
+        let fifo_path = make_blocking_fifo(directory.path());
         fs::write(
             &script,
             format!(
-                "#!/bin/sh\nprintf '%s' \"$$\" > '{pid_file_path}'\ni=0\nwhile [ \"$i\" -lt 4097 ]; do\n  printf x{redirect}\n  i=$((i + 1))\ndone\nexec /bin/sleep 30\n"
+                "#!/bin/sh\nprintf '%s' \"$$\" > '{pid_file_path}'\ni=0\nwhile [ \"$i\" -lt 4097 ]; do\n  printf x{redirect}\n  i=$((i + 1))\ndone\nexec < '{fifo_path}'\n"
             ),
         )
         .unwrap();

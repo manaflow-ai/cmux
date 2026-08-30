@@ -1307,11 +1307,18 @@ where
     let mut line = Vec::new();
     let mut message = 1_u64;
     loop {
-        let size = crate::mux_codec::read_bounded_line(&mut reader, &mut line).await?;
+        let size = crate::mux_codec::read_bounded_line_with_limit(
+            &mut reader,
+            &mut line,
+            crate::mux_codec::MAX_MUX_DOWNLOAD_LINE_BYTES,
+        )
+        .await?;
         if size == 0 {
             return Ok(());
         }
-        if line.len() > crate::mux_codec::MAX_MUX_LINE_BYTES {
+        if crate::mux_codec::mux_line_payload_len(&line)
+            > crate::mux_codec::MAX_MUX_DOWNLOAD_LINE_BYTES.saturating_sub(1)
+        {
             return Err(crate::mux_codec::MuxCodecError::LineTooLarge(line.len()).into());
         }
         let Some(lane) = tracker.classify_server_line(&line) else {
@@ -1323,7 +1330,11 @@ where
                 actual: Lane::Tunnel,
             });
         }
-        let packets = crate::mux_codec::encode_line(message, &line)?;
+        let packets = crate::mux_codec::encode_line_with_limit(
+            message,
+            &line,
+            crate::mux_codec::MAX_MUX_DOWNLOAD_LINE_BYTES,
+        )?;
         let encoded_bytes =
             packets.iter().try_fold(0_usize, |total, packet| total.checked_add(packet.len()));
         let Some(encoded_bytes) = encoded_bytes else {
@@ -1410,7 +1421,10 @@ where
         }
     };
     let download = async move {
-        let mut assembler = crate::mux_codec::MuxLineAssembler::<Option<StreamBudget>>::default();
+        let mut assembler =
+            crate::mux_codec::MuxLineAssembler::<Option<StreamBudget>>::with_maximum(
+                crate::mux_codec::MAX_MUX_UPLOAD_LINE_BYTES,
+            );
         while let Some(mut chunk) = remote.receive().await? {
             if !chunk.payload.is_empty() {
                 if let Some(input) = crate::mux_input::decode_packet(&chunk.payload)? {
