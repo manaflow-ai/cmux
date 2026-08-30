@@ -44,9 +44,15 @@ final class TerminalSelectionAccessibilityNotifier {
     private var debounceTimer: Timer?
     private var eventsTask: Task<Void, Never>?
     private weak var element: NSView?
+    private let onSelectionChanged: (@MainActor () -> Void)?
 
-    init(element: NSView, events: AsyncStream<Void>) {
+    init(
+        element: NSView,
+        events: AsyncStream<Void>,
+        onSelectionChanged: (@MainActor () -> Void)? = nil
+    ) {
         self.element = element
+        self.onSelectionChanged = onSelectionChanged
         eventsTask = Task { @MainActor [weak self] in
             for await _ in events {
                 guard let self else { return }
@@ -64,6 +70,7 @@ final class TerminalSelectionAccessibilityNotifier {
                 self.debounceTimer = nil
                 guard let element = self.element else { return }
                 NSAccessibility.post(element: element, notification: .selectedTextChanged)
+                self.onSelectionChanged?()
             }
         }
         debounceTimer = timer

@@ -3124,26 +3124,6 @@ class GhosttyApp {
             return true
         case GHOSTTY_ACTION_SELECTION_CHANGED:
             surfaceView.selectionAccessibilitySignal.request()
-            // Only Dock terminals have a menu-capability subscriber. Avoid
-            // allocating and dispatching a process-wide notification for the
-            // much more common main-workspace drag-selection path.
-            if let terminalSurface = surfaceView.terminalSurface {
-                let isDockSurface = GhosttyApp.terminalSurfaceRegistry
-                    .isRightSidebarDockSurface(id: terminalSurface.id)
-                if isDockSurface {
-                    // Capture only the Sendable identity across the actor hop;
-                    // resolve the current model after reaching the main actor.
-                    let terminalSurfaceID = terminalSurface.id
-                    Task { @MainActor [terminalSurfaceID] in
-                        guard let terminalSurface = GhosttyApp.terminalSurfaceRegistry
-                            .surface(id: terminalSurfaceID) else { return }
-                        NotificationCenter.default.post(
-                            name: .terminalSelectionDidChange,
-                            object: terminalSurface
-                        )
-                    }
-                }
-            }
             return true
         case GHOSTTY_ACTION_GOTO_SPLIT:
             let gotoDirection = action.action.goto_split
@@ -4078,7 +4058,24 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func setup() {
-        selectionAccessibilityNotifier = TerminalSelectionAccessibilityNotifier(element: self, events: selectionAccessibilitySignal.events)
+        selectionAccessibilityNotifier = TerminalSelectionAccessibilityNotifier(
+            element: self,
+            events: selectionAccessibilitySignal.events,
+            onSelectionChanged: { [weak self] in
+                guard let self,
+                      let terminalSurface = self.terminalSurface,
+                      GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(
+                          id: terminalSurface.id
+                      ),
+                      let currentSurface = GhosttyApp.terminalSurfaceRegistry.surface(
+                          id: terminalSurface.id
+                      ) else { return }
+                NotificationCenter.default.post(
+                    name: .terminalSelectionDidChange,
+                    object: currentSurface
+                )
+            }
+        )
         // GhosttyMetalLayer provides render stats and opt-in frame notifications for
         // input sequencing that needs to wait for terminal redraws.
         wantsLayer = true
