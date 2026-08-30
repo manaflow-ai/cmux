@@ -5805,7 +5805,11 @@ impl Mux {
                     && previous_session.as_deref() == session
             },
         );
-        if unchanged {
+        let hook_owned_socket_report =
+            previous.as_ref().is_some_and(|(_, previous_source, _, _)| {
+                previous_source == AgentSource::Hook.as_str() && source == AgentSource::Socket
+            });
+        if unchanged || hook_owned_socket_report {
             return None;
         }
         let previous = previous
@@ -23142,21 +23146,13 @@ mod tests {
     #[test]
     fn socket_reports_do_not_echo_when_hook_owns_roster_entry() {
         let root = std::env::temp_dir()
-            .join(format!(
-                "cmux-roster-hook-echo-{}",
-                crate::workspace_registry::new_uuid_v4()
-            ));
-        let mux = Mux::open_persistent("roster-hook-echo", SurfaceOptions::default(), &root)
-            .unwrap();
+            .join(format!("cmux-roster-hook-echo-{}", crate::workspace_registry::new_uuid_v4()));
+        let mux =
+            Mux::open_persistent("roster-hook-echo", SurfaceOptions::default(), &root).unwrap();
         let surface = mux.new_workspace(None, None).unwrap();
 
-        mux.report_agent(
-            surface.id,
-            AgentState::Working,
-            AgentSource::Hook,
-            Some("hook".into()),
-        )
-        .unwrap();
+        mux.report_agent(surface.id, AgentState::Working, AgentSource::Hook, Some("hook".into()))
+            .unwrap();
         let socket_echoes = || {
             mux.session_journal_after(0, 1024)
                 .unwrap()
@@ -23174,20 +23170,10 @@ mod tests {
         };
 
         assert_eq!(socket_echoes(), 0);
-        mux.report_agent(
-            surface.id,
-            AgentState::Working,
-            AgentSource::Socket,
-            Some("poll".into()),
-        )
-        .unwrap();
-        mux.report_agent(
-            surface.id,
-            AgentState::Working,
-            AgentSource::Socket,
-            Some("poll".into()),
-        )
-        .unwrap();
+        mux.report_agent(surface.id, AgentState::Working, AgentSource::Socket, Some("poll".into()))
+            .unwrap();
+        mux.report_agent(surface.id, AgentState::Working, AgentSource::Socket, Some("poll".into()))
+            .unwrap();
         assert_eq!(socket_echoes(), 0, "hook-owned reports must not append socket echoes");
 
         mux.shutdown();
