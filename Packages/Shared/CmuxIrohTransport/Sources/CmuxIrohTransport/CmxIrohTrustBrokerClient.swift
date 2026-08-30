@@ -658,6 +658,11 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             // network failure: classifying it connectivity would let retry
             // and cached-policy fallbacks keep working on a cancelled task.
             throw CancellationError()
+        } catch let error as CmxIrohBrokerTokenRecoveryError {
+            // Preserve an auth owner's definitive classification across the
+            // transport boundary; collapsing it into connectivity would let a
+            // host retry a session that the auth coordinator already rejected.
+            throw error
         } catch {
             // The source could not read a coherent pair right now (token store
             // mid-transition, re-mint in flight or offline). That is transient

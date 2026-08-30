@@ -54,6 +54,8 @@ public struct CmxIrohBrokerTokenSource: Sendable {
                     }
                 } catch is CancellationError {
                     throw CancellationError()
+                } catch let error as CmxIrohBrokerTokenRecoveryError {
+                    throw error
                 } catch {
                     // A transient snapshot read can still be repaired by the
                     // one explicit refresh below.
@@ -72,6 +74,8 @@ public struct CmxIrohBrokerTokenSource: Sendable {
                     refreshed = try await snapshot()
                 } catch is CancellationError {
                     throw CancellationError()
+                } catch let error as CmxIrohBrokerTokenRecoveryError {
+                    throw error
                 } catch {
                     return nil
                 }
