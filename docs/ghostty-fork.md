@@ -66,6 +66,11 @@ pinned in `scripts/ghosttykit-checksums.txt`.
   - SHA-256 `6a02a2ec3794de79a02af993083292a89517d2533eb20c746deca377f23456bd`
     is pinned in `scripts/ghosttykit-checksums.txt`.
 
+The pinned lineage also contains the hard-newline URL boundary fix from
+Ghostty PR #183. Its regression test and width-filled-row guard keep a short
+slash-terminated URL from absorbing unrelated output on the next hard newline,
+while preserving indented continuations and terminal soft wraps.
+
 ### VT formatter cursor restoration after margins
 
 - Pull request:
@@ -920,6 +925,15 @@ declared architecture, and `_ghostty_surface_rebuild_renderer` plus
   - Conflict note: link-grid expansion and newline normalization must continue
     to share the classifier; duplicating the continuation decision can make
     hover and activation disagree.
+
+- Follow-up regression coverage:
+  - Pull request: https://github.com/manaflow-ai/ghostty/pull/183
+  - Test commit: `28baa8649` rejects a short `https://google.com/` row from
+    joining the unrelated `foobar` row.
+  - Fix commit: `589856524` requires the upper physical row to be width-filled
+    (including a wide-glyph spacer head) before an unindented continuation joins.
+  - Merge commit: `1f78a79aa` carries the fix on fork `main`; the shared
+    classifier keeps hover, copy, preview, and activation consistent.
 
 ### Bounded Kitty graphics state
 
