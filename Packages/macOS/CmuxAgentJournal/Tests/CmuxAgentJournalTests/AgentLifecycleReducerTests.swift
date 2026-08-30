@@ -76,6 +76,14 @@ struct AgentLifecycleReducerTests {
         #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .running)
     }
 
+    @Test func pendingErrorKeepsLifecycleRunning() {
+        let state = fold([
+            event(1, .turnStarted),
+            event(2, .errorReported, pendingWork: true),
+        ])
+        #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .running)
+    }
+
     @Test func sessionEndedClearsEntry() {
         let state = fold([event(1, .turnStarted), event(2, .sessionEnded)])
         #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == nil)

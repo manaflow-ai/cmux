@@ -80,7 +80,8 @@ struct AgentHookNotificationPolicyTests {
         #expect(summary.status == .error)
         #expect(summary.notifyCategory == .other)
         #expect(summary.subtitle == expectedSubtitle)
-        #expect(summary.body.contains(banner))
+        #expect(summary.body.contains("Try again"))
+        #expect(!summary.body.contains(banner))
         #expect(agentNotificationShouldDeliver(
             category: .other,
             pending: false,
@@ -88,6 +89,49 @@ struct AgentHookNotificationPolicyTests {
             turnMode: .never,
             idleEnabled: false
         ))
+    }
+
+    @Test func genericStopRejectsHistoricalFailureProse() throws {
+        let cli = CMUXCLI(args: [])
+        let definition = try #require(CMUXCLI.agentDef(named: "grok"))
+        let messages = [
+            "No error was reported; the task completed successfully.",
+            "The previous attempt failed, but this retry succeeded.",
+            "The operation finished error-free.",
+        ]
+
+        for message in messages {
+            let input = cli.parseClaudeHookInput(
+                #"{"hook_event_name":"Stop","message":"\#(message)"}"#
+            )
+            #expect(
+                cli.summarizeGenericAbnormalStop(
+                    def: definition,
+                    input: input,
+                    lastMessage: nil
+                ) == nil,
+                "Historical or negated failure prose must not become a generic provider error: \(message)"
+            )
+        }
+    }
+
+    @Test func providerErrorBodyRedactsDiagnostics() throws {
+        let raw = #"API Error: request_id=abc123 Authorization: Bearer secret-value stack trace at Provider.call() payload={"token":"secret"}"#
+        let summary = try #require(
+            AgentHookAbnormalStopClassifier().summary(
+                displayName: "Agent",
+                signal: "Stop",
+                message: raw,
+                isFallback: false
+            )
+        )
+
+        #expect(summary.status == .error)
+        #expect(summary.body != raw)
+        #expect(!summary.body.contains("request_id"))
+        #expect(!summary.body.contains("Authorization"))
+        #expect(!summary.body.contains("secret-value"))
+        #expect(summary.body.contains("Try again"))
     }
 
     @Test func userInterruptAndNormalCompletionDoNotBecomeAbnormalErrors() {

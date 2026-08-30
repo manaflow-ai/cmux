@@ -125,16 +125,15 @@ struct CodexTerminalErrorNotificationTests {
 
         #expect(!result.timedOut, "\(result.stderr)")
         #expect(result.status == 0, "\(result.stderr)")
+        let notification = commands.first { command in
+            command.contains("Codex|Request timed out|")
+        }
         #expect(
-            commands.contains { command in
-                command.contains(
-                    "notify_target_async 11111111-1111-1111-1111-111111111111 22222222-2222-2222-2222-222222222222 Codex|Request timed out|■ request timed out"
-                ) || command.contains(
-                    "notify_target 11111111-1111-1111-1111-111111111111 22222222-2222-2222-2222-222222222222 Codex|Request timed out|■ request timed out"
-                )
-            },
+            notification != nil,
             "Expected the request-timeout banner to notify, saw \(commands)"
         )
+        #expect(notification?.contains("■ request timed out") == false)
+        #expect(notification?.contains("Try again") == true)
         #expect(
             commands.allSatisfy { !$0.contains("c=turn-complete") },
             "A request timeout must not use the suppressible completion category, saw \(commands)"
@@ -193,14 +192,15 @@ struct CodexTerminalErrorNotificationTests {
 
         #expect(!result.timedOut, "\(result.stderr)")
         #expect(result.status == 0, "\(result.stderr)")
+        let notification = server.commands.first { command in
+            command.contains("Codex|Request timed out|")
+        }
         #expect(
-            server.commands.contains { command in
-                command.contains(
-                    "notify_target_async \(workspaceID) \(surfaceID) Codex|Request timed out|■ request timed out"
-                )
-            },
+            notification != nil,
             "Expected the transcript timeout banner to notify, saw \(server.commands)"
         )
+        #expect(notification?.contains("■ request timed out") == false)
+        #expect(notification?.contains("Try again") == true)
     }
 
     @Test("Capacity, quota, and rate-limit banners notify")
@@ -215,12 +215,15 @@ struct CodexTerminalErrorNotificationTests {
             let (result, commands) = try runStopBanner(banner)
             #expect(!result.timedOut, "\(result.stderr)")
             #expect(result.status == 0, "\(result.stderr)")
+            let notification = commands.first { command in
+                command.contains("Codex|\(subtitle)|")
+            }
             #expect(
-                commands.contains { command in
-                    command.contains("Codex|\(subtitle)|\(banner)")
-                },
+                notification != nil,
                 "Expected \(banner) to notify, saw \(commands)"
             )
+            #expect(notification?.contains(banner) == false)
+            #expect(notification?.contains("Try again") == true)
             #expect(
                 commands.allSatisfy { !$0.contains("c=turn-complete") },
                 "An abnormal stop must not use the completion category, saw \(commands)"
