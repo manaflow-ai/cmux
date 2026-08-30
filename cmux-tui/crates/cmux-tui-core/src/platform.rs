@@ -256,7 +256,13 @@ pub fn normalize_filesystem_path(path: PathBuf) -> PathBuf {
             path
         } else {
             match std::env::current_dir() {
-                Ok(current) => current.join(path),
+                Ok(current) => {
+                    let resolved = current.join(&path);
+                    if resolved.as_os_str().encode_wide().count() < WINDOWS_PATH_HEADROOM {
+                        return path;
+                    }
+                    resolved
+                }
                 Err(_) => return path,
             }
         };
@@ -389,7 +395,7 @@ fn windows_component_is_reserved_device_name(stem: &[u16]) -> bool {
             })
     }
 
-    if [b"CON".as_slice(), b"PRN", b"AUX", b"NUL"]
+    if [b"CON".as_slice(), b"PRN", b"AUX", b"NUL", b"CONIN$", b"CONOUT$"]
         .iter()
         .any(|name| ascii_eq_ignore_case(stem, name))
     {
