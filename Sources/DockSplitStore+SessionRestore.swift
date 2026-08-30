@@ -17,6 +17,7 @@ extension DockSplitStore {
         sourceWorkspaceResolver: (UUID) -> Workspace? = { _ in nil }
     ) -> [UUID: UUID] {
         guard !isRetired else { return [:] }
+        cancelDockPointerInteraction()
         sessionRestoreDepth += 1
         defer {
             sessionRestoreDepth = max(sessionRestoreDepth - 1, 0)
@@ -674,6 +675,7 @@ extension DockSplitStore {
     }
 
     private func focusDockController(panelId: UUID) {
+        cancelDockPointerInteraction()
         guard let paneId = paneId(forPanelId: panelId),
               let tabId = surfaceId(forPanelId: panelId) else { return }
         bonsplitController.focusPane(paneId)

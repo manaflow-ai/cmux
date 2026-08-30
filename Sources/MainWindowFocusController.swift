@@ -309,20 +309,23 @@ final class MainWindowFocusController {
             } else {
                 mode = nil
             }
-            guard let mode else {
-                return nil
+            if let mode {
+                let isFallbackSidebarHost = rightSidebarHost.map { responder === $0 } ?? false
+                if canAcceptRightSidebarResponderFocus(
+                    mode: mode,
+                    isFallbackSidebarHost: isFallbackSidebarHost
+                ) {
+                    return mode
+                }
+                // A live sidebar responder still owns this window while a
+                // mode switch is pending; keep the active/requested mode visible
+                // until the destination endpoint reports focus.
+                return activeMode ?? mode
             }
-            let isFallbackSidebarHost = rightSidebarHost.map { responder === $0 } ?? false
-            if canAcceptRightSidebarResponderFocus(
-                mode: mode,
-                isFallbackSidebarHost: isFallbackSidebarHost
-            ) {
-                return mode
-            }
-            // A live sidebar responder still owns this window while a mode
-            // switch is pending; keep the active/requested mode visible until
-            // the destination endpoint reports focus.
-            return activeMode ?? mode
+            // A Dock terminal is a window-level portal and may briefly outlive
+            // the Dock keyboard-focus host during a SwiftUI remount. Continue
+            // to the structured terminal-surface registry fallback below
+            // instead of treating that responder as foreign focus.
         }
         if activeMode != nil, responder is NSWindow {
             return activeMode

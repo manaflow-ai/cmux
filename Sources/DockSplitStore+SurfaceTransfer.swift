@@ -131,6 +131,7 @@ extension DockSplitStore {
     /// subscription cancelled *before* the Bonsplit tab is closed, so the
     /// `didCloseTab` → `reconcilePanels()` path cannot tear the live panel down.
     func detachSurface(panelId: UUID) -> Workspace.DetachedSurfaceTransfer? {
+        cancelDockPointerInteraction()
         guard let tabId = surfaceId(forPanelId: panelId), let panel = panels[panelId] else { return nil }
         flushPendingTerminalTitleUpdates()
         let tab = bonsplitController.tab(tabId)
@@ -419,6 +420,7 @@ extension DockSplitStore {
         focus: Bool = true
     ) -> UUID? {
         guard !isRetired else { return nil }
+        cancelDockPointerInteraction()
         guard containsPane(paneId.id), panels[detached.panelId] == nil else { return nil }
         let panel = detached.panel
         prepareDetachedPanelForDockAttachment(panel)
@@ -510,6 +512,7 @@ extension DockSplitStore {
         focus: Bool = true
     ) -> UUID? {
         guard !isRetired else { return nil }
+        cancelDockPointerInteraction()
         guard containsPane(paneId.id), panels[detached.panelId] == nil else {
             return nil
         }

@@ -600,6 +600,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
 
     func setVisibleInUI(_ visible: Bool) {
         if !visible {
+            cancelDockPointerInteraction()
             visibleUIHostIds.removeAll()
         }
         guard isVisibleInUI != visible else { return }
@@ -612,6 +613,9 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     }
 
     func setVisibleInUI(_ visible: Bool, hostId: UUID) {
+        if !visible {
+            cancelDockPointerInteraction()
+        }
         if visible {
             visibleUIHostIds.insert(hostId)
         } else {
@@ -681,6 +685,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> UUID? {
         guard !isRetired else { return nil }
+        cancelDockPointerInteraction()
         ensureLoaded()
         let source = resolveSourcePanelId(sourcePanelId, preferredPaneId: paneId)
         let resolvedBrowserProfileID = kind == .browser
@@ -765,6 +770,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         focus: Bool = true
     ) -> UUID? {
         guard !isRetired else { return nil }
+        cancelDockPointerInteraction()
         ensureLoaded()
         let source = resolveSourcePanelId(sourcePanelId)
         let resolvedBrowserProfileID = kind == .browser

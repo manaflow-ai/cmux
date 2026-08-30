@@ -96,6 +96,11 @@ struct DockPointerInteractionHost: NSViewRepresentable {
 
 @MainActor
 final class DockPointerInteractionHostView: NSView {
+    private enum DockPointerHitTarget {
+        case tabItem
+        case panel
+    }
+
     var store: DockSplitStore?
     var isEnabled = false
     private var eventMonitor: Any?
@@ -151,6 +156,10 @@ final class DockPointerInteractionHostView: NSView {
                 .leftMouseDown,
                 .leftMouseDragged,
                 .leftMouseUp,
+                .rightMouseDown,
+                .rightMouseUp,
+                .otherMouseDown,
+                .otherMouseUp,
                 .keyDown,
             ]
         ) { [weak self] event in
@@ -199,6 +208,10 @@ final class DockPointerInteractionHostView: NSView {
             if event.type == .leftMouseDown
                 || event.type == .leftMouseDragged
                 || event.type == .leftMouseUp
+                || event.type == .rightMouseDown
+                || event.type == .rightMouseUp
+                || event.type == .otherMouseDown
+                || event.type == .otherMouseUp
                 || event.type == .keyDown {
                 store?.cancelDockPointerInteraction()
             }
@@ -218,11 +231,24 @@ final class DockPointerInteractionHostView: NSView {
             // A SwiftUI remount can briefly leave no AppKit hit view at the
             // pointer location. The host's own bounds remain the authoritative
             // Dock region, so only reject a known non-Dock/control hit.
-            if let hitView = window.contentView?.hitTest(event.locationInWindow),
-               !isDockHitView(hitView, at: event.locationInWindow, in: window) {
+            let hitView = window.contentView?.hitTest(event.locationInWindow)
+            guard let target = dockPointerHitTarget(
+                hitView,
+                at: event.locationInWindow,
+                in: window
+            ) else {
                 return
             }
-            store?.beginUserDockPointerInteraction(window: window)
+            switch target {
+            case .tabItem:
+                store?.beginUserDockPointerInteraction(window: window)
+            case .panel:
+                // Panel clicks already focus the selected panel through the
+                // normal portal/AppKit path. Publish ownership without
+                // creating a selection-origin lease that no callback will
+                // consume.
+                store?.noteKeyboardFocusIntent(window: window)
+            }
         case .leftMouseDragged:
             store?.markDockPointerInteractionDragging(window: window)
         case .leftMouseUp:
@@ -231,60 +257,111 @@ final class DockPointerInteractionHostView: NSView {
             // A released origin that never produced a Bonsplit callback must
             // not survive into a later programmatic selection.
             store?.cancelDockPointerInteraction(window: window)
+        case .rightMouseDown, .rightMouseUp, .otherMouseDown, .otherMouseUp:
+            store?.cancelDockPointerInteraction(window: window)
         default:
             break
         }
     }
 
-    private func isDockHitView(
-        _ view: NSView,
+    private func dockPointerHitTarget(
+        _ view: NSView?,
         at windowPoint: NSPoint,
         in window: NSWindow
-    ) -> Bool {
+    ) -> DockPointerHitTarget? {
         // Native accessory controls (close, mute, pin, zoom, and split/new
         // buttons) own their click. They must not turn a metadata action into a
         // Dock keyboard-focus handoff.
-        guard !isInteractiveDockChrome(view) else { return false }
-
-        // Bonsplit owns the actual tab-bar AppKit hit regions. This remains
-        // correct even when SwiftUI mounts the Dock tab strip in a separate
-        // hosting subtree from this monitor view.
-        if BonsplitTabItemHitRegionRegistry.containsWindowPoint(
-            windowPoint,
-            in: window
-        ) {
-            return true
+        if let view, isInteractiveDockChrome(view) {
+            return nil
         }
 
-        guard let store else { return false }
+        // Bonsplit owns the actual tab-item AppKit hit regions. Consult both
+        // the registry and the provider in the hit-view ancestry: the latter
+        // covers the short remount window before the registry is repopulated.
+        let registryTabItemHit = BonsplitTabItemHitRegionRegistry.containsWindowPoint(
+            windowPoint,
+            in: window
+        )
+        if registryTabItemHit {
+            // A missing hit view is a transient SwiftUI remount; the registry
+            // still identifies this point as a tab item. The registry is kept
+            // by Bonsplit's AppKit tab regions, which are more precise than the
+            // root hosting view returned by `hitTest` during remounts.
+            return .tabItem
+        }
+        if tabItemHitInViewHierarchy(view, at: windowPoint) {
+            return .tabItem
+        }
+
+        guard let store else { return nil }
         // Surface portals are intentionally reparented to a window-level host.
         // Resolve their stable panel identity directly from the portal hit
         // registry when available; the root host remains the authoritative Dock
         // ownership region when a portal/tab registry is between remounts.
-        if let terminalView = TerminalWindowPortalRegistry.terminalViewAtWindowPoint(
+        if let view,
+           let terminalView = TerminalWindowPortalRegistry.terminalViewAtWindowPoint(
             windowPoint,
             in: window
         ),
+           isView(view, within: terminalView),
            let panelId = terminalView.terminalSurface?.id,
            store.panelIsSelectedInVisibleDockPane(panelId) {
-            return true
+            return .panel
         }
-        if let webView = BrowserWindowPortalRegistry.webViewAtWindowPoint(
+        if let view,
+           let webView = BrowserWindowPortalRegistry.webViewAtWindowPoint(
             windowPoint,
             in: window
         ),
+           isView(view, within: webView),
            let context = BrowserWindowPortalRegistry.paneDropContext(for: webView),
            context.isDockHosted,
            context.workspaceId == store.workspaceId,
            store.panelIsSelectedInVisibleDockPane(context.panelId) {
-            return true
+            return .panel
         }
 
         // File previews and other Dock-native panels do not have a window-level
-        // portal identity. This host is mounted on the Dock root, so a
-        // non-control click inside its bounds is still an explicit Dock
-        // interaction even when Bonsplit's geometry registry is remounting.
-        return true
+        // portal identity. Resolve only the selected panel in each rendered
+        // pane; an unrelated overlay has no panel-owned focus intent and fails
+        // closed here.
+        guard let view else { return nil }
+        let renderedPaneIDs = store.bonsplitController.zoomedPaneId.map { [$0] }
+            ?? store.bonsplitController.allPaneIds
+        for paneID in renderedPaneIDs {
+            guard store.paneIsRenderedInVisibleDock(paneID),
+                  let tabID = store.bonsplitController.selectedTab(inPane: paneID)?.id,
+                  let panelID = store.surfaceIdToPanelId[tabID],
+                  let panel = store.panels[panelID] else {
+                continue
+            }
+            if panel.ownedFocusIntent(for: view, in: window) != nil {
+                return .panel
+            }
+        }
+        return nil
+    }
+
+    private func tabItemHitInViewHierarchy(
+        _ view: NSView?,
+        at windowPoint: NSPoint
+    ) -> Bool {
+        var candidate = view
+        while let current = candidate {
+            if let provider = current as? BonsplitTabItemHitRegionProviding {
+                let localPoint = current.convert(windowPoint, from: nil)
+                if provider.containsBonsplitTabItemHit(localPoint: localPoint) {
+                    return true
+                }
+            }
+            candidate = current.superview
+        }
+        return false
+    }
+
+    private func isView(_ view: NSView, within owner: NSView) -> Bool {
+        view === owner || view.isDescendant(of: owner) || owner.isDescendant(of: view)
     }
 
     private func isInteractiveDockChrome(_ view: NSView) -> Bool {

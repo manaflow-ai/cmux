@@ -55,6 +55,7 @@ extension DockSplitStore {
     @discardableResult
     func performShortcutCommand(_ command: DockShortcutCommand) -> Bool {
         guard !isRetired else { return false }
+        cancelDockPointerInteraction()
         switch command {
         case .selectNextSurface:
             bonsplitController.selectNextTab()

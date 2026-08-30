@@ -67,6 +67,7 @@ extension DockSplitStore {
     }
 
     func focusPanel(_ panelId: UUID) {
+        cancelDockPointerInteraction()
         guard let paneId = paneId(forPanelId: panelId), let tabId = surfaceId(forPanelId: panelId) else { return }
         bonsplitController.focusPane(paneId)
         bonsplitController.selectTab(tabId)
@@ -120,6 +121,7 @@ extension DockSplitStore {
     }
 
     func focusFirstControl() -> Bool {
+        cancelDockPointerInteraction()
         guard let paneId = bonsplitController.focusedPaneId
             ?? bonsplitController.allPaneIds.first else { return false }
         bonsplitController.focusPane(paneId)
@@ -182,6 +184,7 @@ extension DockSplitStore {
     }
 
     func restoreDockPaneSelection(_ selection: (pane: PaneID?, tab: TabID?)?) {
+        cancelDockPointerInteraction()
         guard let selection else { return }
         if let pane = selection.pane {
             bonsplitController.focusPane(pane)
@@ -199,6 +202,7 @@ extension DockSplitStore {
     }
 
     func collapseToSingleEmptyPane() {
+        cancelDockPointerInteraction()
         guard let rootPane = bonsplitController.allPaneIds.first else { return }
         for paneId in bonsplitController.allPaneIds where paneId != rootPane {
             _ = bonsplitController.closePane(paneId)
@@ -303,6 +307,7 @@ extension DockSplitStore {
     }
 
     func applyFocusedDockSelection() {
+        cancelDockPointerInteraction()
         guard let paneId = bonsplitController.focusedPaneId,
               let tabId = bonsplitController.selectedTab(inPane: paneId)?.id else {
             // A focused empty pane still changes the menu target.

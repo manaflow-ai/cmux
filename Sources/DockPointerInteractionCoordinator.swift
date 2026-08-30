@@ -71,6 +71,12 @@ final class DockPointerInteractionCoordinator {
         tabID: TabID
     ) -> NSWindow? {
         guard phase != .idle, matches(window: window) else { return nil }
+        // An empty-pane click has no tab identity to bind to. Never let a
+        // later programmatic selection consume that unbound origin.
+        guard initialPaneID != nil || initialTabID != nil else {
+            cancel()
+            return nil
+        }
         let selectionChanged = initialPaneID != paneID || initialTabID != tabID
         guard selectionChanged || phase == .dragging else { return nil }
         let owner = originWindow ?? window
