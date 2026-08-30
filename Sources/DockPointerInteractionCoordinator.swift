@@ -156,7 +156,6 @@ final class DockPointerInteractionCoordinator {
 
     private(set) var phase: Phase = .idle
     private weak var originWindow: NSWindow?
-    private var originWindowID: ObjectIdentifier?
     private var initialPaneID: PaneID?
     private var initialTabID: TabID?
 
@@ -171,7 +170,6 @@ final class DockPointerInteractionCoordinator {
             return
         }
         originWindow = window
-        originWindowID = ObjectIdentifier(window)
         self.initialPaneID = initialPaneID
         self.initialTabID = initialTabID
         phase = .pressed
@@ -191,7 +189,6 @@ final class DockPointerInteractionCoordinator {
         guard window == nil || matches(window: window) else { return }
         phase = .idle
         originWindow = nil
-        originWindowID = nil
         initialPaneID = nil
         initialTabID = nil
     }
@@ -227,13 +224,24 @@ final class DockPointerInteractionCoordinator {
     }
 
     private func matches(window: NSWindow?) -> Bool {
-        guard let originWindowID else { return false }
-        guard let window else { return true }
-        return ObjectIdentifier(window) == originWindowID
+        guard let originWindow, let window else { return false }
+        return originWindow === window
     }
 }
 
 extension DockSplitStore {
+    /// Resolves the live AppKit window that owns this Dock. Bonsplit delegate
+    /// callbacks do not carry a window, so the owner mapping supplies the
+    /// explicit scope used to consume a pointer-origin transaction.
+    func dockInteractionWindow() -> NSWindow? {
+        guard let appDelegate = AppDelegate.shared,
+              let manager = appDelegate.dockReferenceTabManager(for: self),
+              let windowId = appDelegate.windowId(for: manager) else {
+            return nil
+        }
+        return appDelegate.mainWindow(for: windowId)
+    }
+
     /// Begins a user-originated Dock pointer transaction and publishes the
     /// owning window's Dock focus immediately, before Bonsplit selection.
     func beginUserDockPointerInteraction(window: NSWindow?) {
@@ -266,8 +274,12 @@ extension DockSplitStore {
         tab: TabID,
         window: NSWindow?
     ) -> Bool {
+        guard let callbackWindow = window ?? dockInteractionWindow() else {
+            cancelDockPointerInteraction()
+            return false
+        }
         guard let owner = dockPointerInteractionCoordinator.consumeSelection(
-            in: window,
+            in: callbackWindow,
             paneID: pane,
             tabID: tab
         ) else {
@@ -286,7 +298,7 @@ extension DockSplitStore {
         _ = consumeDockPointerSelection(
             pane: pane,
             tab: tab.id,
-            window: nil
+            window: dockInteractionWindow()
         )
     }
 
@@ -305,7 +317,7 @@ extension DockSplitStore {
         _ = consumeDockPointerSelection(
             pane: pane,
             tab: tab.id,
-            window: nil
+            window: dockInteractionWindow()
         )
     }
 
@@ -336,7 +348,7 @@ extension DockSplitStore {
         _ = consumeDockPointerSelection(
             pane: destination,
             tab: tab.id,
-            window: nil
+            window: dockInteractionWindow()
         )
         scheduleDockPortalReconcile(reason: "dock.moveTab")
     }

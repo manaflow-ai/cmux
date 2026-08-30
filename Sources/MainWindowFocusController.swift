@@ -65,6 +65,10 @@ final class MainWindowFocusController {
     private weak var fileSearchHost: FileExplorerContainerView?
     private weak var feedHost: FeedKeyboardFocusView?
     private weak var dockHost: DockKeyboardFocusView?
+    /// Composition-root resolver for a window-owned Dock panel. Keeping this
+    /// seam injected avoids making focus evaluation depend on a process-global
+    /// Dock registry and lets isolated controller tests provide their owner.
+    private let dockPanelResolver: @MainActor (UUID) -> DockSplitStore?
 
     private(set) var intent: MainWindowKeyboardFocusIntent? {
         didSet {
@@ -120,12 +124,14 @@ final class MainWindowFocusController {
         windowId: UUID,
         window: NSWindow?,
         tabManager: TabManager,
-        fileExplorerState: FileExplorerState?
+        fileExplorerState: FileExplorerState?,
+        dockPanelResolver: @escaping @MainActor (UUID) -> DockSplitStore? = { _ in nil }
     ) {
         self.windowId = windowId
         self.window = window
         self.tabManager = tabManager
         self.fileExplorerState = fileExplorerState
+        self.dockPanelResolver = dockPanelResolver
         self.rememberedRightSidebarMode = fileExplorerState?.mode
         syncBonsplitTabShortcutHintEligibility()
     }
@@ -336,7 +342,7 @@ final class MainWindowFocusController {
         guard let ghosttyView = responder.cmuxStrictOwningGhosttyView(),
               let panelId = ghosttyView.terminalSurface?.id,
               GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(id: panelId),
-              let dock = DockSplitStore.liveStore(containingPanel: panelId),
+              let dock = dockPanelResolver(panelId),
               dock.scope == .global,
               dock.workspaceId == windowId else {
             return nil

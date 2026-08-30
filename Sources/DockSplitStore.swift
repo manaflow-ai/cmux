@@ -613,15 +613,19 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     }
 
     func setVisibleInUI(_ visible: Bool, hostId: UUID) {
-        if !visible {
-            cancelDockPointerInteraction()
-        }
         if visible {
             visibleUIHostIds.insert(hostId)
         } else {
             visibleUIHostIds.remove(hostId)
         }
         let anyHostVisible = !visibleUIHostIds.isEmpty
+        // A remount can briefly overlap an old and new host. Only cancel a
+        // pointer origin when the Dock's visibility union actually becomes
+        // empty; a departing host must not invalidate the surviving host's
+        // in-flight selection transaction.
+        if !anyHostVisible {
+            cancelDockPointerInteraction()
+        }
         guard isVisibleInUI != anyHostVisible else { return }
         isVisibleInUI = anyHostVisible
         NotificationCenter.default.post(

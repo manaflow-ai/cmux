@@ -639,7 +639,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             cmuxConfigStore: CmuxConfigStore?,
             window: NSWindow?,
             workspaceTerminalFontSizeArbiter:
-                WorkspaceTerminalFontSizeArbiter
+                WorkspaceTerminalFontSizeArbiter,
+            dockPanelResolver: @escaping @MainActor (UUID) -> DockSplitStore? = { _ in nil }
         ) {
             self.windowId = windowId
             self.tabManager = tabManager
@@ -654,7 +655,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 windowId: windowId,
                 window: window,
                 tabManager: tabManager,
-                fileExplorerState: fileExplorerState
+                fileExplorerState: fileExplorerState,
+                dockPanelResolver: dockPanelResolver
             )
         }
     }
@@ -5368,7 +5370,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 cmuxConfigStore: cmuxConfigStore,
                 window: window,
                 workspaceTerminalFontSizeArbiter:
-                    workspaceTerminalFontSizeArbiter
+                    workspaceTerminalFontSizeArbiter,
+                dockPanelResolver: { [weak self] panelId in
+                    self?.windowDockContainingPanel(panelId)
+                }
             )
             mainWindowContexts[key] = context
             context.closeObserver = WindowCloseObserver(window: window) { [weak self] in self?.unregisterMainWindow($0) }

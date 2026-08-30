@@ -27,8 +27,7 @@ extension DockSplitStore {
         // focus-neutral so operating on a background tab cannot steal input.
         let presentingWindow = dockContextMenuWindow
         let commitsPanelFocus: Bool = switch action {
-        case .rename,
-             .moveToLeftPane, .moveToRightPane,
+        case .moveToLeftPane, .moveToRightPane,
              .newTerminalToRight, .newBrowserToRight,
              .duplicate, .toggleZoom, .toggleFullWidthTab:
             true
