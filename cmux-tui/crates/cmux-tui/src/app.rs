@@ -7849,6 +7849,7 @@ fn sidebar_layout_for_state(
         desired: u16,
         max_width: u16,
         priority: u16,
+        collapsed: bool,
     }
 
     let mut specs = config
@@ -7898,37 +7899,73 @@ fn sidebar_layout_for_state(
                     RailKind::Tabs | RailKind::Projection(_) => view.max_width,
                 }
             };
-            Some(Spec { kind, view_index, desired, max_width, priority: view.collapse_priority })
+            Some(Spec {
+                kind,
+                view_index,
+                desired,
+                max_width,
+                priority: view.collapse_priority,
+                collapsed: false,
+            })
         })
         .collect::<Vec<_>>();
 
-    while width
-        < MIN_CONTENT_WIDTH.saturating_add(MIN_RAIL_WIDTH.saturating_mul(specs.len() as u16))
-    {
-        let Some((index, _)) = specs.iter().enumerate().min_by_key(|(_, spec)| spec.priority)
-        else {
-            break;
-        };
-        specs.remove(index);
+    // Sort only when a collapse decision is needed. The configured index is a
+    // deterministic tie breaker for equal priorities, then a final in-place
+    // sort restores configured order before the layout is built. This keeps
+    // the normal frame path allocation-free beyond the specs vector itself and
+    // bounds collapse selection to O(n log n).
+    let needs_width_collapse =
+        width < MIN_CONTENT_WIDTH.saturating_add(MIN_RAIL_WIDTH.saturating_mul(specs.len() as u16));
+    let needs_hysteresis_collapse = previous.is_some()
+        && width
+            < MIN_CONTENT_WIDTH
+                .saturating_add(MIN_RAIL_WIDTH.saturating_mul(specs.len() as u16))
+                .saturating_add(RAIL_REVEAL_HYSTERESIS)
+        && previous
+            .is_some_and(|previous| specs.iter().any(|spec| previous.rail(spec.kind).is_none()));
+    let mut collapsed_count = 0;
+    let mut retained_count = specs.len();
+    if needs_width_collapse || needs_hysteresis_collapse {
+        specs.sort_unstable_by_key(|spec| (spec.priority, spec.view_index));
+
+        while retained_count > 0
+            && width
+                < MIN_CONTENT_WIDTH
+                    .saturating_add(MIN_RAIL_WIDTH.saturating_mul(retained_count as u16))
+        {
+            specs[collapsed_count].collapsed = true;
+            collapsed_count += 1;
+            retained_count -= 1;
+        }
     }
 
     if let Some(previous) = previous {
-        while specs.iter().any(|spec| previous.rail(spec.kind).is_none())
-            && width
-                < MIN_CONTENT_WIDTH
-                    .saturating_add(MIN_RAIL_WIDTH.saturating_mul(specs.len() as u16))
-                    .saturating_add(RAIL_REVEAL_HYSTERESIS)
+        let mut candidate_index = collapsed_count;
+        while width
+            < MIN_CONTENT_WIDTH
+                .saturating_add(MIN_RAIL_WIDTH.saturating_mul(retained_count as u16))
+                .saturating_add(RAIL_REVEAL_HYSTERESIS)
         {
-            let Some((index, _)) = specs
-                .iter()
-                .enumerate()
-                .filter(|(_, spec)| previous.rail(spec.kind).is_none())
-                .min_by_key(|(_, spec)| spec.priority)
-            else {
+            while candidate_index < specs.len()
+                && (specs[candidate_index].collapsed
+                    || previous.rail(specs[candidate_index].kind).is_some())
+            {
+                candidate_index += 1;
+            }
+            if candidate_index == specs.len() {
                 break;
-            };
-            specs.remove(index);
+            }
+            specs[candidate_index].collapsed = true;
+            collapsed_count += 1;
+            candidate_index += 1;
+            retained_count -= 1;
         }
+    }
+
+    if collapsed_count > 0 {
+        specs.sort_unstable_by_key(|spec| spec.view_index);
+        specs.retain(|spec| !spec.collapsed);
     }
 
     let mut layout = SidebarLayout::default();
@@ -26276,6 +26313,38 @@ mod tests {
     }
 
     #[test]
+    fn sidebar_collapse_equal_priorities_keep_first_configured_rail() {
+        let mut config = Config::default();
+        config.sidebar.views_explicit = true;
+        config.sidebar.views = vec![
+            SidebarViewSpec::legacy(SidebarColumnKind::Machines, 18, 0),
+            SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 22, 0),
+            SidebarViewSpec::legacy(SidebarColumnKind::Tabs, 24, 0),
+        ];
+        for view in &mut config.sidebar.views {
+            view.collapse_priority = 10;
+        }
+
+        // 60 columns cannot fit three minimum rails and the content area,
+        // but can fit the two rails that remain after the first collapse.
+        // Equal priorities must collapse the first configured rail, matching
+        // the previous `min_by_key` plus `remove(index)` behavior.
+        let layout = sidebar_layout_for(
+            &config,
+            true,
+            false,
+            true,
+            (60, 30),
+            SidebarWidthOverrides::default(),
+        );
+        assert_eq!(layout.machine, None);
+        assert_eq!(
+            layout.ordered.iter().map(|placement| placement.kind).collect::<Vec<_>>(),
+            vec![RailKind::Workspace, RailKind::Tabs]
+        );
+    }
+
+    #[test]
     fn context_menu_switches_sidebar_profiles_and_keeps_per_profile_visibility() {
         let mux = Mux::new("sidebar-profile-menu-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
@@ -26352,6 +26421,21 @@ mod tests {
         );
         assert!(collapsed.machine.is_none());
 
+        let without_previous = sidebar_layout_for_state(
+            &config,
+            true,
+            false,
+            true,
+            (70, 30),
+            None,
+            None,
+            None,
+            &overrides,
+            &HashSet::new(),
+            None,
+        );
+        assert!(without_previous.machine.is_some());
+
         let at_boundary = sidebar_layout_for_state(
             &config,
             true,
@@ -26366,6 +26450,10 @@ mod tests {
             Some(&collapsed),
         );
         assert!(at_boundary.machine.is_none());
+        assert_eq!(
+            at_boundary.ordered.iter().map(|placement| placement.kind).collect::<Vec<_>>(),
+            vec![RailKind::Workspace, RailKind::Tabs]
+        );
         let revealed = sidebar_layout_for_state(
             &config,
             true,
