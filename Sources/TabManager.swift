@@ -734,6 +734,7 @@ class TabManager: ObservableObject {
         }
         observers.removeAll()
         workspaceCycleCooldownTask?.cancel()
+        flushPendingWorkspaceCustomizationWrites()
         automaticWorkspaceTitlePersistenceTask?.cancel()
         agentPIDSweepTimer?.cancel()
         // The sidebar git/PR services cancel their own poll, probe, snapshot,
