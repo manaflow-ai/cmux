@@ -21,6 +21,9 @@ public struct WorkspaceCustomizationStore {
     private let storageKey: String
     private let legacyStorageKey: String
     private let capacity: Int
+    /// Nonisolated so a workspace owner can synchronously hand off pending
+    /// records from its deinitializer without retaining the owner.
+    private nonisolated let synchronousWriter: WorkspaceCustomizationSynchronousWriter
 
     /// Creates a store backed by the supplied defaults suite.
     ///
@@ -42,6 +45,19 @@ public struct WorkspaceCustomizationStore {
         self.storageKey = storageKey
         self.legacyStorageKey = legacyStorageKey
         self.capacity = max(1, capacity)
+        self.synchronousWriter = WorkspaceCustomizationSynchronousWriter(
+            defaults: defaults,
+            storageKey: storageKey,
+            capacity: max(1, capacity)
+        )
+    }
+
+    /// Persists automatic title records synchronously from a nonisolated owner
+    /// teardown. The writer owns the lock and the complete snapshot transaction.
+    public nonisolated func persistPendingAutomaticTitlesSynchronously(
+        _ pending: [WorkspaceCustomizationPendingAutomaticTitle]
+    ) {
+        synchronousWriter.persistPendingAutomaticTitles(pending)
     }
 
     /// Reads the recovery record for one stable workspace identity.
@@ -174,12 +190,11 @@ public struct WorkspaceCustomizationStore {
         forKeys keys: Set<String>,
         transform: (WorkspaceCustomization?) -> WorkspaceCustomization
     ) {
-        var snapshot = loadSnapshot()
-        for key in keys.sorted() {
-            snapshot.set(transform(snapshot.entries[key]?.customization), for: key)
+        synchronousWriter.updateSnapshot { snapshot in
+            for key in keys.sorted() {
+                snapshot.set(transform(snapshot.entries[key]?.customization), for: key)
+            }
         }
-        snapshot.trim(to: capacity)
-        persist(snapshot)
     }
 
     private func normalizedField(_ value: String?) -> WorkspaceCustomizationField {
@@ -201,29 +216,6 @@ public struct WorkspaceCustomizationStore {
     }
 
     private func loadSnapshot() -> WorkspaceCustomizationPersistenceSnapshot {
-        guard let data = defaults?.data(forKey: storageKey),
-              var snapshot = try? JSONDecoder().decode(
-                  WorkspaceCustomizationPersistenceSnapshot.self,
-                  from: data
-              ),
-              snapshot.version == WorkspaceCustomizationPersistenceSnapshot.currentVersion else {
-            return WorkspaceCustomizationPersistenceSnapshot()
-        }
-        let previousCount = snapshot.entries.count
-        snapshot.trim(to: capacity)
-        if snapshot.entries.count != previousCount {
-            persist(snapshot)
-        }
-        return snapshot
-    }
-
-    private func persist(_ snapshot: WorkspaceCustomizationPersistenceSnapshot) {
-        guard let defaults else { return }
-        guard !snapshot.entries.isEmpty else {
-            defaults.removeObject(forKey: storageKey)
-            return
-        }
-        guard let data = try? JSONEncoder().encode(snapshot) else { return }
-        defaults.set(data, forKey: storageKey)
+        synchronousWriter.loadSnapshot()
     }
 }

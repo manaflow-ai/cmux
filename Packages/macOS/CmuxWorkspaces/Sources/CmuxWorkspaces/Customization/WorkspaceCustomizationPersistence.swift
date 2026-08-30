@@ -41,3 +41,132 @@ struct WorkspaceCustomizationPersistenceSnapshot: Codable, Sendable {
             .map { ($0.key, $0.value) })
     }
 }
+
+/// One process-wide lock keeps independent store values from racing a
+/// read-modify-write against the same UserDefaults database. Store values are
+/// copied into each window manager, so an instance-local lock would not cover
+/// all writers.
+private final class WorkspaceCustomizationPersistenceLock: @unchecked Sendable {
+    static let shared = WorkspaceCustomizationPersistenceLock()
+
+    let value = NSRecursiveLock()
+
+    private init() {}
+}
+
+/// Owns the synchronous persistence boundary shared by actor-isolated stores.
+///
+/// Normal callers reach this through ``WorkspaceCustomizationStore`` on the
+/// main actor. A workspace owner can also hand pending records here from its
+/// nonisolated deinitializer. The lock covers the complete read-modify-write
+/// transaction so that handoff cannot race another store mutation. UserDefaults
+/// is thread-safe for individual calls, but does not make this compound
+/// transaction atomic.
+final class WorkspaceCustomizationSynchronousWriter: @unchecked Sendable {
+    private let defaults: UserDefaults?
+    private let storageKey: String
+    private let capacity: Int
+    // UserDefaults posts didChangeNotification synchronously on the setter
+    // thread. A recursive lock lets an observer read this store during that
+    // callback without deadlocking the transaction that triggered it. The
+    // critical section is bounded to one snapshot decode/encode and defaults
+    // update because deinitializers cannot suspend for an actor hop.
+    private let lock = WorkspaceCustomizationPersistenceLock.shared.value
+
+    init(defaults: UserDefaults?, storageKey: String, capacity: Int) {
+        self.defaults = defaults
+        self.storageKey = storageKey
+        self.capacity = capacity
+    }
+
+    func withLock<T>(_ body: () -> T) -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return body()
+    }
+
+    func persistPendingAutomaticTitles(
+        _ pending: [WorkspaceCustomizationPendingAutomaticTitle]
+    ) {
+        guard !pending.isEmpty else { return }
+        withLock {
+            guard let defaults else { return }
+            var snapshot = loadSnapshotUnlocked(defaults: defaults)
+            for item in pending.sorted(by: { lhs, rhs in
+                lhs.stableId.uuidString < rhs.stableId.uuidString
+            }) {
+                let key = item.stableId.uuidString
+                if let currentTitle = snapshot.entries[key]?.customization.customTitle,
+                   case .value = currentTitle {
+                    // A user write may have landed after this automatic
+                    // record was queued. Preserve the user-owned value even
+                    // when the queue belongs to another manager copy.
+                    continue
+                }
+                let trimmed = item.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let field: WorkspaceCustomizationField = trimmed.isEmpty
+                    ? .cleared
+                    : .autoValue(trimmed)
+                snapshot.set(
+                    WorkspaceCustomization(
+                        customTitle: field,
+                        customColor: snapshot.entries[key]?.customization.customColor ?? .absent
+                    ),
+                    for: key
+                )
+            }
+            snapshot.trim(to: capacity)
+            persistSnapshotUnlocked(snapshot, defaults: defaults)
+        }
+    }
+
+    func loadSnapshot() -> WorkspaceCustomizationPersistenceSnapshot {
+        withLock {
+            guard let defaults else { return WorkspaceCustomizationPersistenceSnapshot() }
+            return loadSnapshotUnlocked(defaults: defaults)
+        }
+    }
+
+    func updateSnapshot(
+        _ update: (inout WorkspaceCustomizationPersistenceSnapshot) -> Void
+    ) {
+        withLock {
+            guard let defaults else { return }
+            var snapshot = loadSnapshotUnlocked(defaults: defaults)
+            update(&snapshot)
+            snapshot.trim(to: capacity)
+            persistSnapshotUnlocked(snapshot, defaults: defaults)
+        }
+    }
+
+    private func loadSnapshotUnlocked(
+        defaults: UserDefaults
+    ) -> WorkspaceCustomizationPersistenceSnapshot {
+        guard let data = defaults.data(forKey: storageKey),
+              var snapshot = try? JSONDecoder().decode(
+                  WorkspaceCustomizationPersistenceSnapshot.self,
+                  from: data
+              ),
+              snapshot.version == WorkspaceCustomizationPersistenceSnapshot.currentVersion else {
+            return WorkspaceCustomizationPersistenceSnapshot()
+        }
+        let previousCount = snapshot.entries.count
+        snapshot.trim(to: capacity)
+        if snapshot.entries.count != previousCount {
+            persistSnapshotUnlocked(snapshot, defaults: defaults)
+        }
+        return snapshot
+    }
+
+    private func persistSnapshotUnlocked(
+        _ snapshot: WorkspaceCustomizationPersistenceSnapshot,
+        defaults: UserDefaults
+    ) {
+        guard !snapshot.entries.isEmpty else {
+            defaults.removeObject(forKey: storageKey)
+            return
+        }
+        guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        defaults.set(data, forKey: storageKey)
+    }
+}

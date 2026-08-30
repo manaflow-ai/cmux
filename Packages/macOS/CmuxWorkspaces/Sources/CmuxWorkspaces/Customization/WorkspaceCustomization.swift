@@ -1,7 +1,24 @@
+public import Foundation
+
 /// Identifies who produced a workspace title for recovery ordering.
 public enum WorkspaceCustomizationTitleSource: String, Codable, Equatable, Sendable {
     case user
     case auto
+}
+
+/// One automatic title mutation handed off from a workspace owner at teardown.
+///
+/// The title is optional because an automatic clear must be durable too. This
+/// value is `Sendable` so a nonisolated owner deinitializer can hand it to the
+/// store's synchronous persistence boundary without retaining the owner.
+public struct WorkspaceCustomizationPendingAutomaticTitle: Sendable, Equatable {
+    public let stableId: UUID
+    public let title: String?
+
+    public init(stableId: UUID, title: String?) {
+        self.stableId = stableId
+        self.title = title
+    }
 }
 
 /// One independently persisted workspace customization field.
@@ -19,7 +36,7 @@ public enum WorkspaceCustomizationField: Codable, Equatable, Sendable {
     /// Automatic values are journaled so a clear followed by auto-naming has a
     /// durable ordering relative to a stale session snapshot.
     case autoValue(String)
-    /// The most recent user mutation explicitly cleared the field.
+    /// The most recent title mutation explicitly cleared the field.
     case cleared
 }
 

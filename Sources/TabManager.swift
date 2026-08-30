@@ -462,7 +462,10 @@ class TabManager: ObservableObject {
     private var workspaceCycleCooldownTask: Task<Void, Never>?
     /// Coalesces automatic title journal writes so frequent process-title
     /// events do not encode the full customization snapshot on every event.
-    private var pendingAutomaticWorkspaceTitles: [UUID: String] = [:]
+    private struct PendingAutomaticWorkspaceTitle: Sendable {
+        let title: String?
+    }
+    private var pendingAutomaticWorkspaceTitles: [UUID: PendingAutomaticWorkspaceTitle] = [:]
     private var automaticWorkspaceTitlePersistenceTask: Task<Void, Never>?
     private var pendingWorkspaceUnfocusTarget: (tabId: UUID, panelId: UUID)?
     var sidebarSelectedWorkspaceIds: Set<UUID> { sidebarMultiSelection.selectedWorkspaceIds }
@@ -734,7 +737,17 @@ class TabManager: ObservableObject {
         }
         observers.removeAll()
         workspaceCycleCooldownTask?.cancel()
+        let pendingAutomaticTitles = pendingAutomaticWorkspaceTitles.map {
+            WorkspaceCustomizationPendingAutomaticTitle(
+                stableId: $0.key,
+                title: $0.value.title
+            )
+        }
+        let workspaceCustomizationStore = workspaceCustomizationStore
         automaticWorkspaceTitlePersistenceTask?.cancel()
+        workspaceCustomizationStore.persistPendingAutomaticTitlesSynchronously(
+            pendingAutomaticTitles
+        )
         agentPIDSweepTimer?.cancel()
         // The sidebar git/PR services cancel their own poll, probe, snapshot,
         // and refresh tasks in their deinits; they deallocate with this

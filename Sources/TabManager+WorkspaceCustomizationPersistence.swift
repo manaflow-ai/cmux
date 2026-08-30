@@ -17,13 +17,14 @@ extension TabManager {
         guard !pendingAutomaticWorkspaceTitles.isEmpty else { return }
         let pending = pendingAutomaticWorkspaceTitles
         pendingAutomaticWorkspaceTitles.removeAll(keepingCapacity: true)
-        for (stableId, title) in pending.sorted(by: { $0.key.uuidString < $1.key.uuidString }) {
-            workspaceCustomizationStore.setCustomTitle(
-                title,
-                for: stableId,
-                source: .auto
-            )
-        }
+        workspaceCustomizationStore.persistPendingAutomaticTitlesSynchronously(
+            pending.map { stableId, pendingTitle in
+                WorkspaceCustomizationPendingAutomaticTitle(
+                    stableId: stableId,
+                    title: pendingTitle.title
+                )
+            }
+        )
     }
 
     private func scheduleAutomaticWorkspaceTitlePersistence() {
@@ -143,8 +144,8 @@ extension TabManager {
             case .absent, .value:
                 return
             }
-            guard let title = workspace.customTitle else { return }
-            pendingAutomaticWorkspaceTitles[workspace.stableId] = title
+            pendingAutomaticWorkspaceTitles[workspace.stableId] =
+                PendingAutomaticWorkspaceTitle(title: workspace.customTitle)
             scheduleAutomaticWorkspaceTitlePersistence()
             return
         }
