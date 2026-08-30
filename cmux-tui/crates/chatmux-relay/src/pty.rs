@@ -4755,6 +4755,60 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn frame_context_cancellation_cancels_a_default_open() {
+        let entered = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let gate =
+            Arc::new(ResolveGate { entered: Arc::clone(&entered), release: Arc::clone(&release) });
+        let h = harness_with_control_and_gate(None, None, None, None, Some(gate));
+        let context = h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
+        let manager = Arc::new(h.manager);
+        let frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "p1",
+            "session": "main",
+            "cols": 80,
+            "rows": 24,
+        });
+        let task_manager = Arc::clone(&manager);
+        let task_context = context.clone();
+        let task = tokio::spawn(async move {
+            task_manager.handle_frame(&frame, &task_context).await;
+        });
+
+        entered.notified().await;
+        context.cancellation.cancel();
+        release.notify_one();
+        task.await.unwrap();
+        assert_eq!(manager.attachment_count(), 0);
+        assert!(manager.inner.opening_state.lock().unwrap().reservations.is_empty());
+    }
+
+    #[tokio::test]
+    async fn detached_unknown_transport_rejects_a_late_frame() {
+        let h = harness(None, None);
+        let old = h.context_with_transport("supervised", h.owner.clone(), Some("relay-never-seen"));
+
+        // No frame from this owner reached the manager before disconnect.
+        // The disconnect boundary must still publish a tombstone.
+        h.manager.detach_transport_kind("relay-never-seen", TransportKind::Relay);
+
+        let frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "late",
+            "session": "main",
+            "cols": 80,
+            "rows": 24,
+        });
+        h.manager.handle_frame(&frame, &old).await;
+
+        assert!(h.spawned().is_empty(), "a disconnected owner must stay fenced");
+        assert!(!h.manager.inner.cache_transport_auth(&old));
+    }
+
+    #[tokio::test]
     async fn changed_transport_auth_cancels_an_in_flight_relay_open() {
         let h = harness(None, None);
         let inner = Arc::clone(&h.manager.inner);
