@@ -7,8 +7,8 @@ extension AppDelegate {
     @MainActor
     func configureChromePaletteRuntime(
         initialPalette: ChromePalette,
-        makeUpdates: @escaping @MainActor () -> AsyncStream<ChromePalette>,
-        refresh: @escaping @MainActor () -> Void
+        makeUpdates: @escaping @MainActor @Sendable () -> AsyncStream<ChromePalette>,
+        refresh: @escaping @MainActor @Sendable () -> Void
     ) {
         chromePalette = initialPalette
         makeChromePaletteUpdates = makeUpdates

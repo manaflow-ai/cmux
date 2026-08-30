@@ -296,10 +296,10 @@ struct cmuxApp: App {
         }
         appDelegate.configureChromePaletteRuntime(
             initialPalette: chromePaletteRuntimeCoordinator.palette,
-            makeUpdates: { @MainActor in
+            makeUpdates: { @MainActor @Sendable in
                 chromePaletteRuntimeCoordinator.makeUpdateStream()
             },
-            refresh: { @MainActor in
+            refresh: { @MainActor @Sendable in
                 chromePaletteRuntimeCoordinator.refresh()
             }
         )

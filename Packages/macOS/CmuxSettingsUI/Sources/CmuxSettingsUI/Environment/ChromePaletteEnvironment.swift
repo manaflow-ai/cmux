@@ -43,7 +43,7 @@ extension View {
     public func chromePaletteHost(
         initialPalette: ChromePalette,
         settingsRuntime: SettingsRuntime?,
-        updates: (@MainActor () -> AsyncStream<ChromePalette>)? = nil
+        updates: (@MainActor @Sendable () -> AsyncStream<ChromePalette>)? = nil
     ) -> some View {
         ChromePaletteHost(initialPalette: initialPalette, updates: updates) { self }
             .environment(\.settingsRuntime, settingsRuntime)
@@ -56,7 +56,7 @@ extension View {
 @MainActor
 public struct ChromePaletteHost<Content: View>: View {
     @State private var palette: ChromePalette
-    private let updates: (@MainActor () -> AsyncStream<ChromePalette>)?
+    private let updates: (@MainActor @Sendable () -> AsyncStream<ChromePalette>)?
     private let content: Content
 
     /// Creates a host seeded with the coordinator's current snapshot.
@@ -68,7 +68,7 @@ public struct ChromePaletteHost<Content: View>: View {
     ///   - content: The view hierarchy that consumes the palette.
     public init(
         initialPalette: ChromePalette,
-        updates: (@MainActor () -> AsyncStream<ChromePalette>)? = nil,
+        updates: (@MainActor @Sendable () -> AsyncStream<ChromePalette>)? = nil,
         @ViewBuilder content: () -> Content
     ) {
         _palette = State(initialValue: initialPalette)

@@ -4,7 +4,7 @@ import CmuxSettings
 /// Keeps an AppKit-owned drop overlay synchronized with the app-wide chrome palette.
 @MainActor
 final class ChromePaletteDropOverlayObservation {
-    typealias UpdateStreamFactory = @MainActor () -> AsyncStream<ChromePalette>
+    typealias UpdateStreamFactory = @MainActor @Sendable () -> AsyncStream<ChromePalette>
 
     private let applyPalette: @MainActor (ChromePalette) -> Void
     private let makeUpdates: UpdateStreamFactory?

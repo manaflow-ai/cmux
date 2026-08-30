@@ -836,9 +836,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Latest immutable palette snapshot supplied by the app composition root.
     var chromePalette = ChromePaletteRuntimeResolver(runtime: nil).resolve()
     /// Factory for independent palette-update streams owned by the composition root.
-    var makeChromePaletteUpdates: (@MainActor () -> AsyncStream<ChromePalette>)?
+    var makeChromePaletteUpdates: (@MainActor @Sendable () -> AsyncStream<ChromePalette>)?
     /// Lifecycle refresh callback supplied by the composition root.
-    var refreshChromePalette: (@MainActor () -> Void)?
+    var refreshChromePalette: (@MainActor @Sendable () -> Void)?
     private var computerUseRuntimeService: ComputerUseRuntimeService?
     weak var fileExplorerState: FileExplorerState?
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
