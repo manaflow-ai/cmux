@@ -886,6 +886,18 @@ impl WorkspaceRegistry {
         query_session_journal_after(&self.connection, sequence, limit)
     }
 
+    /// Read only records belonging to one producer while retaining the
+    /// journal scan watermark. Reducers can skip unrelated high-volume rows
+    /// without losing sequence ordering.
+    pub(crate) fn session_journal_after_subjects(
+        &self,
+        sequence: u64,
+        limit: usize,
+        subjects: &[JournalSubject],
+    ) -> anyhow::Result<SessionJournalSubjectPage> {
+        query_session_journal_after_subjects(&self.connection, sequence, limit, subjects)
+    }
+
     /// Persisted fold position of one journal reducer: (version, cursor,
     /// snapshot). A version mismatch on load discards the snapshot so the
     /// reducer re-folds from the journal head.

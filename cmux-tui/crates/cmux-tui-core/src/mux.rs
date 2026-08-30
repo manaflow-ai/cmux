@@ -5662,98 +5662,88 @@ impl Mux {
         ingress: &crate::JournalIngress,
         commit: &crate::JournalAppendCommit,
     ) {
-        use crate::journal_reducers::{
-            AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, RosterEvent,
-        };
+        use crate::journal_reducers::RosterEvent;
         if ingress.producer_id != crate::agent_hooks::AGENT_HOOK_PRODUCER_ID {
             return;
         }
         // Journal callbacks can complete out of order. Serialize folds and
         // replay the contiguous committed prefix, so a later sequence never
         // advances the cursor past an earlier event that has not been folded.
+        // Apply directly to the in-memory reducer. The journal is the source
+        // of truth, so a checkpoint write may lag safely across a crash and
+        // the next startup replays only the uncheckpointed tail. Cloning the
+        // complete roster for every poll made callback cost grow with the
+        // number of terminals.
         let _fold = self.agent_roster_fold.lock().unwrap();
+        let mut read_cursor = self.agent_roster.lock().unwrap().cursor;
+        if commit.sequence <= read_cursor {
+            return;
+        }
         loop {
-            let (cursor, mut candidate) = {
-                let host = self.agent_roster.lock().unwrap();
-                if commit.sequence <= host.cursor {
-                    return;
-                }
-                (host.cursor, host.roster.clone())
-            };
-            let mut read_cursor = cursor;
-            let mut next_cursor = cursor;
-            let mut deltas = Vec::new();
-            let reached_target = loop {
-                let page = match self
-                    .workspace_registry
-                    .lock()
-                    .unwrap()
-                    .session_journal_after(read_cursor, 512)
-                {
-                    Ok(page) => page,
-                    Err(error) => {
-                        // The durable event remains available for a later fold or
-                        // restart. Leave the cursor unchanged when the read fails.
-                        eprintln!("cmux-tui: reading committed agent events back failed: {error}");
-                        return;
-                    }
-                };
-                if page.records.is_empty() {
-                    break false;
-                }
-
-                for record in page.records {
-                    if record.sequence <= next_cursor {
-                        continue;
-                    }
-                    // Do not consume a record committed after the callback's
-                    // target. A later callback will fold that suffix.
-                    if record.sequence > commit.sequence {
-                        break;
-                    }
-                    deltas.extend(candidate.apply(&RosterEvent::from_record(&record)));
-                    next_cursor = record.sequence;
-                    if next_cursor == commit.sequence {
-                        break;
-                    }
-                }
-                if next_cursor == commit.sequence {
-                    break true;
-                }
-                if next_cursor <= read_cursor {
-                    break false;
-                }
-                read_cursor = next_cursor;
-            };
-            if !reached_target {
-                // The writer acknowledged a commit that the reader cannot see
-                // yet. Keep the cursor unchanged so another callback retries.
-                return;
-            }
-            let snapshot = candidate.snapshot().to_string();
-            if let Err(error) = self.workspace_registry.lock().unwrap().put_journal_reducer_state(
-                AGENT_ROSTER_REDUCER_ID,
-                AGENT_ROSTER_REDUCER_VERSION,
-                next_cursor,
-                &snapshot,
+            let page = match self.workspace_registry.lock().unwrap().session_journal_after_subjects(
+                read_cursor,
+                512,
+                &[crate::JournalSubject {
+                    kind: "producer".into(),
+                    id: crate::agent_hooks::AGENT_HOOK_PRODUCER_ID.into(),
+                }],
             ) {
-                eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
-                return;
-            }
-            {
-                let mut host = self.agent_roster.lock().unwrap();
-                if host.cursor != cursor {
-                    // The fold gate should make this impossible. Preserve a
-                    // newer host state if a future writer violates that rule.
+                Ok(page) => page,
+                Err(error) => {
+                    eprintln!("cmux-tui: reading committed agent events back failed: {error}");
                     return;
                 }
-                host.roster = candidate;
-                host.cursor = next_cursor;
+            };
+            let scanned_through = page.scanned_through.min(commit.sequence);
+            for record in page.records {
+                if record.sequence <= read_cursor {
+                    continue;
+                }
+                if record.sequence > commit.sequence {
+                    return;
+                }
+                let deltas = {
+                    let mut host = self.agent_roster.lock().unwrap();
+                    let deltas = host.roster.apply(&RosterEvent::from_record(&record));
+                    host.cursor = record.sequence;
+                    deltas
+                };
+                for delta in deltas {
+                    self.apply_roster_delta_to_record_cache(delta);
+                }
+                read_cursor = record.sequence;
+                // Checkpoint at a bounded journal interval. The in-memory
+                // reducer advances for every event, while durable snapshots
+                // lag by at most this interval and are rebuilt from the
+                // journal tail after restart.
+                if read_cursor % 64 == 0 {
+                    let (cursor, snapshot) = {
+                        let host = self.agent_roster.lock().unwrap();
+                        (host.cursor, host.roster.snapshot().to_string())
+                    };
+                    if let Err(error) =
+                        self.workspace_registry.lock().unwrap().put_journal_reducer_state(
+                            crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+                            crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+                            cursor,
+                            &snapshot,
+                        )
+                    {
+                        eprintln!(
+                            "cmux-tui: persisting the agent roster checkpoint failed: {error}"
+                        );
+                    }
+                }
+                if read_cursor == commit.sequence {
+                    return;
+                }
             }
-            for delta in deltas {
-                self.apply_roster_delta_to_record_cache(delta);
-            }
-            if commit.sequence <= next_cursor {
+            // The filtered query scanned through this watermark. Advance
+            // over unrelated records, but never beyond the callback target.
+            if scanned_through > read_cursor {
+                read_cursor = scanned_through;
+                self.agent_roster.lock().unwrap().cursor = read_cursor;
+            } else {
                 return;
             }
         }
@@ -9489,6 +9479,13 @@ impl Mux {
         origin: AgentReportOrigin,
         agent_adapter: Option<String>,
     ) -> anyhow::Result<(ResourcePatchCommit, Option<AgentRecord>)> {
+        // Hook state is accepted only through the validated journal ingress.
+        // A direct Hook report has no durable event to replay, so allowing it
+        // would let a restart overwrite the journal-derived projection.
+        anyhow::ensure!(
+            !(source == AgentSource::Hook && origin == AgentReportOrigin::Direct),
+            "direct Hook reports require a validated journal event"
+        );
         // Hook replay already owns this guard to serialize sequence checks and
         // projection commits. Other report sources acquire it before the
         // registry/state locks, so all paths use one lock order.
