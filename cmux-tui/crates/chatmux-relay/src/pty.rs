@@ -2026,12 +2026,21 @@ impl Inner {
     }
 
     fn tunnel_authority_generation_current(&self, context: &FrameContext) -> bool {
-        context.auth_generation.is_none_or(|generation| {
-            // A frame is valid only for the exact published generation. A
-            // future generation has not passed the authority publication
-            // boundary and must fail closed as well as an old generation.
-            generation == self.tunnel_authority_generation.load(Ordering::Acquire)
-        })
+        let current = self.tunnel_authority_generation.load(Ordering::Acquire);
+        match context.transport_kind {
+            TransportKind::Tunnel => {
+                // Managed tunnel frames always carry the generation that was
+                // published to their connection. Missing metadata is an
+                // invalid capability, even while the floor is zero.
+                context.auth_generation == Some(current)
+            }
+            TransportKind::Legacy | TransportKind::Relay => {
+                // Legacy and relay callers predate managed tunnel
+                // generations. They may omit the field, but a supplied
+                // generation still has to match exactly.
+                context.auth_generation.is_none_or(|generation| generation == current)
+            }
+        }
     }
 
     /// cmux-tui path: daemon owns the session; the viewer is disposable.
@@ -4325,7 +4334,8 @@ mod tests {
     #[tokio::test]
     async fn tunnel_authority_without_a_generation_is_rejected_after_revoke() {
         let h = harness(None, None);
-        let mut context = h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-old"));
+        let mut context =
+            h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-old"));
         context.transport_kind = TransportKind::Tunnel;
         context.auth_generation = None;
         h.manager.update_transport_auth(&context);
