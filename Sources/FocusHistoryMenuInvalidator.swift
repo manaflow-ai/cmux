@@ -44,11 +44,31 @@ final class FocusHistoryMenuInvalidator: ObservableObject {
             forName: .dockMenuCapabilitiesDidChange,
             object: nil,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] notification in
             Task { @MainActor in
-                self?.revision &+= 1
+                guard let self,
+                      self.shouldInvalidateForDockNotification(notification) else {
+                    return
+                }
+                self.revision &+= 1
             }
         })
+    }
+
+    /// Dock capability updates from an inactive store cannot affect the
+    /// currently rendered app menu. Key-window transitions and focus-owner
+    /// notifications still invalidate the snapshot when that store becomes
+    /// active, so filtering here avoids rebuilding every command for hidden
+    /// or background Docks.
+    private func shouldInvalidateForDockNotification(_ notification: Notification) -> Bool {
+        guard let dock = notification.object as? DockSplitStore else {
+            // Focus-controller notifications carry the owner rather than the
+            // Dock itself and must always invalidate the active-store lookup.
+            return true
+        }
+        return AppDelegate.shared?.focusedDockStoreForShortcut(
+            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+        ) === dock
     }
 
     deinit {

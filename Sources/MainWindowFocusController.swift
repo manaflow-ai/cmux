@@ -88,6 +88,10 @@ final class MainWindowFocusController {
             guard oldValue.focusedMode != rightSidebarFocusState.focusedMode else {
                 return
             }
+            guard oldValue.focusedMode == .dock
+                || rightSidebarFocusState.focusedMode == .dock else {
+                return
+            }
             // Menu enablement and Dock routing read this state directly. The
             // explicit bridge keeps Commands current for focus transitions
             // that do not change any Dock capability bits.

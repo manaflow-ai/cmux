@@ -132,17 +132,13 @@ extension AppDelegate {
         )
         destinationDock.scheduleDockPortalReconcile(reason: "dock.moveSurfaceIntoDock")
 
-        // The surface was attached into the Dock with focus, so record Dock focus
-        // ownership. Without this, `rightSidebarOwnsInputFocus` stays false and the
-        // focus-exclusivity gate would treat the just-dropped Dock terminal as
-        // inactive (and the main pane would keep focus) even though the drop
-        // requested focus. Resolve the destination Dock's OWN window rather than
-        // the global key window: during a cross-window drag the source window can
-        // still be key, which would publish focus to the wrong window's state.
+        // Reuse the Dock focus transaction so global and workspace-scoped Docks
+        // publish ownership to their respective focus domains.
         let destinationDockWindow = dockReferenceTabManager(for: destinationDock)
             .flatMap { windowId(for: $0) }
             .flatMap { mainWindow(for: $0) }
-        destinationDock.noteKeyboardFocusIntent(
+        destinationDock.focusPanelFromDockInteraction(
+            detached.panelId,
             window: destinationDockWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
         )
 

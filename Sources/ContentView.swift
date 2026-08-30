@@ -9314,7 +9314,9 @@ struct ContentView: View {
                       panelId: target.panelId
                   )
               ),
-              let panel = dock.panels[target.panelId] else {
+              let panel = dock.panels[target.panelId],
+              let tabId = dock.surfaceId(forPanelId: target.panelId),
+              dock.bonsplitController.tab(tabId) != nil else {
             return nil
         }
         return (dock, target.panelId, panel)

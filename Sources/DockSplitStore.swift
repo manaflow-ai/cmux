@@ -1237,28 +1237,28 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         }
         installAttentionRouting(for: panel)
         if let browser = panel as? BrowserPanel {
-            let browserTabState = Publishers.CombineLatest5(
+            let browserTabState = Publishers.CombineLatest4(
                 browser.$pageTitle.removeDuplicates(),
                 browser.$currentURL.removeDuplicates(),
                 browser.$isLoading.removeDuplicates(),
-                browser.$faviconPNGData.removeDuplicates(by: { $0 == $1 }),
-                browser.$searchState.map { $0 != nil }.removeDuplicates()
+                browser.$faviconPNGData.removeDuplicates(by: { $0 == $1 })
             )
             let browserMetadataChanges = browserTabState
                 .combineLatest(browser.$isMuted.removeDuplicates())
-                .map { _ in () }
-            let browserFindCapabilityChanges = NotificationCenter.default.publisher(
-                for: .browserFindCapabilityDidChange,
-                object: browser
-            )
-            .map { _ in () }
+                .map { _ in false }
+            let browserFindCapabilityChanges = browser.$searchState
+                .map { _ in true }
+                .merge(with: NotificationCenter.default.publisher(
+                    for: .browserFindCapabilityDidChange,
+                    object: browser
+                ).map { _ in true })
             let browserWebViewInstanceChanges = browser.$webViewInstanceID
-                .map { _ in () }
+                .map { _ in true }
             let cancellable = browserMetadataChanges
                 .merge(with: browserFindCapabilityChanges)
                 .merge(with: browserWebViewInstanceChanges)
                 .receive(on: DispatchQueue.main)
-                .sink { [weak self, weak browser] _ in
+                .sink { [weak self, weak browser] shouldRefreshCapabilities in
                     guard let self, let browser else { return }
                     self.publishBrowserOpenTabSuggestion(for: browser)
                     guard let tabId = self.surfaceId(forPanelId: browser.id),
@@ -1278,7 +1278,9 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
                     let faviconUpdate: Data?? = existing.iconImageData == favicon ? nil : .some(favicon)
                     let loadingUpdate: Bool? = existing.isLoading == browser.isLoading ? nil : browser.isLoading
                     let mutedUpdate: Bool? = existing.isAudioMuted == browser.isMuted ? nil : browser.isMuted
-                    self.refreshDockMenuCapabilities()
+                    if shouldRefreshCapabilities {
+                        self.refreshDockMenuCapabilities()
+                    }
                     guard titleUpdate != nil || faviconUpdate != nil || loadingUpdate != nil || mutedUpdate != nil else { return }
                     self.bonsplitController.updateTab(
                         tabId,
