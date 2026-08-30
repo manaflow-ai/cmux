@@ -1885,7 +1885,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     private let containerView: NSView
     private let notificationStore: TerminalNotificationStore
     private let settingsRuntime: SettingsRuntime?
-    private let makeChromePaletteUpdates: ChromePaletteDropOverlayObservation.UpdateStreamFactory?
+    private let makeChromePaletteUpdates: (@MainActor @Sendable () -> AsyncStream<ChromePalette>)?
     private let layoutModel: TitlebarControlsLayoutModel
     private lazy var notificationsPopover: NSPopover = makeNotificationsPopover()
     private var pendingSizeUpdate = false
@@ -1906,7 +1906,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         notificationStore: TerminalNotificationStore,
         settingsRuntime: SettingsRuntime?,
         layoutModel: TitlebarControlsLayoutModel,
-        makeChromePaletteUpdates: ChromePaletteDropOverlayObservation.UpdateStreamFactory? = nil
+        makeChromePaletteUpdates: (@MainActor @Sendable () -> AsyncStream<ChromePalette>)? = nil
     ) {
         let containerView = TitlebarAccessoryContainerView()
         self.containerView = containerView
@@ -2702,7 +2702,7 @@ private struct NotificationsPopoverView: View {
 final class UpdateTitlebarAccessoryController {
     private let updateLog: UpdateLogStore
     private let settingsRuntime: SettingsRuntime?
-    private let makeChromePaletteUpdates: ChromePaletteDropOverlayObservation.UpdateStreamFactory?
+    private let makeChromePaletteUpdates: (@MainActor @Sendable () -> AsyncStream<ChromePalette>)?
     private let layoutModel: TitlebarControlsLayoutModel
     private var didStart = false
     private let attachedWindows = NSHashTable<NSWindow>.weakObjects()
@@ -2719,7 +2719,7 @@ final class UpdateTitlebarAccessoryController {
         updateLog: UpdateLogStore,
         settingsRuntime: SettingsRuntime?,
         layoutModel: TitlebarControlsLayoutModel,
-        makeChromePaletteUpdates: ChromePaletteDropOverlayObservation.UpdateStreamFactory? = nil
+        makeChromePaletteUpdates: (@MainActor @Sendable () -> AsyncStream<ChromePalette>)? = nil
     ) {
         self.updateLog = updateLog
         self.settingsRuntime = settingsRuntime

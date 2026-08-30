@@ -152,7 +152,7 @@ struct SettingsWindowHostRoot: View {
     /// it) and guards it against being superseded by a newer targeted show.
     let onContentAppear: @MainActor () -> Void
     let initialPalette: ChromePalette
-    let updates: (@MainActor () -> AsyncStream<ChromePalette>)?
+    let updates: (@MainActor @Sendable () -> AsyncStream<ChromePalette>)?
 
     @AppStorage(AppearanceSettings.appearanceModeKey)
     private var appearanceMode = AppearanceSettings.defaultMode.rawValue
