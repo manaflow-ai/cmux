@@ -23,7 +23,7 @@ final class WorkspaceSwitchCoordinator {
     private var active: WorkspaceSwitchActiveTransaction?
     private var reconciledWorkspaceID: UUID?
     init(
-        signposts: WorkspaceSwitchSignposts = WorkspaceSwitchSignposts(),
+        signposts: WorkspaceSwitchSignposts? = nil,
         notificationCenter: NotificationCenter = .default,
         beginRendererProtection: @escaping @MainActor (UUID, UUID, @escaping () -> Bool) -> Void = { surfaceID, requestID, ownerIsAlive in
             RendererRealizationController.shared.beginWorkspaceSwitchPresentationProtection(
@@ -35,13 +35,13 @@ final class WorkspaceSwitchCoordinator {
         endRendererProtection: @escaping @MainActor (UUID) -> Void = { requestID in
             RendererRealizationController.shared.endWorkspaceSwitchPresentationProtection(requestID: requestID)
         },
-        presentationExpiryScheduler: MainActorDeferredActionScheduler = MainActorDeferredActionScheduler()
+        presentationExpiryScheduler: MainActorDeferredActionScheduler? = nil
     ) {
-        self.signposts = signposts
+        self.signposts = signposts ?? WorkspaceSwitchSignposts()
         self.notificationCenter = notificationCenter
         self.beginRendererProtection = beginRendererProtection
         self.endRendererProtection = endRendererProtection
-        self.presentationExpiryScheduler = presentationExpiryScheduler
+        self.presentationExpiryScheduler = presentationExpiryScheduler ?? MainActorDeferredActionScheduler()
     }
 
     /// The current destination's visual diagnostic state.
