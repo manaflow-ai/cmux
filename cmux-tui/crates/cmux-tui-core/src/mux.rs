@@ -23144,6 +23144,62 @@ mod tests {
     }
 
     #[test]
+    fn socket_reports_do_not_echo_when_hook_owns_roster_entry() {
+        let root = std::env::temp_dir()
+            .join(format!(
+                "cmux-roster-hook-echo-{}",
+                crate::workspace_registry::new_uuid_v4()
+            ));
+        let mux = Mux::open_persistent("roster-hook-echo", SurfaceOptions::default(), &root)
+            .unwrap();
+        let surface = mux.new_workspace(None, None).unwrap();
+
+        mux.report_agent(
+            surface.id,
+            AgentState::Working,
+            AgentSource::Hook,
+            Some("hook".into()),
+        )
+        .unwrap();
+        let socket_echoes = || {
+            mux.session_journal_after(0, 1024)
+                .unwrap()
+                .records
+                .into_iter()
+                .filter(|record| {
+                    record
+                        .payload
+                        .get("adapter")
+                        .and_then(|adapter| adapter.get("id"))
+                        .and_then(Value::as_str)
+                        == Some(crate::journal_reducers::SOCKET_REPORT_ADAPTER)
+                })
+                .count()
+        };
+
+        assert_eq!(socket_echoes(), 0);
+        mux.report_agent(
+            surface.id,
+            AgentState::Working,
+            AgentSource::Socket,
+            Some("poll".into()),
+        )
+        .unwrap();
+        mux.report_agent(
+            surface.id,
+            AgentState::Working,
+            AgentSource::Socket,
+            Some("poll".into()),
+        )
+        .unwrap();
+        assert_eq!(socket_echoes(), 0, "hook-owned reports must not append socket echoes");
+
+        mux.shutdown();
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn unsupported_hook_events_do_not_make_compatibility_projection_authoritative() {
         let root = std::env::temp_dir()
             .join(format!("cmux-roster-unsupported-{}", crate::workspace_registry::new_uuid_v4()));
