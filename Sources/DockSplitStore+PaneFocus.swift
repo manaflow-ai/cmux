@@ -1,20 +1,6 @@
 import AppKit
 import Bonsplit
 
-struct DockMenuCapabilitySnapshot: Equatable, Sendable {
-    let isTerminal: Bool
-    let canUseSelection: Bool
-    let hasFindSession: Bool
-    let canCloseOtherTabs: Bool
-
-    static let empty = Self(
-        isTerminal: false,
-        canUseSelection: false,
-        hasFindSession: false,
-        canCloseOtherTabs: false
-    )
-}
-
 extension DockSplitStore {
     /// Returns the live Dock store that owns `panelId`, if one exists.
     static func liveStore(containingPanel panelId: UUID) -> DockSplitStore? {
@@ -26,10 +12,21 @@ extension DockSplitStore {
         liveStores.first(where: { $0.containsPane(paneId) })
     }
 
-    var focusedPanelId: UUID? {
+    private func focusedDockPanelSelection() -> (
+        paneId: PaneID,
+        tab: Bonsplit.Tab,
+        panelId: UUID,
+        panel: any Panel
+    )? {
         guard let paneId = bonsplitController.focusedPaneId,
-              let tabId = bonsplitController.selectedTab(inPane: paneId)?.id else { return nil }
-        return surfaceIdToPanelId[tabId]
+              let tab = bonsplitController.selectedTab(inPane: paneId),
+              let panelId = surfaceIdToPanelId[tab.id],
+              let panel = panels[panelId] else { return nil }
+        return (paneId, tab, panelId, panel)
+    }
+
+    var focusedPanelId: UUID? {
+        focusedDockPanelSelection()?.panelId
     }
 
     /// Whether a panel id is present in the Dock tree.
@@ -228,10 +225,7 @@ extension DockSplitStore {
     /// panel/tab collections, keeping invalidation scoped to focus/capability
     /// changes rather than every tab metadata update.
     func refreshDockMenuCapabilities() {
-        guard let paneId = bonsplitController.focusedPaneId,
-              let tab = bonsplitController.selectedTab(inPane: paneId),
-              let panelId = surfaceIdToPanelId[tab.id],
-              let panel = panels[panelId] else {
+        guard let selection = focusedDockPanelSelection() else {
             if menuCapabilities != .empty {
                 menuCapabilities = .empty
                 NotificationCenter.default.post(
@@ -241,6 +235,10 @@ extension DockSplitStore {
             }
             return
         }
+        let paneId = selection.paneId
+        let tab = selection.tab
+        let panelId = selection.panelId
+        let panel = selection.panel
         let terminal = panel as? TerminalPanel
         let browser = panel as? BrowserPanel
         let tabs = bonsplitController.tabs(inPane: paneId)
