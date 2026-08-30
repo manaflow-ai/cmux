@@ -1569,7 +1569,30 @@ final class MobileHostService {
         stackStatus: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
     ) async -> MobileHostRPCResult {
         switch authorization {
-        case .stackBearer, .relaySession(_):
+        case .stackBearer:
+            return await stackStatus(request)
+        case let .relaySession(admission):
+            // An admitted relay session is transport-admitted end to end,
+            // exactly like iroh, so it gets the identity-bearing status the
+            // phone needs to bind the route to the authenticated Mac. The
+            // await IS the hold: without it a credential-free status request
+            // overtakes the session's own in-flight admission, is answered
+            // with the identity-free public status, and the phone abandons
+            // the route for missing identity.
+            if await admission.admittedUserID() != nil {
+                let phonePushStatus = await MainActor.run {
+                    (
+                        PhonePushClient.shared.currentAdmission(),
+                        PhonePushClient.shared.queuePersistenceStatus
+                    )
+                }
+                return MobileHostPublicStatusCache.result(
+                    includeIdentity: true,
+                    additionalCapabilities: Set(),
+                    phonePushAdmission: phonePushStatus.0,
+                    phonePushQueuePersistenceStatus: phonePushStatus.1
+                )
+            }
             return await stackStatus(request)
         case .irohAdmission:
             let phonePushStatus = await MainActor.run {
