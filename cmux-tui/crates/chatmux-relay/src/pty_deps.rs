@@ -814,8 +814,8 @@ fn spawn_real_pty(spec: &SpawnSpec, handoff: &SpawnHandoff) -> anyhow::Result<Pt
     let (completion, cancel_reader) =
         ProcessOutputCompletion::with_pty_cancellation(1, Arc::clone(&output))?;
     let spawned = pair.spawn(command)?;
-    let cmux_pty::SpawnedPty { mut master, child } = spawned;
-    let mut child_cleanup = SpawnedChildCleanup::new(child);
+    let cmux_pty::SpawnedPty { master, child } = spawned;
+    let child_cleanup = SpawnedChildCleanup::new(child);
     if handoff.is_cancelled() {
         return Err(anyhow::anyhow!("PTY spawn cancelled"));
     }
