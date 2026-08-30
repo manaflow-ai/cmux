@@ -201,6 +201,79 @@ struct FileExplorerNativeDragOwnershipTests {
         #expect(container.searchResultsView.activeNativeDragSession == nil)
     }
 
+    @Test("A multi-row search drag revokes sibling provisional capabilities")
+    func multiRowSearchDragRevokesSiblingProvisionalCapabilities() throws {
+        let searchController = SearchResultsDragTestSearchController()
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: FileExplorerStore(),
+            state: FileExplorerState(),
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .find,
+            searchController: searchController
+        )
+        searchController.publish(FileSearchSnapshot(
+            query: "needle",
+            results: [
+                FileSearchResult(
+                    path: "/tmp/search-first.txt",
+                    relativePath: "search-first.txt",
+                    lineNumber: 1,
+                    columnNumber: 1,
+                    preview: "needle"
+                ),
+                FileSearchResult(
+                    path: "/tmp/search-second.txt",
+                    relativePath: "search-second.txt",
+                    lineNumber: 2,
+                    columnNumber: 1,
+                    preview: "needle"
+                ),
+            ],
+            status: .matches,
+            isSearching: false
+        ))
+
+        let firstWriter = try #require(
+            container.tableView(container.searchResultsView, pasteboardWriterForRow: 0)
+                as? FilePreviewDragPasteboardWriter
+        )
+        let secondWriter = try #require(
+            container.tableView(container.searchResultsView, pasteboardWriterForRow: 1)
+                as? FilePreviewDragPasteboardWriter
+        )
+        let firstOwnership = try #require(firstWriter.nativeDragOwnership())
+        let secondOwnership = try #require(secondWriter.nativeDragOwnership())
+        let pasteboard = NSPasteboard(
+            name: NSPasteboard.Name("file-explorer-multi-row-\(UUID().uuidString)")
+        )
+        #expect(pasteboard.writeObjects([firstWriter, secondWriter]))
+
+        let session = SearchResultsDragTestSession(sequence: 31, pasteboard: pasteboard)
+        container.tableView(
+            container.searchResultsView,
+            draggingSession: session,
+            willBeginAt: .zero,
+            forRowIndexes: IndexSet(integersIn: 0..<2)
+        )
+
+        // AppKit promotes the last writer requested for this table. Every
+        // sibling registration must be revoked before the native session runs;
+        // otherwise a later token deallocation can clean the wrong generation.
+        #expect(!FilePreviewDragRegistry.shared.contains(id: firstOwnership.dragID))
+        #expect(FilePreviewDragRegistry.shared.contains(id: secondOwnership.dragID))
+
+        container.tableView(
+            container.searchResultsView,
+            draggingSession: session,
+            endedAt: .zero,
+            operation: []
+        )
+        #expect(!FilePreviewDragRegistry.shared.contains(id: secondOwnership.dragID))
+    }
+
     @Test("A pointer boundary reclaims a search drag that lost endedAt")
     func pointerBoundaryReclaimsSearchDragAfterDismantle() throws {
         let searchController = SearchResultsDragTestSearchController()

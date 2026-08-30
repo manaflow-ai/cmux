@@ -77,6 +77,53 @@ struct SidebarWorkspaceDragRegistryNativeLifecycleTests {
         pasteboard.clearContents()
     }
 
+    @Test("A pointer boundary does not reclaim an explicitly excluded source")
+    func pointerBoundaryKeepsExcludedNativeSource() throws {
+        let pasteboard = NSPasteboard(
+            name: NSPasteboard.Name("sidebar-native-exclusion-\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        var startedSource: SidebarWorkspaceDragSessionSource?
+        let registry = SidebarWorkspaceDragRegistry(
+            dragPasteboardProvider: { pasteboard },
+            nativeDragStarter: { _, _, _, source in
+                startedSource = source as? SidebarWorkspaceDragSessionSource
+                return TestDraggingSession(sequence: 1, pasteboard: pasteboard)
+            }
+        )
+        let event = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: NSPoint(x: 10, y: 10),
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1
+        ))
+        let sourceView = NSView(frame: NSRect(x: 0, y: 0, width: 80, height: 24))
+        let session = registry.beginSession(workspaceId: UUID())
+        #expect(registry.beginNativeDragging(
+            sessionId: session.id,
+            pasteboardItem: NSPasteboardItem(),
+            sourceView: sourceView,
+            event: event,
+            draggingFrame: sourceView.bounds,
+            dragImage: NSImage(size: sourceView.bounds.size),
+            capabilityValue: session.pasteboardValue
+        ))
+
+        registry.reclaimSupersededNativeSources(excluding: session.id)
+
+        #expect(startedSource != nil)
+        #expect(registry.currentSessionId == session.id)
+        #expect(pasteboard.string(forType: NSPasteboard.PasteboardType(
+            SidebarWorkspaceDragSession.pasteboardTypeIdentifier
+        )) == session.pasteboardValue)
+        pasteboard.clearContents()
+    }
+
     @MainActor
     private final class TestDraggingSession: NSDraggingSession {
         private let sequenceNumber: Int

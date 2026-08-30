@@ -87,6 +87,45 @@ struct SidebarWorkspaceTableTests {
 
     @Test
     @MainActor
+    func provisionalDismantleReleasesContainerButKeepsSourceTableUntilDecision() async throws {
+        let controller = SidebarWorkspaceTableController()
+        var container: SidebarWorkspaceTableContainerView? = controller.makeContainerView()
+        weak var weakContainer = container
+        let row = makeRowConfiguration()
+        controller.apply(
+            rows: [row],
+            actions: makeTableActions(),
+            workspaceIds: [row.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+
+        var writer: (any NSPasteboardWriting)? = try #require(
+            controller.tableView(container!.tableView, pasteboardWriterForRow: 0)
+        )
+        let sourceTable = try #require(
+            (writer as? SidebarWorkspaceDragPasteboardWriter)?.sourceViewForDrag
+                as? SidebarWorkspaceTableViewImpl
+        )
+
+        controller.dismantleContainerView(container!)
+        container = nil
+
+        // The provisional source needs only its table/delegate callback path;
+        // retaining the whole container graph is unnecessary and unbounded.
+        #expect(weakContainer == nil)
+        #expect(sourceTable.dataSource === controller)
+        #expect(sourceTable.delegate === controller)
+
+        controller.prepareForMouseDown()
+        #expect(sourceTable.dataSource == nil)
+        #expect(sourceTable.delegate == nil)
+        writer = nil
+    }
+
+    @Test
+    @MainActor
     func repeatedProvisionalReconstructionRetainsEveryContainerForTeardown() async throws {
         let controller = SidebarWorkspaceTableController()
         let firstContainer = controller.makeContainerView()
