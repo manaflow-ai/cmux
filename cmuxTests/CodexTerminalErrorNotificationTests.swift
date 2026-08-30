@@ -105,7 +105,7 @@ struct CodexTerminalErrorNotificationTests {
         #expect(
             server.commands.contains { command in
                 command.contains(
-                    "notify_target \(workspaceID) \(surfaceID) Codex|Error|Selected model is at capacity. Please try a different model."
+                    "notify_target_async \(workspaceID) \(surfaceID) Codex|Error|Selected model is at capacity. Please try a different model."
                 )
             },
             "Expected the nested terminal error to notify, saw \(server.commands)"
