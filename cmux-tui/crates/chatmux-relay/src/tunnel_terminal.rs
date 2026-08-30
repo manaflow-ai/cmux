@@ -739,6 +739,9 @@ async fn serve_connection(
         let _ = write_half.shutdown().await;
         return;
     };
+    // Register the typed owner before the reader can dispatch its first
+    // frame. The serve loop removes it at every disconnect boundary.
+    manager.register_transport_kind(&pty_id, TransportKind::Tunnel);
     let connection = Arc::new(Connection {
         pty_id,
         manager: Arc::clone(&manager),

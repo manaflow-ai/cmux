@@ -645,6 +645,9 @@ async fn relay_session(
     let transport_id = crate::pty::random_hex(16)
         .map(|id| format!("relay-{id}"))
         .map_err(|_| RelayError::transient("unable to initialize relay transport identity"))?;
+    // Admit this typed owner before any PTY frame can reach the manager. The
+    // registry entry is removed by the disconnect cleanup below.
+    runtime.pty.register_transport_kind(&transport_id, TransportKind::Relay);
 
     // Ordered PTY frame dispatch on its own task so a slow open (daemon
     // spawn) never stalls heartbeats or other frames.
