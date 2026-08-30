@@ -163,7 +163,34 @@ struct IrxHostActivationPolicyTests {
                 for: failure,
                 failureCount: 0,
                 jitterUnitInterval: 0
-            ) == .retry(delay: 1, retryAfterSeconds: nil)
+        ) == .retry(delay: 1, retryAfterSeconds: nil)
         )
+    }
+
+    @Test("host retries preserve a broker floor beyond the foreground cap")
+    func hostRetryUsesServerFloor() {
+        let failure = IrxBrokerFailure(
+            operation: .discover,
+            error: CmxIrohTrustBrokerClientError.rateLimited(
+                code: "slow_down",
+                retryAfterSeconds: 300
+            )
+        )
+        guard case let .retry(policyDelay, retryAfterSeconds) = policy.decision(
+            for: failure,
+            failureCount: 0,
+            jitterUnitInterval: 0
+        ) else {
+            Issue.record("rate-limited discovery should remain retryable")
+            return
+        }
+        let delay = IrxRelayCredentialPolicy.boundedRetryDelay(
+            expiresAt: nil,
+            now: Date(timeIntervalSince1970: 2_000_000),
+            policyDelay: policyDelay,
+            retryAfterSeconds: retryAfterSeconds
+        )
+        #expect(policyDelay == 8)
+        #expect(delay == 300)
     }
 }

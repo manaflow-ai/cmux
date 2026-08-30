@@ -71,7 +71,13 @@ extension MobileHostIrxRuntime {
                 .reauthenticationRequired.rawValue
             Self.journal.record("host-runtime", "reauthentication-required", attributes)
             await cleanupActivationResources()
-        case let .retry(delay, retryAfterSeconds):
+        case let .retry(policyDelay, retryAfterSeconds):
+            let delay = IrxRelayCredentialPolicy.boundedRetryDelay(
+                expiresAt: nil,
+                now: Date(),
+                policyDelay: policyDelay,
+                retryAfterSeconds: retryAfterSeconds
+            )
             setActivationState(.retrying, failure: failure)
             attributes["delay_s"] = String(Int(delay.rounded()))
             if let retryAfterSeconds {
