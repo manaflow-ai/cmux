@@ -66,6 +66,10 @@ final class FocusHistoryMenuInvalidator: ObservableObject {
             // Dock itself and must always invalidate the active-store lookup.
             return true
         }
+        // Visibility is flipped before the notification is posted. Keep the
+        // hide transition even though the Dock no longer satisfies the active
+        // store predicate, so Commands can fall back to the main workspace.
+        guard dock.isVisibleInUI else { return true }
         return AppDelegate.shared?.focusedDockStoreForShortcut(
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
         ) === dock
