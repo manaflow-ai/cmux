@@ -1106,7 +1106,7 @@ async fn relay_session(
                                     &pending,
                                     &snapshot,
                                     &transport_id,
-                                    &cancellation,
+                                    &connection_cancellation,
                                 );
                                 tokio::select! {
                                     biased;
