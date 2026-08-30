@@ -64,6 +64,19 @@ import UIKit
 }
 
 @MainActor
+@Test func accessoryShortcutScrollerDoesNotDrawSeparateChrome() throws {
+    let input = TerminalInputTextView()
+    let toolbar = input.toolbarView
+    let scrollView = try #require(toolbar.subviews.compactMap { $0 as? UIScrollView }.first)
+    let stackView = try #require(scrollView.subviews.compactMap { $0 as? UIStackView }.first)
+
+    #expect(scrollView.backgroundColor == UIColor.clear)
+    #expect(!scrollView.isOpaque)
+    #expect(stackView.backgroundColor == UIColor.clear)
+    #expect(!stackView.isOpaque)
+}
+
+@MainActor
 @Test func reverseModeOSCResetsUseRawConfigDefaults() async throws {
     let runtime = try GhosttyRuntime.shared()
     let delegate = ThemeTestSurfaceDelegate()

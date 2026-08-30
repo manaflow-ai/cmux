@@ -367,12 +367,21 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
 
         // Scrollable action buttons
         let scrollView = UIScrollView()
+        scrollView.backgroundColor = .clear
+        scrollView.isOpaque = false
         scrollView.showsHorizontalScrollIndicator = false
         scrollView.showsVerticalScrollIndicator = false
         scrollView.alwaysBounceHorizontal = true
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
         let stack = UIStackView()
+        // This stack is structural, not visual. UIStackView inherits UIView's
+        // opaque default even with no background color; when clipped through a
+        // UIScrollView, UIKit can composite that opaque region as a rectangular
+        // fill in light themes. Keep the toolbar's background owned solely by
+        // backgroundView.
+        stack.backgroundColor = .clear
+        stack.isOpaque = false
         stack.axis = .horizontal
         // Tighter inter-button spacing so the keys read as a compact row.
         stack.spacing = 4
@@ -1012,8 +1021,10 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     }
 
     /// Build (or rebuild) a button's configuration for `item` and its current
-    /// armed/sticky state. On iOS 26 the bar uses real Liquid Glass
-    /// (`.glass()` resting, `.prominentGlass()` armed/sticky); earlier OSes keep
+    /// armed/sticky state. On iOS 26 the bar uses clear Liquid Glass. Regular
+    /// glass inside the clipped horizontal scroller composites one shared
+    /// rectangular backdrop behind every button; clear glass keeps each capsule
+    /// distinct over the toolbar's single themed background. Earlier OSes keep
     /// the flat gray/blue fill the bar shipped with. Built-in modifier titles
     /// follow `isMacRemote`; custom actions render their saved title/icon and
     /// never arm.
@@ -1087,7 +1098,9 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         let activeBackground = UIColor.systemBlue
         let activeForeground = activeBackground.terminalReadableForeground
         if #available(iOS 26.0, *) {
-            var config: UIButton.Configuration = (armed || sticky) ? .prominentGlass() : .glass()
+            var config: UIButton.Configuration = (armed || sticky)
+                ? .prominentClearGlass()
+                : .clearGlass()
             config.baseForegroundColor = armed || sticky ? activeForeground : themeChromeColor
             if armed || sticky {
                 config.baseBackgroundColor = activeBackground
