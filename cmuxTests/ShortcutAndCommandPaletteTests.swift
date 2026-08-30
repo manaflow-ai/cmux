@@ -1194,9 +1194,13 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         .switchRightSidebarToDock,
         .switchRightSidebarToSourceControl,
     ]
+    private let feedEnabledKey = RightSidebarBetaFeatureSettings.feedEnabledKey
+    private let dockEnabledKey = RightSidebarBetaFeatureSettings.dockEnabledKey
     private let sourceControlEnabledKey = RightSidebarBetaFeatureSettings.sourceControlEnabledKey
     private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
     private var savedShortcutData: [KeyboardShortcutSettings.Action: Data?] = [:]
+    private var savedFeedEnabled: Any?
+    private var savedDockEnabled: Any?
     private var savedSourceControlEnabled: Any?
     private var temporaryDirectoryURL: URL?
 
@@ -1208,6 +1212,8 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
                 (action, UserDefaults.standard.data(forKey: action.defaultsKey))
             }
         )
+        savedFeedEnabled = UserDefaults.standard.object(forKey: feedEnabledKey)
+        savedDockEnabled = UserDefaults.standard.object(forKey: dockEnabledKey)
         savedSourceControlEnabled = UserDefaults.standard.object(forKey: sourceControlEnabledKey)
 
         let directoryURL = FileManager.default.temporaryDirectory
@@ -1222,6 +1228,8 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         for action in touchedShortcutActions {
             UserDefaults.standard.removeObject(forKey: action.defaultsKey)
         }
+        UserDefaults.standard.set(true, forKey: feedEnabledKey)
+        UserDefaults.standard.set(true, forKey: dockEnabledKey)
         UserDefaults.standard.set(true, forKey: sourceControlEnabledKey)
         KeyboardShortcutSettings.notifySettingsFileDidChange()
     }
@@ -1233,6 +1241,16 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
             } else {
                 UserDefaults.standard.removeObject(forKey: action.defaultsKey)
             }
+        }
+        if let savedFeedEnabled {
+            UserDefaults.standard.set(savedFeedEnabled, forKey: feedEnabledKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: feedEnabledKey)
+        }
+        if let savedDockEnabled {
+            UserDefaults.standard.set(savedDockEnabled, forKey: dockEnabledKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: dockEnabledKey)
         }
         if let savedSourceControlEnabled {
             UserDefaults.standard.set(savedSourceControlEnabled, forKey: sourceControlEnabledKey)

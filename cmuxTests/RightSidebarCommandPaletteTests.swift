@@ -14,6 +14,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             let defaults = UserDefaults.standard
             defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+            defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.sourceControlEnabledKey)
             let contributions = ContentView.commandPaletteRightSidebarModeCommandContributions()
             let contributionsByID = Dictionary(uniqueKeysWithValues: contributions.map { ($0.commandId, $0) })
             let context = CommandPaletteContextSnapshot()
@@ -40,6 +41,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             XCTAssertEqual(contributions.count, 3)
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.feed)])
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.dock)])
+            XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.sourceControl)])
         }
     }
 
@@ -48,6 +50,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             let defaults = UserDefaults.standard
             defaults.set(true, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             defaults.set(true, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+            defaults.set(true, forKey: RightSidebarBetaFeatureSettings.sourceControlEnabledKey)
 
             for mode in RightSidebarMode.allCases {
                 XCTAssertEqual(
@@ -75,9 +78,11 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         let defaults = UserDefaults.standard
         let previousFeed = defaults.object(forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
         let previousDock = defaults.object(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+        let previousSourceControl = defaults.object(forKey: RightSidebarBetaFeatureSettings.sourceControlEnabledKey)
         defer {
             restore(previousFeed, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             restore(previousDock, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+            restore(previousSourceControl, forKey: RightSidebarBetaFeatureSettings.sourceControlEnabledKey)
         }
         try body()
     }
