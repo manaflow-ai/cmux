@@ -126,10 +126,10 @@ extension KeyboardShortcutSettings.Action {
 /// that window's own Dock (`RightSidebarPanelView` renders the per-window store).
 extension AppDelegate {
     /// Returns the coordinator's sidebar mode for shortcut context evaluation.
-    /// Dock ownership is published separately as the `dockFocus` context key so
-    /// this user-visible mode remains a single coordinator-owned value.
+    /// Pending focus requests are excluded so `sidebarMode` and the `dockFocus`
+    /// boolean describe the same delivered ownership state during transitions.
     func focusedSidebarModeForShortcutContext(for window: NSWindow?) -> RightSidebarMode? {
-        keyboardFocusCoordinator(for: window)?.activeRightSidebarMode
+        keyboardFocusCoordinator(for: window)?.focusedRightSidebarMode
     }
 
     /// The existing, visible Dock store that owns keyboard focus in

@@ -9078,7 +9078,7 @@ struct ContentView: View {
                     kind: .terminal,
                     direction: .right,
                     action: .splitRight,
-                    preferredWindow: observedWindow,
+                    preferredWindow: dockOwnerWindow(),
                     preferredDock: dockSurfaceStore,
                     preferredDockPanelId: dockSurfacePanelId
                 ) == true else {
@@ -9119,7 +9119,7 @@ struct ContentView: View {
                     kind: .terminal,
                     direction: .down,
                     action: .splitDown,
-                    preferredWindow: observedWindow,
+                    preferredWindow: dockOwnerWindow(),
                     preferredDock: dockSurfaceStore,
                     preferredDockPanelId: dockSurfacePanelId
                 ) == true else {
@@ -9142,7 +9142,7 @@ struct ContentView: View {
                     kind: .browser,
                     direction: .right,
                     action: .splitBrowserRight,
-                    preferredWindow: observedWindow,
+                    preferredWindow: dockOwnerWindow(),
                     preferredDock: dockSurfaceStore,
                     preferredDockPanelId: dockSurfacePanelId
                 ) == true else {
@@ -9163,7 +9163,7 @@ struct ContentView: View {
                     kind: .browser,
                     direction: .down,
                     action: .splitBrowserDown,
-                    preferredWindow: observedWindow,
+                    preferredWindow: dockOwnerWindow(),
                     preferredDock: dockSurfaceStore,
                     preferredDockPanelId: dockSurfacePanelId
                 ) == true else {
