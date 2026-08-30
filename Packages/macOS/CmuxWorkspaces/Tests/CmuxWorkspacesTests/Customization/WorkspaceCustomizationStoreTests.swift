@@ -133,6 +133,21 @@ func titleRecoveryRecordIncludesMutationFence() throws {
     #expect(record.titleMutationRevision > 0)
 }
 
+    @Test("batch title recovery returns values and fences from one snapshot")
+    func batchTitleRecoveryUsesOneSnapshot() throws {
+        let fixture = try makeFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let stableId = UUID()
+
+        fixture.store.setCustomTitle("Auto title", for: stableId, source: .auto)
+
+        let records = fixture.store.customizationsAndTitleMutationRevisions(for: [stableId])
+        let customization = try #require(records.customizations[stableId])
+        let revision = try #require(records.titleMutationRevisions[stableId])
+        #expect(customization.customTitle == .autoValue("Auto title"))
+        #expect(revision > 0)
+    }
+
     @Test("invalidates a cached snapshot when another store changes the defaults")
     func snapshotCacheInvalidatesAcrossStoreInstances() throws {
         let fixture = try makeFixture()
