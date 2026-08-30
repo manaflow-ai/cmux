@@ -118,6 +118,21 @@ func automaticTitleRecordIsLegacyDecodable() throws {
     #expect(fixture.store.customization(for: stableId)?.customTitle == .autoValue("Auto title"))
 }
 
+@Test("title recovery reads the value and mutation fence from one record")
+func titleRecoveryRecordIncludesMutationFence() throws {
+    let fixture = try makeFixture()
+    defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+
+    let stableId = UUID()
+    fixture.store.setCustomTitle("Auto title", for: stableId, source: .auto)
+
+    let record = try #require(
+        fixture.store.customizationAndTitleMutationRevision(for: stableId)
+    )
+    #expect(record.customization.customTitle == .autoValue("Auto title"))
+    #expect(record.titleMutationRevision > 0)
+}
+
 private enum LegacyWorkspaceCustomizationField: Codable, Equatable {
     case absent
     case value(String)
