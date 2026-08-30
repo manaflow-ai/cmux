@@ -84,6 +84,9 @@ extension ShortcutListModel {
                 if let rebasedSnapshot {
                     await restoreRebasedChordBindings(rebasedSnapshot)
                 }
+                if let rebasingGeneration {
+                    await reconcilePendingBindingsIfCurrent(generation: rebasingGeneration)
+                }
                 return
             }
             try await jsonStore.set(normalized, for: catalog.shortcuts.prefix)
@@ -93,6 +96,9 @@ extension ShortcutListModel {
             guard prefixWriteGeneration == generation else {
                 if let rebasedSnapshot {
                     await restoreRebasedChordBindings(rebasedSnapshot)
+                }
+                if let rebasingGeneration {
+                    await reconcilePendingBindingsIfCurrent(generation: rebasingGeneration)
                 }
                 return
             }
@@ -104,6 +110,9 @@ extension ShortcutListModel {
         } catch {
             if case PrefixRebaseError.chordConflict = error {
                 guard prefixWriteGeneration == generation else { return }
+                if let rebasingGeneration {
+                    await reconcilePendingBindingsIfCurrent(generation: rebasingGeneration)
+                }
                 prefix = previous
                 prefixRejection = .chordConflict
                 return
@@ -111,6 +120,9 @@ extension ShortcutListModel {
             guard prefixWriteGeneration == generation else {
                 if let rebasedSnapshot {
                     await restoreRebasedChordBindings(rebasedSnapshot)
+                }
+                if let rebasingGeneration {
+                    await reconcilePendingBindingsIfCurrent(generation: rebasingGeneration)
                 }
                 return
             }
@@ -156,6 +168,25 @@ extension ShortcutListModel {
         }
     }
 
+    /// Reconciles the optimistic binding snapshot when no newer binding write
+    /// superseded the rebasing request. A newer generation owns the pending
+    /// projection and must be left untouched for its own reconciliation pass.
+    private func reconcilePendingBindingsIfCurrent(generation: Int) async {
+        guard pendingWriteGeneration == generation else { return }
+        let committed = await jsonStore.value(for: catalog.shortcuts.bindingSnapshot)
+        let changedActionIds = Set(bindings.keys)
+            .union(committed.bindings.keys)
+            .filter { bindings[$0] != committed.bindings[$0] }
+        bindings = committed.bindings
+        managedBindingActionIDs = committed.managedActionIDs
+        pendingBindings = nil
+        pruneRestoreShortcuts()
+        pruneConflictRejections()
+        pruneNumberedDigitRejections(
+            changedActionIds: Set(changedActionIds)
+        )
+    }
+
     /// Rewrites the first stroke of every persisted chord as part of the same
     /// serialized operation that persists the shared prefix. This keeps an
     /// existing chord reachable even when prefix edits overlap.
@@ -183,7 +214,10 @@ extension ShortcutListModel {
         let migratedLegacyActionIDs = legacyChordActionIDs.filter {
             rebased[$0] != current[$0]
         }
-        guard prefixWriteGeneration == prefixGeneration else { return nil }
+        guard prefixWriteGeneration == prefixGeneration else {
+            await reconcilePendingBindingsIfCurrent(generation: generation)
+            return nil
+        }
         guard rebased != current else {
             // A prefix request still advances the binding generation so it
             // orders behind any already-issued binding write. If that write
@@ -252,6 +286,7 @@ extension ShortcutListModel {
                         rebasedSnapshot,
                         actionIDs: appliedActionIDs
                     )
+                    await reconcilePendingBindingsIfCurrent(generation: generation)
                     return nil
                 }
                 let key = JSONKey<StoredShortcut>(
@@ -266,6 +301,7 @@ extension ShortcutListModel {
                     rebasedSnapshot,
                     actionIDs: appliedActionIDs
                 )
+                await reconcilePendingBindingsIfCurrent(generation: generation)
                 return nil
             }
             guard pendingWriteGeneration == generation else { return rebasedSnapshot }

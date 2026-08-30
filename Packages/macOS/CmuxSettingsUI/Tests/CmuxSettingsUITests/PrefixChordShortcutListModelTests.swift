@@ -7,19 +7,21 @@ import CmuxSettings
 @MainActor
 @Suite struct PrefixChordShortcutListModelTests {
 
-    private func makeStore() -> (JSONConfigStore, SettingCatalog, SettingsErrorLog) {
+    private func makeStore() -> (JSONConfigStore, SettingCatalog, SettingsErrorLog, URL) {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("prefix-chord-list-model-tests-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         return (
             JSONConfigStore(fileURL: tempDir.appendingPathComponent("cmux.json")),
             SettingCatalog(),
-            SettingsErrorLog()
+            SettingsErrorLog(),
+            tempDir
         )
     }
 
     @Test func prefixIsDisabledByDefaultAndCanBePersisted() async throws {
-        let (store, catalog, errorLog) = makeStore()
+        let (store, catalog, errorLog, tempDir) = makeStore()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
         let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
         model.startObserving()
 
@@ -36,7 +38,8 @@ import CmuxSettings
     }
 
     @Test func chordAssignmentUsesConfiguredPrefix() async throws {
-        let (store, catalog, errorLog) = makeStore()
+        let (store, catalog, errorLog, tempDir) = makeStore()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
         let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
         model.startObserving()
         await model.assignPrefix(ShortcutStroke(key: "b", control: true))
@@ -58,7 +61,8 @@ import CmuxSettings
     }
 
     @Test func changingPrefixRebasesPersistedChords() async throws {
-        let (store, catalog, errorLog) = makeStore()
+        let (store, catalog, errorLog, tempDir) = makeStore()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
         let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
         model.startObserving()
         let firstPrefix = ShortcutStroke(key: "b", control: true)
@@ -81,7 +85,8 @@ import CmuxSettings
     }
 
     @Test func changingPrefixRejectsCollidingPersistedChords() async throws {
-        let (store, catalog, errorLog) = makeStore()
+        let (store, catalog, errorLog, tempDir) = makeStore()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
         let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
         model.startObserving()
         let firstLeader = ShortcutStroke(key: "b", control: true)
@@ -114,7 +119,8 @@ import CmuxSettings
     }
 
     @Test func overlappingPrefixWritesLeaveTheNewestValuePersisted() async throws {
-        let (store, catalog, errorLog) = makeStore()
+        let (store, catalog, errorLog, tempDir) = makeStore()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
         let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
         model.startObserving()
         let initialPrefix = ShortcutStroke(key: "a", control: true)
@@ -144,7 +150,8 @@ import CmuxSettings
     @Test func malformedChordWithoutSuffixIsRejectedNotWritten() async throws {
         // A recorder teardown must not silently downgrade a requested chord to
         // a single-stroke binding at the persistence boundary.
-        let (store, catalog, errorLog) = makeStore()
+        let (store, catalog, errorLog, tempDir) = makeStore()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
         let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
         model.startObserving()
         await model.assignPrefix(ShortcutStroke(key: "b", control: true))
@@ -162,7 +169,8 @@ import CmuxSettings
     @Test func configuredSpacePrefixAllowsChordForModifierOnlyAction() async throws {
         // Space is a valid shared leader even though ordinary app actions reject
         // bare single-stroke bindings.
-        let (store, catalog, errorLog) = makeStore()
+        let (store, catalog, errorLog, tempDir) = makeStore()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
         let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
         model.startObserving()
         await model.assignPrefix(ShortcutStroke(key: "space"))

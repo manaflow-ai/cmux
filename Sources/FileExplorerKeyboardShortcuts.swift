@@ -85,7 +85,7 @@ extension NSEvent {
         if AppDelegate.shared?.shouldBypassPrefixChordPassThrough(self) == true {
             return false
         }
-        KeyboardShortcutSettings.Action.fileExplorerOpenSelectionActions.contains { action in
+        return KeyboardShortcutSettings.Action.fileExplorerOpenSelectionActions.contains { action in
             let matches = AppDelegate.shared?.matchConfiguredShortcut(event: self, action: action)
                 ?? KeyboardShortcutSettings.shortcut(for: action).matches(event: self)
             return matches && KeyboardShortcutSettings.effectiveWhenClause(for: action).evaluate(context)

@@ -28,9 +28,15 @@ extension AppDelegate {
     /// Returns whether this event was explicitly marked as an unmatched
     /// prefix suffix. All secondary shortcut surfaces use this seam before
     /// attempting their own legacy matching so a mismatch remains literal.
-    func shouldBypassPrefixChordPassThrough(_ event: NSEvent) -> Bool {
+    func shouldBypassPrefixChordPassThrough(
+        _ event: NSEvent,
+        fallbackWindow: NSWindow? = nil
+    ) -> Bool {
         guard prefixChordPassThroughCoordinator.hasMarkers else { return false }
-        let windowNumber = prefixChordWindowNumber(for: event)
+        let windowNumber = prefixChordWindowNumber(
+            for: event,
+            fallbackWindow: fallbackWindow
+        )
         return prefixChordPassThroughCoordinator.shouldBypass(
             event,
             windowNumber: windowNumber
@@ -61,7 +67,10 @@ extension AppDelegate {
         // must still prevent a later cmux matcher from stealing the byte.
         let hasPassThroughMarker = event.type == .keyDown
             && prefixChordPassThroughCoordinator.hasMarkers
-            && shouldBypassPrefixChordPassThrough(event)
+            && shouldBypassPrefixChordPassThrough(
+                event,
+                fallbackWindow: dispatchWindow
+            )
         guard shortcutPrefixChordCoordinator.isEnabled else {
             return hasPassThroughMarker ? false : nil
         }

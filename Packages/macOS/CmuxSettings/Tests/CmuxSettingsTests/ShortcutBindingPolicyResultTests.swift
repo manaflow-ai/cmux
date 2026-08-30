@@ -25,7 +25,7 @@ import Testing
         )
     }
 
-    @Test func validSpacePrefixIsAcceptedForChordEvenWhenBareSinglesAreRejected() {
+    @Test func spaceIsAcceptedAsChordLeaderAndBareStrokeWhileOtherBareStrokesAreRejected() {
         let spacePrefixedChord = StoredShortcut(
             first: ShortcutStroke(key: "space"),
             second: ShortcutStroke(key: "n")

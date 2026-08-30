@@ -55,8 +55,11 @@ extension ShortcutListModel {
     /// override is used only for the current Settings session.
     func chordsEnabled(for action: ShortcutAction) -> Bool {
         guard action.allowsChordShortcut else { return false }
-        if let override = chordModeOverrides[action.rawValue] {
-            return override
+        // The override dictionary is intentionally ignored by Observation, so
+        // read the observed action set whenever a temporary override exists.
+        // This keeps the row in sync when `toggleChordMode` mutates the mode.
+        if chordModeOverrides[action.rawValue] != nil {
+            return chordModeActions.contains(action.rawValue)
         }
         return effective(for: action)?.hasChord == true
     }
