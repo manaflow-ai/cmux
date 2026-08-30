@@ -188,8 +188,9 @@ extension AppDelegate {
     }
 
     /// Read-only Dock ownership value for the per-event shortcut context. It
-    /// reports only an existing, visible Dock that the coordinator owns, so the
-    /// context and command/menu gates cannot disagree while SwiftUI mounts it.
+    /// reports only an existing, visible Dock owned by either the delivered
+    /// coordinator state or its structured responder fallback, so context and
+    /// command/menu gates agree during SwiftUI remounts.
     func dockFocusForShortcutContext(preferredWindow: NSWindow?) -> Bool {
         guard let context = preferredRegisteredMainWindowContext(
             preferredWindow: preferredWindow
@@ -207,10 +208,39 @@ extension AppDelegate {
         guard let dock = existingWindowDock(forWindowId: context.windowId),
               !dock.isRetired,
               dock.isVisibleInUI,
-              context.keyboardFocusCoordinator.focusedRightSidebarMode == .dock else {
+              context.keyboardFocusCoordinator.resolvedRightSidebarModeForShortcut(
+                  in: context.window
+              ) == .dock,
+              context.keyboardFocusCoordinator.focusedRightSidebarMode == .dock
+                  || dockResponderOwnsFocus(dock, in: context.window) else {
             return nil
         }
         return dock
+    }
+
+    /// Confirms that a registry-resolved Dock responder is live, rather than a
+    /// pending sidebar-mode request whose previous responder is still active.
+    private func dockResponderOwnsFocus(
+        _ dock: DockSplitStore,
+        in window: NSWindow?
+    ) -> Bool {
+        guard let window, let responder = window.firstResponder else {
+            return false
+        }
+        if let ghosttyView = responder.cmuxStrictOwningGhosttyView(),
+           let panelId = ghosttyView.terminalSurface?.id {
+            return dock.containsPanel(panelId)
+                && dock.panelIsSelectedInVisibleDockPane(panelId)
+        }
+        if let browser = dock.browserPanel(owning: responder, in: window) {
+            return dock.panelIsSelectedInVisibleDockPane(browser.id)
+        }
+        if let panelId = dock.focusedPanelId,
+           let panel = dock.panels[panelId],
+           panel.ownedFocusIntent(for: responder, in: window) != nil {
+            return true
+        }
+        return false
     }
 
     func focusedDockStoreForShortcut(
@@ -274,16 +304,19 @@ extension AppDelegate {
     func routeSplitToFocusedDock(
         kind: DockSurfaceKind,
         direction: SplitDirection,
-        action: KeyboardShortcutSettings.Action,
+        action: KeyboardShortcutSettings.Action? = nil,
         preferredWindow: NSWindow?,
         preferredDock: DockSplitStore? = nil,
         preferredDockPanelId: UUID? = nil
     ) -> Bool {
-        // Keep the exhaustive action classification as the authorization
-        // source of truth, while the actual focus predicate remains
-        // direction-agnostic for menu-generated left/up splits.
-        guard case .dockScoped = action.dockShortcutRoutingDisposition else {
-            return false
+        // Configured shortcut callers provide an action so the exhaustive
+        // disposition switch remains the authorization source of truth. Menu
+        // and palette callers may use the direction-agnostic surface command
+        // path without borrowing an unrelated left/right shortcut identity.
+        if let action {
+            guard case .dockScoped = action.dockShortcutRoutingDisposition else {
+                return false
+            }
         }
         if kind == .browser, !BrowserAvailabilitySettings.isEnabled() {
             return false
@@ -357,6 +390,9 @@ extension AppDelegate {
             || store.focusHistoryIncludesPanesAndTabs else {
             return false
         }
+        guard !command.requiresTerminalSurface || store.focusedDockPanelIsTerminal else {
+            return false
+        }
         performDockCommand(command, in: store)
         return true
     }
@@ -381,6 +417,9 @@ extension AppDelegate {
         }
         guard !command.isFocusHistoryNavigation
             || store.focusHistoryIncludesPanesAndTabs else {
+            return false
+        }
+        guard !command.requiresTerminalSurface || store.focusedDockPanelIsTerminal else {
             return false
         }
         performDockCommand(command, in: store)

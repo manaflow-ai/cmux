@@ -46,6 +46,23 @@ enum DockShortcutCommand {
             false
         }
     }
+
+    /// Whether the command requires a focused terminal surface rather than
+    /// any other Dock panel kind.
+    var requiresTerminalSurface: Bool {
+        switch self {
+        case .toggleTerminalCopyMode,
+             .toggleTerminalTextBox,
+             .focusTextBoxInput,
+             .attachTextBoxFile,
+             .sendCtrlFToTerminal,
+             .clearScreenKeepScrollback,
+             .useSelectionForFind:
+            true
+        default:
+            false
+        }
+    }
 }
 
 extension DockSplitStore {
@@ -204,6 +221,10 @@ extension DockSplitStore {
     private var focusedDockBrowserPanel: BrowserPanel? {
         guard let focusedPanelId else { return nil }
         return panels[focusedPanelId] as? BrowserPanel
+    }
+
+    var focusedDockPanelIsTerminal: Bool {
+        focusedDockTerminalPanel != nil
     }
 
     private func promptRenameFocusedDockSurface(

@@ -1359,13 +1359,12 @@ struct cmuxApp: App {
     }
 
     private func performSplitFromMenu(direction: SplitDirection) {
-        let action: KeyboardShortcutSettings.Action = switch direction {
+        let action: KeyboardShortcutSettings.Action? = switch direction {
         case .right: .splitRight
         case .down: .splitDown
-        // Left/up have no separate configurable action. The Dock resolver uses
-        // the direction-agnostic surface-command gate; this value only keeps
-        // the existing call shape for keyboard-bound right/down actions.
-        case .left, .up: .splitRight
+        // Left/up have no separate configurable action; use the
+        // direction-agnostic surface-command gate.
+        case .left, .up: nil
         }
         if appDelegate.routeSplitToFocusedDock(
             kind: .terminal,
@@ -1382,13 +1381,12 @@ struct cmuxApp: App {
     }
 
     private func performBrowserSplitFromMenu(direction: SplitDirection) {
-        let action: KeyboardShortcutSettings.Action = switch direction {
+        let action: KeyboardShortcutSettings.Action? = switch direction {
         case .right: .splitBrowserRight
         case .down: .splitBrowserDown
-        // Left/up have no separate configurable action. The Dock resolver uses
-        // the direction-agnostic surface-command gate; this value only keeps
-        // the existing call shape for keyboard-bound right/down actions.
-        case .left, .up: .splitBrowserRight
+        // Left/up have no separate configurable action; use the
+        // direction-agnostic surface-command gate.
+        case .left, .up: nil
         }
         if appDelegate.routeSplitToFocusedDock(
             kind: .browser,

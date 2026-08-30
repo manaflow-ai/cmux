@@ -4802,7 +4802,7 @@ struct ContentView: View {
         switch target.kind {
         case .workspace:
             return String(localized: "commandPalette.rename.workspaceInputHint", defaultValue: "Enter a workspace name. Press Enter to rename, Escape to cancel.")
-        case .tab:
+        case .tab, .dockTab:
             return String(localized: "commandPalette.rename.tabInputHint", defaultValue: "Enter a tab name. Press Enter to rename, Escape to cancel.")
         case .workspaceGroup:
             return String(localized: "commandPalette.rename.workspaceGroupInputHint", defaultValue: "Enter a group name. Press Enter to rename, Escape to cancel.")
@@ -4813,7 +4813,7 @@ struct ContentView: View {
         switch target.kind {
         case .workspace:
             return String(localized: "commandPalette.rename.workspaceConfirmHint", defaultValue: "Press Enter to apply this workspace name, or Escape to cancel.")
-        case .tab:
+        case .tab, .dockTab:
             return String(localized: "commandPalette.rename.tabConfirmHint", defaultValue: "Press Enter to apply this tab name, or Escape to cancel.")
         case .workspaceGroup:
             return String(localized: "commandPalette.rename.workspaceGroupConfirmHint", defaultValue: "Press Enter to apply this group name, or Escape to cancel.")
@@ -10489,8 +10489,8 @@ struct ContentView: View {
         if let dockSurface = commandPaletteDockSurfaceTarget() {
             startRenameFlow(
                 CommandPaletteRenameTarget(
-                    kind: .tab(
-                        workspaceId: dockSurface.dock.workspaceId,
+                    kind: .dockTab(
+                        ownerId: dockSurface.dock.workspaceId,
                         panelId: dockSurface.panelId
                     ),
                     currentName: dockSurface.tab.title
@@ -10510,8 +10510,8 @@ struct ContentView: View {
             }
             startRenameFlow(
                 CommandPaletteRenameTarget(
-                    kind: .tab(
-                        workspaceId: dock.workspaceId,
+                    kind: .dockTab(
+                        ownerId: dock.workspaceId,
                         panelId: browserTarget.panelId
                     ),
                     currentName: tab.title
@@ -10580,38 +10580,28 @@ struct ContentView: View {
         switch target.kind {
         case .workspace(let workspaceId):
             tabManager.setCustomTitle(tabId: workspaceId, title: normalizedName)
-        case .tab(let workspaceId, let panelId):
-            if let dockSurface = commandPaletteDockSurfaceTarget(),
-               dockSurface.panelId == panelId {
-                guard dockSurface.dock.setDockPanelCustomTitle(
-                    panelId: panelId,
-                    title: normalizedName
-                ) else {
-                    NSSound.beep()
-                    return
-                }
-            } else {
-                // A captured Dock target that disappeared while the rename
-                // field was open must not fall through to a same-ID workspace
-                // lookup (window Docks use the window id as workspaceId).
-                switch commandPaletteRestoreFocusTarget?.host {
-                case .workspaceDock?, .windowDock?:
-                    NSSound.beep()
-                    return
-                default:
-                    break
-                }
-                guard let workspace = tabManager.tabs.first(where: {
-                    $0.id == workspaceId
-                }) else {
-                    NSSound.beep()
-                    return
-                }
-                workspace.setPanelCustomTitle(
-                    panelId: panelId,
-                    title: normalizedName
-                )
+        case .dockTab(let ownerId, let panelId):
+            guard let dockSurface = commandPaletteDockSurfaceTarget(),
+                  dockSurface.dock.workspaceId == ownerId,
+                  dockSurface.panelId == panelId,
+                  dockSurface.dock.setDockPanelCustomTitle(
+                      panelId: panelId,
+                      title: normalizedName
+                  ) else {
+                NSSound.beep()
+                return
             }
+        case .tab(let workspaceId, let panelId):
+            guard let workspace = tabManager.tabs.first(where: {
+                $0.id == workspaceId
+            }) else {
+                NSSound.beep()
+                return
+            }
+            workspace.setPanelCustomTitle(
+                panelId: panelId,
+                title: normalizedName
+            )
         case .workspaceGroup(let groupId):
             // A group must keep a name: an empty field is rejected in place so
             // the user can correct it, unlike workspace/tab renames where empty

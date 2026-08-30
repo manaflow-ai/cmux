@@ -9,6 +9,8 @@ public struct CommandPaletteRenameTarget: Equatable {
         case workspace(workspaceId: UUID)
         /// Rename the tab `panelId` inside workspace `workspaceId`.
         case tab(workspaceId: UUID, panelId: UUID)
+        /// Rename the tab `panelId` inside a captured Dock owner.
+        case dockTab(ownerId: UUID, panelId: UUID)
         /// Rename the workspace group with this id. Reached when the focused
         /// workspace is a group's anchor: that row renders the group name, so
         /// the group is what the user is asking to rename.
@@ -62,6 +64,8 @@ public struct CommandPaletteRenameTarget: Equatable {
             return String(localized: "commandPalette.rename.workspaceTitle", defaultValue: "Rename Workspace", bundle: .main)
         case .tab:
             return String(localized: "commandPalette.rename.tabTitle", defaultValue: "Rename Tab", bundle: .main)
+        case .dockTab:
+            return String(localized: "commandPalette.rename.tabTitle", defaultValue: "Rename Tab", bundle: .main)
         case .workspaceGroup:
             return String(localized: "workspaceGroup.rename.title", defaultValue: "Rename Group", bundle: .main)
         }
@@ -74,6 +78,8 @@ public struct CommandPaletteRenameTarget: Equatable {
             return String(localized: "commandPalette.rename.workspaceDescription", defaultValue: "Choose a custom workspace name.", bundle: .main)
         case .tab:
             return String(localized: "commandPalette.rename.tabDescription", defaultValue: "Choose a custom tab name.", bundle: .main)
+        case .dockTab:
+            return String(localized: "commandPalette.rename.tabDescription", defaultValue: "Choose a custom tab name.", bundle: .main)
         case .workspaceGroup:
             return String(localized: "workspaceGroup.rename.message", defaultValue: "Enter a new name for this group.", bundle: .main)
         }
@@ -85,6 +91,8 @@ public struct CommandPaletteRenameTarget: Equatable {
         case .workspace:
             return String(localized: "commandPalette.rename.workspacePlaceholder", defaultValue: "Workspace name", bundle: .main)
         case .tab:
+            return String(localized: "commandPalette.rename.tabPlaceholder", defaultValue: "Tab name", bundle: .main)
+        case .dockTab:
             return String(localized: "commandPalette.rename.tabPlaceholder", defaultValue: "Tab name", bundle: .main)
         case .workspaceGroup:
             return String(localized: "workspaceGroup.rename.placeholder", defaultValue: "Group name", bundle: .main)
