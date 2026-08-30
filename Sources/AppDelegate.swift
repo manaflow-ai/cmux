@@ -9930,6 +9930,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let root = ContentView(
             updateViewModel: updateViewModel,
             windowId: windowId,
+            initialSidebarWidth: CGFloat(sidebarWidth),
             titlebarControlsLayoutModel: titlebarControlsLayoutModel
         )
             .environmentObject(tabManager)
