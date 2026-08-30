@@ -612,6 +612,7 @@ extension DockSplitStore {
             }
         }
         scheduleDockPortalReconcile(reason: reconcileReason)
+        refreshDockMenuCapabilities()
     }
 
     /// Returns the Bonsplit tab kind for a transferred Dock panel.

@@ -224,14 +224,20 @@ extension DockSplitStore {
         panelIsSelectedInVisibleDockPane(panelId) && focusedPanelId == panelId
     }
 
-    /// Computes the bounded capabilities consumed by the app-level Commands
+    /// Refreshes the bounded capabilities consumed by the app-level Commands
     /// body from the same focused pane/tab identity used by Dock commands.
-    func currentDockMenuCapabilities() -> DockMenuCapabilitySnapshot {
-        // Register the native selection/search pulse as an observation
-        // dependency even though the value itself is derived below.
-        _ = menuCapabilitiesRevision
+    func refreshDockMenuCapabilities() {
+        let next: DockMenuCapabilitySnapshot
         guard let selection = focusedDockPanelSelection() else {
-            return .empty
+            next = .empty
+            if next != menuCapabilities {
+                menuCapabilities = next
+                NotificationCenter.default.post(
+                    name: .dockMenuCapabilitiesDidChange,
+                    object: self
+                )
+            }
+            return
         }
         let paneId = selection.paneId
         let tab = selection.tab
@@ -240,7 +246,7 @@ extension DockSplitStore {
         let terminal = panel as? TerminalPanel
         let browser = panel as? BrowserPanel
         let tabs = bonsplitController.tabs(inPane: paneId)
-        return DockMenuCapabilitySnapshot(
+        next = DockMenuCapabilitySnapshot(
             isTerminal: terminal != nil,
             canUseSelection: terminal?.hasSelection() == true,
             hasFindSession: terminal?.searchState != nil
@@ -249,16 +255,16 @@ extension DockSplitStore {
                 $0.id != tab.id && !$0.isPinned
             }
         )
-    }
-
-    /// Invalidates the observable pulse used by native selection/search
-    /// callbacks; the capability value itself is recomputed from live state.
-    func invalidateDockMenuCapabilities() {
-        menuCapabilitiesRevision &+= 1
+        guard next != menuCapabilities else { return }
+        menuCapabilities = next
         NotificationCenter.default.post(
             name: .dockMenuCapabilitiesDidChange,
             object: self
         )
+    }
+    /// Recomputes capabilities after native selection/search callbacks.
+    func invalidateDockMenuCapabilities() {
+        refreshDockMenuCapabilities()
     }
 
     @discardableResult
@@ -301,7 +307,7 @@ extension DockSplitStore {
         guard let paneId = bonsplitController.focusedPaneId,
               let tabId = bonsplitController.selectedTab(inPane: paneId)?.id else {
             // A focused empty pane still changes the menu target.
-            invalidateDockMenuCapabilities()
+            refreshDockMenuCapabilities()
             applyVisibilityToAllPanels()
             scheduleDockPortalReconcile(reason: "dock.selection.empty")
             return
@@ -311,7 +317,7 @@ extension DockSplitStore {
     }
 
     func applyDockSelection(tabId: TabID, inPane pane: PaneID) {
-        defer { invalidateDockMenuCapabilities() }
+        defer { refreshDockMenuCapabilities() }
         applyVisibilityToAllPanels()
         guard paneIsRenderedInVisibleDock(pane),
               bonsplitController.focusedPaneId == pane,
@@ -367,7 +373,7 @@ extension DockSplitStore {
         guard let tab = controller.selectedTab(inPane: pane) else {
             // Pane focus can legitimately land on an empty pane while a split
             // is being assembled. Keep menu validation in sync with that state.
-            invalidateDockMenuCapabilities()
+            refreshDockMenuCapabilities()
             applyVisibilityToAllPanels()
             return
         }
@@ -490,5 +496,4 @@ extension DockSplitStore {
             }
         }
     }
-
 }

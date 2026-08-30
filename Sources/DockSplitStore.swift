@@ -58,15 +58,10 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     private(set) var errorMessage: String?
     private(set) var trustRequest: DockTrustRequest?
     private(set) var isVisibleInUI: Bool = false
-    /// Observation pulse for native selection/search state that is not itself
-    /// modeled by `@Observable` properties. The capability snapshot is
-    /// computed from the current Dock tree on every read, so this value never
-    /// stores a second copy of menu state.
-    var menuCapabilitiesRevision: UInt64 = 0
-    /// The current capabilities for the focused Dock panel.
-    var menuCapabilities: DockMenuCapabilitySnapshot {
-        currentDockMenuCapabilities()
-    }
+    /// Bounded capability snapshot consumed by the app-level Commands body.
+    /// Mutate it only through `refreshDockMenuCapabilities()` so menu reads do
+    /// not observe the Dock's full tab/panel collections.
+    internal(set) var menuCapabilities = DockMenuCapabilitySnapshot.empty
     @ObservationIgnored private(set) var isRetired = false
     /// Host views currently showing this Dock. Normally at most one (the owning
     /// window's right sidebar), but SwiftUI remounts can briefly overlap an old
@@ -734,6 +729,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         } else {
             restoreDockPaneSelection(previousFocus)
         }
+        refreshDockMenuCapabilities()
         return panel.id
     }
 
@@ -820,6 +816,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             } else {
                 restoreDockPaneSelection(previousFocus)
             }
+            refreshDockMenuCapabilities()
             return panel.id
         }
 
@@ -859,12 +856,29 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         } else {
             restoreDockPaneSelection(previousFocus)
         }
+        refreshDockMenuCapabilities()
         return panel.id
     }
 
     func recordExplicitPanelCreation() {
         hasAppliedConfigurationSeed = true
         if configurationLoadTask != nil { configurationSeedSuppressionGeneration = configurationLoadGeneration }
+    }
+
+    func splitTabBar(
+        _ controller: BonsplitController,
+        didCreateTab tab: Bonsplit.Tab,
+        inPane pane: PaneID
+    ) {
+        refreshDockMenuCapabilities()
+    }
+
+    func splitTabBar(
+        _ controller: BonsplitController,
+        didReorderTabsInPane pane: PaneID,
+        orderedTabIds: [TabID]
+    ) {
+        refreshDockMenuCapabilities()
     }
 
     /// Reconciles a user tab/pane selection after Bonsplit has delivered it.

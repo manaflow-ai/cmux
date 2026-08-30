@@ -356,6 +356,7 @@ extension DockSplitStore {
         for (index, tab) in ordered.enumerated() {
             _ = bonsplitController.reorderTab(tab.id, toIndex: index)
         }
+        refreshDockMenuCapabilities()
         return true
     }
 
