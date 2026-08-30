@@ -247,7 +247,7 @@ final class DockPointerInteractionHostView: NSView {
         case .leftMouseDown:
             // A new pointer sequence supersedes any origin that was not
             // consumed by Bonsplit (for example, a click on an accessory).
-            store?.cancelDockPointerInteraction(window: window)
+            store?.cancelDockPointerInteraction()
             let point = convert(event.locationInWindow, from: nil)
             guard bounds.contains(point),
                   !event.modifierFlags.contains(.control) else {
