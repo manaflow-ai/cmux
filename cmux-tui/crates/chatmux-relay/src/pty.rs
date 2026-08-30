@@ -495,6 +495,16 @@ struct ShellStartReservation {
     active: bool,
 }
 
+fn remove_cached_shell_if_same(inner: &Inner, session: &str, target: &Arc<ShellSession>) -> bool {
+    let mut shells = inner.shell_sessions.lock().expect("shell lock");
+    if shells.get(session).is_some_and(|cached| Arc::ptr_eq(cached, target)) {
+        shells.remove(session);
+        true
+    } else {
+        false
+    }
+}
+
 impl Drop for ShellStartReservation {
     fn drop(&mut self) {
         if self.active {
@@ -2014,6 +2024,15 @@ impl Inner {
                     .lock()
                     .expect("shell lock")
                     .insert(session.to_owned(), Arc::clone(&shell_session));
+                // Cancellation can arrive while `subscribe` is replaying its
+                // backlog (the callback is synchronous). Re-check after the
+                // identity is cached, and remove only this exact session so a
+                // replacement cannot be disturbed.
+                if cancellation.is_cancelled() {
+                    remove_cached_shell_if_same(&self, session, &shell_session);
+                    shell_session.control.kill();
+                    return Err("terminal open cancelled".to_owned());
+                }
                 self.shell_starting.lock().expect("shell starting lock").remove(session);
                 reservation.active = false;
                 reservation.notify.notify_waiters();
@@ -2883,6 +2902,8 @@ mod tests {
         spawn_file: String,
         spawn_cwd: PathBuf,
         spawn_term: String,
+        cancel_on_subscribe: Arc<AtomicBool>,
+        cancellation: CancellationToken,
     }
 
     impl FakePty {
@@ -2926,6 +2947,9 @@ mod tests {
             let mut state = self.state.lock().unwrap();
             state.on_data = Some(on_data);
             state.on_exit = Some(on_exit);
+            if self.cancel_on_subscribe.swap(false, Ordering::SeqCst) {
+                self.cancellation.cancel();
+            }
         }
     }
 
@@ -2970,6 +2994,7 @@ mod tests {
         ensure_socket_path: Option<PathBuf>,
         control: Option<Arc<dyn ControlHandle>>,
         resolve_gate: Option<Arc<ResolveGate>>,
+        cancel_on_subscribe: Arc<AtomicBool>,
     }
 
     #[async_trait]
@@ -2977,7 +3002,7 @@ mod tests {
         async fn spawn_pty(
             &self,
             spec: SpawnSpec,
-            _cancellation: CancellationToken,
+            cancellation: CancellationToken,
             _permit: OpenPermit,
         ) -> PtyHandle {
             let pty = FakePty {
@@ -2985,6 +3010,8 @@ mod tests {
                 spawn_file: spec.file.clone(),
                 spawn_cwd: spec.cwd.clone(),
                 spawn_term: spec.env.get("TERM").cloned().unwrap_or_default(),
+                cancel_on_subscribe: Arc::clone(&self.cancel_on_subscribe),
+                cancellation,
             };
             self.recorded.lock().unwrap().spawned.push(pty.clone());
             let control: Arc<dyn PtyControl> = Arc::new(pty.clone());
@@ -3048,6 +3075,7 @@ mod tests {
         owner: Option<String>,
         home: PathBuf,
         _home: TestDirectory,
+        cancel_on_subscribe: Arc<AtomicBool>,
     }
 
     fn env_map(home: &Path) -> HashMap<String, String> {
@@ -3090,6 +3118,7 @@ mod tests {
         let home_path = home.path.clone();
         let env = env_map(&home_path);
         let recorded = Arc::new(StdMutex::new(Recorded::default()));
+        let cancel_on_subscribe = Arc::new(AtomicBool::new(false));
         let socket_dir = PathBuf::from("/run/cmux-tui-501");
         let deps = Arc::new(FakeDeps {
             env: env.clone(),
@@ -3100,6 +3129,7 @@ mod tests {
             ensure_socket_path,
             control,
             resolve_gate,
+            cancel_on_subscribe: Arc::clone(&cancel_on_subscribe),
         });
         let manager = PtyManager::with_limits(
             deps,
@@ -3117,6 +3147,7 @@ mod tests {
             owner: Some("user_owner".to_owned()),
             home: home_path,
             _home: home,
+            cancel_on_subscribe,
         }
     }
 
@@ -3395,6 +3426,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cancellation_during_shell_subscribe_is_not_cached_and_killed() {
+        let h = harness(None, None);
+        h.cancel_on_subscribe.store(true, Ordering::SeqCst);
+        let cancellation = h.manager.new_open_cancellation().expect("open attempt token");
+        let context = h.context("supervised", h.owner.clone());
+        let env = env_map(&h.home);
+        let open_permit = OpenPermit::new(
+            h.manager.inner.open_slots.clone().try_acquire_owned().expect("open permit"),
+        );
+
+        // The fake cancels from inside subscribe, after the session callbacks
+        // have been installed. The completed open must remove only its own
+        // cached session and kill the newly spawned child.
+        let result = Arc::clone(&h.manager.inner)
+            .open_shell(
+                "cancelled-subscribe",
+                80,
+                24,
+                &h.home,
+                &env,
+                "p1",
+                None,
+                &context,
+                &cancellation,
+                &open_permit,
+            )
+            .await;
+
+        assert_eq!(result.err().as_deref(), Some("terminal open cancelled"));
+        assert!(h.manager.inner.shell_sessions.lock().unwrap().is_empty());
+        assert!(h.manager.inner.shell_starting.lock().unwrap().is_empty());
+        let spawned = h.spawned();
+        assert_eq!(spawned.len(), 1);
+        assert!(spawned[0].state.lock().unwrap().killed);
+    }
+
+    #[tokio::test]
     async fn trust_downgrade_revokes_existing_non_owner_controls() {
         let h = harness(None, None);
         h.open(
@@ -3522,6 +3590,7 @@ mod tests {
             ensure_socket_path: None,
             control: None,
             resolve_gate: None,
+            cancel_on_subscribe: Arc::new(AtomicBool::new(false)),
         });
         let manager =
             PtyManager::with_limits(deps, home_path.clone(), env, MAX_PTYS, 32, OUTPUT_BUFFER_CAP);
@@ -3533,6 +3602,7 @@ mod tests {
             owner: Some("user_owner".to_owned()),
             home: home_path,
             _home: home,
+            cancel_on_subscribe: Arc::new(AtomicBool::new(false)),
         };
         h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
         let pty = h.spawned()[0].clone();
