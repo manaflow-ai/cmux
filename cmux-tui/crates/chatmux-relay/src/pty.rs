@@ -4258,10 +4258,11 @@ mod tests {
         });
         let cancellation = h.manager.new_open_cancellation().expect("open attempt token");
         let task_manager = Arc::new(h.manager);
+        let spawned_task_manager = Arc::clone(&task_manager);
         let task_context = context.clone();
         let task_cancellation = cancellation.clone();
         let task = tokio::spawn(async move {
-            task_manager
+            spawned_task_manager
                 .handle_frame_with_open_cancellation(&frame, &task_context, Some(task_cancellation))
                 .await;
         });
