@@ -1050,9 +1050,17 @@ struct ProcessTerminationGateTests {
 private actor ScriptedCommandRunner: CommandRunning {
     private let results: [CommandResult]
     private(set) var recordedArguments: [[String]] = []
+    private var invocationWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(results: [CommandResult]) {
         self.results = results
+    }
+
+    func waitForInvocation() async {
+        if !recordedArguments.isEmpty { return }
+        await withCheckedContinuation { continuation in
+            invocationWaiters.append(continuation)
+        }
     }
 
     func run(
@@ -1062,6 +1070,8 @@ private actor ScriptedCommandRunner: CommandRunning {
         timeout: TimeInterval?
     ) async -> CommandResult {
         recordedArguments.append(arguments)
+        invocationWaiters.forEach { $0.resume() }
+        invocationWaiters.removeAll()
         let index = recordedArguments.count - 1
         guard results.indices.contains(index) else {
             return CommandResult(
@@ -1078,22 +1088,25 @@ private actor ScriptedCommandRunner: CommandRunning {
 
 @Suite("Port scanner lifecycle")
 struct PortScannerLifecycleTests {
-    @Test("Unregister cancels a pending coalesce and burst generation")
-    func unregisterCancelsPendingBurst() async {
+    @Test("Unregister preserves a pending burst for other panels")
+    func unregisterPreservesOtherPanelBurst() async {
         let runner = ScriptedCommandRunner(results: [])
         let scanner = PortScanner(commandRunner: runner)
         let workspaceID = UUID()
-        let panelID = UUID()
+        let removedPanelID = UUID()
+        let retainedPanelID = UUID()
         await MainActor.run {
-            scanner.registerTTY(workspaceId: workspaceID, panelId: panelID, ttyName: "ttys999")
+            scanner.registerTTY(workspaceId: workspaceID, panelId: removedPanelID, ttyName: "ttys999")
+            scanner.registerTTY(workspaceId: workspaceID, panelId: retainedPanelID, ttyName: "ttys998")
         }
-        scanner.kick(workspaceId: workspaceID, panelId: panelID)
+        scanner.kick(workspaceId: workspaceID, panelId: removedPanelID)
+        scanner.kick(workspaceId: workspaceID, panelId: retainedPanelID)
         await MainActor.run {
-            scanner.unregisterPanel(workspaceId: workspaceID, panelId: panelID)
+            scanner.unregisterPanel(workspaceId: workspaceID, panelId: removedPanelID)
         }
-        await scanner.waitForIdleForTesting()
+        await runner.waitForInvocation()
         let calls = await runner.recordedArguments
-        #expect(calls.isEmpty)
+        #expect(!calls.isEmpty)
     }
 }
 
