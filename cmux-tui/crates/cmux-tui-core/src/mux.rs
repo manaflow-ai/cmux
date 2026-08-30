@@ -2573,18 +2573,20 @@ impl Mux {
                 agent: entry.agent.clone(),
                 updated_at_ms: entry.updated_at_ms,
             };
-            // A repeated socket poll refreshes the compatibility projection
+            // A repeated direct report refreshes the compatibility projection
             // without appending a journal echo. On restart, retain that newer
             // timestamp when the roster snapshot still has the older echo.
-            let keep_newer_socket_record =
+            // Preserve only records with the same source, since source
+            // authority determines which projection is allowed to win.
+            let keep_newer_direct_record =
                 agent_records.get(&terminal_id).is_some_and(|existing| {
-                    existing.source == AgentSource::Socket
-                        && record.source == AgentSource::Socket
+                    matches!(existing.source, AgentSource::Socket | AgentSource::Detected)
+                        && existing.source == record.source
                         && existing.state == record.state
                         && existing.session == record.session
                         && existing.updated_at_ms > record.updated_at_ms
                 });
-            if !keep_newer_socket_record {
+            if !keep_newer_direct_record {
                 agent_records.insert(terminal_id, record);
             }
         }
@@ -10297,9 +10299,10 @@ impl Mux {
             updated_at_ms: record.updated_at_ms,
         };
         if !commit.replayed {
-            if !publish_echo {
-                self.publish_resource_event();
-            }
+            // Combined echo commits update both durable journal state and the
+            // resource projection. Publish both notifications so consumers of
+            // either stream observe the commit.
+            self.publish_resource_event();
             self.emit(MuxEvent::AgentChanged {
                 surface: agent.surface,
                 state: Arc::from(agent.state.as_str()),
