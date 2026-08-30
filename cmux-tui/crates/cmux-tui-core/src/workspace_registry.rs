@@ -2873,6 +2873,23 @@ impl WorkspaceRegistry {
         read_terminal(&self.connection, terminal_id)
     }
 
+    /// Return public terminal identities whose durable resource or host row is
+    /// tombstoned. Reducers use this during recovery to rebuild lifecycle
+    /// fences even when their own materialized snapshot is unavailable.
+    pub(crate) fn tombstoned_terminal_public_ids(&self) -> anyhow::Result<Vec<TerminalPublicId>> {
+        let mut statement = self.connection.prepare(
+            "SELECT rt.public_id
+             FROM resource_terminals AS rt
+             JOIN terminal_hosts AS th ON th.terminal_id = rt.terminal_id
+             WHERE rt.lifecycle = 'tombstoned' OR th.lifecycle = 'tombstoned'
+             ORDER BY rt.deleted_revision ASC, rt.public_id ASC",
+        )?;
+        statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .map(|row| Ok(TerminalPublicId::parse(row?)?))
+            .collect()
+    }
+
     pub fn replay_terminal(
         &self,
         mutation: &WorkspaceMutation,

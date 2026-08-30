@@ -1135,6 +1135,15 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
             break;
         }
     }
+    // Terminal retirement is durable in the resource registry, not in the
+    // agent journal. Rebuild those fences after replay so a lost or malformed
+    // roster snapshot cannot let an old agent event resurrect a tombstoned
+    // terminal. Use the current journal head as the fence cursor because all
+    // rows replayed above are at or below it.
+    let journal_head = registry.session_journal_after(0, 1)?.head_sequence;
+    for terminal_id in registry.tombstoned_terminal_public_ids()? {
+        host.roster.retire_terminal(terminal_id.as_str(), journal_head);
+    }
     // Sealed segments are checkpoint-aligned. Once the reducer has replayed
     // through that boundary, retirement rows at or below it are covered by a
     // durable checkpoint and no longer need in-memory tombstones.
