@@ -11,18 +11,14 @@ final class ProvisionalDragWriterOwnershipToken {
         self.onDeallocated = onDeallocated
     }
 
-    /// Reports deallocation synchronously on the main actor when possible.
+    /// Reports deallocation on a separate main-actor turn.
     nonisolated func notifyDeallocated() {
         let tokenID = id
         let callback = onDeallocated
-        if Thread.isMainThread {
-            MainActor.assumeIsolated {
-                callback(tokenID)
-            }
-        } else {
-            Task { @MainActor in
-                callback(tokenID)
-            }
+        // Never re-enter AppKit or SwiftUI teardown from ARC deallocation.
+        // The callback captures only value/closure locals, not this token.
+        Task { @MainActor in
+            callback(tokenID)
         }
     }
 

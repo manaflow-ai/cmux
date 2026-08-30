@@ -11,6 +11,13 @@ public import Foundation
 public final class SidebarWorkspaceDragRegistry: SidebarWorkspaceDragSessionRegistering {
     /// Provider used to inspect and clear the process drag pasteboard.
     public typealias DragPasteboardProvider = @MainActor () -> NSPasteboard
+    /// Starts an AppKit session for a prepared dragging item.
+    public typealias NativeDragStarter = @MainActor (
+        _ sourceView: NSView,
+        _ draggingItem: NSDraggingItem,
+        _ event: NSEvent,
+        _ source: any NSDraggingSource
+    ) -> NSDraggingSession
 
     /// The generation-fenced session currently owned by the process.
     private(set) var currentSession: SidebarWorkspaceDragSession?
@@ -21,6 +28,7 @@ public final class SidebarWorkspaceDragRegistry: SidebarWorkspaceDragSessionRegi
     private var nativeDragSources: [UUID: SidebarWorkspaceDragSessionSource] = [:]
     private var participants: [SidebarWorkspaceDragParticipantReference] = []
     private let dragPasteboardProvider: DragPasteboardProvider
+    private let nativeDragStarter: NativeDragStarter
 
     deinit {}
 
@@ -30,9 +38,17 @@ public final class SidebarWorkspaceDragRegistry: SidebarWorkspaceDragSessionRegi
     public init(
         dragPasteboardProvider: @escaping DragPasteboardProvider = {
             NSPasteboard(name: .drag)
+        },
+        nativeDragStarter: @escaping NativeDragStarter = { sourceView, draggingItem, event, source in
+            sourceView.beginDraggingSession(
+                with: [draggingItem],
+                event: event,
+                source: source
+            )
         }
     ) {
         self.dragPasteboardProvider = dragPasteboardProvider
+        self.nativeDragStarter = nativeDragStarter
     }
 
     /// The workspace represented by the current process-wide drag, if any.
@@ -105,11 +121,7 @@ public final class SidebarWorkspaceDragRegistry: SidebarWorkspaceDragSessionRegi
 
         let draggingItem = NSDraggingItem(pasteboardWriter: pasteboardItem)
         draggingItem.setDraggingFrame(draggingFrame, contents: dragImage)
-        let dragSession = sourceView.beginDraggingSession(
-            with: [draggingItem],
-            event: event,
-            source: source
-        )
+        let dragSession = nativeDragStarter(sourceView, draggingItem, event, source)
         source.bind(sourceView: sourceView)
         dragSession.animatesToStartingPositionsOnCancelOrFail = false
         return true

@@ -11,8 +11,8 @@ import Testing
 @MainActor
 @Suite("Cloud tree native drag ownership", .serialized)
 struct CloudTreeNativeDragOwnershipTests {
-    @Test("An abandoned Cloud writer revokes its provisional capability immediately")
-    func abandonedWriterRevokesProvisionalCapability() throws {
+    @Test("An abandoned Cloud writer revokes its provisional capability on deallocation")
+    func abandonedWriterRevokesProvisionalCapability() async throws {
         let transferRegistry = TabDragTransferRegistry()
         let coordinator = CloudTreeOutlineView.Coordinator(
             machineActions: Self.machineActions,
@@ -55,6 +55,7 @@ struct CloudTreeNativeDragOwnershipTests {
         // No native session was promoted. Releasing the writer is the exact
         // terminal boundary and must revoke both process-local registries now.
         writer = nil
+        await flushMainActor()
 
         #expect(SurfaceResourceDragRegistry.shared.group(id: dragID) == nil)
         #expect(!coordinator.isDragging)
@@ -275,6 +276,14 @@ struct CloudTreeNativeDragOwnershipTests {
         copyToPasteboard: { _ in },
         refresh: {}
     )
+
+    private func flushMainActor() async {
+        await withCheckedContinuation { continuation in
+            RunLoop.main.perform(inModes: [.common]) {
+                continuation.resume()
+            }
+        }
+    }
 
     private final class TestDraggingSession: NSDraggingSession {
         private let sequence: Int

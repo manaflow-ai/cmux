@@ -58,20 +58,18 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem {
         return [Self.pasteboardType]
     }
 
-    /// Binds the writer to the native generation AppKit created for it.
+    /// Records the native generation associated with this writer request.
     ///
-    /// ``NSTableView`` asks for this writer before `willBeginAt`, so the initial
-    /// representation is necessarily legacy-shaped. Updating the writer as
-    /// soon as the session exists keeps a later lazy pasteboard materialization
-    /// from replacing the live token with that provisional value. The callback's
-    /// row identity is authoritative even when an older provisional writer is
-    /// still retained by AppKit.
+    /// ``NSTableView`` asks for this writer before `willBeginAt`; the controller
+    /// writes the authoritative session payload directly to the native drag
+    /// pasteboard at that boundary. The already-bound item representation is
+    /// intentionally not mutated here because AppKit does not permit changing
+    /// an ``NSPasteboardItem`` after it has been written.
     func bind(to sessionId: UUID, workspaceId: UUID? = nil) {
         self.sessionId = sessionId
         if let workspaceId {
             self.workspaceId = workspaceId
         }
-        materializePayload()
     }
 
     /// Workspace identity captured for this exact writer request.
@@ -88,9 +86,7 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem {
         return SidebarTabDragPayload(tabId: workspaceId, sessionId: sessionId).pasteboardValue
     }
 
-    /// Keeps the concrete ``NSPasteboardItem`` storage synchronized with the
-    /// writer's current generation. AppKit may bind an item directly to the
-    /// drag pasteboard without consulting the ``NSPasteboardWriting`` override.
+    /// Keeps the concrete item populated for the pre-session AppKit write.
     private func materializePayload() {
         _ = setString(
             SidebarTabDragPayload(tabId: workspaceId, sessionId: sessionId).pasteboardValue,
