@@ -636,13 +636,21 @@ impl ChildLifecycle {
         Arc::new(Mutex::new(Self { pid, exited: false, termination_started: false }))
     }
 
-    fn terminate(lifecycle: &ChildLifecycleHandle, signal: impl FnOnce(Option<u32>)) -> bool {
+    fn terminate(
+        lifecycle: &ChildLifecycleHandle,
+        signal: impl FnOnce(Option<u32>) -> std::io::Result<()>,
+    ) -> bool {
         let mut state = lifecycle.lock().expect("child lifecycle lock");
         if state.exited || state.termination_started {
             return false;
         }
         state.termination_started = true;
-        signal(state.pid);
+        if signal(state.pid).is_err() {
+            // A failed signal request did not establish termination. Keep the
+            // lifecycle open for a later close/cancellation/drop attempt.
+            state.termination_started = false;
+            return false;
+        }
         true
     }
 }
@@ -663,10 +671,12 @@ impl Drop for MasterControl {
 
 impl MasterControl {
     fn terminate(&self) {
-        ChildLifecycle::terminate(&self.lifecycle, |_| {
-            if let Ok(mut killer) = self.killer.lock() {
-                let _ = killer.kill();
-            }
+        let _ = ChildLifecycle::terminate(&self.lifecycle, |_| {
+            let mut killer = self
+                .killer
+                .lock()
+                .map_err(|_| std::io::Error::other("child killer lock poisoned"))?;
+            killer.kill()
         });
     }
 }
@@ -842,7 +852,7 @@ fn spawn_real_pty(spec: &SpawnSpec, handoff: &SpawnHandoff) -> anyhow::Result<Pt
                 // Keep the old error path: a failed wait requests termination
                 // through the lifecycle gate, then retries the blocking reap.
                 let _ = ChildLifecycle::terminate(&wait_lifecycle, |_| {
-                    let _ = child_cleanup.child_mut().kill();
+                    child_cleanup.child_mut().kill()
                 });
                 child_cleanup.wait()
             });
