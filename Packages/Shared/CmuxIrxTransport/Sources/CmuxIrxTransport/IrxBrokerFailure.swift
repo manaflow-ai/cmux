@@ -192,8 +192,9 @@ public struct IrxBrokerFailure: Error, Codable, Equatable, Sendable {
             // this point. A second broker 401 is not evidence that the auth
             // refresh itself was rejected (that outcome is carried explicitly
             // by CmxIrohBrokerTokenRecoveryError.authenticationRequired); it
-            // can still be a broker-side propagation race. Keep it on the
-            // bounded activation ladder rather than forcing a needless sign-in.
+            // can still be a broker-side propagation race. Keep the first few
+            // occurrences on the bounded activation ladder; the lifecycle
+            // policy escalates a persistent sequence to reauthentication.
             .transient
         case 403 where code == "binding_request_proof_required"
             || code == "invalid_binding_request_proof":

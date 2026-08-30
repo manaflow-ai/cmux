@@ -256,6 +256,10 @@ final class MobileHostIrxRuntime {
                     accountID: accountID,
                     token: token
                 )
+                guard generationToken == token,
+                      activeAccountID == accountID,
+                      activationState != .reauthenticationRequired,
+                      activationState != .failed else { return }
             }
             // Relay hints are server-capped at 1h; refresh the registration on
             // every credential rotation so the advertised hint never expires.

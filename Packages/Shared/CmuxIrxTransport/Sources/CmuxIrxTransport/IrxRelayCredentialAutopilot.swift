@@ -8,6 +8,14 @@ public import CmuxIrohTransport
 /// off past it. The relay closes connections at the signed expiry, so this
 /// loop is what makes 15 minutes without a disconnect possible at all.
 public actor IrxRelayCredentialAutopilot {
+    private static let maximumHintRetryAttempts = 3
+
+    private enum HintRefreshOutcome: Equatable {
+        case succeeded
+        case exhausted
+        case stopped
+    }
+
     private let broker: IrxBrokerService
     private let endpoint: IrxEndpointSupervisor
     private let journal: IrxJournal
@@ -80,7 +88,7 @@ public actor IrxRelayCredentialAutopilot {
     public func kickHintRefresh() {
         loop?.cancel()
         loop = Task {
-            guard await self.refreshHint(initialFailureCount: 0) else { return }
+            guard await self.refreshHint(initialFailureCount: 0) != .stopped else { return }
             guard !Task.isCancelled else { return }
             await self.run()
         }
@@ -113,7 +121,7 @@ public actor IrxRelayCredentialAutopilot {
                 guard !Task.isCancelled else { return }
                 await endpoint.rotateCredentials(minted)
                 guard !Task.isCancelled else { return }
-                guard await refreshHint(initialFailureCount: 0) else { return }
+                guard await refreshHint(initialFailureCount: 0) != .stopped else { return }
                 failureCount = 0
             } catch is CancellationError {
                 return
@@ -139,16 +147,17 @@ public actor IrxRelayCredentialAutopilot {
 
     /// Retries a failed hint registration without minting another credential.
     /// A hint outage must not turn a healthy credential into a mint loop.
-    private func refreshHint(initialFailureCount: Int) async -> Bool {
+    private func refreshHint(initialFailureCount: Int) async -> HintRefreshOutcome {
         var failureCount = initialFailureCount
-        while !Task.isCancelled {
+        for _ in 0 ..< Self.maximumHintRetryAttempts {
+            guard !Task.isCancelled else { return .stopped }
             do {
                 try await onRotation?()
-                return !Task.isCancelled
+                return Task.isCancelled ? .stopped : .succeeded
             } catch is CancellationError {
-                return false
+                return .stopped
             } catch {
-                guard !Task.isCancelled else { return false }
+                guard !Task.isCancelled else { return .stopped }
                 let failure = error as? IrxBrokerFailure
                     ?? IrxBrokerFailure(
                         operation: .hintRefresh,
@@ -159,11 +168,15 @@ public actor IrxRelayCredentialAutopilot {
                     after: failure,
                     failureCount: failureCount,
                     credentialExpiry: nil
-                ) else { return false }
+                ) else { return .stopped }
                 failureCount = nextFailureCount
             }
         }
-        return false
+        journal.record(
+            "credential-autopilot", "hint-refresh-exhausted",
+            ["attempts": String(Self.maximumHintRetryAttempts)]
+        )
+        return .exhausted
     }
 
     /// Journals one classified failure, notifies the lifecycle owner, and
