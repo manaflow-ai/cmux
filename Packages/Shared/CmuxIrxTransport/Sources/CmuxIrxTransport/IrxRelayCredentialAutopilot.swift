@@ -119,11 +119,9 @@ public actor IrxRelayCredentialAutopilot {
         let generation = loopGeneration
         loop?.cancel()
         loop = Task {
+            defer { self.clearLoopIfCurrent(generation: generation) }
             let outcome = await self.refreshHint(initialFailureCount: 0)
-            guard outcome != .stopped else {
-                self.clearLoopIfCurrent(generation: generation)
-                return
-            }
+            guard outcome != .stopped else { return }
             guard !Task.isCancelled else { return }
             await self.run(generation: generation)
         }

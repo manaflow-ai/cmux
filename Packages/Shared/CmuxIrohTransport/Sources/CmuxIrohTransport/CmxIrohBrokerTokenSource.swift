@@ -52,7 +52,14 @@ public struct CmxIrohBrokerTokenSource: Sendable {
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch let error as CmxIrohBrokerTokenRecoveryError {
-                    throw error
+                    switch error {
+                    case .authenticationRequired:
+                        throw error
+                    case .transient:
+                        // A temporarily unavailable snapshot is precisely
+                        // the case the explicit refresh below repairs.
+                        break
+                    }
                 } catch {
                     // A transient snapshot read can still be repaired by the
                     // one explicit refresh below.

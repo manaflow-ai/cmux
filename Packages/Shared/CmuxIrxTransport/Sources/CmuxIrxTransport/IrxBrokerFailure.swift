@@ -201,8 +201,8 @@ public struct IrxBrokerFailure: Error, Codable, Equatable, Sendable {
             // occurrences on the bounded activation ladder; the lifecycle
             // policy escalates a persistent sequence to reauthentication.
             .transient
-        case 403 where code == "binding_request_proof_required"
-            || code == "invalid_binding_request_proof":
+        case 403 where code?.lowercased() == "binding_request_proof_required"
+            || code?.lowercased() == "invalid_binding_request_proof":
             .transient
         case 403 where [
             "unauthorized", "invalid_token", "token_expired", "auth_required",

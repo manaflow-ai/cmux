@@ -31,6 +31,28 @@ struct CmxIrohTrustBrokerClientAuthRecoveryTests {
         }
     }
 
+    private actor FlakyAccountSnapshotSource {
+        private let fresh: CmxIrohAccountCredentialSnapshot
+        private var hasFailed = false
+        private(set) var forceRefreshCount = 0
+
+        init(fresh: CmxIrohAccountCredentialSnapshot) {
+            self.fresh = fresh
+        }
+
+        func snapshot() throws -> CmxIrohAccountCredentialSnapshot? {
+            if !hasFailed {
+                hasFailed = true
+                throw CmxIrohBrokerTokenRecoveryError.transient
+            }
+            return fresh
+        }
+
+        func forceRefresh() {
+            forceRefreshCount += 1
+        }
+    }
+
     private actor RecoveryRecorder {
         private(set) var rejectedPairs: [CmxIrohBrokerCredentials] = []
         private let recovered: CmxIrohBrokerCredentials?
@@ -271,6 +293,41 @@ struct CmxIrohTrustBrokerClientAuthRecoveryTests {
 
         #expect(await snapshots.forceRefreshCount == 1)
         #expect(await transport.requests().count == 2)
+    }
+
+    @Test
+    func transientSnapshotReadStillUsesOneForceRefresh() async throws {
+        let source = FlakyAccountSnapshotSource(
+            fresh: Self.accountSnapshot(
+                accountID: "account-a",
+                accessToken: "fresh-access"
+            )
+        )
+        let transport = RecordingBrokerTransport(responses: [
+            .json(status: 401, body: #"{"error":"unauthorized"}"#),
+            .json(status: 201, body: Self.challengeBody),
+        ])
+        let client = try CmxIrohTrustBrokerClient(
+            baseURL: #require(URL(string: "https://cmux.example")),
+            tokenSource: .accountPinned(
+                to: "account-a",
+                snapshot: { try await source.snapshot() },
+                forceRefresh: { await source.forceRefresh() }
+            ),
+            clientNamespace: "legacy",
+            transport: transport
+        )
+
+        _ = try await client.issueChallenge(try Self.challengeRequest)
+
+        #expect(await source.forceRefreshCount == 1)
+        let requests = await transport.requests()
+        #expect(requests.count == 2)
+        #expect(
+            requests.last?.value(
+                forHTTPHeaderField: "Authorization"
+            ) == "Bearer fresh-access"
+        )
     }
 
     @Test
