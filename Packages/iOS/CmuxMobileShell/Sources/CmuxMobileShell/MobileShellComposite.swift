@@ -9432,6 +9432,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 activeRoute = route
             }
             mobileShellLog.info("pairing trying route kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private)")
+            MobileDebugLog.anchormux("connect.route_try kind=\(route.kind.rawValue)")
             let legacyTailscaleAuthorizationEvidence = Self
                 .legacyTailscaleAuthorizationEvidence(
                     for: route,
@@ -9506,6 +9507,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // persisting or labeling workspaces. A stale A endpoint may
                     // now be served by tag B on the same physical Mac.
                     guard let status = try? MobileHostStatusResponse.decode(exchange.hostStatusResponse) else {
+                        MobileDebugLog.anchormux("connect.route_rejected kind=\(route.kind.rawValue) reason=host_status_undecodable")
                         await client.disconnect()
                         lastError = MobileShellConnectionError.invalidResponse
                         recordHostAuthenticationFailure(route: route, failure: .protocolViolation)
@@ -9524,6 +9526,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         mobileShellLog.error(
                             "rejecting route from incompatible Mac build reported=\(reportedInstanceTag ?? "missing", privacy: .public)"
                         )
+                        MobileDebugLog.anchormux("connect.route_rejected kind=\(route.kind.rawValue) reason=build_incompatible reported_tag=\(reportedInstanceTag ?? "missing") namespace=\(status.macClientNamespace ?? "missing") mac_version=\(status.macAppVersion ?? "missing")")
                         await client.disconnect()
                         lastError = MobileShellConnectionError.rpcError(
                             "build_incompatible",
@@ -9540,6 +9543,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         mobileShellLog.error(
                             "rejecting route with mismatched Mac instance tag expected=\(String(describing: instanceTagExpectation), privacy: .public) reported=\(reportedInstanceTag ?? "missing", privacy: .public)"
                         )
+                        MobileDebugLog.anchormux("connect.route_rejected kind=\(route.kind.rawValue) reason=tag_mismatch expected=\(String(describing: instanceTagExpectation)) reported=\(reportedInstanceTag ?? "missing")")
                         await client.disconnect()
                         lastError = MobileShellConnectionError.invalidResponse
                         recordHostAuthenticationFailure(route: route, failure: .identityMismatch)
@@ -9845,6 +9849,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     mobileShellLog.error(
                         "pairing route failed kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private) scoped=\(workspaceListRequest.isScoped ? 1 : 0, privacy: .public): \(String(describing: error), privacy: .private)"
                     )
+                    MobileDebugLog.anchormux("connect.route_failed kind=\(route.kind.rawValue) error=\(String(describing: error))")
                     let failure = Self.diagnosticFailureKind(for: error)
                     if failure == .identityMismatch
                         || failure == .admissionDenied
