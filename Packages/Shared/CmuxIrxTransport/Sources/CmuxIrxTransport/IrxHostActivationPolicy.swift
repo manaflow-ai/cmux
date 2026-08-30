@@ -24,6 +24,7 @@ public enum IrxHostActivationState: String, Codable, Equatable, Sendable {
 /// this type only derives a bounded delay from the classified broker result.
 public struct IrxHostActivationPolicy: Equatable, Sendable {
     private static let maximumPostRecoveryUnauthorizedFailures = 2
+    private static let maximumMissingAuthenticationFailures = 2
 
     /// The first and maximum retry bounds used by an irx host.
     public let retrySchedule: CmxIrohRetrySchedule
@@ -62,6 +63,10 @@ public struct IrxHostActivationPolicy: Equatable, Sendable {
         // broker persistently rejects the rotated pair.
         if failure.statusCode == 401,
            failureCount >= Self.maximumPostRecoveryUnauthorizedFailures {
+            return .reauthenticationRequired
+        }
+        if failure.errorCode == "missing_authentication",
+           failureCount >= Self.maximumMissingAuthenticationFailures {
             return .reauthenticationRequired
         }
         if failure.requiresReauthentication {

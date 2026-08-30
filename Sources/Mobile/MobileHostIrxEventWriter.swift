@@ -23,7 +23,17 @@ actor MobileHostIrxEventWriter: MobileHostIndependentEventWriting {
 
     func send(_ framedData: Data) async throws {
         let writer = try await openedWriter()
-        try await writer.write(framedData)
+        do {
+            try await writer.write(framedData)
+        } catch {
+            // A failed QUIC lane cannot be reused. Drop it before finishing so
+            // a reentrant sender opens a fresh lane on its next attempt.
+            if self.writer === writer {
+                self.writer = nil
+            }
+            await writer.finish()
+            throw error
+        }
     }
 
     func reset() async {

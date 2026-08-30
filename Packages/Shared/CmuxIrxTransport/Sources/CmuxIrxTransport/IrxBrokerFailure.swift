@@ -116,8 +116,7 @@ public struct IrxBrokerFailure: Error, Codable, Equatable, Sendable {
             case let .rejected(status, code):
                 kind = Self.kind(
                     forStatusCode: status,
-                    code: code,
-                    operation: operation
+                    code: code
                 )
                 statusCode = status
                 errorCode = code ?? "http_\(status)"
@@ -197,8 +196,7 @@ public struct IrxBrokerFailure: Error, Codable, Equatable, Sendable {
 
     private static func kind(
         forStatusCode statusCode: Int,
-        code: String?,
-        operation: IrxBrokerOperation
+        code: String?
     ) -> IrxBrokerFailureKind {
         switch statusCode {
         case 401:
