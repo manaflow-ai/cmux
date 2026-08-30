@@ -110,8 +110,8 @@ extension GitMetadataService {
             )
         }
         let cancellationSignal = WorkspaceChangesCancellationSignal(deadline: deadline)
-        let snapshot = await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
+        let snapshot: GitReferenceSnapshot = await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<GitReferenceSnapshot, Never>) in
                 Self.blockingStatusQueue.async {
                     let snapshot = cancellationSignal.withCurrentBinding {
                         guard deadline.map({ $0 > DispatchTime.now() }) ?? true else {
