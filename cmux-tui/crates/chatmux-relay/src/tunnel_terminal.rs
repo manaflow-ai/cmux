@@ -1336,10 +1336,13 @@ mod tests {
         let rig = rig().await;
         let (connection, _writer_rx, _flow_rx) = test_connection(&rig);
         let pty = attach_test_pty(&rig, &connection).await;
-        let data_capacity = WRITER_QUEUE_CAPACITY - WRITER_CONTROL_MESSAGE_RESERVE - 1;
-        for index in 0..data_capacity {
-            assert!(connection.enqueue(WriterMessage::Frame(vec![index as u8])));
+        let mut frame_index = 0_usize;
+        while connection.writer_tx.capacity() > WRITER_CONTROL_MESSAGE_RESERVE {
+            assert!(connection.enqueue(WriterMessage::Frame(vec![(frame_index % 256) as u8])));
+            frame_index += 1;
         }
+        assert!(frame_index > 0);
+        assert!(connection.writer_tx.capacity() <= WRITER_CONTROL_MESSAGE_RESERVE);
 
         let flow = spawn_flow_worker(Arc::clone(&connection), connection.frame_context());
         connection.publish_flow(true);
