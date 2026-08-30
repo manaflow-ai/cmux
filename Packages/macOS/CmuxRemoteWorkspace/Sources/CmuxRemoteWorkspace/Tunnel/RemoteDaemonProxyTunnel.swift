@@ -459,7 +459,7 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
 
         let caller: Bool
         if hasNonNullValue("caller") {
-            guard let decodedCaller = params["caller"] as? Bool else {
+            guard let decodedCaller = cloudCLIFlagValue(params["caller"]) else {
                 return .reject(cloudCLIErrorResponse(
                     id: requestID,
                     code: "invalid_params",
@@ -551,6 +551,27 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
             ))
         }
         return .forward(data + Data([0x0A]))
+    }
+
+    /// Decodes the same boolean spellings accepted by the local v2 parameter
+    /// parser, so relay validation cannot disagree with the coordinator about a
+    /// caller selector's meaning.
+    private static func cloudCLIFlagValue(_ value: Any?) -> Bool? {
+        if let value = value as? Bool {
+            return value
+        }
+        if let value = value as? NSNumber {
+            return value.boolValue
+        }
+        guard let value = value as? String else { return nil }
+        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "1", "true", "yes", "on":
+            return true
+        case "0", "false", "no", "off":
+            return false
+        default:
+            return nil
+        }
     }
 
     private static func cloudCLIErrorResponse(id: Any?, code: String, message: String) -> Data {
