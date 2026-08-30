@@ -40,6 +40,10 @@ final class CloudTreeSurfaceDragPasteboardWriter: NSPasteboardItem {
         fatalError("init(pasteboardPropertyList:ofType:) is not supported")
     }
 
+    deinit {
+        provisionalToken.notifyDeallocated()
+    }
+
     override func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
         _ = pasteboard
         return registration.pasteboardItem.types
