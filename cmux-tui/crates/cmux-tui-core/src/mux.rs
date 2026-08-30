@@ -24070,6 +24070,76 @@ mod tests {
     }
 
     #[test]
+    fn hosted_attachment_cleanup_kills_runtime_when_roster_purge_fails() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        assert!(!surface.is_dead(), "test terminal must start live");
+
+        mux.workspace_registry.lock().unwrap().set_journal_reducer_state_failure(true).unwrap();
+        let cleanup = mux.fail_hosted_terminal_attachment(
+            &surface,
+            "terminal-topology-attach-failed",
+            "test-cleanup-failure",
+        );
+        assert!(cleanup.is_err(), "the purge error must remain observable");
+        assert!(surface.is_dead(), "cleanup must kill the runtime after purge failure");
+
+        mux.workspace_registry.lock().unwrap().set_journal_reducer_state_failure(false).unwrap();
+        mux.shutdown();
+    }
+
+    #[test]
+    fn startup_reconciliation_removes_stale_ended_agent_projection() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-agent-stale-ended-projection-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let session = "agent-stale-ended-projection";
+        let mux = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+        let hook = |event: &str| {
+            crate::agent_hooks::agent_hook_journal_ingress(
+                "claude",
+                event,
+                Some(&terminal_id.to_string()),
+                serde_json::json!({"session_id":"stale-ended-session"}),
+            )
+            .unwrap()
+        };
+
+        mux.append_journal_ingress(&hook("SessionStart"), "test", "stale-ended-start").unwrap();
+        assert_eq!(mux.list_agents(Some(surface.id), None).len(), 1);
+
+        // Commit the end event to the journal only. This models a crash after
+        // the lifecycle event commit and before its compatibility projection.
+        let ended = hook("SessionEnd");
+        let validated = mux.journal_kernel.validate_ingress(&ended).unwrap();
+        mux.workspace_registry
+            .lock()
+            .unwrap()
+            .append_journal_ingress(&ended, &validated, "test", "stale-ended-end")
+            .unwrap();
+        assert_eq!(
+            mux.list_agents(Some(surface.id), None).len(),
+            1,
+            "the test must leave a stale compatibility record before restart"
+        );
+
+        mux.shutdown();
+        drop(mux);
+        let reopened = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
+        let reopened_surface = reopened.resource_surface_for_terminal(&terminal_id).unwrap();
+        assert!(
+            reopened.list_agents(Some(reopened_surface), None).is_empty(),
+            "a reducer Remove must not resurrect an ended compatibility record"
+        );
+        reopened.shutdown();
+        drop(reopened);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn failed_raw_agent_report_rolls_back_projection_memory_revision_and_event() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();

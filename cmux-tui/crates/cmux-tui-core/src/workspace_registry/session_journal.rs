@@ -937,6 +937,28 @@ impl WorkspaceRegistry {
         Ok(())
     }
 
+    #[cfg(test)]
+    pub(crate) fn set_journal_reducer_state_failure(&self, enabled: bool) -> anyhow::Result<()> {
+        if enabled {
+            self.connection.execute_batch(
+                "CREATE TEMP TRIGGER cmux_test_fail_journal_reducer_state_insert
+                 BEFORE INSERT ON meta
+                 WHEN NEW.key LIKE 'journal_reducer.%'
+                 BEGIN SELECT RAISE(ABORT, 'forced journal reducer state failure'); END;
+                 CREATE TEMP TRIGGER cmux_test_fail_journal_reducer_state_update
+                 BEFORE UPDATE OF value ON meta
+                 WHEN OLD.key LIKE 'journal_reducer.%'
+                 BEGIN SELECT RAISE(ABORT, 'forced journal reducer state failure'); END;",
+            )?;
+        } else {
+            self.connection.execute_batch(
+                "DROP TRIGGER IF EXISTS cmux_test_fail_journal_reducer_state_insert;
+                 DROP TRIGGER IF EXISTS cmux_test_fail_journal_reducer_state_update;",
+            )?;
+        }
+        Ok(())
+    }
+
     /// The most recently started journal output stream for one terminal:
     /// its generation and the exclusive end offset of its journaled bytes.
     pub(crate) fn terminal_stream_latest(
