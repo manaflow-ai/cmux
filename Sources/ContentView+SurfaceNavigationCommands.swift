@@ -56,6 +56,7 @@ extension ContentView {
         _ registry: inout CommandPaletteHandlerRegistry,
         dock: DockSplitStore? = nil,
         dockPanelId: UUID? = nil,
+        focusDock: (() -> Bool)? = nil,
         preferredWindow: @escaping () -> NSWindow?
     ) {
         // A Dock target is captured when the palette is presented. Keep that
@@ -79,9 +80,13 @@ extension ContentView {
             }
             return capturedDock
         }
+        let focusCapturedDock: () -> Bool = {
+            guard capturedDock != nil else { return true }
+            return focusDock?() == true
+        }
         registry.register(commandId: "palette.nextTabInPane") {
             if capturedDock != nil {
-                guard let dock = resolvedDock() else {
+                guard let dock = resolvedDock(), focusCapturedDock() else {
                     NSSound.beep()
                     return
                 }
@@ -94,7 +99,7 @@ extension ContentView {
         }
         registry.register(commandId: "palette.previousTabInPane") {
             if capturedDock != nil {
-                guard let dock = resolvedDock() else {
+                guard let dock = resolvedDock(), focusCapturedDock() else {
                     NSSound.beep()
                     return
                 }
@@ -108,7 +113,7 @@ extension ContentView {
         for movement in SurfacePaneMovement.allCases {
             registry.register(commandId: movement.commandID) {
                 if capturedDock != nil {
-                    guard let dock = resolvedDock() else {
+                    guard let dock = resolvedDock(), focusCapturedDock() else {
                         NSSound.beep()
                         return
                     }

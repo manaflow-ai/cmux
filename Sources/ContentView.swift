@@ -8929,7 +8929,8 @@ struct ContentView: View {
         registerSurfaceNavigationCommandHandlers(
             &registry,
             dock: dockSurfaceStore,
-            dockPanelId: dockSurfacePanelId
+            dockPanelId: dockSurfacePanelId,
+            focusDock: focusCapturedDockSurface
         ) { observedWindow }
         registry.register(commandId: "palette.openWorkspacePullRequests") {
             DispatchQueue.main.async {
@@ -10634,22 +10635,35 @@ struct ContentView: View {
             tabManager.setCustomTitle(tabId: workspaceId, title: normalizedName)
         case .tab(let workspaceId, let panelId):
             if let dockSurface = commandPaletteDockSurfaceTarget(),
-               dockSurface.panelId == panelId,
-               dockSurface.dock.setDockPanelCustomTitle(
-                   panelId: panelId,
-                   title: normalizedName
-               ) {
-                break
-            } else if let workspace = tabManager.tabs.first(where: {
-                $0.id == workspaceId
-            }) {
+               dockSurface.panelId == panelId {
+                guard dockSurface.dock.setDockPanelCustomTitle(
+                    panelId: panelId,
+                    title: normalizedName
+                ) else {
+                    NSSound.beep()
+                    return
+                }
+            } else {
+                // A captured Dock target that disappeared while the rename
+                // field was open must not fall through to a same-ID workspace
+                // lookup (window Docks use the window id as workspaceId).
+                switch commandPaletteRestoreFocusTarget?.host {
+                case .workspaceDock?, .windowDock?:
+                    NSSound.beep()
+                    return
+                default:
+                    break
+                }
+                guard let workspace = tabManager.tabs.first(where: {
+                    $0.id == workspaceId
+                }) else {
+                    NSSound.beep()
+                    return
+                }
                 workspace.setPanelCustomTitle(
                     panelId: panelId,
                     title: normalizedName
                 )
-            } else {
-                NSSound.beep()
-                return
             }
         case .workspaceGroup(let groupId):
             // A group must keep a name: an empty field is rejected in place so
