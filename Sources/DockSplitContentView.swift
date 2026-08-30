@@ -102,6 +102,9 @@ private final class DockPointerInteractionHostView: NSView {
     private var applicationResignActiveObserver: NSObjectProtocol?
     private var deferredInteractionClearTask: Task<Void, Never>?
     private var trackingArea: NSTrackingArea?
+    private var mouseDownLocation: NSPoint?
+
+    private let dragThreshold: CGFloat = 4
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
@@ -131,6 +134,7 @@ private final class DockPointerInteractionHostView: NSView {
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
         cancelInteractionClear()
+        mouseDownLocation = nil
         store?.endUserDockInteraction()
     }
 
@@ -185,6 +189,7 @@ private final class DockPointerInteractionHostView: NSView {
 
     func stopMonitoring() {
         cancelInteractionClear()
+        mouseDownLocation = nil
         store?.endUserDockInteraction()
         if let eventMonitor {
             NSEvent.removeMonitor(eventMonitor)
@@ -211,19 +216,33 @@ private final class DockPointerInteractionHostView: NSView {
             let point = convert(event.locationInWindow, from: nil)
             guard bounds.contains(point) else {
                 cancelInteractionClear()
+                mouseDownLocation = nil
                 store?.endUserDockInteraction()
                 return
             }
             cancelInteractionClear()
+            mouseDownLocation = point
             store?.beginUserDockInteraction()
         case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
-            // A drag is not a tab/pane click. Clear the click token as soon as
-            // movement starts so a swallowed mouse-up cannot leave it armed for
-            // a later programmatic Bonsplit mutation.
+            guard let window, event.window === window else {
+                mouseDownLocation = nil
+                store?.endUserDockInteraction()
+                return
+            }
+            let point = convert(event.locationInWindow, from: nil)
+            guard let mouseDownLocation else { return }
+            let movedX = abs(point.x - mouseDownLocation.x)
+            let movedY = abs(point.y - mouseDownLocation.y)
+            guard max(movedX, movedY) > dragThreshold else { return }
+            // A drag is not a tab/pane click. Clear the click token once the
+            // pointer has crossed the system's small click tolerance so a
+            // swallowed mouse-up cannot arm a later programmatic mutation.
+            self.mouseDownLocation = nil
             store?.endUserDockInteraction()
         case .leftMouseUp, .rightMouseUp, .otherMouseUp:
             guard let window, event.window === window else {
                 cancelInteractionClear()
+                mouseDownLocation = nil
                 store?.endUserDockInteraction()
                 return
             }
@@ -231,6 +250,7 @@ private final class DockPointerInteractionHostView: NSView {
             // mouse-up after local monitors run. Mark the click released and
             // defer clearing one MainActor turn so that callback can consume it.
             store?.releaseUserDockInteraction()
+            mouseDownLocation = nil
             scheduleInteractionClear()
         default:
             break

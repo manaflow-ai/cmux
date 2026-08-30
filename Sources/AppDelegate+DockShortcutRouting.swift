@@ -170,20 +170,16 @@ extension AppDelegate {
         return existingFocusedDockStoreForShortcut(context: context)
     }
 
-    /// Read-only Dock ownership value for the per-event shortcut context. An
-    /// explicit Dock mode is enough to keep a shortcut eligible while SwiftUI
-    /// is still mounting the store; unlike ``focusedDockStoreForShortcut``, this
-    /// path never creates a Dock as a side effect of context evaluation.
+    /// Read-only Dock ownership value for the per-event shortcut context. It
+    /// reports only an existing, visible Dock that the coordinator owns, so the
+    /// context and command/menu gates cannot disagree while SwiftUI mounts it.
     func dockFocusForShortcutContext(preferredWindow: NSWindow?) -> Bool {
         guard let context = preferredRegisteredMainWindowContext(
             preferredWindow: preferredWindow
         ) else {
             return false
         }
-        if context.keyboardFocusCoordinator.activeRightSidebarMode == .dock {
-            return context.fileExplorerState?.isVisible != false
-        }
-        return false
+        return existingFocusedDockStoreForShortcut(context: context) != nil
     }
 
     private func existingFocusedDockStoreForShortcut(
