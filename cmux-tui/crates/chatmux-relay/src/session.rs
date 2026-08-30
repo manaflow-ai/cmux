@@ -1029,7 +1029,13 @@ async fn relay_session(
                             // frame context, but it cannot publish that stale
                             // authority back into the manager.
                             let snapshot = auth.lock().expect("auth lock").clone();
-                            let context = make_context(&out_tx, &pending, &snapshot, &transport_id);
+                            let context = make_context(
+                                &out_tx,
+                                &pending,
+                                &snapshot,
+                                &transport_id,
+                                &connection_cancellation,
+                            );
                             runtime.pty.update_transport_auth(&context);
                         }
                         let cadence = Duration::from_millis(hello.heartbeat_interval_ms);
@@ -1101,7 +1107,13 @@ async fn relay_session(
                                     owner_user_id: snapshot.owner.clone(),
                                 }),
                             );
-                            let context = make_context(&out_tx, &pending, &snapshot, &transport_id);
+                            let context = make_context(
+                                &out_tx,
+                                &pending,
+                                &snapshot,
+                                &transport_id,
+                                &connection_cancellation,
+                            );
                             runtime.pty.update_transport_auth(&context);
                         }
                         workspace.set_local_observe(ack == Trust::Observe);
