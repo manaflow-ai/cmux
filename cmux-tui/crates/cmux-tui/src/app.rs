@@ -110,9 +110,8 @@ fn read_crossterm_event(
     // Keep the input thread interruptible even when no graphics response is
     // pending. A single normalized poll avoids separate timed and untimed
     // branches drifting apart as the reader evolves.
-    let poll_timeout = timeout.map_or(CROSSTERM_POLL_INTERVAL, |timeout| {
-        timeout.min(CROSSTERM_POLL_INTERVAL)
-    });
+    let poll_timeout =
+        timeout.map_or(CROSSTERM_POLL_INTERVAL, |timeout| timeout.min(CROSSTERM_POLL_INTERVAL));
     if !poll(poll_timeout)? {
         return Ok(None);
     }
