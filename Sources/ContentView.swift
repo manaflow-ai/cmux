@@ -10731,9 +10731,13 @@ struct ContentView: View {
     private func focusedTerminalDirectoryURL() -> URL? {
         if let dockSurface = commandPaletteDockSurfaceTarget(),
            let terminal = dockSurface.panel as? TerminalPanel {
-            let rawDirectory = terminal.directory.isEmpty
-                ? (terminal.requestedWorkingDirectory ?? "")
-                : terminal.directory
+            // Reuse the Dock's working-directory provenance policy. Remote
+            // transfers return nil here, so a remote cwd can never be opened as
+            // an unrelated local Finder/editor directory.
+            guard let rawDirectory = dockSurface.dock
+                .inheritedLocalTerminalWorkingDirectory(for: terminal.id) else {
+                return nil
+            }
             return validatedLocalDirectoryURL(rawDirectory)
         }
         guard let workspace = tabManager.selectedWorkspace else { return nil }

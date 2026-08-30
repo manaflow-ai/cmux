@@ -192,7 +192,8 @@ needed. Build a context by hand and assert evaluation:
 
 Known boolean keys are `sidebarFocus`, `browserFocus`, `markdownFocus`,
 `filePreviewTextEditorFocus`, `simulatorFocus`, `terminalFocus`,
-`commandPaletteVisible`, `terminalFindVisible`, and `workspaceCanvasLayout`.
+`commandPaletteVisible`, `terminalFindVisible`, `workspaceCanvasLayout`, and
+`dockFocus`.
 
 ```swift
 var context = ShortcutContext()

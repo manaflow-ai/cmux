@@ -1301,7 +1301,7 @@ struct cmuxApp: App {
     }
 
     private var activeDockForMenu: DockSplitStore? {
-        appDelegate.existingFocusedDockStoreForShortcut(
+        appDelegate.focusedDockStoreForShortcut(
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
         )
     }

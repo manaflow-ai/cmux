@@ -913,10 +913,15 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
 
     @discardableResult
     func consumeUserDockDragInteraction() -> Bool {
-        guard pendingUserInteraction, pendingUserInteractionDragging else {
+        // Accept a still-pressed token as well as an observed drag phase. The
+        // native Bonsplit drag session can consume the monitor's threshold
+        // event before this store sees it; the didMoveTab callback itself is
+        // the authoritative drag signal in that case.
+        guard pendingUserInteraction else {
             return false
         }
         pendingUserInteraction = false
+        pendingUserInteractionReleased = false
         pendingUserInteractionDragging = false
         return true
     }

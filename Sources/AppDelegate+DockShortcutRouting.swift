@@ -127,31 +127,20 @@ extension KeyboardShortcutSettings.Action {
 extension AppDelegate {
     /// Returns the coordinator's sidebar mode for shortcut context evaluation.
     /// Dock ownership is published separately as the `dockFocus` context key so
-    /// a responder fallback never overwrites a user-visible sidebar mode.
+    /// this user-visible mode remains a single coordinator-owned value.
     func focusedSidebarModeForShortcutContext(for window: NSWindow?) -> RightSidebarMode? {
         keyboardFocusCoordinator(for: window)?.activeRightSidebarMode
     }
 
-    /// The Dock store that should receive a creation/split shortcut when the Dock
-    /// owns keyboard focus in `preferredWindow`, else `nil` (caller falls through
-    /// to the main-area path).
+    /// The existing, visible Dock store that owns keyboard focus in
+    /// `preferredWindow`, else `nil` (caller falls through to its normal
+    /// container). This is deliberately read-only: menu/body and shortcut
+    /// context evaluation must not create a Dock as a side effect.
     func focusedDockStoreForShortcut(preferredWindow: NSWindow?) -> DockSplitStore? {
         guard let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow) else {
             return nil
         }
-        return existingFocusedDockStoreForShortcut(context: context)
-    }
-
-    /// Read-only variant used while SwiftUI builds menus or command snapshots.
-    /// It never lazily creates a Dock, so evaluating a menu's `body` cannot
-    /// mutate the window context or trigger an AttributeGraph invalidation.
-    func existingFocusedDockStoreForShortcut(
-        preferredWindow: NSWindow?
-    ) -> DockSplitStore? {
-        guard let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow) else {
-            return nil
-        }
-        return existingFocusedDockStoreForShortcut(context: context)
+        return dockStoreForShortcut(context: context)
     }
 
     /// Read-only Dock ownership value for the per-event shortcut context. It
@@ -163,10 +152,10 @@ extension AppDelegate {
         ) else {
             return false
         }
-        return existingFocusedDockStoreForShortcut(context: context) != nil
+        return dockStoreForShortcut(context: context) != nil
     }
 
-    private func existingFocusedDockStoreForShortcut(
+    private func dockStoreForShortcut(
         context: MainWindowContext
     ) -> DockSplitStore? {
         if let sidebarState = context.fileExplorerState,
@@ -310,7 +299,7 @@ extension AppDelegate {
             )
             return false
         }
-        guard let store = existingFocusedDockStoreForShortcut(
+        guard let store = focusedDockStoreForShortcut(
             preferredWindow: preferredWindow
         ) else {
             return false
