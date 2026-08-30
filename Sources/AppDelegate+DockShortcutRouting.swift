@@ -160,7 +160,20 @@ extension AppDelegate {
 
         switch dock.scope {
         case .global:
-            return focusedDockStoreForShortcut(preferredWindow: preferredWindow) === dock
+            guard let context = preferredRegisteredMainWindowContext(
+                preferredWindow: preferredWindow
+            ),
+            let ownerDock = existingWindowDock(forWindowId: context.windowId),
+            ownerDock === dock,
+            context.fileExplorerState?.isVisible == true,
+            dock.isVisibleInUI,
+            context.keyboardFocusCoordinator.activeRightSidebarMode == .dock
+                || context.keyboardFocusCoordinator.focusedRightSidebarMode == .dock else {
+                return false
+            }
+            // The command palette owns first responder while the command runs;
+            // the captured Dock/focus intent is authoritative until dismissal.
+            return true
 
         case .workspace:
             guard let manager = tabManagerFor(tabId: dock.workspaceId),
