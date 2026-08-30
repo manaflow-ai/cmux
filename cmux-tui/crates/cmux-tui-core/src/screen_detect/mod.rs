@@ -476,13 +476,31 @@ mod tests {
     }
 
     #[test]
-    fn scan_cursor_rotates_fairly_for_bounded_lookup_batches() {
+    fn scan_cursor_advances_by_lookup_budget_for_bounded_batches() {
         let mut tracker = ScreenDetectTracker::default();
         assert_eq!(tracker.scan_start(100), 0);
-        assert_eq!(tracker.scan_start(100), 1);
-        assert_eq!(tracker.scan_start(100), 2);
+        assert_eq!(tracker.scan_start(100), 64);
+        assert_eq!(tracker.scan_start(100), 28);
         assert_eq!(tracker.scan_start(0), 0);
         assert_eq!(tracker.scan_start(100), 0);
+    }
+
+    #[test]
+    fn scan_cursor_covers_large_catalog_before_repeating_a_lookup_slice() {
+        let mut tracker = ScreenDetectTracker::default();
+        let terminal_count = 1_000;
+        let lookup_budget = 64;
+        let passes = terminal_count.div_ceil(lookup_budget);
+        let mut covered = std::collections::HashSet::new();
+
+        for _ in 0..passes {
+            let start = tracker.scan_start(terminal_count);
+            for offset in 0..lookup_budget {
+                covered.insert((start + offset) % terminal_count);
+            }
+        }
+
+        assert_eq!(covered.len(), terminal_count);
     }
 
     #[test]
