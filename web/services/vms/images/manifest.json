@@ -192,7 +192,9 @@
       "builtAt": "2026-08-24T23:07:01.000Z",
       "builderScriptVersion": "bootstrap-on-create",
       "validationStatus": "passed",
-      "notes": "Stock Blaxel Alpine shell image, no desktop; `cmux vm new --base` and `vm run` pool provisioning send this id explicitly. Nothing is baked: the driver bootstraps every image at create time, installing the pinned cmux-tui build onto the persistent home volume (the installer adds curl via apk first, since the stock image ships without it). Validated live in #10478 in us-pdx-1: create + bootstrap, cmux-remote attach (route + enrollment), exec, and standby/wake process preservation. Listed so deployed runtimes accept the id the CLI sends; it was missing from the manifest between #10478 and this entry, so `vm new --base` failed closed in production."
+      "notes": "Stock Blaxel Alpine shell image, no desktop; `cmux vm new --base` and `vm run` pool provisioning send this id explicitly. Nothing is baked: the driver bootstraps every image at create time, installing the pinned cmux-tui build onto the persistent home volume (the installer adds curl via apk first, since the stock image ships without it). Validated live in #10478 in us-pdx-1: create + bootstrap, cmux-remote attach (route + enrollment), exec, and standby/wake process preservation. Listed so deployed runtimes accept the id the CLI sends; it was missing from the manifest between #10478 and this entry, so `vm new --base` failed closed in production.",
+      "kind": "base",
+      "defaultForKind": true
     },
     {
       "provider": "e2b",
