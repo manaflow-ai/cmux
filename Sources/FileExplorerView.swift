@@ -626,9 +626,6 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 // its first writer as the canonical source identity.
                 let promotedWriter = promotedWriters.first ?? fallbackWriter
                 let promotedOwnerships = pendingPreviewDrag.promote(writers: promotedWriters)
-                for writer in promotedWriters {
-                    writer.materializeRegisteredItem()
-                }
                 promotedWriter?.materializeRegisteredPayload(to: session.draggingPasteboard)
                 outlineView.activeNativeDragDelegateMarker = self
                 outlineView.activeNativeDragSession = session
@@ -1823,9 +1820,6 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         // first writer as the canonical source identity.
         let promotedWriter = promotedWriters.first ?? fallbackWriter
         let promotedOwnerships = pendingPreviewDrag.promote(writers: promotedWriters)
-        for writer in promotedWriters {
-            writer.materializeRegisteredItem()
-        }
         promotedWriter?.materializeRegisteredPayload(to: session.draggingPasteboard)
         // The pasteboard writer retains this exact container through the native
         // terminal callback. Keep only a weak marker on the table: a strong
@@ -1960,12 +1954,11 @@ private extension FileExplorerContainerView {
     func clearNativeDragMarkersIfIdle() {
         guard searchResultsView.activeNativeDragSession == nil,
               outlineView.activeNativeDragSession == nil else { return }
-        let dragPasteboard = NSPasteboard(name: .drag)
         for ownership in searchResultsView.activeNativeDragOwnerships {
-            ownership.finish(from: dragPasteboard)
+            ownership.revokeRouting()
         }
         for ownership in outlineView.activeNativeDragOwnerships {
-            ownership.finish(from: dragPasteboard)
+            ownership.revokeRouting()
         }
         searchResultsView.activeNativeDragDelegateMarker = nil
         searchResultsView.activeNativeDragWriter?.releaseSourceGraph()

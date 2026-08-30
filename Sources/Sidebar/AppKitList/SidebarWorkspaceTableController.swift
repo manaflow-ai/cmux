@@ -295,11 +295,21 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                !provisionalWriters.contains(where: { $0 === pendingWorkspaceDragWriter }) {
                 provisionalWriters.append(pendingWorkspaceDragWriter)
             }
+            var latestWriterByTable: [ObjectIdentifier: SidebarWorkspaceDragPasteboardWriter] = [:]
+            for writer in provisionalWriters {
+                guard let tableView = writer.sourceViewForDrag else { continue }
+                latestWriterByTable[ObjectIdentifier(tableView)] = writer
+            }
             for writer in provisionalWriters {
                 if let pendingWorkspaceDragActions {
                     writer.configureProvisionalActions(pendingWorkspaceDragActions)
                 }
-                writer.installProvisionalDelegate()
+                guard let tableView = writer.sourceViewForDrag else { continue }
+                if latestWriterByTable[ObjectIdentifier(tableView)] === writer {
+                    writer.installProvisionalDelegate()
+                } else {
+                    writer.releaseControllerGraphPreservingSource()
+                }
             }
         }
         if preserveNativeDragPresentation, activeWorkspaceDragContainerView == nil {

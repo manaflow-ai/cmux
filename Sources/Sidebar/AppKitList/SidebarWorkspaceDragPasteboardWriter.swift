@@ -26,6 +26,7 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem, NSTableViewD
     private var controller: SidebarWorkspaceTableController?
     private var actions: SidebarWorkspaceTableActions?
     private var provisionalSession: NSDraggingSession?
+    private weak var previousTableDelegate: NSTableViewDelegate?
 
     init(
         workspaceId: UUID,
@@ -87,7 +88,14 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem, NSTableViewD
     /// token-scoped terminal transition.
     func installProvisionalDelegate() {
         guard let tableView = sourceView as? SidebarWorkspaceTableViewImpl else { return }
+        previousTableDelegate = tableView.delegate
         tableView.delegate = self
+        controller = nil
+    }
+
+    /// Releases the old controller while leaving this writer's source table
+    /// available to the selected delegate for another pending writer.
+    func releaseControllerGraphPreservingSource() {
         controller = nil
     }
 
@@ -109,12 +117,13 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem, NSTableViewD
     func releaseSourceGraph() {
         if let tableView = sourceView as? SidebarWorkspaceTableViewImpl,
            tableView.delegate === self {
-            tableView.delegate = nil
+            tableView.delegate = previousTableDelegate
         }
         sourceView = nil
         controller = nil
         actions = nil
         provisionalSession = nil
+        previousTableDelegate = nil
     }
 
     func tableView(
