@@ -44,7 +44,11 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     private(set) var errorMessage: String?
     private(set) var trustRequest: DockTrustRequest?
     private(set) var isVisibleInUI: Bool = false
-    private(set) var menuCapabilities = DockMenuCapabilitySnapshot.empty
+    /// Snapshot consumed by the app-level Commands body. The refresh method
+    /// lives in ``DockSplitStore+PaneFocus`` so its setter must be module-scoped
+    /// rather than file-private; callers should treat this as read-only and
+    /// mutate it through `refreshDockMenuCapabilities()`.
+    internal(set) var menuCapabilities = DockMenuCapabilitySnapshot.empty
     @ObservationIgnored private(set) var isRetired = false
     /// Host views currently showing this Dock. Normally at most one (the owning
     /// window's right sidebar), but SwiftUI remounts can briefly overlap an old
