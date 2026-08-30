@@ -3800,6 +3800,36 @@ fn terminal_close_tombstones_before_kill_and_retries_safely() {
 }
 
 #[test]
+fn tombstoned_terminal_ids_include_resource_rows_without_host_rows() {
+    let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
+    commit_terminal_topology(&mut registry, "orphaned-tombstone");
+    let public_id = terminal_resource(TERMINAL_ONE);
+
+    // Model a recovered database where the public resource tombstone survived
+    // but its legacy host row was lost. The query must still rebuild the
+    // terminal lifecycle fence from the resource table.
+    registry
+        .connection
+        .execute(
+            "UPDATE resource_terminals
+             SET lifecycle = 'tombstoned', updated_revision = 2, deleted_revision = 2
+             WHERE public_id = ?1",
+            [public_id.as_str()],
+        )
+        .unwrap();
+    registry
+        .connection
+        .execute_batch(
+            "PRAGMA foreign_keys=OFF;
+         DELETE FROM terminal_hosts WHERE terminal_id = '00000000000040008000000000000001';
+         PRAGMA foreign_keys=ON;",
+        )
+        .unwrap();
+
+    assert_eq!(registry.tombstoned_terminal_public_ids().unwrap(), vec![public_id]);
+}
+
+#[test]
 fn closing_workspace_detaches_views_without_tombstoning_terminal_hosts() {
     let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
     seed_workspace(&mut registry, "one");

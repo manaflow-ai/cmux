@@ -2774,17 +2774,10 @@ impl Mux {
         pending: Vec<(String, String, String, u64, crate::JournalIngress)>,
     ) -> anyhow::Result<usize> {
         let mut applied = 0;
+        let mut fold_ingress = None;
         for (producer_id, origin, key, sequence, ingress) in pending {
             match self.apply_agent_hook_record(&ingress, sequence) {
                 Ok(()) => {
-                    self.fold_agent_roster(
-                        &ingress,
-                        &crate::JournalAppendCommit {
-                            sequence,
-                            event_id: String::new(),
-                            replayed: true,
-                        },
-                    );
                     if self
                         .workspace_registry
                         .lock()
@@ -2793,6 +2786,11 @@ impl Mux {
                         .is_ok()
                     {
                         applied += 1;
+                        // Fold only after the pending marker is gone. Keep
+                        // one representative ingress so a batch retry can
+                        // catch the roster up through the current journal
+                        // head in one pass.
+                        fold_ingress = Some(ingress);
                     } else {
                         self.report_internal_diagnostic("agent hook retry cleanup deferred");
                     }
@@ -2828,6 +2826,26 @@ impl Mux {
                     {
                         self.report_internal_diagnostic("agent hook retry bookkeeping deferred");
                     }
+                }
+            }
+        }
+        if applied > 0 {
+            if let Some(ingress) = fold_ingress {
+                let head_sequence = self
+                    .workspace_registry
+                    .lock()
+                    .unwrap()
+                    .session_journal_after(0, 1)
+                    .map(|page| page.head_sequence);
+                if let Ok(sequence) = head_sequence {
+                    self.fold_agent_roster(
+                        &ingress,
+                        &crate::JournalAppendCommit {
+                            sequence,
+                            event_id: String::new(),
+                            replayed: true,
+                        },
+                    );
                 }
             }
         }
@@ -5712,6 +5730,20 @@ impl Mux {
         if commit.sequence <= read_cursor {
             return;
         }
+        let pending_sequences = match self
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .pending_agent_hook_projection_sequences(read_cursor, commit.sequence)
+        {
+            Ok(sequences) => sequences,
+            Err(error) => {
+                eprintln!(
+                    "cmux-tui: reading pending agent hook projections before roster fold failed: {error}"
+                );
+                return;
+            }
+        };
         loop {
             let page = match self
                 .workspace_registry
@@ -5733,6 +5765,13 @@ impl Mux {
                     continue;
                 }
                 if record.sequence > commit.sequence {
+                    return;
+                }
+                // The journal is durable before its resource projection. Do
+                // not advance the reducer across a pending row, because that
+                // would publish agent state that the authoritative projection
+                // rejected. A later retry will call this fold again.
+                if pending_sequences.contains(&record.sequence) {
                     return;
                 }
                 let deltas = {
@@ -23852,6 +23891,12 @@ mod tests {
                 .any(|(_, _, _, sequence, _)| *sequence == first_receipt.sequence)
         );
         assert!(mux.list_agents(Some(first.id), None).is_empty());
+        // The later projection is durable, but its roster fold waits behind
+        // the first unresolved row. Retrying the first row releases the
+        // contiguous prefix and catches both terminals up to the journal head.
+        assert!(mux.list_agents(Some(second.id), None).is_empty());
+        mux.retry_pending_agent_hooks_for_terminal(&first_terminal).unwrap();
+        assert_eq!(mux.list_agents(Some(first.id), None)[0].state, AgentState::Working);
         assert_eq!(mux.list_agents(Some(second.id), None)[0].state, AgentState::Working);
     }
 
