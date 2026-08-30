@@ -168,15 +168,16 @@ final class RecoverableMainWindowRoute {
               ) else {
             return nil
         }
-        if let routeWindow = window,
-           routeWindow.isVisible || routeWindow.isMiniaturized {
-            guard proposedContext.window === routeWindow else { return nil }
-        } else if let routeWindow, proposedContext.window !== routeWindow {
-            // A hidden orphan can be replaced by a newly-created window with the
-            // same stable id. Detach the old AppKit identity before the retained
-            // context becomes live again so a later stale close cannot resolve the
-            // replacement by identifier.
-            routeWindow.identifier = nil
+        if let routeWindow = window {
+            if routeWindow.isVisible || routeWindow.isMiniaturized {
+                guard proposedContext.window === routeWindow else { return nil }
+            } else if proposedContext.window !== routeWindow {
+                // A hidden orphan can be replaced by a newly-created window with
+                // the same stable id. Detach the old AppKit identity before the
+                // retained context becomes live again so a later stale close
+                // cannot resolve the replacement by identifier.
+                routeWindow.identifier = nil
+            }
         }
 
         let context = retainedContext ?? proposedContext
