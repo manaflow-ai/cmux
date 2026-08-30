@@ -13,12 +13,12 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
     /// represented by this header and is never emitted as a separate
     /// ``workspace`` item.
     ///
-    /// `hasUnread` is the header's aggregate unread state, mirroring the Mac
+    /// `unread` is the header's aggregate unread state, mirroring the Mac
     /// sidebar header badge: while the group is expanded it reflects only the
-    /// anchor workspace (visible member rows carry their own dots); while
-    /// collapsed it reflects the whole group, anchor included, so hidden
-    /// member activity is never silently swallowed.
-    case groupHeader(MobileWorkspaceGroupPreview, hasUnread: Bool)
+    /// anchor workspace (visible member rows carry their own indicators);
+    /// while collapsed it reflects the whole group, anchor included (counts
+    /// summed), so hidden member activity is never silently swallowed.
+    case groupHeader(MobileWorkspaceGroupPreview, unread: MobileWorkspaceUnreadState)
     /// A workspace row. `indented` is `true` for non-anchor members nested under
     /// a group header, so the view can inset them.
     case workspace(MobileWorkspacePreview, indented: Bool)
@@ -104,14 +104,15 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
         // Aggregate unread state per group up front (membership can be
         // non-contiguous, so this cannot be folded into the emit loop).
         // Mirrors the Mac header badge: anchor-only while expanded, whole
-        // group (anchor included) while collapsed.
-        var anchorUnreadByGroupID: [MobileWorkspaceGroupPreview.ID: Bool] = [:]
-        var anyMemberUnreadByGroupID: [MobileWorkspaceGroupPreview.ID: Bool] = [:]
+        // group (anchor included, counts summed) while collapsed.
+        var anchorUnreadByGroupID: [MobileWorkspaceGroupPreview.ID: MobileWorkspaceUnreadState] = [:]
+        var groupUnreadByGroupID: [MobileWorkspaceGroupPreview.ID: MobileWorkspaceUnreadState] = [:]
         for workspace in workspaces {
             guard let groupID = workspace.groupID, let group = groupsByID[groupID] else { continue }
-            anyMemberUnreadByGroupID[groupID, default: false] = anyMemberUnreadByGroupID[groupID, default: false] || workspace.hasUnread
+            groupUnreadByGroupID[groupID, default: .read] =
+                groupUnreadByGroupID[groupID, default: .read].merging(workspace.unreadState)
             if group.liveAnchorWorkspaceID == workspace.id {
-                anchorUnreadByGroupID[groupID] = workspace.hasUnread
+                anchorUnreadByGroupID[groupID] = workspace.unreadState
             }
         }
 
@@ -149,10 +150,10 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
                 flushGroupFooter()
                 lastEmittedGroupID = groupID
                 if let groupID, let group = groupsByID[groupID], !emittedHeaders.contains(groupID) {
-                    let hasUnread = group.isCollapsed
-                        ? anyMemberUnreadByGroupID[groupID, default: false]
-                        : anchorUnreadByGroupID[groupID, default: false]
-                    items.append(.groupHeader(group, hasUnread: hasUnread))
+                    let unread = group.isCollapsed
+                        ? groupUnreadByGroupID[groupID, default: .read]
+                        : anchorUnreadByGroupID[groupID, default: .read]
+                    items.append(.groupHeader(group, unread: unread))
                     emittedHeaders.insert(groupID)
                     collapsedByGroupID[groupID] = group.isCollapsed
                 }
@@ -221,7 +222,7 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
         for item in items {
             if case .groupHeader(let group, _) = item,
                let preceding = emptyBeforeGroup[group.id] {
-                rendered.append(contentsOf: preceding.map { .groupHeader($0, hasUnread: false) })
+                rendered.append(contentsOf: preceding.map { .groupHeader($0, unread: .read) })
             }
             rendered.append(item)
         }
@@ -241,11 +242,11 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
                 }
             } ?? rendered.endIndex
             rendered.insert(
-                contentsOf: trailingPinned.map { .groupHeader($0, hasUnread: false) },
+                contentsOf: trailingPinned.map { .groupHeader($0, unread: .read) },
                 at: firstUnpinnedIndex
             )
         }
-        rendered.append(contentsOf: trailingUnpinned.map { .groupHeader($0, hasUnread: false) })
+        rendered.append(contentsOf: trailingUnpinned.map { .groupHeader($0, unread: .read) })
         return rendered
     }
 }

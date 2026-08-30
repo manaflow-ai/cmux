@@ -378,6 +378,76 @@ struct CrashDiagnosticSessionPolicyTests {
         #expect(!AppDelegate.hasCrashOnlyPrimarySnapshotRemovalMarker(defaults: defaults))
     }
 
+    @Test
+    func missingPrimaryRecoveryRequiresAnUncleanLaunchSignal() {
+        #expect(
+            !AppDelegate.shouldRecoverMissingPrimarySessionSnapshot(
+                previousLaunchWasUnclean: false,
+                crashOnlyPrimarySnapshotRemovalMarker: false
+            )
+        )
+        #expect(
+            AppDelegate.shouldRecoverMissingPrimarySessionSnapshot(
+                previousLaunchWasUnclean: true,
+                crashOnlyPrimarySnapshotRemovalMarker: false
+            )
+        )
+        #expect(
+            AppDelegate.shouldRecoverMissingPrimarySessionSnapshot(
+                previousLaunchWasUnclean: false,
+                crashOnlyPrimarySnapshotRemovalMarker: true
+            )
+        )
+    }
+
+    @Test
+    func sessionLaunchSentinelClassifiesAndClearsUncleanRuns() throws {
+        let homeDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-launch-state-\(UUID().uuidString)", isDirectory: true)
+        let environment = ["CMUX_BUNDLE_ID": "com.cmux.tests.sentinel"]
+        defer { try? FileManager.default.removeItem(at: homeDirectory) }
+
+        #expect(
+            !GhosttyCrashBreadcrumb.priorSessionLaunchWasUnclean(
+                homeDirectory: homeDirectory,
+                environment: environment
+            )
+        )
+        #expect(
+            !GhosttyCrashBreadcrumb.captureSessionLaunchState(
+                homeDirectory: homeDirectory,
+                environment: environment
+            )
+        )
+        #expect(
+            GhosttyCrashBreadcrumb.priorSessionLaunchWasUnclean(
+                homeDirectory: homeDirectory,
+                environment: environment
+            )
+        )
+
+        // A second process would observe the first process's sentinel as an
+        // unclean prior run. This is the launch classification used by startup
+        // snapshot recovery.
+        #expect(
+            GhosttyCrashBreadcrumb.captureSessionLaunchState(
+                homeDirectory: homeDirectory,
+                environment: environment
+            )
+        )
+
+        GhosttyCrashBreadcrumb.markSessionCleanExit(
+            homeDirectory: homeDirectory,
+            environment: environment
+        )
+        #expect(
+            !GhosttyCrashBreadcrumb.priorSessionLaunchWasUnclean(
+                homeDirectory: homeDirectory,
+                environment: environment
+            )
+        )
+    }
+
     private func emptyWorkspaceSnapshot(currentDirectory: String) -> SessionWorkspaceSnapshot {
         SessionWorkspaceSnapshot(
             processTitle: "Terminal",

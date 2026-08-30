@@ -238,6 +238,34 @@ extension TerminalController {
         ])
     }
 
+    /// `workspace.cloud_vm_bind`: record which cloud machine a cmux-tui workspace hosts.
+    /// Runs on the main actor like `workspace.cloud_vm_terminal_ready`: it mutates a
+    /// published workspace property the sidebar observes. No focus change.
+    func v2WorkspaceCloudVMBind(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let rawWorkspaceId = v2RawString(params, "workspace_id")?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let workspaceId = UUID(uuidString: rawWorkspaceId) else {
+            return .err(code: "invalid_params", message: "workspace_id is required", data: nil)
+        }
+        guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+            return .err(code: "not_found", message: "Workspace not found", data: ["workspace_id": workspaceId.uuidString])
+        }
+        guard let vmID = WorkspaceCloudVMBinding.normalizedVMID(v2RawString(params, "vm_id")) else {
+            return .err(code: "invalid_params", message: "vm_id is required", data: ["workspace_id": workspaceId.uuidString])
+        }
+        let isBase = v2Bool(params, "base") ?? false
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: vmID, isBase: isBase)
+        return .ok([
+            "workspace_id": workspaceId.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+            "vm_id": vmID,
+            "base": isBase,
+            "transport": "cmux-remote",
+        ])
+    }
+
     func v2MobileWorkspaceCreate(
         params: [String: Any],
         workingDirectoryValidator: WorkspaceCreateWorkingDirectoryValidator? = nil,

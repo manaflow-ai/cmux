@@ -137,6 +137,22 @@ pub(crate) struct SessionJournalSubjectPage {
     pub(crate) records: Vec<SessionJournalRecord>,
 }
 
+/// One retained `terminal.output` record's content and stream coverage.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct TerminalOutputChunk {
+    pub(crate) stream_offset_start: u64,
+    pub(crate) stream_offset_end: u64,
+    pub(crate) bytes: Arc<[u8]>,
+}
+
+/// A record-boundary window over one terminal generation's output stream.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct TerminalOutputRecordsWindow {
+    pub(crate) chunks: Vec<TerminalOutputChunk>,
+    /// More retained records follow this window (the byte budget cut it).
+    pub(crate) truncated: bool,
+}
+
 /// A short-lived WAL reader owned by one subscriber thread. It never shares
 /// the registry writer connection or its mutex.
 pub(crate) struct SessionJournalReader {
@@ -868,6 +884,102 @@ impl WorkspaceRegistry {
         limit: usize,
     ) -> anyhow::Result<SessionJournalPage> {
         query_session_journal_after(&self.connection, sequence, limit)
+    }
+
+    /// The most recently started journal output stream for one terminal:
+    /// its generation and the exclusive end offset of its journaled bytes.
+    pub(crate) fn terminal_stream_latest(
+        &self,
+        terminal_id: &str,
+    ) -> anyhow::Result<Option<(String, u64)>> {
+        let Some((generation, next_offset)) = self
+            .connection
+            .query_row(
+                "SELECT generation, next_offset FROM journal_terminal_streams
+                 WHERE terminal_id = ?1
+                 ORDER BY rowid DESC LIMIT 1",
+                params![terminal_id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+            )
+            .optional()?
+        else {
+            return Ok(None);
+        };
+        let next_offset =
+            u64::try_from(next_offset).context("terminal journal offset is negative")?;
+        Ok(Some((generation, next_offset)))
+    }
+
+    /// Retained live `terminal.output` records of one generation with bytes
+    /// after `after`, in stream order, honoring record boundaries: the first
+    /// matching record is always included whole, later records only while the
+    /// accumulated content stays within `max_bytes`.
+    ///
+    /// Records archived into sealed journal segments are not served here:
+    /// sealing is checkpoint-aligned, so archived output is covered by a
+    /// retained vt-replay snapshot (a checkpoint blob for live terminals, the
+    /// terminal exit snapshot for exited ones) and readers see the coverage
+    /// clamp through the window's start offset.
+    pub(crate) fn terminal_output_records_after(
+        &self,
+        terminal_id: &str,
+        generation: &str,
+        after: u64,
+        max_bytes: u64,
+    ) -> anyhow::Result<TerminalOutputRecordsWindow> {
+        let mut statement = self.connection.prepare(
+            "SELECT sequence, event_id, schema_version, kind, class, replay_policy,
+                    occurred_at_ms, committed_at_ms, producer_json, authority_json,
+                    causation_id, correlation_id, causation_depth, subjects_json,
+                    sensitivity, payload_json, content, resource_revision,
+                    previous_resource_revision
+             FROM session_journal
+             WHERE kind = 'terminal.output'
+               AND EXISTS (
+                 SELECT 1 FROM journal_subject_index AS subject
+                 WHERE subject.sequence = session_journal.sequence
+                   AND subject.kind = 'terminal' AND subject.id = ?1
+               )
+               AND json_extract(authority_json, '$.generation') = ?2
+               AND CAST(json_extract(payload_json, '$.stream_offset_end') AS INTEGER) > ?3
+             ORDER BY sequence ASC",
+        )?;
+        let rows = statement.query_map(
+            params![
+                terminal_id,
+                generation,
+                i64::try_from(after).context("terminal stream offset exceeds SQLite range")?,
+            ],
+            stored_record_row,
+        )?;
+        let mut chunks: Vec<TerminalOutputChunk> = Vec::new();
+        let mut total_bytes = 0_u64;
+        let mut truncated = false;
+        for row in rows {
+            let record = decode_record(row?)?;
+            let bytes = record
+                .terminal_output
+                .clone()
+                .context("terminal output record omitted its content")?;
+            let stream_offset_start = decimal_payload_u64(&record.payload, "stream_offset_start")?;
+            let stream_offset_end = decimal_payload_u64(&record.payload, "stream_offset_end")?;
+            if let Some(previous) = chunks.last() {
+                anyhow::ensure!(
+                    stream_offset_start == previous.stream_offset_end,
+                    "terminal output stream window contains an offset gap"
+                );
+            }
+            let byte_count = u64::try_from(bytes.len())?;
+            if !chunks.is_empty()
+                && total_bytes.checked_add(byte_count).is_none_or(|total| total > max_bytes)
+            {
+                truncated = true;
+                break;
+            }
+            total_bytes = total_bytes.saturating_add(byte_count);
+            chunks.push(TerminalOutputChunk { stream_offset_start, stream_offset_end, bytes });
+        }
+        Ok(TerminalOutputRecordsWindow { chunks, truncated })
     }
 }
 

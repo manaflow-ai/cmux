@@ -44,6 +44,7 @@ extension CMUXCLI {
         processEnvironment: [String: String]
     ) throws {
         let selector = try restoreSelector(commandArgs)
+        let workingDirectoryBeforeRestore = FileManager.default.currentDirectoryPath
         var params: [String: Any] = [:]
         if let surface = selector.surface {
             let surfaceID = try normalizeSurfaceHandle(
@@ -114,6 +115,61 @@ extension CMUXCLI {
             )
         }
 
+        let bindingPayload = payload["resume_binding"] as? [String: Any]
+        if let codexValidation = codexRestoreValidation(
+            record: record,
+            bindingPayload: bindingPayload,
+            processEnvironment: processEnvironment
+        ) {
+            let shouldContinue: Bool
+            switch codexValidation {
+            case .allowed:
+                shouldContinue = true
+            case .missing, .unavailable, .rejectedChild, .bindingChanged:
+                shouldContinue = false
+            }
+            if !shouldContinue {
+                try handleRejectedCodexRestore(
+                    codexValidation,
+                    record: record,
+                    bindingPayload: bindingPayload,
+                    surfaceID: params["surface_id"] as? String,
+                    workspaceID: payload["workspace_id"] as? String
+                        ?? processEnvironment["CMUX_WORKSPACE_ID"],
+                    client: client,
+                    workingDirectoryBeforeRestore: workingDirectoryBeforeRestore
+                )
+                return
+            }
+        }
+
+        // Legacy command-only records predate structured launch captures, but
+        // an agent-hook Codex record still names a mutable surface owner. Claim
+        // that generation before handing the shell command to exec so an
+        // intervening child publication cannot steal the restore.
+        if codexRestoreBindingRequiresClaim(record),
+           record.launchCommand == nil,
+           record.preparedArguments == nil,
+           record.legacyCommand != nil,
+           !claimCodexRestoreBinding(
+               record: record,
+               bindingPayload: bindingPayload,
+               surfaceID: params["surface_id"] as? String,
+               client: client
+           ) {
+            try handleRejectedCodexRestore(
+                .bindingChanged,
+                record: record,
+                bindingPayload: bindingPayload,
+                surfaceID: params["surface_id"] as? String,
+                workspaceID: payload["workspace_id"] as? String
+                    ?? processEnvironment["CMUX_WORKSPACE_ID"],
+                client: client,
+                workingDirectoryBeforeRestore: workingDirectoryBeforeRestore
+            )
+            return
+        }
+
         let environment = processEnvironment.merging(record.environment) { _, restored in
             restored
         }
@@ -169,6 +225,25 @@ extension CMUXCLI {
             ambientEnvironment: processEnvironment
         ) else {
             if let legacyCommand = record.legacyCommand {
+                if codexRestoreBindingRequiresClaim(record),
+                   !claimCodexRestoreBinding(
+                       record: record,
+                       bindingPayload: bindingPayload,
+                       surfaceID: params["surface_id"] as? String,
+                       client: client
+                   ) {
+                    try handleRejectedCodexRestore(
+                        .bindingChanged,
+                        record: record,
+                        bindingPayload: bindingPayload,
+                        surfaceID: params["surface_id"] as? String,
+                        workspaceID: payload["workspace_id"] as? String
+                            ?? processEnvironment["CMUX_WORKSPACE_ID"],
+                        client: client,
+                        workingDirectoryBeforeRestore: workingDirectoryBeforeRestore
+                    )
+                    return
+                }
                 try execLegacyRestoreRecord(
                     legacyCommand,
                     record: record,
@@ -191,6 +266,25 @@ extension CMUXCLI {
                 preflight,
                 appliedWorkingDirectory: effectiveWorkingDirectory
             )
+        }
+        if codexRestoreBindingRequiresClaim(record),
+           !claimCodexRestoreBinding(
+               record: record,
+               bindingPayload: bindingPayload,
+               surfaceID: params["surface_id"] as? String,
+               client: client
+           ) {
+            try handleRejectedCodexRestore(
+                .bindingChanged,
+                record: record,
+                bindingPayload: bindingPayload,
+                surfaceID: params["surface_id"] as? String,
+                workspaceID: payload["workspace_id"] as? String
+                    ?? processEnvironment["CMUX_WORKSPACE_ID"],
+                client: client,
+                workingDirectoryBeforeRestore: workingDirectoryBeforeRestore
+            )
+            return
         }
         client.close()
         try execRestoreInvocation(
