@@ -22905,16 +22905,31 @@ mod tests {
     #[test]
     fn delayed_roster_fold_cannot_overwrite_newer_direct_timestamp() {
         use crate::journal_reducers::{RosterDelta, RosterEntry};
-        let root = std::env::temp_dir().join(format!("cmux-roster-monotonic-{}", crate::workspace_registry::new_uuid_v4()));
-        let mux = Mux::open_persistent("roster-monotonic", SurfaceOptions::default(), &root).unwrap();
+        let root = std::env::temp_dir()
+            .join(format!("cmux-roster-monotonic-{}", crate::workspace_registry::new_uuid_v4()));
+        let mux =
+            Mux::open_persistent("roster-monotonic", SurfaceOptions::default(), &root).unwrap();
         let surface = mux.new_workspace(None, None).unwrap();
         let terminal_id = surface.terminal_public_id().cloned().unwrap();
-        mux.agent_records.lock().unwrap().insert(terminal_id.clone(), TerminalAgentRecord {
-            state: AgentState::Working, source: AgentSource::Socket, session: None, agent: None, updated_at_ms: 200,
-        });
+        mux.agent_records.lock().unwrap().insert(
+            terminal_id.clone(),
+            TerminalAgentRecord {
+                state: AgentState::Working,
+                source: AgentSource::Socket,
+                session: None,
+                agent: None,
+                updated_at_ms: 200,
+            },
+        );
         mux.apply_roster_delta_to_record_cache(RosterDelta::Upsert {
             terminal_id: terminal_id.to_string(),
-            entry: RosterEntry { state: "idle".into(), source: "socket".into(), session: None, agent: None, updated_at_ms: 100 },
+            entry: RosterEntry {
+                state: "idle".into(),
+                source: "socket".into(),
+                session: None,
+                agent: None,
+                updated_at_ms: 100,
+            },
         });
         assert_eq!(mux.agent_records.lock().unwrap().get(&terminal_id).unwrap().updated_at_ms, 200);
         mux.shutdown();
@@ -23038,12 +23053,10 @@ mod tests {
 
     #[test]
     fn roster_restore_replays_beyond_legacy_record_cap() {
-        let root = std::env::temp_dir().join(format!(
-            "cmux-roster-large-replay-{}",
-            crate::workspace_registry::new_uuid_v4()
-        ));
-        let mux = Mux::open_persistent("roster-large-replay", SurfaceOptions::default(), &root)
-            .unwrap();
+        let root = std::env::temp_dir()
+            .join(format!("cmux-roster-large-replay-{}", crate::workspace_registry::new_uuid_v4()));
+        let mux =
+            Mux::open_persistent("roster-large-replay", SurfaceOptions::default(), &root).unwrap();
         let surface = mux.new_workspace(None, None).unwrap();
         let terminal_id = surface.terminal_public_id().cloned().expect("terminal");
         let event = crate::agent_hooks::agent_hook_journal_ingress(
@@ -23058,7 +23071,12 @@ mod tests {
             mux.workspace_registry
                 .lock()
                 .unwrap()
-                .append_journal_ingress(&event, &validated, "test", &format!("large-replay-{index}"))
+                .append_journal_ingress(
+                    &event,
+                    &validated,
+                    "test",
+                    &format!("large-replay-{index}"),
+                )
                 .unwrap();
         }
         mux.shutdown();
