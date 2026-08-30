@@ -1737,10 +1737,14 @@ final class WindowBrowserHostViewTests: XCTestCase {
             ["began", "changed", "ended"],
             "A shared browser/Dock divider hit must follow the native sidebar drag lifecycle"
         )
+        guard let firstChangedTranslation = changedTranslation else {
+            XCTFail("The forwarded drag must reach the native sidebar tracker")
+            return
+        }
         XCTAssertEqual(
-            changedTranslation,
-            32,
-            accuracy: 0.5,
+            firstChangedTranslation,
+            CGFloat(32),
+            accuracy: CGFloat(0.5),
             "The forwarded drag must reach the native sidebar tracker"
         )
 
@@ -1794,10 +1798,14 @@ final class WindowBrowserHostViewTests: XCTestCase {
             ["began", "changed", "ended"],
             "A Dock divider handoff must survive a transient tracker reparent"
         )
+        guard let reparentedChangedTranslation = changedTranslation else {
+            XCTFail("A reparented Dock divider must continue receiving native drag translation")
+            return
+        }
         XCTAssertEqual(
-            changedTranslation,
-            28,
-            accuracy: 0.5,
+            reparentedChangedTranslation,
+            CGFloat(28),
+            accuracy: CGFloat(0.5),
             "A reparented Dock divider must continue receiving native drag translation"
         )
     }
