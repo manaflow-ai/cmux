@@ -47,6 +47,21 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    func testGrokStopReasonWithoutMessageNotifies() throws {
+        let context = try makeGrokNoiseContext(name: "grok-stop-reason")
+        defer { context.cleanup() }
+
+        let payload = #"{"hookEventName":"Stop","sessionId":"\#(context.sessionId)","cwd":"\#(context.root.path)","terminationReason":"rate limit"}"#
+        try runGrokNoiseHook(context, "stop", payload: payload)
+
+        let notifications = notifyCommands(in: context.state.snapshot())
+        XCTAssertEqual(notifications.count, 1, "A structured stop reason must produce one notification, saw \(notifications)")
+        XCTAssertTrue(
+            notifications.first?.contains("Grok|Rate limited|") == true,
+            "A rate-limit termination reason without a message should classify as rate limited, saw \(notifications)"
+        )
+    }
+
     func testGrokIncidentalCompletionCueAfterInterleavedNotificationDoesNotReding() throws {
         let context = try makeGrokNoiseContext(name: "grok-incidental")
         defer { context.cleanup() }
