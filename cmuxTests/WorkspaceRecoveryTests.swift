@@ -426,6 +426,7 @@ struct WorkspaceRecoveryTests {
             title: "Auto Derived Title",
             source: .auto
         ))
+        sourceManager.flushPendingWorkspaceCustomizationWrites()
         #expect(
             store.customization(for: sourceWorkspace.stableId) ==
                 WorkspaceCustomization(customTitle: .autoValue("Auto Derived Title"), customColor: .absent)
@@ -467,6 +468,7 @@ struct WorkspaceRecoveryTests {
             title: "Auto Before Clear",
             source: .auto
         ))
+        sourceManager.flushPendingWorkspaceCustomizationWrites()
         let staleSnapshot = sourceWorkspace.sessionSnapshot(includeScrollback: false)
         sourceManager.clearCustomTitle(tabId: sourceWorkspace.id)
         #expect(
@@ -516,6 +518,7 @@ struct WorkspaceRecoveryTests {
             title: "Latest Auto Title",
             source: .auto
         ))
+        sourceManager.flushPendingWorkspaceCustomizationWrites()
 
         let restoredManager = TabManager(
             autoWelcomeIfNeeded: false,
@@ -586,6 +589,7 @@ struct WorkspaceRecoveryTests {
             title: "Automatic Name",
             source: .auto
         ))
+        sourceManager.flushPendingWorkspaceCustomizationWrites()
         sourceManager.applyWorkspaceColor(
             "#123456",
             toWorkspaceIds: [sourceWorkspace.id]
