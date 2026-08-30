@@ -488,6 +488,49 @@ struct WorkspaceRecoveryTests {
     }
 
     @Test
+    func latestAutoTitleAfterClearWinsOverOlderJournalAndSnapshot() throws {
+        let fixture = try makeCustomizationStore()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let store = fixture.store
+
+        let sourceManager = TabManager(
+            initialWorkingDirectory: "/tmp/repeated-auto-title",
+            autoWelcomeIfNeeded: false,
+            workspaceCustomizationStore: store
+        )
+        let sourceWorkspace = try #require(sourceManager.selectedWorkspace)
+        #expect(sourceManager.setCustomTitle(tabId: sourceWorkspace.id, title: "User Name"))
+        sourceManager.clearCustomTitle(tabId: sourceWorkspace.id)
+        #expect(sourceManager.setCustomTitle(
+            tabId: sourceWorkspace.id,
+            title: "First Auto Title",
+            source: .auto
+        ))
+
+        // Autosave can lag behind a later automatic title refresh. The
+        // recovery journal must keep the latest automatic value, not only the
+        // first value that followed the explicit clear.
+        let staleSnapshot = sourceWorkspace.sessionSnapshot(includeScrollback: false)
+        #expect(sourceManager.setCustomTitle(
+            tabId: sourceWorkspace.id,
+            title: "Latest Auto Title",
+            source: .auto
+        ))
+
+        let restoredManager = TabManager(
+            autoWelcomeIfNeeded: false,
+            workspaceCustomizationStore: store
+        )
+        restoredManager.restoreSessionSnapshot(SessionTabManagerSnapshot(
+            selectedWorkspaceIndex: 0,
+            workspaces: [staleSnapshot]
+        ))
+        let restoredWorkspace = try #require(restoredManager.selectedWorkspace)
+        #expect(restoredWorkspace.customTitle == "Latest Auto Title")
+        #expect(restoredWorkspace.effectiveCustomTitleSource == .auto)
+    }
+
+    @Test
     func titleAndColorRecoveryFieldsRemainIndependent() throws {
         let fixture = try makeCustomizationStore()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
