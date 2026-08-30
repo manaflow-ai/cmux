@@ -73,7 +73,11 @@ public struct TerminalSection: View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.terminal", defaultValue: "Terminal"), section: .terminal)
             mainCard
-            TerminalVideoBackgroundCard(defaultsStore: defaultsStore, catalog: catalog)
+            TerminalVideoBackgroundCard(
+                defaultsStore: defaultsStore,
+                catalog: catalog,
+                hostActions: hostActions
+            )
             resumeCommandsCard
         }
         .task { startObservingSettings() }

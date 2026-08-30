@@ -125,7 +125,7 @@ Enable routine hibernation from the command palette (`⌘⇧P` -> Enable Agent H
 
 ## `terminal.videoBackground`
 
-Opt-in dynamic video background: a non-interactive video plays behind terminal content in every window, dimmed so text stays readable and silent by default. The video layer never takes clicks or keystrokes, and playback pauses automatically while the window is occluded or minimized, during system sleep, and in Low Power Mode. YouTube embeds are size-capped so large Retina windows decode roughly 1080p rather than a 4K stream.
+Opt-in dynamic video background: a non-interactive video plays behind terminal content in every window, dimmed so text stays readable and silent by default. The video layer never takes clicks or keystrokes, and playback pauses automatically while the window is occluded or minimized, during system sleep, and in Low Power Mode. YouTube embeds use a selectable quality cap (1080p by default) and every terminal window shares the same queue and playhead.
 
 ```json
 {
@@ -133,6 +133,12 @@ Opt-in dynamic video background: a non-interactive video plays behind terminal c
     "videoBackground": {
       "enabled": true,
       "source": "https://www.youtube.com/playlist?list=PLxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "queue": [
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        "~/Movies/ambient.m4v"
+      ],
+      "quality": "1080p",
+      "volume": 1.0,
       "muted": true,
       "dimOpacity": 0.8
     }
@@ -142,10 +148,25 @@ Opt-in dynamic video background: a non-interactive video plays behind terminal c
 
 - `enabled`: turn the video background on. Default: `false`.
 - `source`: a YouTube video or playlist URL (playlists loop and advance automatically via the YouTube iframe embed), a raw YouTube video/playlist ID, or a local `.mp4`/`.m4v`/`.mov` file path played with AVFoundation. If a YouTube embed refuses to play (embedding disabled), the layer disappears and the terminal is unaffected; edit the source to retry.
+- `queue`: an ordered array of video URLs/IDs or local file paths. Entries play one after another and repeat from the beginning; an empty queue falls back to `source` for compatibility. New terminal windows join the same queue and playhead.
+- `quality`: YouTube stream cap: `720p`, `1080p`, `1440p`, or `2160p` (`4k`). The default is `1080p`; local files always use their native stream.
+- `volume`: audio volume from `0` (silent) to `1` (full). It is applied when `muted` is `false`; default: `1`.
 - `muted`: keep the video silent. Set `false` to play its audio; only the most recently active cmux window plays sound (audio follows keyboard focus between cmux windows and keeps playing while you work in another app), and it stops whenever the video pauses. Default: `true`.
 - `dimOpacity`: opacity of the terminal background fill drawn over the video, `0`-`1`. `0` shows the video undimmed; `1` hides it entirely. When Ghostty `background-opacity` is lower than the dim, the more transparent value wins. Default: `0.8`.
 
-Configure it from **Settings > Terminal > Video Background**.
+Video playback needs a translucent Ghostty terminal backdrop. Set `background-opacity = 0.8` in cmux's Ghostty config (Settings offers a warned, one-click setup, or run `cmux video-background setup-ghostty`). The setup edits cmux's `config.ghostty` file and reloads open terminals; it does not change your standalone Ghostty config.
+
+Configure it from **Settings > Terminal > Video Background**. The same feature is scriptable without opening Settings:
+
+```text
+cmux video-background status
+cmux video-background set <source> [<source> ...]
+cmux video-background add <source> [<source> ...]
+cmux video-background remove <1-based-index>
+cmux video-background quality 720p|1080p|1440p|4k
+cmux video-background setup-ghostty --yes
+cmux video-background on --yes
+```
 
 ## `sidebar.showAgentActivity`
 

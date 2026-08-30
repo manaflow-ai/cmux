@@ -701,6 +701,29 @@
               "descriptionKey": "schemaDescriptions.terminal.videoBackgroundSource",
               "description": "A YouTube video or playlist URL, a raw YouTube video or playlist ID, or a local .mp4/.m4v/.mov file path played with AVFoundation. Playlists loop and advance automatically."
             },
+            "queue": {
+              "type": "array",
+              "items": { "type": "string" },
+              "maxItems": 128,
+              "default": [],
+              "descriptionKey": "schemaDescriptions.terminal.videoBackgroundQueue",
+              "description": "Ordered video URLs/IDs or local file paths played one after another and repeated. An empty queue falls back to source; new terminal windows share the queue and playhead."
+            },
+            "quality": {
+              "type": "string",
+              "enum": ["720p", "1080p", "1440p", "2160p"],
+              "default": "1080p",
+              "descriptionKey": "schemaDescriptions.terminal.videoBackgroundQuality",
+              "description": "Maximum YouTube stream quality. Local files use their native stream."
+            },
+            "volume": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 1,
+              "descriptionKey": "schemaDescriptions.terminal.videoBackgroundVolume",
+              "description": "Volume used when video-background audio is enabled (0 is silent, 1 is full volume)."
+            },
             "muted": {
               "type": "boolean",
               "default": true,
