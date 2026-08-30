@@ -2085,7 +2085,7 @@ struct DockShortcutRoutingTests {
         }
     }
 
-    @Test("Dock tab context actions commit target focus before mutation")
+    @Test("Dock tab context actions preserve focus for metadata and focus for layout")
     @MainActor
     func dockTabContextActionsCommitTargetFocusBeforeMutation() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
@@ -2114,7 +2114,9 @@ struct DockShortcutRoutingTests {
                     inPane: harness.rootPane
                 )
 
-                #expect(harness.dock.focusedPanelId == second.id)
+                // Clearing a name is metadata-only; a background tab action must
+                // not steal the terminal's keyboard focus.
+                #expect(harness.dock.focusedPanelId == first.id)
                 #expect(
                     harness.dock.bonsplitController.tab(secondTab)?
                         .hasCustomTitle == false
@@ -2133,6 +2135,9 @@ struct DockShortcutRoutingTests {
                         inPane: harness.rootPane
                     )
                 )
+                // Layout actions intentionally make the requested tab active,
+                // matching Workspace.toggleFullWidthTabMode.
+                #expect(harness.dock.focusedPanelId == second.id)
             }
         }
     }

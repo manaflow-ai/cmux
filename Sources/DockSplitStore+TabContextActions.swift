@@ -21,19 +21,21 @@ extension DockSplitStore {
             return
         }
 
-        // A tab-bar context menu is an interaction with the tab even when the
-        // right-click never reached the panel's content view. Commit the same
-        // selection/window-focus transaction used by pointer and keyboard paths
-        // before dispatching the action so subsequent menu/shortcut commands do
-        // not fall through to the main workspace.
+        // Focus-sensitive actions need the same selection/window-focus
+        // transaction as pointer and keyboard paths even when the right-click
+        // never reached the panel's content view. Metadata-only actions stay
+        // focus-neutral so operating on a background tab cannot steal input.
         let presentingWindow = dockContextMenuWindow
-        let keepsPanelInDock: Bool = switch action {
-        case .move, .moveToNewWorkspace:
-            false
-        default:
+        let commitsPanelFocus: Bool = switch action {
+        case .rename,
+             .moveToLeftPane, .moveToRightPane,
+             .newTerminalToRight, .newBrowserToRight,
+             .duplicate, .toggleZoom, .toggleFullWidthTab:
             true
+        default:
+            false
         }
-        if keepsPanelInDock {
+        if commitsPanelFocus {
             focusPanelFromDockInteraction(panelId, window: nil)
         }
 
