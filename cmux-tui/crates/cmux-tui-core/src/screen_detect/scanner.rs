@@ -95,7 +95,7 @@ pub(crate) fn scan(
     // an avoidable O(tracked × live) pass on every tick.
     let live_terminal_ids = terminals.iter().map(|(id, _)| id.as_str()).collect::<HashSet<_>>();
     tracker.retain_terminals(|terminal_id| live_terminal_ids.contains(terminal_id));
-    let start = tracker.scan_start(terminals.len());
+    let start = tracker.scan_start(terminals.len(), MAX_FOREGROUND_LOOKUPS_PER_SCAN);
     let mut lookup_budget = MAX_FOREGROUND_LOOKUPS_PER_SCAN;
     for offset in 0..terminals.len() {
         let index = (start + offset) % terminals.len();

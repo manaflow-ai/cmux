@@ -188,15 +188,19 @@ impl ScreenDetectTracker {
         entry.identity_check_not_before = Some(now + Duration::from_millis(delay_ms));
     }
 
-    /// Reserve the next fair scan slice. A caller with no terminals receives
-    /// zero and starts over when a terminal appears.
-    pub(crate) fn scan_start(&mut self, terminal_count: usize) -> usize {
+    /// Reserve the next fair scan slice. Advance by the caller's lookup
+    /// budget, rather than one item, so a due terminal cannot be repeatedly
+    /// overtaken by the same prefix when the catalog is larger than the
+    /// budget. A caller with no terminals receives zero and starts over when
+    /// a terminal appears.
+    pub(crate) fn scan_start(&mut self, terminal_count: usize, lookup_budget: usize) -> usize {
         if terminal_count == 0 {
             self.scan_cursor = 0;
             return 0;
         }
         let start = self.scan_cursor % terminal_count;
-        self.scan_cursor = (start + 1) % terminal_count;
+        let step = lookup_budget.max(1).min(terminal_count);
+        self.scan_cursor = start.saturating_add(step) % terminal_count;
         start
     }
 
@@ -478,11 +482,11 @@ mod tests {
     #[test]
     fn scan_cursor_advances_by_lookup_budget_for_bounded_batches() {
         let mut tracker = ScreenDetectTracker::default();
-        assert_eq!(tracker.scan_start(100), 0);
-        assert_eq!(tracker.scan_start(100), 64);
-        assert_eq!(tracker.scan_start(100), 28);
-        assert_eq!(tracker.scan_start(0), 0);
-        assert_eq!(tracker.scan_start(100), 0);
+        assert_eq!(tracker.scan_start(100, 64), 0);
+        assert_eq!(tracker.scan_start(100, 64), 64);
+        assert_eq!(tracker.scan_start(100, 64), 28);
+        assert_eq!(tracker.scan_start(0, 64), 0);
+        assert_eq!(tracker.scan_start(100, 64), 0);
     }
 
     #[test]
@@ -494,7 +498,7 @@ mod tests {
         let mut covered = std::collections::HashSet::new();
 
         for _ in 0..passes {
-            let start = tracker.scan_start(terminal_count);
+            let start = tracker.scan_start(terminal_count, lookup_budget);
             for offset in 0..lookup_budget {
                 covered.insert((start + offset) % terminal_count);
             }
