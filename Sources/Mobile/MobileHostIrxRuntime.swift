@@ -187,15 +187,7 @@ final class MobileHostIrxRuntime {
                         guard let auth else {
                             throw CmxIrohBrokerTokenRecoveryError.transient
                         }
-                        do {
-                            _ = try await auth.forceRefreshAccessToken()
-                        } catch AuthError.unauthorized {
-                            throw CmxIrohBrokerTokenRecoveryError.authenticationRequired
-                        } catch is CancellationError {
-                            throw CancellationError()
-                        } catch {
-                            throw CmxIrohBrokerTokenRecoveryError.transient
-                        }
+                        try await auth.forceRefreshForIrohBroker()
                     }
                 ),
                 journal: Self.journal

@@ -259,6 +259,7 @@
 		A5001A00A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001A01A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift */; };
 		A5001100 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5001101 /* Assets.xcassets */; };
 		961300000000000000000003 /* AttributedString+SidebarRowLinks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 961300000000000000000004 /* AttributedString+SidebarRowLinks.swift */; };
+		53750022A0B1C2D3E4F50024 /* AuthCoordinator+IrohBrokerRecovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53750023A0B1C2D3E4F50024 /* AuthCoordinator+IrohBrokerRecovery.swift */; };
 		D9FEC58D5BACCF76459F1BBE /* AuthEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43430FA5929121E2EAAB3091 /* AuthEnvironment.swift */; };
 		A47E00010000000000000001 /* AuthEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A47E00010000000000000002 /* AuthEnvironmentTests.swift */; };
 		B9000012A1B2C3D4E5F60719 /* AutomationSocketUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000011A1B2C3D4E5F60719 /* AutomationSocketUITests.swift */; };
@@ -3294,6 +3295,7 @@
 		A5001A01A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/AppWindowChromeComposition.swift; sourceTree = "<group>"; };
 		A5001101 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		961300000000000000000004 /* AttributedString+SidebarRowLinks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/AttributedString+SidebarRowLinks.swift"; sourceTree = "<group>"; };
+		53750023A0B1C2D3E4F50024 /* AuthCoordinator+IrohBrokerRecovery.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AuthCoordinator+IrohBrokerRecovery.swift"; sourceTree = "<group>"; };
 		43430FA5929121E2EAAB3091 /* AuthEnvironment.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AuthEnvironment.swift; sourceTree = "<group>"; };
 		A47E00010000000000000002 /* AuthEnvironmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthEnvironmentTests.swift; sourceTree = "<group>"; };
 		B9000011A1B2C3D4E5F60719 /* AutomationSocketUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationSocketUITests.swift; sourceTree = "<group>"; };
@@ -6223,6 +6225,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				1B0B09040000000000000001 /* MobileHostIrohRuntime+SettingsSnapshot.swift */,
 				C1A070000000000000000011 /* MobileHostAuthorizationSupport.swift */,
 				C1A070000000000000000012 /* MobileHostIrohAuthObserver.swift */,
+				53750023A0B1C2D3E4F50024 /* AuthCoordinator+IrohBrokerRecovery.swift */,
 				C1A070000000000000000013 /* MobileHostIrohRuntime+Lifecycle.swift */,
 				A17070900000000000000001 /* MobileHostIrohApplicationLaneRouter.swift */,
 				C1A070000000000000000014 /* MobileHostIrohServerEventWriter.swift */,
@@ -9676,6 +9679,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A5001A02A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift in Sources */,
 				A5001A00A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift in Sources */,
 				961300000000000000000003 /* AttributedString+SidebarRowLinks.swift in Sources */,
+				53750022A0B1C2D3E4F50024 /* AuthCoordinator+IrohBrokerRecovery.swift in Sources */,
 					D9FEC58D5BACCF76459F1BBE /* AuthEnvironment.swift in Sources */,
 					C0DE35860000000000000001 /* BackgroundWorkspacePrimeCoordinator.swift in Sources */,
 					A50012F1 /* Backport.swift in Sources */,

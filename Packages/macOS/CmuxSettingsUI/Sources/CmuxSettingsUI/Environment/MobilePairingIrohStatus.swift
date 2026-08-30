@@ -10,6 +10,8 @@ public enum MobilePairingIrohStatus: String, Sendable, Equatable {
     case active
     /// A transient broker failure is waiting on bounded backoff.
     case retrying
+    /// A non-retryable activation failure stopped the endpoint.
+    case failed
     /// The account session was rejected and sign-in is required.
     case reauthenticationRequired = "reauthentication_required"
 }

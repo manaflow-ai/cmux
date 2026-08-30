@@ -148,8 +148,10 @@ extension MobileHostIrohRuntime {
                     )
                 },
                 forceRefresh: { [weak auth] in
-                    guard let auth else { return }
-                    _ = try await auth.forceRefreshAccessToken()
+                    guard let auth else {
+                        throw CmxIrohBrokerTokenRecoveryError.transient
+                    }
+                    try await auth.forceRefreshForIrohBroker()
                 }
             ),
             clientNamespace: clientNamespace.rawValue,

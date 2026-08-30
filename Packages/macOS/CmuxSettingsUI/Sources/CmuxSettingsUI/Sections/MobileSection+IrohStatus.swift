@@ -28,6 +28,8 @@ extension MobileSection {
             String(localized: "settings.mobile.iroh.status.active", defaultValue: "Active")
         case .retrying:
             String(localized: "settings.mobile.iroh.status.retrying", defaultValue: "Retrying")
+        case .failed:
+            String(localized: "settings.mobile.iroh.status.failed", defaultValue: "Unavailable")
         case .reauthenticationRequired:
             String(localized: "settings.mobile.iroh.status.reauth", defaultValue: "Sign in again")
         }
@@ -54,6 +56,11 @@ extension MobileSection {
                 localized: "settings.mobile.iroh.status.retrying.subtitle.generic",
                 defaultValue: "The broker is temporarily unavailable; cmux will retry with backoff."
             )
+        case .failed:
+            String(
+                localized: "settings.mobile.iroh.status.failed.subtitle",
+                defaultValue: "The endpoint stopped after a non-retryable broker error."
+            )
         default:
             String(
                 localized: "settings.mobile.iroh.status.subtitle",
@@ -67,6 +74,7 @@ extension MobileSection {
         case .active: "checkmark.circle.fill"
         case .reauthenticationRequired: "person.crop.circle.badge.exclamationmark"
         case .retrying, .starting: "arrow.triangle.2.circlepath"
+        case .failed: "xmark.circle.fill"
         case .inactive: "minus.circle"
         }
     }
@@ -76,6 +84,7 @@ extension MobileSection {
         case .active: .secondary
         case .reauthenticationRequired: .orange
         case .retrying, .starting: .secondary
+        case .failed: .red
         case .inactive: .secondary
         }
     }

@@ -271363,6 +271363,20 @@
         "ja": { "stringUnit": { "state": "translated", "value": "再試行中" } }
       }
     },
+    "settings.mobile.iroh.status.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "利用できません" } }
+      }
+    },
+    "settings.mobile.iroh.status.failed.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The endpoint stopped after a non-retryable broker error." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "再試行できないブローカーエラーの後、エンドポイントが停止しました。" } }
+      }
+    },
     "settings.mobile.iroh.status.reauth": {
       "extractionState": "manual",
       "localizations": {

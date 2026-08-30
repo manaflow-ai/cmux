@@ -56,7 +56,8 @@ extension HostSettingsActions {
         case .inactive: .inactive
         case .activating: .starting
         case .active: .active
-        case .retrying, .failed: .retrying
+        case .retrying: .retrying
+        case .failed: .failed
         case .reauthenticationRequired: .reauthenticationRequired
         }
     }
