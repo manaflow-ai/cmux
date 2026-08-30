@@ -20,6 +20,25 @@ final class SidebarLayoutModel: ObservableObject {
     }
 }
 
+#if DEBUG
+/// Test-only observation point for the width consumed by a rendered sidebar.
+/// Keeping this in the narrow reader avoids observing the whole ContentView.
+struct SidebarWidthRenderProbe {
+    var widthRead: ((CGFloat) -> Void)?
+}
+
+private struct SidebarWidthRenderProbeKey: EnvironmentKey {
+    static let defaultValue = SidebarWidthRenderProbe()
+}
+
+extension EnvironmentValues {
+    var sidebarWidthRenderProbe: SidebarWidthRenderProbe {
+        get { self[SidebarWidthRenderProbeKey.self] }
+        set { self[SidebarWidthRenderProbeKey.self] = newValue }
+    }
+}
+#endif
+
 /// Re-evaluates only its own body when the width changes: the parent builds
 /// this once, and width ticks re-invoke `content` with the fresh value
 /// without touching the parent's body. Consumers that need the numeric
@@ -28,9 +47,16 @@ final class SidebarLayoutModel: ObservableObject {
 struct SidebarWidthReader<Content: View>: View {
     @ObservedObject var layout: SidebarLayoutModel
     @ViewBuilder let content: (CGFloat) -> Content
+#if DEBUG
+    @Environment(\.sidebarWidthRenderProbe) private var sidebarWidthRenderProbe
+#endif
 
     var body: some View {
-        content(layout.width)
+        let width = layout.width
+#if DEBUG
+        sidebarWidthRenderProbe.widthRead?(width)
+#endif
+        content(width)
     }
 }
 
