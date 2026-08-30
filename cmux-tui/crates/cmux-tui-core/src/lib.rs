@@ -74,9 +74,9 @@ pub use surface::{
     BrowserFrameStream, BrowserFrameUpdate, BrowserSource, BrowserStatus,
     CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR, CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR,
     CLEAR_HISTORY_PRESERVATION_ERROR, CLEAR_HISTORY_STREAM_TIMEOUT_ERROR, ClearHistoryDelivery,
-    ClearHistoryFailure, DefaultColors, GuardedMouseEncode, PointerSemanticProbe,
-    PointerSnapshotProbe, RenderAttachFrame, RenderAttachStream, Surface, SurfaceKind,
-    SurfaceOptions, SurfaceRenderFrame, TerminalColors, TerminalHostConnectionState,
+    ClearHistoryFailure, DEFAULT_SCROLLBACK_LIMIT_BYTES, DefaultColors, GuardedMouseEncode,
+    PointerSemanticProbe, PointerSnapshotProbe, RenderAttachFrame, RenderAttachStream, Surface,
+    SurfaceKind, SurfaceOptions, SurfaceRenderFrame, TerminalColors, TerminalHostConnectionState,
     TerminalPointerSnapshot,
 };
 pub use workspace_registry::{

@@ -93,6 +93,331 @@ resolve_hook_cmux_bin() {
     printf '%s' "cmux"
 }
 
+cmux_computer_use_surface_socket_available() {
+    # CMUX_SURFACE_ID can outlive its owning cmux process in a detached shell.
+    # Keep main's hook injection behavior independent of socket reachability,
+    # but require a live cmux owner before attaching the TCC-sensitive Computer
+    # Use broker to this process chain. Checking the Unix socket node is
+    # intentionally process-free: launch instrumentation must not wait on or
+    # otherwise depend on a transient cmux ping.
+    local socket="${CMUX_SOCKET_PATH:-}"
+    [[ -n "$socket" && -S "$socket" ]]
+}
+
+cmux_computer_use_json_escape() {
+    local value="$1"
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    value="${value//$'\n'/\\n}"
+    value="${value//$'\r'/\\r}"
+    value="${value//$'\t'/\\t}"
+    printf '%s' "$value"
+}
+
+cmux_computer_use_group_or_world_writable_dir() {
+    # Group write is as disqualifying as world write on the OVERRIDE path:
+    # write permission on a directory allows renaming the driver away and
+    # dropping a replacement, regardless of the file's own permissions. The
+    # bundled path never runs this check, so macOS's root:admin 775 dirs
+    # (/Applications) do not affect normal installs.
+    local dir="$1"
+    local stat_bin=/usr/bin/stat
+    [[ -x "$stat_bin" ]] || stat_bin=/bin/stat
+    [[ -x "$stat_bin" ]] || return 1
+    local mode
+    mode="$("$stat_bin" -f %Lp "$dir" 2>/dev/null || "$stat_bin" -c %a "$dir" 2>/dev/null)" || return 1
+    [[ "$mode" =~ ^[0-9]+$ ]] || return 1
+    local group=$(( (mode / 10) % 10 ))
+    local other=$((mode % 10))
+    (( (group & 2) != 0 || (other & 2) != 0 ))
+}
+
+cmux_computer_use_dir_owner() {
+    local dir="$1"
+    local stat_bin=/usr/bin/stat
+    [[ -x "$stat_bin" ]] || stat_bin=/bin/stat
+    [[ -x "$stat_bin" ]] || return 1
+    "$stat_bin" -f %u "$dir" 2>/dev/null || "$stat_bin" -c %u "$dir" 2>/dev/null
+}
+
+cmux_computer_use_trusted_path_ancestors() {
+    local path="$1"
+    local id_bin=/usr/bin/id
+    [[ -x "$id_bin" ]] || id_bin=/bin/id
+    [[ -x "$id_bin" ]] || return 1
+    local current_uid
+    current_uid="$("$id_bin" -u 2>/dev/null)" || return 1
+    local dir="${path%/*}"
+    [[ "$dir" = /* ]] || return 1
+    while :; do
+        local owner
+        owner="$(cmux_computer_use_dir_owner "$dir")" || return 1
+        [[ "$owner" == "0" || "$owner" == "$current_uid" ]] || return 1
+        cmux_computer_use_group_or_world_writable_dir "$dir" && return 1
+        [[ "$dir" == "/" ]] && break
+        dir="${dir%/*}"
+        [[ -n "$dir" ]] || dir="/"
+    done
+}
+
+cmux_computer_use_trusted_executable_file() {
+    # The override binary itself must be a regular file (canonicalization has
+    # already resolved symlinks), owned by root or the current user, and not
+    # group- or other-writable: with group/other write, another local user
+    # could swap the binary that runs under cmux's TCC identity.
+    local path="$1"
+    local stat_bin=/usr/bin/stat
+    [[ -x "$stat_bin" ]] || stat_bin=/bin/stat
+    [[ -x "$stat_bin" ]] || return 1
+    local id_bin=/usr/bin/id
+    [[ -x "$id_bin" ]] || id_bin=/bin/id
+    [[ -x "$id_bin" ]] || return 1
+    [[ -f "$path" && ! -L "$path" ]] || return 1
+    local current_uid owner mode
+    current_uid="$("$id_bin" -u 2>/dev/null)" || return 1
+    owner="$("$stat_bin" -f %u "$path" 2>/dev/null || "$stat_bin" -c %u "$path" 2>/dev/null)" || return 1
+    [[ "$owner" == "0" || "$owner" == "$current_uid" ]] || return 1
+    mode="$("$stat_bin" -f %Lp "$path" 2>/dev/null || "$stat_bin" -c %a "$path" 2>/dev/null)" || return 1
+    [[ "$mode" =~ ^[0-9]+$ ]] || return 1
+    (( ((mode / 10) % 10 & 2) == 0 && (mode % 10 & 2) == 0 ))
+}
+
+cmux_computer_use_canonical_executable() {
+    local candidate="$1"
+    [[ "$candidate" = /* && -x "$candidate" ]] || return 1
+    local path="$candidate"
+    local hops=0
+    while :; do
+        local dir="${path%/*}"
+        local base="${path##*/}"
+        local dir_real
+        dir_real="$(cd "$dir" 2>/dev/null && pwd -P)" || return 1
+        path="$dir_real/$base"
+        [[ -L "$path" ]] || break
+        (( hops < 16 )) || return 1
+        local target
+        target="$(/usr/bin/readlink "$path" 2>/dev/null || readlink "$path" 2>/dev/null)" || return 1
+        if [[ "$target" = /* ]]; then
+            path="$target"
+        else
+            path="$dir_real/$target"
+        fi
+        hops=$((hops + 1))
+    done
+    [[ -x "$path" ]] || return 1
+    printf '%s' "$path"
+}
+
+cmux_computer_use_resolve_client() {
+    # Codex compatibility mode brokers per-app approval. The daemon verifies
+    # that broker as the exact executable already serving the cmux-owned
+    # socket, then verifies the broker's parent as signed OpenAI Codex. A
+    # separately signed Resources/bin client cannot satisfy that invariant
+    # unless it is the exact app-installed cmux-cua helper selected by cmux.
+    local installed_client client_real
+    installed_client="${CMUX_CUA_CLIENT_PATH:-}"
+    [[ -n "$installed_client" ]] || return 1
+    client_real="$(cmux_computer_use_canonical_executable "$installed_client")" || return 1
+    cmux_computer_use_trusted_path_ancestors "$client_real" || return 1
+    cmux_computer_use_trusted_executable_file "$client_real" || return 1
+    printf '%s' "$client_real"
+}
+
+cmux_computer_use_auth_token() {
+    local auth_file metadata owner mode token
+    auth_file="${CMUX_CUA_AUTH_TOKEN_FILE:-}"
+    if [[ -n "$auth_file" && "$auth_file" == /* && -f "$auth_file" && ! -L "$auth_file" ]]; then
+        metadata="$(/usr/bin/stat -f '%u %Lp' "$auth_file" 2>/dev/null || true)"
+        read -r owner mode <<< "$metadata"
+        if [[ "$owner" == "$(/usr/bin/id -u)" && "$mode" == "600" ]]; then
+            IFS= read -r token < "$auth_file" || true
+            if [[ -n "$token" ]]; then
+                printf '%s' "$token"
+                return 0
+            fi
+        fi
+    fi
+    token="${CMUX_CUA_SOCKET_AUTH_TOKEN:-}"
+    [[ -n "$token" ]] || return 1
+    printf '%s' "$token"
+}
+
+cmux_codex_global_skill_install_enabled() {
+    # Codex's picker scans filesystem skill roots before it starts a session;
+    # an invocation-only `skills.config` override is not enough to make the
+    # bundled skill appear there. Keep the shared user link in sync by default,
+    # while allowing a user who wants a strictly session-local setup to opt out.
+    case "${CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL:-1}" in
+        0|false|FALSE|no|NO) return 1 ;;
+    esac
+    return 0
+}
+
+cmux_codex_install_computer_use_skill() {
+    # Codex discovers user-wide skills under ~/.agents/skills. Keep the source
+    # inside the signed cmux app and link it instead of copying stale versions.
+    # Never replace a real directory or a symlink the user owns. Returns 0 only
+    # when the cmux-cua link now points at this app bundle, so callers can skip
+    # the namespaced invocation-scoped fallback.
+    local home="${HOME:-}"
+    [[ "$home" = /* ]] || return 1
+    local self_dir resource_dir source_dir skills_root destination target legacy legacy_target
+    self_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)" || return 1
+    resource_dir="${self_dir%/bin}"
+    source_dir="$resource_dir/cmux-cua"
+    [[ -f "$source_dir/SKILL.md" ]] || return 1
+
+    skills_root="$home/.agents/skills"
+    destination="$skills_root/cmux-cua"
+    /bin/mkdir -p "$skills_root" 2>/dev/null || return 1
+
+    # Retire the pre-rename cmux-computer-use link so pickers do not show two
+    # copies of the same skill. Only a symlink into a cmux app bundle is
+    # removed; user-owned paths at that name are left alone.
+    legacy="$skills_root/cmux-computer-use"
+    if [[ -L "$legacy" ]]; then
+        legacy_target="$(/usr/bin/readlink "$legacy" 2>/dev/null || /bin/readlink "$legacy" 2>/dev/null)" || legacy_target=""
+        case "$legacy_target" in
+            */Contents/Resources/cmux-computer-use|*/Contents/Resources/cmux-cua)
+                /bin/rm -f "$legacy" 2>/dev/null || true
+                ;;
+        esac
+    fi
+
+    if [[ -L "$destination" ]]; then
+        target="$(/usr/bin/readlink "$destination" 2>/dev/null || /bin/readlink "$destination" 2>/dev/null)" || return 1
+        case "$target" in
+            */Contents/Resources/cmux-cua|*/Contents/Resources/cmux-computer-use)
+                /bin/ln -sfn "$source_dir" "$destination" 2>/dev/null || return 1
+                ;;
+            *)
+                return 1
+                ;;
+        esac
+    elif [[ -e "$destination" ]]; then
+        # A user-owned path wins; report not-installed so the invocation-scoped
+        # fallback still delivers the current bundled skill.
+        return 1
+    else
+        /bin/ln -s "$source_dir" "$destination" 2>/dev/null || return 1
+    fi
+    target="$(/usr/bin/readlink "$destination" 2>/dev/null || /bin/readlink "$destination" 2>/dev/null)" || return 1
+    [[ "$target" == "$source_dir" ]]
+}
+
+cmux_codex_computer_use_skill_path() {
+    # Derive the skill only from this wrapper's own app bundle. Do not consult
+    # project directories or user-global configuration: the path is scoped to
+    # the cmux build that launched this Codex process.
+    local self_dir resource_dir skill_path
+    self_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)" || return 1
+    resource_dir="${self_dir%/bin}"
+    skill_path="$resource_dir/cmux-cua/SKILL.md"
+    [[ -f "$skill_path" ]] || return 1
+    printf '%s' "$skill_path"
+}
+
+cmux_codex_computer_use_app_enabled() {
+    # The shell shim normally refreshes this authority before every invocation,
+    # but the wrapper can also be launched directly (or through an older shim).
+    # Re-read the app-owned setting here so a live disable cannot leave Codex
+    # attached through stale spawn-time environment.
+    local enabled="${CMUX_COMPUTER_USE_APP_ENABLED:-1}"
+    local home="${HOME:-}"
+    if [[ "$home" = /* ]]; then
+        local setting_file="$home/Library/Application Support/cmux/cmux-cua/enabled"
+        local legacy_setting_file="$home/Library/Application Support/cmux/computer-use/enabled"
+        if [[ ! -r "$setting_file" && -r "$legacy_setting_file" ]]; then
+            setting_file="$legacy_setting_file"
+        fi
+        if [[ -r "$setting_file" ]]; then
+            IFS= read -r enabled < "$setting_file" || true
+        fi
+    fi
+    [[ "$enabled" != "0" ]]
+}
+
+cmux_codex_computer_use_enabled_for_invocation() {
+    [[ "${CMUX_COMPUTER_USE_MCP_DISABLED:-0}" == "1" ]] && return 1
+    cmux_codex_computer_use_app_enabled || return 1
+    local arg
+    for arg in "$@"; do
+        case "$arg" in
+            --strict-mcp-config|--strict-mcp-config=*)
+                return 1
+                ;;
+        esac
+    done
+    return 0
+}
+
+cmux_codex_emit_computer_use_args() {
+    cmux_codex_computer_use_enabled_for_invocation "$@" || return 1
+    # Invocation-scoped fallback only: a skills.config entry displays
+    # dir-qualified (cmux-cua:cmux-cua) in Codex's picker, so it must not ride
+    # along when the plain ~/.agents/skills/cmux-cua link already covers this
+    # session.
+    local skill_path
+    skill_path=""
+    if [[ "${CMUX_COMPUTER_USE_GLOBAL_SKILL_INSTALLED:-0}" != 1 ]]; then
+        skill_path="$(cmux_codex_computer_use_skill_path 2>/dev/null)" || skill_path=""
+    fi
+    if [[ -n "$skill_path" ]]; then
+        printf '%s\0' \
+            "-c" \
+            "skills.config=[{path=\"$(cmux_computer_use_json_escape "$skill_path")\",enabled=true}]"
+    fi
+
+    # Skill discovery is useful while onboarding is still preparing the
+    # helper. The MCP attachment itself remains fail-closed on cmux ownership,
+    # daemon credentials, and the installed approval broker.
+    cmux_computer_use_surface_socket_available || return 0
+    local client default_session runtime_scope runtime_uid cua_socket state_dir auth_token
+    client="$(cmux_computer_use_resolve_client)" || return 1
+    auth_token="$(cmux_computer_use_auth_token)" || return 1
+    # Stable per-terminal session id so the branded cursor survives helper restarts.
+    default_session="cmux-${CMUX_SURFACE_ID:-$$}"
+    runtime_scope="${CMUX_CUA_RUNTIME_SCOPE:-${CMUX_TAG:-default}}"
+    runtime_scope="$(printf '%s' "$runtime_scope" | LC_ALL=C /usr/bin/tr -c 'A-Za-z0-9_.-' '-' | /usr/bin/sed -E 's/^[.-]+//; s/[.-]+$//' | /usr/bin/cut -c1-64)"
+    [[ -n "$runtime_scope" ]] || runtime_scope="default"
+    runtime_uid="$(/usr/bin/id -u)"
+    cua_socket="${CMUX_CUA_CODEX_SOCKET_PATH:-/tmp/cmux-cua-${runtime_uid}/${runtime_scope}/cmux-cua-codex.sock}"
+    state_dir="${CMUX_CUA_STATE_DIR:-${HOME}/Library/Application Support/cmux/cmux-cua/runtime/${runtime_scope}/state}"
+    # The helper owns external onboarding. Mark that contract explicitly so
+    # protected calls also wait for cmux's post-verification readiness signal.
+    printf '%s\0' \
+        "-c" \
+        "mcp_servers.cmux-cua.command=\"$(cmux_computer_use_json_escape "$client")\"" \
+        "-c" \
+        "mcp_servers.cmux-cua.args=[\"mcp\",\"--socket\",\"$(cmux_computer_use_json_escape "$cua_socket")\",\"--codex-computer-use-compat\"]" \
+        "-c" \
+        'mcp_servers.cmux-cua.env.CMUX_CUA_MCP_FORCE_PROXY="1"' \
+        "-c" \
+        'mcp_servers.cmux-cua.env.CMUX_CUA_EXTERNAL_PERMISSION_FLOW="1"' \
+        "-c" \
+        "mcp_servers.cmux-cua.env.CMUX_CUA_SOCKET_AUTH_TOKEN=\"$(cmux_computer_use_json_escape "$auth_token")\"" \
+        "-c" \
+        "mcp_servers.cmux-cua.env.CMUX_CUA_DEFAULT_SESSION=\"$(cmux_computer_use_json_escape "$default_session")\"" \
+        "-c" \
+        "mcp_servers.cmux-cua.env.CMUX_CUA_STATE_OWNER_PID=\"$(cmux_computer_use_json_escape "${CMUX_CODEX_PID:-$$}")\"" \
+        "-c" \
+        "mcp_servers.cmux-cua.env.CMUX_CUA_TELEMETRY_ENABLED=\"false\"" \
+        "-c" \
+        "mcp_servers.cmux-cua.env.CMUX_CUA_UPDATE_CHECK=\"false\"" \
+        "-c" \
+        "mcp_servers.cmux-cua.env.CMUX_CUA_CURSOR_GRADIENT=\"#12c7f5,#2d8cff,#6c5cff\"" \
+        "-c" \
+        "mcp_servers.cmux-cua.env.CMUX_CUA_CURSOR_BLOOM=\"#2d8cff\"" \
+        "-c" \
+        "mcp_servers.cmux-cua.env.CMUX_CUA_CURSOR_LABEL=\"cmux\"" \
+        "-c" \
+        "mcp_servers.cmux-cua.env.CMUX_CUA_STATE_DIR=\"$(cmux_computer_use_json_escape "$state_dir")\"" \
+        "-c" \
+        "mcp_servers.cmux-cua.env.NODE_OPTIONS=\"\"" \
+        "-c" \
+        "mcp_servers.cmux-cua.env.BUN_OPTIONS=\"\""
+}
+
 # The interactive session, `exec`/`e`, `resume`, and `fork` entrypoints all START
 # a Codex session, so all four must receive cmux's hook injection; everything
 # else (review, login, mcp, doctor, --help, --version, ...) passes through
@@ -107,6 +432,10 @@ resolve_hook_cmux_bin() {
 # leading non-option token that is a known Codex subcommand means "not a session"
 # unless it is exec, e, resume, or fork.
 codex_subcommand_starts_session() {
+    # `fork` duplicates a previous interactive session into a new live one:
+    # it takes an optional prompt and accepts the same global flags before
+    # the subcommand as `resume` (verified against codex-cli 0.144), so it
+    # needs hook and computer-use injection exactly like exec/resume.
     case "$1" in
         exec|e|resume|fork) return 0 ;;
         *) return 1 ;;
@@ -215,14 +544,30 @@ exec_real_codex_passthrough() {
     exec "$REAL_CODEX" "$@"
 }
 
+cmux_codex_computer_use_args=()
+cmux_codex_read_computer_use_args() {
+    local arg
+    while IFS= read -r -d '' arg; do
+        cmux_codex_computer_use_args+=("$arg")
+    done < <(cmux_codex_emit_computer_use_args "$@" 2>/dev/null)
+    (( ${#cmux_codex_computer_use_args[@]} > 0 )) || return 1
+    return 0
+}
+
+# CMUX_CODEX_HOOKS_DISABLED is the documented MASTER opt-out: the wrapper
+# stays fully inert — no cmux calls, no Computer Use attach, no argv changes.
 if [[ "${CMUX_CODEX_HOOKS_DISABLED:-}" == "1" ]]; then
     exec_real_codex_passthrough "$@"
 fi
+
+# Outside cmux the wrapper does nothing: Computer Use is a feature of
+# cmux-launched agents, so plain `codex` in a random terminal stays untouched.
 if [[ "$IN_CMUX" == "0" ]]; then
     exec_real_codex_passthrough "$@"
 fi
 
-# Not a session entrypoint (review/login/doctor/--help/...): pass through.
+# Not a session entrypoint (review/login/doctor/--help/...): pass through with
+# no injection of any kind.
 if ! should_inject_codex_hooks "$@"; then
     exec_real_codex_passthrough "$@"
 fi
@@ -303,10 +648,31 @@ cmux_codex_read_inject_args() {
     return 0
 }
 
-if cmux_codex_read_inject_args; then
-    exec "$REAL_CODEX" "${cmux_codex_injected_args[@]}" "$@"
+# Keep the bundled skill discoverable by Codex's picker before the session
+# starts. Installation is best-effort so an existing user-owned skill can
+# never prevent Codex from launching; set CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=0
+# for a strictly invocation-scoped session. When the durable link is in place,
+# the emitter skips its invocation-scoped skills.config fallback so the picker
+# shows one plain cmux-cua entry.
+CMUX_COMPUTER_USE_GLOBAL_SKILL_INSTALLED=0
+if cmux_codex_global_skill_install_enabled \
+      && cmux_codex_computer_use_enabled_for_invocation "$@"; then
+    if cmux_codex_install_computer_use_skill; then
+        CMUX_COMPUTER_USE_GLOBAL_SKILL_INSTALLED=1
+    fi
 fi
 
-# An emitter failure returns nothing. Preserve the cmux surface context so
-# persistent, native, or future hooks can still bind this session.
-exec "$REAL_CODEX" "$@"
+# Computer-use args are generated independently of hook injection: the bundled
+# CLI is local and does not need the cmux hook socket, so a failed or empty
+# `hooks codex inject-args` emit must not silently drop computer use.
+cmux_codex_read_computer_use_args "$@" || true
+
+if cmux_codex_read_inject_args; then
+    exec "$REAL_CODEX" "${cmux_codex_computer_use_args[@]}" "${cmux_codex_injected_args[@]}" "$@"
+fi
+
+# A reconciled persistent channel intentionally emits no overrides; an emitter
+# failure also returns nothing. In both cases preserve the cmux surface context
+# and Computer Use attachment so persistent, native, or future hooks can still
+# bind this session.
+exec "$REAL_CODEX" "${cmux_codex_computer_use_args[@]}" "$@"
