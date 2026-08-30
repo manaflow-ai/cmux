@@ -824,7 +824,12 @@ impl Inner {
         else {
             return;
         };
-        if !self.authorize_attachment(pty_id, &attachment, context, "output") {
+        if attachment.transport_id != context.transport_id {
+            return;
+        }
+        let (trust, owner) = (context.current_auth)();
+        if !self.authorize_values(pty_id, &attachment, &trust, owner.as_deref(), context, "output")
+        {
             return;
         }
         // Zero-byte chunks carry nothing and historically crashed the web
@@ -862,7 +867,11 @@ impl Inner {
         else {
             return;
         };
-        if !self.authorize_attachment(pty_id, &attachment, context, "exit") {
+        if attachment.transport_id != context.transport_id {
+            return;
+        }
+        let (trust, owner) = (context.current_auth)();
+        if !self.authorize_values(pty_id, &attachment, &trust, owner.as_deref(), context, "exit") {
             return;
         }
         let mut attachments = self.attachments.lock().expect("attach lock");
@@ -918,23 +927,6 @@ impl Inner {
         let attachment = self.attachments.lock().expect("attach lock").get(pty_id)?.clone();
         self.authorize_attachment_with_context(pty_id, &attachment, context, action)
             .then_some(attachment)
-    }
-
-    fn authorize_attachment(
-        &self,
-        pty_id: &str,
-        attachment: &Attachment,
-        context: &FrameContext,
-        action: &str,
-    ) -> bool {
-        self.authorize_values(
-            pty_id,
-            attachment,
-            &attachment.auth.trust,
-            attachment.auth.owner_user_id.as_deref(),
-            context,
-            action,
-        )
     }
 
     fn authorize_attachment_with_context(
