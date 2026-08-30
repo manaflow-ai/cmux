@@ -5,6 +5,29 @@ import Testing
 import WebKit
 import CmuxUpdater
 
+/// Normalizes CoreGraphics/AppKit constructors whose imported optionality
+/// differs between the supported SDKs. Older SDKs expose these initializers as
+/// optionals while newer SDK overlays make the valid event path non-optional.
+private protocol TestOptionalValue {
+    associatedtype Wrapped
+    var testWrapped: Wrapped? { get }
+}
+
+extension Optional: TestOptionalValue {
+    var testWrapped: Wrapped? { self }
+}
+
+private func unwrapTestValue<T>(_ value: T) -> T {
+    value
+}
+
+private func unwrapTestValue<T: TestOptionalValue>(_ value: T) -> T.Wrapped {
+    guard let wrapped = value.testWrapped else {
+        fatalError("Expected a valid event constructor result")
+    }
+    return wrapped
+}
+
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -451,11 +474,11 @@ struct FileDropOverlayViewTests {
         let leftDown = try #require(Self.mouseEvent(type: .leftMouseDown, location: leftPoint, window: window))
         let rightDown = try #require(Self.mouseEvent(type: .rightMouseDown, location: rightPoint, window: window))
         let rightDrag = try #require(Self.mouseEvent(type: .rightMouseDragged, location: leftPoint, window: window))
-        let middleDown = try #require(Self.otherMouseEvent(type: .otherMouseDown, location: leftPoint, window: window, buttonNumber: 2))
-        let middleDrag = try #require(Self.otherMouseEvent(type: .otherMouseDragged, location: rightPoint, window: window, buttonNumber: 2))
+        let middleDown = Self.otherMouseEvent(type: .otherMouseDown, location: leftPoint, window: window, buttonNumber: 2)
+        let middleDrag = Self.otherMouseEvent(type: .otherMouseDragged, location: rightPoint, window: window, buttonNumber: 2)
         let leftUp = try #require(Self.mouseEvent(type: .leftMouseUp, location: rightPoint, window: window))
         let rightUp = try #require(Self.mouseEvent(type: .rightMouseUp, location: leftPoint, window: window))
-        let middleUp = try #require(Self.otherMouseEvent(type: .otherMouseUp, location: rightPoint, window: window, buttonNumber: 2))
+        let middleUp = Self.otherMouseEvent(type: .otherMouseUp, location: rightPoint, window: window, buttonNumber: 2)
 
         overlay.mouseDown(with: leftDown)
         overlay.rightMouseDown(with: rightDown)
@@ -493,7 +516,7 @@ struct FileDropOverlayViewTests {
         location: NSPoint,
         window: NSWindow,
         buttonNumber: Int
-    ) throws -> NSEvent {
+    ) -> NSEvent {
         let cgEventType: CGEventType
         switch type {
         case .otherMouseDown:
@@ -505,16 +528,14 @@ struct FileDropOverlayViewTests {
         default:
             fatalError("Unsupported event type \(type)")
         }
-        let mouseButton = try #require(CGMouseButton(rawValue: UInt32(buttonNumber)))
-        let cgEvent = try #require(
-            CGEvent(
-                mouseEventSource: nil,
-                mouseType: cgEventType,
-                mouseCursorPosition: location,
-                mouseButton: mouseButton
-            )
-        )
+        let mouseButton: CGMouseButton = unwrapTestValue(CGMouseButton(rawValue: UInt32(buttonNumber)))
+        let cgEvent: CGEvent = unwrapTestValue(CGEvent(
+            mouseEventSource: nil,
+            mouseType: cgEventType,
+            mouseCursorPosition: location,
+            mouseButton: mouseButton
+        ))
         cgEvent.setIntegerValueField(.mouseEventButtonNumber, value: Int64(buttonNumber))
-        return try #require(NSEvent(cgEvent: cgEvent))
+        return unwrapTestValue(NSEvent(cgEvent: cgEvent))
     }
 }

@@ -1,5 +1,6 @@
 import CmuxTerminal
 import CmuxTerminalCore
+import CmuxSettings
 import Foundation
 import SwiftUI
 import Testing
@@ -16,6 +17,7 @@ import Testing
 @MainActor
 @Suite("Notification row snapshot boundary", .serialized)
 struct NotificationRowSnapshotBoundaryTests {
+    private static let chromePalette = ChromePalette.builtIn(theme: .default, colorScheme: .light)
 
     // MARK: - Titlebar popover row
 
@@ -26,7 +28,8 @@ struct NotificationRowSnapshotBoundaryTests {
             workspaceTitle: "main",
             onOpen: {},
             onClear: {},
-            onToggleRead: {}
+            onToggleRead: {},
+            chromePalette: Self.chromePalette
         )
         // Distinct closures simulate the parent rebuilding the action bundle on
         // every store publish. Closure identity must be excluded from `==`.
@@ -35,7 +38,8 @@ struct NotificationRowSnapshotBoundaryTests {
             workspaceTitle: "main",
             onOpen: { _ = 1 },
             onClear: { _ = 2 },
-            onToggleRead: { _ = 3 }
+            onToggleRead: { _ = 3 },
+            chromePalette: Self.chromePalette
         )
 
         #expect(
@@ -49,9 +53,9 @@ struct NotificationRowSnapshotBoundaryTests {
         let read = Self.makeNotification(id: unread.id, isRead: true)
 
         let left = NotificationPopoverRow(
-            notification: unread, workspaceTitle: "main", onOpen: {}, onClear: {}, onToggleRead: {})
+            notification: unread, workspaceTitle: "main", onOpen: {}, onClear: {}, onToggleRead: {}, chromePalette: Self.chromePalette)
         let right = NotificationPopoverRow(
-            notification: read, workspaceTitle: "main", onOpen: {}, onClear: {}, onToggleRead: {})
+            notification: read, workspaceTitle: "main", onOpen: {}, onClear: {}, onToggleRead: {}, chromePalette: Self.chromePalette)
 
         #expect(
             left != right,
@@ -62,9 +66,9 @@ struct NotificationRowSnapshotBoundaryTests {
     @Test func popoverRowEqualityDetectsWorkspaceTitleChange() {
         let notification = Self.makeNotification()
         let left = NotificationPopoverRow(
-            notification: notification, workspaceTitle: "main", onOpen: {}, onClear: {}, onToggleRead: {})
+            notification: notification, workspaceTitle: "main", onOpen: {}, onClear: {}, onToggleRead: {}, chromePalette: Self.chromePalette)
         let right = NotificationPopoverRow(
-            notification: notification, workspaceTitle: "feature", onOpen: {}, onClear: {}, onToggleRead: {})
+            notification: notification, workspaceTitle: "feature", onOpen: {}, onClear: {}, onToggleRead: {}, chromePalette: Self.chromePalette)
 
         #expect(
             left != right,
@@ -104,7 +108,8 @@ struct NotificationRowSnapshotBoundaryTests {
             isFocused: false,
             onOpen: {},
             onClear: {},
-            focusedNotificationId: focus.projectedValue
+            focusedNotificationId: focus.projectedValue,
+            chromePalette: Self.chromePalette
         )
         let right = NotificationRow(
             notification: notification,
@@ -112,7 +117,8 @@ struct NotificationRowSnapshotBoundaryTests {
             isFocused: false,
             onOpen: { _ = 1 },
             onClear: { _ = 2 },
-            focusedNotificationId: focus.projectedValue
+            focusedNotificationId: focus.projectedValue,
+            chromePalette: Self.chromePalette
         )
 
         #expect(
@@ -126,10 +132,12 @@ struct NotificationRowSnapshotBoundaryTests {
         let focus = FocusState<UUID?>()
         let unfocused = NotificationRow(
             notification: notification, tabTitle: "main", isFocused: false,
-            onOpen: {}, onClear: {}, focusedNotificationId: focus.projectedValue)
+            onOpen: {}, onClear: {}, focusedNotificationId: focus.projectedValue,
+            chromePalette: Self.chromePalette)
         let focused = NotificationRow(
             notification: notification, tabTitle: "main", isFocused: true,
-            onOpen: {}, onClear: {}, focusedNotificationId: focus.projectedValue)
+            onOpen: {}, onClear: {}, focusedNotificationId: focus.projectedValue,
+            chromePalette: Self.chromePalette)
 
         #expect(
             unfocused != focused,
@@ -143,10 +151,12 @@ struct NotificationRowSnapshotBoundaryTests {
         let focus = FocusState<UUID?>()
         let left = NotificationRow(
             notification: base, tabTitle: "main", isFocused: false,
-            onOpen: {}, onClear: {}, focusedNotificationId: focus.projectedValue)
+            onOpen: {}, onClear: {}, focusedNotificationId: focus.projectedValue,
+            chromePalette: Self.chromePalette)
         let right = NotificationRow(
             notification: bumped, tabTitle: "main", isFocused: false,
-            onOpen: {}, onClear: {}, focusedNotificationId: focus.projectedValue)
+            onOpen: {}, onClear: {}, focusedNotificationId: focus.projectedValue,
+            chromePalette: Self.chromePalette)
 
         #expect(left != right, "A changed notification payload must change equality so the row repaints.")
     }
