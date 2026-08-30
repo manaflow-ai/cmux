@@ -1625,9 +1625,9 @@ struct DockShortcutRoutingTests {
                     panelId: mainPanelId,
                     in: harness.window
                 )
-                // Native drag startup may consume the threshold event before
-                // the host monitor sees it; didMoveTab still owns the pressed
-                // Dock token in that case.
+                // A bare pressed token is not enough for a drag callback; this
+                // protects against a swallowed mouse-up or context-menu loop
+                // being mistaken for a user drag.
                 harness.dock.beginUserDockInteraction()
                 harness.dock.splitTabBar(
                     harness.dock.bonsplitController,
@@ -1638,7 +1638,7 @@ struct DockShortcutRoutingTests {
                 #expect(
                     harness.appDelegate.keyboardFocusCoordinator(
                         for: harness.window
-                    )?.activeRightSidebarMode == .dock
+                    )?.activeRightSidebarMode == nil
                 )
 
                 harness.appDelegate.noteMainPanelKeyboardFocusIntent(

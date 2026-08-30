@@ -915,11 +915,12 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
 
     @discardableResult
     func consumeUserDockDragInteraction() -> Bool {
-        // Accept a still-pressed token as well as an observed drag phase. The
-        // native Bonsplit drag session can consume the monitor's threshold
-        // event before this store sees it; the didMoveTab callback itself is
-        // the authoritative drag signal in that case.
-        guard pendingUserInteraction else {
+        // A drag callback is user-owned only after the pointer host observed
+        // the drag threshold. A bare mouse-down token is reserved for the
+        // post-mouse-up tap callback; accepting it here would let a stale press
+        // or context-menu tracking loop claim focus during a later programmatic
+        // move.
+        guard pendingUserInteraction, pendingUserInteractionDragging else {
             return false
         }
         pendingUserInteraction = false
