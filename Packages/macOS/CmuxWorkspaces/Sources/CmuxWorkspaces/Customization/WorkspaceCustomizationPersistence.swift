@@ -151,15 +151,15 @@ final class WorkspaceCustomizationSynchronousWriter: @unchecked Sendable {
 
         // Observe every UserDefaults instance. The notification object identifies
         // the instance that wrote the value, so filtering by object would leave
-        // separately-created stores for the same suite stale. This writer has a
-        // per-instance cache, and a process-wide notification invalidates all
-        // copies that may read the same defaults database.
+        // separately-created stores for the same suite stale. Read the one
+        // backing value before invalidating. This keeps cross-instance cache
+        // coherence without turning unrelated defaults writes into journal work.
         self.defaultsChangeObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
             object: nil,
             queue: nil
         ) { [weak self] _ in
-            self?.invalidateCachedSnapshot()
+            self?.invalidateCachedSnapshotIfBackingValueChanged()
         }
     }
 
@@ -292,9 +292,15 @@ final class WorkspaceCustomizationSynchronousWriter: @unchecked Sendable {
         setCachedSnapshot(CachedSnapshot(data: data, snapshot: snapshot))
     }
 
-    private func invalidateCachedSnapshot() {
+    private func invalidateCachedSnapshotIfBackingValueChanged() {
+        guard let defaults else { return }
+        let data = defaults.data(forKey: storageKey)
         cacheLock.lock()
-        cachedSnapshot = nil
+        guard let cachedSnapshot, cachedSnapshot.data != data else {
+            cacheLock.unlock()
+            return
+        }
+        self.cachedSnapshot = nil
         cacheLock.unlock()
         changeGenerationLock.lock()
         changeGenerationValue &+= 1
