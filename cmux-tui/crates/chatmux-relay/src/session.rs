@@ -1075,8 +1075,13 @@ async fn relay_session(
                                 // bounded work queue is saturated. The manager close path is
                                 // synchronous and short, so this cannot create an unbounded wait.
                                 let snapshot = auth_direct.lock().expect("auth lock").clone();
-                                let context =
-                                    make_context(&out_tx, &pending, &snapshot, &auth, &transport_id);
+                                let context = make_context(
+                                    &out_tx,
+                                    &pending,
+                                    &snapshot,
+                                    &auth,
+                                    &transport_id,
+                                );
                                 tokio::select! {
                                     biased;
                                     _ = cancellation.cancelled() => break Ok(connected),
