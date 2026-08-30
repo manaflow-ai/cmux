@@ -2575,7 +2575,7 @@ impl Mux {
         // committed resource mutation. The worker reconciles this cache after
         // it reaches the journal head.
         if !agent_roster.startup_replay_pending {
-            merge_agent_roster_into_record_cache(&agent_roster.roster, &mut agent_records);
+            Self::merge_agent_roster_into_record_cache(&agent_roster.roster, &mut agent_records);
         }
         let journal_producers = registry.journal_producer_manifests()?;
         let session_public_id = registry.session_id().clone();
