@@ -369,8 +369,8 @@ struct IrxHostActivationPolicyTests {
         )
     }
 
-    @Test("a missing broker route stops instead of polling forever")
-    func brokerNotFoundStops() {
+    @Test("activation route rollout stays on the bounded retry ladder")
+    func activationBrokerNotFoundRetries() {
         let failure = IrxBrokerFailure(
             operation: .register,
             error: CmxIrohTrustBrokerClientError.rejected(
@@ -378,13 +378,13 @@ struct IrxHostActivationPolicyTests {
                 code: "not_found"
             )
         )
-        #expect(failure.kind == .rejected)
+        #expect(failure.kind == .transient)
         #expect(
             policy.decision(
                 for: failure,
                 failureCount: 0,
                 jitterUnitInterval: 0
-            ) == .stopped
+            ) == .retry(delay: 1, retryAfterSeconds: nil)
         )
     }
 }

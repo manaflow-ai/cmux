@@ -118,6 +118,7 @@ public struct IrxBrokerFailure: Error, Codable, Equatable, Sendable {
                 retryAfterSeconds = retryAfter
             case let .rejected(status, code):
                 kind = Self.kind(
+                    operation: operation,
                     forStatusCode: status,
                     code: code
                 )
@@ -198,6 +199,7 @@ public struct IrxBrokerFailure: Error, Codable, Equatable, Sendable {
     }
 
     private static func kind(
+        operation: IrxBrokerOperation,
         forStatusCode statusCode: Int,
         code: String?
     ) -> IrxBrokerFailureKind {
@@ -220,10 +222,16 @@ public struct IrxBrokerFailure: Error, Codable, Equatable, Sendable {
         ].contains(code?.lowercased() ?? ""):
             .authenticationRequired
         case 404:
-            // A missing broker route or peer is a durable server/input
-            // mismatch, not a connectivity outage. Stop and surface it so a
-            // client cannot poll the same guaranteed 404 forever.
-            .rejected
+            // Activation endpoints can briefly return 404 while a backend
+            // route or CDN deployment rolls out. Keep those operations on the
+            // bounded retry ladder; account-management and peer-targeted 404s
+            // remain terminal because retrying them cannot create the target.
+            switch operation {
+            case .register, .discover, .mint, .hintRefresh:
+                .transient
+            case .pairGrant, .revoke, .endpoint:
+                .rejected
+            }
         case 408, 425, 429, 500 ... 599:
             .transient
         default:
