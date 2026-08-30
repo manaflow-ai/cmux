@@ -1010,7 +1010,7 @@ struct cmuxApp: App {
                     }
                     .disabled(
                         !(activeDockForMenu?.menuCapabilities.isTerminal
-                            ?? activeTabManager.selectedTerminalPanel != nil)
+                            ?? (activeTabManager.selectedTerminalPanel != nil))
                     )
                 }
             }
