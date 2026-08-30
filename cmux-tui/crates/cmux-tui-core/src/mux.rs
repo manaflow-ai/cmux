@@ -23023,8 +23023,8 @@ mod tests {
         let repeated = mux
             .report_agent(surface.id, AgentState::Working, AgentSource::Socket, Some("poll".into()))
             .unwrap();
-        assert_eq!(socket_echoes(), 2, "a changed freshness timestamp is durable state");
-        assert!(repeated.updated_at_ms >= first.updated_at_ms);
+        assert_eq!(socket_echoes(), 1, "identical socket polls are journal-coalesced");
+        assert!(repeated.updated_at_ms > first.updated_at_ms);
         let durable_timestamp = repeated.updated_at_ms;
 
         mux.shutdown();
@@ -23054,7 +23054,7 @@ mod tests {
                 })
                 .count()
         };
-        assert_eq!(socket_echoes(), 2);
+        assert_eq!(socket_echoes(), 1);
         reopened
             .report_agent(
                 reopened_surface,
@@ -23063,7 +23063,7 @@ mod tests {
                 Some("poll".into()),
             )
             .unwrap();
-        assert_eq!(socket_echoes(), 3);
+        assert_eq!(socket_echoes(), 2);
         reopened.shutdown();
         drop(reopened);
         std::fs::remove_dir_all(root).unwrap();
@@ -23101,6 +23101,63 @@ mod tests {
         let reopened = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
         let reopened_surface = reopened.resource_surface_for_terminal(&terminal_id).unwrap();
         let records = reopened.list_agents(Some(reopened_surface), None);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].source, AgentSource::Hook);
+        assert_eq!(records[0].session.as_deref(), Some("compatibility-session"));
+        reopened.shutdown();
+        drop(reopened);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn roster_removal_authority_is_scoped_to_the_removed_terminal() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-roster-authority-scope-{}", crate::workspace_registry::new_uuid_v4()));
+        let session = "roster-authority-scope";
+        let mux = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
+        let ended_surface = mux.new_workspace(None, None).unwrap();
+        let compatibility_surface = mux.new_workspace(None, None).unwrap();
+        let ended_terminal = ended_surface.terminal_public_id().cloned().expect("ended terminal");
+        let compatibility_terminal = compatibility_surface
+            .terminal_public_id()
+            .cloned()
+            .expect("compatibility terminal");
+
+        let start = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "SessionStart",
+            Some(&ended_terminal.to_string()),
+            serde_json::json!({"session_id":"ended-session"}),
+        )
+        .unwrap();
+        mux.append_journal_ingress(&start, "test", "authority-scope-start").unwrap();
+        let end = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "SessionEnd",
+            Some(&ended_terminal.to_string()),
+            serde_json::json!({"session_id":"ended-session"}),
+        )
+        .unwrap();
+        mux.append_journal_ingress(&end, "test", "authority-scope-end").unwrap();
+
+        // Direct hook reports remain in the compatibility projection until
+        // their own terminal has a durable roster removal fence.
+        mux.report_agent(
+            compatibility_surface.id,
+            AgentState::Working,
+            AgentSource::Hook,
+            Some("compatibility-session".into()),
+        )
+        .unwrap();
+        mux.shutdown();
+        drop(mux);
+
+        let reopened = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
+        assert!(reopened.list_agents(Some(ended_surface.id), None).is_empty());
+        let compatibility_surface = reopened
+            .resource_surface_for_terminal(&compatibility_terminal)
+            .expect("compatibility terminal restored");
+        let records = reopened.list_agents(Some(compatibility_surface), None);
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].source, AgentSource::Hook);
         assert_eq!(records[0].session.as_deref(), Some("compatibility-session"));
