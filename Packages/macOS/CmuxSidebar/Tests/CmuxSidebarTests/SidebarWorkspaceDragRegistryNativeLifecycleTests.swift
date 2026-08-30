@@ -80,7 +80,7 @@ struct SidebarWorkspaceDragRegistryNativeLifecycleTests {
     @Test("A logical begin does not reclaim a live native source")
     func logicalBeginPreservesLiveNativeSource() throws {
         let pasteboard = NSPasteboard(
-            name: NSPasteboard.Name("sidebar-native-logical-(UUID().uuidString)")
+            name: NSPasteboard.Name("sidebar-native-logical-\(UUID().uuidString)")
         )
         pasteboard.clearContents()
         var startedSource: SidebarWorkspaceDragSessionSource?
