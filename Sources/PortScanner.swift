@@ -70,8 +70,7 @@ final class PortScanner: @unchecked Sendable {
     /// Generation invalidates callbacks that were queued before a panel
     /// lifecycle changed. The queue is the sole owner, so cancellation and
     /// generation checks are deterministic and race-free.
-    private var burstGeneration: UInt64 = 0
-    private var scheduledBurstWorkItems: [DispatchWorkItem] = []
+    private var scheduledBurstTimers: [UUID: DispatchSourceTimer] = [:]
 
     private var coalesceTimer: DispatchSourceTimer?
 
@@ -137,12 +136,9 @@ final class PortScanner: @unchecked Sendable {
         let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
         publicationState.invalidatePanelLifecycle(for: key)
         queue.async { [self] in
-            burstGeneration &+= 1
-            scheduledBurstWorkItems.forEach { $0.cancel() }
-            scheduledBurstWorkItems.removeAll()
-            burstActive = false
-            coalesceTimer?.cancel()
-            coalesceTimer = nil
+            // A panel unregister must not cancel scans for other panels.
+            // The next scan snapshots the remaining registered panels.
+            pendingKicks.remove(key)
             ttyNames.removeValue(forKey: key)
             panelRevisionByKey.removeValue(forKey: key)
             pendingKicks.remove(key)
@@ -239,32 +235,30 @@ final class PortScanner: @unchecked Sendable {
 
         guard !pendingKicks.isEmpty else { return }
         burstActive = true
-        runBurst(index: 0, generation: burstGeneration)
+        runBurst(index: 0)
     }
 
-    private func runBurst(index: Int, burstStart: DispatchTime? = nil, generation: UInt64) {
+    private func runBurst(index: Int, burstStart: DispatchTime? = nil) {
         // Already on `queue`.
-        guard generation == burstGeneration else { return }
         guard index < Self.burstOffsets.count else {
             burstActive = false
-            // If new kicks arrived during the burst, start a new coalesce cycle.
-            if !pendingKicks.isEmpty {
-                startCoalesce()
-            }
+            if !pendingKicks.isEmpty { startCoalesce() }
             return
         }
 
         let start = burstStart ?? .now()
-        let deadline = start + Self.burstOffsets[index]
-        let workItem = DispatchWorkItem { [weak self] in
+        let timerID = UUID()
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: start + Self.burstOffsets[index])
+        timer.setEventHandler { [weak self, weak timer] in
             guard let self else { return }
-            guard generation == self.burstGeneration else { return }
+            self.scheduledBurstTimers.removeValue(forKey: timerID)
+            timer?.cancel()
             self.runScan()
-            self.scheduledBurstWorkItems.removeAll { $0.isCancelled }
-            self.runBurst(index: index + 1, burstStart: start, generation: generation)
+            self.runBurst(index: index + 1, burstStart: start)
         }
-        scheduledBurstWorkItems.append(workItem)
-        queue.asyncAfter(deadline: deadline, execute: workItem)
+        scheduledBurstTimers[timerID] = timer
+        timer.resume()
     }
 
     // MARK: - Scan
