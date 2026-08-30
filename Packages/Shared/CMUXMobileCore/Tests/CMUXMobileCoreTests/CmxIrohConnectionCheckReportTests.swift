@@ -59,6 +59,27 @@ struct CmxIrohConnectionCheckReportTests {
     }
 
     @Test
+    func unsupportedRuntimeFailureDoesNotRecommendHiddenRelaySettings() {
+        let snapshot = CmxIrohSettingsSnapshot(
+            runtimeStatus: .degraded,
+            preference: .automatic,
+            managedRelays: [],
+            customRelays: [],
+            policySource: .server,
+            failureDescription: "no_credentials_issued",
+            supportsRelayConfiguration: false
+        )
+        let report = CmxIrohConnectionCheckReport(
+            role: .macHost,
+            snapshot: snapshot,
+            diagnostics: .empty,
+            relayReachability: .unavailable
+        )
+
+        #expect(report.recommendation == .refreshAccount)
+    }
+
+    @Test
     func reauthenticationRequiredIsExplicitAndRecommendsSignIn() {
         let report = CmxIrohConnectionCheckReport(
             role: .macHost,

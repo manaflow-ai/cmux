@@ -249,7 +249,8 @@ final class MobileHostIrxRuntime {
                     pairingEnabled: true,
                     relayURLHint: homeRelay
                 )
-            } catch let failure as IrxBrokerFailure where failure.isRetryable {
+            } catch let failure as IrxBrokerFailure where failure.operation == .hintRefresh {
+                if failure.requiresReauthentication { throw failure }
                 deferredHintFailure = failure
                 await handleAutopilotFailure(
                     failure,

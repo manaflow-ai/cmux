@@ -16,7 +16,6 @@ extension MobileHostIrxRuntime: CmxIrohSettingsControlling {
         let credentials = await broker?.cachedRelayCredentials() ?? []
         let online = await endpoint?.isHealthy() ?? false
         let homeRelay = await endpoint?.homeRelayURL()
-        let supportsRelayConfiguration = false
         let path = Self.selectedPath(
             state: activationState,
             endpointOnline: online,
@@ -47,12 +46,12 @@ extension MobileHostIrxRuntime: CmxIrohSettingsControlling {
                 ? .unavailable
                 : (hadLiveDiscovery ? .server : .cached),
             policyExpiresAt: credentials.map(\.expiresAt).max(),
-            failureDescription: supportsRelayConfiguration
-                && (activationState == .failed
-                    || activationState == .reauthenticationRequired)
-                ? lastBrokerFailure?.errorCode : nil,
+            failureDescription: activationState == .failed
+                || activationState == .reauthenticationRequired
+                ? lastBrokerFailure?.errorCode
+                : nil,
             requiresReauthentication: activationState == .reauthenticationRequired,
-            supportsRelayConfiguration: supportsRelayConfiguration,
+            supportsRelayConfiguration: false,
             debugTransportVerificationMode: nil
         )
     }

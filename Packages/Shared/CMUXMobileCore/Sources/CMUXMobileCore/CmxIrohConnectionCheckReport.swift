@@ -122,8 +122,11 @@ public struct CmxIrohConnectionCheckReport: Equatable, Sendable {
             sessionStatus: sessionStatus,
             failureKind: diagnostics.lastFailureKind,
             requiresReauthentication: snapshot.requiresReauthentication,
-            hasRelayConfigurationProblem: !snapshot.staleRelayIDs.isEmpty
-                || snapshot.failureDescription != nil
+            hasRelayConfigurationProblem: snapshot.supportsRelayConfiguration
+                && (
+                    !snapshot.staleRelayIDs.isEmpty
+                        || snapshot.failureDescription != nil
+                )
         )
     }
 

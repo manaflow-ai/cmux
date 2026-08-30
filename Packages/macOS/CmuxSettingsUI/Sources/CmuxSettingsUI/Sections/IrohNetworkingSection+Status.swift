@@ -12,7 +12,8 @@ struct IrohNetworkingAttentionNote: View {
                 localized: "settings.networking.status.reauthenticationRequired.detail",
                 defaultValue: "Sign in again to restore iPhone connectivity."
             ))
-        } else if !snapshot.staleRelayIDs.isEmpty || snapshot.failureDescription != nil {
+        } else if snapshot.supportsRelayConfiguration
+            && (!snapshot.staleRelayIDs.isEmpty || snapshot.failureDescription != nil) {
             SettingsCardNote(String(
                 localized: "settings.networking.attention",
                 defaultValue: "Your saved relay choice needs attention. Direct Iroh remains available, but cmux will not substitute an unselected relay."

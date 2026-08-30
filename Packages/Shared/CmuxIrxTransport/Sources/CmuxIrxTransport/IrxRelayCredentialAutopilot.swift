@@ -178,7 +178,8 @@ public actor IrxRelayCredentialAutopilot {
                 guard let nextFailureCount = await waitForRetry(
                     after: failure,
                     failureCount: failureCount,
-                    credentialExpiry: nil
+                    credentialExpiry: nil,
+                    escalateUnauthorized: false
                 ) else { return .stopped }
                 failureCount = nextFailureCount
             }
@@ -196,13 +197,28 @@ public actor IrxRelayCredentialAutopilot {
     private func waitForRetry(
         after failure: IrxBrokerFailure,
         failureCount: Int,
-        credentialExpiry: Date?
+        credentialExpiry: Date?,
+        escalateUnauthorized: Bool = true
     ) async -> Int? {
-        let decision = IrxHostActivationPolicy().decision(
-            for: failure,
-            failureCount: failureCount,
-            jitterUnitInterval: Double.random(in: 0 ... 1)
-        )
+        let decision: IrxHostActivationPolicy.Decision
+        if !escalateUnauthorized,
+           failure.statusCode == 401,
+           !failure.requiresReauthentication {
+            // The host callback owns the shared 401 escalation counter. The
+            // autopilot's bounded hint burst must not independently terminate
+            // credential renewal before that owner decides.
+            decision = IrxHostActivationPolicy().decision(
+                for: failure,
+                failureCount: 0,
+                jitterUnitInterval: Double.random(in: 0 ... 1)
+            )
+        } else {
+            decision = IrxHostActivationPolicy().decision(
+                for: failure,
+                failureCount: failureCount,
+                jitterUnitInterval: Double.random(in: 0 ... 1)
+            )
+        }
         let event = failure.operation == .hintRefresh
             ? "hint-refresh-failed" : "mint-failed"
         switch decision {
