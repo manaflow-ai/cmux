@@ -531,6 +531,47 @@ struct WorkspaceRecoveryTests {
     }
 
     @Test
+    func autoTitleRecoveryPreservesIndependentColor() throws {
+        let fixture = try makeCustomizationStore()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let store = fixture.store
+
+        let sourceManager = TabManager(
+            initialWorkingDirectory: "/tmp/auto-title-color",
+            autoWelcomeIfNeeded: false,
+            workspaceCustomizationStore: store
+        )
+        let sourceWorkspace = try #require(sourceManager.selectedWorkspace)
+        #expect(sourceManager.setCustomTitle(
+            tabId: sourceWorkspace.id,
+            title: "User Name"
+        ))
+        sourceManager.clearCustomTitle(tabId: sourceWorkspace.id)
+        #expect(sourceManager.setCustomTitle(
+            tabId: sourceWorkspace.id,
+            title: "Automatic Name",
+            source: .auto
+        ))
+        sourceManager.applyWorkspaceColor(
+            "#123456",
+            toWorkspaceIds: [sourceWorkspace.id]
+        )
+
+        let restoredManager = TabManager(
+            autoWelcomeIfNeeded: false,
+            workspaceCustomizationStore: store
+        )
+        restoredManager.restoreSessionSnapshot(SessionTabManagerSnapshot(
+            selectedWorkspaceIndex: 0,
+            workspaces: [sourceWorkspace.sessionSnapshot(includeScrollback: false)]
+        ))
+        let restoredWorkspace = try #require(restoredManager.selectedWorkspace)
+        #expect(restoredWorkspace.customTitle == "Automatic Name")
+        #expect(restoredWorkspace.effectiveCustomTitleSource == .auto)
+        #expect(restoredWorkspace.customColor == "#123456")
+    }
+
+    @Test
     func titleAndColorRecoveryFieldsRemainIndependent() throws {
         let fixture = try makeCustomizationStore()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
