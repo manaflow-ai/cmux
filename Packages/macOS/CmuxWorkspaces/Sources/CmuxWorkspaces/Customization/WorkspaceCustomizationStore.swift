@@ -60,6 +60,13 @@ public struct WorkspaceCustomizationStore {
         synchronousWriter.persistPendingAutomaticTitles(pending)
     }
 
+    /// Returns a cheap process-local generation that changes whenever the
+    /// backing defaults value changes. Callers can cache a journal read until
+    /// this value changes without decoding the full snapshot for each event.
+    public nonisolated func changeGeneration() -> UInt64 {
+        synchronousWriter.changeGeneration()
+    }
+
     /// Reads the recovery record for one stable workspace identity.
     ///
     /// - Parameter stableId: The stable workspace identity.

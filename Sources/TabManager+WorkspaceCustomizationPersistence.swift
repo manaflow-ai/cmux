@@ -17,6 +17,9 @@ extension TabManager {
         guard !pendingAutomaticWorkspaceTitles.isEmpty else { return }
         let pending = pendingAutomaticWorkspaceTitles
         pendingAutomaticWorkspaceTitles.removeAll(keepingCapacity: true)
+        for stableId in pending.keys {
+            automaticWorkspaceTitleJournalState.removeValue(forKey: stableId)
+        }
         workspaceCustomizationStore.persistPendingAutomaticTitlesSynchronously(
             pending.map { stableId, pendingTitle in
                 WorkspaceCustomizationPendingAutomaticTitle(
@@ -172,6 +175,35 @@ extension TabManager {
         // subsequent automatic value so a stale snapshot cannot roll the title
         // back to an earlier refresh.
         if source == .auto {
+            let stableId = workspace.stableId
+            let generation = workspaceCustomizationStore.changeGeneration()
+            let state: (
+                generation: UInt64,
+                titleMutationRevision: UInt64,
+                automaticTitleAllowed: Bool
+            )
+            if let cached = automaticWorkspaceTitleJournalState[stableId],
+               cached.generation == generation {
+                state = cached
+            } else {
+                let loaded = workspaceCustomizationStore
+                    .customizationAndTitleMutationRevision(for: stableId)
+                let automaticTitleAllowed = loaded.map { record in
+                    switch record.customization.customTitle {
+                    case .cleared, .autoValue:
+                        return true
+                    case .absent, .value:
+                        return false
+                    }
+                } ?? false
+                state = (
+                    generation: generation,
+                    titleMutationRevision: loaded?.titleMutationRevision ?? 0,
+                    automaticTitleAllowed: automaticTitleAllowed
+                )
+                automaticWorkspaceTitleJournalState[stableId] = state
+            }
+            guard state.automaticTitleAllowed else { return }
             // Every notification is a new observation. A different manager
             // may have persisted a newer automatic title since this manager
             // queued its previous value, so retaining the pending fence
@@ -181,16 +213,14 @@ extension TabManager {
             pendingAutomaticWorkspaceTitles[workspace.stableId] =
                 PendingAutomaticWorkspaceTitle(
                     title: workspace.customTitle,
-                    // Resolve the durable title fence in the synchronous
-                    // writer at flush time. Notification delivery stays
-                    // actor-local and never decodes the full journal.
-                    titleMutationRevision: 0,
+                    titleMutationRevision: state.titleMutationRevision,
                     automaticTitleOrdering: automaticTitleOrdering
                 )
             scheduleAutomaticWorkspaceTitlePersistence()
             return
         }
         cancelPendingAutomaticWorkspaceTitle(for: workspace.stableId)
+        automaticWorkspaceTitleJournalState.removeValue(forKey: workspace.stableId)
         workspaceCustomizationStore.setCustomTitle(
             workspace.customTitle,
             for: workspace.stableId,

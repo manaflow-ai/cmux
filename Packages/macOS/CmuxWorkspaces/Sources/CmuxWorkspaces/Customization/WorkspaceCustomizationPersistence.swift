@@ -139,6 +139,8 @@ final class WorkspaceCustomizationSynchronousWriter: @unchecked Sendable {
     // defaults setter that synchronously waits for this callback to return.
     private let cacheLock = NSLock()
     private var cachedSnapshot: CachedSnapshot?
+    private let changeGenerationLock = NSLock()
+    private var changeGenerationValue: UInt64 = 0
     private var defaultsChangeObserver: (any NSObjectProtocol)?
 
     init(defaults: UserDefaults?, storageKey: String, capacity: Int) {
@@ -173,6 +175,12 @@ final class WorkspaceCustomizationSynchronousWriter: @unchecked Sendable {
         return body()
     }
 
+    func changeGeneration() -> UInt64 {
+        changeGenerationLock.lock()
+        defer { changeGenerationLock.unlock() }
+        return changeGenerationValue
+    }
+
     func persistPendingAutomaticTitles(
         _ pending: [WorkspaceCustomizationPendingAutomaticTitle]
     ) {
@@ -186,40 +194,12 @@ final class WorkspaceCustomizationSynchronousWriter: @unchecked Sendable {
                 let key = item.stableId.uuidString
                 guard let currentEntry = snapshot.entries[key] else { continue }
                 let trimmed = item.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                let sameRevision = item.titleMutationRevision != 0
-                    && currentEntry.titleMutationRevision == item.titleMutationRevision
+                let sameRevision = currentEntry.titleMutationRevision == item.titleMutationRevision
                 let newerConcurrentAutomaticTitle =
-                    item.titleMutationRevision != 0
-                    && currentEntry.titleMutationRevision > item.titleMutationRevision
+                    currentEntry.titleMutationRevision > item.titleMutationRevision
                     && currentEntry.automaticTitleOrdering > 0
                     && item.automaticTitleOrdering > currentEntry.automaticTitleOrdering
-                let deferredAutomaticTitleCanApply: Bool = {
-                    guard item.titleMutationRevision == 0 else { return false }
-                    switch currentEntry.customization.customTitle {
-                    case .cleared:
-                        // A clear is the authority handoff that enables auto
-                        // naming. It may have happened in another manager
-                        // after this notification was queued.
-                        return true
-                    case let .autoValue(currentTitle):
-                        if currentEntry.automaticTitleOrdering > 0 {
-                            return currentEntry.automaticTitleOrdering <= item.automaticTitleOrdering
-                        }
-                        // Legacy automatic records have no ordering. Never
-                        // replace a different value without a durable fence.
-                        return currentTitle == trimmed
-                    case .absent, .value:
-                        return false
-                    }
-                }()
-                let clearAfterQueuedAutomaticTitle =
-                    item.titleMutationRevision != 0
-                    && currentEntry.titleMutationRevision > item.titleMutationRevision
-                    && currentEntry.customization.customTitle == .cleared
-                guard sameRevision
-                    || newerConcurrentAutomaticTitle
-                    || deferredAutomaticTitleCanApply
-                    || clearAfterQueuedAutomaticTitle else {
+                guard sameRevision || newerConcurrentAutomaticTitle else {
                     // Any mutation after the automatic title was queued makes
                     // this record stale unless it is a later automatic title
                     // queued by another manager at the same observed revision.
@@ -316,6 +296,9 @@ final class WorkspaceCustomizationSynchronousWriter: @unchecked Sendable {
         cacheLock.lock()
         cachedSnapshot = nil
         cacheLock.unlock()
+        changeGenerationLock.lock()
+        changeGenerationValue &+= 1
+        changeGenerationLock.unlock()
     }
 
     private func cachedSnapshot(

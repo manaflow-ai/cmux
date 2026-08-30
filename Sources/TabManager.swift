@@ -470,6 +470,14 @@ class TabManager: ObservableObject {
     // These members are internal because the persistence behavior is split
     // across same-type extensions in separate source files.
     var pendingAutomaticWorkspaceTitles: [UUID: PendingAutomaticWorkspaceTitle] = [:]
+    /// One journal read is shared by all automatic-title notifications until
+    /// the backing defaults value changes. The writer still revalidates the
+    /// revision at flush time for cross-manager races.
+    var automaticWorkspaceTitleJournalState: [UUID: (
+        generation: UInt64,
+        titleMutationRevision: UInt64,
+        automaticTitleAllowed: Bool
+    )] = [:]
     var automaticWorkspaceTitlePersistenceTask: Task<Void, Never>?
     // This counter is shared with the persistence extension in this module.
     // TabManager is main-actor isolated, so incrementing it does not need a
