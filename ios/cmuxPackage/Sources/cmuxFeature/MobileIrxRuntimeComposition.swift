@@ -196,7 +196,7 @@ public actor MobileIrxRuntimeComposition {
         guard let session = try? await auth.authenticatedSessionSnapshot() else {
             return false
         }
-        await resetIfAccountChanged(to: session.accountID)
+        await prepareForProvisioning(accountID: session.accountID)
         do {
             _ = try await provisionedBroker()
             Self.journal.record("client-runtime", "provisioned")

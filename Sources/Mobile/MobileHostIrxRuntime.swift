@@ -232,9 +232,9 @@ final class MobileHostIrxRuntime {
             let credentials = try await pilot.usableCredentials()
             activationOperation = .discover
             _ = try await broker.discover()
+            guard generationToken == token, activeAccountID == accountID else { return }
             hadLiveDiscovery = true
 
-            guard generationToken == token else { return }
             activationOperation = .endpoint
             _ = try await supervisor.readyEndpoint(credentials: credentials)
             // Advertise the relay the endpoint ACTUALLY homes on, then

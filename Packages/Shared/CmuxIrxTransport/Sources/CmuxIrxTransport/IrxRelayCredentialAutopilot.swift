@@ -99,10 +99,16 @@ public actor IrxRelayCredentialAutopilot {
             bypassRefreshDeadlineOnce = false
             do {
                 let minted = try await broker.mintRelayCredentials()
+                guard !Task.isCancelled else { return }
                 await endpoint.rotateCredentials(minted)
+                guard !Task.isCancelled else { return }
                 try await onRotation?()
+                guard !Task.isCancelled else { return }
                 failureCount = 0
+            } catch is CancellationError {
+                return
             } catch {
+                guard !Task.isCancelled else { return }
                 let failure = error as? IrxBrokerFailure
                     ?? IrxBrokerFailure(operation: .mint, error: error)
                 let expiry = credentials.map(\.expiresAt).max()

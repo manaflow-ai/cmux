@@ -1,13 +1,15 @@
 import CmuxIrxTransport
 
 extension MobileIrxRuntimeComposition {
-    /// Rebuilds the retained broker when auth changes accounts without going
-    /// through the interactive sign-out hook (for example, a revoked session).
-    func resetIfAccountChanged(to accountID: String) async {
-        guard broker != nil,
-              provisionedAccountID != nil,
-              provisionedAccountID != accountID else { return }
-        await resetForSignOut()
+    /// Fences provisioning to one authenticated account at a time.
+    func prepareForProvisioning(accountID: String) async {
+        if let provisionedAccountID,
+           provisionedAccountID != accountID {
+            await resetForSignOut()
+        }
+        // Set this before ``provisionOnce()`` suspends so an account switch
+        // cannot publish the old account's broker after a late completion.
+        provisionedAccountID = accountID
     }
 
     /// Stops irx-owned sessions before auth clears the account's credentials.
