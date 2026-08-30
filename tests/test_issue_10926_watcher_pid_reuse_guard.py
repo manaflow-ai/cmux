@@ -28,6 +28,7 @@ import socket
 import subprocess
 import tempfile
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -121,6 +122,27 @@ def shell_start_time(shell_argv: list[str], integration: Path, env: dict[str, st
     return proc.stdout.strip() if proc.returncode == 0 else ""
 
 
+def ps_epoch_start_time(pid: int, env: dict[str, str]) -> str:
+    """Read macOS ps(1) lstart and convert it to canonical epoch seconds."""
+    proc = subprocess.run(
+        ["/bin/ps", "-o", "lstart=", "-p", str(pid)],
+        env={**env, "LC_ALL": "C", "TZ": "UTC"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        return ""
+    words = proc.stdout.split()
+    if len(words) != 5:
+        return ""
+    try:
+        started = datetime.strptime(" ".join(words), "%a %b %d %H:%M:%S %Y").replace(tzinfo=UTC)
+    except ValueError:
+        return ""
+    return str(int(started.timestamp()))
+
+
 def check_guard_semantics(name: str, shell_argv: list[str], integration: Path, env: dict[str, str]) -> None:
     # The integration path is $1 in both shells so the scripts stay identical.
     guard_script = (
@@ -193,6 +215,13 @@ def check_guard_semantics(name: str, shell_argv: list[str], integration: Path, e
     #    original parent (start time differs). Guard must report parent-dead.
     decoy = subprocess.Popen(["/bin/sleep", "60"])
     try:
+        helper_start = shell_start_time(shell_argv, integration, env, decoy.pid)
+        canonical_start = ps_epoch_start_time(decoy.pid, env)
+        if not canonical_start or helper_start != canonical_start:
+            fail(
+                f"[{name}] helper start identity is not canonical epoch seconds "
+                f"(helper={helper_start!r} ps={canonical_start!r})"
+            )
         proc = run_shell(shell_argv, guard_script, [str(integration), str(decoy.pid), FAKE_START_TIME], env)
         if "GUARD:0" in proc.stdout or "GUARD:" not in proc.stdout:
             fail(
