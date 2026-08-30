@@ -332,7 +332,10 @@ final class MainWindowFocusController {
         }
         guard let ghosttyView = responder.cmuxStrictOwningGhosttyView(),
               let panelId = ghosttyView.terminalSurface?.id,
-              GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(id: panelId) else {
+              GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(id: panelId),
+              let dock = DockSplitStore.liveStore(containingPanel: panelId),
+              dock.scope == .global,
+              dock.workspaceId == windowId else {
             return nil
         }
         return .dock
