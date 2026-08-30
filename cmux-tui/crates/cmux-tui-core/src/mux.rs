@@ -5872,14 +5872,28 @@ impl Mux {
     ) -> Option<String> {
         let (cursor, previous) = {
             let host = self.agent_roster.lock().unwrap();
-            let previous = host.roster.entries.get(terminal_id.as_str()).map(|entry| {
-                (
-                    entry.state.clone(),
-                    entry.source.clone(),
-                    entry.session.clone(),
-                    entry.agent.clone(),
-                )
-            });
+            let previous = host
+                .roster
+                .entries
+                .get(terminal_id.as_str())
+                .map(|entry| {
+                    (
+                        entry.state.clone(),
+                        entry.source.clone(),
+                        entry.session.clone(),
+                        entry.agent.clone(),
+                    )
+                })
+                .or_else(|| {
+                    host.roster.last_socket_report(terminal_id.as_str()).map(|(state, session)| {
+                        (
+                            state.to_string(),
+                            AgentSource::Socket.as_str().to_string(),
+                            session.map(str::to_owned),
+                            None,
+                        )
+                    })
+                });
             (host.cursor, previous)
         };
         let unchanged = previous.as_ref().is_some_and(

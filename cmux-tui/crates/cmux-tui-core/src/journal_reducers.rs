@@ -30,8 +30,9 @@ pub(crate) const AGENT_ROSTER_REDUCER_ID: &str = "agent_roster";
 /// Version 2 added the agent adapter id to roster entries. Version 3 retains
 /// ended hook fences after their live roster entries are removed. Version 4
 /// added a global authority bit. Version 5 removes that global bit and scopes
-/// compatibility cleanup to each terminal's durable removal fence.
-pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 5;
+/// compatibility cleanup to each terminal's durable removal fence. Version 6
+/// retains the last socket semantic receipt after a Done entry is removed.
+pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 6;
 
 /// Retirement tombstones protect delayed journal rows after a terminal leaves
 /// the resource tree. Keep each exact tombstone while its journal rows may be
@@ -133,6 +134,12 @@ struct RosterFence {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct SocketReportReceipt {
+    state: String,
+    session: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct RosterEntry {
     pub(crate) state: String,
     pub(crate) source: String,
@@ -184,6 +191,12 @@ pub(crate) struct AgentRoster {
     /// retirement, so delayed records from that terminal cannot recreate it.
     #[serde(default)]
     retired_terminals: BTreeMap<String, u64>,
+    /// The last accepted socket state remains after a Done report removes
+    /// the live roster entry. This receipt is bounded by terminal lifecycle,
+    /// and lets repeated polls reuse the same semantic transition instead of
+    /// appending another journal row on every poll.
+    #[serde(default)]
+    socket_receipts: HashMap<String, SocketReportReceipt>,
 }
 
 impl AgentRoster {
@@ -270,6 +283,10 @@ impl AgentRoster {
                     ended: state == AgentState::Done,
                 },
             );
+            // A hook event claims this terminal's lifecycle. Any socket
+            // receipt from the previous lifecycle must not suppress a later
+            // socket transition after the hook state is gone.
+            self.socket_receipts.remove(terminal_id);
             (state, AgentSource::Hook, None, agent, event.committed_at_ms)
         };
         if source == AgentSource::Socket
@@ -281,6 +298,12 @@ impl AgentRoster {
             // Hook state is live agent truth; socket reports cannot
             // overwrite it (mirrors the projection commit precedence).
             return Vec::new();
+        }
+        if source == AgentSource::Socket {
+            self.socket_receipts.insert(
+                terminal_id.to_string(),
+                SocketReportReceipt { state: state.as_str().to_string(), session: session.clone() },
+            );
         }
         if state == AgentState::Done {
             // An ended agent leaves the roster entirely; the done state is
@@ -324,6 +347,7 @@ impl AgentRoster {
     /// events yet, so the host retires entries explicitly.
     pub(crate) fn retire_terminal(&mut self, terminal_id: &str, retired_at: u64) -> bool {
         let removed_entry = self.entries.remove(terminal_id).is_some();
+        let removed_socket_receipt = self.socket_receipts.remove(terminal_id).is_some();
         // A retired terminal is no longer allowed to receive socket echoes,
         // and its ended hook fence is redundant with the retirement cursor.
         let removed_fence = self.hook_fences.remove(terminal_id).is_some();
@@ -339,7 +363,7 @@ impl AgentRoster {
                 true
             }
         };
-        removed_entry || removed_fence || retired_changed
+        removed_entry || removed_fence || removed_socket_receipt || retired_changed
     }
 
     /// Remove retirement fences whose source records are covered by a sealed
@@ -381,6 +405,15 @@ impl AgentRoster {
 
     pub(crate) fn has_ended_hook_fence(&self, terminal_id: &str) -> bool {
         self.hook_fences.get(terminal_id).is_some_and(|fence| fence.ended)
+    }
+
+    /// Return the last accepted socket state for idempotency checks. The
+    /// receipt survives live-entry removal, but only semantic fields are
+    /// retained because report timestamps are intentionally non-semantic.
+    pub(crate) fn last_socket_report(&self, terminal_id: &str) -> Option<(&str, Option<&str>)> {
+        self.socket_receipts
+            .get(terminal_id)
+            .map(|receipt| (receipt.state.as_str(), receipt.session.as_deref()))
     }
 
     pub(crate) fn snapshot(&self) -> Value {
