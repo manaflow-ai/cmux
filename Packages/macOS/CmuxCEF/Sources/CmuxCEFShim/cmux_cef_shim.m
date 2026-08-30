@@ -116,6 +116,7 @@ struct cmux_cef_browser {
 
   cef_browser_t *browser;
   cef_window_t *window;
+  cef_browser_view_t *browser_view;
   cef_registration_t *devtools_registration;
   int closed;
   int registered;
@@ -331,6 +332,11 @@ static void CEF_CALLBACK life_span_on_after_created(
   wrapper->browser = browser;
   cef_browser_host_t *host = browser->get_host(browser);
   if (host) {
+    // AddDevToolsMessageObserver consumes the observer reference passed across
+    // the C API boundary. Keep the wrapper's own reference separate so the
+    // Swift owner can continue using the browser until the closed callback.
+    ((cef_base_ref_counted_t *)&wrapper->devtools)
+        ->add_ref((cef_base_ref_counted_t *)&wrapper->devtools);
     wrapper->devtools_registration =
         host->add_dev_tools_message_observer(host, &wrapper->devtools);
     ((cef_base_ref_counted_t *)host)->release((cef_base_ref_counted_t *)host);
@@ -350,7 +356,9 @@ static void CEF_CALLBACK life_span_on_after_created(
 static void CEF_CALLBACK life_span_on_before_close(
     cef_life_span_handler_t *self, cef_browser_t *browser) {
   struct cmux_cef_browser *wrapper = life_span_wrapper(self);
-  if (wrapper->browser != browser) return;
+  // The callback's browser pointer is a transient C wrapper and is not pointer
+  // identical to the one retained from OnAfterCreated.
+  if (!wrapper->browser) return;
   browser_registry_remove(wrapper);
   wrapper->closed = 1;
   if (wrapper->devtools_registration) {
@@ -363,11 +371,6 @@ static void CEF_CALLBACK life_span_on_before_close(
     ((cef_base_ref_counted_t *)wrapper->browser)
         ->release((cef_base_ref_counted_t *)wrapper->browser);
     wrapper->browser = NULL;
-  }
-  if (wrapper->window) {
-    ((cef_base_ref_counted_t *)wrapper->window)
-        ->release((cef_base_ref_counted_t *)wrapper->window);
-    wrapper->window = NULL;
   }
   if (wrapper->request_context) {
     ((cef_base_ref_counted_t *)wrapper->request_context)
@@ -387,7 +390,9 @@ static void CEF_CALLBACK display_on_title_change(cef_display_handler_t *self,
                                                  cef_browser_t *browser,
                                                  const cef_string_t *title) {
   struct cmux_cef_browser *wrapper = display_wrapper(self);
-  if (wrapper->browser != browser || !wrapper->callbacks.on_title_changed) return;
+  // CEF supplies a fresh C wrapper pointer for each callback, so compare the
+  // logical wrapper state rather than the callback pointer address.
+  if (!wrapper->browser || !wrapper->callbacks.on_title_changed) return;
   char *utf8 = copy_utf8(title);
   wrapper->callbacks.on_title_changed(wrapper->callbacks.context, utf8);
   free(utf8);
@@ -398,7 +403,7 @@ static void CEF_CALLBACK display_on_address_change(cef_display_handler_t *self,
                                                    struct _cef_frame_t *frame,
                                                    const cef_string_t *url) {
   struct cmux_cef_browser *wrapper = display_wrapper(self);
-  if (wrapper->browser != browser || !wrapper->callbacks.on_address_changed) return;
+  if (!wrapper->browser || !wrapper->callbacks.on_address_changed) return;
   if (frame && !frame->is_main(frame)) return;
   char *utf8 = copy_utf8(url);
   wrapper->callbacks.on_address_changed(wrapper->callbacks.context, utf8);
@@ -411,7 +416,7 @@ static void CEF_CALLBACK load_on_loading_state_change(cef_load_handler_t *self,
                                                       int canGoBack,
                                                       int canGoForward) {
   struct cmux_cef_browser *wrapper = load_wrapper(self);
-  if (wrapper->browser != browser || !wrapper->callbacks.on_loading_state_changed) {
+  if (!wrapper->browser || !wrapper->callbacks.on_loading_state_changed) {
     return;
   }
   wrapper->callbacks.on_loading_state_changed(wrapper->callbacks.context,
@@ -423,7 +428,7 @@ static void CEF_CALLBACK request_on_render_process_terminated(
     cef_termination_status_t status, int error_code,
     const cef_string_t *error_string) {
   struct cmux_cef_browser *wrapper = request_wrapper(self);
-  if (wrapper->browser != browser || !wrapper->callbacks.on_renderer_crashed) {
+  if (!wrapper->browser || !wrapper->callbacks.on_renderer_crashed) {
     return;
   }
   wrapper->callbacks.on_renderer_crashed(wrapper->callbacks.context);
@@ -433,7 +438,7 @@ static int CEF_CALLBACK request_on_before_browse(
     cef_request_handler_t *self, cef_browser_t *browser, cef_frame_t *frame,
     cef_request_t *request, int user_gesture, int is_redirect) {
   struct cmux_cef_browser *wrapper = request_wrapper(self);
-  if (wrapper->browser != browser || !frame || !frame->is_main(frame) ||
+  if (!wrapper->browser || !frame || !frame->is_main(frame) ||
       !request || !request->get_url ||
       !wrapper->callbacks.should_block_navigation) {
     return 0;
@@ -456,7 +461,7 @@ static int CEF_CALLBACK request_on_open_urlfrom_tab(
     const cef_string_t *target_url,
     cef_window_open_disposition_t target_disposition, int user_gesture) {
   struct cmux_cef_browser *wrapper = request_wrapper(self);
-  if (wrapper->browser != browser || !frame || !frame->is_main(frame)) {
+  if (!wrapper->browser || !frame || !frame->is_main(frame)) {
     return 1;
   }
   if (wrapper->callbacks.on_open_url_from_tab) {
@@ -512,6 +517,24 @@ static cef_rect_t CEF_CALLBACK window_delegate_initial_bounds(
   return bounds;
 }
 
+static void CEF_CALLBACK window_delegate_on_window_destroyed(
+    cef_window_delegate_t *self, cef_window_t *window) {
+  struct cmux_cef_browser *wrapper = window_delegate_wrapper(self);
+  if (wrapper->browser_view) {
+    ((cef_base_ref_counted_t *)wrapper->browser_view)
+        ->release((cef_base_ref_counted_t *)wrapper->browser_view);
+    wrapper->browser_view = NULL;
+  }
+  if (wrapper->window) {
+    ((cef_base_ref_counted_t *)wrapper->window)
+        ->release((cef_base_ref_counted_t *)wrapper->window);
+    wrapper->window = NULL;
+  }
+  // Balance the reference CEF supplies for this callback parameter.
+  ((cef_base_ref_counted_t *)window)
+      ->release((cef_base_ref_counted_t *)window);
+}
+
 static void CEF_CALLBACK window_delegate_on_window_created(
     cef_window_delegate_t *self, cef_window_t *window) {
   struct cmux_cef_browser *wrapper = window_delegate_wrapper(self);
@@ -527,18 +550,31 @@ static void CEF_CALLBACK window_delegate_on_window_created(
       &wrapper->client, &url, &browser_settings, NULL, wrapper->request_context,
       &wrapper->view_delegate);
   cef_string_clear(&url);
-  if (!view) return;
+  if (!view) {
+    // The wrapper retained its own window reference above. Balance only the
+    // callback-owned reference on this failure path.
+    ((cef_base_ref_counted_t *)window)
+        ->release((cef_base_ref_counted_t *)window);
+    return;
+  }
   cef_panel_t *panel = (cef_panel_t *)window;
+  // Keep a reference until the Window hierarchy is destroyed. AddChildView
+  // consumes the factory-owned reference passed to it; the retained reference
+  // prevents the BrowserView wrapper from disappearing while CEF is creating
+  // the hosted browser.
+  ((cef_base_ref_counted_t *)view)->add_ref((cef_base_ref_counted_t *)view);
+  wrapper->browser_view = view;
   panel->add_child_view(panel, (cef_view_t *)view);
-  // add_child_view retains the view; release the factory's caller-owned
-  // reference once the window has adopted it.
-  ((cef_base_ref_counted_t *)view)->release((cef_base_ref_counted_t *)view);
   cef_fill_layout_t *fill_layout = panel->set_to_fill_layout(panel);
   if (fill_layout) {
     ((cef_base_ref_counted_t *)fill_layout)
         ->release((cef_base_ref_counted_t *)fill_layout);
   }
   panel->layout(panel);
+  // Keep the explicit reference stored in wrapper->window and release the
+  // callback-owned reference before returning to CEF.
+  ((cef_base_ref_counted_t *)window)
+      ->release((cef_base_ref_counted_t *)window);
   // Deliberately not shown here: the window would appear at its initial
   // bounds before the pane adopts it. CEFBrowserHostView orders it in once
   // it is positioned over the pane rect.
@@ -908,6 +944,8 @@ cmux_cef_browser_t *cmux_cef_browser_create(
   window_delegate_init_base(wrapper, &wrapper->window_delegate.base.base.base,
                             sizeof(wrapper->window_delegate));
   wrapper->window_delegate.on_window_created = window_delegate_on_window_created;
+  wrapper->window_delegate.on_window_destroyed =
+      window_delegate_on_window_destroyed;
   wrapper->window_delegate.is_frameless = window_delegate_is_frameless;
   wrapper->window_delegate.with_standard_window_buttons =
       window_delegate_standard_buttons;
