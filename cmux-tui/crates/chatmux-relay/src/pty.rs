@@ -4171,7 +4171,8 @@ mod tests {
         let gate =
             Arc::new(ResolveGate { entered: Arc::clone(&entered), release: Arc::clone(&release) });
         let h = harness_with_control_and_gate(None, None, None, None, Some(gate));
-        let context = h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
+        let mut context = h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
+        context.transport_kind = TransportKind::Tunnel;
         let manager = Arc::new(h.manager);
         let frame = serde_json::json!({
             "version": 4,
