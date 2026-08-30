@@ -369,7 +369,12 @@ struct RecoverableMainWindowLifecycleTests {
 
         #expect(!app.listMainWindowSummaries().contains { $0.windowId == closingWindowId })
         #expect(app.tabManagerFor(windowId: closingWindowId) == nil)
-        #expect(app.tabManagerForWindowTeardown(windowId: closingWindowId) === closingManager)
+        // Closing a recovered window follows the same synchronous finalization
+        // path as a registered window, so its teardown-only route is retired
+        // once the terminal surface unregisters.
+        #expect(app.tabManagerForWindowTeardown(windowId: closingWindowId) == nil)
+        #expect(closingManager.isFinalizedForWindowClose)
+        #expect(closingManager.tabs.isEmpty)
         let sessionSnapshot = try #require(app.sessionSnapshotForTesting())
         #expect(sessionSnapshot.windows.contains { $0.windowId == survivorWindowId })
         #expect(!sessionSnapshot.windows.contains { $0.windowId == closingWindowId })

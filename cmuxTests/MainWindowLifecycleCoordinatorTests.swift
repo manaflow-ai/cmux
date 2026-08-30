@@ -466,8 +466,8 @@ struct MainWindowLifecycleCoordinatorTests {
         )
     }
 
-    @Test("Windowless recovery detection is coalesced and canceled when unused")
-    func windowlessRecoveryDetectionIsCoalescedAndCanceledWhenUnused() async {
+    @Test("Windowless recovery detection coalesces late bindings")
+    func windowlessRecoveryDetectionCoalescesLateBindings() async {
         let coordinator = MainWindowLifecycleCoordinator()
         let probe = WindowlessRecoveryLoadProbe()
         let firstBindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
@@ -497,7 +497,6 @@ struct MainWindowLifecycleCoordinatorTests {
         }
         await Task.yield()
 
-        coordinator.cancelWindowlessRecoveryResumeIndexesLoadIfUnused()
         await probe.release()
         _ = await first.value
         _ = await second.value
@@ -505,6 +504,32 @@ struct MainWindowLifecycleCoordinatorTests {
         #expect(await probe.loadCount > 0)
         #expect(await probe.loadCount <= 2)
         #expect(await probe.observedBinding(laterKey))
+        #expect(!(await probe.observedCancellation))
+    }
+
+    @Test("Windowless recovery detection is canceled when unused")
+    func windowlessRecoveryDetectionIsCanceledWhenUnused() async {
+        let coordinator = MainWindowLifecycleCoordinator()
+        let probe = WindowlessRecoveryLoadProbe()
+        let loader: @Sendable (
+            [SurfaceResumeBindingIndex.PanelKey: Int64]
+        ) async -> ProcessDetectedResumeIndexes? = { bindings in
+            await probe.load(bindings: bindings)
+        }
+
+        let first = Task { @MainActor in
+            await coordinator.loadWindowlessRecoveryResumeIndexes(
+                ttyDeviceBindings: [:],
+                loader: loader
+            )
+        }
+        await probe.waitUntilStarted()
+
+        coordinator.cancelWindowlessRecoveryResumeIndexesLoadIfUnused()
+        await probe.release()
+        _ = await first.value
+
+        #expect(await probe.loadCount == 1)
         #expect(await probe.observedCancellation)
     }
 

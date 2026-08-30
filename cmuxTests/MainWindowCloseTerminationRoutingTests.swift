@@ -47,18 +47,35 @@ private extension NSApplication {
 private func evaluateCloseOutsideXCTest(
     _ body: () throws -> Bool
 ) throws -> (shouldClose: Bool, terminateCallCount: Int) {
-    let environmentKey = "XCTestConfigurationFilePath"
-    let previousConfigurationPath =
-        ProcessInfo.processInfo.environment[environmentKey]
-    unsetenv(environmentKey)
+    let environment = ProcessInfo.processInfo.environment
+    var markerKeys = [
+        "CMUX_TEST_PROCESS",
+        "XCTestConfigurationFilePath",
+        "XCTestBundlePath",
+        "XCTestSessionIdentifier",
+        "XCInjectBundle",
+        "XCInjectBundleInto",
+    ]
+    markerKeys.append(contentsOf: environment.keys.filter { $0.hasPrefix("CMUX_UI_TEST_") })
+    if environment["DYLD_INSERT_LIBRARIES"]?.contains("libXCTest") == true {
+        markerKeys.append("DYLD_INSERT_LIBRARIES")
+    }
+    let previousMarkers = Dictionary(
+        uniqueKeysWithValues: markerKeys.map { ($0, environment[$0]) }
+    )
+    for key in previousMarkers.keys {
+        unsetenv(key)
+    }
     defer {
-        if let previousConfigurationPath {
-            setenv(environmentKey, previousConfigurationPath, 1)
-        } else {
-            unsetenv(environmentKey)
+        for (key, value) in previousMarkers {
+            if let value {
+                setenv(key, value, 1)
+            } else {
+                unsetenv(key)
+            }
         }
     }
-    #expect(ProcessInfo.processInfo.environment[environmentKey] == nil)
+    #expect(ProcessInfo.processInfo.environment["CMUX_TEST_PROCESS"] == nil)
 
     try ApplicationTerminateSpy.install()
     defer { ApplicationTerminateSpy.uninstall() }
@@ -389,8 +406,8 @@ struct MainWindowCloseTerminationRoutingTests {
             replacementWindow,
             windowId: windowId,
             tabManager: manager,
-            sidebarState: SidebarState(),
-            sidebarSelectionState: SidebarSelectionState(),
+            sidebarState: SidebarState(isVisible: true, persistedWidth: 280),
+            sidebarSelectionState: SidebarSelectionState(selection: .tabs),
             fileExplorerState: FileExplorerState()
         )
 

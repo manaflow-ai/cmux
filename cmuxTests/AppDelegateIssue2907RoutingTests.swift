@@ -516,6 +516,7 @@ struct AppDelegateIssue2907RoutingTests {
             sidebarSelectionState: SidebarSelectionState(),
             fileExplorerState: FileExplorerState()
         )
+        window.makeKeyAndOrderFront(nil)
         TerminalController.shared.setActiveTabManager(manager)
 
         let workspace = try assertions.require(manager.selectedWorkspace)
@@ -945,9 +946,12 @@ struct AppDelegateIssue2907RoutingTests {
         assertions.equal(restoreRecord["kind"] as? String, "hermes-agent")
         assertions.equal(restoreRecord["checkpoint_id"] as? String, checkpointID)
         assertions.isNil(restoreRecord["launch_command"] as? [String: Any])
-        // A binding-only record keeps the compatibility-shell path. Typed argv
-        // is rebuilt only when a newer binding supersedes a stale snapshot.
-        assertions.isNil(restoreRecord["prepared_arguments"] as? [String])
+        // Managed agent-hook bindings expose a shell-free restore selector as
+        // well as the compatibility command used by older clients.
+        let preparedArguments = try assertions.require(
+            restoreRecord["prepared_arguments"] as? [String]
+        )
+        assertions.isTrue(preparedArguments.contains(checkpointID), "\(preparedArguments)")
         let legacyCommand = try assertions.require(restoreRecord["legacy_command"] as? String)
         assertions.isTrue(
             legacyCommand.contains("config set model.provider"),
@@ -1090,7 +1094,10 @@ struct AppDelegateIssue2907RoutingTests {
         )
         assertions.isNil(resumeLaunchEnvironment["OPENAI_API_KEY"])
         let legacyCommand = try assertions.require(restoreRecord["legacy_command"] as? String)
-        assertions.isTrue(legacyCommand.contains("codex resume \(currentSessionID)"))
+        // Codex is rendered through its portable wrapper, so the literal
+        // executable token is not necessarily present in the compatibility
+        // command; the authoritative session id must still be present.
+        assertions.isTrue(legacyCommand.contains(currentSessionID), legacyCommand)
         assertions.isFalse(legacyCommand.contains(staleSessionID), legacyCommand)
 
         let ompSessionID = UUID().uuidString.lowercased()
@@ -1145,10 +1152,10 @@ struct AppDelegateIssue2907RoutingTests {
         let snapshotEnvironment = try assertions.require(
             snapshotLaunch["environment"] as? [String: Any]
         )
-        assertions.equal(
-            snapshotEnvironment["CODEX_HOME"] as? String,
-            "/tmp/stale-codex-home"
-        )
+        // Replacing the Codex binding with an unrelated OMP session invalidates
+        // the stale restore snapshot; its account-specific environment must not
+        // leak into the replacement response.
+        assertions.isNil(snapshotEnvironment["CODEX_HOME"] as? String)
         assertions.isNil(snapshotEnvironment["OPENAI_API_KEY"])
     }
 
@@ -1282,7 +1289,17 @@ struct AppDelegateIssue2907RoutingTests {
             replacementRecord["working_directory"] as? String,
             restoredDirectory
         )
-        assertions.isNil(replacementRecord["prepared_arguments"] as? [String])
+        let replacementPreparedArguments = try assertions.require(
+            replacementRecord["prepared_arguments"] as? [String]
+        )
+        assertions.isTrue(
+            replacementPreparedArguments.contains(replacementSessionID),
+            "\(replacementPreparedArguments)"
+        )
+        assertions.isTrue(
+            replacementPreparedArguments.contains(replacementDirectory),
+            "\(replacementPreparedArguments)"
+        )
         let replacementLegacyCommand = try assertions.require(
             replacementRecord["legacy_command"] as? String
         )
@@ -1471,6 +1488,7 @@ struct AppDelegateIssue2907RoutingTests {
             sidebarSelectionState: SidebarSelectionState(),
             fileExplorerState: FileExplorerState()
         )
+        window.makeKeyAndOrderFront(nil)
         TerminalController.shared.setActiveTabManager(manager)
 
         let workspace = try assertions.require(manager.selectedWorkspace)
@@ -1624,6 +1642,7 @@ struct AppDelegateIssue2907RoutingTests {
             sidebarSelectionState: SidebarSelectionState(),
             fileExplorerState: FileExplorerState()
         )
+        window.makeKeyAndOrderFront(nil)
         TerminalController.shared.setActiveTabManager(manager)
 
         let workspace = try assertions.require(manager.selectedWorkspace)
@@ -1678,6 +1697,8 @@ struct AppDelegateIssue2907RoutingTests {
             sidebarSelectionState: SidebarSelectionState(),
             fileExplorerState: FileExplorerState()
         )
+        terminalWindow.makeKeyAndOrderFront(nil)
+        browserOnlyWindow.makeKeyAndOrderFront(nil)
 
         let terminalWorkspace = try assertions.require(terminalManager.selectedWorkspace)
         let terminalPanel = try assertions.require(terminalWorkspace.focusedTerminalPanel)

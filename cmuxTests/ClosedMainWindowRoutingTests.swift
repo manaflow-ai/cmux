@@ -318,7 +318,11 @@ struct ClosedMainWindowRoutingTests {
         #expect(closingWindow.isVisible)
         #expect(!app.listMainWindowSummaries().contains { $0.windowId == closingWindowId })
         #expect(app.tabManagerFor(windowId: closingWindowId) == nil)
-        #expect(app.tabManagerForWindowTeardown(windowId: closingWindowId) === closingManager)
+        // The authoritative close finalizes the manager synchronously; once
+        // its terminal surfaces unregister, the teardown-only route is retired.
+        #expect(app.tabManagerForWindowTeardown(windowId: closingWindowId) == nil)
+        #expect(closingManager.isFinalizedForWindowClose)
+        #expect(closingManager.tabs.isEmpty)
         let snapshot = try #require(app.sessionSnapshotForTesting())
         #expect(snapshot.windows.contains { $0.windowId == survivorWindowId })
         #expect(!snapshot.windows.contains { $0.windowId == closingWindowId })
@@ -429,7 +433,10 @@ struct ClosedMainWindowRoutingTests {
         app.unregisterMainWindowContextForTesting(windowId: recoveredWindowId)
 
         #expect(app.listMainWindowSummaries().contains { $0.windowId == recoveredWindowId })
-        #expect(app.existingWindowDock(forWindowId: recoveredWindowId) == nil)
+        // Context replacement transfers the live Dock to the recoverable route;
+        // it remains addressable until an authoritative close retires the route.
+        #expect(app.existingWindowDock(forWindowId: recoveredWindowId) === recoveredDock)
+        #expect(!recoveredDock.isRetired)
         let snapshot = try #require(app.sessionSnapshotForTesting())
         let snapshotWindowIds = snapshot.windows.compactMap(\.windowId)
         let snapshotWorkspaceIds = snapshot.windows
