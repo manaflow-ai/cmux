@@ -20,7 +20,6 @@
 //! empty frames; unknown ptyIds tolerated; refusals answer pty_error.
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -331,6 +330,10 @@ pub struct FrameContext {
     /// Generation of the managed tunnel authority that admitted this frame.
     /// `None` is retained for legacy whole-manager and relay-socket callers.
     pub auth_generation: Option<u64>,
+    /// Per-connection generation. The transport ID alone is not sufficient
+    /// because a delayed frame from a detached connection can outlive an ID
+    /// reuse. Legacy whole-manager callers use zero.
+    pub transport_generation: u64,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
@@ -348,48 +351,16 @@ pub enum TransportKind {
 struct TransportOwner {
     id: Option<String>,
     kind: TransportKind,
-}
-
-/// A bounded, one-way fence for disconnected transport identities. A Bloom
-/// filter cannot forget a tombstone, so stale frames never regain authority;
-/// false positives only reject a fresh identity and are preferable to an
-/// unbounded exact set.
-struct TransportTombstones {
-    bits: [u64; 64],
-}
-
-impl Default for TransportTombstones {
-    fn default() -> Self { Self { bits: [0; 64] } }
-}
-
-impl TransportTombstones {
-    fn index(owner: &TransportOwner, seed: u64) -> usize {
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        seed.hash(&mut hasher);
-        owner.hash(&mut hasher);
-        (hasher.finish() as usize) & 4095
-    }
-
-    fn contains(&self, owner: &TransportOwner) -> bool {
-        [0x9e37_79b9_7f4a_7c15, 0xc2b2_ae3d_27d4_eb4f, 0x1656_67b1_9e37_79f9]
-            .into_iter()
-            .all(|seed| {
-                let bit = Self::index(owner, seed);
-                self.bits[bit / 64] & (1_u64 << (bit % 64)) != 0
-            })
-    }
-
-    fn insert(&mut self, owner: TransportOwner) {
-        for seed in [0x9e37_79b9_7f4a_7c15, 0xc2b2_ae3d_27d4_eb4f, 0x1656_67b1_9e37_79f9] {
-            let bit = Self::index(&owner, seed);
-            self.bits[bit / 64] |= 1_u64 << (bit % 64);
-        }
-    }
+    generation: u64,
 }
 
 impl TransportOwner {
     fn from_context(context: &FrameContext) -> Self {
-        Self { id: context.transport_id.clone(), kind: context.transport_kind }
+        Self {
+            id: context.transport_id.clone(),
+            kind: context.transport_kind,
+            generation: context.transport_generation,
+        }
     }
 }
 
@@ -513,12 +484,13 @@ struct Inner {
     /// removed. This closes the gap in which a stale frame could otherwise
     /// repopulate the cache while its opening is being cancelled.
     revoked_transports: Mutex<HashSet<TransportOwner>>,
-    /// A transport that has disconnected is permanently fenced for the life
-    /// of this manager. Relay transport ids are random per connection and
-    /// must never be reused, so a late frame cannot clear this tombstone by
-    /// publishing another snapshot with the same id. A reconnect receives a
-    /// new owner instead.
-    detached_transports: Mutex<TransportTombstones>,
+    /// Exact lifecycle registry for typed transports. Entries exist only
+    /// between connection creation and detach, so the registry is bounded by
+    /// the number of live relay and tunnel transports.
+    active_transports: Mutex<HashSet<TransportOwner>>,
+    /// Monotonic per-manager generation for typed transport connections.
+    /// Generation identity closes the delayed-frame gap when an ID is reused.
+    next_transport_generation: AtomicU64,
     /// Serializes short authority and attachment state transitions. It is
     /// never held while a PTY control method, callback, or provider await runs.
     tunnel_state: Mutex<()>,
@@ -704,7 +676,8 @@ impl PtyManager {
                 shell_starting: Mutex::new(HashMap::new()),
                 transport_auth: Mutex::new(HashMap::new()),
                 revoked_transports: Mutex::new(HashSet::new()),
-                detached_transports: Mutex::new(TransportTombstones::default()),
+                active_transports: Mutex::new(HashSet::new()),
+                next_transport_generation: AtomicU64::new(1),
                 tunnel_state: Mutex::new(()),
                 tunnel_authority_generation: AtomicU64::new(0),
                 next_open_attempt: AtomicU64::new(1),
@@ -735,13 +708,45 @@ impl PtyManager {
                 shell_starting: Mutex::new(HashMap::new()),
                 transport_auth: Mutex::new(HashMap::new()),
                 revoked_transports: Mutex::new(HashSet::new()),
-                detached_transports: Mutex::new(TransportTombstones::default()),
+                active_transports: Mutex::new(HashSet::new()),
+                next_transport_generation: AtomicU64::new(1),
                 tunnel_state: Mutex::new(()),
                 tunnel_authority_generation: AtomicU64::new(0),
                 next_open_attempt: AtomicU64::new(1),
                 open_slots: Arc::new(Semaphore::new(max_ptys)),
             }),
         }
+    }
+
+    /// Register one typed transport before it can dispatch frames. The
+    /// connection owns this identity until `detach_transport_kind` removes
+    /// it at the disconnect boundary.
+    pub(crate) fn register_transport_kind(
+        &self,
+        transport_id: &str,
+        kind: TransportKind,
+    ) -> Option<u64> {
+        let generation = self
+            .inner
+            .next_transport_generation
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| current.checked_add(1))
+            .ok()?;
+        let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
+        let mut active = self.inner.active_transports.lock().expect("active transport lock");
+        if active
+            .iter()
+            .any(|owner| owner.id.as_deref() == Some(transport_id) && owner.kind == kind)
+        {
+            return None;
+        }
+        active.insert(TransportOwner { id: Some(transport_id.to_owned()), kind, generation });
+        Some(generation)
+    }
+
+    /// Number of currently registered typed transports. This is primarily a
+    /// diagnostic and test hook for the lifecycle bound.
+    pub(crate) fn active_transport_count(&self) -> usize {
+        self.inner.active_transports.lock().expect("active transport lock").len()
     }
 
     /// Handle one Worker -> relay PTY frame.
@@ -860,15 +865,16 @@ impl PtyManager {
             if !self.inner.tunnel_authority_generation_current(context) {
                 return;
             }
-            if self
-                .inner
-                .detached_transports
-                .lock()
-                .expect("detached transport lock")
-                .contains(&owner)
+            if owner.id.is_some()
+                && !self
+                    .inner
+                    .active_transports
+                    .lock()
+                    .expect("active transport lock")
+                    .contains(&owner)
             {
-                // A disconnected owner is never re-authorized. A reconnect
-                // must use its freshly generated transport id.
+                // A typed owner must be registered by its live connection
+                // before it can publish an authenticated snapshot.
                 return;
             }
             let mut revoked = self.inner.revoked_transports.lock().expect("revoked transport lock");
@@ -892,7 +898,8 @@ impl PtyManager {
         if !self.inner.tunnel_authority_generation_current(context) {
             return;
         }
-        if self.inner.detached_transports.lock().expect("detached transport lock").contains(&owner)
+        if owner.id.is_some()
+            && !self.inner.active_transports.lock().expect("active transport lock").contains(&owner)
         {
             return;
         }
@@ -954,8 +961,8 @@ impl PtyManager {
 
     /// One typed transport dropped. This avoids treating an opaque relay ID
     /// as a namespace discriminator.
-    pub fn detach_transport_kind(&self, transport_id: &str, kind: TransportKind) {
-        let owner = TransportOwner { id: Some(transport_id.to_owned()), kind };
+    pub fn detach_transport_kind(&self, transport_id: &str, kind: TransportKind, generation: u64) {
+        let owner = TransportOwner { id: Some(transport_id.to_owned()), kind, generation };
         let target_owner = owner;
         // The matcher publishes the disconnect fence before removing state.
         // A queued frame can then never repopulate the vacant cache.
@@ -1013,21 +1020,24 @@ impl PtyManager {
         // before that lock, so waiting here would deadlock the relay.
         let candidates = {
             let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
-            let mut detached =
-                self.inner.detached_transports.lock().expect("detached transport lock");
-            let mut transport_auth = self.inner.transport_auth.lock().expect("transport auth lock");
             // Every live opening and attachment is admitted through an auth
-            // snapshot. On a real disconnect, fence matching identities
-            // before removing state. Authority replacement uses the same
-            // cleanup without a terminal disconnect fence.
+            // snapshot. On a real disconnect, remove matching identities from
+            // the exact active registry before removing state. Authority
+            // replacement uses the same cleanup without unregistering the
+            // still-live transport.
             if fence_detached {
-                for owner in transport_auth.keys().filter(|owner| owns(owner)) {
-                    if owner.id.is_some() {
-                        detached.insert(owner.clone());
-                    }
-                }
+                self.inner
+                    .active_transports
+                    .lock()
+                    .expect("active transport lock")
+                    .retain(|owner| !owns(owner));
             }
+            let mut revoked = self.inner.revoked_transports.lock().expect("revoked transport lock");
+            let mut transport_auth = self.inner.transport_auth.lock().expect("transport auth lock");
             transport_auth.retain(|owner, _| !owns(owner));
+            if fence_detached {
+                revoked.retain(|owner| !owns(owner));
+            }
             let mut opening = self.inner.opening_state.lock().expect("opening state lock");
             let cancelled: Vec<(String, OpeningOwner)> = opening
                 .reservations
@@ -1035,13 +1045,6 @@ impl PtyManager {
                 .filter(|(_, owner)| owns(&owner.owner))
                 .map(|(id, owner)| (id.clone(), owner.clone()))
                 .collect();
-            if fence_detached {
-                for (_, owner) in &cancelled {
-                    if owner.owner.id.is_some() {
-                        detached.insert(owner.owner.clone());
-                    }
-                }
-            }
             for (id, owner) in cancelled {
                 opening.reservations.remove(&id);
                 if let Some(cancellation) = opening.cancellations.remove(&owner) {
@@ -1057,10 +1060,7 @@ impl PtyManager {
                     (id.clone(), owner.clone(), cancellation.clone())
                 })
                 .collect();
-            for (id, owner, cancellation) in active {
-                if fence_detached && owner.owner.id.is_some() {
-                    detached.insert(owner.owner.clone());
-                }
+            for (id, _owner, cancellation) in active {
                 opening.active_openings.remove(&id);
                 cancellation.cancel();
             }
@@ -1074,13 +1074,6 @@ impl PtyManager {
                 .filter(|(_, attachment)| owns(&attachment.owner))
                 .map(|(id, attachment)| (id.clone(), attachment.clone()))
                 .collect::<Vec<_>>();
-            if fence_detached {
-                for (_, attachment) in &candidates {
-                    if attachment.owner.id.is_some() {
-                        detached.insert(attachment.owner.clone());
-                    }
-                }
-            }
             candidates
         };
 
@@ -1705,12 +1698,14 @@ impl Inner {
     /// no-op behavior; once an id is reserved or attached, a different
     /// transport may not act on it. A `None` caller owns everything (legacy).
     fn transport_owns(&self, pty_id: &str, context: &FrameContext) -> bool {
-        let Some(transport_id) = context.transport_id.as_deref() else { return true };
+        if context.transport_id.is_none() {
+            return true;
+        }
+        let context_owner = TransportOwner::from_context(context);
         if let Some(owner) =
             self.opening_state.lock().expect("opening state lock").reservations.get(pty_id).cloned()
         {
-            return owner.owner.id.as_deref() == Some(transport_id)
-                && owner.owner.kind == context.transport_kind;
+            return owner.owner == context_owner;
         }
         if let Some((owner, _)) = self
             .opening_state
@@ -1720,12 +1715,10 @@ impl Inner {
             .get(pty_id)
             .cloned()
         {
-            return owner.owner.id.as_deref() == Some(transport_id)
-                && owner.owner.kind == context.transport_kind;
+            return owner.owner == context_owner;
         }
         if let Some(attachment) = self.attachments.lock().expect("attach lock").get(pty_id) {
-            return attachment.owner.id.as_deref() == Some(transport_id)
-                && attachment.owner.kind == context.transport_kind;
+            return attachment.owner == context_owner;
         }
         true
     }
@@ -1770,7 +1763,9 @@ impl Inner {
     fn auth_for_transport(&self, context: &FrameContext) -> Option<AuthSnapshot> {
         let key = TransportOwner::from_context(context);
         let _state = self.tunnel_state.lock().expect("tunnel state lock");
-        if self.detached_transports.lock().expect("detached transport lock").contains(&key) {
+        if key.id.is_some()
+            && !self.active_transports.lock().expect("active transport lock").contains(&key)
+        {
             return None;
         }
         if self.revoked_transports.lock().expect("revoked transport lock").contains(&key) {
@@ -1800,8 +1795,7 @@ impl Inner {
             && self.attachment_is_current(pty_id, attachment)
             && self.transport_auth_is_current(context, auth)
             && (context.transport_id.is_none()
-                || (attachment.owner.id == context.transport_id
-                    && attachment.owner.kind == context.transport_kind))
+                || attachment.owner == TransportOwner::from_context(context))
     }
 
     fn close_authorized(&self, pty_id: &str, context: &FrameContext) {
@@ -1904,6 +1898,11 @@ impl Inner {
             return false;
         }
         let key = TransportOwner::from_context(context);
+        if key.id.is_some()
+            && !self.active_transports.lock().expect("active transport lock").contains(&key)
+        {
+            return false;
+        }
         if self.revoked_transports.lock().expect("revoked transport lock").contains(&key) {
             return false;
         }
@@ -2057,9 +2056,12 @@ impl Inner {
         }
         let snapshot = AuthSnapshot::from_context(context);
         let owner = TransportOwner::from_context(context);
-        if self.detached_transports.lock().expect("detached transport lock").contains(&owner) {
-            // Disconnect is terminal for this transport identity. Do not let
-            // a queued frame recreate an entry after detach removed it.
+        if owner.id.is_some()
+            && !self.active_transports.lock().expect("active transport lock").contains(&owner)
+        {
+            // Typed frames are accepted only from a currently live
+            // connection. A late first frame cannot create authority after
+            // its connection has detached.
             return false;
         }
         let revoked =
@@ -3587,6 +3589,7 @@ mod tests {
                 transport_id: None,
                 transport_kind: TransportKind::Legacy,
                 auth_generation: None,
+                transport_generation: 0,
             }
         }
 
@@ -3598,12 +3601,24 @@ mod tests {
         ) -> FrameContext {
             let mut context = self.context(trust, owner);
             context.transport_id = transport_id.map(str::to_owned);
-            context.transport_kind =
-                transport_id.map_or(TransportKind::Legacy, |_| TransportKind::Relay);
+            context.transport_kind = transport_id.map_or(TransportKind::Legacy, |id| {
+                if id.starts_with("tunnel-") { TransportKind::Tunnel } else { TransportKind::Relay }
+            });
+            if let Some(transport_id) = transport_id {
+                context.transport_generation = self
+                    .manager
+                    .register_transport_kind(transport_id, context.transport_kind)
+                    .expect("test transport registration");
+            }
             context
         }
 
-        async fn open_with_transport(&self, pty_id: &str, session: &str, transport_id: &str) {
+        async fn open_with_transport(
+            &self,
+            pty_id: &str,
+            session: &str,
+            transport_id: &str,
+        ) -> FrameContext {
             let frame = serde_json::json!({
                 "version": 4,
                 "type": "pty_open",
@@ -3618,6 +3633,7 @@ mod tests {
             let context =
                 self.context_with_transport("supervised", self.owner.clone(), Some(transport_id));
             self.manager.handle_frame(&frame, &context).await;
+            context
         }
 
         async fn open(
@@ -3751,18 +3767,7 @@ mod tests {
     #[tokio::test]
     async fn unknown_trust_cannot_reuse_existing_attachment_authority() {
         let h = harness(None, None);
-        let frame = serde_json::json!({
-            "version": 4,
-            "type": "pty_open",
-            "ptyId": "p1",
-            "session": "main",
-            "cols": 80,
-            "rows": 24,
-            "actorId": "user_owner",
-        });
-        let mut trusted = h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
-        trusted.transport_kind = TransportKind::Tunnel;
-        h.manager.handle_frame(&frame, &trusted).await;
+        let trusted = h.open_with_transport("p1", "main", "tunnel-a").await;
         let pty = h.spawned()[0].clone();
 
         let input = serde_json::json!({
@@ -3770,9 +3775,8 @@ mod tests {
             "ptyId": "p1",
             "dataB64": b64("must-not-write"),
         });
-        let mut forged =
-            h.context_with_transport("forged-trust", h.owner.clone(), Some("tunnel-a"));
-        forged.transport_kind = TransportKind::Tunnel;
+        let mut forged = trusted.clone();
+        forged.trust = "forged-trust".to_owned();
         h.manager.handle_frame(&input, &forged).await;
 
         assert!(pty.state.lock().unwrap().written.is_empty());
@@ -4307,7 +4311,7 @@ mod tests {
     #[tokio::test]
     async fn a_foreign_transport_cannot_write_resize_or_close_an_owned_pty() {
         let h = harness(None, None);
-        h.open_with_transport("p1", "main", "transport-a").await;
+        let owner = h.open_with_transport("p1", "main", "transport-a").await;
         let foreign = h.context_with_transport("supervised", h.owner.clone(), Some("transport-b"));
         let input = serde_json::json!({
             "version": 4,
@@ -4320,7 +4324,6 @@ mod tests {
         let close = serde_json::json!({ "version": 4, "type": "pty_close", "ptyId": "p1" });
         h.manager.handle_frame(&close, &foreign).await;
         assert!(h.manager.has_attachment("p1"), "a foreign close must be a silent no-op");
-        let owner = h.context_with_transport("supervised", h.owner.clone(), Some("transport-a"));
         h.manager.handle_frame(&input, &owner).await;
         assert_eq!(h.spawned()[0].written_string(0), "stolen");
         // A caller with no transport identity owns the whole manager (legacy).
@@ -4333,7 +4336,11 @@ mod tests {
         let h = harness(None, None);
         let old = h.context_with_transport("supervised", h.owner.clone(), Some("relay-old"));
         h.manager.update_transport_auth(&old);
-        h.manager.detach_transport_kind("relay-old", TransportKind::Relay);
+        h.manager.detach_transport_kind(
+            "relay-old",
+            TransportKind::Relay,
+            old.transport_generation,
+        );
 
         let old_frame = serde_json::json!({
             "version": 4,
@@ -4361,19 +4368,100 @@ mod tests {
         assert_eq!(h.spawned().len(), 1, "a new transport identity remains usable");
     }
 
+    #[tokio::test]
+    async fn disconnect_before_auth_rejects_a_late_first_frame() {
+        let h = harness(None, None);
+        let stale = h.context_with_transport("supervised", h.owner.clone(), Some("relay-stale"));
+        h.manager.detach_transport_kind(
+            "relay-stale",
+            TransportKind::Relay,
+            stale.transport_generation,
+        );
+
+        let frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "late-before-auth",
+            "session": "main",
+            "cols": 80,
+            "rows": 24,
+        });
+        h.manager.handle_frame(&frame, &stale).await;
+
+        assert!(h.spawned().is_empty(), "a disconnected owner cannot authorize its first frame");
+        assert!(!h.manager.inner.cache_transport_auth(&stale));
+    }
+
     #[test]
-    fn detached_transport_tombstones_are_bounded_and_never_evicted() {
-        let mut tombstones = TransportTombstones::default();
-        let first = TransportOwner { id: Some("old-transport".to_owned()), kind: TransportKind::Relay };
-        tombstones.insert(first.clone());
+    fn active_registry_is_typed_and_rejects_an_unknown_transport_kind() {
+        let h = harness(None, None);
+        h.manager.register_transport_kind("shared-id", TransportKind::Relay).unwrap();
+        let mut tunnel = h.context("supervised", h.owner.clone());
+        tunnel.transport_id = Some("shared-id".to_owned());
+        tunnel.transport_kind = TransportKind::Tunnel;
+        assert!(!h.manager.inner.cache_transport_auth(&tunnel));
+    }
+
+    #[test]
+    fn active_transport_registry_is_exact_and_bounded_by_live_connections() {
+        let h = harness(None, None);
         for index in 0..100_000 {
-            tombstones.insert(TransportOwner {
-                id: Some(format!("transport-{index}")),
-                kind: TransportKind::Relay,
-            });
+            let id = format!("transport-{index}");
+            let generation = h.manager.register_transport_kind(&id, TransportKind::Relay).unwrap();
+            assert_eq!(h.manager.active_transport_count(), 1);
+            h.manager.detach_transport_kind(&id, TransportKind::Relay, generation);
+            assert_eq!(h.manager.active_transport_count(), 0);
         }
-        assert!(tombstones.contains(&first));
-        assert_eq!(std::mem::size_of_val(&tombstones.bits), 512);
+    }
+
+    #[tokio::test]
+    async fn recycled_transport_id_cannot_reauthorize_an_old_generation() {
+        let h = harness(None, None);
+        let old_generation = h
+            .manager
+            .register_transport_kind("reused-id", TransportKind::Relay)
+            .expect("first registration");
+        let mut old = h.context("supervised", h.owner.clone());
+        old.transport_id = Some("reused-id".to_owned());
+        old.transport_kind = TransportKind::Relay;
+        old.transport_generation = old_generation;
+        h.manager.update_transport_auth(&old);
+        h.manager.detach_transport_kind("reused-id", TransportKind::Relay, old_generation);
+
+        let new_generation = h
+            .manager
+            .register_transport_kind("reused-id", TransportKind::Relay)
+            .expect("re-registration");
+        let mut fresh = old.clone();
+        fresh.transport_generation = new_generation;
+        h.manager.update_transport_auth(&fresh);
+
+        let frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "recycled",
+            "session": "main",
+            "cols": 80,
+            "rows": 24,
+        });
+        h.manager.handle_frame(&frame, &old).await;
+        assert!(h.spawned().is_empty(), "old generation must stay fenced");
+        h.manager.handle_frame(&frame, &fresh).await;
+        assert_eq!(h.spawned().len(), 1, "new generation remains usable");
+
+        let input = serde_json::json!({
+            "version": 4,
+            "type": "pty_input",
+            "ptyId": "recycled",
+            "dataB64": b64("generation-bound"),
+        });
+        h.manager.handle_frame(&input, &old).await;
+        assert!(
+            h.spawned()[0].state.lock().unwrap().written.is_empty(),
+            "old generation must not control the replacement attachment"
+        );
+        h.manager.handle_frame(&input, &fresh).await;
+        assert_eq!(h.spawned()[0].written_string(0), "generation-bound");
     }
 
     #[test]
@@ -4394,10 +4482,14 @@ mod tests {
             cancel_on_subscribe: Arc::new(AtomicBool::new(false)),
             cancellation: CancellationToken::new(),
         };
-        let owner_a =
-            TransportOwner { id: Some("tunnel-a".to_owned()), kind: TransportKind::Tunnel };
-        let owner_b =
-            TransportOwner { id: Some("tunnel-b".to_owned()), kind: TransportKind::Tunnel };
+        let mut context_a =
+            h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
+        let mut context_b =
+            h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-b"));
+        context_a.transport_kind = TransportKind::Tunnel;
+        context_b.transport_kind = TransportKind::Tunnel;
+        let owner_a = TransportOwner::from_context(&context_a);
+        let owner_b = TransportOwner::from_context(&context_b);
         {
             let mut attachments = inner.attachments.lock().unwrap();
             attachments.insert(
@@ -4421,12 +4513,6 @@ mod tests {
                 },
             );
         }
-        let mut context_a =
-            h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
-        let mut context_b =
-            h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-b"));
-        context_a.transport_kind = TransportKind::Tunnel;
-        context_b.transport_kind = TransportKind::Tunnel;
         inner.cache_transport_auth(&context_a);
         inner.cache_transport_auth(&context_b);
 
@@ -4460,7 +4546,9 @@ mod tests {
         let inner = Arc::clone(&h.manager.inner);
         let entered = Arc::new(Barrier::new(2));
         let release = Arc::new(Barrier::new(2));
-        let owner = TransportOwner { id: Some("tunnel-a".to_owned()), kind: TransportKind::Tunnel };
+        let mut context = h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
+        context.transport_kind = TransportKind::Tunnel;
+        let owner = TransportOwner::from_context(&context);
         {
             let mut attachments = inner.attachments.lock().unwrap();
             attachments.insert(
@@ -4477,8 +4565,6 @@ mod tests {
                 },
             );
         }
-        let mut context = h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
-        context.transport_kind = TransportKind::Tunnel;
         inner.cache_transport_auth(&context);
 
         let operation_inner = Arc::clone(&inner);
@@ -4512,7 +4598,9 @@ mod tests {
         let inner = Arc::clone(&h.manager.inner);
         let entered = Arc::new(Barrier::new(2));
         let release = Arc::new(Barrier::new(2));
-        let owner = TransportOwner { id: Some("tunnel-a".to_owned()), kind: TransportKind::Tunnel };
+        let mut context = h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
+        context.transport_kind = TransportKind::Tunnel;
+        let owner = TransportOwner::from_context(&context);
         {
             let mut attachments = inner.attachments.lock().unwrap();
             attachments.insert(
@@ -4529,8 +4617,6 @@ mod tests {
                 },
             );
         }
-        let mut context = h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
-        context.transport_kind = TransportKind::Tunnel;
         inner.cache_transport_auth(&context);
 
         let operation_inner = Arc::clone(&inner);
@@ -4562,11 +4648,19 @@ mod tests {
         let inner = Arc::clone(&h.manager.inner);
         let id = "reused".to_owned();
         let owner_a = OpeningOwner {
-            owner: TransportOwner { id: Some("tunnel-a".to_owned()), kind: TransportKind::Tunnel },
+            owner: TransportOwner {
+                id: Some("tunnel-a".to_owned()),
+                kind: TransportKind::Tunnel,
+                generation: 0,
+            },
             attempt_id: 1,
         };
         let owner_b = OpeningOwner {
-            owner: TransportOwner { id: Some("tunnel-b".to_owned()), kind: TransportKind::Tunnel },
+            owner: TransportOwner {
+                id: Some("tunnel-b".to_owned()),
+                kind: TransportKind::Tunnel,
+                generation: 0,
+            },
             attempt_id: 2,
         };
         let old = OpeningReservation {
@@ -4761,7 +4855,11 @@ mod tests {
         // Detach must signal the exact open before allowing the provider to
         // continue, independent of scheduler timing.
         entered.notified().await;
-        manager.detach_transport_kind("tunnel-a", TransportKind::Tunnel);
+        manager.detach_transport_kind(
+            "tunnel-a",
+            TransportKind::Tunnel,
+            context.transport_generation,
+        );
         assert!(cancellation.is_cancelled());
 
         release.notify_one();
@@ -4891,18 +4989,24 @@ mod tests {
         let h = harness(None, None);
         let sent_a = Arc::new(StdMutex::new(Vec::<Value>::new()));
         let sent_b = Arc::new(StdMutex::new(Vec::<Value>::new()));
-        let context = |sent: Arc<StdMutex<Vec<Value>>>, transport: &str| FrameContext {
-            send: Arc::new(move |frame| sent.lock().unwrap().push(frame)),
-            buffered_amount: Arc::new(|| 0),
-            trust: "supervised".to_owned(),
-            local_roots: None,
-            owner_user_id: Some("user_owner".to_owned()),
-            transport_id: Some(transport.to_owned()),
-            transport_kind: TransportKind::Relay,
-            auth_generation: None,
-        };
-        let context_a = context(Arc::clone(&sent_a), "transport-a");
-        let context_b = context(Arc::clone(&sent_b), "transport-b");
+        let generation_a =
+            h.manager.register_transport_kind("transport-a", TransportKind::Relay).unwrap();
+        let generation_b =
+            h.manager.register_transport_kind("transport-b", TransportKind::Relay).unwrap();
+        let context =
+            |sent: Arc<StdMutex<Vec<Value>>>, transport: &str, generation: u64| FrameContext {
+                send: Arc::new(move |frame| sent.lock().unwrap().push(frame)),
+                buffered_amount: Arc::new(|| 0),
+                trust: "supervised".to_owned(),
+                local_roots: None,
+                owner_user_id: Some("user_owner".to_owned()),
+                transport_id: Some(transport.to_owned()),
+                transport_kind: TransportKind::Relay,
+                auth_generation: None,
+                transport_generation: generation,
+            };
+        let context_a = context(Arc::clone(&sent_a), "transport-a", generation_a);
+        let context_b = context(Arc::clone(&sent_b), "transport-b", generation_b);
         let open = |pty_id: &str, session: &str| {
             serde_json::json!({
                 "version": 4,
@@ -5076,6 +5180,7 @@ mod tests {
             transport_id: None,
             transport_kind: TransportKind::Legacy,
             auth_generation: None,
+            transport_generation: 0,
         };
         send_pty_error(
             &context,

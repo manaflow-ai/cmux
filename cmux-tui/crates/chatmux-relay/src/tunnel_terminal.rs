@@ -318,6 +318,7 @@ enum WriterMessage {
 /// synchronous reply sink.
 struct Connection {
     pty_id: String,
+    transport_generation: u64,
     manager: Arc<PtyManager>,
     writer_tx: mpsc::Sender<WriterMessage>,
     /// A permanently reserved channel slot for the terminal shutdown frame.
@@ -570,6 +571,7 @@ impl Connection {
             transport_id: Some(self.pty_id.clone()),
             transport_kind: TransportKind::Tunnel,
             auth_generation: Some(self.auth_generation),
+            transport_generation: self.transport_generation,
         }
     }
 
@@ -739,8 +741,17 @@ async fn serve_connection(
         let _ = write_half.shutdown().await;
         return;
     };
+    // Register the typed owner before the reader can dispatch its first
+    // frame. The serve loop removes it at every disconnect boundary.
+    let Some(transport_generation) =
+        manager.register_transport_kind(&pty_id, TransportKind::Tunnel)
+    else {
+        let _ = write_half.shutdown().await;
+        return;
+    };
     let connection = Arc::new(Connection {
         pty_id,
+        transport_generation,
         manager: Arc::clone(&manager),
         writer_tx,
         end_permit: StdMutex::new(Some(end_permit)),
@@ -884,7 +895,11 @@ async fn serve_connection(
     // Remove the per-transport authority even when the open was refused or
     // the peer disconnected before an attachment existed. Otherwise a busy
     // local tunnel endpoint could accumulate stale snapshots indefinitely.
-    manager.detach_transport_kind(&connection.pty_id, TransportKind::Tunnel);
+    manager.detach_transport_kind(
+        &connection.pty_id,
+        TransportKind::Tunnel,
+        connection.transport_generation,
+    );
     // A peer that stopped reading can wedge the final flush forever; the
     // attachment is already released above, so cap the flush and reap.
     if tokio::time::timeout(Duration::from_secs(30), &mut writer).await.is_err() {
@@ -1222,6 +1237,7 @@ mod tests {
         (
             Connection {
                 pty_id: "queue-test".to_owned(),
+                transport_generation: 0,
                 manager,
                 writer_tx,
                 end_permit: StdMutex::new(Some(end_permit)),
