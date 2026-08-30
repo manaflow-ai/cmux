@@ -1485,6 +1485,22 @@ mod tests {
     }
 
     #[derive(Debug)]
+    struct FailingTestChildKiller {
+        kills: TestArc<AtomicUsize>,
+    }
+
+    impl cmux_pty::ChildKiller for FailingTestChildKiller {
+        fn kill(&mut self) -> std::io::Result<()> {
+            self.kills.fetch_add(1, AtomicOrdering::Relaxed);
+            Err(std::io::Error::other("injected kill failure"))
+        }
+
+        fn clone_killer(&self) -> Box<dyn cmux_pty::ChildKiller + Send + Sync> {
+            Box::new(Self { kills: TestArc::clone(&self.kills) })
+        }
+    }
+
+    #[derive(Debug)]
     struct TestMaster;
 
     impl MasterPty for TestMaster {
@@ -1562,6 +1578,47 @@ mod tests {
         let state = lifecycle.lock().expect("lifecycle lock");
         assert!(state.reaping);
         assert!(state.termination_started);
+    }
+
+    #[test]
+    fn fallback_kill_error_keeps_reaping_fence_during_concurrent_master_drop() {
+        let kills = TestArc::new(AtomicUsize::new(0));
+        let lifecycle = ChildLifecycle::new(Some(42));
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let wait_lifecycle = TestArc::clone(&lifecycle);
+        let wait_kills = TestArc::clone(&kills);
+        let wait_thread = thread::spawn(move || {
+            let claimed = ChildLifecycle::begin_reaping(&wait_lifecycle);
+            let kill_failed = {
+                let mut killer = FailingTestChildKiller { kills: wait_kills };
+                killer.kill().is_err()
+            };
+            ready_tx.send((claimed, kill_failed)).expect("fallback result");
+            release_rx.recv().expect("fallback wait release");
+            wait_lifecycle.lock().expect("lifecycle lock").exited = true;
+        });
+
+        let (claimed, kill_failed) = ready_rx.recv().expect("fallback result");
+        assert!(claimed, "fallback wait must claim the lifecycle");
+        assert!(kill_failed, "test child kill must exercise the error path");
+
+        let control = MasterControl {
+            master: Mutex::new(Box::new(TestMaster)),
+            writer: Mutex::new(Box::new(std::io::sink())),
+            killer: Mutex::new(Box::new(FailingTestChildKiller { kills: TestArc::clone(&kills) })),
+            lifecycle: TestArc::clone(&lifecycle),
+        };
+        let drop_thread = thread::spawn(move || drop(control));
+        drop_thread.join().expect("master control drop");
+
+        assert_eq!(kills.load(AtomicOrdering::Relaxed), 1);
+        release_tx.send(()).expect("release fallback wait");
+        wait_thread.join().expect("fallback wait thread");
+
+        let state = lifecycle.lock().expect("lifecycle lock");
+        assert!(state.exited);
+        assert!(state.reaping);
     }
 
     #[test]
