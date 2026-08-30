@@ -10,20 +10,6 @@ extension Notification.Name {
     )
 }
 
-struct DockMenuCapabilitySnapshot: Equatable, Sendable {
-    let isTerminal: Bool
-    let canUseSelection: Bool
-    let hasFindSession: Bool
-    let canCloseOtherTabs: Bool
-
-    static let empty = Self(
-        isTerminal: false,
-        canUseSelection: false,
-        hasFindSession: false,
-        canCloseOtherTabs: false
-    )
-}
-
 @MainActor
 final class FocusHistoryMenuInvalidator: ObservableObject {
     @Published private(set) var revision: UInt64 = 0

@@ -94,21 +94,9 @@ struct DockPointerInteractionHost: NSViewRepresentable {
     }
 }
 
-/// Sendable handoff for an opaque AppKit event-monitor token. The token is
-/// created and consumed exactly once by the MainActor; the wrapper only lets a
-/// nonisolated lifetime cleanup schedule that removal without exposing the
-/// token to other app state.
-private final class DockPointerMonitorToken: @unchecked Sendable {
-    let raw: Any
-
-    init(raw: Any) {
-        self.raw = raw
-    }
-}
-
-/// Owns one local event monitor and removes it on the MainActor at teardown.
+/// Owns one local event monitor and removes it deterministically at teardown.
 private final class DockPointerMonitorLease {
-    private var token: DockPointerMonitorToken?
+    private var token: Any?
 
     @MainActor
     func install(
@@ -121,22 +109,21 @@ private final class DockPointerMonitorLease {
         ) else {
             return
         }
-        token = DockPointerMonitorToken(raw: raw)
+        token = raw
     }
 
     @MainActor
     func stop() {
         guard let token else { return }
-        NSEvent.removeMonitor(token.raw)
+        NSEvent.removeMonitor(token)
         self.token = nil
     }
 
     deinit {
-        guard let token else { return }
-        // A final release can occur outside the MainActor. Keep the opaque
-        // token in its Sendable wrapper and perform the AppKit call on main.
-        Task { @MainActor [token] in
-            NSEvent.removeMonitor(token.raw)
+        // NSEvent.removeMonitor is safe from deinit and avoids leaving an
+        // app-wide monitor alive while a MainActor cleanup task is pending.
+        if let token {
+            NSEvent.removeMonitor(token)
         }
     }
 }

@@ -15,6 +15,20 @@ import Observation
 import SwiftUI
 import WebKit
 
+struct DockMenuCapabilitySnapshot: Equatable, Sendable {
+    let isTerminal: Bool
+    let canUseSelection: Bool
+    let hasFindSession: Bool
+    let canCloseOtherTabs: Bool
+
+    static let empty = Self(
+        isTerminal: false,
+        canUseSelection: false,
+        hasFindSession: false,
+        canCloseOtherTabs: false
+    )
+}
+
 @MainActor
 @Observable
 final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
@@ -44,11 +58,15 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     private(set) var errorMessage: String?
     private(set) var trustRequest: DockTrustRequest?
     private(set) var isVisibleInUI: Bool = false
-    /// Snapshot consumed by the app-level Commands body. The refresh method
-    /// lives in ``DockSplitStore+PaneFocus`` so its setter must be module-scoped
-    /// rather than file-private; callers should treat this as read-only and
-    /// mutate it through `refreshDockMenuCapabilities()`.
-    internal(set) var menuCapabilities = DockMenuCapabilitySnapshot.empty
+    /// Observation pulse for native selection/search state that is not itself
+    /// modeled by `@Observable` properties. The capability snapshot is
+    /// computed from the current Dock tree on every read, so this value never
+    /// stores a second copy of menu state.
+    var menuCapabilitiesRevision: UInt64 = 0
+    /// The current capabilities for the focused Dock panel.
+    var menuCapabilities: DockMenuCapabilitySnapshot {
+        currentDockMenuCapabilities()
+    }
     @ObservationIgnored private(set) var isRetired = false
     /// Host views currently showing this Dock. Normally at most one (the owning
     /// window's right sidebar), but SwiftUI remounts can briefly overlap an old
@@ -716,7 +734,6 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         } else {
             restoreDockPaneSelection(previousFocus)
         }
-        refreshDockMenuCapabilities()
         return panel.id
     }
 
@@ -803,7 +820,6 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             } else {
                 restoreDockPaneSelection(previousFocus)
             }
-            refreshDockMenuCapabilities()
             return panel.id
         }
 
@@ -843,7 +859,6 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         } else {
             restoreDockPaneSelection(previousFocus)
         }
-        refreshDockMenuCapabilities()
         return panel.id
     }
 
@@ -1232,7 +1247,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
                 .merge(with: terminalSelectionChanges)
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self] _ in
-                    self?.refreshDockMenuCapabilities()
+                    self?.invalidateDockMenuCapabilities()
                 }
         }
         installAttentionRouting(for: panel)
@@ -1274,7 +1289,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
                 .sink { [weak self, weak browser] event in
                     guard let self, let browser else { return }
                     if event.refreshCapabilities {
-                        self.refreshDockMenuCapabilities()
+                        self.invalidateDockMenuCapabilities()
                     }
                     guard event.refreshMetadata else {
                         return
