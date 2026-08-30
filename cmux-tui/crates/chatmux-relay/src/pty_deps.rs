@@ -580,7 +580,7 @@ impl Drop for PipeChildGuard {
 type PipeWaitTask = Box<dyn FnOnce() + Send + 'static>;
 
 fn spawn_pipe_wait_thread_with<F>(
-    child: std::process::Child,
+    child_guard: PipeChildGuard,
     command_rx: mpsc::Receiver<PipeChildCommand>,
     completion: Arc<ProcessOutputCompletion>,
     spawn: F,
@@ -589,21 +589,35 @@ where
     F: FnOnce(PipeWaitTask) -> std::io::Result<std::thread::JoinHandle<()>>,
 {
     let wait_task: PipeWaitTask = Box::new(move || {
-        let mut child = child;
+        // Keep the guard inside the task closure until the child has been
+        // accepted by a live wait thread. If spawning fails, dropping this
+        // closure invokes PipeChildGuard::drop, which kills and reaps it.
+        let mut child_guard = child_guard;
         let mut exit_ready = false;
         while !exit_ready {
             match command_rx.recv() {
                 Ok(PipeChildCommand::ExitReady) => exit_ready = true,
                 Ok(PipeChildCommand::Kill) => {
-                    let _ = child.kill();
+                    let _ = child_guard.child_mut().kill();
                 }
                 Err(_) => exit_ready = true,
             }
         }
+        let mut child = child_guard.take();
         let code = child.wait().map(|status| status.code().unwrap_or(0) as i64).unwrap_or(0);
         completion.child_exited(code);
     });
     spawn(wait_task)
+}
+
+fn spawn_pipe_wait_thread(
+    child_guard: PipeChildGuard,
+    command_rx: mpsc::Receiver<PipeChildCommand>,
+    completion: Arc<ProcessOutputCompletion>,
+) -> std::io::Result<std::thread::JoinHandle<()>> {
+    spawn_pipe_wait_thread_with(child_guard, command_rx, completion, |task| {
+        std::thread::Builder::new().name("cmux-pipe-wait".to_owned()).spawn(task)
+    })
 }
 
 /// Serialize process termination with the wait owner. A raw PID can be
@@ -948,22 +962,13 @@ fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str, handoff: &SpawnHandoff) -> Pt
                 let _ = observer_tx.send(PipeChildCommand::ExitReady);
             });
             let wait_completion = Arc::clone(&completion);
-            let mut child = child_guard.take();
-            std::thread::spawn(move || {
-                let mut exit_ready = false;
-                while !exit_ready {
-                    match command_rx.recv() {
-                        Ok(PipeChildCommand::ExitReady) => exit_ready = true,
-                        Ok(PipeChildCommand::Kill) => {
-                            let _ = child.kill();
-                        }
-                        Err(_) => exit_ready = true,
-                    }
-                }
-                let code =
-                    child.wait().map(|status| status.code().unwrap_or(0) as i64).unwrap_or(0);
-                wait_completion.child_exited(code);
-            });
+            if spawn_pipe_wait_thread(child_guard, command_rx, wait_completion).is_err() {
+                // The failed spawn drops its task closure, which still owns
+                // PipeChildGuard and therefore kills and reaps the child.
+                handoff.cancel();
+                completion.child_exited(1);
+                return PtyHandle { control: Arc::new(DeadControl), output, banner: Some(banner) };
+            }
             PtyHandle { control, output, banner: Some(banner) }
         }
         Err(error) => {
@@ -1645,9 +1650,12 @@ mod tests {
         let output = ThreadOutput::new();
         let completion = ProcessOutputCompletion::with_post_exit_grace(0, output, None);
         let (_command_tx, command_rx) = mpsc::channel();
-        let result = spawn_pipe_wait_thread_with(child, command_rx, completion, |_task| {
-            Err(std::io::Error::other("injected thread creation failure"))
-        });
+        let result = spawn_pipe_wait_thread_with(
+            PipeChildGuard::new(child),
+            command_rx,
+            completion,
+            |_task| Err(std::io::Error::other("injected thread creation failure")),
+        );
 
         assert!(result.is_err());
         // PipeChildGuard must kill and reap the child before the failed open
