@@ -1,3 +1,4 @@
+import AppKit
 import CmuxCommandPalette
 import CmuxSettings
 import Foundation
@@ -25,6 +26,25 @@ struct KeyboardShortcutContextSwiftTests {
         #expect(KeyboardShortcutSettings.browserKeyboardShortcutCaptureEnabled(defaults: defaults))
         defaults.set(false, forKey: SettingCatalog().browser.captureKeyboardShortcuts.userDefaultsKey)
         #expect(!KeyboardShortcutSettings.browserKeyboardShortcutCaptureEnabled(defaults: defaults))
+    }
+
+    @Test("Bulk notification shortcuts are shared, visible, and unbound by default")
+    func bulkNotificationShortcutsAreSharedVisibleAndUnbound() throws {
+        let actions: [KeyboardShortcutSettings.Action] = [
+            .markAllNotificationsRead,
+            .clearAllNotifications,
+        ]
+
+        for action in actions {
+            #expect(action.defaultShortcut.isUnbound)
+            #expect(action.shortcutContext == .application)
+            #expect(KeyboardShortcutSettings.settingsVisibleActions.contains(action))
+
+            let sharedAction = try #require(ShortcutAction(rawValue: action.rawValue))
+            #expect(sharedAction.defaultShortcut == nil)
+            #expect(sharedAction.defaultFocusWhenClause == .always)
+            #expect(ShortcutAction.settingsVisibleActions.contains(sharedAction))
+        }
     }
 
     @Test("focus history and browser history partition their shared default shortcuts by focus")
@@ -263,6 +283,189 @@ struct KeyboardShortcutContextSwiftTests {
         #expect(!manager.zoomOutFocusedBrowserOrTextFilePreview())
         #expect(!manager.resetZoomFocusedBrowserOrTextFilePreview())
         #expect(manager.calls == ["text", "text"])
+    }
+
+    @MainActor
+    @Test("mark-all-read shortcut preserves rows and marks every notification read")
+    func markAllNotificationsReadShortcutUsesNotificationStorePrimitive() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try Self.withIsolatedShortcutSettings {
+                let shortcut = SimulatorStoredShortcut(
+                    key: "r",
+                    command: true,
+                    shift: true,
+                    option: true,
+                    control: true
+                )
+                let notifications = [
+                    TerminalNotification(
+                        id: UUID(),
+                        tabId: UUID(),
+                        surfaceId: UUID(),
+                        title: "Unread one",
+                        subtitle: "",
+                        body: "",
+                        createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+                        isRead: false
+                    ),
+                    TerminalNotification(
+                        id: UUID(),
+                        tabId: UUID(),
+                        surfaceId: nil,
+                        title: "Already read",
+                        subtitle: "",
+                        body: "",
+                        createdAt: Date(timeIntervalSince1970: 1_700_000_001),
+                        isRead: true
+                    ),
+                ]
+                let updated = try Self.exerciseBulkShortcut(
+                    action: .markAllNotificationsRead,
+                    shortcut: shortcut,
+                    keyCode: 15,
+                    notifications: notifications
+                )
+                #expect(updated.count == notifications.count)
+                #expect(updated.allSatisfy(\.isRead))
+            }
+        }
+    }
+
+    @MainActor
+    @Test("clear-all shortcut removes every notification")
+    func clearAllNotificationsShortcutUsesNotificationStorePrimitive() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try Self.withIsolatedShortcutSettings {
+                let shortcut = SimulatorStoredShortcut(
+                    key: "z",
+                    command: true,
+                    shift: true,
+                    option: true,
+                    control: true
+                )
+                let updated = try Self.exerciseBulkShortcut(
+                    action: .clearAllNotifications,
+                    shortcut: shortcut,
+                    keyCode: 6,
+                    notifications: [
+                        TerminalNotification(
+                            id: UUID(),
+                            tabId: UUID(),
+                            surfaceId: UUID(),
+                            title: "Dismiss me",
+                            subtitle: "",
+                            body: "",
+                            createdAt: Date(timeIntervalSince1970: 1_700_000_002),
+                            isRead: false
+                        ),
+                    ]
+                )
+                #expect(updated.isEmpty)
+            }
+        }
+    }
+
+    @MainActor
+    private static func exerciseBulkShortcut(
+        action: KeyboardShortcutSettings.Action,
+        shortcut: SimulatorStoredShortcut,
+        keyCode: UInt16,
+        notifications: [TerminalNotification]
+    ) throws -> [TerminalNotification] {
+        let appDelegate = try #require(AppDelegate.shared)
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        let window = try #require(mainWindow(for: windowId))
+        let store = TerminalNotificationStore.shared
+        let originalNotificationStore = appDelegate.notificationStore
+        store.replaceNotificationsForTesting(notifications)
+        appDelegate.notificationStore = store
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        KeyboardShortcutSettings.setShortcut(shortcut, for: action)
+#if DEBUG
+        appDelegate.debugResetShortcutRoutingStateForTesting(
+            clearFocusedWindowOverride: false
+        )
+#endif
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: shortcut.modifierFlags,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: shortcut.key,
+            charactersIgnoringModifiers: shortcut.key,
+            isARepeat: false,
+            keyCode: keyCode
+        ))
+
+#if DEBUG
+        #expect(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        Issue.record("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        return store.notifications
+    }
+
+    @MainActor
+    private static func withIsolatedShortcutSettings(
+        _ body: () throws -> Void
+    ) rethrows {
+        let actionsWithPersistedShortcut = Set(
+            KeyboardShortcutSettings.Action.allCases.filter {
+                UserDefaults.standard.object(forKey: $0.defaultsKey) != nil
+            }
+        )
+        let savedShortcutsByAction = Dictionary(
+            uniqueKeysWithValues: actionsWithPersistedShortcut.map { action in
+                (action, KeyboardShortcutSettings.shortcut(for: action))
+            }
+        )
+        let originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
+            prefix: "cmux-bulk-notification-shortcuts"
+        )
+        KeyboardShortcutSettings.resetAll()
+#if DEBUG
+        AppDelegate.shared?.debugResetShortcutRoutingStateForTesting(
+            clearFocusedWindowOverride: false
+        )
+#endif
+        defer {
+            KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+            for action in KeyboardShortcutSettings.Action.allCases {
+                if actionsWithPersistedShortcut.contains(action),
+                   let savedShortcut = savedShortcutsByAction[action] {
+                    KeyboardShortcutSettings.setShortcut(savedShortcut, for: action)
+                } else {
+                    KeyboardShortcutSettings.resetShortcut(for: action)
+                }
+            }
+#if DEBUG
+            AppDelegate.shared?.debugResetShortcutRoutingStateForTesting(
+                clearFocusedWindowOverride: false
+            )
+#endif
+        }
+        try body()
+    }
+
+    @MainActor
+    private static func mainWindow(for windowId: UUID) -> NSWindow? {
+        AppDelegate.shared?.windowForMainWindowId(windowId)
+    }
+
+    @MainActor
+    private static func closeWindow(withId windowId: UUID) {
+        guard let window = mainWindow(for: windowId) else { return }
+        window.animationBehavior = .none
+        window.orderOut(nil)
+        window.close()
     }
 }
 

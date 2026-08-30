@@ -31,6 +31,16 @@ final class CmuxWebView: WKWebView {
         trustedInternalNavigationURLs.remove(url.absoluteString) != nil
     }
 
+    @MainActor
+    func clearTrustedInternalNavigationGrants() {
+        trustedInternalNavigationURLs.removeAll()
+    }
+
+    @MainActor
+    func resetTrustedInternalNavigationState() {
+        clearTrustedInternalNavigationGrants()
+    }
+
     // WebKit registers web-content edit commands on the view's `undoManager`;
     // owning one per web view keeps every page's undo stack scoped to this
     // view's lifetime instead of the window's shared undo manager.
@@ -410,7 +420,57 @@ final class CmuxWebView: WKWebView {
         )
     }
 
+    /// Find-family actions the diff viewer web app handles through the same
+    /// navigation-action bridge as j/k scrolling. The diff app virtualizes its
+    /// rows (off-screen lines are not in the DOM), so cmux's generic
+    /// TreeWalker find cannot search it; the app implements find over its
+    /// full diff model instead and cmux forwards the find shortcuts.
+    enum DiffViewerFindAction: String {
+        case open = "diffViewerOpenFind"
+        case next = "diffViewerFindNext"
+        case previous = "diffViewerFindPrevious"
+        case close = "diffViewerCloseFind"
+    }
+
+    /// Whether the current document is a ready diff viewer app that owns
+    /// find-in-page for this web view.
+    var isDiffViewerFindOwner: Bool {
+        diffViewerDocumentState.canHandleFindCommands
+    }
+
+    /// Forwards a find action to the diff viewer app. When the document is
+    /// not a ready diff viewer, `fallback` runs synchronously (the generic
+    /// browser find path). When the page later rejects the action, the
+    /// renderer is marked unavailable and `fallback` runs then.
+    func performDiffViewerFindAction(
+        _ action: DiffViewerFindAction,
+        fallback: @escaping @MainActor () -> Void
+    ) {
+        guard isDiffViewerFindOwner else {
+#if DEBUG
+            cmuxDebugLog(
+                "diffViewer.find.fallback action=\(action.rawValue) " +
+                    "state={\(diffViewerDocumentState.debugStateDescription)}"
+            )
+#endif
+            fallback()
+            return
+        }
+        let script = "window.__cmuxPerformDiffViewerNavigationAction?.('\(action.rawValue)') === true"
+        evaluateJavaScript(script) { [weak self] result, error in
+            guard error != nil || result as? Bool != true else { return }
+            self?.diffViewerDocumentState.rendererDidBecomeUnavailable()
+            fallback()
+        }
+    }
+
     func diffViewerFocusStateDidChange(viewer: Bool, editable: Bool, rendererReady: Bool) {
+#if DEBUG
+        cmuxDebugLog(
+            "diffViewer.focusState viewer=\(viewer ? 1 : 0) editable=\(editable ? 1 : 0) " +
+                "ready=\(rendererReady ? 1 : 0)"
+        )
+#endif
         diffViewerDocumentState.update(viewer: viewer, editable: editable, rendererReady: rendererReady)
         if !viewer || editable {
             diffViewerNavigationKeyRouter.reset()
@@ -2111,9 +2171,37 @@ final class CmuxWebView: WKWebView {
         NSPasteboard.PasteboardType("com.cmux.sidebar-tab-reorder"),
     ]
 
-    static func shouldRejectInternalPaneDrag(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
-        DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes)
-            || DragOverlayRoutingPolicy.hasSidebarTabReorder(pasteboardTypes)
+    /// A custom drag UTI is only a hint: AppKit keeps it after a session ends.
+    /// Resolve both internal capabilities through their live main-actor owners
+    /// before preventing WebKit from receiving an ordinary external drag.
+    private static func hasLiveInternalPaneDrag(in pasteboard: NSPasteboard) -> Bool {
+        MainActor.assumeIsolated {
+            let types = pasteboard.types
+            let hasLiveTabTransfer = types?.contains(
+                DragOverlayRoutingPolicy.bonsplitTabTransferType
+            ) == true && AppDelegate.shared?.liveTabDragCapabilityResolver.resolve(
+                from: pasteboard
+            ) != nil
+            let hasLiveSidebarDrag: Bool = {
+                guard types?.contains(DragOverlayRoutingPolicy.sidebarTabReorderType) == true else {
+                    return false
+                }
+                return SidebarTabDragPayload.hasLiveSession(
+                    in: pasteboard,
+                    currentSessionId: AppDelegate.shared?.sidebarWorkspaceDragRegistry.currentSessionId
+                )
+            }()
+            return hasLiveTabTransfer || hasLiveSidebarDrag
+        }
+    }
+
+    static func shouldRejectInternalPaneDrag(
+        _ pasteboardTypes: [NSPasteboard.PasteboardType]?,
+        hasLiveTabTransfer: Bool = false,
+        hasLiveSidebarDrag: Bool = false
+    ) -> Bool {
+        (DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes) && hasLiveTabTransfer)
+            || (DragOverlayRoutingPolicy.hasSidebarTabReorder(pasteboardTypes) && hasLiveSidebarDrag)
     }
 
     override func registerForDraggedTypes(_ newTypes: [NSPasteboard.PasteboardType]) {
@@ -2124,27 +2212,30 @@ final class CmuxWebView: WKWebView {
     }
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        guard !Self.shouldRejectInternalPaneDrag(sender.draggingPasteboard.types) else { return [] }
+        guard !Self.hasLiveInternalPaneDrag(in: sender.draggingPasteboard) else { return [] }
         return super.draggingEntered(sender)
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        guard !Self.shouldRejectInternalPaneDrag(sender.draggingPasteboard.types) else { return [] }
+        guard !Self.hasLiveInternalPaneDrag(in: sender.draggingPasteboard) else { return [] }
         return super.draggingUpdated(sender)
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        guard !Self.shouldRejectInternalPaneDrag(sender.draggingPasteboard.types) else { return false }
+        guard !Self.hasLiveInternalPaneDrag(in: sender.draggingPasteboard) else { return false }
         return super.performDragOperation(sender)
     }
 
     override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        guard !Self.shouldRejectInternalPaneDrag(sender.draggingPasteboard.types) else { return false }
+        guard !Self.hasLiveInternalPaneDrag(in: sender.draggingPasteboard) else { return false }
         return super.prepareForDragOperation(sender)
     }
 
     override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
-        guard !Self.shouldRejectInternalPaneDrag(sender?.draggingPasteboard.types) else { return }
+        if let pasteboard = sender?.draggingPasteboard,
+           Self.hasLiveInternalPaneDrag(in: pasteboard) {
+            return
+        }
         super.concludeDragOperation(sender)
     }
 

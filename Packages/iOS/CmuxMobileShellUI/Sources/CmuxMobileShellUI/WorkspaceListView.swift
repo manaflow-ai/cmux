@@ -37,6 +37,7 @@ struct WorkspaceListView: View {
     /// a value snapshot so no `@Observable` store crosses the `List` boundary.
     var previewLineLimit: Int = MobileDisplaySettings.defaultWorkspacePreviewLineCount
     var unreadIndicatorLeftShift: Double = MobileDisplaySettings.defaultUnreadIndicatorLeftShift
+    var unreadBadgeDiameter: Double = MobileDisplaySettings.defaultUnreadBadgeDiameter
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     let createWorkspace: () -> Void
     var createWorkspaceInGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil
@@ -922,7 +923,8 @@ struct WorkspaceListView: View {
             connectionStatus: connectionStatus,
             tailscalePairingRequired: tailscalePairingRequired,
             isInitialConnectionLoading: isInitialConnectionLoading,
-            initialConnectionTimedOut: initialConnectionTimedOut
+            initialConnectionTimedOut: initialConnectionTimedOut,
+            hasLiveTransportPath: store?.workspaceListHasLiveTransportPath ?? false
         )
     }
 
@@ -954,7 +956,7 @@ struct WorkspaceListView: View {
         } label: {
             Image(systemName: "desktopcomputer")
         }
-        .accessibilityLabel(L10n.string("mobile.computers.title", defaultValue: "Computers"))
+        .accessibilityLabel(L10n.string("mobile.connections.title", defaultValue: "Computers"))
         .accessibilityIdentifier("MobileWorkspaceDevicesButton")
     }
     #endif
@@ -979,27 +981,32 @@ struct WorkspaceListView: View {
         let groupLookup = groupsByID
         ForEach(items, id: \.id) { item in
             switch item {
-            case .groupHeader(let group, let hasUnread):
-                let anchorCapabilities = workspacesByID[group.anchorWorkspaceID]?.actionCapabilities ?? .none
+            case .groupHeader(let group, let unread):
+                let anchorCapabilities = groupCapabilities(
+                    group,
+                    workspacesByID: workspacesByID
+                )
                 WorkspaceGroupHeaderRow(
                     value: WorkspaceGroupHeaderRowValue(
                         group: group,
-                        hasUnread: hasUnread,
+                        unread: unread,
                         navigationStyle: navigationStyle,
                         isAnchorSelected: navigationStyle == .sidebar
-                            && selectedWorkspaceID == group.anchorWorkspaceID,
+                            && selectedWorkspaceID == group.liveAnchorWorkspaceID,
                         canCreateWorkspaceInGroup: canCreateWorkspaceInGroups
                             && createWorkspaceInGroup != nil,
                         canRenameGroup: anchorCapabilities.supportsGroupActions
                             && renameWorkspaceGroup != nil,
                         canSetGroupPinned: anchorCapabilities.supportsGroupActions
                             && setGroupPinned != nil,
-                        canUngroupWorkspaceGroup: anchorCapabilities.supportsGroupActions
+                        canUngroupWorkspaceGroup: !group.isPinned
+                            && anchorCapabilities.supportsGroupActions
                             && ungroupWorkspaceGroup != nil,
                         canDeleteWorkspaceGroup: anchorCapabilities.supportsGroupActions
                             && deleteWorkspaceGroup != nil,
                         canToggleCollapsed: toggleGroupCollapsed != nil,
-                        unreadIndicatorLeftShift: unreadIndicatorLeftShift
+                        unreadIndicatorLeftShift: unreadIndicatorLeftShift,
+                        unreadBadgeDiameter: unreadBadgeDiameter
                     ),
                     actions: WorkspaceGroupHeaderRowActions(
                         selectWorkspace: { id in _ = selectWorkspaceFromList(id) },
@@ -1016,7 +1023,9 @@ struct WorkspaceListView: View {
                 // invisible end-of-group spacer; interactive rows keep the
                 // 44pt tap target (32 content + 6/6 insets) explicitly.
                 .frame(minHeight: 32)
-                .moveDisabled(!(enablesReorder && anchorCapabilities.supportsMoveActions))
+                .moveDisabled(
+                    group.isEmpty || !(enablesReorder && anchorCapabilities.supportsMoveActions)
+                )
                 .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
                 .listRowSeparator(.hidden)
             case .groupFooter(let groupID):
@@ -1051,6 +1060,7 @@ struct WorkspaceListView: View {
             wrapWorkspaceTitles: wrapWorkspaceTitles,
             previewLineLimit: previewLineLimit,
             unreadIndicatorLeftShift: unreadIndicatorLeftShift,
+            unreadBadgeDiameter: unreadBadgeDiameter,
             selectWorkspace: { id in _ = selectWorkspaceFromList(id) },
             renameWorkspace: capabilities.supportsWorkspaceActions ? renameWorkspace : nil,
             requestCustomization: capabilities.supportsWorkspaceActions
@@ -1090,6 +1100,22 @@ struct WorkspaceListView: View {
                 workspaceTitle: workspace.name
             )
         }
+    }
+
+    private func groupCapabilities(
+        _ group: MobileWorkspaceGroupPreview,
+        workspacesByID: [MobileWorkspacePreview.ID: MobileWorkspacePreview]
+    ) -> MobileWorkspaceActionCapabilities {
+        if let capabilities = group.actionCapabilities {
+            // Group actions are Mac-scoped and remain available for a
+            // header-only group without a live workspace row.
+            return capabilities
+        }
+        if let anchorWorkspaceID = group.liveAnchorWorkspaceID,
+           let capabilities = workspacesByID[anchorWorkspaceID]?.actionCapabilities {
+            return capabilities
+        }
+        return .none
     }
 
     var settingsMenu: some View {

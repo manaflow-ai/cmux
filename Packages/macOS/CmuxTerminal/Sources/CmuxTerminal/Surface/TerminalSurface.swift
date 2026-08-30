@@ -109,6 +109,14 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// a surface whose portal is visible.
     var rendererPortalVisible = false
 
+    /// Whether the hosting `NSWindow` is visible on screen (not miniaturized,
+    /// fully covered, on an inactive Space, or a hidden bootstrap window).
+    /// Driven by `NSWindow.didChangeOcclusionStateNotification` through the
+    /// hosted view; a nil-window reparenting transition keeps the last state so
+    /// portal moves cannot flap occlusion. Defaults to visible so surfaces that
+    /// never observe a window (tests, headless) behave as before.
+    public internal(set) var rendererWindowVisible = true
+
     /// Whether the runtime Ghostty surface exists and has not begun teardown.
     ///
     /// Use this as a quick availability check. Before passing `surface` to
@@ -187,6 +195,15 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// Text written to the surface immediately after the first spawn, if any.
     public let initialInput: String?
     var nextRuntimeInitialInput: String?
+    /// When true, a deferred restore was cancelled before its first runtime.
+    /// This suppresses the construction-time startup payload while retaining
+    /// the configured values for persistence/debug inspection.
+    var suppressConfiguredInitialInput = false
+    /// The command to use when a deferred restore is cancelled, if it needs to
+    /// keep a transport attach alive without running the resume payload.
+    var startupRestoreAdmissionFallbackCommand: String?
+    var startupRestoreAdmissionCommandOverride: String?
+    var hasStartupRestoreAdmissionCommandOverride = false
     let initialEnvironmentOverrides: [String: String]
 
     /// The working directory requested at construction, if any.
@@ -217,6 +234,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     @MainActor public var onVisualBell: (@MainActor () -> Void)?
     /// Routes accepted explicit user input to the surface's current panel owner.
     @MainActor public var onExplicitInput: (@MainActor () -> Void)?
+    /// Notifies the owner when explicit input cancels a deferred auto-resume.
+    @MainActor public var onStartupRestoreAdmissionCancelled: (@MainActor () -> Void)?
     /// Called after durable font-size lineage changes.
     @MainActor public var onFontSizeLineageChanged: (@MainActor (TerminalFontSizeLineage) -> Void)?
     @MainActor var manualSizeReportPendingWindowAttach = false
@@ -295,6 +314,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         (any TerminalSurfaceNativeViewing)?
     var requiresRestoreSpawnPacing = false
     var startupRestoreAdmissionPhase = TerminalSurfaceStartupRestoreAdmissionPhase.unrestricted
+    var cancelsStartupRestoreAdmissionOnExplicitInput = false
     var runtimeSurfaceSuspendedForAgentHibernation = false
     var agentHibernationRuntimeTeardownTicket: TerminalSurfaceRuntimeTeardownTicket?
     var staleRuntimeResourceReleaseTicket: TerminalSurfaceRuntimeTeardownTicket?
@@ -331,6 +351,12 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// path explicitly requests it so background panes do not keep a focused
     /// state unless the workspace focus path requests it.
     var desiredFocusState: Bool = false
+
+    /// Whether this model still owns its logical surface-registry entry.
+    /// Weak registry membership is cleared before `deinit`, so the model keeps
+    /// this one-shot ownership bit to distinguish deinit-only cleanup from a
+    /// later deinit following explicit teardown.
+    private var ownsSurfaceRegistryRegistration = false
 
     /// Bumped after every completed runtime clipboard read.
     public internal(set) var clipboardReadGeneration = 0
@@ -566,6 +592,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.agentCommandShimInstallDeadline = dependencies.agentCommandShimInstallDeadline
         self.agentCommandShimInstallDeadlineClock = dependencies.agentCommandShimInstallDeadlineClock
         self.requiresRestoreSpawnPacing = runtimeSpawnPolicy.spawnTiming == .pacedSessionRestore
+        self.cancelsStartupRestoreAdmissionOnExplicitInput =
+            runtimeSpawnPolicy.cancelsStartupRestoreAdmissionOnExplicitInput
         self.startupRestoreAdmissionPhase = runtimeSpawnPolicy.requiresStartupRestoreAdmission
             ? .awaitingAdmission
             : .unrestricted
@@ -586,6 +614,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
             self,
             terminalLifecycleID: terminalLifecycleId
         )
+        ownsSurfaceRegistryRegistration = true
         self.paneHost.attachSurface(self)
 
         let inheritedCommand = configTemplate?.command?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -639,13 +668,20 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         guard focusPlacement != placement else { return }
         reportedWorkingDirectory = nil
         focusPlacement = placement
-        registry.updateFocusPlacement(id: id, placement)
+        registry.updateFocusPlacement(for: self, placement)
+    }
+
+    /// Retires logical registry ownership once across explicit teardown and deinit.
+    func retireSurfaceRegistryRegistrationIfNeeded() {
+        guard ownsSurfaceRegistryRegistration else { return }
+        ownsSurfaceRegistryRegistration = false
+        registry.unregister(self)
     }
 
     deinit {
         agentCommandShimInstallTask?.cancel()
         agentCommandShimCompletionTask?.cancel()
-        registry.unregister(self)
+        retireSurfaceRegistryRegistrationIfNeeded()
         markPortalLifecycleClosed(reason: "deinit")
         // Mirror closeHeadlessStartupWindowIfNeeded: deinit is nonisolated, so
         // the NSWindow teardown hops to the main actor through the same kind of

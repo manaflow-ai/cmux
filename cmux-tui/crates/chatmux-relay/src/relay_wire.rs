@@ -1098,6 +1098,8 @@ pub enum RelayPtyErrorCode {
     TrustRefused,
     #[serde(rename = "session_limit")]
     SessionLimit,
+    #[serde(rename = "terminal_gone")]
+    TerminalGone,
     #[serde(rename = "failed")]
     Failed,
 }

@@ -16,7 +16,7 @@ on:
           - focused
           - full
       test_filter:
-        description: "Rust test-name substring; required in focused mode"
+        description: "Rust test-name substring; use chatmux_relay for the relay package"
         required: false
         default: ""
         type: string
@@ -28,7 +28,7 @@ on:
 concurrency:
   # Every caller waits for one exact commit. A newer request must not cancel it.
   group: cmux-tui-${{ inputs.request_id }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -78,6 +78,40 @@ jobs:
               exit 1
               ;;
           esac
+
+  msrv-check:
+    name: Rust MSRV (1.91)
+    needs: validate-inputs
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.commit }}
+
+      - name: Require exact checkout
+        env:
+          EXACT_COMMIT: ${{ inputs.commit }}
+        run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
+
+      - name: Init ghostty submodule
+        run: git submodule update --init --depth 1 ghostty
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Install Rust 1.91
+        run: rustup toolchain install 1.91.0 --profile minimal
+
+      - name: cargo check with MSRV
+        working-directory: cmux-tui
+        run: cargo +1.91.0 check --workspace --locked
 
   web-frontend:
     needs: validate-inputs
@@ -337,6 +371,10 @@ jobs:
           EXACT_COMMIT: ${{ inputs.commit }}
         run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
 
+      - name: Use short temporary directory for macOS socket tests
+        if: runner.os == 'macOS'
+        run: echo "TMPDIR=/tmp" >> "$GITHUB_ENV"
+
       - name: Init ghostty submodule
         run: git submodule update --init --depth 1 ghostty
 
@@ -436,6 +474,13 @@ jobs:
             cargo test -p cmux-tui-core --doc --locked
             exit 0
           fi
+          if [[ "$TEST_FILTER" == "chatmux_relay" || "$TEST_FILTER" == "chatmux-relay" ]]; then
+            # Cargo test names do not include their package name. Keep this
+            # explicit selector so focused verification can exercise the
+            # relay crate instead of silently selecting zero tests.
+            cargo test -p chatmux-relay --locked
+            exit 0
+          fi
           cargo test --workspace --locked "$TEST_FILTER" -- --list \
             | tee "$RUNNER_TEMP/cmux-tui-focused-tests.txt"
           if ! grep -Eq ': test$' "$RUNNER_TEMP/cmux-tui-focused-tests.txt"; then
@@ -515,7 +560,7 @@ jobs:
 
       - name: Build cmux-tui server
         working-directory: cmux-tui
-        run: cargo build -p cmux-tui
+        run: cargo build -p cmux-tui --locked
 
       - name: Resolve Zig SDK version
         id: zig-sdk-version
@@ -537,10 +582,6 @@ jobs:
           ZIG_FORCE_LOCAL_INSTALL: "1"
         run: ./scripts/install-zig-ci.sh
 
-      - name: Install TypeScript adapter build tools
-        working-directory: cmux-tui/bindings/typescript
-        run: npm ci --no-audit --no-fund
-
       - name: Python conformance fixtures
         run: |
           test "$("$CMUX_ZIG" version)" = "${{ steps.zig-sdk-version.outputs.version }}"
@@ -556,6 +597,12 @@ jobs:
     needs: validate-inputs
     permissions:
       contents: read
+      # The reusable package workflow declares an optional attestation job.
+      # GitHub validates the caller's permission ceiling before evaluating its
+      # `attest_packages` condition, so keep the ceiling explicit even though
+      # this dogfood call leaves attestations disabled.
+      id-token: write
+      attestations: write
     uses: ./.github/workflows/cmux-tui-build-package.yml
     with:
       version: 0.0.0-nightly.19700101.0
@@ -576,6 +623,7 @@ jobs:
     if: always()
     needs:
       - validate-inputs
+      - msrv-check
       - web-frontend
       - valgrind-leak-check
       - test
@@ -586,6 +634,7 @@ jobs:
     env:
       MODE: ${{ inputs.mode }}
       VALIDATE_RESULT: ${{ needs.validate-inputs.result }}
+      MSRV_RESULT: ${{ needs.msrv-check.result }}
       WEB_RESULT: ${{ needs.web-frontend.result }}
       VALGRIND_RESULT: ${{ needs.valgrind-leak-check.result }}
       TEST_RESULT: ${{ needs.test.result }}
@@ -605,6 +654,7 @@ jobs:
           }
 
           require_success "input validation" "$VALIDATE_RESULT"
+          require_success "Rust MSRV check" "$MSRV_RESULT"
           require_success "Rust tests" "$TEST_RESULT"
           require_success "dogfood artifact build" "$ARTIFACT_RESULT"
           if [[ "$MODE" == "full" ]]; then

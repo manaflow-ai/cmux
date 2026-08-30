@@ -296,17 +296,40 @@ final class RemoteTmuxController {
     ) throws -> Bool {
         let key = Self.connectionKey(host: host, sessionName: sessionName)
         guard sessionMirrors[key] == nil else { return false }
-        // Attach (and start the ssh process) BEFORE creating the workspace, so a
-        // failed connection doesn't leave an orphaned empty mirror workspace in
-        // the sidebar.
-        let connection = try attach(host: host, sessionName: sessionName)
-        let workspace = tabManager.addWorkspace(
-            title: sessionName, titleSource: .auto,
-            select: false,
-            autoWelcomeIfNeeded: false,
-            applyCreationTitleAsCustomTitle: false
-        )
+        // Admit the connection and workspace as one active-manager acquisition:
+        // a finalized window must start neither the ssh process nor a workspace.
+        guard let acquisition = try tabManager.acquireOptionalWorkspaceIfActive({ () throws -> (
+            connection: RemoteTmuxControlConnection,
+            workspace: Workspace
+        )? in
+            let connection = try attach(host: host, sessionName: sessionName)
+            guard let workspace = tabManager.addWorkspaceIfActive(
+                title: sessionName,
+                titleSource: .auto,
+                select: false,
+                autoWelcomeIfNeeded: false,
+                applyCreationTitleAsCustomTitle: false
+            ) else {
+                connection.stop()
+                return nil
+            }
+            return (connection: connection, workspace: workspace)
+        }) else {
+            return false
+        }
+        let connection = acquisition.connection
+        let workspace = acquisition.workspace
         workspace.isRemoteTmuxMirror = true
+        // Identity pairs the connection pushes into the remote SESSION
+        // environment on attach and every reconnect (issue #833). Workspace id
+        // is published under both keys, matching the SSH-workspace bootstrap
+        // convention (`CMUX_TAB_ID` is the legacy alias). No socket path: the
+        // ssh-tmux transport has no relay, so a local path would be dead on the
+        // remote — see ``RemoteTmuxControlConnection/pushMirrorSessionEnvironment()``.
+        connection.setMirrorEnvironment([
+            "CMUX_WORKSPACE_ID": workspace.id.uuidString,
+            "CMUX_TAB_ID": workspace.id.uuidString,
+        ])
         workspace.remoteTmuxWindowOrderSync = { [weak self, weak workspace] orderedPanelIds, verification in
             guard let self, let workspace else { return false }
             return self.handleMirrorWindowsReordered(
@@ -607,7 +630,11 @@ final class RemoteTmuxController {
                 // Preserve a usable owning window when the remote disappears.
                 // The replacement is local and must not inherit the remote path.
                 if manager.tabs.count == 1 {
-                    _ = manager.addWorkspace(inheritWorkingDirectory: false, select: false)
+                    guard manager.acquireOptionalWorkspaceIfActive({
+                        manager.addWorkspaceIfActive(inheritWorkingDirectory: false, select: false)
+                    }) != nil else {
+                        return
+                    }
                 }
                 manager.closeWorkspace(workspace)
             case .explicitDetach:

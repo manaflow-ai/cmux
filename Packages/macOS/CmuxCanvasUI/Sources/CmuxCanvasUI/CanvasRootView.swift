@@ -27,6 +27,12 @@ public final class CanvasRootView: NSView {
     private var mounts: [UUID: any CanvasPaneContentMounting] = [:]
     /// The panel currently mounted in each pane.
     private var mountedPanelByPane: [CanvasPaneID: UUID] = [:]
+    /// The object identity corresponding to each mounted panel ID.
+    ///
+    /// A restore can replace a placeholder with a live panel without changing
+    /// the persisted UUID, so the ID alone is not enough to decide whether a
+    /// mount can be reused.
+    private var mountedContentIdentityByPane: [CanvasPaneID: ObjectIdentifier] = [:]
     /// The latest descriptors, by panel id, for mount/chrome lookups.
     var descriptorsByPanelId: [UUID: CanvasPaneDescriptor] = [:]
     private var renderingByPane: [CanvasPaneID: Bool] = [:]
@@ -178,6 +184,7 @@ public final class CanvasRootView: NSView {
         }
         mounts.removeAll()
         mountedPanelByPane.removeAll()
+        mountedContentIdentityByPane.removeAll()
         descriptorsByPanelId.removeAll()
         paneViews.values.forEach { $0.removeFromSuperview() }
         paneViews.removeAll()
@@ -273,6 +280,7 @@ public final class CanvasRootView: NSView {
                 mounts[mounted] = nil
             }
             mountedPanelByPane[paneID] = nil
+            mountedContentIdentityByPane[paneID] = nil
             renderingByPane[paneID] = nil
             paneView.removeFromSuperview()
             paneViews[paneID] = nil
@@ -300,21 +308,38 @@ public final class CanvasRootView: NSView {
     /// before. Content mounts exactly while it is the visible tab.
     func reconcileMount(for pane: CanvasPane, in paneView: CanvasPaneView) {
         let selected = pane.selectedPanelId.rawValue
+        guard let descriptor = descriptorsByPanelId[selected] else {
+            if let mounted = mountedPanelByPane[pane.id] {
+                mounts[mounted]?.unmount()
+                mounts[mounted] = nil
+            }
+            mountedPanelByPane[pane.id] = nil
+            mountedContentIdentityByPane[pane.id] = nil
+            return
+        }
+
         let mounted = mountedPanelByPane[pane.id]
-        guard mounted != selected else { return }
+        let contentIdentityMatches: Bool = {
+            guard let contentIdentity = descriptor.contentIdentity else {
+                return mountedContentIdentityByPane[pane.id] == nil
+            }
+            return mountedContentIdentityByPane[pane.id] == contentIdentity
+        }()
+        guard mounted != selected || !contentIdentityMatches else { return }
         if let mounted {
             mounts[mounted]?.unmount()
             mounts[mounted] = nil
         }
-        if let descriptor = descriptorsByPanelId[selected] {
-            mounts[selected] = descriptor.makeMount(paneView.contentContainer)
-            mountedPanelByPane[pane.id] = selected
-            // A fresh mount starts in the pane's current lifecycle state.
-            if renderingByPane[pane.id] == false {
-                mounts[selected]?.setRendering(false)
-            }
+        mounts[selected] = descriptor.makeMount(paneView.contentContainer)
+        mountedPanelByPane[pane.id] = selected
+        if let contentIdentity = descriptor.contentIdentity {
+            mountedContentIdentityByPane[pane.id] = contentIdentity
         } else {
-            mountedPanelByPane[pane.id] = nil
+            mountedContentIdentityByPane[pane.id] = nil
+        }
+        // A fresh mount starts in the pane's current lifecycle state.
+        if renderingByPane[pane.id] == false {
+            mounts[selected]?.setRendering(false)
         }
     }
 
