@@ -423,34 +423,9 @@ extension DockSplitStore {
               scope == .global,
               !isRestoringDockSelection,
               sessionRestoreDepth == 0,
-              let event = NSApp.currentEvent,
-              Self.isUserInitiatedDockEvent(event.type) else { return }
+              consumeUserDockInteraction() else { return }
         // The Dock store is its own owner. Resolve the containing window from
-        // the store rather than trusting the ambient event window, which may be
-        // nil during a command/notification or belong to another window during
-        // menu tracking.
+        // the store; the pointer host supplied the explicit interaction token.
         noteKeyboardFocusIntent(window: nil)
-    }
-
-    private static func isUserInitiatedDockEvent(
-        _ eventType: NSEvent.EventType
-    ) -> Bool {
-        switch eventType {
-        case .keyDown,
-             .keyUp,
-             .flagsChanged,
-             .leftMouseDown,
-             .leftMouseUp,
-             .rightMouseDown,
-             .rightMouseUp,
-             .otherMouseDown,
-             .otherMouseUp,
-             .leftMouseDragged,
-             .rightMouseDragged,
-             .otherMouseDragged:
-            return true
-        default:
-            return false
-        }
     }
 }

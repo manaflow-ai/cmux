@@ -1301,15 +1301,9 @@ struct cmuxApp: App {
     }
 
     private var activeDockForMenu: DockSplitStore? {
-        let preferredWindow = NSApp.keyWindow ?? NSApp.mainWindow
-        guard let context = appDelegate.contextForMainWindow(preferredWindow),
-              context.keyboardFocusCoordinator.activeRightSidebarMode == .dock,
-              let dock = appDelegate.existingWindowDock(forWindowId: context.windowId),
-              !dock.isRetired,
-              dock.isVisibleInUI else {
-            return nil
-        }
-        return dock
+        appDelegate.existingFocusedDockStoreForShortcut(
+            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+        )
     }
 
     private var activeTerminalForMenu: TerminalPanel? {

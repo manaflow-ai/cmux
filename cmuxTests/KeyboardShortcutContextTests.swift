@@ -189,7 +189,8 @@ final class KeyboardShortcutContextTests: XCTestCase {
                 focusedBrowserPanel: false,
                 focusedMarkdownPanel: false,
                 rightSidebarFocused: true,
-                sidebarMode: "dock"
+                sidebarMode: "dock",
+                dockFocused: true
             )
         )
         XCTAssertTrue(

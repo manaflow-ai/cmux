@@ -86,8 +86,7 @@ extension KeyboardShortcutSettings.Action {
             case .commandPaletteVisible: return false
             case .nonBrowserPanel: return !focusedBrowserPanel && !rightSidebarFocused
             case .surfacePanel:
-                let dockIsFocused = dockFocused || sidebarMode == "dock"
-                return !focusedBrowserPanel && (!rightSidebarFocused || dockIsFocused)
+                return !focusedBrowserPanel && (!rightSidebarFocused || dockFocused)
             case .outsideBrowserPanel: return !focusedBrowserPanel
             case .browserPanel: return focusedBrowserPanel
             case .viewerPanel: return focusedBrowserPanel || focusedMarkdownPanel

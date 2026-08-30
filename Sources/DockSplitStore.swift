@@ -132,6 +132,11 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     /// publishing Dock keyboard focus when a caller explicitly requested that
     /// the current window focus be preserved.
     @ObservationIgnored private var programmaticSelectionRestorationDepth = 0
+    /// One-shot signal set by the Dock's pointer host before Bonsplit handles a
+    /// tab/pane click. Delegate callbacks are also emitted for programmatic
+    /// mutations, so they must consume this explicit UI token instead of
+    /// inferring intent from `NSApp.currentEvent`.
+    @ObservationIgnored private var pendingUserInteraction = false
     @ObservationIgnored var forceCloseDockTabIds: Set<TabID> = []
     @ObservationIgnored var pendingCloseConfirmDockTabIds: Set<TabID> = []
     @ObservationIgnored var tabCloseButtonCloseDockTabIds: Set<TabID> = []
@@ -855,6 +860,25 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
 
     var isRestoringDockSelection: Bool {
         programmaticSelectionRestorationDepth > 0
+    }
+
+    /// Marks the next Bonsplit selection callback as originating from a visible
+    /// Dock pointer interaction. The pointer host scopes this token to the Dock
+    /// view and clears it on mouse-up, including drag-out cancellation.
+    func beginUserDockInteraction() {
+        guard isVisibleInUI, scope == .global else { return }
+        pendingUserInteraction = true
+    }
+
+    func endUserDockInteraction() {
+        pendingUserInteraction = false
+    }
+
+    @discardableResult
+    func consumeUserDockInteraction() -> Bool {
+        guard pendingUserInteraction else { return false }
+        pendingUserInteraction = false
+        return true
     }
 
 #if DEBUG
