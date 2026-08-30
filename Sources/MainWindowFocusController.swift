@@ -293,7 +293,12 @@ final class MainWindowFocusController {
         let activeMode = activeRightSidebarMode
         guard let responder = window.firstResponder else { return activeMode }
 
-        if let mode = rightSidebarModeOwning(responder) {
+        // A reparented sidebar host can remain first responder after it leaves
+        // this window. Do not let that stranded responder claim sidebar focus
+        // (issue #5269); the live window/responder pair is authoritative.
+        if let responderView = responder as? NSView,
+           responderView.window === window,
+           let mode = rightSidebarModeOwning(responder) {
             let isFallbackSidebarHost = rightSidebarHost.map { responder === $0 } ?? false
             guard canAcceptRightSidebarResponderFocus(
                 mode: mode,
