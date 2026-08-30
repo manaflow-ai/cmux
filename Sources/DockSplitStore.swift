@@ -383,8 +383,15 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             guard let paneId = self.paneId(forPanelId: panelId) else {
                 return false
             }
-            _ = self.bonsplitController.toggleFullWidthTabMode(inPane: paneId)
-            // Bonsplit returns the resulting mode, not operation success.
+            let nextMode = !self.bonsplitController.isFullWidthTabMode(inPane: paneId)
+            guard self.bonsplitController.setFullWidthTabMode(
+                nextMode,
+                inPane: paneId
+            ) else {
+                return false
+            }
+            // Return operation success rather than the resulting mode (which
+            // is `false` when a valid toggle turns full-width off).
             return true
         }
         // Accept tabs dragged in from the main split area or another Dock. A
@@ -1241,12 +1248,22 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
                 .combineLatest(browser.$isMuted.removeDuplicates())
                 .map { _ in () }
             let browserFindCapabilityChanges = NotificationCenter.default.publisher(
-                for: .browserFindCapabilityDidChange,
-                object: browser.webView
+                for: .browserFindCapabilityDidChange
             )
-            .map { _ in () }
+            .receive(on: DispatchQueue.main)
+            .compactMap { [weak browser] notification -> Void? in
+                guard let browser,
+                      let webView = notification.object as? WKWebView,
+                      webView === browser.webView else {
+                    return nil
+                }
+                return ()
+            }
+            let browserWebViewInstanceChanges = browser.$webViewInstanceID
+                .map { _ in () }
             let cancellable = browserMetadataChanges
                 .merge(with: browserFindCapabilityChanges)
+                .merge(with: browserWebViewInstanceChanges)
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self, weak browser] _ in
                     guard let self, let browser else { return }
