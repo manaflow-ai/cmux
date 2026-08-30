@@ -204,7 +204,7 @@ final class DockPointerInteractionHostView: NSView {
             // The tab-item region also contains accessory buttons (close,
             // mute, pin, and zoom). Those controls deliberately keep the
             // current first responder, so they must not claim Dock focus.
-            return !isInteractiveDockChrome(hitView)
+            return !isInteractiveDockChrome(view)
         }
 
         guard let store else { return false }
