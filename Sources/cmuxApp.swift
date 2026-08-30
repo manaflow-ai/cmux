@@ -296,9 +296,9 @@ struct cmuxApp: App {
         }
         appDelegate.configureChromePaletteRuntime(
             initialPalette: chromePaletteRuntimeCoordinator.palette,
-            makeUpdates: { @MainActor @Sendable in
+            updates: ChromePaletteUpdateSource(streamFactory: {
                 chromePaletteRuntimeCoordinator.makeUpdateStream()
-            },
+            }),
             refresh: { @MainActor @Sendable in
                 chromePaletteRuntimeCoordinator.refresh()
             }
@@ -2580,7 +2580,7 @@ private final class SidebarDebugWindowController: ReleasingWindowController {
             rootView: SidebarDebugView().chromePaletteHost(
                 initialPalette: AppDelegate.shared?.chromePalette ?? ChromePaletteRuntimeResolver(runtime: runtime).resolve(),
                 settingsRuntime: runtime,
-                updates: AppDelegate.shared?.makeChromePaletteUpdates
+                updates: AppDelegate.shared?.chromePaletteUpdates
             )
         )
         AppDelegate.shared?.applyWindowDecorations(to: window)

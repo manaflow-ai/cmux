@@ -7,11 +7,11 @@ extension AppDelegate {
     @MainActor
     func configureChromePaletteRuntime(
         initialPalette: ChromePalette,
-        makeUpdates: @escaping @MainActor @Sendable () -> AsyncStream<ChromePalette>,
+        updates: ChromePaletteUpdateSource,
         refresh: @escaping @MainActor @Sendable () -> Void
     ) {
         chromePalette = initialPalette
-        makeChromePaletteUpdates = makeUpdates
+        chromePaletteUpdates = updates
         refreshChromePalette = refresh
         applyChromePaletteToOpenWindows(initialPalette)
     }

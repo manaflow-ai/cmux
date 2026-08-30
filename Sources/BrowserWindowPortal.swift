@@ -1299,7 +1299,7 @@ final class WindowBrowserSlotView: NSView {
             overlay: dropZoneOverlayView,
             initialPalette: appDelegate?.chromePalette
                 ?? ChromePaletteRuntimeResolver(runtime: appDelegate?.settingsRuntime).resolve(),
-            updates: appDelegate?.makeChromePaletteUpdates
+            updates: appDelegate?.chromePaletteUpdates
         )
         dropZoneOverlayView.layer?.borderWidth = 2
         dropZoneOverlayView.layer?.cornerRadius = 8

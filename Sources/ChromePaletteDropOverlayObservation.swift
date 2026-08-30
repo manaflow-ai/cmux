@@ -4,18 +4,16 @@ import CmuxSettings
 /// Keeps an AppKit-owned drop overlay synchronized with the app-wide chrome palette.
 @MainActor
 final class ChromePaletteDropOverlayObservation {
-    typealias UpdateStreamFactory = @MainActor @Sendable () -> AsyncStream<ChromePalette>
-
     private let applyPalette: @MainActor (ChromePalette) -> Void
-    private let makeUpdates: UpdateStreamFactory?
+    private let updates: ChromePaletteUpdateSource?
     private var observationTask: Task<Void, Never>?
 
     init(
         overlay: NSView,
         initialPalette: ChromePalette,
-        updates: UpdateStreamFactory?
+        updates: ChromePaletteUpdateSource?
     ) {
-        makeUpdates = updates
+        self.updates = updates
         applyPalette = { [weak overlay] palette in
             overlay?.layer?.backgroundColor = palette.cmuxAccentNSColor
                 .withAlphaComponent(0.25)
@@ -28,10 +26,10 @@ final class ChromePaletteDropOverlayObservation {
 
     init(
         initialPalette: ChromePalette,
-        updates: UpdateStreamFactory?,
+        updates: ChromePaletteUpdateSource?,
         apply: @escaping @MainActor (ChromePalette) -> Void
     ) {
-        makeUpdates = updates
+        self.updates = updates
         applyPalette = apply
         applyPalette(initialPalette)
         startObserving()
@@ -42,9 +40,9 @@ final class ChromePaletteDropOverlayObservation {
     }
 
     private func startObserving() {
-        guard let makeUpdates else { return }
-        observationTask = Task { @MainActor [weak self, makeUpdates] in
-            for await palette in makeUpdates() {
+        guard let updates else { return }
+        observationTask = Task { @MainActor [weak self, updates] in
+            for await palette in updates.makeStream() {
                 guard !Task.isCancelled else { break }
                 self?.applyPalette(palette)
             }

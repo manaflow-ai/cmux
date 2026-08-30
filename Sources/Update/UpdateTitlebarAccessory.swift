@@ -1885,7 +1885,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     private let containerView: NSView
     private let notificationStore: TerminalNotificationStore
     private let settingsRuntime: SettingsRuntime?
-    private let makeChromePaletteUpdates: (@MainActor @Sendable () -> AsyncStream<ChromePalette>)?
+    private let chromePaletteUpdates: ChromePaletteUpdateSource?
     private let layoutModel: TitlebarControlsLayoutModel
     private lazy var notificationsPopover: NSPopover = makeNotificationsPopover()
     private var pendingSizeUpdate = false
@@ -1906,13 +1906,13 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         notificationStore: TerminalNotificationStore,
         settingsRuntime: SettingsRuntime?,
         layoutModel: TitlebarControlsLayoutModel,
-        makeChromePaletteUpdates: (@MainActor @Sendable () -> AsyncStream<ChromePalette>)? = nil
+        chromePaletteUpdates: ChromePaletteUpdateSource? = nil
     ) {
         let containerView = TitlebarAccessoryContainerView()
         self.containerView = containerView
         self.notificationStore = notificationStore
         self.settingsRuntime = settingsRuntime
-        self.makeChromePaletteUpdates = makeChromePaletteUpdates
+        self.chromePaletteUpdates = chromePaletteUpdates
         self.layoutModel = layoutModel
         let prepareOriginatingAction: () -> AppDelegate.MainWindowContext? = { [weak containerView] in
             guard let appDelegate = AppDelegate.shared,
@@ -1957,7 +1957,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             rootView: AnyView(rootView.chromePaletteHost(
                 initialPalette: AppDelegate.shared?.chromePalette ?? ChromePaletteRuntimeResolver(runtime: settingsRuntime).resolve(),
                 settingsRuntime: settingsRuntime,
-                updates: makeChromePaletteUpdates
+                updates: chromePaletteUpdates
             ))
         )
 
@@ -2207,7 +2207,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             .chromePaletteHost(
                 initialPalette: AppDelegate.shared?.chromePalette ?? ChromePaletteRuntimeResolver(runtime: settingsRuntime).resolve(),
                 settingsRuntime: settingsRuntime,
-                updates: makeChromePaletteUpdates
+                updates: chromePaletteUpdates
             )
         )
         hostingController.view.wantsLayer = true
@@ -2702,7 +2702,7 @@ private struct NotificationsPopoverView: View {
 final class UpdateTitlebarAccessoryController {
     private let updateLog: UpdateLogStore
     private let settingsRuntime: SettingsRuntime?
-    private let makeChromePaletteUpdates: (@MainActor @Sendable () -> AsyncStream<ChromePalette>)?
+    private let chromePaletteUpdates: ChromePaletteUpdateSource?
     private let layoutModel: TitlebarControlsLayoutModel
     private var didStart = false
     private let attachedWindows = NSHashTable<NSWindow>.weakObjects()
@@ -2719,11 +2719,11 @@ final class UpdateTitlebarAccessoryController {
         updateLog: UpdateLogStore,
         settingsRuntime: SettingsRuntime?,
         layoutModel: TitlebarControlsLayoutModel,
-        makeChromePaletteUpdates: (@MainActor @Sendable () -> AsyncStream<ChromePalette>)? = nil
+        chromePaletteUpdates: ChromePaletteUpdateSource? = nil
     ) {
         self.updateLog = updateLog
         self.settingsRuntime = settingsRuntime
-        self.makeChromePaletteUpdates = makeChromePaletteUpdates
+        self.chromePaletteUpdates = chromePaletteUpdates
         self.layoutModel = layoutModel
     }
 
@@ -2920,7 +2920,7 @@ final class UpdateTitlebarAccessoryController {
                 notificationStore: TerminalNotificationStore.shared,
                 settingsRuntime: settingsRuntime,
                 layoutModel: layoutModel,
-                makeChromePaletteUpdates: makeChromePaletteUpdates
+                chromePaletteUpdates: chromePaletteUpdates
             )
             controls.layoutAttribute = .left
             controls.view.identifier = controlsIdentifier
@@ -3101,7 +3101,7 @@ final class UpdateTitlebarAccessoryController {
                 initialPalette: AppDelegate.shared?.chromePalette
                     ?? ChromePaletteRuntimeResolver(runtime: settingsRuntime).resolve(),
                 settingsRuntime: settingsRuntime,
-                updates: makeChromePaletteUpdates
+                updates: chromePaletteUpdates
             )
         )
 

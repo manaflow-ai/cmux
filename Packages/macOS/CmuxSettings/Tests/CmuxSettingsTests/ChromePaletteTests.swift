@@ -198,6 +198,21 @@ struct ChromePaletteTests {
         #expect(foreground == .black)
     }
 
+    @Test @MainActor
+    func updateSourceCreatesIndependentPaletteStream() async throws {
+        let palette = ChromePalette.builtIn(theme: .gruvbox, colorScheme: .dark)
+        let source = ChromePaletteUpdateSource(streamFactory: {
+            AsyncStream { continuation in
+                continuation.yield(palette)
+                continuation.finish()
+            }
+        })
+
+        var iterator = source.makeStream().makeAsyncIterator()
+        #expect(await iterator.next() == palette)
+        #expect(await iterator.next() == nil)
+    }
+
     @Test
     func colorHexRoundTripsAndRejectsAmbiguousInput() throws {
         let opaque = try #require(ChromeColor(hex: "#0088ff"))

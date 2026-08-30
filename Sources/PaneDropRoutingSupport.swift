@@ -223,7 +223,7 @@ final class PaneDropZoneOverlayAnimator {
     init(
         overlayView: NSView,
         initialPalette: ChromePalette,
-        updates: ChromePaletteDropOverlayObservation.UpdateStreamFactory?
+        updates: ChromePaletteUpdateSource?
     ) {
         self.overlayView = overlayView
         Self.applyStyle(to: overlayView, palette: initialPalette)

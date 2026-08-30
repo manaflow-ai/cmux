@@ -277,7 +277,7 @@ final class HostSettingsActions: SettingsHostActions {
             initialPalette: appDelegate?.chromePalette
                 ?? ChromePaletteRuntimeResolver(runtime: runtime).resolve(),
             settingsRuntime: runtime,
-            updates: appDelegate?.makeChromePaletteUpdates
+            updates: appDelegate?.chromePaletteUpdates
         )
             .cmuxAppearanceColorScheme(appearanceMode)
         let hostingController = NSHostingController(rootView: root)

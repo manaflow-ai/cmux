@@ -835,8 +835,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var settingsRuntime: SettingsRuntime?
     /// Latest immutable palette snapshot supplied by the app composition root.
     var chromePalette = ChromePaletteRuntimeResolver(runtime: nil).resolve()
-    /// Factory for independent palette-update streams owned by the composition root.
-    var makeChromePaletteUpdates: (@MainActor @Sendable () -> AsyncStream<ChromePalette>)?
+    /// Typed source for independent palette-update streams owned by the composition root.
+    var chromePaletteUpdates: ChromePaletteUpdateSource?
     /// Lifecycle refresh callback supplied by the composition root.
     var refreshChromePalette: (@MainActor @Sendable () -> Void)?
     private var computerUseRuntimeService: ComputerUseRuntimeService?
@@ -933,7 +933,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         updateLog: updateLog,
         settingsRuntime: settingsRuntime,
         layoutModel: titlebarControlsLayoutModel,
-        makeChromePaletteUpdates: makeChromePaletteUpdates
+        chromePaletteUpdates: chromePaletteUpdates
     )
     private let windowDecorationsController = WindowDecorationsController()
     private var menuBarExtraController: MenuBarExtraController?
@@ -9954,7 +9954,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .chromePaletteHost(
                 initialPalette: chromePalette,
                 settingsRuntime: settingsRuntime,
-                updates: makeChromePaletteUpdates
+                updates: chromePaletteUpdates
             )
             .cmuxFontMagnificationEnvironment()
 

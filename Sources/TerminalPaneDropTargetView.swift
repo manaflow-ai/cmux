@@ -21,7 +21,7 @@ final class PaneDropTargetView: NSView {
         overlayView: dropZoneOverlayView,
         initialPalette: AppDelegate.shared?.chromePalette
             ?? ChromePaletteRuntimeResolver(runtime: AppDelegate.shared?.settingsRuntime).resolve(),
-        updates: AppDelegate.shared?.makeChromePaletteUpdates
+        updates: AppDelegate.shared?.chromePaletteUpdates
     )
 #if DEBUG
     private var lastHitTestSignature: String?

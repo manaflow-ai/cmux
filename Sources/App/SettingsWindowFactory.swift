@@ -33,7 +33,7 @@ enum SettingsWindowFactory {
                 onContentAppear: onContentAppear,
                 initialPalette: appDelegate?.chromePalette
                     ?? ChromePaletteRuntimeResolver(runtime: appDelegate?.settingsRuntime).resolve(),
-                updates: appDelegate?.makeChromePaletteUpdates
+                updates: appDelegate?.chromePaletteUpdates
             )
         )
         // Bridge only the navigation title. `.toolbars` is deliberately
@@ -152,7 +152,7 @@ struct SettingsWindowHostRoot: View {
     /// it) and guards it against being superseded by a newer targeted show.
     let onContentAppear: @MainActor () -> Void
     let initialPalette: ChromePalette
-    let updates: (@MainActor @Sendable () -> AsyncStream<ChromePalette>)?
+    let updates: ChromePaletteUpdateSource?
 
     @AppStorage(AppearanceSettings.appearanceModeKey)
     private var appearanceMode = AppearanceSettings.defaultMode.rawValue
