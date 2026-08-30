@@ -5650,8 +5650,16 @@ impl Mux {
                 }
                 (host.cursor, host.roster.clone())
             };
-            let page =
-                match self.workspace_registry.lock().unwrap().session_journal_after(cursor, 512) {
+            let mut read_cursor = cursor;
+            let mut next_cursor = cursor;
+            let mut deltas = Vec::new();
+            let reached_target = loop {
+                let page = match self
+                    .workspace_registry
+                    .lock()
+                    .unwrap()
+                    .session_journal_after(read_cursor, 512)
+                {
                     Ok(page) => page,
                     Err(error) => {
                         // The durable event remains available for a later fold or
@@ -5660,29 +5668,33 @@ impl Mux {
                         return;
                     }
                 };
-            if page.records.is_empty() {
-                return;
-            }
+                if page.records.is_empty() {
+                    break false;
+                }
 
-            let mut next_cursor = cursor;
-            let mut deltas = Vec::new();
-            let mut reached_target = false;
-            for record in page.records {
-                if record.sequence <= next_cursor {
-                    continue;
+                for record in page.records {
+                    if record.sequence <= next_cursor {
+                        continue;
+                    }
+                    // Do not consume a record committed after the callback's
+                    // target. A later callback will fold that suffix.
+                    if record.sequence > commit.sequence {
+                        break;
+                    }
+                    deltas.extend(candidate.apply(&RosterEvent::from_record(&record)));
+                    next_cursor = record.sequence;
+                    if next_cursor == commit.sequence {
+                        break;
+                    }
                 }
-                // Do not consume a record committed after the callback's
-                // target. A later callback will fold that suffix.
-                if record.sequence > commit.sequence {
-                    break;
-                }
-                deltas.extend(candidate.apply(&RosterEvent::from_record(&record)));
-                next_cursor = record.sequence;
                 if next_cursor == commit.sequence {
-                    reached_target = true;
-                    break;
+                    break true;
                 }
-            }
+                if next_cursor <= read_cursor {
+                    break false;
+                }
+                read_cursor = next_cursor;
+            };
             if !reached_target {
                 // The writer acknowledged a commit that the reader cannot see
                 // yet. Keep the cursor unchanged so another callback retries.
