@@ -10,17 +10,20 @@ extension CloudTreeOutlineView.Coordinator {
         let registration: TabDragTransferRegistration
         let transferRegistry: TabDragTransferRegistry
         weak var sourceView: NSOutlineView?
+        weak var writer: CloudTreeSurfaceDragPasteboardWriter?
 
         init(
             dragID: UUID,
             registration: TabDragTransferRegistration,
             transferRegistry: TabDragTransferRegistry,
-            sourceView: NSOutlineView
+            sourceView: NSOutlineView,
+            writer: CloudTreeSurfaceDragPasteboardWriter? = nil
         ) {
             self.dragID = dragID
             self.registration = registration
             self.transferRegistry = transferRegistry
             self.sourceView = sourceView
+            self.writer = writer
         }
     }
 }

@@ -57,6 +57,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     // keep a weak marker here so teardown can distinguish a live writer from an
     // ordinary, already-finished table update without retaining a second cycle.
     private weak var pendingWorkspaceDragWriter: SidebarWorkspaceDragPasteboardWriter?
+    private var activeWorkspaceDragWriter: SidebarWorkspaceDragPasteboardWriter?
     // A rebuilt table can request a newer writer before the older table's
     // `willBeginAt` callback arrives. Weak values let us recover that exact
     // source without creating a controller/writer retain cycle.
@@ -133,7 +134,14 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         previewBailoutTask?.cancel()
     }
 
-    private func clearPendingWorkspaceDragWriters() {
+    private func clearPendingWorkspaceDragWriters(
+        preserving preservedWriter: SidebarWorkspaceDragPasteboardWriter? = nil
+    ) {
+        let pendingWriters = pendingWorkspaceDragWriters.objectEnumerator().allObjects
+            .compactMap { $0 as? SidebarWorkspaceDragPasteboardWriter }
+        for writer in pendingWriters where writer !== preservedWriter {
+            writer.releaseSourceGraph()
+        }
         workspaceDragWriterOwnership.removeAll()
         pendingWorkspaceDragWriter = nil
         pendingWorkspaceDragWriters.removeAllObjects()
@@ -1082,9 +1090,13 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         _ = screenPoint
         let draggedRows = Array(rowIndexes)
         let provisionalWriter = pendingWorkspaceDragWriter
-        let sourceWriter = provisionalWriter?.sourceViewForDrag === tableView
-            ? provisionalWriter
-            : pendingWorkspaceDragWriters.object(forKey: tableView)
+        let sourceWriter: SidebarWorkspaceDragPasteboardWriter? = {
+            if let sourceView = provisionalWriter?.sourceViewForDrag,
+               sourceView === tableView {
+                return provisionalWriter
+            }
+            return pendingWorkspaceDragWriters.object(forKey: tableView)
+        }()
         let provisionalWriterBelongsToTable = sourceWriter?.sourceViewForDrag === tableView
         let sourceWorkspaceId: UUID? = {
             if let sourceWriter {
@@ -1137,6 +1149,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // representable; the exact table/session pair must already be retained
         // for AppKit's eventual terminal callback.
         retainWorkspaceDragSource(tableView)
+        activeWorkspaceDragWriter = sourceWriter
         activeWorkspaceDraggingSession = session
         activeWorkspaceDragSequenceNumber = session.draggingSequenceNumber
         workspaceDragSessionDidBegin(sourceTableView: tableView)
@@ -1176,7 +1189,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 }
             }
         }
-        clearPendingWorkspaceDragWriters()
+        clearPendingWorkspaceDragWriters(preserving: sourceWriter)
         session.enumerateDraggingItems(
             options: [],
             for: tableView,
@@ -1365,6 +1378,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         activeWorkspaceDragSequenceNumber = nil
         activeWorkspaceDragTableView?.activeWorkspaceDragController = nil
         activeWorkspaceDragTableView = nil
+        activeWorkspaceDragWriter?.releaseSourceGraph()
+        activeWorkspaceDragWriter = nil
 
         let abandonedContainer = activeWorkspaceDragContainerView
         let deferredContainers = deferredProvisionalCellDetachContainers
@@ -1481,6 +1496,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
         let tableView = activeWorkspaceDragTableView
         activeWorkspaceDragTableView = nil
+        activeWorkspaceDragWriter?.releaseSourceGraph()
+        activeWorkspaceDragWriter = nil
         workspaceDragSourceCompletionReceived = true
         tableView?.activeWorkspaceDragController = nil
         if let tableView, tableView !== containerView?.tableView {

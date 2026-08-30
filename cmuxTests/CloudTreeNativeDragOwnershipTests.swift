@@ -145,7 +145,7 @@ struct CloudTreeNativeDragOwnershipTests {
 
         // The next pointer gesture is an authoritative native boundary even if
         // AppKit omitted endedAt during an outline reconstruction.
-        coordinator.prepareForNativeDragBoundary()
+        coordinator.prepareForNativeDragBoundary(on: outline)
         #expect(!coordinator.isDragging)
         #expect(SurfaceResourceDragRegistry.shared.group(id: writer.dragID) == nil)
         #expect(outline.activeNativeDragCoordinator == nil)
@@ -195,7 +195,7 @@ struct CloudTreeNativeDragOwnershipTests {
             willBeginAt: .zero,
             forItems: [node]
         )
-        coordinator.prepareForNativeDragBoundary()
+        coordinator.prepareForNativeDragBoundary(on: outline)
 
         let secondWriter = try #require(
             coordinator.outlineView(outline, pasteboardWriterForItem: node)

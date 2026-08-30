@@ -614,6 +614,8 @@ struct FileExplorerPanelView: NSViewRepresentable {
                         )
                     },
                     clearPrevious: {
+                        outlineView.activeNativeDragWriter?.releaseSourceGraph()
+                        outlineView.activeNativeDragWriter = nil
                         outlineView.activeNativeDragDelegateMarker = nil
                         outlineView.activeNativeDragOwnership = nil
                         outlineView.activeNativeDragSession = nil
@@ -621,6 +623,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 )
                 outlineView.activeNativeDragDelegateMarker = self
                 outlineView.activeNativeDragSession = session
+                outlineView.activeNativeDragWriter = outlineView.pendingNativeDragWriter
                 outlineView.activeNativeDragOwnership =
                     outlineView.pendingNativeDragOwnership
                         ?? outlineView.pendingNativeDragWriter?.nativeDragOwnership()
@@ -651,6 +654,8 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: session)
             }
             outlineView.activeNativeDragDelegateMarker = nil
+            outlineView.activeNativeDragWriter?.releaseSourceGraph()
+            outlineView.activeNativeDragWriter = nil
             outlineView.activeNativeDragOwnership = nil
             outlineView.activeNativeDragSession = nil
         }
@@ -682,6 +687,8 @@ struct FileExplorerPanelView: NSViewRepresentable {
             }
             outlineView.activeNativeDragOwnership?.finish(from: session.draggingPasteboard)
             outlineView.activeNativeDragDelegateMarker = nil
+            outlineView.activeNativeDragWriter?.releaseSourceGraph()
+            outlineView.activeNativeDragWriter = nil
             outlineView.activeNativeDragOwnership = nil
             outlineView.activeNativeDragSession = nil
         }
@@ -1792,6 +1799,8 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
                 )
             },
             clearPrevious: {
+                searchResultsView.activeNativeDragWriter?.releaseSourceGraph()
+                searchResultsView.activeNativeDragWriter = nil
                 searchResultsView.activeNativeDragDelegateMarker = nil
                 searchResultsView.activeNativeDragOwnership = nil
                 searchResultsView.activeNativeDragSession = nil
@@ -1801,6 +1810,7 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         // terminal callback. Keep only a weak marker on the table: a strong
         // table → container edge would create a retain cycle.
         searchResultsView.activeNativeDragDelegateMarker = self
+        searchResultsView.activeNativeDragWriter = searchResultsView.pendingNativeDragWriter
         searchResultsView.activeNativeDragOwnership =
             searchResultsView.pendingNativeDragOwnership
                 ?? searchResultsView.pendingNativeDragWriter?.nativeDragOwnership()
@@ -1831,6 +1841,8 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
                     FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: session)
                 }
                 searchResultsView.activeNativeDragDelegateMarker = nil
+                searchResultsView.activeNativeDragWriter?.releaseSourceGraph()
+                searchResultsView.activeNativeDragWriter = nil
                 searchResultsView.activeNativeDragOwnership = nil
                 searchResultsView.activeNativeDragSession = nil
             }
@@ -1863,6 +1875,8 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         }
         searchResultsView.activeNativeDragOwnership?.finish(from: session.draggingPasteboard)
         searchResultsView.activeNativeDragDelegateMarker = nil
+        searchResultsView.activeNativeDragWriter?.releaseSourceGraph()
+        searchResultsView.activeNativeDragWriter = nil
         searchResultsView.activeNativeDragOwnership = nil
         searchResultsView.activeNativeDragSession = nil
     }
@@ -1933,8 +1947,12 @@ private extension FileExplorerContainerView {
         searchResultsView.activeNativeDragOwnership?.finish(from: dragPasteboard)
         outlineView.activeNativeDragOwnership?.finish(from: dragPasteboard)
         searchResultsView.activeNativeDragDelegateMarker = nil
+        searchResultsView.activeNativeDragWriter?.releaseSourceGraph()
+        searchResultsView.activeNativeDragWriter = nil
         searchResultsView.activeNativeDragOwnership = nil
         outlineView.activeNativeDragDelegateMarker = nil
+        outlineView.activeNativeDragWriter?.releaseSourceGraph()
+        outlineView.activeNativeDragWriter = nil
         outlineView.activeNativeDragOwnership = nil
     }
 }

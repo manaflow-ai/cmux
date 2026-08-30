@@ -22,8 +22,8 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem {
     // These are intentionally strong. AppKit retains the writer while it
     // builds (and, if successful, runs) the native session, so the source table
     // and its delegate cannot disappear between writer request and willBeginAt.
-    private let sourceView: NSView
-    private let controller: SidebarWorkspaceTableController
+    private var sourceView: NSView?
+    private var controller: SidebarWorkspaceTableController?
 
     init(
         workspaceId: UUID,
@@ -47,10 +47,6 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem {
         ofType _: NSPasteboard.PasteboardType
     ) {
         fatalError("init(pasteboardPropertyList:ofType:) is not supported")
-    }
-
-    deinit {
-        provisionalToken.notifyDeallocated()
     }
 
     override func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
@@ -79,7 +75,13 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem {
     ///
     /// The table controller reads this only while promoting a provisional
     /// writer to an active source after a view reconstruction.
-    var sourceViewForDrag: NSView { sourceView }
+    var sourceViewForDrag: NSView? { sourceView }
+
+    /// Releases the source graph after this writer's native session terminates.
+    func releaseSourceGraph() {
+        sourceView = nil
+        controller = nil
+    }
 
     override func pasteboardPropertyList(forType type: NSPasteboard.PasteboardType) -> Any? {
         guard type == Self.pasteboardType else { return nil }

@@ -14,8 +14,8 @@ final class CloudTreeSurfaceDragPasteboardWriter: NSPasteboardItem {
     let provisionalToken: ProvisionalDragWriterOwnership.Token
     let dragID: UUID
     let registration: TabDragTransferRegistration
-    private let sourceView: NSOutlineView
-    private let coordinator: CloudTreeOutlineView.Coordinator
+    private var sourceView: NSOutlineView?
+    private var coordinator: CloudTreeOutlineView.Coordinator?
 
     init(
         dragID: UUID,
@@ -39,10 +39,6 @@ final class CloudTreeSurfaceDragPasteboardWriter: NSPasteboardItem {
         ofType _: NSPasteboard.PasteboardType
     ) {
         fatalError("init(pasteboardPropertyList:ofType:) is not supported")
-    }
-
-    deinit {
-        provisionalToken.notifyDeallocated()
     }
 
     override func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
@@ -79,5 +75,11 @@ final class CloudTreeSurfaceDragPasteboardWriter: NSPasteboardItem {
     }
 
     /// The exact outline source that requested this writer.
-    var sourceViewForDrag: NSOutlineView { sourceView }
+    var sourceViewForDrag: NSOutlineView? { sourceView }
+
+    /// Releases the source graph after this writer's native session terminates.
+    func releaseSourceGraph() {
+        sourceView = nil
+        coordinator = nil
+    }
 }

@@ -538,8 +538,8 @@ final class FilePreviewDragPasteboardWriter: NSPasteboardItem {
     // `willBeginAt` callback. Retain the native source graph through that
     // provisional interval so a SwiftUI reconstruction cannot drop the only
     // delegate that receives `endedAt`.
-    private let nativeSourceView: NSView?
-    private let nativeSourceOwner: AnyObject?
+    private var nativeSourceView: NSView?
+    private var nativeSourceOwner: AnyObject?
     let provisionalToken: ProvisionalDragWriterOwnership.Token?
     private var transferData: Data?
     private var bonsplitRegistration: TabDragTransferRegistration?
@@ -571,8 +571,11 @@ final class FilePreviewDragPasteboardWriter: NSPasteboardItem {
         fatalError("init(pasteboardPropertyList:ofType:) is not supported")
     }
 
-    deinit {
-        provisionalToken?.notifyDeallocated()
+    /// Releases the retained source graph once the native session reaches its
+    /// terminal boundary; the pasteboard item itself may remain cached by macOS.
+    func releaseSourceGraph() {
+        nativeSourceView = nil
+        nativeSourceOwner = nil
     }
 
     static func dragID(from transferData: Data) -> UUID? {

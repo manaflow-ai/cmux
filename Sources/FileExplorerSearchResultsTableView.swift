@@ -10,6 +10,7 @@ final class FileExplorerSearchResultsTableView: NSTableView {
     weak var pendingNativeDragWriter: FilePreviewDragPasteboardWriter?
     var pendingNativeDragTokenID: UUID?
     var pendingNativeDragOwnership: FilePreviewNativeDragOwnership?
+    var activeNativeDragWriter: FilePreviewDragPasteboardWriter?
     var activeNativeDragOwnership: FilePreviewNativeDragOwnership?
     /// Called before AppKit evaluates a new pointer gesture. A new
     /// `mouseDown` cannot arrive while the old native drag loop is still live,

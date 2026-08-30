@@ -68,6 +68,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         private var selectedNodeID: String?
         private var isUpdatingProgrammatically = false
         private var activeDrag: ActiveDrag?
+        private var activeDragWriter: CloudTreeSurfaceDragPasteboardWriter?
         private var activeDragSequenceNumber: Int?
         private var activeDragSession: NSDraggingSession?
         private weak var activeDragSourceView: CloudTreeNSOutlineView?
@@ -101,12 +102,17 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             SurfaceResourceDragRegistry.shared.discard(id: pending.dragID)
         }
 
-        private func discardAllPendingDrags() {
+        private func discardAllPendingDrags(
+            preserving preservedWriter: CloudTreeSurfaceDragPasteboardWriter? = nil
+        ) {
             let pending = pendingDrags.values
             pendingDrags.removeAll(keepingCapacity: false)
             dragWriterOwnership.removeAll()
             latestPendingDragWriter = nil
             for pending in pending {
+                if pending.writer !== preservedWriter {
+                    pending.writer?.releaseSourceGraph()
+                }
                 discardPendingDrag(pending)
             }
         }
@@ -137,6 +143,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 activeDrag.transferRegistry.end(activeDrag.registration)
                 SurfaceResourceDragRegistry.shared.discard(id: activeDrag.id)
             }
+            activeDragWriter?.releaseSourceGraph()
+            activeDragWriter = nil
             activeDragSession = nil
             activeDragSequenceNumber = nil
             if let sourceView = activeDragSourceView {
@@ -155,12 +163,17 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         /// boundary without delivering the older source's `endedAt` callback.
         /// The boundary is safe because AppKit does not dispatch a new
         /// `mouseDown` while the older native drag loop is still running.
-        func prepareForNativeDragBoundary() {
-            if let activeDragSession = activeDragSession ?? outlineView?.activeNativeDragSession {
+        func prepareForNativeDragBoundary(on sourceView: CloudTreeNSOutlineView) {
+            if let activeDragSourceView, activeDragSourceView !== sourceView {
+                // A rebuilt older outline cannot retire a newer outline's
+                // active session; its boundary belongs to a different source.
+                return
+            }
+            if let activeDragSession = activeDragSession ?? sourceView.activeNativeDragSession {
                 supersededDragSession = activeDragSession
             }
             if let activeDragSequenceNumber = activeDragSequenceNumber
-                ?? outlineView?.activeNativeDragSession?.draggingSequenceNumber {
+                ?? sourceView.activeNativeDragSession?.draggingSequenceNumber {
                 supersededDragSequenceNumber = activeDragSequenceNumber
             }
             if let activeDrag {
@@ -168,13 +181,15 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 activeDrag.transferRegistry.end(activeDrag.registration)
                 SurfaceResourceDragRegistry.shared.discard(id: activeDrag.id)
             }
+            activeDragWriter?.releaseSourceGraph()
+            activeDragWriter = nil
             discardAllPendingDrags()
             activeDragSession = nil
             activeDragSequenceNumber = nil
             activeDragSourceView?.activeNativeDragCoordinator = nil
             activeDragSourceView?.activeNativeDragSession = nil
-            outlineView?.activeNativeDragCoordinator = nil
-            outlineView?.activeNativeDragSession = nil
+            sourceView.activeNativeDragCoordinator = nil
+            sourceView.activeNativeDragSession = nil
             activeDragSourceView = nil
             setDragging(false)
         }
@@ -661,7 +676,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 dragID: dragID,
                 registration: registration,
                 transferRegistry: transferRegistry,
-                sourceView: outlineView
+                sourceView: outlineView,
+                writer: writer
             )
             latestPendingDragWriter = writer
 #if DEBUG
@@ -687,13 +703,16 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 // number. Retire the older registration before promotion.
                 reclaimSupersededNativeDragIfNeeded()
             }
-            let pendingToken: UUID? = {
+            let pendingWriter: CloudTreeSurfaceDragPasteboardWriter? = {
                 if let writer = latestPendingDragWriter,
-                   writer.sourceViewForDrag === outlineView {
-                    return writer.provisionalToken.id
+                   let sourceView = writer.sourceViewForDrag,
+                   sourceView === outlineView {
+                    return writer
                 }
-                return pendingDrags.first { $0.value.sourceView === outlineView }?.key
+                return pendingDrags.first { $0.value.sourceView === outlineView }?.value.writer
             }()
+            let pendingToken = pendingWriter?.provisionalToken.id
+                ?? pendingDrags.first { $0.value.sourceView === outlineView }?.key
             guard let pendingToken,
                   let pending = pendingDrags.removeValue(forKey: pendingToken) else {
                 // Even if a bookkeeping token was released before this
@@ -713,7 +732,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             // Cloud rows are single-selection sources, so any additional
             // provisional writers belong to the same pre-session query and
             // must be revoked rather than left in the capability registries.
-            discardAllPendingDrags()
+            discardAllPendingDrags(preserving: pendingWriter)
             // The promoted registration was removed with the pending map;
             // retain it as the active session's sole capability.
             activeDrag = ActiveDrag(
@@ -721,6 +740,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 registration: pending.registration,
                 transferRegistry: pending.transferRegistry
             )
+            activeDragWriter = pendingWriter
             activeDragSession = session
             activeDragSourceView = outlineView as? CloudTreeNSOutlineView
             supersededDragSession = nil
@@ -775,6 +795,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 }
                 activeDragSequenceNumber = nil
                 activeDragSession = nil
+                activeDragWriter?.releaseSourceGraph()
+                activeDragWriter = nil
                 activeDragSourceView = nil
                 setDragging(false)
             }
@@ -867,8 +889,9 @@ final class CloudTreeContainerView: NSView {
         outlineView.onMoveSelection = { [weak coordinator] delta in coordinator?.moveSelection(by: delta) }
         outlineView.onDisclosure = { [weak coordinator] action in coordinator?.performDisclosure(action) }
         outlineView.onQuickSearch = { [weak coordinator] query in coordinator?.selectQuickSearchMatch(query: query) }
-        outlineView.onNativeDragPointerBoundary = { [weak coordinator] in
-            coordinator?.prepareForNativeDragBoundary()
+        outlineView.onNativeDragPointerBoundary = { [weak coordinator, weak outlineView] in
+            guard let outlineView else { return }
+            coordinator?.prepareForNativeDragBoundary(on: outlineView)
         }
         outlineView.onDidBecomeFirstResponder = { [weak self] in
             guard let self, let window = self.window else { return }
