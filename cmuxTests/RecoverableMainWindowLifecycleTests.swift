@@ -92,7 +92,7 @@ struct RecoverableMainWindowLifecycleTests {
                 )
             ])
 
-            let workspaceDock = workspace.dockSplit
+            let workspaceDock = try #require(workspace.dockSplit)
             let workspaceDockPanel = TerminalPanel(
                 workspaceId: workspace.id,
                 runtimeSpawnPolicy: .pacedSessionRestore
@@ -105,7 +105,7 @@ struct RecoverableMainWindowLifecycleTests {
             let context = try #require(
                 app.mainWindowContexts.values.first { $0.windowId == windowId }
             )
-            let windowDock = context.windowDockStore()
+            let windowDock = context.windowDockStore(notificationStore: notificationStore)
             let windowDockPanel = TerminalPanel(
                 workspaceId: windowId,
                 runtimeSpawnPolicy: .pacedSessionRestore
