@@ -2046,7 +2046,13 @@ mod tests {
 
     impl FakePty {
         fn emit(&self, text: &str) {
-            let sink = self.state.lock().unwrap().on_data.clone();
+            let (sink, paused) = {
+                let state = self.state.lock().unwrap();
+                (state.on_data.clone(), state.paused)
+            };
+            if paused {
+                return;
+            }
             if let Some(sink) = sink {
                 sink(Bytes::copy_from_slice(text.as_bytes()));
             }
@@ -2612,6 +2618,27 @@ mod tests {
         let last = last.last().unwrap();
         assert_eq!(last["type"], "pty_exit");
         assert_eq!(last["ptyId"], "p2");
+    }
+
+    #[tokio::test]
+    async fn closing_a_paused_shell_viewer_resumes_the_shared_session() {
+        let h = harness(None, None);
+        h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
+        h.open("p2", "main", Value::Null, "supervised", h.owner.clone()).await;
+        let pty = h.spawned()[0].clone();
+
+        h.frame(serde_json::json!({ "type": "pty_flow", "ptyId": "p1", "pause": true })).await;
+        assert!(pty.state.lock().unwrap().paused);
+
+        h.frame(serde_json::json!({ "type": "pty_close", "ptyId": "p1" })).await;
+        assert!(!pty.state.lock().unwrap().paused);
+
+        let before = h.sent().len();
+        pty.emit("after detach");
+        let outputs: Vec<&Value> =
+            h.sent()[before..].iter().filter(|frame| ty(frame) == "pty_output").collect();
+        assert_eq!(outputs.len(), 1);
+        assert_eq!(outputs[0]["ptyId"], "p2");
     }
 
     #[tokio::test]
