@@ -146,19 +146,16 @@ extension TabManager {
             case .absent, .value:
                 return
             }
-            let pending = pendingAutomaticWorkspaceTitles[workspace.stableId]
-            let automaticTitleOrdering: UInt64
-            if let pending {
-                automaticTitleOrdering = pending.automaticTitleOrdering
-            } else {
-                Self.nextAutomaticWorkspaceTitleOrdering &+= 1
-                automaticTitleOrdering = Self.nextAutomaticWorkspaceTitleOrdering
-            }
+            // Every notification is a new observation. A different manager
+            // may have persisted a newer automatic title since this manager
+            // queued its previous value, so retaining the pending fence
+            // would make the newest value look stale and drop it.
+            Self.nextAutomaticWorkspaceTitleOrdering &+= 1
+            let automaticTitleOrdering = Self.nextAutomaticWorkspaceTitleOrdering
             pendingAutomaticWorkspaceTitles[workspace.stableId] =
                 PendingAutomaticWorkspaceTitle(
                     title: workspace.customTitle,
-                    titleMutationRevision: pending?.titleMutationRevision
-                        ?? record.titleMutationRevision,
+                    titleMutationRevision: record.titleMutationRevision,
                     automaticTitleOrdering: automaticTitleOrdering
                 )
             scheduleAutomaticWorkspaceTitlePersistence()
