@@ -538,6 +538,7 @@ fn make_context(
     pending: &Arc<AtomicU64>,
     auth: &AuthSnapshot,
     transport_id: &str,
+    cancellation: &CancellationToken,
 ) -> FrameContext {
     let sender = out.clone();
     let pending_send = Arc::clone(pending);
@@ -570,6 +571,7 @@ fn make_context(
         local_roots: auth.roots.clone(),
         owner_user_id: auth.owner.clone(),
         transport_id: Some(transport_id.to_owned()),
+        cancellation: cancellation.clone(),
     }
 }
 
@@ -661,7 +663,7 @@ async fn relay_session(
                     }
                 };
                 let snapshot = auth.lock().expect("auth lock").clone();
-                let context = make_context(&out, &pending, &snapshot, &transport);
+                let context = make_context(&out, &pending, &snapshot, &transport, &cancellation);
                 tokio::select! {
                     biased;
                     _ = cancellation.cancelled() => break,
@@ -1099,8 +1101,13 @@ async fn relay_session(
                                 // bounded work queue is saturated. The manager close path is
                                 // synchronous and short, so this cannot create an unbounded wait.
                                 let snapshot = auth_direct.lock().expect("auth lock").clone();
-                                let context =
-                                    make_context(&out_tx, &pending, &snapshot, &transport_id);
+                                let context = make_context(
+                                    &out_tx,
+                                    &pending,
+                                    &snapshot,
+                                    &transport_id,
+                                    &cancellation,
+                                );
                                 tokio::select! {
                                     biased;
                                     _ = cancellation.cancelled() => break Ok(connected),
