@@ -638,7 +638,7 @@ struct SidebarWorkspaceTableTests {
             workspaceId: workspace.id
         )
         let environment = SidebarWorkspaceTableEnvironmentSnapshot(
-            colorScheme: .dark,
+            environment: .sidebarTableTestValues(colorScheme: .dark),
             globalFontMagnificationPercent: 100,
             lazyContractProbe: SidebarLazyContractProbe()
         )
@@ -789,7 +789,7 @@ struct SidebarWorkspaceTableTests {
         var pumpModel = baseModel
         pumpModel.latestNotificationText = String(repeating: "live metadata ", count: 30)
         let environment = SidebarWorkspaceTableEnvironmentSnapshot(
-            colorScheme: .dark,
+            environment: .sidebarTableTestValues(colorScheme: .dark),
             globalFontMagnificationPercent: 100,
             lazyContractProbe: SidebarLazyContractProbe()
         )
@@ -902,7 +902,7 @@ struct SidebarWorkspaceTableTests {
             workspaceId: workspace.id
         )
         let environment = SidebarWorkspaceTableEnvironmentSnapshot(
-            colorScheme: .dark,
+            environment: .sidebarTableTestValues(colorScheme: .dark),
             globalFontMagnificationPercent: 100,
             lazyContractProbe: SidebarLazyContractProbe()
         )
