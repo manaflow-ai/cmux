@@ -1314,6 +1314,11 @@ struct cmuxApp: App {
     }
 
     private var activeDockForMenu: DockSplitStore? {
+        // Keep this computed command dependency tied to the invalidator as
+        // well as the scene-level Commands read. Switching key windows can
+        // change the resolved Dock without changing either Dock's capability
+        // snapshot.
+        let _ = focusHistoryMenuInvalidator.revision
         appDelegate.focusedDockStoreForShortcut(
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
         )

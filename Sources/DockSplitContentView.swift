@@ -94,23 +94,62 @@ struct DockPointerInteractionHost: NSViewRepresentable {
     }
 }
 
+/// Sendable handoff for an opaque AppKit event-monitor token. The token is
+/// created and consumed exactly once by the MainActor; the wrapper only lets a
+/// nonisolated lifetime cleanup schedule that removal without exposing the
+/// token to other app state.
+private final class DockPointerMonitorToken: @unchecked Sendable {
+    let raw: Any
+
+    init(raw: Any) {
+        self.raw = raw
+    }
+}
+
+/// Owns one local event monitor and removes it on the MainActor at teardown.
+private final class DockPointerMonitorLease {
+    private var token: DockPointerMonitorToken?
+
+    @MainActor
+    func install(
+        handler: @escaping (NSEvent) -> NSEvent?
+    ) {
+        guard token == nil else { return }
+        guard let raw = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown],
+            handler: handler
+        ) else {
+            return
+        }
+        token = DockPointerMonitorToken(raw: raw)
+    }
+
+    @MainActor
+    func stop() {
+        guard let token else { return }
+        NSEvent.removeMonitor(token.raw)
+        self.token = nil
+    }
+
+    deinit {
+        guard let token else { return }
+        // A final release can occur outside the MainActor. Keep the opaque
+        // token in its Sendable wrapper and perform the AppKit call on main.
+        Task { @MainActor [token] in
+            NSEvent.removeMonitor(token.raw)
+        }
+    }
+}
+
 @MainActor
 final class DockPointerInteractionHostView: NSView {
     var store: DockSplitStore?
     var isEnabled = false
-    private var eventMonitor: Any?
+    private let monitorLease = DockPointerMonitorLease()
 
     deinit {
-        guard let eventMonitor else { return }
-        // ``dismantleNSView`` and ``viewDidMoveToWindow`` clear the monitor on
-        // the MainActor. If a view is released without either lifecycle hook,
-        // treat that as a violated AppKit ownership invariant rather than
-        // crossing a non-Sendable monitor token to an unstructured task.
-        assert(Thread.isMainThread, "Dock pointer monitor released off-main")
-        guard Thread.isMainThread else { return }
-        MainActor.assumeIsolated {
-            NSEvent.removeMonitor(eventMonitor)
-        }
+        // ``DockPointerMonitorLease`` owns the token and performs the final
+        // MainActor cleanup even if SwiftUI skips ``dismantleNSView``.
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -125,20 +164,14 @@ final class DockPointerInteractionHostView: NSView {
     }
 
     func installMonitorIfNeeded() {
-        guard isEnabled, window != nil, eventMonitor == nil else { return }
-        eventMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: [.leftMouseDown]
-        ) { [weak self] event in
-            self?.handle(event: event)
-            return event
+        guard isEnabled, window != nil else { return }
+        monitorLease.install { [weak self] event in
+            self?.handle(event: event) ?? event
         }
     }
 
     func stopMonitoring() {
-        if let eventMonitor {
-            NSEvent.removeMonitor(eventMonitor)
-            self.eventMonitor = nil
-        }
+        monitorLease.stop()
     }
 
     private func handle(event: NSEvent) {
