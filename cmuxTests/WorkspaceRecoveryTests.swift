@@ -534,6 +534,93 @@ struct WorkspaceRecoveryTests {
     }
 
     @Test
+    func newerSessionAutomaticTitleWinsOverOlderJournal() throws {
+        let fixture = try makeCustomizationStore()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let store = fixture.store
+
+        let sourceManager = TabManager(
+            initialWorkingDirectory: "/tmp/newer-session-title",
+            autoWelcomeIfNeeded: false,
+            workspaceCustomizationStore: store
+        )
+        let sourceWorkspace = try #require(sourceManager.selectedWorkspace)
+        #expect(sourceManager.setCustomTitle(tabId: sourceWorkspace.id, title: "User Name"))
+        sourceManager.clearCustomTitle(tabId: sourceWorkspace.id)
+        #expect(sourceManager.setCustomTitle(
+            tabId: sourceWorkspace.id,
+            title: "Older Journal Title",
+            source: .auto
+        ))
+        sourceManager.flushPendingWorkspaceCustomizationWrites()
+        let olderRevision = try #require(
+            store.customizationAndTitleMutationRevision(for: sourceWorkspace.stableId)
+        ).titleMutationRevision
+
+        var snapshot = sourceWorkspace.sessionSnapshot(includeScrollback: false)
+        snapshot.customTitle = "Newer Session Title"
+        snapshot.customTitleSource = .auto
+        snapshot.customTitleMutationRevision = olderRevision &+ 1
+
+        let restoredManager = TabManager(
+            autoWelcomeIfNeeded: false,
+            workspaceCustomizationStore: store
+        )
+        restoredManager.restoreSessionSnapshot(SessionTabManagerSnapshot(
+            selectedWorkspaceIndex: 0,
+            workspaces: [snapshot]
+        ))
+        let restoredWorkspace = try #require(restoredManager.selectedWorkspace)
+        #expect(restoredWorkspace.customTitle == "Newer Session Title")
+        #expect(restoredWorkspace.effectiveCustomTitleSource == .auto)
+    }
+
+    @Test
+    func queuedAutomaticTitleSurvivesAConcurrentClearWithoutPerEventReads() throws {
+        let fixture = try makeCustomizationStore()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+
+        let queuedManager = TabManager(
+            initialWorkingDirectory: "/tmp/concurrent-clear-title",
+            autoWelcomeIfNeeded: false,
+            workspaceCustomizationStore: fixture.store
+        )
+        let queuedWorkspace = try #require(queuedManager.selectedWorkspace)
+        #expect(queuedManager.setCustomTitle(tabId: queuedWorkspace.id, title: "User Name"))
+        queuedManager.clearCustomTitle(tabId: queuedWorkspace.id)
+        #expect(queuedManager.setCustomTitle(
+            tabId: queuedWorkspace.id,
+            title: "Queued Before Clear",
+            source: .auto
+        ))
+
+        // A second manager advances the durable clear after the first manager
+        // queued its automatic value. The queued writer must revalidate at
+        // flush without requiring another synchronous read for each event.
+        let clearingManager = TabManager(
+            autoWelcomeIfNeeded: false,
+            workspaceCustomizationStore: fixture.store
+        )
+        clearingManager.restoreSessionSnapshot(SessionTabManagerSnapshot(
+            selectedWorkspaceIndex: 0,
+            workspaces: [queuedWorkspace.sessionSnapshot(includeScrollback: false)]
+        ))
+        let clearingWorkspace = try #require(clearingManager.selectedWorkspace)
+        clearingManager.clearCustomTitle(tabId: clearingWorkspace.id)
+
+        #expect(queuedManager.setCustomTitle(
+            tabId: queuedWorkspace.id,
+            title: "Queued After Clear",
+            source: .auto
+        ))
+        queuedManager.flushPendingWorkspaceCustomizationWrites()
+        #expect(
+            fixture.store.customization(for: queuedWorkspace.stableId)?.customTitle ==
+                .autoValue("Queued After Clear")
+        )
+    }
+
+    @Test
     func automaticTitleJournalWritesCoalesceUntilFlush() throws {
         let fixture = try makeCustomizationStore()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
