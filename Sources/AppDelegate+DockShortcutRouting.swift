@@ -251,7 +251,7 @@ extension AppDelegate {
     func routeSplitToFocusedDock(
         kind: DockSurfaceKind,
         direction: SplitDirection,
-        action: KeyboardShortcutSettings.Action?,
+        action: KeyboardShortcutSettings.Action,
         preferredWindow: NSWindow?,
         preferredDock: DockSplitStore? = nil,
         preferredDockPanelId: UUID? = nil
@@ -275,16 +275,10 @@ extension AppDelegate {
                 ) ? preferredDock : nil
             }
         } else {
-            if let action {
-                store = focusedDockStoreForShortcut(
-                    action: action,
-                    preferredWindow: preferredWindow
-                )
-            } else {
-                store = focusedDockStoreForShortcut(
-                    preferredWindow: preferredWindow
-                )
-            }
+            store = focusedDockStoreForShortcut(
+                action: action,
+                preferredWindow: preferredWindow
+            )
         }
         guard let store else {
             return false

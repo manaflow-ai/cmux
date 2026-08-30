@@ -13,13 +13,12 @@ extension AppDelegate {
             return false
         }
 
-        let action: KeyboardShortcutSettings.Action? = switch direction {
+        let action: KeyboardShortcutSettings.Action = switch direction {
         case .right: .splitBrowserRight
         case .down: .splitBrowserDown
-        // There are no configurable left/up split actions. Use the generic
-        // Dock-focus gate for those geometry-only directions instead of
-        // borrowing the right-split action's authorization.
-        case .left, .up: nil
+        // There are no configurable left/up split actions. Reuse a
+        // dock-scoped browser action solely as the authorization gate.
+        case .left, .up: .splitBrowserRight
         }
         _ = synchronizeActiveMainWindowContext(preferredWindow: shortcutRoutingActiveWindow)
 

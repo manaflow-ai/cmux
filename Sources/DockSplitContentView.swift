@@ -97,10 +97,7 @@ struct DockPointerInteractionHost: NSViewRepresentable {
 /// Owns one local event monitor and removes it deterministically at teardown.
 @MainActor
 private final class DockPointerMonitorLease {
-    // SAFETY: install/stop mutate this only on the MainActor. A deinit read
-    // happens after the last strong reference is released, so no actor task can
-    // concurrently access the token.
-    nonisolated(unsafe) private var token: Any?
+    private var token: Any?
 
     @MainActor
     func install(
@@ -123,20 +120,6 @@ private final class DockPointerMonitorLease {
         self.token = nil
     }
 
-    deinit {
-        guard let token else { return }
-        // The normal owner path is MainActor-isolated. If an autorelease pool
-        // releases the final view reference elsewhere, AppKit still permits
-        // removing a local monitor from that releasing thread; never assert
-        // isolation in that fallback deinit path.
-        if Thread.isMainThread {
-            MainActor.assumeIsolated {
-                NSEvent.removeMonitor(token)
-            }
-        } else {
-            NSEvent.removeMonitor(token)
-        }
-    }
 }
 
 @MainActor
