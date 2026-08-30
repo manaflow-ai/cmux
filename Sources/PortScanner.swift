@@ -521,6 +521,7 @@ final class PortScanner: @unchecked Sendable {
 
         queue.async { [weak self] in
             self?.completePanelScan(
+                generation: generation,
                 panelResults,
                 panelTTYs: panelSnapshot,
                 panelRevisions: panelRevisions,
