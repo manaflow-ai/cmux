@@ -102,6 +102,42 @@ struct IrxHostActivationPolicyTests {
         )
     }
 
+    @Test("an auxiliary broker 401 backs off without owning reauthentication")
+    func auxiliaryUnauthorizedUsesItsLocalBackoffCount() {
+        let failure = IrxBrokerFailure(
+            operation: .hintRefresh,
+            error: CmxIrohTrustBrokerClientError.rejected(
+                statusCode: 401,
+                code: "unauthorized"
+            )
+        )
+
+        #expect(
+            policy.decision(
+                for: failure,
+                failureCount: 0,
+                jitterUnitInterval: 0,
+                escalateUnauthorized: false
+            ) == .retry(delay: 1, retryAfterSeconds: nil)
+        )
+        #expect(
+            policy.decision(
+                for: failure,
+                failureCount: 1,
+                jitterUnitInterval: 0,
+                escalateUnauthorized: false
+            ) == .retry(delay: 2, retryAfterSeconds: nil)
+        )
+        #expect(
+            policy.decision(
+                for: failure,
+                failureCount: 2,
+                jitterUnitInterval: 0,
+                escalateUnauthorized: false
+            ) == .retry(delay: 4, retryAfterSeconds: nil)
+        )
+    }
+
     @Test("transient broker failures use a bounded exponential ladder")
     func transientFailuresBackOff() {
         let failure = IrxBrokerFailure(
