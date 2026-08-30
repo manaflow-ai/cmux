@@ -94,6 +94,32 @@ struct DockPointerInteractionHost: NSViewRepresentable {
     }
 }
 
+/// Owns the MainActor cleanup closure for an AppKit monitor. The immutable box
+/// reference can be requested from a nonisolated deinit; the captured handles
+/// are read and consumed only on the MainActor.
+private final class DockPointerTeardownBox: @unchecked Sendable {
+    @MainActor
+    private var cleanup: (@MainActor () -> Void)?
+
+    @MainActor
+    func replace(with cleanup: (@MainActor () -> Void)?) {
+        self.cleanup = cleanup
+    }
+
+    @MainActor
+    func perform() {
+        let cleanup = self.cleanup
+        self.cleanup = nil
+        cleanup?()
+    }
+
+    nonisolated func request() {
+        Task { @MainActor [self] in
+            self.perform()
+        }
+    }
+}
+
 @MainActor
 final class DockPointerInteractionHostView: NSView {
     private enum DockPointerHitTarget {
@@ -106,23 +132,20 @@ final class DockPointerInteractionHostView: NSView {
     private var eventMonitor: Any?
     private var windowResignKeyObserver: NSObjectProtocol?
     private var applicationResignActiveObserver: NSObjectProtocol?
+    // The reference is immutable and its methods marshal all handle access to
+    // the MainActor, which makes it safe to request from `deinit`.
+    nonisolated(unsafe) private let teardownBox = DockPointerTeardownBox()
 
     deinit {
-        // `deinit` is nonisolated under Swift 6. SwiftUI's dismantle callback
-        // owns off-main teardown; this fallback reads AppKit state only after
-        // proving that deallocation is on the MainActor.
-        guard Thread.isMainThread else { return }
-        MainActor.assumeIsolated {
-            store?.cancelDockPointerInteraction()
-            if let eventMonitor {
-                NSEvent.removeMonitor(eventMonitor)
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                teardownBox.perform()
             }
-            if let windowResignKeyObserver {
-                NotificationCenter.default.removeObserver(windowResignKeyObserver)
-            }
-            if let applicationResignActiveObserver {
-                NotificationCenter.default.removeObserver(applicationResignActiveObserver)
-            }
+        } else {
+            // SwiftUI normally calls `dismantleNSView` on the MainActor. If a
+            // host is released elsewhere, request the same lifecycle cleanup
+            // without reading actor-isolated handles from this deinit.
+            teardownBox.request()
         }
     }
 
@@ -168,24 +191,28 @@ final class DockPointerInteractionHostView: NSView {
         ) { [weak self, weak window] _ in
             self?.store?.cancelDockPointerInteraction(window: window)
         }
+        let ownerStore = store
+        let installedWindowObserver = windowResignKeyObserver
+        let installedApplicationObserver = applicationResignActiveObserver
+        teardownBox.replace { [weak ownerStore] in
+            ownerStore?.cancelDockPointerInteraction()
+            NSEvent.removeMonitor(monitor)
+            if let installedWindowObserver {
+                NotificationCenter.default.removeObserver(installedWindowObserver)
+            }
+            if let installedApplicationObserver {
+                NotificationCenter.default.removeObserver(installedApplicationObserver)
+            }
+        }
     }
 
     func stopMonitoring() {
         // A host can move between windows while a pointer sequence is in
         // flight. Clear the coordinator unconditionally before rebinding.
-        store?.cancelDockPointerInteraction()
-        if let eventMonitor {
-            NSEvent.removeMonitor(eventMonitor)
-            self.eventMonitor = nil
-        }
-        if let windowResignKeyObserver {
-            NotificationCenter.default.removeObserver(windowResignKeyObserver)
-            self.windowResignKeyObserver = nil
-        }
-        if let applicationResignActiveObserver {
-            NotificationCenter.default.removeObserver(applicationResignActiveObserver)
-            self.applicationResignActiveObserver = nil
-        }
+        teardownBox.perform()
+        eventMonitor = nil
+        windowResignKeyObserver = nil
+        applicationResignActiveObserver = nil
     }
 
     private func handle(event: NSEvent) {

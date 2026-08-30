@@ -35,22 +35,10 @@ final class DockPointerInteractionCoordinator {
         phase = .pressed
     }
 
-    /// Retains the transaction after mouse-up only when Bonsplit's selection
-    /// identity already changed. A click that produced no selection change is
-    /// complete, so its origin is cancelled before a later programmatic event.
-    func markReleased(
-        in window: NSWindow?,
-        currentPaneID: PaneID? = nil,
-        currentTabID: TabID? = nil
-    ) {
+    /// Retains the transaction after mouse-up so Bonsplit's tap callback can
+    /// consume the explicit user origin even when delivery is delayed.
+    func markReleased(in window: NSWindow?) {
         guard phase == .pressed, matches(window: window) else {
-            return
-        }
-        if let currentPaneID,
-           let currentTabID,
-           initialPaneID == currentPaneID,
-           initialTabID == currentTabID {
-            cancel()
             return
         }
         phase = .released
@@ -120,12 +108,7 @@ extension DockSplitStore {
     /// Retains a Dock pointer origin after mouse-up for delayed Bonsplit
     /// callbacks; the next unrelated pointer/key/lifecycle event cancels it.
     func releaseDockPointerInteraction(window: NSWindow?) {
-        let selection = focusedDockSurfaceSelection()
-        dockPointerInteractionCoordinator.markReleased(
-            in: window,
-            currentPaneID: selection?.paneId,
-            currentTabID: selection.map { TabID(uuid: $0.tab.id) }
-        )
+        dockPointerInteractionCoordinator.markReleased(in: window)
     }
 
     /// Cancels an unconsumed Dock pointer origin at a real event/lifecycle

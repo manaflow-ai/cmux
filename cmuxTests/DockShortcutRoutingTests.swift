@@ -2212,6 +2212,53 @@ struct DockShortcutRoutingTests {
         }
     }
 
+    @Test("Captured Dock palette targets survive a temporary focus handoff")
+    @MainActor
+    func capturedDockPaletteTargetSurvivesFocusHandoff() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let panelId = try #require(
+                    harness.dock.newSurface(
+                        kind: .terminal,
+                        inPane: harness.rootPane,
+                        focus: true
+                    )
+                )
+                let mainPanelId = try #require(
+                    harness.mainWorkspace.focusedPanelId
+                )
+
+                // Opening the palette can move first responder away from the
+                // Dock. The presentation-time Dock/panel identity remains the
+                // command target until the palette is dismissed.
+                harness.appDelegate.noteMainPanelKeyboardFocusIntent(
+                    workspaceId: harness.mainWorkspace.id,
+                    panelId: mainPanelId,
+                    in: harness.window
+                )
+                #expect(
+                    harness.appDelegate.isCurrentCommandPaletteDockTarget(
+                        harness.dock,
+                        panelId: panelId,
+                        preferredWindow: harness.window
+                    )
+                )
+
+                #expect(
+                    harness.appDelegate.routeSplitToFocusedDock(
+                        kind: .terminal,
+                        direction: .right,
+                        action: .splitRight,
+                        preferredWindow: harness.window,
+                        preferredDock: harness.dock,
+                        preferredDockPanelId: panelId
+                    )
+                )
+                #expect(harness.dock.panels.count > 1)
+            }
+        }
+    }
+
     @Test("A single Dock tab can move to a new workspace")
     @MainActor
     func singleDockTabOffersNewWorkspaceDestination() async throws {

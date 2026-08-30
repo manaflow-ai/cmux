@@ -166,13 +166,12 @@ extension AppDelegate {
             let ownerDock = existingWindowDock(forWindowId: context.windowId),
             ownerDock === dock,
             context.fileExplorerState?.isVisible == true,
-            dock.isVisibleInUI,
-            context.keyboardFocusCoordinator.activeRightSidebarMode == .dock
-                || context.keyboardFocusCoordinator.focusedRightSidebarMode == .dock else {
+            dock.isVisibleInUI else {
                 return false
             }
             // The command palette owns first responder while the command runs;
-            // the captured Dock/focus intent is authoritative until dismissal.
+            // the captured, visible Dock is authoritative until dismissal even
+            // if the focus coordinator temporarily observes the palette host.
             return true
 
         case .workspace:
