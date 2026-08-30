@@ -987,7 +987,7 @@ struct cmuxApp: App {
                         activeTabManager.searchSelection()
                     }
                     .disabled(
-                        !(activeDockForMenu?.canUseSelectionForFindNow
+                        !(activeDockForMenu?.menuCapabilities.canUseSelection
                             ?? activeTabManager.canUseSelectionForFind)
                     )
 

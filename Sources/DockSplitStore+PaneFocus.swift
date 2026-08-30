@@ -155,8 +155,7 @@ extension DockSplitStore {
     /// Bonsplit delivers its selection callback. Programmatic callbacks do not
     /// call this method, so they cannot steal focus from the main workspace.
     func noteUserDockPointerInteraction(window: NSWindow?) {
-        guard isVisibleInUI, scope == .global else { return }
-        noteKeyboardFocusIntent(window: window)
+        beginUserDockPointerInteraction(window: window)
     }
 
     func browserPanel(owning responder: NSResponder?, in window: NSWindow?) -> BrowserPanel? {
@@ -364,23 +363,6 @@ extension DockSplitStore {
         }.first
     }
 
-    func splitTabBar(_ controller: BonsplitController, didSelectTab tab: Bonsplit.Tab, inPane pane: PaneID) {
-        applyDockSelection(tabId: tab.id, inPane: pane)
-        reconcileDockFocusAfterUserSelection(in: NSApp.currentEvent?.window)
-    }
-
-    func splitTabBar(_ controller: BonsplitController, didFocusPane pane: PaneID) {
-        guard let tab = controller.selectedTab(inPane: pane) else {
-            // Pane focus can legitimately land on an empty pane while a split
-            // is being assembled. Keep menu validation in sync with that state.
-            refreshDockMenuCapabilities()
-            applyVisibilityToAllPanels()
-            return
-        }
-        applyDockSelection(tabId: tab.id, inPane: pane)
-        reconcileDockFocusAfterUserSelection(in: NSApp.currentEvent?.window)
-    }
-
     /// Mirrors `Workspace.splitTabBar(_:didSplitPane:…)` so the Dock's split
     /// buttons (Split Right / Split Down) and drag-to-split behave like the main
     /// split area. `splitPane` always creates an EMPTY new pane; without this the
@@ -416,35 +398,6 @@ extension DockSplitStore {
             sourcePanelId: sourcePanelId,
             focus: true
         )
-    }
-
-    /// Mirrors `Workspace.splitTabBar(_:didMoveTab:…)`: keep the moved panel
-    /// selected/focused in its destination pane and re-render it at the new
-    /// geometry when a tab is dragged between Dock panes.
-    func splitTabBar(
-        _ controller: BonsplitController,
-        didMoveTab tab: Bonsplit.Tab,
-        fromPane source: PaneID,
-        toPane destination: PaneID
-    ) {
-        // Bonsplit auto-closes an emptied source pane during a cross-pane move
-        // without emitting `didClosePane`, so this callback must reconcile the
-        // full ownership snapshot.
-        synchronizeOwnedPaneIds(with: controller)
-        applyDockSelection(tabId: tab.id, inPane: destination)
-        let movedPanel = panel(for: tab.id)
-        (movedPanel as? TerminalPanel)?.recordPortalHostOwnershipChange()
-        if let deferredPanel = movedPanel as? DeferredBrowserPanel {
-            _ = requestDeferredBrowserMaterialization(
-                panelId: deferredPanel.id,
-                isVisibleInUI: true,
-                reason: "dock.moveTab"
-            )
-        } else {
-            movedPanel?.focus()
-        }
-        reconcileDockFocusAfterUserSelection(in: NSApp.currentEvent?.window)
-        scheduleDockPortalReconcile(reason: "dock.moveTab")
     }
 
     /// Replaces an empty or placeholder-only pane with a real Dock terminal,

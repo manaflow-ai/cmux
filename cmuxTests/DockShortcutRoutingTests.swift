@@ -1615,6 +1615,124 @@ struct DockShortcutRoutingTests {
         }
     }
 
+    @Test("Delayed Dock tab selection uses the explicit pointer origin")
+    @MainActor
+    func delayedDockSelectionPublishesDockFocus() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let first = try harness.dock.seedShortcutTestPanel(
+                    inPane: harness.rootPane
+                )
+                let second = try harness.dock.seedShortcutTestPanel(
+                    inPane: harness.rootPane
+                )
+                let secondTab = try #require(
+                    harness.dock.surfaceId(forPanelId: second.id)
+                )
+                let mainPanelId = try #require(
+                    harness.mainWorkspace.focusedPanelId
+                )
+                harness.appDelegate.noteMainPanelKeyboardFocusIntent(
+                    workspaceId: harness.mainWorkspace.id,
+                    panelId: mainPanelId,
+                    in: harness.window
+                )
+
+                harness.dock.focusPanel(first.id)
+                harness.appDelegate.noteMainPanelKeyboardFocusIntent(
+                    workspaceId: harness.mainWorkspace.id,
+                    panelId: mainPanelId,
+                    in: harness.window
+                )
+                harness.dock.noteUserDockPointerInteraction(
+                    window: harness.window
+                )
+                harness.dock.releaseDockPointerInteraction(
+                    window: harness.window
+                )
+
+                let tab = try #require(
+                    harness.dock.bonsplitController.tab(secondTab)
+                )
+                harness.dock.splitTabBar(
+                    harness.dock.bonsplitController,
+                    didSelectTab: tab,
+                    inPane: harness.rootPane
+                )
+
+                #expect(
+                    harness.appDelegate.keyboardFocusCoordinator(
+                        for: harness.window
+                    )?.focusedRightSidebarMode == .dock
+                )
+                #expect(harness.dock.focusedPanelId == second.id)
+            }
+        }
+    }
+
+    @Test("Dock pointer origin survives mouse-up until a delayed selection callback")
+    @MainActor
+    func dockPointerOriginSurvivesMouseUpUntilSelectionCallback() throws {
+        let coordinator = DockPointerInteractionCoordinator()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.close() }
+
+        let pane = PaneID()
+        let originalTab = TabID()
+        let selectedTab = TabID()
+        coordinator.begin(
+            window: window,
+            initialPaneID: pane,
+            initialTabID: originalTab
+        )
+        coordinator.markReleased(in: window)
+
+        #expect(coordinator.phase == .released)
+        let owner = try #require(
+            coordinator.consumeSelection(
+                in: window,
+                paneID: pane,
+                tabID: selectedTab
+            )
+        )
+        #expect(owner === window)
+        #expect(coordinator.phase == .idle)
+        #expect(
+            coordinator.consumeSelection(
+                in: window,
+                paneID: pane,
+                tabID: selectedTab
+            ) == nil
+        )
+    }
+
+    @Test("Programmatic Dock selection has no pointer origin to consume")
+    @MainActor
+    func programmaticDockSelectionDoesNotClaimPointerOrigin() throws {
+        let coordinator = DockPointerInteractionCoordinator()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.close() }
+
+        #expect(
+            coordinator.consumeSelection(
+                in: window,
+                paneID: PaneID(),
+                tabID: TabID()
+            ) == nil
+        )
+        #expect(coordinator.phase == .idle)
+    }
+
     @Test("Repeated move-to-pane shortcut does not create a missing pane")
     @MainActor
     func repeatedMoveToPaneDoesNotCreateMissingPane() async throws {
