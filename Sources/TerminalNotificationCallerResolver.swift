@@ -155,45 +155,40 @@ extension TerminalController {
             preferredWorkspaceId: preferredWorkspaceId,
             preferredSurfaceId: preferredSurfaceId
         )
-        let ttyTarget = callerTTY.flatMap { targetForTTY($0, tabManagers: managers) }
-        if preferTTY, let ttyTarget { return ttyTarget }
-
-        if let preferredWorkspaceId,
-           let workspace = workspace(id: preferredWorkspaceId, tabManagers: managers) {
-            if let preferredSurfaceId,
-               let target = workspace.surfaceOwnershipTarget(for: preferredSurfaceId) {
-                return TerminalCallerTarget(workspace: workspace, surfaceId: target.surfaceID)
-            }
-            // Moved pane (issue #7939): the explicit surface identity outranks
-            // the stale spawn-time workspace claim — follow the surface to the
-            // workspace that owns it NOW instead of falling back to the old
-            // workspace's focused pane.
-            if let preferredSurfaceId,
-               let surfaceTarget = targetForSurface(preferredSurfaceId, tabManagers: managers) {
-                return surfaceTarget
-            }
-            if let ttyTarget, ttyTarget.workspace.id == workspace.id { return ttyTarget }
-            let focusedSurfaceID = workspace.focusedPanelId.flatMap {
-                workspace.surfaceOwnershipTarget(for: $0)?.surfaceID
-            }
-            return TerminalCallerTarget(workspace: workspace, surfaceId: focusedSurfaceID)
-        }
-
-        if let ttyTarget { return ttyTarget }
+        // A stable surface UUID is stronger evidence than a caller TTY. The
+        // workspace claim can be stale after a pane move, so resolve the
+        // surface globally before considering any weaker TTY evidence.
         if let preferredSurfaceId,
            let surfaceTarget = targetForSurface(preferredSurfaceId, tabManagers: managers) {
             return surfaceTarget
         }
-        if let preferredSurfaceId,
-           let selected = selectedWorkspace(in: managers),
-           let target = selected.surfaceOwnershipTarget(for: preferredSurfaceId) {
-            return TerminalCallerTarget(workspace: selected, surfaceId: target.surfaceID)
+
+        let ttyTarget = callerTTY.flatMap { liveTargetForTTY($0, tabManagers: managers) }
+        if preferTTY, let ttyTarget { return ttyTarget }
+
+        if let preferredWorkspaceId,
+           let workspace = workspace(id: preferredWorkspaceId, tabManagers: managers) {
+            if let ttyTarget, ttyTarget.workspace.id == workspace.id { return ttyTarget }
+            // The workspace itself is still a valid delivery scope, but no
+            // pane has been proven. Keep the notification workspace-level
+            // instead of borrowing mutable focus state.
+            return TerminalCallerTarget(workspace: workspace, surfaceId: nil)
+        }
+
+        if let ttyTarget { return ttyTarget }
+
+        // A supplied caller TTY or surface that did not resolve is an
+        // attribution failure. With no authoritative pane (and no valid
+        // workspace claim), selecting the focused workspace would still be a
+        // guess and can put the ring on an unrelated pane.
+        guard preferredWorkspaceId == nil, preferredSurfaceId == nil, callerTTY == nil else {
+            return nil
         }
         guard let selected = selectedWorkspace(in: managers) else { return nil }
-        let focusedSurfaceID = selected.focusedPanelId.flatMap {
-            selected.surfaceOwnershipTarget(for: $0)?.surfaceID
-        }
-        return TerminalCallerTarget(workspace: selected, surfaceId: focusedSurfaceID)
+        // A selector-free caller may still receive a workspace-level
+        // notification, but it must never inherit the workspace's focused
+        // surface as if that were pane evidence.
+        return TerminalCallerTarget(workspace: selected, surfaceId: nil)
     }
 
     private static func candidateManagers(
@@ -232,21 +227,6 @@ extension TerminalController {
         return nil
     }
 
-    private static func targetForTTY(
-        _ ttyName: String,
-        tabManagers: [TabManager]
-    ) -> TerminalCallerTarget? {
-        for manager in tabManagers {
-            for workspace in manager.tabs {
-                for (surfaceId, candidateTTY) in workspace.surfaceTTYNames
-                    where workspace.panels[surfaceId] != nil && normalizedTTYName(candidateTTY) == ttyName {
-                    return TerminalCallerTarget(workspace: workspace, surfaceId: surfaceId)
-                }
-            }
-        }
-        return nil
-    }
-
     /// Resolve local callers from Ghostty's current runtime PTYs first. Shell-
     /// reported TTYs are a unique-only fallback for nested multiplexers such as
     /// tmux, where the pane TTY necessarily differs from Ghostty's outer PTY.
@@ -275,7 +255,15 @@ extension TerminalController {
                     if let liveTTYName = terminalPanel.surface.controllingTTYName() {
                         liveCandidates.append((binding: binding, ttyName: liveTTYName))
                     }
-                    if let reportedTTYName = workspace.surfaceTTYNames[surfaceId] {
+                    // Restored TTY metadata is display context only. Include a
+                    // shell-reported name in the resolver only while this
+                    // terminal generation has an explicit runtime report;
+                    // otherwise stale duplicate names can shadow the live pane.
+                    if let reportedTTYName = workspace.surfaceTTYNames[surfaceId],
+                       workspace.hasCurrentRuntimeReportedTTY(
+                           panelId: surfaceId,
+                           terminal: terminalPanel
+                       ) {
                         reportedCandidates.append((binding: binding, ttyName: reportedTTYName))
                     }
                 }

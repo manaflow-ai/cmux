@@ -13601,9 +13601,9 @@ struct GhosttyTerminalView: NSViewRepresentable {
             )
         }
 
-        // SwiftUI can transiently dismantle/rebuild NSViewRepresentable instances during split
-        // tree updates. Do not drop the portal lease or force visible/active false here; that
-        // causes avoidable blackouts when the same hosted view is rebound moments later.
+        // Preserve the portal lease across transient rebuilds, but reset the
+        // surface-local ring; the next reconciliation reapplies current state.
+        hostedView?.setNotificationRing(visible: false)
         hostedView?.setFocusHandler(nil)
         hostedView?.setTriggerFlashHandler(nil)
         hostedView?.setDropZoneOverlay(zone: nil)

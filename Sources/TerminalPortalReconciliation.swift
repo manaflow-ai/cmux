@@ -120,6 +120,13 @@ extension GhosttyTerminalView {
                     reason: reason
                 )
 
+            // Notification-ring visibility is a projection of the latest
+            // surface store snapshot, not a portal-ownership side effect. A
+            // hosted view can remain mounted while its host loses ownership;
+            // applying the projection on every pass prevents stale rings from
+            // surviving a pane/workspace transfer.
+            hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
+
             if hostOwnsPortal {
                 configureHostedView(
                     hostedView,
@@ -222,7 +229,6 @@ extension GhosttyTerminalView {
             opacity: CGFloat(snapshot.inactiveOverlayOpacity),
             visible: snapshot.showsInactiveOverlay
         )
-        hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
         hostedView.setSearchOverlay(searchState: snapshot.searchState)
         hostedView.syncKeyStateIndicator(text: terminalSurface.currentKeyStateIndicatorText)
         hostedView.setDropZoneOverlay(zone: snapshot.dropZone)
