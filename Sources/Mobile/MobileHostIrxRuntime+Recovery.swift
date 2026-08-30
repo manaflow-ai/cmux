@@ -110,7 +110,9 @@ extension MobileHostIrxRuntime {
             Self.journal.record("host-runtime", "activation-retry-scheduled", attributes)
             await cleanupActivationResources(invalidateGeneration: true)
             let retryToken = generationToken
-            activationRetryFailureCount = min(activationRetryFailureCount + 1, 20)
+            if failure.statusCode != 401 {
+                activationRetryFailureCount = min(activationRetryFailureCount + 1, 20)
+            }
             let clock = activationRetryClock
             let deadline = clock.now().addingTimeInterval(delay)
             activationRetryTask?.cancel()
@@ -134,6 +136,7 @@ extension MobileHostIrxRuntime {
             attributes["state"] = IrxHostActivationState.failed.rawValue
             Self.journal.record("host-runtime", "activation-stopped", attributes)
             await cleanupActivationResources(invalidateGeneration: true)
+            scheduleFailedActivationRecovery(failure: failure, accountID: accountID)
         }
     }
 
@@ -202,6 +205,44 @@ extension MobileHostIrxRuntime {
             attributes["state"] = IrxHostActivationState.failed.rawValue
             Self.journal.record("host-runtime", "activation-stopped", attributes)
             await cleanupActivationResources(invalidateGeneration: true)
+            scheduleFailedActivationRecovery(failure: failure, accountID: accountID)
+        }
+    }
+
+    /// Keeps non-auth terminal failures recoverable without a tight retry loop.
+    /// A later network/auth signal or the Settings refresh can still reset the
+    /// ladder and start immediately.
+    private func scheduleFailedActivationRecovery(
+        failure: IrxBrokerFailure,
+        accountID: String
+    ) {
+        guard activeAccountID == accountID, activationRetryTask == nil else { return }
+        let delay = activationRetryPolicy.retrySchedule.delay(
+            failureCount: activationRetryFailureCount,
+            retryAfterSeconds: nil,
+            jitterUnitInterval: 0
+        )
+        activationRetryFailureCount = min(activationRetryFailureCount + 1, 20)
+        let token = generationToken
+        let clock = activationRetryClock
+        let deadline = clock.now().addingTimeInterval(delay)
+        var attributes = failure.journalAttributes
+        attributes["delay_s"] = String(Int(delay.rounded()))
+        attributes["state"] = IrxHostActivationState.failed.rawValue
+        Self.journal.record("host-runtime", "activation-retry-scheduled", attributes)
+        activationRetryTask = Task { @MainActor [weak self] in
+            do {
+                try await clock.sleep(until: deadline)
+            } catch {
+                return
+            }
+            guard let self,
+                  !Task.isCancelled,
+                  self.generationToken == token,
+                  self.activeAccountID == accountID else { return }
+            self.activationRetryTask = nil
+            self.setActivationState(.activating)
+            self.startActivation(accountID: accountID)
         }
     }
 

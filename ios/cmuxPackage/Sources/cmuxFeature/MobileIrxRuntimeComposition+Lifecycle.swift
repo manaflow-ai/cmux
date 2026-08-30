@@ -26,6 +26,18 @@ extension MobileIrxRuntimeComposition {
         Self.journal.record(
             "client-runtime", "autopilot-failed", failure.journalAttributes)
         guard case .terminal = disposition else { return }
+        if failure.requiresReauthentication || failure.statusCode == 401 {
+            guard let auth else {
+                await autopilot?.stop()
+                return
+            }
+            Self.journal.record(
+                "client-runtime", "reauthentication-requested")
+            await auth.signOut(onSignedOut: { [weak self] _, _ in
+                await self?.resetForSignOut()
+            })
+            return
+        }
         // Keep the current endpoint intact and pause renewal. The existing
         // foreground lifecycle calls ``kick()`` again, so this terminal path
         // cannot rebuild/register in a tight loop while the user is offline or
