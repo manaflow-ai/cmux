@@ -1240,9 +1240,7 @@ final class MobileHostService {
             irxBrokerFailure: irxStatus.failure,
             effectiveIrohActivationState: MobileHostIrxRuntime.isEnabled
                 ? irxStatus.state
-                : MobileHostIrohRuntime.shared.publishedIrohActivationState,
-            legacyIrohActivationState: MobileHostIrohRuntime.shared
-                .publishedIrohActivationState
+                : MobileHostIrohRuntime.shared.publishedIrohActivationState
         )
     }
 

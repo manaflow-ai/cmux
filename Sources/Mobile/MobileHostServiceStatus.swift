@@ -14,10 +14,8 @@ struct MobileHostServiceStatus {
     /// The irx lifecycle remains visible even when its route is torn down.
     let irxActivationState: IrxHostActivationState
     let irxBrokerFailure: IrxBrokerFailure?
-    /// Lifecycle projection owned by the legacy Iroh runtime when irx is off.
-    var legacyIrohActivationState: IrxHostActivationState = .inactive
     /// Lifecycle state selected from the owning runtime when this snapshot was captured.
-    var effectiveIrohActivationState: IrxHostActivationState = .inactive
+    let effectiveIrohActivationState: IrxHostActivationState
 
     var payload: [String: Any] {
         let now = Date()
