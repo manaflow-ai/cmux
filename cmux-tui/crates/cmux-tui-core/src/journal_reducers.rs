@@ -29,9 +29,9 @@ pub(crate) const AGENT_ROSTER_REDUCER_ID: &str = "agent_roster";
 /// Bump to discard persisted snapshots and re-fold from the journal head.
 /// Version 2 added the agent adapter id to roster entries. Version 3 retains
 /// ended hook fences after their live roster entries are removed. Version 4
-/// records whether a semantically valid roster event has been folded, so an
-/// unrelated hook row cannot make the compatibility projection authoritative.
-pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 4;
+/// added a global authority bit. Version 5 removes that global bit and scopes
+/// compatibility cleanup to each terminal's durable removal fence.
+pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 5;
 
 /// Retirement tombstones protect delayed journal rows after a terminal leaves
 /// the resource tree. Keep a bounded safety net. Durable startup reconciliation
@@ -171,11 +171,6 @@ pub(crate) enum RosterDelta {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub(crate) struct AgentRoster {
     pub(crate) entries: HashMap<String, RosterEntry>,
-    /// True only after a valid terminal-scoped roster event or an explicit
-    /// terminal retirement has been folded. This flag is persisted separately
-    /// from the cursor because unrelated producer rows can advance the latter.
-    #[serde(default)]
-    authoritative: bool,
     /// Hook generation watermarks remain after an ended session leaves the
     /// live roster. Socket echoes cannot recreate an ended entry, and delayed
     /// events from an old named session cannot cross into a newer lifecycle.
@@ -227,7 +222,6 @@ impl AgentRoster {
             if self.hook_fences.get(terminal_id).is_some_and(|fence| fence.ended) {
                 return Vec::new();
             }
-            self.authoritative = true;
             (state, source, session, None, updated_at_ms)
         } else {
             let Some(state) = state_for_hook_kind(event.kind) else { return Vec::new() };
@@ -265,7 +259,6 @@ impl AgentRoster {
                     return Vec::new();
                 }
             }
-            self.authoritative = true;
             self.hook_fences.insert(
                 terminal_id.to_string(),
                 RosterFence {
@@ -327,7 +320,6 @@ impl AgentRoster {
     /// tombstoned). Terminal lifecycle does not flow through `agent.*`
     /// events yet, so the host retires entries explicitly.
     pub(crate) fn retire_terminal(&mut self, terminal_id: &str, retired_at: u64) -> bool {
-        self.authoritative = true;
         let removed_entry = self.entries.remove(terminal_id).is_some();
         // A retired terminal is no longer allowed to receive socket echoes,
         // and its ended hook fence is redundant with the retirement cursor.
@@ -363,12 +355,16 @@ impl AgentRoster {
         changed
     }
 
-    pub(crate) fn is_authoritative(&self) -> bool {
-        self.authoritative
-    }
-
     pub(crate) fn is_retired(&self, terminal_id: &str) -> bool {
         self.retired_terminals.contains_key(terminal_id)
+    }
+
+    /// Return true when this terminal has a durable roster decision that
+    /// removes its compatibility record. The decision is terminal-local, so
+    /// an event for one terminal cannot discard a different terminal's record.
+    pub(crate) fn has_terminal_removal_fence(&self, terminal_id: &str) -> bool {
+        self.retired_terminals.contains_key(terminal_id)
+            || self.hook_fences.get(terminal_id).is_some_and(|fence| fence.ended)
     }
 
     /// Return every terminal represented by durable roster state. Startup

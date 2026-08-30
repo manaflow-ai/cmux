@@ -1094,11 +1094,6 @@ impl AgentSource {
 struct AgentRosterHost {
     roster: crate::journal_reducers::AgentRoster,
     cursor: u64,
-    /// A valid reducer snapshot or an observed agent journal event makes the
-    /// roster authoritative. Older sessions may only have the compatibility
-    /// projection, which must remain available until that durable source is
-    /// present.
-    authoritative: bool,
 }
 
 fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRosterHost> {
@@ -1115,8 +1110,7 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
             match AgentRoster::restore(&snapshot) {
                 Some(roster) => {
                     snapshot_valid = true;
-                    let authoritative = roster.is_authoritative();
-                    AgentRosterHost { roster, cursor, authoritative }
+                    AgentRosterHost { roster, cursor }
                 }
                 None => {
                     eprintln!("cmux-tui: invalid agent roster snapshot; replaying journal");
@@ -1137,8 +1131,7 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
             host.cursor = host.cursor.max(record.sequence);
         }
     }
-    host.authoritative |= host.roster.is_authoritative();
-    if host.authoritative && (host.cursor != initial_cursor || !snapshot_valid) {
+    if host.cursor != initial_cursor || !snapshot_valid {
         registry.put_journal_reducer_state(
             AGENT_ROSTER_REDUCER_ID,
             AGENT_ROSTER_REDUCER_VERSION,
@@ -2442,18 +2435,14 @@ impl Mux {
         // legacy record cache in sync for compatibility with direct hook
         // projection paths and older callers that inspect it during startup.
         let mut agent_records = agent_records;
-        if agent_roster.authoritative {
-            let roster_terminal_ids = agent_roster
-                .roster
-                .entries
-                .keys()
-                .filter_map(|terminal_id| TerminalPublicId::parse(terminal_id).ok())
-                .collect::<HashSet<_>>();
-            // A reducer Remove means that the agent ended. Do not resurrect
-            // its old compatibility projection after a crash between the
-            // journal commit and projection update.
-            agent_records.retain(|terminal_id, _| roster_terminal_ids.contains(terminal_id));
-        }
+        // A reducer Remove means that this terminal ended. Do not resurrect
+        // its old compatibility projection after a crash between the journal
+        // commit and projection update. Keep records for other terminals that
+        // have no roster event yet, because direct hook reports still use the
+        // compatibility path.
+        agent_records.retain(|terminal_id, _| {
+            !agent_roster.roster.has_terminal_removal_fence(terminal_id.as_str())
+        });
         for (terminal_id, entry) in &agent_roster.roster.entries {
             let Ok(terminal_id) = TerminalPublicId::parse(terminal_id) else { continue };
             let record = TerminalAgentRecord {
@@ -2463,7 +2452,20 @@ impl Mux {
                 agent: entry.agent.clone(),
                 updated_at_ms: entry.updated_at_ms,
             };
-            agent_records.insert(terminal_id, record);
+            // A repeated socket poll refreshes the compatibility projection
+            // without appending a journal echo. On restart, retain that newer
+            // timestamp when the roster snapshot still has the older echo.
+            let keep_newer_socket_record =
+                agent_records.get(&terminal_id).is_some_and(|existing| {
+                    existing.source == AgentSource::Socket
+                        && record.source == AgentSource::Socket
+                        && existing.state == record.state
+                        && existing.session == record.session
+                        && existing.updated_at_ms > record.updated_at_ms
+                });
+            if !keep_newer_socket_record {
+                agent_records.insert(terminal_id, record);
+            }
         }
         let journal_producers = registry.journal_producer_manifests()?;
         let session_public_id = registry.session_id().clone();
@@ -5722,7 +5724,6 @@ impl Mux {
                 return;
             }
             let snapshot = candidate.snapshot().to_string();
-            let candidate_authoritative = candidate.is_authoritative();
             if let Err(error) = self.workspace_registry.lock().unwrap().put_journal_reducer_state(
                 AGENT_ROSTER_REDUCER_ID,
                 AGENT_ROSTER_REDUCER_VERSION,
@@ -5741,7 +5742,6 @@ impl Mux {
                 }
                 host.roster = candidate;
                 host.cursor = next_cursor;
-                host.authoritative |= candidate_authoritative;
             }
             for delta in deltas {
                 self.apply_roster_delta_to_record_cache(delta);
@@ -5778,16 +5778,15 @@ impl Mux {
     }
 
     /// Return a stable echo receipt for a semantic socket-state transition.
-    /// Repeated polls of the same state do not append another journal row;
-    /// the prior reducer state and cursor distinguish a later transition back
-    /// to that state from a duplicate poll.
+    /// Repeated polls of the same state do not append another journal row.
+    /// Their fresh timestamp remains in the direct compatibility projection;
+    /// only semantic changes need a reducer event.
     fn agent_report_echo_key(
         &self,
         terminal_id: &TerminalPublicId,
         state: AgentState,
         source: AgentSource,
         session: Option<&str>,
-        updated_at_ms: u64,
     ) -> Option<String> {
         let (cursor, previous) = {
             let host = self.agent_roster.lock().unwrap();
@@ -5797,29 +5796,27 @@ impl Mux {
                     entry.source.clone(),
                     entry.session.clone(),
                     entry.agent.clone(),
-                    entry.updated_at_ms,
                 )
             });
             (host.cursor, previous)
         };
         let unchanged = previous.as_ref().is_some_and(
-            |(previous_state, previous_source, previous_session, _, previous_updated_at_ms)| {
+            |(previous_state, previous_source, previous_session, _)| {
                 previous_state == state.as_str()
                     && previous_source == source.as_str()
                     && previous_session.as_deref() == session
-                    && *previous_updated_at_ms == updated_at_ms
             },
         );
         if unchanged {
             return None;
         }
         let previous = previous
-            .map(|(state, source, session, agent, updated_at_ms)| {
-                format!("{state}|{source}|{:?}|{:?}|{updated_at_ms}", session, agent)
+            .map(|(state, source, session, agent)| {
+                format!("{state}|{source}|{:?}|{:?}", session, agent)
             })
             .unwrap_or_default();
         let material = format!(
-            "agent-report-echo-v1|{terminal_id}|{}|{}|{:?}|{cursor}|{previous}",
+            "agent-report-echo-v2|{terminal_id}|{}|{}|{:?}|{cursor}|{previous}",
             state.as_str(),
             source.as_str(),
             session,
@@ -9731,7 +9728,6 @@ impl Mux {
                     agent.state,
                     agent.source,
                     agent.session.as_deref(),
-                    agent.updated_at_ms,
                 )
             {
                 self.append_agent_report_echo(
@@ -23111,17 +23107,17 @@ mod tests {
 
     #[test]
     fn roster_removal_authority_is_scoped_to_the_removed_terminal() {
-        let root = std::env::temp_dir()
-            .join(format!("cmux-roster-authority-scope-{}", crate::workspace_registry::new_uuid_v4()));
+        let root = std::env::temp_dir().join(format!(
+            "cmux-roster-authority-scope-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
         let session = "roster-authority-scope";
         let mux = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
         let ended_surface = mux.new_workspace(None, None).unwrap();
         let compatibility_surface = mux.new_workspace(None, None).unwrap();
         let ended_terminal = ended_surface.terminal_public_id().cloned().expect("ended terminal");
-        let compatibility_terminal = compatibility_surface
-            .terminal_public_id()
-            .cloned()
-            .expect("compatibility terminal");
+        let compatibility_terminal =
+            compatibility_surface.terminal_public_id().cloned().expect("compatibility terminal");
 
         let start = crate::agent_hooks::agent_hook_journal_ingress(
             "claude",
