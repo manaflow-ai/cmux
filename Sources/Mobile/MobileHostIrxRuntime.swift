@@ -62,7 +62,10 @@ final class MobileHostIrxRuntime {
     var activationRetryTask: Task<Void, Never>?
     var activationRetryFailureCount = 0
     var activationUnauthorizedFailureCount = 0
-    let activationRetryPolicy = IrxHostActivationPolicy()
+    var terminalRecoveryCount = 0
+    let activationRetryPolicy = IrxHostActivationPolicy(
+        retrySchedule: CmxIrohRetrySchedule()
+    )
     var activationRetryClock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
     /// Changes on every (de)activation; per-connection supervisors compare it.
     var generationToken = UUID()
@@ -104,6 +107,7 @@ final class MobileHostIrxRuntime {
         guard let accountID else { return }
         activationRetryFailureCount = 0
         activationUnauthorizedFailureCount = 0
+        terminalRecoveryCount = 0
         lastBrokerFailure = nil
         setActivationState(.activating)
         Self.journal.record("host-runtime", "activating")
@@ -293,6 +297,7 @@ final class MobileHostIrxRuntime {
             )
             activationRetryFailureCount = 0
             activationUnauthorizedFailureCount = 0
+            terminalRecoveryCount = 0
             // The endpoint is usable even when the optional relay hint write
             // is temporarily unavailable; the autopilot retries the hint
             // independently without churning credentials.

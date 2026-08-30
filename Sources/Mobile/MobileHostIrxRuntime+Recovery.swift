@@ -18,6 +18,7 @@ extension MobileHostIrxRuntime {
         guard generationToken == token, activeAccountID == accountID else { return }
         activationRetryFailureCount = 0
         activationUnauthorizedFailureCount = 0
+        terminalRecoveryCount = 0
         setActivationState(.active)
     }
 
@@ -216,13 +217,23 @@ extension MobileHostIrxRuntime {
         failure: IrxBrokerFailure,
         accountID: String
     ) {
-        guard activeAccountID == accountID, activationRetryTask == nil else { return }
+        guard activeAccountID == accountID,
+              activationRetryTask == nil,
+              terminalRecoveryCount < 3 else {
+            if terminalRecoveryCount >= 3 {
+                Self.journal.record(
+                    "host-runtime", "activation-recovery-exhausted",
+                    failure.journalAttributes
+                )
+            }
+            return
+        }
         let delay = activationRetryPolicy.retrySchedule.delay(
-            failureCount: activationRetryFailureCount,
+            failureCount: terminalRecoveryCount,
             retryAfterSeconds: nil,
             jitterUnitInterval: 0
         )
-        activationRetryFailureCount = min(activationRetryFailureCount + 1, 20)
+        terminalRecoveryCount += 1
         let token = generationToken
         let clock = activationRetryClock
         let deadline = clock.now().addingTimeInterval(delay)
@@ -276,6 +287,7 @@ extension MobileHostIrxRuntime {
         activationRetryTask = nil
         activationRetryFailureCount = 0
         activationUnauthorizedFailureCount = 0
+        terminalRecoveryCount = 0
         activationTask?.cancel()
         activationTask = nil
         await cleanupActivationResources()

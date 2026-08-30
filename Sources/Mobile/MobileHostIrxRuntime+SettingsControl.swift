@@ -140,6 +140,7 @@ extension MobileHostIrxRuntime: CmxIrohSettingsControlling {
            let accountID = activeAccountID {
             activationRetryFailureCount = 0
             activationUnauthorizedFailureCount = 0
+            terminalRecoveryCount = 0
             setActivationState(.activating)
             Self.journal.record("host-runtime", "activation-retry-requested")
             startActivation(accountID: accountID)

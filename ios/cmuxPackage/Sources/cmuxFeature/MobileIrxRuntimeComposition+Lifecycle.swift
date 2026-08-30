@@ -9,7 +9,13 @@ extension MobileIrxRuntimeComposition {
         endpoint: IrxEndpointSupervisor
     ) async -> IrxRelayCredentialAutopilot {
         let pilot = IrxRelayCredentialAutopilot(
-            broker: broker, endpoint: endpoint, journal: Self.journal)
+            broker: broker,
+            endpoint: endpoint,
+            journal: Self.journal,
+            retryPolicy: IrxHostActivationPolicy(
+                retrySchedule: .foregroundClient
+            )
+        )
         await pilot.setOnFailure { [weak self] failure, disposition in
             await self?.handleAutopilotFailure(failure, disposition: disposition)
         }
@@ -26,7 +32,7 @@ extension MobileIrxRuntimeComposition {
         Self.journal.record(
             "client-runtime", "autopilot-failed", failure.journalAttributes)
         guard case .terminal = disposition else { return }
-        if failure.requiresReauthentication || failure.statusCode == 401 {
+        if failure.requiresReauthentication {
             guard let auth else {
                 await autopilot?.stop()
                 return
