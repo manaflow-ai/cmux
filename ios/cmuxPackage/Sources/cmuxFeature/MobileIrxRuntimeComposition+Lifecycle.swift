@@ -16,9 +16,8 @@ extension MobileIrxRuntimeComposition {
     }
 
     /// Handles a terminal credential-refresh failure without leaving a
-    /// silently dead autopilot. Non-auth failures rebuild through the existing
-    /// bounded provisioning loop; an auth rejection pauses until the next
-    /// explicit foreground/auth recovery.
+    /// silently dead autopilot. Renewal pauses until the next explicit
+    /// foreground/auth recovery.
     func handleAutopilotFailure(
         _ failure: IrxBrokerFailure,
         disposition: IrxRelayCredentialAutopilot.FailureDisposition
@@ -26,13 +25,13 @@ extension MobileIrxRuntimeComposition {
         Self.journal.record(
             "client-runtime", "autopilot-failed", failure.journalAttributes)
         guard case .terminal = disposition else { return }
-        if failure.requiresReauthentication {
-            await autopilot?.stop()
-            return
-        }
-        guard let auth else { return }
-        await resetForSignOut()
-        await configure(auth: auth, legacy: legacyComposition)
+        // Keep the current endpoint intact and pause renewal. The existing
+        // foreground lifecycle calls ``kick()`` again, so this terminal path
+        // cannot rebuild/register in a tight loop while the user is offline or
+        // resolving an account/policy issue.
+        await autopilot?.stop()
+        Self.journal.record(
+            "client-runtime", "autopilot-paused-until-foreground")
     }
 
     /// Fences provisioning to one authenticated account at a time.

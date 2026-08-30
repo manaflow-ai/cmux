@@ -67,10 +67,10 @@ public actor MobileIrxRuntimeComposition {
     public nonisolated let tag: String
     private let stateDirectory: URL
 
-    weak var auth: AuthCoordinator?
+    private weak var auth: AuthCoordinator?
     /// Identity donor (identity adoption): the legacy composition owns the
     /// Keychain identity, app-instance scope, and durable device ID.
-    weak var legacyComposition: MobileIrohRuntimeComposition?
+    private weak var legacyComposition: MobileIrohRuntimeComposition?
     // Internal for the lifecycle extension, which is the sole additional
     // owner of sign-out teardown for this actor.
     var broker: IrxBrokerService?

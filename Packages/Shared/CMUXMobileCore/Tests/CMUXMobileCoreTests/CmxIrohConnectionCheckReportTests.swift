@@ -65,7 +65,7 @@ struct CmxIrohConnectionCheckReportTests {
             preference: .automatic,
             managedRelays: [],
             customRelays: [],
-            policySource: .server,
+            policySource: .unavailable,
             failureDescription: "no_credentials_issued",
             supportsRelayConfiguration: false
         )
