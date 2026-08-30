@@ -140,7 +140,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     @ObservationIgnored private var pendingUserInteraction = false
     @ObservationIgnored private var pendingUserInteractionReleased = false
     @ObservationIgnored private var pendingUserInteractionDragging = false
-    @ObservationIgnored private var pendingUserInteractionDragCapable = false
+    @ObservationIgnored private var pendingUserInteractionSourceID: UUID?
     @ObservationIgnored var forceCloseDockTabIds: Set<TabID> = []
     @ObservationIgnored var pendingCloseConfirmDockTabIds: Set<TabID> = []
     @ObservationIgnored var tabCloseButtonCloseDockTabIds: Set<TabID> = []
@@ -882,37 +882,49 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     /// Marks the next Bonsplit selection callback as originating from a visible
     /// Dock pointer interaction. The pointer host scopes this token to the Dock
     /// view and clears it on mouse-up, including drag-out cancellation.
-    func beginUserDockInteraction(dragCapable: Bool = false) {
+    func beginUserDockInteraction(sourceID: UUID? = nil) {
         guard isVisibleInUI, scope == .global else { return }
+        guard !pendingUserInteraction else { return }
         pendingUserInteraction = true
         pendingUserInteractionReleased = false
         pendingUserInteractionDragging = false
-        pendingUserInteractionDragCapable = dragCapable
+        pendingUserInteractionSourceID = sourceID
     }
 
     /// Marks a tab drag as an explicit Dock interaction. The drag callback is
     /// delivered before the eventual mouse-up, so it has its own phase instead
     /// of being mistaken for a click.
-    func beginUserDockDragInteraction() {
+    func beginUserDockDragInteraction(sourceID: UUID? = nil) {
         guard isVisibleInUI, scope == .global else { return }
+        guard !pendingUserInteraction else { return }
         pendingUserInteraction = true
         pendingUserInteractionReleased = false
         pendingUserInteractionDragging = true
-        pendingUserInteractionDragCapable = true
+        pendingUserInteractionSourceID = sourceID
     }
 
-    func endUserDockInteraction() {
+    func endUserDockInteraction(sourceID: UUID? = nil) {
+        if let sourceID,
+           pendingUserInteractionSourceID != nil,
+           pendingUserInteractionSourceID != sourceID {
+            return
+        }
         pendingUserInteraction = false
         pendingUserInteractionReleased = false
         pendingUserInteractionDragging = false
-        pendingUserInteractionDragCapable = false
+        pendingUserInteractionSourceID = nil
     }
 
     /// Advances a pointer click to the post-mouse-up phase. SwiftUI's tap
     /// gesture invokes Bonsplit selection after the local monitor returns, so
     /// the token remains consumable for that one callback only.
-    func releaseUserDockInteraction() {
+    func releaseUserDockInteraction(sourceID: UUID? = nil) {
         guard pendingUserInteraction, !pendingUserInteractionDragging else {
+            return
+        }
+        if let sourceID,
+           pendingUserInteractionSourceID != nil,
+           pendingUserInteractionSourceID != sourceID {
             return
         }
         pendingUserInteractionReleased = true
@@ -926,26 +938,35 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         pendingUserInteraction = false
         pendingUserInteractionReleased = false
         pendingUserInteractionDragging = false
-        pendingUserInteractionDragCapable = false
+        pendingUserInteractionSourceID = nil
         return true
     }
 
     @discardableResult
     func consumeUserDockDragInteraction() -> Bool {
-        // A drag callback is user-owned after the pointer host observes the
-        // threshold, or while a left-button press is still drag-capable. The
-        // latter covers native Bonsplit sessions that consume the threshold
-        // event before this host monitor sees it; right-click menu presses are
-        // never drag-capable.
-        guard pendingUserInteraction,
-              pendingUserInteractionDragCapable else {
+        // A drag callback is user-owned only after the pointer host observes
+        // the threshold. A bare pressed token is reserved for the post-
+        // mouse-up tap callback; accepting it here would let a stale click or
+        // context-menu tracking loop claim focus during a later programmatic
+        // move.
+        guard pendingUserInteraction, pendingUserInteractionDragging else {
             return false
         }
         pendingUserInteraction = false
         pendingUserInteractionReleased = false
         pendingUserInteractionDragging = false
-        pendingUserInteractionDragCapable = false
+        pendingUserInteractionSourceID = nil
         return true
+    }
+
+    /// Clears a settled pointer token when no Bonsplit callback consumed it.
+    /// Called on the next pointer event, so click delivery does not depend on a
+    /// wall-clock timeout or a particular SwiftUI scheduling turn.
+    func clearSettledUserDockInteraction(sourceID: UUID? = nil) {
+        guard pendingUserInteractionReleased || pendingUserInteractionDragging else {
+            return
+        }
+        endUserDockInteraction(sourceID: sourceID)
     }
 
 #if DEBUG
