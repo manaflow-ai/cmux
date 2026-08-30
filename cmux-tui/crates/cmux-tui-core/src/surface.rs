@@ -5405,6 +5405,14 @@ impl Surface {
         }
     }
 
+    /// Test-only probe for the authoritative detach request. A local test
+    /// killer does not have a child process to reap, so `is_dead()` cannot
+    /// observe the request immediately.
+    #[cfg(test)]
+    pub(crate) fn kill_requested_for_test(&self) -> bool {
+        self.as_pty().is_some_and(|pty| pty.owner_detaching.load(Ordering::Acquire))
+    }
+
     /// Clear the coalesced output flag; returns whether output was pending.
     pub fn take_dirty(&self) -> bool {
         match self {

@@ -1137,16 +1137,8 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
             host.cursor = host.cursor.max(record.sequence);
         }
     }
-    let before_topology_prune = host.roster.snapshot();
-    let live_terminal_ids = registry
-        .live_terminal_resource_ids()?
-        .into_iter()
-        .map(|(_, terminal_id)| terminal_id.to_string())
-        .collect::<HashSet<_>>();
-    host.roster.retain_live_terminals(&live_terminal_ids);
-    let topology_pruned = host.roster.snapshot() != before_topology_prune;
     host.authoritative |= host.roster.is_authoritative();
-    if host.authoritative && (host.cursor != initial_cursor || !snapshot_valid || topology_pruned) {
+    if host.authoritative && (host.cursor != initial_cursor || !snapshot_valid) {
         registry.put_journal_reducer_state(
             AGENT_ROSTER_REDUCER_ID,
             AGENT_ROSTER_REDUCER_VERSION,
@@ -2676,8 +2668,7 @@ impl Mux {
         candidates.extend(self.agent_records.lock().unwrap().keys().cloned());
         candidates.extend(self.agent_hook_fences.lock().unwrap().keys().cloned());
         candidates.extend(self.terminal_notifications.lock().unwrap().keys().cloned());
-        let roster_terminal_ids =
-            self.agent_roster.lock().unwrap().roster.entries.keys().cloned().collect::<Vec<_>>();
+        let roster_terminal_ids = self.agent_roster.lock().unwrap().roster.fenced_terminal_ids();
         for terminal_id in roster_terminal_ids {
             if let Ok(terminal_id) = TerminalPublicId::parse(terminal_id) {
                 candidates.insert(terminal_id);
@@ -2690,9 +2681,12 @@ impl Mux {
                 let Some(host_id) = registry.terminal_host_id(&terminal_id)? else {
                     return Ok(true);
                 };
+                // A resource row can outlive its host record while a
+                // reconnect is still materializing. Treat that gap as
+                // unknown, not as proof that the terminal was retired.
                 Ok(registry
                     .terminal_record(&host_id)?
-                    .is_none_or(|terminal| terminal.lifecycle == TerminalLifecycle::Tombstoned))
+                    .is_some_and(|terminal| terminal.lifecycle == TerminalLifecycle::Tombstoned))
             })();
             match retired {
                 Ok(true) => {
@@ -5727,26 +5721,6 @@ impl Mux {
                 // yet. Keep the cursor unchanged so another callback retries.
                 return;
             }
-            let live_terminal_ids =
-                match self.workspace_registry.lock().unwrap().live_terminal_resource_ids() {
-                    Ok(terminals) => terminals
-                        .into_iter()
-                        .map(|(_, terminal_id)| terminal_id.to_string())
-                        .collect::<HashSet<_>>(),
-                    Err(error) => {
-                        eprintln!(
-                            "cmux-tui: reading live terminals before roster prune failed: {error}"
-                        );
-                        return;
-                    }
-                };
-            candidate.retain_live_terminals(&live_terminal_ids);
-            deltas.retain(|delta| match delta {
-                crate::journal_reducers::RosterDelta::Upsert { terminal_id, .. }
-                | crate::journal_reducers::RosterDelta::Remove { terminal_id } => {
-                    live_terminal_ids.contains(terminal_id)
-                }
-            });
             let snapshot = candidate.snapshot().to_string();
             let candidate_authoritative = candidate.is_authoritative();
             if let Err(error) = self.workspace_registry.lock().unwrap().put_journal_reducer_state(
@@ -5813,6 +5787,7 @@ impl Mux {
         state: AgentState,
         source: AgentSource,
         session: Option<&str>,
+        updated_at_ms: u64,
     ) -> Option<String> {
         let (cursor, previous) = {
             let host = self.agent_roster.lock().unwrap();
@@ -5828,10 +5803,11 @@ impl Mux {
             (host.cursor, previous)
         };
         let unchanged = previous.as_ref().is_some_and(
-            |(previous_state, previous_source, previous_session, _, _)| {
+            |(previous_state, previous_source, previous_session, _, previous_updated_at_ms)| {
                 previous_state == state.as_str()
                     && previous_source == source.as_str()
                     && previous_session.as_deref() == session
+                    && *previous_updated_at_ms == updated_at_ms
             },
         );
         if unchanged {
@@ -9762,6 +9738,7 @@ impl Mux {
                     agent.state,
                     agent.source,
                     agent.session.as_deref(),
+                    agent.updated_at_ms,
                 )
             {
                 self.append_agent_report_echo(
@@ -22962,7 +22939,9 @@ mod tests {
             )
             .unwrap();
         let restored = restore_agent_roster(&registry).unwrap();
-        assert_eq!(restored.cursor, sequence);
+        let journal_head = registry.session_journal_after(0, 1).unwrap().head_sequence;
+        assert_eq!(restored.cursor, journal_head);
+        assert!(journal_head >= sequence);
         assert_eq!(restored.roster.entries[terminal_id.as_str()].agent.as_deref(), Some("claude"));
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -23051,9 +23030,9 @@ mod tests {
         let repeated = mux
             .report_agent(surface.id, AgentState::Working, AgentSource::Socket, Some("poll".into()))
             .unwrap();
-        assert_eq!(socket_echoes(), 1);
-        assert_eq!(repeated.updated_at_ms, first.updated_at_ms);
-        let durable_timestamp = first.updated_at_ms;
+        assert_eq!(socket_echoes(), 2, "a changed freshness timestamp is durable state");
+        assert!(repeated.updated_at_ms >= first.updated_at_ms);
+        let durable_timestamp = repeated.updated_at_ms;
 
         mux.shutdown();
         drop(mux);
@@ -23082,7 +23061,7 @@ mod tests {
                 })
                 .count()
         };
-        assert_eq!(socket_echoes(), 1);
+        assert_eq!(socket_echoes(), 2);
         reopened
             .report_agent(
                 reopened_surface,
@@ -23091,7 +23070,7 @@ mod tests {
                 Some("poll".into()),
             )
             .unwrap();
-        assert_eq!(socket_echoes(), 2);
+        assert_eq!(socket_echoes(), 3);
         reopened.shutdown();
         drop(reopened);
         std::fs::remove_dir_all(root).unwrap();
@@ -24221,7 +24200,10 @@ mod tests {
             "test-cleanup-failure",
         );
         assert!(cleanup.is_err(), "the purge error must remain observable");
-        assert!(surface.is_dead(), "cleanup must kill the runtime after purge failure");
+        assert!(
+            surface.kill_requested_for_test(),
+            "cleanup must request runtime termination after purge failure"
+        );
 
         mux.workspace_registry.lock().unwrap().set_journal_reducer_state_failure(false).unwrap();
         mux.shutdown();

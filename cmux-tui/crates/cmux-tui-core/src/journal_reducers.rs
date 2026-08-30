@@ -16,7 +16,7 @@
 //! echo event after its direct projection commit), so the roster never has
 //! a second writer to diverge from.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -33,9 +33,9 @@ pub(crate) const AGENT_ROSTER_REDUCER_ID: &str = "agent_roster";
 /// unrelated hook row cannot make the compatibility projection authoritative.
 pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 4;
 
-/// Retirement tombstones are only needed while a terminal is still visible
-/// to the durable topology. Keep a bounded safety net for a close/reconcile
-/// race, then let topology reconciliation drop tombstones for gone terminals.
+/// Retirement tombstones protect delayed journal rows after a terminal leaves
+/// the resource tree. Keep a bounded safety net. Durable startup reconciliation
+/// removes entries for terminals that are confirmed gone.
 pub(crate) const MAX_RETIRED_TERMINAL_FENCES: usize = 1_024;
 
 /// The adapter id and native event the socket report path uses for its echo
@@ -363,21 +363,28 @@ impl AgentRoster {
         changed
     }
 
-    /// Remove fences for terminals no longer present in the durable resource
-    /// topology. This keeps snapshots proportional to live terminals and is
-    /// safe because direct reports cannot resolve a tombstoned terminal.
-    pub(crate) fn retain_live_terminals(&mut self, live_terminal_ids: &HashSet<String>) {
-        self.entries.retain(|terminal_id, _| live_terminal_ids.contains(terminal_id));
-        self.hook_fences.retain(|terminal_id, _| live_terminal_ids.contains(terminal_id));
-        self.retired_terminals.retain(|terminal_id, _| live_terminal_ids.contains(terminal_id));
-    }
-
     pub(crate) fn is_authoritative(&self) -> bool {
         self.authoritative
     }
 
     pub(crate) fn is_retired(&self, terminal_id: &str) -> bool {
         self.retired_terminals.contains_key(terminal_id)
+    }
+
+    /// Return every terminal represented by durable roster state. Startup
+    /// reconciliation uses this list to remove fences whose terminal resource
+    /// is confirmed gone, while preserving rows whose host mapping is still
+    /// being rebuilt.
+    pub(crate) fn fenced_terminal_ids(&self) -> Vec<String> {
+        let mut ids = Vec::with_capacity(
+            self.entries.len() + self.hook_fences.len() + self.retired_terminals.len(),
+        );
+        ids.extend(self.entries.keys().cloned());
+        ids.extend(self.hook_fences.keys().cloned());
+        ids.extend(self.retired_terminals.keys().cloned());
+        ids.sort_unstable();
+        ids.dedup();
+        ids
     }
 
     pub(crate) fn has_ended_hook_fence(&self, terminal_id: &str) -> bool {
