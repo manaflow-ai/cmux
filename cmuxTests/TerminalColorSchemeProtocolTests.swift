@@ -13,8 +13,12 @@ import Testing
 @Suite("Terminal color-scheme protocol", .serialized)
 struct TerminalColorSchemeProtocolTests {
     private final class ManualWriteCapture: @unchecked Sendable {
+        // Ghostty invokes the manual-I/O callback off the main actor; this lock
+        // guards every access to the shared values before bypassing Sendable checks.
         private let lock = NSLock()
         private var values: [Data] = []
+
+        deinit {}
 
         func append(_ input: TerminalManualInput) {
             guard case let .bytes(data) = input else { return }
