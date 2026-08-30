@@ -24,6 +24,7 @@ struct DockSplitContentView: View {
             )
             .onTapGesture { store.bonsplitController.focusPane(paneId) }
         }
+        .accessibilityIdentifier("DockSplitContent")
         .background {
             DockPointerInteractionHost(store: store)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -136,18 +137,34 @@ private final class DockPointerInteractionHostView: NSView {
         let point = convert(event.locationInWindow, from: nil)
         guard bounds.contains(point) else { return }
         guard let hitView = window.contentView?.hitTest(event.locationInWindow),
-              isDockDescendant(hitView) else {
+              isDockHitView(hitView, in: window) else {
             return
         }
         store?.noteUserDockPointerInteraction(window: window)
     }
 
-    private func isDockDescendant(_ view: NSView) -> Bool {
-        guard let dockContainer = superview else { return false }
+    private func isDockHitView(_ view: NSView, in window: NSWindow) -> Bool {
         var candidate: NSView? = view
         while let current = candidate {
-            if current === dockContainer { return true }
+            if current.accessibilityIdentifier == "DockSplitContent"
+                || current.accessibilityIdentifier == "DockPanel" {
+                return true
+            }
             candidate = current.superview
+        }
+
+        // Terminal and browser portals are reparented into a window-level host
+        // during split churn, so their hit view may sit outside the SwiftUI
+        // accessibility container. Resolve those through the Dock's ownership
+        // registry instead of treating the whole window as Dock content.
+        if let store,
+           let terminalView = view.cmuxStrictOwningGhosttyView(),
+           let surfaceId = terminalView.terminalSurface?.id,
+           store.containsPanel(surfaceId) {
+            return true
+        }
+        if store?.browserPanel(owning: view, in: window) != nil {
+            return true
         }
         return false
     }

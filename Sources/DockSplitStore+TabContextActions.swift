@@ -116,7 +116,10 @@ extension DockSplitStore {
         case .duplicate:
             _ = duplicateBrowserToRight(panelId: panelId)
         case .togglePin:
-            setDockTabPinned(tabId: tab.id, pinned: !tab.isPinned)
+            _ = setDockPanelPinned(
+                panelId: panelId,
+                pinned: !tab.isPinned
+            )
         case .markAsRead:
             setDockTabUnread(panelId: panelId, tabId: tab.id, unread: false)
         case .markAsUnread:
@@ -343,8 +346,8 @@ extension DockSplitStore {
     private func setDockTabPinned(
         tabId: TabID,
         pinned: Bool
-    ) {
-        guard let paneId = paneId(forTabId: tabId) else { return }
+    ) -> Bool {
+        guard let paneId = paneId(forTabId: tabId) else { return false }
         bonsplitController.updateTab(tabId, isPinned: pinned)
         let tabs = bonsplitController.tabs(
             inPane: paneId
@@ -354,6 +357,7 @@ extension DockSplitStore {
             _ = bonsplitController.reorderTab(tab.id, toIndex: index)
         }
         refreshDockMenuCapabilities()
+        return true
     }
 
     @discardableResult
@@ -364,8 +368,7 @@ extension DockSplitStore {
         guard let tabId = surfaceId(forPanelId: panelId) else {
             return false
         }
-        setDockTabPinned(tabId: tabId, pinned: pinned)
-        return true
+        return setDockTabPinned(tabId: tabId, pinned: pinned)
     }
 
     private func paneId(forTabId tabId: TabID) -> PaneID? {
