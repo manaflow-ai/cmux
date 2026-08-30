@@ -7669,15 +7669,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func shouldRouteRightSidebarModeShortcut(in window: NSWindow?) -> Bool {
-        guard let window else { return false }
-        let sidebarIntentActive = keyboardFocusCoordinator(for: window)?.activeRightSidebarMode != nil
-        guard let responder = window.firstResponder else { return sidebarIntentActive }
-        if isRightSidebarFocusResponder(responder, in: window) { return true }
-        if sidebarIntentActive, responder is NSWindow { return true }
-        if terminalKeyboardFocusRequest(for: responder) != nil { return false }
-        guard let ghosttyView = responder.cmuxStrictOwningGhosttyView(),
-              let panelId = ghosttyView.terminalSurface?.id else { return false }
-        return GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(id: panelId)
+        keyboardFocusCoordinator(for: window)?
+            .resolvedRightSidebarModeForShortcut(in: window) != nil
     }
 
     func allowsTerminalKeyboardFocus(

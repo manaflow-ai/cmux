@@ -284,6 +284,39 @@ final class MainWindowFocusController {
         return ownsRightSidebarFocus(currentResponder)
     }
 
+    /// Reconciles sidebar focus intent with the responder that actually owns
+    /// this window's input. Pending requests remain visible for mode-switch
+    /// shortcuts while a main-terminal responder is authoritative; Dock
+    /// surfaces are identified through the shared registry after that check.
+    func resolvedRightSidebarModeForShortcut(in window: NSWindow?) -> RightSidebarMode? {
+        guard let window else { return nil }
+        let activeMode = activeRightSidebarMode
+        guard let responder = window.firstResponder else { return activeMode }
+
+        if let mode = rightSidebarModeOwning(responder) {
+            let isFallbackSidebarHost = rightSidebarHost.map { responder === $0 } ?? false
+            guard canAcceptRightSidebarResponderFocus(
+                mode: mode,
+                isFallbackSidebarHost: isFallbackSidebarHost
+            ) else {
+                return nil
+            }
+            return mode
+        }
+        if activeMode != nil, responder is NSWindow {
+            return activeMode
+        }
+        if terminalFocusRequest(for: responder) != nil {
+            return nil
+        }
+        guard let ghosttyView = responder.cmuxStrictOwningGhosttyView(),
+              let panelId = ghosttyView.terminalSurface?.id,
+              GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(id: panelId) else {
+            return nil
+        }
+        return .dock
+    }
+
     @discardableResult
     func restoreTerminalFocusAfterRightSidebarHiddenIfNeeded() -> Bool {
         guard shouldRestoreTerminalFocusWhenRightSidebarHides(currentResponder: window?.firstResponder) else {
