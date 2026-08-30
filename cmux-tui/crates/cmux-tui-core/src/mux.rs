@@ -23162,6 +23162,66 @@ mod tests {
     }
 
     #[test]
+    fn agent_hook_ingress_rejects_a_tombstoned_terminal() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-roster-retirement-ingress-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let session = "roster-retirement-ingress";
+        let mux = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "UserPromptSubmit",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({"session_id":"after-retirement"}),
+        )
+        .unwrap();
+        let validated = mux.journal_kernel.validate_ingress(&ingress).unwrap();
+        close_terminal_runtime_for_test(&mux, &surface);
+
+        let error = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .append_journal_ingress(&ingress, &validated, "test", "after-retirement")
+            .unwrap_err();
+        assert!(error.to_string().contains("tombstoned"), "unexpected error: {error:#}");
+        mux.shutdown();
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn detected_report_cannot_replace_hook_owned_state() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+        let hook = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "UserPromptSubmit",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({"session_id":"hook-owned"}),
+        )
+        .unwrap();
+        mux.append_journal_ingress(&hook, "test", "hook-owned-detected").unwrap();
+
+        let record = mux
+            .report_agent(
+                surface.id,
+                AgentState::Idle,
+                AgentSource::Detected,
+                Some("screen-detected".into()),
+            )
+            .unwrap();
+        assert_eq!(record.source, AgentSource::Hook);
+        assert_eq!(record.state, AgentState::Working);
+        assert_eq!(record.agent.as_deref(), Some("claude"));
+        mux.shutdown();
+    }
+
+    #[test]
     fn roster_restore_replays_beyond_legacy_record_cap() {
         let root = std::env::temp_dir()
             .join(format!("cmux-roster-large-replay-{}", crate::workspace_registry::new_uuid_v4()));
