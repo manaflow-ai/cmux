@@ -1738,7 +1738,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
             "A shared browser/Dock divider hit must follow the native sidebar drag lifecycle"
         )
         XCTAssertEqual(
-            changedTranslation.map { Double($0) },
+            Double(try XCTUnwrap(changedTranslation)),
             32.0,
             accuracy: 0.5,
             "The forwarded drag must reach the native sidebar tracker"
@@ -1795,7 +1795,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
             "A Dock divider handoff must survive a transient tracker reparent"
         )
         XCTAssertEqual(
-            changedTranslation.map { Double($0) },
+            Double(try XCTUnwrap(changedTranslation)),
             28.0,
             accuracy: 0.5,
             "A reparented Dock divider must continue receiving native drag translation"
