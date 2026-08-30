@@ -68,9 +68,23 @@ public final class SidebarWorkspaceDragRegistry: SidebarWorkspaceDragSessionRegi
 
     /// Begins a tokenized session, superseding any prior workspace drag.
     public func beginSession(workspaceId: UUID) -> SidebarWorkspaceDragSession {
-        // A new session is an authoritative pointer boundary: AppKit cannot
-        // start it while an older native source is still in its drag loop.
-        reclaimAllNativeSourcesBeforeNewSession()
+        beginSession(workspaceId: workspaceId, reclaimNativeSources: false)
+    }
+
+    /// Begins a session after AppKit has crossed a native pointer boundary.
+    public func beginNativeSession(workspaceId: UUID) -> SidebarWorkspaceDragSession {
+        beginSession(workspaceId: workspaceId, reclaimNativeSources: true)
+    }
+
+    private func beginSession(
+        workspaceId: UUID,
+        reclaimNativeSources: Bool
+    ) -> SidebarWorkspaceDragSession {
+        if reclaimNativeSources {
+            // AppKit cannot start this native session while an older source is
+            // still in its drag loop, so reclaiming superseded holds is safe.
+            reclaimAllNativeSourcesBeforeNewSession()
+        }
         endCurrentSession()
         let session = SidebarWorkspaceDragSession(workspaceId: workspaceId)
         currentSession = session

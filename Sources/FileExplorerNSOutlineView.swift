@@ -12,7 +12,6 @@ final class FileExplorerNSOutlineView: NSOutlineView {
     var activeNativeDragSession: NSDraggingSession?
     weak var pendingNativeDragWriter: FilePreviewDragPasteboardWriter?
     var pendingNativeDragTokenID: UUID?
-    var pendingNativeDragOwnership: FilePreviewNativeDragOwnership?
     // NSDraggingItem retains the writer for the native session. Keeping this
     // edge weak avoids a view → writer → container cycle during reconstruction;
     // the immutable ownership record below carries terminal cleanup identity.

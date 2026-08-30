@@ -147,7 +147,7 @@ public final class SidebarDragState {
         dragImage: NSImage
     ) -> Bool {
         guard let sessionRegistry else { return false }
-        let session = sessionRegistry.beginSession(workspaceId: tabId)
+        let session = sessionRegistry.beginNativeSession(workspaceId: tabId)
         activate(session: session, role: .source(session.id))
         guard sessionRegistry.beginNativeDragging(
             sessionId: session.id,

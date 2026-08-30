@@ -562,7 +562,6 @@ struct FileExplorerPanelView: NSViewRepresentable {
                   outlineView.pendingNativeDragTokenID == tokenID else { return }
             outlineView.pendingNativeDragWriter = nil
             outlineView.pendingNativeDragTokenID = nil
-            outlineView.pendingNativeDragOwnership = nil
         }
 
         // MARK: - Drag-to-Preview
@@ -579,7 +578,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
             )
             if let outlineView = outlineView as? FileExplorerNSOutlineView {
                 outlineView.pendingNativeDragWriter = writer
-                outlineView.pendingNativeDragOwnership = pendingPreviewDrag.register(writer)
+                pendingPreviewDrag.register(writer)
                 outlineView.pendingNativeDragTokenID = writer.provisionalToken?.id
             }
             return writer
@@ -608,6 +607,9 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 // its first writer as the canonical source identity.
                 let promotedWriter = promotedWriters.first ?? fallbackWriter
                 let promotedOwnerships = pendingPreviewDrag.promote(writers: promotedWriters)
+                for writer in promotedWriters {
+                    writer.materializeRegisteredItem()
+                }
                 promotedWriter?.materializeRegisteredPayload(to: session.draggingPasteboard)
                 supersedeNativeDragIfNeeded(
                     previousSession: outlineView.activeNativeDragSession,
@@ -636,7 +638,6 @@ struct FileExplorerPanelView: NSViewRepresentable {
                     : promotedOwnerships
                 outlineView.pendingNativeDragWriter = nil
                 outlineView.pendingNativeDragTokenID = nil
-                outlineView.pendingNativeDragOwnership = nil
             }
         }
 
@@ -687,7 +688,6 @@ struct FileExplorerPanelView: NSViewRepresentable {
                     pendingPreviewDrag.remove(tokenID: tokenID)
                 }
                 outlineView.pendingNativeDragTokenID = nil
-                outlineView.pendingNativeDragOwnership = nil
                 outlineView.activeNativeDragOwnership = nil
                 return
             }
@@ -698,7 +698,6 @@ struct FileExplorerPanelView: NSViewRepresentable {
             outlineView.activeNativeDragDelegateMarker = nil
             outlineView.pendingNativeDragWriter = nil
             outlineView.pendingNativeDragTokenID = nil
-            outlineView.pendingNativeDragOwnership = nil
             outlineView.activeNativeDragWriter?.releaseSourceGraph()
             outlineView.activeNativeDragWriter = nil
             outlineView.activeNativeDragOwnerships = []
@@ -1746,7 +1745,6 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         guard searchResultsView.pendingNativeDragTokenID == tokenID else { return }
         searchResultsView.pendingNativeDragWriter = nil
         searchResultsView.pendingNativeDragTokenID = nil
-        searchResultsView.pendingNativeDragOwnership = nil
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
@@ -1778,7 +1776,7 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         )
         searchResultsView.pendingNativeDragWriter = writer
         searchResultsView.pendingNativeDragTokenID = writer.provisionalToken?.id
-        searchResultsView.pendingNativeDragOwnership = pendingPreviewDrag.register(writer)
+        pendingPreviewDrag.register(writer)
         return writer
     }
 
@@ -1806,6 +1804,9 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         // first writer as the canonical source identity.
         let promotedWriter = promotedWriters.first ?? fallbackWriter
         let promotedOwnerships = pendingPreviewDrag.promote(writers: promotedWriters)
+        for writer in promotedWriters {
+            writer.materializeRegisteredItem()
+        }
         promotedWriter?.materializeRegisteredPayload(to: session.draggingPasteboard)
         coordinator.supersedeNativeDragIfNeeded(
             previousSession: searchResultsView.activeNativeDragSession,
@@ -1834,9 +1835,8 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         searchResultsView.activeNativeDragOwnerships = promotedOwnerships.isEmpty
             ? (promotedWriter?.nativeDragOwnership()).map { [$0] } ?? []
             : promotedOwnerships
-        searchResultsView.pendingNativeDragWriter = nil
-        searchResultsView.pendingNativeDragTokenID = nil
-        searchResultsView.pendingNativeDragOwnership = nil
+                searchResultsView.pendingNativeDragWriter = nil
+                searchResultsView.pendingNativeDragTokenID = nil
         searchResultsView.activeNativeDragSession = session
     }
 
@@ -1881,7 +1881,6 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
             }
             searchResultsView.pendingNativeDragWriter = nil
             searchResultsView.pendingNativeDragTokenID = nil
-            searchResultsView.pendingNativeDragOwnership = nil
             searchResultsView.activeNativeDragOwnership = nil
             return
         }
@@ -1891,7 +1890,6 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         pendingPreviewDrag.finishPending()
         searchResultsView.pendingNativeDragWriter = nil
         searchResultsView.pendingNativeDragTokenID = nil
-        searchResultsView.pendingNativeDragOwnership = nil
         searchResultsView.activeNativeDragDelegateMarker = nil
         searchResultsView.activeNativeDragWriter?.releaseSourceGraph()
         searchResultsView.activeNativeDragWriter = nil

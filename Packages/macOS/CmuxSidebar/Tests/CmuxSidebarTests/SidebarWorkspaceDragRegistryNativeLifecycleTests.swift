@@ -61,7 +61,7 @@ struct SidebarWorkspaceDragRegistryNativeLifecycleTests {
                 )
             )
         )
-        let second = registry.beginSession(workspaceId: UUID())
+        let second = registry.beginNativeSession(workspaceId: UUID())
         #expect(registry.currentSessionId == second.id)
         #expect(registry.currentWorkspaceId == second.workspaceId)
         #expect(weakSourceView == nil)
@@ -74,6 +74,57 @@ struct SidebarWorkspaceDragRegistryNativeLifecycleTests {
             ) == newerPayload
         )
 
+        pasteboard.clearContents()
+    }
+
+    @Test("A logical begin does not reclaim a live native source")
+    func logicalBeginPreservesLiveNativeSource() throws {
+        let pasteboard = NSPasteboard(
+            name: NSPasteboard.Name("sidebar-native-logical-(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        var startedSource: SidebarWorkspaceDragSessionSource?
+        let registry = SidebarWorkspaceDragRegistry(
+            dragPasteboardProvider: { pasteboard },
+            nativeDragStarter: { _, _, _, source in
+                startedSource = source as? SidebarWorkspaceDragSessionSource
+                return TestDraggingSession(sequence: 1, pasteboard: pasteboard)
+            }
+        )
+        let event = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: NSPoint(x: 10, y: 10),
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1
+        ))
+        var sourceView: NSView? = NSView(frame: NSRect(x: 0, y: 0, width: 80, height: 24))
+        weak var weakSourceView: NSView?
+        weakSourceView = sourceView
+        let first = registry.beginSession(workspaceId: UUID())
+        #expect(registry.beginNativeDragging(
+            sessionId: first.id,
+            pasteboardItem: NSPasteboardItem(),
+            sourceView: sourceView!,
+            event: event,
+            draggingFrame: sourceView!.bounds,
+            dragImage: NSImage(size: sourceView!.bounds.size),
+            capabilityValue: first.pasteboardValue
+        ))
+        sourceView = nil
+
+        let second = registry.beginSession(workspaceId: UUID())
+
+        #expect(startedSource != nil)
+        #expect(registry.currentSessionId == second.id)
+        #expect(weakSourceView != nil)
+
+        registry.reclaimSupersededNativeSources(excludingSessionId: second.id)
+        #expect(weakSourceView == nil)
         pasteboard.clearContents()
     }
 

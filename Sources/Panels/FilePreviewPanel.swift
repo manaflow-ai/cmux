@@ -877,6 +877,7 @@ final class FilePreviewDragPasteboardWriter: NSPasteboardItem {
     /// exact native session pasteboard after willBeginAt.
     func materializeRegisteredPayload(to pasteboard: NSPasteboard) {
         _ = nativeDragOwnership()
+        materializeRegisteredItem()
         let transferData = transferDataForDrag()
         let fileURLString = URL(fileURLWithPath: filePath).standardizedFileURL.absoluteString
         var types = [DragOverlayRoutingPolicy.filePreviewTransferType, .fileURL]
@@ -887,6 +888,13 @@ final class FilePreviewDragPasteboardWriter: NSPasteboardItem {
         bonsplitRegistration?.write(to: pasteboard)
         pasteboard.setData(transferData, forType: DragOverlayRoutingPolicy.filePreviewTransferType)
         pasteboard.setString(fileURLString, forType: .fileURL)
+    }
+
+    /// Materializes this writer's registered capability on its concrete item.
+    /// Each selected row owns a distinct item even though only the first item
+    /// is copied to the session-level compatibility pasteboard.
+    func materializeRegisteredItem() {
+        _ = nativeDragOwnership()
         if let bonsplitValue = bonsplitRegistration?.pasteboardItem.string(
             forType: Self.bonsplitTransferType
         ) {

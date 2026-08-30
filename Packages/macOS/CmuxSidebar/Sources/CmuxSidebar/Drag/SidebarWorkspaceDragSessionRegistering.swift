@@ -22,6 +22,12 @@ public protocol SidebarWorkspaceDragSessionRegistering: SidebarWorkspaceDragRegi
     /// Begins a tokenized drag session.
     func beginSession(workspaceId: UUID) -> SidebarWorkspaceDragSession
 
+    /// Begins a tokenized session at a proven native pointer boundary.
+    ///
+    /// Unlike a logical begin, this boundary proves AppKit has left any older
+    /// native drag loop, so superseded source holds may be reclaimed.
+    func beginNativeSession(workspaceId: UUID) -> SidebarWorkspaceDragSession
+
     /// Resolves a live session for a matching workspace identity.
     func session(matching workspaceId: UUID) -> SidebarWorkspaceDragSession?
 

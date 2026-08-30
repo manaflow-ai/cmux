@@ -9,7 +9,6 @@ final class FileExplorerSearchResultsTableView: NSTableView {
     var activeNativeDragSession: NSDraggingSession?
     weak var pendingNativeDragWriter: FilePreviewDragPasteboardWriter?
     var pendingNativeDragTokenID: UUID?
-    var pendingNativeDragOwnership: FilePreviewNativeDragOwnership?
     // NSDraggingItem owns the writer while AppKit runs the session. A weak
     // table edge prevents the writer's retained container from forming a
     // container → table → writer cycle when endedAt is delayed.

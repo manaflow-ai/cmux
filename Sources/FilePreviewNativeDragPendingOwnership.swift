@@ -38,7 +38,7 @@ final class FilePreviewNativeDragPendingOwnership {
     /// AppKit may ask for writers and then abandon the gesture before a native
     /// session exists. Registration is therefore deferred until AppKit
     /// consumes the writer or the owner promotes it.
-    func register(_ writer: Writer) -> FilePreviewNativeDragOwnership? {
+    func register(_ writer: Writer) {
         pruneWriterOrder()
         orderedWriters.removeAll { $0.value === writer }
         orderedWriters.append(WeakWriter(writer))
@@ -47,7 +47,6 @@ final class FilePreviewNativeDragPendingOwnership {
                   let tokenID = writer.provisionalToken?.id else { return }
             self.ownershipByToken[tokenID] = ownership
         }
-        return nil
     }
 
     /// Removes a promoted writer from the provisional set.
