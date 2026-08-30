@@ -22529,10 +22529,7 @@ mod tests {
         assert_eq!(resource_events.batches[1].changes[0]["value"]["source"], "hook");
         assert_eq!(resource_events.batches[2].changes[0]["value"]["source"], "hook");
         assert_eq!(resource_events.batches[2].changes[0]["value"]["state"], "blocked");
-        assert_eq!(
-            resource_events.batches[2].changes[0]["value"]["source_session"],
-            Value::Null
-        );
+        assert_eq!(resource_events.batches[2].changes[0]["value"]["source_session"], Value::Null);
         assert!(matches!(
             events.recv_timeout(Duration::from_millis(100)),
             Ok(MuxEvent::AgentChanged {
@@ -22599,8 +22596,7 @@ mod tests {
             serde_json::json!({"session_id":"hook-session"}),
         )
         .unwrap();
-        let hook_commit =
-            mux.append_journal_ingress(&hook_ingress, "test", "agent-hook").unwrap();
+        let hook_commit = mux.append_journal_ingress(&hook_ingress, "test", "agent-hook").unwrap();
         assert!(!hook_commit.replayed);
         assert_eq!(mux.with_state(|state| state.resource_revision), created_revision + 2);
         let hook_value = crate::resource_api::public_session_snapshot(&mux).unwrap()["agents"]
@@ -22666,9 +22662,7 @@ mod tests {
         let epoch_before_replay = reopened.resource_event_epoch();
         let event_count_before_replay =
             reopened.resource_events_after(created_revision).unwrap().batches.len();
-        let replay = reopened
-            .append_journal_ingress(&hook_ingress, "test", "agent-hook")
-            .unwrap();
+        let replay = reopened.append_journal_ingress(&hook_ingress, "test", "agent-hook").unwrap();
         assert!(replay.replayed);
         assert_eq!(replay.sequence, hook_commit.sequence);
         assert_eq!(reopened.resource_event_epoch(), epoch_before_replay);
@@ -24052,8 +24046,12 @@ mod tests {
         };
         mux.append_journal_ingress(&hook("SessionEnd", "old"), "test", "journal-hook-session-end")
             .unwrap();
-        mux.append_journal_ingress(&hook("SessionStart", "new"), "test", "journal-hook-session-start")
-            .unwrap();
+        mux.append_journal_ingress(
+            &hook("SessionStart", "new"),
+            "test",
+            "journal-hook-session-start",
+        )
+        .unwrap();
         let record = &mux.list_agents(Some(surface.id), None)[0];
         assert_eq!(record.source, AgentSource::Hook);
         assert_eq!(record.session, None);
