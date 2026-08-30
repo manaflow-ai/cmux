@@ -1061,8 +1061,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             sourceView: tableView,
             controller: self
         )
+        // Keep the latest writer identity even while an older native session is
+        // latched. A subsequent `willBeginAt` can then recover the new row's
+        // payload after the old generation's terminal callback was suppressed.
+        pendingWorkspaceDragWriter = writer
         if !isWorkspaceDragSourceActive {
-            pendingWorkspaceDragWriter = writer
             pendingWorkspaceDragWriterTokens.insert(writer.provisionalToken)
             installWorkspaceDragWriterDeallocationObserverIfNeeded()
         }
