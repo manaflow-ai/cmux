@@ -84,7 +84,9 @@ final class MobileHostIrxRuntime {
     /// these policies separate prevents a short broker outage from leaving a
     /// still-usable endpoint with expired relay credentials for minutes.
     let credentialRefreshPolicy = IrxHostActivationPolicy(
-        retrySchedule: .foregroundClient
+        retrySchedule: .foregroundClient,
+        postRecoveryUnauthorizedFailureLimit: 4,
+        missingAuthenticationFailureLimit: 4
     )
     var activationRetryClock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
     /// Changes on every (de)activation; per-connection supervisors compare it.

@@ -302,10 +302,22 @@ public actor IrxBrokerService {
     /// re-arms signing on this client) instead of retrying into the same
     /// rejection forever.
     private func invalidateBindingOnProofRejection(_ error: any Error) {
-        guard case let .rejected(statusCode, code)? = error as? CmxIrohTrustBrokerClientError,
-            statusCode == 403,
-            code == "binding_request_proof_required" || code == "invalid_binding_request_proof"
-        else { return }
+        let statusCode: Int?
+        let code: String?
+        switch error {
+        case let brokerError as CmxIrohTrustBrokerClientError:
+            guard case let .rejected(status, brokerCode) = brokerError else { return }
+            statusCode = status
+            code = brokerCode
+        case let failure as IrxBrokerFailure:
+            statusCode = failure.statusCode
+            code = failure.errorCode
+        default:
+            return
+        }
+        guard statusCode == 403,
+              code == "binding_request_proof_required"
+                || code == "invalid_binding_request_proof" else { return }
         bindingCache.clear()
         journal.record(
             "broker", "binding-invalidated-on-proof-rejection",

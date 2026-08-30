@@ -15,6 +15,7 @@ extension IrxBrokerService {
         } catch is CancellationError {
             throw CancellationError()
         } catch let failure as IrxBrokerFailure {
+            onError?(failure)
             throw failure.with(operation: operation)
         } catch {
             onError?(error)

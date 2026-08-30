@@ -110,7 +110,9 @@ extension MobileIrxRuntimeComposition {
             endpoint: endpoint,
             journal: Self.journal,
             retryPolicy: IrxHostActivationPolicy(
-                retrySchedule: .foregroundClient
+                retrySchedule: .foregroundClient,
+                postRecoveryUnauthorizedFailureLimit: 4,
+                missingAuthenticationFailureLimit: 4
             )
         )
         await pilot.setOnFailure { [weak self] failure, disposition in

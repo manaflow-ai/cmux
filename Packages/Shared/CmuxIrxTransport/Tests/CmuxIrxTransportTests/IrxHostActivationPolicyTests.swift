@@ -138,6 +138,41 @@ struct IrxHostActivationPolicyTests {
         )
     }
 
+    @Test("foreground renewal tolerates a short post-recovery auth race")
+    func foregroundUnauthorizedLimitIsBoundedButNotPremature() {
+        let foregroundPolicy = IrxHostActivationPolicy(
+            retrySchedule: CmxIrohRetrySchedule(
+                initialDelay: 1,
+                maximumDelay: 8,
+                jitterFraction: 0
+            ),
+            postRecoveryUnauthorizedFailureLimit: 4,
+            missingAuthenticationFailureLimit: 4
+        )
+        let failure = IrxBrokerFailure(
+            operation: .mint,
+            error: CmxIrohTrustBrokerClientError.rejected(
+                statusCode: 401,
+                code: "unauthorized"
+            )
+        )
+
+        #expect(
+            foregroundPolicy.decision(
+                for: failure,
+                failureCount: 3,
+                jitterUnitInterval: 0
+            ) == .retry(delay: 8, retryAfterSeconds: nil)
+        )
+        #expect(
+            foregroundPolicy.decision(
+                for: failure,
+                failureCount: 4,
+                jitterUnitInterval: 0
+            ) == .reauthenticationRequired
+        )
+    }
+
     @Test("transient broker failures use a bounded exponential ladder")
     func transientFailuresBackOff() {
         let failure = IrxBrokerFailure(
