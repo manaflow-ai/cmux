@@ -5,36 +5,37 @@ import Foundation
 ///
 /// Controllers remove tokens when AppKit promotes a writer or reports the
 /// native terminal callback; a deallocation callback is therefore reserved for
-/// the abandoned pre-session path. Each owner has a private notification
-/// center, and writers post from their own `deinit` while still retaining their
-/// controller, so cleanup cannot lose the owner during stored-property
-/// destruction or wake unrelated windows.
+/// the abandoned pre-session path. The token calls back through its injected
+/// owner rather than broadcasting through process-global notification state.
 @MainActor
 final class ProvisionalDragWriterOwnership {
     /// Token retained by one provisional pasteboard writer.
     final class Token {
         let id: UUID
-        private let notificationCenter: NotificationCenter
-        // Keep the observer owner alive until the deallocation notification is
-        // delivered, even if AppKit releases the writer off the main thread.
         private let owner: ProvisionalDragWriterOwnership
 
-        fileprivate init(
-            notificationCenter: NotificationCenter,
-            owner: ProvisionalDragWriterOwnership
-        ) {
+        fileprivate init(owner: ProvisionalDragWriterOwnership) {
             id = UUID()
-            self.notificationCenter = notificationCenter
             self.owner = owner
         }
 
         /// Signals writer destruction while its controller is still retained.
         nonisolated func notifyDeallocated() {
-            notificationCenter.post(
-                name: ProvisionalDragWriterOwnership.didDeallocateNotification,
-                object: nil,
-                userInfo: [ProvisionalDragWriterOwnership.tokenKey: id]
-            )
+            let owner = owner
+            if Thread.isMainThread {
+                // AppKit drag callbacks and writer destruction are main-thread
+                // events; this keeps the normal abandonment path synchronous.
+                MainActor.assumeIsolated {
+                    owner.tokenDidDeallocate(id)
+                }
+            } else {
+                // A defensive off-main release still retains the owner until
+                // the actor hop executes, so cleanup cannot be lost during ARC
+                // stored-property destruction.
+                Task { @MainActor in
+                    owner.tokenDidDeallocate(id)
+                }
+            }
         }
 
         deinit {
@@ -45,15 +46,8 @@ final class ProvisionalDragWriterOwnership {
         }
     }
 
-    nonisolated private static let didDeallocateNotification = Notification.Name(
-        "cmux.provisionalDragWriterDidDeallocate"
-    )
-    nonisolated private static let tokenKey = "token"
-
-    private let notificationCenter = NotificationCenter()
     private let onTokenDeallocated: @MainActor (UUID) -> Void
     private var pendingTokenIDs: Set<UUID> = []
-    private var observer: NSObjectProtocol?
 
     init(onTokenDeallocated: @escaping @MainActor (UUID) -> Void) {
         self.onTokenDeallocated = onTokenDeallocated
@@ -62,9 +56,8 @@ final class ProvisionalDragWriterOwnership {
     var hasPendingTokens: Bool { !pendingTokenIDs.isEmpty }
 
     func makeToken() -> Token {
-        let token = Token(notificationCenter: notificationCenter, owner: self)
+        let token = Token(owner: self)
         pendingTokenIDs.insert(token.id)
-        installObserverIfNeeded()
         return token
     }
 
@@ -79,34 +72,10 @@ final class ProvisionalDragWriterOwnership {
 
     func removeAll() {
         pendingTokenIDs.removeAll(keepingCapacity: false)
-        removeObserverIfIdle()
     }
 
-    private func installObserverIfNeeded() {
-        guard observer == nil else { return }
-        observer = notificationCenter.addObserver(
-            forName: Self.didDeallocateNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            guard let tokenID = notification.userInfo?[Self.tokenKey] as? UUID else { return }
-            MainActor.assumeIsolated {
-                guard let self, self.pendingTokenIDs.remove(tokenID) != nil else { return }
-                self.removeObserverIfIdle()
-                self.onTokenDeallocated(tokenID)
-            }
-        }
-    }
-
-    private func removeObserverIfIdle() {
-        guard pendingTokenIDs.isEmpty, let observer else { return }
-        notificationCenter.removeObserver(observer)
-        self.observer = nil
-    }
-
-    deinit {
-        if let observer {
-            notificationCenter.removeObserver(observer)
-        }
+    private func tokenDidDeallocate(_ tokenID: UUID) {
+        guard pendingTokenIDs.remove(tokenID) != nil else { return }
+        onTokenDeallocated(tokenID)
     }
 }
