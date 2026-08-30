@@ -201,14 +201,14 @@ final class DockPointerInteractionHostView: NSView {
             forName: NSWindow.didResignKeyNotification,
             object: window,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self, weak window] _ in
             self?.store?.cancelDockPointerInteraction(window: window)
         }
         applicationResignActiveObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didResignActiveNotification,
             object: NSApp,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self, weak window] _ in
             self?.store?.cancelDockPointerInteraction(window: window)
         }
     }
