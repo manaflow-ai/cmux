@@ -4320,6 +4320,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn changed_transport_auth_cancels_an_in_flight_relay_open() {
+        let h = harness(None, None);
+        let inner = Arc::clone(&h.manager.inner);
+        let old = h.context_with_transport("supervised", h.owner.clone(), Some("relay-a"));
+        h.manager.update_transport_auth(&old);
+
+        let cancellation = h.manager.new_open_cancellation().expect("open attempt token");
+        let owner = OpeningOwner {
+            owner: TransportOwner::from_context(&old),
+            attempt_id: cancellation.attempt_id(),
+        };
+        {
+            let mut state = inner.opening_state.lock().unwrap();
+            state.active_openings.insert("p1".to_owned(), (owner.clone(), cancellation.clone()));
+        }
+
+        let mut changed = old.clone();
+        changed.trust = "observe".to_owned();
+        h.manager.update_transport_auth(&changed);
+
+        assert!(cancellation.is_cancelled());
+        let state = inner.opening_state.lock().unwrap();
+        assert!(!state.reservations.contains_key("p1"));
+        assert!(!state.active_openings.contains_key("p1"));
+        assert!(!state.cancelled.contains_key("p1"));
+        drop(state);
+        assert!(!inner.cache_transport_auth(&old));
+        assert!(inner.cache_transport_auth(&changed));
+
+        let frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "stale",
+            "session": "main",
+            "cols": 80,
+            "rows": 24,
+        });
+        h.manager.handle_frame(&frame, &old).await;
+        assert!(h.spawned().is_empty(), "a stale relay context must not start a PTY");
+    }
+
+    #[tokio::test]
     async fn blocking_open_worker_keeps_its_permit_until_completion() {
         let slots = Arc::new(Semaphore::new(1));
         let permit = OpenPermit::new(slots.clone().try_acquire_owned().expect("open permit"));
