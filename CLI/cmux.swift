@@ -18165,6 +18165,12 @@ struct CMUXCLI {
                         client: client
                     )
                 } else {
+                    if resolveExplicitSurface, explicitWorkspaceArg == nil, windowHandle == nil {
+                        throw CLIError(message: String(
+                            localized: "cli.error.clearNotificationsSurfaceRequiresTarget",
+                            defaultValue: "notify --clear --surface requires workspace or window context; specify --workspace or --window"
+                        ))
+                    }
                     let workspaceRaw = explicitWorkspaceArg
                         ?? (windowRaw == nil ? environment["CMUX_WORKSPACE_ID"] : nil)
                     let workspaceID = if let explicitWorkspaceID {
@@ -20031,7 +20037,7 @@ struct CMUXCLI {
                   --json                 Print the response payload as JSON
                   --id-format <mode>     refs, uuids, or both for human-readable ids
 
-                The response includes the created notification id. Use cmux dismiss-notification --id <uuid>, cmux list-notifications, or cmux clear-notifications to manage notifications.
+                The response includes the created notification id. Use cmux dismiss-notification --id <uuid|notification:<uuid>>, cmux list-notifications, or cmux clear-notifications to manage notifications.
 
                 Example:
                   cmux notify --title "Build done" --body "All tests passed"
@@ -21130,7 +21136,8 @@ struct CMUXCLI {
     /// ref-shaped display is the explicit `notification:<uuid>` handle while
     /// JSON retains the additive `id` field unchanged.
     func v2NotificationSummary(_ payload: [String: Any], idFormat: CLIIDFormat) -> String {
-        guard let id = payload["id"] as? String, !id.isEmpty else { return "OK" }
+        let okText = String(localized: "common.ok", defaultValue: "OK")
+        guard let id = payload["id"] as? String, !id.isEmpty else { return okText }
         let ref = (payload["notification_ref"] as? String) ?? "notification:\(id)"
         let handle: String
         switch idFormat {
@@ -21141,7 +21148,7 @@ struct CMUXCLI {
         case .both:
             handle = "\(ref) (\(id))"
         }
-        return "OK \(handle)"
+        return "\(okText) \(handle)"
     }
 
     /// Accept the human ref-shaped notification handle emitted by `notify` in

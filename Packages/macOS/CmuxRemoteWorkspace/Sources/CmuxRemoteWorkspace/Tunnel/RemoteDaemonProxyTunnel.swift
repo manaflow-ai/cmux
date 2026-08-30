@@ -452,17 +452,64 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
         ownerWorkspaceID: UUID,
         strings: RemoteDaemonStrings
     ) -> CloudCLIRequestValidation {
-        let workspaceRaw: String?
-        let surfaceRaw: String?
-        if (params["caller"] as? Bool) == true {
-            workspaceRaw = params["preferred_workspace_id"] as? String
-            surfaceRaw = params["preferred_surface_id"] as? String
-        } else {
-            workspaceRaw = params["workspace_id"] as? String
-            surfaceRaw = params["surface_id"] as? String
+        let hasNonNullValue: (String) -> Bool = { key in
+            guard let value = params[key] else { return false }
+            return !(value is NSNull)
         }
 
-        guard let workspaceRaw = workspaceRaw?.trimmingCharacters(in: .whitespacesAndNewlines),
+        let caller: Bool
+        if hasNonNullValue("caller") {
+            guard let decodedCaller = params["caller"] as? Bool else {
+                return .reject(cloudCLIErrorResponse(
+                    id: requestID,
+                    code: "invalid_params",
+                    message: strings.cloudNotificationClearCallerInvalid
+                ))
+            }
+            caller = decodedCaller
+        } else {
+            caller = false
+        }
+
+        let hasWorkspaceSelector = hasNonNullValue("workspace_id")
+            || hasNonNullValue("tab_id")
+        let hasSurfaceSelector = hasNonNullValue("surface_id")
+        let hasCallerOnlySelectors = [
+            "preferred_workspace_id",
+            "preferred_surface_id",
+            "caller_tty",
+            "prefer_tty",
+        ].contains(where: hasNonNullValue)
+
+        if !caller, hasCallerOnlySelectors {
+            return .reject(cloudCLIErrorResponse(
+                id: requestID,
+                code: "invalid_params",
+                message: strings.cloudNotificationClearCallerSelectorsRequireCaller
+            ))
+        }
+        if caller, hasWorkspaceSelector || hasSurfaceSelector {
+            return .reject(cloudCLIErrorResponse(
+                id: requestID,
+                code: "invalid_params",
+                message: strings.cloudNotificationClearCallerScopeConflict
+            ))
+        }
+
+        let workspaceValue: Any?
+        let surfaceValue: Any?
+        if caller {
+            workspaceValue = params["preferred_workspace_id"]
+            surfaceValue = params["preferred_surface_id"]
+        } else {
+            workspaceValue = hasNonNullValue("workspace_id")
+                ? params["workspace_id"]
+                : params["tab_id"]
+            surfaceValue = params["surface_id"]
+        }
+
+        guard let workspaceRaw = (workspaceValue as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
               let requestedWorkspaceID = UUID(uuidString: workspaceRaw) else {
             return .reject(cloudCLIErrorResponse(
                 id: requestID,
@@ -477,7 +524,8 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
                 message: strings.cloudNotificationClearWorkspaceDenied
             ))
         }
-        guard let surfaceRaw = surfaceRaw?.trimmingCharacters(in: .whitespacesAndNewlines),
+        guard let surfaceRaw = (surfaceValue as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
               let surfaceID = UUID(uuidString: surfaceRaw) else {
             return .reject(cloudCLIErrorResponse(
                 id: requestID,
@@ -499,7 +547,7 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
             return .reject(cloudCLIErrorResponse(
                 id: requestID,
                 code: "encode_error",
-                message: "Failed to encode Cloud CLI request"
+                message: strings.cloudNotificationClearEncodingFailed
             ))
         }
         return .forward(data + Data([0x0A]))

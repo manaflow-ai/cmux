@@ -56,13 +56,13 @@ extension ControlCommandCoordinator {
 
         switch resolution {
         case .tabManagerUnavailable:
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(code: "unavailable", message: notificationTabManagerUnavailableMessage, data: nil)
         case .workspaceNotFound:
-            return .err(code: "not_found", message: "Workspace not found", data: nil)
+            return .err(code: "not_found", message: notificationWorkspaceNotFoundMessage, data: nil)
         case .surfaceNotFound(let surfaceID):
             return .err(
                 code: "not_found",
-                message: "Surface not found",
+                message: notificationSurfaceNotFoundMessage,
                 data: .object(["surface_id": .string(surfaceID.uuidString)])
             )
         case .delivered(let workspaceID, let surfaceID, let notificationID):
@@ -125,14 +125,14 @@ extension ControlCommandCoordinator {
     ) -> ControlCallResult {
         switch resolution {
         case .tabManagerUnavailable:
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(code: "unavailable", message: notificationTabManagerUnavailableMessage, data: nil)
         case .workspaceNotFound(let workspaceID):
             let data: JSONValue? = workspaceID.map { .object(["workspace_id": .string($0.uuidString)]) }
-            return .err(code: "not_found", message: "Workspace not found", data: data)
+            return .err(code: "not_found", message: notificationWorkspaceNotFoundMessage, data: data)
         case .surfaceNotFound(let surfaceID):
             return .err(
                 code: "not_found",
-                message: "Surface not found",
+                message: notificationSurfaceNotFoundMessage,
                 data: .object(["surface_id": .string(surfaceID.uuidString)])
             )
         case .delivered(let workspaceID, let surfaceID, let windowID, let notificationID):
@@ -269,16 +269,16 @@ extension ControlCommandCoordinator {
     ) -> ControlCallResult {
         switch resolution {
         case .tabManagerUnavailable:
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(code: "unavailable", message: notificationClearUnavailableMessage, data: nil)
         case .workspaceNotFound(let workspaceID):
             let data: JSONValue? = workspaceID.map {
                 .object(["workspace_id": .string($0.uuidString)])
             }
-            return .err(code: "not_found", message: "Workspace not found", data: data)
+            return .err(code: "not_found", message: notificationWorkspaceNotFoundMessage, data: data)
         case .surfaceNotFound(let surfaceID):
             return .err(
                 code: "not_found",
-                message: "Surface not found",
+                message: notificationSurfaceNotFoundMessage,
                 data: .object(["surface_id": .string(surfaceID.uuidString)])
             )
         case .cleared(let workspaceID, let surfaceID):
@@ -515,7 +515,11 @@ extension ControlCommandCoordinator {
             clearPreferredWorkspaceIDInvalid: "Missing or invalid preferred_workspace_id",
             clearPreferredSurfaceIDInvalid: "Missing or invalid preferred_surface_id",
             clearSurfaceIDRequiresWorkspace: "surface_id requires workspace_id",
-            clearWorkspaceIDInvalid: "Missing or invalid workspace_id"
+            clearWorkspaceIDInvalid: "Missing or invalid workspace_id",
+            tabManagerUnavailable: "TabManager not available",
+            workspaceNotFound: "Workspace not found",
+            surfaceNotFound: "Surface not found",
+            clearUnavailable: "Notifications are unavailable. Try again."
         )
     }
 
@@ -573,5 +577,21 @@ extension ControlCommandCoordinator {
 
     private var notificationClearWorkspaceIDInvalidMessage: String {
         notificationStrings.clearWorkspaceIDInvalid
+    }
+
+    private var notificationTabManagerUnavailableMessage: String {
+        notificationStrings.tabManagerUnavailable
+    }
+
+    private var notificationWorkspaceNotFoundMessage: String {
+        notificationStrings.workspaceNotFound
+    }
+
+    private var notificationSurfaceNotFoundMessage: String {
+        notificationStrings.surfaceNotFound
+    }
+
+    private var notificationClearUnavailableMessage: String {
+        notificationStrings.clearUnavailable
     }
 }

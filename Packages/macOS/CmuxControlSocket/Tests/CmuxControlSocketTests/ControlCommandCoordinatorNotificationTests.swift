@@ -84,6 +84,40 @@ private final class NotificationControlCommandContext: ControlCommandContext {
 }
 
 @MainActor
+private final class UnavailableNotificationControlContext: ControlCommandContext {
+    var notificationStrings: ControlNotificationStrings {
+        ControlNotificationStrings(
+            dismissSelectorRequired: "",
+            idRequired: "",
+            notFound: "",
+            markReadSelectorRequired: "",
+            surfaceIDInvalid: "",
+            surfaceIDRequiresWorkspace: "",
+            targetNotFound: "",
+            clearCallerInvalid: "",
+            clearCallerSelectorsRequireCaller: "",
+            clearCallerScopeConflict: "",
+            clearPreferredWorkspaceIDInvalid: "",
+            clearPreferredSurfaceIDInvalid: "",
+            clearSurfaceIDRequiresWorkspace: "",
+            clearWorkspaceIDInvalid: "",
+            tabManagerUnavailable: "legacy unavailable",
+            workspaceNotFound: "workspace missing",
+            surfaceNotFound: "surface missing",
+            clearUnavailable: "notifications unavailable"
+        )
+    }
+
+    func controlNotificationClear(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID,
+        surfaceID: UUID?
+    ) -> ControlNotificationClearResolution {
+        .tabManagerUnavailable
+    }
+}
+
+@MainActor
 @Suite("ControlCommandCoordinator notification domain")
 struct ControlCommandCoordinatorNotificationTests {
     private func request(
@@ -208,5 +242,21 @@ struct ControlCommandCoordinatorNotificationTests {
         #expect(code == "invalid_params")
         #expect(message == "caller-only selectors require caller=true")
         #expect(context.clearCallerWorkspaceID == nil)
+    }
+
+    @Test func scopedClearUsesTheInjectedUnavailableMessage() throws {
+        let context = UnavailableNotificationControlContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let result = try #require(coordinator.handle(request("notification.clear", [
+            "workspace_id": .string(UUID().uuidString),
+        ])))
+
+        guard case let .err(code, message, data) = result else {
+            Issue.record("unavailable scoped clear did not return an error: \(result)")
+            return
+        }
+        #expect(code == "unavailable")
+        #expect(message == "notifications unavailable")
+        #expect(data == nil)
     }
 }

@@ -39,6 +39,14 @@ public struct ControlNotificationStrings: Sendable, Equatable {
     public let clearSurfaceIDRequiresWorkspace: String
     /// Invalid workspace selector in a scoped clear request.
     public let clearWorkspaceIDInvalid: String
+    /// The legacy notification coordinator's unavailable-target message.
+    public let tabManagerUnavailable: String
+    /// The legacy notification coordinator's workspace-not-found message.
+    public let workspaceNotFound: String
+    /// The legacy notification coordinator's surface-not-found message.
+    public let surfaceNotFound: String
+    /// Product-level message for a scoped clear that cannot reach notifications.
+    public let clearUnavailable: String
 
     /// Creates the localized message bundle.
     ///
@@ -57,6 +65,10 @@ public struct ControlNotificationStrings: Sendable, Equatable {
     ///   - clearPreferredSurfaceIDInvalid: The invalid-preferred-surface message.
     ///   - clearSurfaceIDRequiresWorkspace: The clear-surface-requires-workspace message.
     ///   - clearWorkspaceIDInvalid: The invalid-clear-workspace message.
+    ///   - tabManagerUnavailable: The unavailable-target message.
+    ///   - workspaceNotFound: The workspace-not-found message.
+    ///   - surfaceNotFound: The surface-not-found message.
+    ///   - clearUnavailable: The product-level scoped-clear unavailable message.
     public init(
         dismissSelectorRequired: String,
         idRequired: String,
@@ -71,7 +83,11 @@ public struct ControlNotificationStrings: Sendable, Equatable {
         clearPreferredWorkspaceIDInvalid: String,
         clearPreferredSurfaceIDInvalid: String,
         clearSurfaceIDRequiresWorkspace: String,
-        clearWorkspaceIDInvalid: String
+        clearWorkspaceIDInvalid: String,
+        tabManagerUnavailable: String = "TabManager not available",
+        workspaceNotFound: String = "Workspace not found",
+        surfaceNotFound: String = "Surface not found",
+        clearUnavailable: String = "Notifications are unavailable. Try again."
     ) {
         self.dismissSelectorRequired = dismissSelectorRequired
         self.idRequired = idRequired
@@ -87,5 +103,9 @@ public struct ControlNotificationStrings: Sendable, Equatable {
         self.clearPreferredSurfaceIDInvalid = clearPreferredSurfaceIDInvalid
         self.clearSurfaceIDRequiresWorkspace = clearSurfaceIDRequiresWorkspace
         self.clearWorkspaceIDInvalid = clearWorkspaceIDInvalid
+        self.tabManagerUnavailable = tabManagerUnavailable
+        self.workspaceNotFound = workspaceNotFound
+        self.surfaceNotFound = surfaceNotFound
+        self.clearUnavailable = clearUnavailable
     }
 }

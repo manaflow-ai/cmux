@@ -29,6 +29,22 @@ extension RemoteDaemonStrings {
             cloudNotificationClearSurfaceInvalid: String(
                 localized: "remoteDaemon.error.cloudNotificationClearSurfaceInvalid",
                 defaultValue: "Cloud CLI notification clear requires a valid surface_id"
+            ),
+            cloudNotificationClearCallerInvalid: String(
+                localized: "socket.notification.clear.callerInvalid",
+                defaultValue: "Missing or invalid caller"
+            ),
+            cloudNotificationClearCallerSelectorsRequireCaller: String(
+                localized: "socket.notification.clear.callerSelectorsRequireCaller",
+                defaultValue: "caller-only selectors require caller=true"
+            ),
+            cloudNotificationClearCallerScopeConflict: String(
+                localized: "socket.notification.clear.callerScopeConflict",
+                defaultValue: "caller clear cannot be combined with workspace_id, tab_id, or surface_id"
+            ),
+            cloudNotificationClearEncodingFailed: String(
+                localized: "remoteDaemon.error.cloudNotificationClearEncodingFailed",
+                defaultValue: "Failed to encode Cloud CLI request"
             )
         )
     }

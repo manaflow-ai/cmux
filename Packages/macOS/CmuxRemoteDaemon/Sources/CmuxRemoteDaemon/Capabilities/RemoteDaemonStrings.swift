@@ -17,6 +17,14 @@ public struct RemoteDaemonStrings: Sendable, Equatable {
     public let cloudNotificationClearWorkspaceDenied: String
     /// Invalid surface selector in a cloud notification clear request.
     public let cloudNotificationClearSurfaceInvalid: String
+    /// Invalid non-null caller selector in a cloud notification clear request.
+    public let cloudNotificationClearCallerInvalid: String
+    /// Caller-only selectors used without caller mode in a cloud clear request.
+    public let cloudNotificationClearCallerSelectorsRequireCaller: String
+    /// Conflicting caller and explicit selectors in a cloud clear request.
+    public let cloudNotificationClearCallerScopeConflict: String
+    /// Encoding failure while forwarding a cloud notification clear request.
+    public let cloudNotificationClearEncodingFailed: String
 
     /// Creates the strings bundle from pre-resolved localized strings.
     ///
@@ -26,18 +34,30 @@ public struct RemoteDaemonStrings: Sendable, Equatable {
     ///   - cloudNotificationClearWorkspaceInvalid: Message for an invalid clear workspace.
     ///   - cloudNotificationClearWorkspaceDenied: Message for a cross-workspace clear.
     ///   - cloudNotificationClearSurfaceInvalid: Message for an invalid clear surface.
+    ///   - cloudNotificationClearCallerInvalid: Message for an invalid caller selector.
+    ///   - cloudNotificationClearCallerSelectorsRequireCaller: Message for caller-only selectors without caller mode.
+    ///   - cloudNotificationClearCallerScopeConflict: Message for conflicting caller and explicit selectors.
+    ///   - cloudNotificationClearEncodingFailed: Message for a clear request encoding failure.
     public init(
         missingPersistentPTYCapability: String,
         missingRequiredFunctionality: String,
         cloudNotificationClearWorkspaceInvalid: String,
         cloudNotificationClearWorkspaceDenied: String,
-        cloudNotificationClearSurfaceInvalid: String
+        cloudNotificationClearSurfaceInvalid: String,
+        cloudNotificationClearCallerInvalid: String = "Missing or invalid caller",
+        cloudNotificationClearCallerSelectorsRequireCaller: String = "caller-only selectors require caller=true",
+        cloudNotificationClearCallerScopeConflict: String = "caller clear cannot be combined with workspace_id or surface_id",
+        cloudNotificationClearEncodingFailed: String = "Failed to encode Cloud CLI request"
     ) {
         self.missingPersistentPTYCapability = missingPersistentPTYCapability
         self.missingRequiredFunctionality = missingRequiredFunctionality
         self.cloudNotificationClearWorkspaceInvalid = cloudNotificationClearWorkspaceInvalid
         self.cloudNotificationClearWorkspaceDenied = cloudNotificationClearWorkspaceDenied
         self.cloudNotificationClearSurfaceInvalid = cloudNotificationClearSurfaceInvalid
+        self.cloudNotificationClearCallerInvalid = cloudNotificationClearCallerInvalid
+        self.cloudNotificationClearCallerSelectorsRequireCaller = cloudNotificationClearCallerSelectorsRequireCaller
+        self.cloudNotificationClearCallerScopeConflict = cloudNotificationClearCallerScopeConflict
+        self.cloudNotificationClearEncodingFailed = cloudNotificationClearEncodingFailed
     }
 
     /// The message shown when the daemon's `hello` lacks required

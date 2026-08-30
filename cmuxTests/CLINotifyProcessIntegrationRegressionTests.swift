@@ -6079,6 +6079,50 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testNotifyClearSurfaceRequiresExplicitWorkspaceOrWindowContext() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("notify-clear-surface-context")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let ambientWorkspace = "11111111-1111-1111-1111-111111111111"
+        let surfaceID = "22222222-2222-2222-2222-222222222222"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
+            self.v2Response(
+                id: self.jsonObject(line)?["id"] as? String ?? "",
+                ok: false,
+                error: ["code": "unexpected", "message": "notify --clear should resolve context before sending"]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = ambientWorkspace
+        environment["CMUX_SURFACE_ID"] = surfaceID
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["notify", "--clear", "--surface", surfaceID],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 1, result.stderr)
+        XCTAssertTrue(
+            result.stderr.contains("notify --clear --surface requires workspace or window context"),
+            result.stderr
+        )
+        XCTAssertTrue(state.commands.isEmpty, "Target resolution must fail before any socket request")
+    }
+
     func testNotificationCLIActionsUseSocketAPIAndParseExtendedFields() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("notif-actions")

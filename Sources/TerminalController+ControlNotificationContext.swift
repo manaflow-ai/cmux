@@ -404,6 +404,22 @@ extension TerminalController: ControlNotificationContext {
             clearWorkspaceIDInvalid: String(
                 localized: "socket.notification.clear.workspaceIdInvalid",
                 defaultValue: "Missing or invalid workspace_id"
+            ),
+            tabManagerUnavailable: String(
+                localized: "socket.workspace.reorderMany.tabManagerUnavailable",
+                defaultValue: "TabManager not available"
+            ),
+            workspaceNotFound: String(
+                localized: "socket.workspace.reorderMany.workspaceNotFound",
+                defaultValue: "Workspace not found"
+            ),
+            surfaceNotFound: String(
+                localized: "socket.pane.error.surfaceNotFound",
+                defaultValue: "Surface not found"
+            ),
+            clearUnavailable: String(
+                localized: "socket.notification.clear.unavailable",
+                defaultValue: "Notifications are unavailable. Try again."
             )
         )
     }
