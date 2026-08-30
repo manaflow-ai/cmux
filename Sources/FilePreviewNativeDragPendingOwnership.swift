@@ -59,7 +59,7 @@ final class FilePreviewNativeDragPendingOwnership {
     /// AppKit drag. NSTableView may ask once per selected row.
     func writers(for sourceView: NSView) -> [Writer] {
         pruneWriterOrder()
-        return orderedWriters.compactMap(.value)
+        return orderedWriters.compactMap { $0.value }
             .filter { $0.sourceViewForDrag === sourceView }
     }
 
@@ -96,7 +96,7 @@ final class FilePreviewNativeDragPendingOwnership {
     func finishPending(preserving preservedWriters: [Writer]) {
         let preservedTokenIDs = Set(preservedWriters.compactMap { $0.provisionalToken?.id })
         pruneWriterOrder()
-        let pendingWriters = orderedWriters.compactMap(.value)
+        let pendingWriters = orderedWriters.compactMap { $0.value }
         for writer in pendingWriters where !preservedWriters.contains(where: { $0 === writer }) {
             if let tokenID = writer.provisionalToken?.id {
                 ownershipByToken[tokenID]?.revokeRouting()
