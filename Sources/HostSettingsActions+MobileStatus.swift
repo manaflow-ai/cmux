@@ -36,9 +36,6 @@ extension HostSettingsActions {
                 return []
             }
         }
-        let irohState = MobileHostIrxRuntime.isEnabled
-            ? status.irxActivationState
-            : status.legacyIrohActivationState
         return MobilePairingStatusSnapshot(
             isRunning: status.isRunning,
             configuredPort: status.configuredPort,
@@ -46,7 +43,7 @@ extension HostSettingsActions {
             usesEphemeralFallback: status.usesEphemeralFallback,
             activeConnectionCount: status.activeConnectionCount,
             routes: routes,
-            irohStatus: mobilePairingStatus(state: irohState),
+            irohStatus: mobilePairingStatus(state: status.effectiveIrohActivationState),
             irohBrokerOperation: status.irxBrokerFailure?.operation.rawValue,
             irohBrokerErrorCode: status.irxBrokerFailure?.errorCode
         )

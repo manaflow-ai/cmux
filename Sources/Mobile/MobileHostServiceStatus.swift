@@ -15,10 +15,18 @@ struct MobileHostServiceStatus {
     let irxActivationState: IrxHostActivationState
     let irxBrokerFailure: IrxBrokerFailure?
     /// Lifecycle projection owned by the legacy Iroh runtime when irx is off.
-    let legacyIrohActivationState: IrxHostActivationState = .inactive
+    var legacyIrohActivationState: IrxHostActivationState = .inactive
+
+    /// Lifecycle state for the runtime that currently owns the Iroh binding.
+    var effectiveIrohActivationState: IrxHostActivationState {
+        MobileHostIrxRuntime.isEnabled
+            ? irxActivationState
+            : legacyIrohActivationState
+    }
 
     var payload: [String: Any] {
         let now = Date()
+        let irohState = effectiveIrohActivationState
         return [
             "is_running": isRunning,
             "port": port ?? NSNull(),
@@ -27,8 +35,8 @@ struct MobileHostServiceStatus {
             "routes": routes.mobileHostJSONObjects(for: .authenticated, at: now),
             "active_connection_count": activeConnectionCount,
             "last_error": lastErrorDescription ?? NSNull(),
-            "iroh_activation_state": irxActivationState.rawValue,
-            "iroh_requires_reauthentication": irxActivationState
+            "iroh_activation_state": irohState.rawValue,
+            "iroh_requires_reauthentication": irohState
                 == .reauthenticationRequired
         ]
     }
