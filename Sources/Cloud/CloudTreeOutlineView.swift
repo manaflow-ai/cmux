@@ -299,7 +299,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 toggle(node)
             case .workspace(let machine, let workspace, _, let openIn):
                 // Open-or-focus (D13). Already showing in a local workspace -> go there
-                // (the row's open mark says so) instead of opening a second copy; a
+                // instead of opening a second copy; a
                 // stray pane showing one of its terminals -> focus that pane.
                 // Otherwise the remote workspace opens as its OWN local workspace —
                 // remote and local workspaces never intermingle. D9: open never
