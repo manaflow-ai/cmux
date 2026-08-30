@@ -758,6 +758,12 @@ async fn serve_connection(
         finished: AtomicBool::new(false),
         done,
     });
+    // Identified tunnel transports must be admitted before their first
+    // manager frame. The active snapshot itself is the disconnect fence, so
+    // no historical per-connection tombstone is needed.
+    if connection.authority_current() {
+        manager.update_transport_auth(&connection.frame_context());
+    }
     // Writer: the only task that touches the write half. Applies the flow
     // water marks as the queue drains.
     let mut writer = {
