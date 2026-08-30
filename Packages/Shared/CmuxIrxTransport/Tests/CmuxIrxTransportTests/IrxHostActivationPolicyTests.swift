@@ -57,6 +57,24 @@ struct IrxHostActivationPolicyTests {
         )
     }
 
+    @Test("a wire error code cannot masquerade as missing authentication")
+    func wireMissingAuthenticationCodeDoesNotEscalate() {
+        let failure = IrxBrokerFailure(
+            operation: .register,
+            error: CmxIrohTrustBrokerClientError.rejected(
+                statusCode: 400,
+                code: "missing_authentication"
+            )
+        )
+        #expect(
+            policy.decision(
+                for: failure,
+                failureCount: 20,
+                jitterUnitInterval: 0
+            ) == .stopped
+        )
+    }
+
     @Test("a second broker 401 stays on the bounded transient ladder")
     func finalBrokerUnauthorizedIsRetryableAfterRecovery() {
         let failure = IrxBrokerFailure(

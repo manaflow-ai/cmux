@@ -65,7 +65,8 @@ public struct IrxHostActivationPolicy: Equatable, Sendable {
            failureCount >= Self.maximumPostRecoveryUnauthorizedFailures {
             return .reauthenticationRequired
         }
-        if failure.errorCode == "missing_authentication",
+        if failure.statusCode == nil,
+           failure.errorCode == "missing_authentication",
            failureCount >= Self.maximumMissingAuthenticationFailures {
             return .reauthenticationRequired
         }
