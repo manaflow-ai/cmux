@@ -21,6 +21,7 @@ public actor IrxRelayCredentialAutopilot {
     private let journal: IrxJournal
     private let clock: any CmxIrohRelayClock
     private var loop: Task<Void, Never>?
+    private var loopGeneration: UInt64 = 0
     /// Runs after every successful rotation. Hosts re-register here so their
     /// advertised relay hint (server-capped at a 1h lifetime) never expires.
     public var onRotation: (@Sendable () async throws -> Void)?
@@ -64,11 +65,14 @@ public actor IrxRelayCredentialAutopilot {
     /// Starts the refresh loop. Idempotent; cancelled by `stop()`.
     public func start() {
         guard loop == nil else { return }
-        loop = Task { await self.run() }
+        loopGeneration &+= 1
+        let generation = loopGeneration
+        loop = Task { await self.run(generation: generation) }
         journal.record("credential-autopilot", "started")
     }
 
     public func stop() {
+        loopGeneration &+= 1
         loop?.cancel()
         loop = nil
         journal.record("credential-autopilot", "stopped")
@@ -78,24 +82,36 @@ public actor IrxRelayCredentialAutopilot {
     /// leave a stale sleep deadline in charge of renewal. Credential freshness
     /// is re-evaluated before minting, so foregrounding does not churn tokens.
     public func kick() {
+        loopGeneration &+= 1
+        let generation = loopGeneration
         loop?.cancel()
-        loop = Task { await self.run() }
+        loop = Task { await self.run(generation: generation) }
         journal.record("credential-autopilot", "kicked")
     }
 
     /// Retries a known pending hint registration without minting a new relay
     /// credential. Used by a host immediately after deferred activation.
     public func kickHintRefresh() {
+        loopGeneration &+= 1
+        let generation = loopGeneration
         loop?.cancel()
         loop = Task {
-            guard await self.refreshHint(initialFailureCount: 0) != .stopped else { return }
+            let outcome = await self.refreshHint(initialFailureCount: 0)
+            guard outcome != .stopped else {
+                self.clearLoopIfCurrent(generation: generation)
+                return
+            }
             guard !Task.isCancelled else { return }
-            await self.run()
+            await self.run(generation: generation)
         }
         journal.record("credential-autopilot", "hint-refresh-kicked")
     }
 
-    private func run(bypassRefreshDeadlineOnce: Bool = false) async {
+    private func run(
+        bypassRefreshDeadlineOnce: Bool = false,
+        generation: UInt64
+    ) async {
+        defer { clearLoopIfCurrent(generation: generation) }
         var bypassRefreshDeadlineOnce = bypassRefreshDeadlineOnce
         var failureCount = 0
         while !Task.isCancelled {
@@ -143,6 +159,11 @@ public actor IrxRelayCredentialAutopilot {
                 bypassRefreshDeadlineOnce = true
             }
         }
+    }
+
+    private func clearLoopIfCurrent(generation: UInt64) {
+        guard loopGeneration == generation else { return }
+        loop = nil
     }
 
     /// Retries a failed hint registration without minting another credential.

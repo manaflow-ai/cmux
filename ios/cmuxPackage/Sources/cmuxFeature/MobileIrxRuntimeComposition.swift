@@ -67,10 +67,10 @@ public actor MobileIrxRuntimeComposition {
     public nonisolated let tag: String
     private let stateDirectory: URL
 
-    private weak var auth: AuthCoordinator?
+    weak var auth: AuthCoordinator?
     /// Identity donor (identity adoption): the legacy composition owns the
     /// Keychain identity, app-instance scope, and durable device ID.
-    private weak var legacyComposition: MobileIrohRuntimeComposition?
+    weak var legacyComposition: MobileIrohRuntimeComposition?
     // Internal for the lifecycle extension, which is the sole additional
     // owner of sign-out teardown for this actor.
     var broker: IrxBrokerService?
@@ -274,8 +274,7 @@ public actor MobileIrxRuntimeComposition {
             ),
             journal: Self.journal
         )
-        let pilot = IrxRelayCredentialAutopilot(
-            broker: broker, endpoint: supervisor, journal: Self.journal)
+        let pilot = await makeAutopilot(broker: broker, endpoint: supervisor)
         // Launch-latency shape (measured on device: registration 636ms +
         // discovery 445ms + lazy bind-to-online 1186ms serialized into a
         // 3.3s first connect): when the binding and trust snapshot are

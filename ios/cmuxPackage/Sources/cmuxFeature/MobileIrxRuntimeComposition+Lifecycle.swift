@@ -1,6 +1,36 @@
 import CmuxIrxTransport
 
 extension MobileIrxRuntimeComposition {
+    /// Creates the client credential autopilot and routes terminal failures to
+    /// this composition's lifecycle owner.
+    func makeAutopilot(
+        broker: IrxBrokerService,
+        endpoint: IrxEndpointSupervisor
+    ) async -> IrxRelayCredentialAutopilot {
+        let pilot = IrxRelayCredentialAutopilot(
+            broker: broker, endpoint: endpoint, journal: Self.journal)
+        await pilot.setOnFailure { [weak self] failure in
+            await self?.handleAutopilotFailure(failure)
+        }
+        return pilot
+    }
+
+    /// Handles a terminal credential-refresh failure without leaving a
+    /// silently dead autopilot. Non-auth failures rebuild through the existing
+    /// bounded provisioning loop; an auth rejection pauses until the next
+    /// explicit foreground/auth recovery.
+    func handleAutopilotFailure(_ failure: IrxBrokerFailure) async {
+        Self.journal.record(
+            "client-runtime", "autopilot-failed", failure.journalAttributes)
+        if failure.requiresReauthentication {
+            await autopilot?.stop()
+            return
+        }
+        guard let auth else { return }
+        await resetForSignOut()
+        await configure(auth: auth, legacy: legacyComposition)
+    }
+
     /// Fences provisioning to one authenticated account at a time.
     func prepareForProvisioning(accountID: String) async {
         if let provisionedAccountID,

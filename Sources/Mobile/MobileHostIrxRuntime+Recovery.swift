@@ -17,6 +17,7 @@ extension MobileHostIrxRuntime {
     func handleAutopilotSuccess(accountID: String, token: UUID) {
         guard generationToken == token, activeAccountID == accountID else { return }
         activationRetryFailureCount = 0
+        activationUnauthorizedFailureCount = 0
         setActivationState(.active)
     }
 
@@ -34,7 +35,33 @@ extension MobileHostIrxRuntime {
             irxActivationState: state,
             failure: lastBrokerFailure
         )
-        publishIrxSettingsUpdate()
+    }
+
+    /// Chooses the generic backoff count or the independent post-recovery
+    /// 401 count, then advances only the counter that belongs to this failure.
+    /// This prevents unrelated outages from escalating a later auth race.
+    private func activationDecision(
+        for failure: IrxBrokerFailure,
+        jitterUnitInterval: Double
+    ) -> IrxHostActivationPolicy.Decision {
+        let isPostRecoveryUnauthorized = failure.statusCode == 401
+            && !failure.requiresReauthentication
+        let count = isPostRecoveryUnauthorized
+            ? activationUnauthorizedFailureCount
+            : activationRetryFailureCount
+        if isPostRecoveryUnauthorized {
+            activationUnauthorizedFailureCount = min(
+                activationUnauthorizedFailureCount + 1,
+                20
+            )
+        } else {
+            activationUnauthorizedFailureCount = 0
+        }
+        return activationRetryPolicy.decision(
+            for: failure,
+            failureCount: count,
+            jitterUnitInterval: jitterUnitInterval
+        )
     }
 
     func handleActivationFailure(
@@ -57,9 +84,8 @@ extension MobileHostIrxRuntime {
                 b: diagnosticFailure.rawValue
             )
         )
-        let decision = activationRetryPolicy.decision(
+        let decision = activationDecision(
             for: failure,
-            failureCount: activationRetryFailureCount,
             jitterUnitInterval: Double.random(in: 0 ... 1)
         )
         switch decision {
@@ -133,11 +159,7 @@ extension MobileHostIrxRuntime {
                         : DiagnosticFailureKind.policyUnavailable.rawValue)
             )
         )
-        let decision = activationRetryPolicy.decision(
-            for: failure,
-            failureCount: activationRetryFailureCount,
-            jitterUnitInterval: 0
-        )
+        let decision = activationDecision(for: failure, jitterUnitInterval: 0)
         if failure.operation == .hintRefresh {
             switch decision {
             case .retry:
@@ -201,6 +223,7 @@ extension MobileHostIrxRuntime {
         activationRetryTask?.cancel()
         activationRetryTask = nil
         activationRetryFailureCount = 0
+        activationUnauthorizedFailureCount = 0
         activationTask?.cancel()
         activationTask = nil
         await cleanupActivationResources()
