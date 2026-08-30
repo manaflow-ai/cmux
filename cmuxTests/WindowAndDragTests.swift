@@ -3055,7 +3055,8 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
             presentation: .find,
             searchController: searchController
         )
-        weak var weakContainer: FileExplorerContainerView? = container
+        weak var weakContainer: FileExplorerContainerView?
+        weakContainer = container
 
         searchController.publish(FileSearchSnapshot(
             query: "needle",
