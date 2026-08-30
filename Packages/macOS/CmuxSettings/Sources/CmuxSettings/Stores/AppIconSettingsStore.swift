@@ -22,7 +22,7 @@ public struct AppIconSettingsStore: Sendable {
     }
 
     /// The persisted icon mode; unrecognized stored values read as
-    /// ``AppIconMode/automatic``.
+    /// ``AppIconMode/system``.
     public var resolvedMode: AppIconMode {
         keys.appIcon.value(in: defaults)
     }

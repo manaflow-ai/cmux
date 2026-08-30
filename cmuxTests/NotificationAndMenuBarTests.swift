@@ -513,6 +513,38 @@ final class AppIconSettingsTests: XCTestCase {
         XCTAssertEqual(stopObservationCallCount, 1)
     }
 
+    func testApplySystemLeavesRuntimeIconUntouched() {
+        var dockTileNotificationCount = 0
+        var startObservationCallCount = 0
+        var stopObservationCallCount = 0
+
+        let environment = AppIconSettings.Environment(
+            isApplicationFinishedLaunching: { true },
+            imageForMode: { mode in
+                XCTFail("System mode should not request an icon image: \(mode.rawValue)")
+                return nil
+            },
+            setApplicationIconImage: { _ in
+                XCTFail("System mode must not assign applicationIconImage, or macOS drops the layered icon's appearance treatment")
+            },
+            startAppearanceObservation: {
+                startObservationCallCount += 1
+            },
+            stopAppearanceObservation: {
+                stopObservationCallCount += 1
+            },
+            notifyDockTilePlugin: {
+                dockTileNotificationCount += 1
+            }
+        )
+
+        AppIconSettings.applyIcon(.system, environment: environment)
+
+        XCTAssertEqual(dockTileNotificationCount, 1)
+        XCTAssertEqual(startObservationCallCount, 0)
+        XCTAssertEqual(stopObservationCallCount, 1)
+    }
+
     func testApplyAutomaticStartsObservationAndNotifiesDockTilePlugin() {
         var dockTileNotificationCount = 0
         var startObservationCallCount = 0

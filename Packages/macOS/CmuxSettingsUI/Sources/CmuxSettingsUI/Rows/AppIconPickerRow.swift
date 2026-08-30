@@ -39,7 +39,14 @@ struct AppIconPickerRow: View {
                     } label: {
                         VStack(spacing: 4) {
                             Group {
-                                if mode == .automatic {
+                                if mode == .system {
+                                    // Already shaped and appearance-treated by the
+                                    // system, so it needs no clipShape of its own.
+                                    Image(nsImage: NSApplication.shared.applicationIconImage)
+                                        .resizable()
+                                        .interpolation(.high)
+                                        .frame(width: iconSize, height: iconSize)
+                                } else if mode == .automatic {
                                     ZStack {
                                         Image("AppIconLight", bundle: .main)
                                             .resizable()
@@ -96,6 +103,7 @@ struct AppIconPickerRow: View {
 
     private func iconAssetName(for mode: AppIconMode) -> String {
         switch mode {
+        case .system: return "AppIconLight"
         case .automatic: return "AppIconLight"
         case .light: return "AppIconLight"
         case .dark: return "AppIconDark"
@@ -104,6 +112,7 @@ struct AppIconPickerRow: View {
 
     private func iconDisplayName(_ mode: AppIconMode) -> String {
         switch mode {
+        case .system: return String(localized: "appIcon.system", defaultValue: "System")
         case .automatic: return String(localized: "appIcon.automatic", defaultValue: "Automatic")
         case .light: return String(localized: "appIcon.light", defaultValue: "Light")
         case .dark: return String(localized: "appIcon.dark", defaultValue: "Dark")
