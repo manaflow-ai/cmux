@@ -1241,8 +1241,8 @@ impl Inner {
         let closing = Arc::new(AtomicBool::new(false));
         let (on_data, on_exit) = self.sinks(pty_id, context);
 
-        // The per-attachment control proxies onto the session pty but its
-        // kill() only unhooks this viewer (release), never the session.
+        // The per-attachment control proxies onto the session pty. Its
+        // kill() releases this viewer and any pause it owns, never the session.
         let proxy = Arc::new(ShellViewerControl {
             session: Arc::clone(&shell_session),
             viewer_id,
