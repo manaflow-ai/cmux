@@ -1496,7 +1496,9 @@ struct RestorableAgentSessionIndex: Sendable {
     func liveAgentProcessFingerprint() -> Set<String> {
         Set(entriesByPanel.map { key, entry in
             let processIDs = entry.agentProcessIDs.isEmpty ? entry.processIDs : entry.agentProcessIDs
-            let processIdentities = entry.agentProcessIdentities
+            let processIdentities = (entry.agentProcessIdentities.isEmpty
+                ? entry.processIdentities
+                : entry.agentProcessIdentities)
                 .sorted { $0.key < $1.key }
                 .map { processID, identity in
                     "\(processID):\(identity.startSeconds):\(identity.startMicroseconds)"
