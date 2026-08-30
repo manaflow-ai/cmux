@@ -607,9 +607,6 @@ jobs:
       # and cheap so xcodebuild can restart/finish the suite.
       SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
       CMUX_XCODEBUILD_NONINTERACTIVE_POST_TEST_TIMEOUT_SECONDS: "45"
-      # Serial app-host execution takes about 18.7 minutes per measured shard.
-      # Keep a bounded 30-minute budget for runner variance and cleanup.
-      CMUX_UNIT_TEST_TIMEOUT_SECONDS: "1800"
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
