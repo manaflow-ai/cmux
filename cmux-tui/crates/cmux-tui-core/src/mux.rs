@@ -1097,6 +1097,10 @@ struct AgentRosterHost {
     /// Cursor included in the last durable snapshot. The journal remains the
     /// source of truth between snapshots, so folds can coalesce metadata I/O.
     persisted_cursor: u64,
+    /// Startup replay stops after a bounded prefix. The owning `Mux` starts
+    /// the coalesced worker after its self-reference is ready when more rows
+    /// remain.
+    startup_replay_pending: bool,
 }
 
 /// Bound synchronous reducer metadata writes while keeping restart replay
@@ -1106,6 +1110,9 @@ const AGENT_ROSTER_SNAPSHOT_INTERVAL: u64 = 32;
 /// reducer cursor must not turn a polling request into an unbounded replay.
 /// A coalesced background worker continues from the durable cursor.
 const AGENT_ROSTER_FOLD_RECORD_LIMIT: usize = 512;
+/// Keep construction work bounded even when a snapshot is missing or stale.
+/// The worker drains the remaining journal after the mux is usable.
+const AGENT_ROSTER_STARTUP_FOLD_RECORD_LIMIT: usize = 512;
 /// A blocked roster fold must not keep a worker thread alive forever when the
 /// projection is waiting on an external retry. The timeout is only a wake-up
 /// bound; SQLite remains the source of truth and no state is inferred from it.
@@ -1132,7 +1139,12 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
             match AgentRoster::restore(&snapshot) {
                 Some(roster) => {
                     snapshot_valid = true;
-                    AgentRosterHost { roster, cursor, persisted_cursor: cursor }
+                    AgentRosterHost {
+                        roster,
+                        cursor,
+                        persisted_cursor: cursor,
+                        startup_replay_pending: false,
+                    }
                 }
                 None => {
                     eprintln!("cmux-tui: invalid agent roster snapshot; replaying journal");
@@ -1143,8 +1155,17 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
         _ => AgentRosterHost::default(),
     };
     let initial_cursor = host.cursor;
+    let mut replayed_records = 0usize;
     loop {
-        let page = registry.session_journal_after(host.cursor, AGENT_ROSTER_FOLD_RECORD_LIMIT)?;
+        let remaining_budget =
+            AGENT_ROSTER_STARTUP_FOLD_RECORD_LIMIT.saturating_sub(replayed_records);
+        if remaining_budget == 0 {
+            break;
+        }
+        let page = registry.session_journal_after(
+            host.cursor,
+            remaining_budget.min(AGENT_ROSTER_FOLD_RECORD_LIMIT),
+        )?;
         if page.records.is_empty() {
             break;
         }
@@ -1152,6 +1173,7 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
             registry.agent_hook_projection_sequence_states(host.cursor, page.head_sequence)?;
         let previous_cursor = host.cursor;
         let mut blocked_on_pending = false;
+        let mut processed_records = 0usize;
         for record in &page.records {
             if pending_sequences.contains(&record.sequence) {
                 // Do not restore later rows across a projection that may
@@ -1165,12 +1187,22 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
                 // skip. Replaying its rejected event would recreate state
                 // that the authoritative projection refused.
                 host.cursor = record.sequence;
+                processed_records += 1;
                 continue;
             }
             host.roster.apply(&RosterEvent::from_record(record));
             host.cursor = host.cursor.max(record.sequence);
+            processed_records += 1;
         }
+        replayed_records = replayed_records.saturating_add(processed_records);
         if blocked_on_pending || host.cursor == previous_cursor {
+            break;
+        }
+        if host.cursor >= page.head_sequence {
+            break;
+        }
+        if replayed_records >= AGENT_ROSTER_STARTUP_FOLD_RECORD_LIMIT {
+            host.startup_replay_pending = true;
             break;
         }
     }
@@ -2735,6 +2767,13 @@ impl Mux {
         }
         mux.reconcile_retired_terminal_side_tables();
         mux.retry_pending_agent_hooks()?;
+        let startup_replay_pending = mux.agent_roster.lock().unwrap().startup_replay_pending;
+        if startup_replay_pending {
+            // Construction replay is intentionally bounded. Start the worker
+            // only after the Arc self-reference exists and restored surfaces
+            // are materialized, so it can safely finish the durable tail.
+            mux.schedule_agent_roster_fold_worker();
+        }
         crate::journal_hooks::start(&mux)?;
         Ok(mux)
     }
@@ -9811,6 +9850,13 @@ impl Mux {
             "source":source.as_str(),
             "source_session":session,
         });
+        // Socket echo admission and its resource commit must share the same
+        // fence. Otherwise two equal polls can both derive the same key
+        // before either one publishes the receipt, and the replay path would
+        // incorrectly report a missing fresh record.
+        let socket_sequence_guard = (source == AgentSource::Socket && !sequence_lock_held)
+            .then(|| self.agent_hook_fences.lock().unwrap());
+        let commit_sequence_lock_held = sequence_lock_held || socket_sequence_guard.is_some();
         let (echo_sequence, echo_timestamp, echo_ingress) = if source == AgentSource::Socket {
             let terminal_id = {
                 let state_guard = self.state.lock().unwrap();
@@ -9844,7 +9890,7 @@ impl Mux {
         } else {
             (journal_sequence, None, None)
         };
-        let (_, record) = self.commit_agent_report(
+        let commit_result = self.commit_agent_report(
             AgentReportTarget::Surface(surface),
             state,
             source,
@@ -9852,14 +9898,16 @@ impl Mux {
             None,
             &mutation,
             &fingerprint,
-            sequence_lock_held,
+            commit_sequence_lock_held,
             hook_state.as_ref(),
             echo_sequence,
             origin,
             agent_adapter,
             echo_timestamp,
             echo_ingress.as_ref(),
-        )?;
+        );
+        drop(socket_sequence_guard);
+        let (_, record) = commit_result?;
         let record = record.context("fresh raw agent report unexpectedly replayed")?;
         if source != AgentSource::Hook {
             // A successful report means this terminal is available. Retry only
@@ -9888,6 +9936,11 @@ impl Mux {
             "source":source.as_str(),
             "source_session":source_session,
         });
+        // Hold the hook fence while deriving the semantic echo key and
+        // committing it. This closes the equal-poll race without adding a
+        // second, independent serialization primitive.
+        let socket_sequence_guard =
+            (source == AgentSource::Socket).then(|| self.agent_hook_fences.lock().unwrap());
         let (journal_sequence, reported_at_ms, echo_ingress) = if source == AgentSource::Socket {
             let timestamp = now_ms();
             match self.agent_report_echo_key(
@@ -9920,7 +9973,7 @@ impl Mux {
             expected_revision,
             mutation,
             &fingerprint,
-            false,
+            socket_sequence_guard.is_some(),
             None,
             journal_sequence,
             AgentReportOrigin::Direct,
@@ -9928,6 +9981,7 @@ impl Mux {
             reported_at_ms,
             echo_ingress.as_ref(),
         );
+        drop(socket_sequence_guard);
         if result.is_ok() && source != AgentSource::Hook {
             let _ = self.retry_pending_agent_hooks_for_terminal(terminal_id);
         }
@@ -10216,6 +10270,17 @@ impl Mux {
         drop(records);
         drop(state);
         drop(registry);
+        // The fence protects the commit only. Release it before folding the
+        // journal row so a future fold implementation cannot re-enter the
+        // report serialization domain.
+        drop(sequence_guard);
+        let publish_echo = !commit.replayed && echo_sequence.is_some();
+        if publish_echo {
+            // This transaction appended a journal row as well as updating the
+            // resource projection. Wake tail readers before the synchronous
+            // reducer work so they never wait for an unrelated event.
+            self.publish_journal_event();
+        }
         if let (Some((ingress, _)), Some(sequence)) = (echo_ingress, echo_fold_sequence) {
             self.fold_agent_roster(
                 ingress,
@@ -10232,7 +10297,9 @@ impl Mux {
             updated_at_ms: record.updated_at_ms,
         };
         if !commit.replayed {
-            self.publish_resource_event();
+            if !publish_echo {
+                self.publish_resource_event();
+            }
             self.emit(MuxEvent::AgentChanged {
                 surface: agent.surface,
                 state: Arc::from(agent.state.as_str()),
@@ -23669,7 +23736,7 @@ mod tests {
     }
 
     #[test]
-    fn roster_restore_replays_beyond_legacy_record_cap() {
+    fn roster_restore_bounds_startup_replay_and_schedules_the_tail() {
         let root = std::env::temp_dir()
             .join(format!("cmux-roster-large-replay-{}", crate::workspace_registry::new_uuid_v4()));
         let mux =
@@ -23684,7 +23751,7 @@ mod tests {
         )
         .unwrap();
         let validated = mux.journal_kernel.validate_ingress(&event).unwrap();
-        for index in 0..100_001 {
+        for index in 0..(AGENT_ROSTER_STARTUP_FOLD_RECORD_LIMIT + 1) {
             mux.workspace_registry
                 .lock()
                 .unwrap()
@@ -23708,9 +23775,30 @@ mod tests {
                 "{malformed",
             )
             .unwrap();
+        let head = registry.session_journal_after(0, 1).unwrap().head_sequence;
         let restored = restore_agent_roster(&registry).unwrap();
-        assert_eq!(restored.cursor, registry.session_journal_after(0, 1).unwrap().head_sequence);
+        assert!(restored.cursor < head, "startup replay must stop before the tail");
+        assert!(restored.startup_replay_pending);
         assert!(restored.roster.entries.contains_key(terminal_id.as_str()));
+
+        // Construction starts the bounded continuation only after the mux
+        // owns a self-reference. The worker must eventually converge without
+        // making startup itself scan the full journal.
+        let mux = Mux::from_workspace_registry(
+            "roster-large-replay".into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while mux.agent_roster.lock().unwrap().cursor < head {
+            assert!(Instant::now() < deadline, "roster worker did not drain the tail");
+            std::thread::yield_now();
+        }
+        mux.shutdown();
+        drop(mux);
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -23885,6 +23973,52 @@ mod tests {
         mux.shutdown();
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn concurrent_identical_socket_reports_share_one_echo_receipt() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let left = mux.clone();
+        let right = mux.clone();
+        let surface_id = surface.id;
+        let (left_result, right_result) = std::thread::scope(|scope| {
+            let left = scope.spawn(|| {
+                left.report_agent(
+                    surface_id,
+                    AgentState::Working,
+                    AgentSource::Socket,
+                    Some("concurrent-poll".into()),
+                )
+            });
+            let right = scope.spawn(|| {
+                right.report_agent(
+                    surface_id,
+                    AgentState::Working,
+                    AgentSource::Socket,
+                    Some("concurrent-poll".into()),
+                )
+            });
+            (left.join().expect("left report thread"), right.join().expect("right report thread"))
+        });
+        assert!(left_result.is_ok(), "left socket report failed: {left_result:?}");
+        assert!(right_result.is_ok(), "right socket report failed: {right_result:?}");
+        let echoes = mux
+            .session_journal_after(0, 1024)
+            .unwrap()
+            .records
+            .into_iter()
+            .filter(|record| {
+                record
+                    .payload
+                    .get("adapter")
+                    .and_then(|adapter| adapter.get("id"))
+                    .and_then(Value::as_str)
+                    == Some(crate::journal_reducers::SOCKET_REPORT_ADAPTER)
+            })
+            .count();
+        assert_eq!(echoes, 1, "equal concurrent polls must append one echo");
+        mux.shutdown();
     }
 
     #[test]
