@@ -545,6 +545,7 @@ fn make_context(
     pending: &Arc<AtomicU64>,
     auth: &AuthSnapshot,
     transport_id: &str,
+    transport_generation: u64,
 ) -> FrameContext {
     let sender = out.clone();
     let pending_send = Arc::clone(pending);
@@ -579,6 +580,7 @@ fn make_context(
         transport_id: Some(transport_id.to_owned()),
         transport_kind: TransportKind::Relay,
         auth_generation: None,
+        transport_generation,
     }
 }
 
@@ -647,7 +649,12 @@ async fn relay_session(
         .map_err(|_| RelayError::transient("unable to initialize relay transport identity"))?;
     // Admit this typed owner before any PTY frame can reach the manager. The
     // registry entry is removed by the disconnect cleanup below.
-    runtime.pty.register_transport_kind(&transport_id, TransportKind::Relay);
+    #[cfg(unix)]
+    let Some(transport_generation) =
+        runtime.pty.register_transport_kind(&transport_id, TransportKind::Relay)
+    else {
+        return Err(RelayError::transient("unable to initialize relay transport registry"));
+    };
 
     // Ordered PTY frame dispatch on its own task so a slow open (daemon
     // spawn) never stalls heartbeats or other frames.
@@ -675,7 +682,8 @@ async fn relay_session(
                     }
                 };
                 let snapshot = auth.lock().expect("auth lock").clone();
-                let context = make_context(&out, &pending, &snapshot, &transport);
+                let context =
+                    make_context(&out, &pending, &snapshot, &transport, transport_generation);
                 tokio::select! {
                     biased;
                     _ = cancellation.cancelled() => break,
@@ -971,7 +979,13 @@ async fn relay_session(
                             // frame context, but it cannot publish that stale
                             // authority back into the manager.
                             let snapshot = auth.lock().expect("auth lock").clone();
-                            let context = make_context(&out_tx, &pending, &snapshot, &transport_id);
+                            let context = make_context(
+                                &out_tx,
+                                &pending,
+                                &snapshot,
+                                &transport_id,
+                                transport_generation,
+                            );
                             runtime.pty.update_transport_auth(&context);
                         }
                         let cadence = Duration::from_millis(hello.heartbeat_interval_ms);
@@ -1037,7 +1051,13 @@ async fn relay_session(
                                     owner_user_id: snapshot.owner.clone(),
                                 }),
                             );
-                            let context = make_context(&out_tx, &pending, &snapshot, &transport_id);
+                            let context = make_context(
+                                &out_tx,
+                                &pending,
+                                &snapshot,
+                                &transport_id,
+                                transport_generation,
+                            );
                             runtime.pty.update_transport_auth(&context);
                         }
                         workspace.set_local_observe(ack == Trust::Observe);
@@ -1149,8 +1169,13 @@ async fn relay_session(
                                 // bounded work queue is saturated. The manager close path is
                                 // synchronous and short, so this cannot create an unbounded wait.
                                 let snapshot = auth_direct.lock().expect("auth lock").clone();
-                                let context =
-                                    make_context(&out_tx, &pending, &snapshot, &transport_id);
+                                let context = make_context(
+                                    &out_tx,
+                                    &pending,
+                                    &snapshot,
+                                    &transport_id,
+                                    transport_generation,
+                                );
                                 tokio::select! {
                                     biased;
                                     _ = cancellation.cancelled() => break Ok(connected),
@@ -1283,7 +1308,7 @@ async fn relay_session(
     // managed tunnel listener's attachments are another transport's — a
     // reconnect must never detach them (docs/TERMINAL.md).
     #[cfg(unix)]
-    runtime.pty.detach_transport_kind(&transport_id, TransportKind::Relay);
+    runtime.pty.detach_transport_kind(&transport_id, TransportKind::Relay, transport_generation);
     result
 }
 
