@@ -21,7 +21,39 @@ struct AgentHibernationRecord {
     let panelProcessIDs: Set<Int>
     let processIDs: Set<Int>
     let processIdentities: [Int: AgentPIDProcessIdentity]
-    let processLiveness: RestorableAgentProcessLiveness = .unknown
+    let processLiveness: RestorableAgentProcessLiveness
+
+    init(
+        key: AgentHibernationPanelKey,
+        workspace: Workspace,
+        terminalPanel: TerminalPanel,
+        agent: SessionRestorableAgentSnapshot,
+        lifecycle: AgentHibernationLifecycleState,
+        hasUnconfirmedTerminalInput: Bool,
+        lastActivityAt: TimeInterval,
+        isProtected: Bool,
+        hasLiveProcess: Bool,
+        containsUnrelatedProcess: Bool,
+        panelProcessIDs: Set<Int>,
+        processIDs: Set<Int>,
+        processIdentities: [Int: AgentPIDProcessIdentity],
+        processLiveness: RestorableAgentProcessLiveness = .unknown
+    ) {
+        self.key = key
+        self.workspace = workspace
+        self.terminalPanel = terminalPanel
+        self.agent = agent
+        self.lifecycle = lifecycle
+        self.hasUnconfirmedTerminalInput = hasUnconfirmedTerminalInput
+        self.lastActivityAt = lastActivityAt
+        self.isProtected = isProtected
+        self.hasLiveProcess = hasLiveProcess
+        self.containsUnrelatedProcess = containsUnrelatedProcess
+        self.panelProcessIDs = panelProcessIDs
+        self.processIDs = processIDs
+        self.processIdentities = processIdentities
+        self.processLiveness = processLiveness
+    }
 }
 
 @MainActor
