@@ -62,6 +62,27 @@ final class MainWindowFocusController {
         didSet {
             syncBonsplitTabShortcutHintEligibility()
             publishRightSidebarOwnsInputFocus()
+
+            // The Commands body derives Dock enablement from this controller,
+            // which is intentionally a MainActor model rather than an
+            // ObservableObject. Publish the ownership transition explicitly so
+            // menu items re-evaluate even when the Dock capability values
+            // themselves remain unchanged (for example, focusing an already
+            // selected Dock terminal).
+            let wasDockFocused: Bool = {
+                guard case .rightSidebar(.dock) = oldValue else { return false }
+                return true
+            }()
+            let isDockFocused: Bool = {
+                guard case .rightSidebar(.dock) = intent else { return false }
+                return true
+            }()
+            if wasDockFocused != isDockFocused {
+                NotificationCenter.default.post(
+                    name: .dockMenuCapabilitiesDidChange,
+                    object: self
+                )
+            }
         }
     }
 
