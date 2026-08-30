@@ -508,6 +508,31 @@ mod tests {
     }
 
     #[test]
+    fn scan_queue_preserves_fairness_when_catalog_order_changes() {
+        let mut tracker = ScreenDetectTracker::default();
+        let first_catalog = ["term_a", "term_b", "term_c", "term_d", "term_e", "term_f"];
+        let reordered_catalog = ["term_f", "term_e", "term_d", "term_c", "term_b", "term_a"];
+
+        let first_indices = tracker.scan_indices(&first_catalog, 2);
+        assert_eq!(&first_indices[..2], &[0, 1]);
+        let second_indices = tracker.scan_indices(&reordered_catalog, 2);
+        assert_eq!(&second_indices[..2], &[3, 2]);
+
+        let mut seen = std::collections::HashSet::new();
+        for &index in &first_indices[..2] {
+            seen.insert(first_catalog[index]);
+        }
+        for &index in &second_indices[..2] {
+            seen.insert(reordered_catalog[index]);
+        }
+        let third_indices = tracker.scan_indices(&first_catalog, 2);
+        for &index in &third_indices[..2] {
+            seen.insert(first_catalog[index]);
+        }
+        assert_eq!(seen.len(), first_catalog.len());
+    }
+
+    #[test]
     fn identity_edge_stays_pending_when_screen_evaluation_fails() {
         let mut tracker = ScreenDetectTracker::default();
         let now = Instant::now();
