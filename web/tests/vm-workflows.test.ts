@@ -2631,7 +2631,7 @@ describe("VM Effect workflows", () => {
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
     await sql`
       insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
-      values ('user-workflow-resume-ssh', 'team-workflow-resume-ssh', 'free', 'freestyle', 'provider-vm-resume-ssh', 'snapshot-test', 'paused')
+      values ('user-workflow-resume-ssh', 'team-workflow-resume-ssh', 'pro', 'freestyle', 'provider-vm-resume-ssh', 'snapshot-test', 'paused')
     `;
 
     let resumeCalls = 0;
@@ -2892,7 +2892,7 @@ describe("VM Effect workflows", () => {
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
     await sql`
       insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
-      values ('user-workflow-resume-fail', 'team-workflow-resume-fail', 'free', 'freestyle', 'provider-vm-resume-fail', 'snapshot-test', 'paused')
+      values ('user-workflow-resume-fail', 'team-workflow-resume-fail', 'pro', 'freestyle', 'provider-vm-resume-fail', 'snapshot-test', 'paused')
     `;
 
     const resumeError = new VmProviderOperationError({
