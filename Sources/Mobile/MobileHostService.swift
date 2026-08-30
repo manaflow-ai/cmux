@@ -1245,6 +1245,11 @@ final class MobileHostService {
         let isRunning = (listener != nil && listenerPort != nil)
             || MobileHostPublicStatusCache.hasIrohRoute()
         let irxStatus = MobileHostPublicStatusCache.irxActivationStatus()
+        let legacyIrohState = MobileHostIrohRuntime.shared.publishedIrohActivationState
+        let legacyIrohFailure = MobileHostIrohRuntime.shared.publishedIrohBrokerFailure
+        let effectiveIrxStatus = MobileHostIrxRuntime.isEnabled
+            ? irxStatus
+            : (state: legacyIrohState, failure: legacyIrohFailure)
         return MobileHostServiceStatus(
             isRunning: isRunning,
             port: listenerPort,
@@ -1255,11 +1260,9 @@ final class MobileHostService {
             routes: routes,
             activeConnectionCount: MobileHostConnectionRegistry.shared.count,
             lastErrorDescription: lastErrorDescription,
-            irxActivationState: irxStatus.state,
-            irxBrokerFailure: irxStatus.failure,
-            effectiveIrohActivationState: MobileHostIrxRuntime.isEnabled
-                ? irxStatus.state
-                : MobileHostIrohRuntime.shared.publishedIrohActivationState
+            irxActivationState: effectiveIrxStatus.state,
+            irxBrokerFailure: effectiveIrxStatus.failure,
+            effectiveIrohActivationState: effectiveIrxStatus.state
         )
     }
 
