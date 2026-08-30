@@ -27,9 +27,7 @@ struct MobileHostServiceStatus {
             "last_error": lastErrorDescription ?? NSNull(),
             "iroh_activation_state": irxActivationState.rawValue,
             "iroh_requires_reauthentication": irxActivationState
-                == .reauthenticationRequired,
-            "iroh_broker_operation": irxBrokerFailure?.operation.rawValue ?? NSNull(),
-            "iroh_broker_error_code": irxBrokerFailure?.errorCode ?? NSNull()
+                == .reauthenticationRequired
         ]
     }
 }

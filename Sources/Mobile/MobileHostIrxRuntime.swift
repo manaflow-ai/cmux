@@ -354,11 +354,12 @@ final class MobileHostIrxRuntime {
         // Admission reads the persisted trust snapshot synchronously; it
         // never awaits the broker (steady-state independence).
         guard let stateDirectory else { return }
+        let trustReader = IrxDiskCacheTrustReader(stateDirectory: stateDirectory)
         let judge = IrxGrantJudge(
             acceptor: acceptor,
-            trustProvider: { IrxDiskCacheTrustReader.read(stateDirectory: stateDirectory) }
+            trustProvider: { trustReader.read() }
         )
-        let trustSnapshot = { IrxDiskCacheTrustReader.read(stateDirectory: stateDirectory) }
+        let trustSnapshot = { trustReader.read() }
         let brokerClient = brokerService.hostBrokerClient
         let rebindClock = CmxIrohSystemRelayClock()
         acceptLoop = Task { [weak self] in

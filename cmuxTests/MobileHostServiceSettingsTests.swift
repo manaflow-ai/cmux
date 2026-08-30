@@ -449,6 +449,8 @@ struct MobileHostTransportRouteCompositionTests {
         #expect(snapshot.irohStatus == .reauthenticationRequired)
         #expect(snapshot.irohBrokerOperation == "register")
         #expect(snapshot.irohBrokerErrorCode == "unauthorized")
+        #expect(status.payload["iroh_broker_operation"] == nil)
+        #expect(status.payload["iroh_broker_error_code"] == nil)
     }
 
     @Test func routeCleanupPreservesIrxLifecycleState() {
