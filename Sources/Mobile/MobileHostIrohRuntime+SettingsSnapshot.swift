@@ -24,7 +24,7 @@ extension MobileHostIrohRuntime {
     /// The definitive broker failure retained for the shared host status
     /// projection. It remains visible after route teardown.
     var publishedIrohBrokerFailure: IrxBrokerFailure? {
-        irohAuthenticationFailure
+        desiredActive ? irohAuthenticationFailure : nil
     }
 
     /// Records a definitive auth rejection from the shared broker client and
