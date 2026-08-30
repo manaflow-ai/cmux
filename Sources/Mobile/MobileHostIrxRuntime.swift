@@ -256,6 +256,7 @@ final class MobileHostIrxRuntime {
                 deferredHintFailure = failure
                 await handleAutopilotFailure(
                     failure,
+                    disposition: .retry(delay: 0),
                     accountID: accountID,
                     token: token
                 )
@@ -273,10 +274,11 @@ final class MobileHostIrxRuntime {
                     pairingEnabled: true, relayURLHint: relay)
                 await self?.handleAutopilotSuccess(accountID: accountID, token: token)
             }
-            await pilot.setOnFailure { [weak self] failure in
+            await pilot.setOnFailure { [weak self] failure, disposition in
                 guard let self else { return }
                 await self.handleAutopilotFailure(
                     failure,
+                    disposition: disposition,
                     accountID: accountID,
                     token: token
                 )

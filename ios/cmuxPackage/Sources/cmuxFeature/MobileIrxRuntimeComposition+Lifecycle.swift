@@ -9,8 +9,8 @@ extension MobileIrxRuntimeComposition {
     ) async -> IrxRelayCredentialAutopilot {
         let pilot = IrxRelayCredentialAutopilot(
             broker: broker, endpoint: endpoint, journal: Self.journal)
-        await pilot.setOnFailure { [weak self] failure in
-            await self?.handleAutopilotFailure(failure)
+        await pilot.setOnFailure { [weak self] failure, disposition in
+            await self?.handleAutopilotFailure(failure, disposition: disposition)
         }
         return pilot
     }
@@ -19,9 +19,13 @@ extension MobileIrxRuntimeComposition {
     /// silently dead autopilot. Non-auth failures rebuild through the existing
     /// bounded provisioning loop; an auth rejection pauses until the next
     /// explicit foreground/auth recovery.
-    func handleAutopilotFailure(_ failure: IrxBrokerFailure) async {
+    func handleAutopilotFailure(
+        _ failure: IrxBrokerFailure,
+        disposition: IrxRelayCredentialAutopilot.FailureDisposition
+    ) async {
         Self.journal.record(
             "client-runtime", "autopilot-failed", failure.journalAttributes)
+        guard case .terminal = disposition else { return }
         if failure.requiresReauthentication {
             await autopilot?.stop()
             return

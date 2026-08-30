@@ -36,17 +36,9 @@ extension HostSettingsActions {
                 return []
             }
         }
-        let irohState: IrxHostActivationState
-        if MobileHostIrxRuntime.isEnabled {
-            irohState = status.irxActivationState
-        } else if status.routes.contains(where: { $0.kind == .iroh }) {
-            // The legacy host publishes the same route cache but does not
-            // write the irx-only lifecycle slot. Reflect its live endpoint in
-            // the shared Mobile settings row when irx is opted out.
-            irohState = .active
-        } else {
-            irohState = status.irxActivationState
-        }
+        let irohState = MobileHostIrxRuntime.isEnabled
+            ? status.irxActivationState
+            : status.legacyIrohActivationState
         return MobilePairingStatusSnapshot(
             isRunning: status.isRunning,
             configuredPort: status.configuredPort,

@@ -140,13 +140,14 @@ extension MobileHostIrxRuntime {
 
     func handleAutopilotFailure(
         _ failure: IrxBrokerFailure,
+        disposition: IrxRelayCredentialAutopilot.FailureDisposition,
         accountID: String,
         token: UUID
     ) async {
         guard generationToken == token, activeAccountID == accountID else { return }
         lastBrokerFailure = failure
-        var attributes = failure.journalAttributes
-        Self.journal.record("host-runtime", "activation-failed", attributes)
+        Self.journal.record(
+            "host-runtime", "activation-failed", failure.journalAttributes)
         MobileHostIrohRuntime.hostDiagnosticLog.record(
             DiagnosticEvent(
                 failure.requiresReauthentication
@@ -159,38 +160,42 @@ extension MobileHostIrxRuntime {
                         : DiagnosticFailureKind.policyUnavailable.rawValue)
             )
         )
-        let decision = activationDecision(for: failure, jitterUnitInterval: 0)
-        if failure.operation == .hintRefresh {
-            switch decision {
-            case .retry:
-                // Hint publication is an optimization; keep the already
-                // bound endpoint healthy while the autopilot retries it.
-                activationRetryFailureCount = min(activationRetryFailureCount + 1, 20)
-                return
-            case .stopped:
-                Self.journal.record(
-                    "host-runtime", "hint-refresh-stopped", failure.journalAttributes)
-                return
-            case .reauthenticationRequired:
-                break
-            }
-        }
-        switch decision {
-        case .reauthenticationRequired:
-            activationRetryTask?.cancel()
-            activationRetryTask = nil
-            setActivationState(.reauthenticationRequired, failure: failure)
-            attributes["state"] = IrxHostActivationState
-                .reauthenticationRequired.rawValue
-            Self.journal.record("host-runtime", "reauthentication-required", attributes)
-            await cleanupActivationResources()
+        switch disposition {
         case .retry:
-            setActivationState(.retrying, failure: failure)
-            activationRetryFailureCount = min(activationRetryFailureCount + 1, 20)
-        case .stopped:
+            if failure.operation == .hintRefresh {
+                // Hint publication is an optimization; keep the already bound
+                // endpoint healthy while the autopilot retries it.
+                setActivationState(.active)
+                return
+            }
+            let endpoint = endpointSupervisor
+            let broker = brokerService
+            let healthy = await endpoint?.isHealthy() ?? false
+            let credentials = await broker?.cachedRelayCredentials() ?? []
+            guard generationToken == token, activeAccountID == accountID else { return }
+            if healthy, credentials.contains(where: { $0.isUsable(at: Date()) }) {
+                setActivationState(.active)
+            } else {
+                setActivationState(.retrying, failure: failure)
+            }
+        case .terminal:
+            let requiresReauthentication = failure.requiresReauthentication
+                || failure.statusCode == 401
+            if requiresReauthentication {
+                activationRetryTask?.cancel()
+                activationRetryTask = nil
+                setActivationState(.reauthenticationRequired, failure: failure)
+                var attributes = failure.journalAttributes
+                attributes["state"] = IrxHostActivationState
+                    .reauthenticationRequired.rawValue
+                Self.journal.record("host-runtime", "reauthentication-required", attributes)
+                await cleanupActivationResources()
+                return
+            }
             activationRetryTask?.cancel()
             activationRetryTask = nil
             setActivationState(.failed, failure: failure)
+            var attributes = failure.journalAttributes
             attributes["state"] = IrxHostActivationState.failed.rawValue
             Self.journal.record("host-runtime", "activation-stopped", attributes)
             await cleanupActivationResources()

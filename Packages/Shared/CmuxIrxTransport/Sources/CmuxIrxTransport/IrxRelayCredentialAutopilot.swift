@@ -16,6 +16,20 @@ public actor IrxRelayCredentialAutopilot {
         case stopped
     }
 
+    private struct FailureCounts: Sendable {
+        var transient = 0
+        var unauthorized = 0
+    }
+
+    /// The disposition the autopilot selected for a classified failure.
+    /// Lifecycle owners must not re-derive this decision from a second counter.
+    public enum FailureDisposition: Equatable, Sendable {
+        /// The autopilot will sleep for the supplied delay before retrying.
+        case retry(delay: TimeInterval)
+        /// The autopilot has stopped and requires lifecycle-owner action.
+        case terminal
+    }
+
     private let broker: IrxBrokerService
     private let endpoint: IrxEndpointSupervisor
     private let journal: IrxJournal
@@ -28,7 +42,7 @@ public actor IrxRelayCredentialAutopilot {
     /// Reports a classified broker failure to the lifecycle owner. The owner
     /// decides whether an auth rejection tears down the endpoint or a transient
     /// failure remains on the bounded refresh ladder.
-    public var onFailure: (@Sendable (IrxBrokerFailure) async -> Void)?
+    public var onFailure: (@Sendable (IrxBrokerFailure, FailureDisposition) async -> Void)?
 
     public init(
         broker: IrxBrokerService,
@@ -47,7 +61,9 @@ public actor IrxRelayCredentialAutopilot {
     }
 
     /// Installs the lifecycle failure sink for mint and hint-refresh errors.
-    public func setOnFailure(_ handler: @escaping @Sendable (IrxBrokerFailure) async -> Void) {
+    public func setOnFailure(
+        _ handler: @escaping @Sendable (IrxBrokerFailure, FailureDisposition) async -> Void
+    ) {
         onFailure = handler
     }
 
@@ -113,7 +129,7 @@ public actor IrxRelayCredentialAutopilot {
     ) async {
         defer { clearLoopIfCurrent(generation: generation) }
         var bypassRefreshDeadlineOnce = bypassRefreshDeadlineOnce
-        var failureCount = 0
+        var failureCounts = FailureCounts()
         while !Task.isCancelled {
             let now = Date()
             let credentials = await broker.cachedRelayCredentials()
@@ -138,7 +154,7 @@ public actor IrxRelayCredentialAutopilot {
                 await endpoint.rotateCredentials(minted)
                 guard !Task.isCancelled else { return }
                 guard await refreshHint(initialFailureCount: 0) != .stopped else { return }
-                failureCount = 0
+                failureCounts = FailureCounts()
             } catch is CancellationError {
                 return
             } catch {
@@ -152,10 +168,12 @@ public actor IrxRelayCredentialAutopilot {
                 let expiry = credentials.map(\.expiresAt).max()
                 guard let nextFailureCount = await waitForRetry(
                     after: failure,
-                    failureCount: failureCount,
+                    failureCount: failureCounts.transient,
+                    unauthorizedFailureCount: failureCounts.unauthorized,
                     credentialExpiry: expiry
                 ) else { return }
-                failureCount = nextFailureCount
+                failureCounts.transient = nextFailureCount.transient
+                failureCounts.unauthorized = nextFailureCount.unauthorized
                 bypassRefreshDeadlineOnce = true
             }
         }
@@ -170,6 +188,7 @@ public actor IrxRelayCredentialAutopilot {
     /// A hint outage must not turn a healthy credential into a mint loop.
     private func refreshHint(initialFailureCount: Int) async -> HintRefreshOutcome {
         var failureCount = initialFailureCount
+        var unauthorizedFailureCount = 0
         for _ in 0 ..< Self.maximumHintRetryAttempts {
             guard !Task.isCancelled else { return .stopped }
             do {
@@ -187,7 +206,7 @@ public actor IrxRelayCredentialAutopilot {
                     )
                 if !failure.isRetryable {
                     if failure.requiresReauthentication {
-                        await onFailure?(failure)
+                        await onFailure?(failure, .terminal)
                         return .stopped
                     }
                     journal.record(
@@ -199,10 +218,12 @@ public actor IrxRelayCredentialAutopilot {
                 guard let nextFailureCount = await waitForRetry(
                     after: failure,
                     failureCount: failureCount,
+                    unauthorizedFailureCount: unauthorizedFailureCount,
                     credentialExpiry: nil,
                     escalateUnauthorized: false
                 ) else { return .stopped }
-                failureCount = nextFailureCount
+                failureCount = nextFailureCount.transient
+                unauthorizedFailureCount = nextFailureCount.unauthorized
             }
         }
         journal.record(
@@ -218,19 +239,26 @@ public actor IrxRelayCredentialAutopilot {
     private func waitForRetry(
         after failure: IrxBrokerFailure,
         failureCount: Int,
+        unauthorizedFailureCount: Int,
         credentialExpiry: Date?,
         escalateUnauthorized: Bool = true
-    ) async -> Int? {
+    ) async -> FailureCounts? {
+        let isPostRecoveryUnauthorized = failure.statusCode == 401
+            && !failure.requiresReauthentication
         let decision: IrxHostActivationPolicy.Decision
-        if !escalateUnauthorized,
-           failure.statusCode == 401,
-           !failure.requiresReauthentication {
+        if isPostRecoveryUnauthorized && !escalateUnauthorized {
             // The host callback owns the shared 401 escalation counter. The
             // autopilot's bounded hint burst must not independently terminate
             // credential renewal before that owner decides.
             decision = IrxHostActivationPolicy().decision(
                 for: failure,
                 failureCount: 0,
+                jitterUnitInterval: Double.random(in: 0 ... 1)
+            )
+        } else if isPostRecoveryUnauthorized {
+            decision = IrxHostActivationPolicy().decision(
+                for: failure,
+                failureCount: unauthorizedFailureCount,
                 jitterUnitInterval: Double.random(in: 0 ... 1)
             )
         } else {
@@ -245,11 +273,11 @@ public actor IrxRelayCredentialAutopilot {
         switch decision {
         case .reauthenticationRequired:
             journal.record("credential-autopilot", event, failure.journalAttributes)
-            await onFailure?(failure)
+            await onFailure?(failure, .terminal)
             return nil
         case .stopped:
             journal.record("credential-autopilot", "mint-stopped", failure.journalAttributes)
-            await onFailure?(failure)
+            await onFailure?(failure, .terminal)
             return nil
         case let .retry(policyDelay, retryAfterSeconds):
             let delaySeconds = IrxRelayCredentialPolicy.boundedRetryDelay(
@@ -262,13 +290,17 @@ public actor IrxRelayCredentialAutopilot {
             attributes["retry_delay_s"] = String(Int(delaySeconds.rounded()))
             attributes["failure_count"] = String(failureCount)
             journal.record("credential-autopilot", event, attributes)
-            await onFailure?(failure)
+            await onFailure?(failure, .retry(delay: delaySeconds))
             guard !Task.isCancelled else { return nil }
             try? await clock.sleep(
                 until: clock.now().addingTimeInterval(delaySeconds)
             )
             guard !Task.isCancelled else { return nil }
-            return min(failureCount + 1, 20)
+            return FailureCounts(
+                transient: min(failureCount + 1, 20),
+                unauthorized: isPostRecoveryUnauthorized
+                    ? min(unauthorizedFailureCount + 1, 20) : 0
+            )
         }
     }
 

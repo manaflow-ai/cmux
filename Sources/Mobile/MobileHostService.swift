@@ -1237,7 +1237,9 @@ final class MobileHostService {
             activeConnectionCount: MobileHostConnectionRegistry.shared.count,
             lastErrorDescription: lastErrorDescription,
             irxActivationState: irxStatus.state,
-            irxBrokerFailure: irxStatus.failure
+            irxBrokerFailure: irxStatus.failure,
+            legacyIrohActivationState: MobileHostIrohRuntime.shared
+                .publishedIrohActivationState
         )
     }
 

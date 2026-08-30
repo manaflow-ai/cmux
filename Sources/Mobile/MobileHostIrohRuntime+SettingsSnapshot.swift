@@ -1,9 +1,23 @@
 import CMUXMobileCore
 import CmuxIrohTransport
+import CmuxIrxTransport
 import Foundation
 
 @MainActor
 extension MobileHostIrohRuntime {
+    /// Maps the legacy runtime's route-publication phase to the shared Mobile
+    /// settings lifecycle state without inferring status from cached routes.
+    var publishedIrohActivationState: IrxHostActivationState {
+        switch routePublicationPhase {
+        case .unavailable:
+            .inactive
+        case .starting:
+            .activating
+        case .active:
+            .active
+        }
+    }
+
     func irohSettingsSnapshot() async -> CmxIrohSettingsSnapshot {
         let service = relayPolicyService
         let effective = await service?.effectivePolicy() ?? relayPolicyEffective
