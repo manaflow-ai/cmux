@@ -35864,7 +35864,7 @@ export default CMUXSessionRestore;
             if def.name == "codex" {
                 codexHasActiveBackgroundWork = (codexStopDecision?.activeChildCount ?? 0) > 0
                 hasActiveBackgroundWork = antigravityHasActiveBackgroundWork || codexHasActiveBackgroundWork
-                lifecycleAfterStop = hasActiveBackgroundWork && stopNotificationStatus == .idle
+                lifecycleAfterStop = hasActiveBackgroundWork
                     ? .running
                     : (stopNotificationStatus == .idle ? .idle : .needsInput)
                 staleIdleStopHasNewerRunningSession = lifecycleAfterStop == .idle &&
