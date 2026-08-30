@@ -867,6 +867,33 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         if configurationLoadTask != nil { configurationSeedSuppressionGeneration = configurationLoadGeneration }
     }
 
+    /// Reconciles a user tab/pane selection after Bonsplit has delivered it.
+    /// The pointer monitor is only a pre-dispatch hint; this post-selection
+    /// check commits ownership when the selected Dock panel actually owns the
+    /// window's first responder, covering remounts and missed hit regions.
+    func reconcileDockFocusAfterUserSelection(in window: NSWindow?) {
+        guard scope == .global,
+              isVisibleInUI,
+              let event = NSApp.currentEvent,
+              [.leftMouseDown, .leftMouseUp, .leftMouseDragged].contains(event.type),
+              let ownerWindow = window ?? event.window,
+              event.window === ownerWindow,
+              let responder = ownerWindow.firstResponder,
+              let focusedPanelId else { return }
+
+        let ownsFocusedPanel: Bool
+        if let terminalView = responder.cmuxStrictOwningGhosttyView(),
+           let terminalSurface = terminalView.terminalSurface {
+            ownsFocusedPanel = terminalSurface.id == focusedPanelId
+        } else if let browser = browserPanel(owning: responder, in: ownerWindow) {
+            ownsFocusedPanel = browser.id == focusedPanelId
+        } else {
+            ownsFocusedPanel = false
+        }
+        guard ownsFocusedPanel else { return }
+        noteKeyboardFocusIntent(window: ownerWindow)
+    }
+
     /// Runs a programmatic split (which provides its own new-pane tab) with
     /// `isProgrammaticDockSplit` set so `didSplitPane` skips the interactive
     /// auto-create / placeholder-repair path. `didSplitPane` fires synchronously

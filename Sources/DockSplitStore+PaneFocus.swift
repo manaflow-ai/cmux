@@ -360,6 +360,7 @@ extension DockSplitStore {
 
     func splitTabBar(_ controller: BonsplitController, didSelectTab tab: Bonsplit.Tab, inPane pane: PaneID) {
         applyDockSelection(tabId: tab.id, inPane: pane)
+        reconcileDockFocusAfterUserSelection(in: NSApp.currentEvent?.window)
     }
 
     func splitTabBar(_ controller: BonsplitController, didFocusPane pane: PaneID) {
@@ -371,6 +372,7 @@ extension DockSplitStore {
             return
         }
         applyDockSelection(tabId: tab.id, inPane: pane)
+        reconcileDockFocusAfterUserSelection(in: NSApp.currentEvent?.window)
     }
 
     /// Mirrors `Workspace.splitTabBar(_:didSplitPane:…)` so the Dock's split
@@ -435,6 +437,7 @@ extension DockSplitStore {
         } else {
             movedPanel?.focus()
         }
+        reconcileDockFocusAfterUserSelection(in: NSApp.currentEvent?.window)
         scheduleDockPortalReconcile(reason: "dock.moveTab")
     }
 

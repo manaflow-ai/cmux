@@ -95,6 +95,7 @@ struct DockPointerInteractionHost: NSViewRepresentable {
 }
 
 /// Owns one local event monitor and removes it deterministically at teardown.
+@MainActor
 private final class DockPointerMonitorLease {
     private var token: Any?
 
@@ -120,10 +121,11 @@ private final class DockPointerMonitorLease {
     }
 
     deinit {
-        // NSEvent.removeMonitor is safe from deinit and avoids leaving an
-        // app-wide monitor alive while a MainActor cleanup task is pending.
-        if let token {
-            NSEvent.removeMonitor(token)
+        // The lease is owned by the MainActor view. Xcode 16.4 cannot compile
+        // `isolated deinit`, so assert that owner invariant and tear down
+        // synchronously instead of leaving an app-wide monitor task pending.
+        MainActor.assumeIsolated {
+            stop()
         }
     }
 }
@@ -240,7 +242,19 @@ final class DockPointerInteractionHostView: NSView {
     private func isInteractiveDockChrome(_ view: NSView) -> Bool {
         var candidate: NSView? = view
         while let current = candidate {
-            if current is NSControl || current.accessibilityRole() == .button {
+            if let button = current as? NSButton, button.isEnabled {
+                return true
+            }
+            if let textField = current as? NSTextField, textField.isEditable {
+                return true
+            }
+            if let textView = current as? NSTextView, textView.isEditable {
+                return true
+            }
+            if let control = current as? NSControl,
+               control.isEnabled,
+               control.target != nil,
+               control.action != nil {
                 return true
             }
             candidate = current.superview

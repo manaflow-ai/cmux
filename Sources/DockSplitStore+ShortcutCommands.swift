@@ -205,6 +205,12 @@ extension DockSplitStore {
         return panels[focusedPanelId] as? BrowserPanel
     }
 
+    /// Reads the focused terminal's native selection at command/menu time,
+    /// avoiding reliance on the debounced accessibility notification.
+    var canUseSelectionForFindNow: Bool {
+        focusedDockTerminalPanel?.hasSelection() == true
+    }
+
     private func promptRenameFocusedDockSurface(
         presentingWindow: NSWindow?
     ) -> Bool {
@@ -519,6 +525,9 @@ extension DockSplitStore {
 
     private func useDockSelectionForFind() -> Bool {
         guard let terminal = focusedDockTerminalPanel else {
+            return false
+        }
+        guard terminal.hasSelection() else {
             return false
         }
         if terminal.searchState == nil {
