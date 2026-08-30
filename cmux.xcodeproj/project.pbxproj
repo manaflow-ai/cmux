@@ -8709,6 +8709,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				875900000000000000000002 /* Issue8759FreezeRegressionTests.swift */,
 				C6711B030000000000000001 /* AppDelegateSurfaceResumeTerminalIdTests.swift */,
 				7375A0047375A0047375A004 /* ClosedMainWindowRoutingTests.swift */,
+				C8349002C8349002C8349002 /* MainWindowCloseTerminationRoutingTests.swift */,
 				966600029666000296660002 /* RecoverableMainWindowLifecycleTests.swift */,
 				9666D1029666D1029666D102 /* MainWindowLifecycleCoordinatorTests.swift */,
 				E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */,
