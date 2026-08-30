@@ -21,5 +21,19 @@ nonisolated struct GitReferenceSnapshot: Equatable, Sendable {
     let storageWatchPaths: [String] = []
 
     /// Whether this snapshot used storage-independent Git plumbing.
-    let usesGitPlumbing: Bool = false
+    let usesGitPlumbing: Bool
+
+    init(
+        checkedOutBranch: GitCheckedOutBranch,
+        headSignature: String?,
+        currentCommit: String?,
+        storageWatchPaths: [String] = [],
+        usesGitPlumbing: Bool = false
+    ) {
+        self.checkedOutBranch = checkedOutBranch
+        self.headSignature = headSignature
+        self.currentCommit = currentCommit
+        self.storageWatchPaths = storageWatchPaths
+        self.usesGitPlumbing = usesGitPlumbing
+    }
 }
