@@ -252,7 +252,7 @@ public actor MobileIrxRuntimeComposition {
         await autopilot?.kick()
         await controlPlane?.kick()
         for engine in enginesByPeer.values {
-            await engine.warmUp(trigger: "foreground")
+            await engine.foregroundKick()
         }
     }
 

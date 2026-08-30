@@ -138,6 +138,10 @@ public actor IrxConnection {
     nonisolated public let role: Role
     nonisolated public let remoteEndpointIDHex: String
     private let connection: Connection
+    /// Instant of the most recent keepalive pong; nil before the first pong.
+    /// Foreground staleness checks read this to decide zombie-vs-live after
+    /// a suspension (a QUIC connection can be long dead without isClosed).
+    public private(set) var lastPongAt: ContinuousClock.Instant?
     private let journal: IrxJournal
     private var closedFlag = false
     private var localTermination: IrxTermination?
@@ -279,6 +283,7 @@ public actor IrxConnection {
                             "path": self.selectedPathDescription(),
                         ]
                     )
+                    await self.notePong()
                     strikes = 0
                 } catch {
                     guard !Task.isCancelled else { return }
@@ -324,6 +329,10 @@ public actor IrxConnection {
                 ["error": String(describing: error)]
             )
         }
+    }
+
+    private func notePong() {
+        lastPongAt = ContinuousClock.now
     }
 
     /// Server-side keepalive responder for one accepted keepalive lane.

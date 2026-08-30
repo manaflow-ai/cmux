@@ -187,6 +187,31 @@ public actor IrxPeerEngine {
         Task { _ = try? await self.ensureSession(trigger: trigger) }
     }
 
+    /// Foreground resume: a session that has not proven liveness recently is
+    /// treated as a zombie (a suspension can kill the QUIC connection without
+    /// isClosed flipping) and replaced IMMEDIATELY — close + explicit redial —
+    /// instead of waiting out keepalive strike detection. Fresh sessions and
+    /// no-session states fall through to a normal warm-up.
+    public func foregroundKick(staleAfter: Duration = .seconds(15)) {
+        Task {
+            if let session = await self.currentSessionForKick() {
+                let last = await session.connection.lastPongAt
+                let stale = last.map { ContinuousClock.now - $0 > staleAfter } ?? true
+                if stale {
+                    self.record("foreground-stale-redial", [:])
+                    await session.connection.close(code: .explicitRedial, origin: .local)
+                    _ = try? await self.ensureSession(explicit: true, trigger: "foreground-stale")
+                    return
+                }
+            }
+            _ = try? await self.ensureSession(trigger: "foreground")
+        }
+    }
+
+    private func currentSessionForKick() -> IrxClientSession? {
+        session
+    }
+
     /// Event-driven relay race: fresh discovery just revealed a different
     /// home relay for this peer. An admitted session passing keepalives is
     /// never touched. An in-flight dial (aimed at the stale relay, where it
