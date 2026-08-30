@@ -58,13 +58,38 @@ final class MobileHostIrxRuntime {
     /// Changes on every (de)activation; per-connection supervisors compare it.
     private var generationToken = UUID()
 
+    /// Coarse lifecycle mirror for the Settings Networking section (see
+    /// `MobileHostIrxRuntime+SettingsControl`). `failed` means the last
+    /// activation attempt errored and the retry ladder owns recovery; it is
+    /// only cleared by a successful activation or an account change.
+    enum SettingsPhase: Equatable {
+        case idle
+        case activating
+        case active
+        case failed
+    }
+
+    private(set) var settingsPhase: SettingsPhase = .idle
+    /// True once an authenticated broker discovery succeeded during the
+    /// current activation, so Settings can report the relay fleet as
+    /// server-verified rather than served from the disk cache.
+    private(set) var hadLiveDiscoveryThisRun = false
+    /// Live settings-snapshot subscribers (`irohSettingsUpdates()`).
+    var irxSettingsContinuations: [UUID: AsyncStream<CmxIrohSettingsSnapshot>.Continuation] = [:]
+    /// Periodic re-yield loop; runs only while subscribers exist.
+    var irxSettingsRefreshTask: Task<Void, Never>?
+
     private var stateDirectory: URL?
-    private var brokerService: IrxBrokerService?
-    private var endpointSupervisor: IrxEndpointSupervisor?
+    private(set) var brokerService: IrxBrokerService?
+    private(set) var endpointSupervisor: IrxEndpointSupervisor?
     private var autopilot: IrxRelayCredentialAutopilot?
     private var registry: IrxServerSessionRegistry?
     private var acceptLoop: Task<Void, Never>?
     private var localBinding: IrxBindingSnapshot?
+    /// The always-on fact channel to the per-account control-plane DO: the
+    /// host publishes hint announcements on it (instant propagation to
+    /// phones) and ingests pushed relay passes. Never on any serving path.
+    private var controlPlane: IrxControlPlaneClient?
 
     func configure(auth: AuthCoordinator) {
         self.auth = auth
@@ -86,12 +111,28 @@ final class MobileHostIrxRuntime {
         }
     }
 
+    /// Sets the settings-facing phase and pushes a fresh snapshot to any
+    /// Settings subscribers. Safe to call redundantly; only changes publish.
+    func setSettingsPhase(_ phase: SettingsPhase) {
+        guard phase != settingsPhase else { return }
+        settingsPhase = phase
+        publishIrxSettingsUpdate()
+    }
+
+    /// Marks the current run as having completed a live (network) broker
+    /// discovery, so the Settings policy source reads "server". Called from
+    /// activation and from the settings refresh action.
+    func noteLiveDiscoverySucceeded() {
+        hadLiveDiscoveryThisRun = true
+    }
+
     private func transition(to accountID: String?) async {
         guard accountID != activeAccountID else { return }
         await deactivate()
         activeAccountID = accountID
         guard let accountID else { return }
         Self.journal.record("host-runtime", "activating", ["account": accountID])
+        setSettingsPhase(.activating)
         activationTask = Task { @MainActor [weak self] in
             await self?.activate(accountID: accountID)
         }
@@ -107,6 +148,7 @@ final class MobileHostIrxRuntime {
                 bundleIdentifier: Bundle.main.bundleIdentifier)
         else {
             Self.journal.record("host-runtime", "activation-failed", ["reason": "environment"])
+            setSettingsPhase(.failed)
             return
         }
         let appSupport = FileManager.default.urls(
@@ -192,6 +234,7 @@ final class MobileHostIrxRuntime {
             localBinding = binding
             let credentials = try await pilot.usableCredentials()
             _ = try await broker.discover()
+            noteLiveDiscoverySucceeded()
 
             guard generationToken == token else { return }
             _ = try await supervisor.readyEndpoint(credentials: credentials)
@@ -199,13 +242,72 @@ final class MobileHostIrxRuntime {
             // refresh the binding so registry consumers see it too.
             let homeRelay = await supervisor.homeRelayURL() ?? credentials.first?.relayURL
             _ = try? await broker.register(pairingEnabled: true, relayURLHint: homeRelay)
+            // Control-plane socket: hint announcements out (instant phone
+            // propagation, the signed HTTPS registration stays authoritative)
+            // and pushed relay passes in (same mint rules as HTTPS).
+            let control: IrxControlPlaneClient?
+            if let controlURL = PresenceHeartbeatClient.resolvedServiceURL() {
+                let client = IrxControlPlaneClient(
+                    configuration: .init(
+                        socketURL: controlURL
+                            .appendingPathComponent("v1/control/socket"),
+                        endpointIDHex: identity.endpointIDHex,
+                        // Phase A: passes stay on the HTTPS autopilot (with
+                        // the stale-connection retry). The broker mint
+                        // requires an endpoint-signed proof for non-legacy
+                        // namespaces, which a bearer-only proxy cannot
+                        // satisfy; flip when proof pass-through ships.
+                        wantPasses: false,
+                        cacheDirectory: stateDir
+                    ),
+                    tokenPair: { [weak auth] in
+                        guard let auth else { return nil }
+                        let session = try await auth.authenticatedSessionSnapshot()
+                        return (session.accessToken, session.refreshToken)
+                    },
+                    handlers: .init(
+                        onRelayPasses: { [weak self, weak broker, weak supervisor, weak pilot] pushed in
+                            guard let broker, let supervisor, let pilot,
+                                let accepted = await broker
+                                    .acceptPushedRelayCredentials(pushed)
+                            else { return }
+                            await supervisor.rotateCredentials(accepted)
+                            await pilot.kick()
+                            await self?.publishIrxSettingsUpdate()
+                        },
+                        // The host dials no peers; hint/directory facts are
+                        // for clients.
+                        onHintUpdate: { _, _ in },
+                        onDirectory: { _ in },
+                        onSnapshotComplete: { _ in }
+                    ),
+                    journal: Self.journal
+                )
+                controlPlane = client
+                control = client
+                await client.start()
+                if let homeRelay {
+                    await client.publishHint(homeRelayURL: homeRelay)
+                }
+            } else {
+                control = nil
+            }
             // Relay hints are server-capped at 1h; refresh the registration on
-            // every credential rotation so the advertised hint never expires.
-            await pilot.setOnRotation { [weak broker, weak supervisor] in
+            // every credential rotation so the advertised hint never expires,
+            // and announce it over the socket so phones hear about relay
+            // moves in milliseconds instead of at the next registry read.
+            await pilot.setOnRotation { [weak self, weak broker, weak supervisor] in
                 guard let broker, let supervisor else { return }
                 let relay = await supervisor.homeRelayURL()
                 try? await broker.registerHintIfNeeded(
                     pairingEnabled: true, relayURLHint: relay)
+                if let relay, let control {
+                    await control.publishHint(homeRelayURL: relay)
+                }
+                // Credential rotation (and any home-relay move it reveals)
+                // changes the Settings snapshot's policy expiry and relay
+                // selection; push it to live subscribers.
+                await self?.publishIrxSettingsUpdate()
             }
             await pilot.start()
             registry = IrxServerSessionRegistry(journal: Self.journal)
@@ -221,11 +323,17 @@ final class MobileHostIrxRuntime {
                     "path_mode": Self.forceRelayOnly ? "relay-only" : "automatic",
                 ]
             )
+            setSettingsPhase(.active)
         } catch {
             Self.journal.record(
                 "host-runtime", "activation-failed",
                 ["reason": String(describing: error)]
             )
+            if generationToken == token {
+                // Stays failed across the retry ladder (no activating/failed
+                // flicker in Settings); success or an account change clears it.
+                setSettingsPhase(.failed)
+            }
             // One bounded retry ladder, reset by the auth observation loop on
             // account change: retry activation after 5s while still desired.
             try? await Task.sleep(for: .seconds(5))
@@ -249,12 +357,18 @@ final class MobileHostIrxRuntime {
             await registry.closeAll(code: .hostShutdown)
         }
         registry = nil
+        if let controlPlane {
+            await controlPlane.stop()
+        }
+        controlPlane = nil
         if let endpointSupervisor {
             await endpointSupervisor.close()
         }
         endpointSupervisor = nil
         brokerService = nil
         localBinding = nil
+        hadLiveDiscoveryThisRun = false
+        setSettingsPhase(.idle)
         if Self.isEnabled {
             MobileHostPublicStatusCache.update(irohIdentity: nil)
         }
