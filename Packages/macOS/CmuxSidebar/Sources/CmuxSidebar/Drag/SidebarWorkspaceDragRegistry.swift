@@ -107,7 +107,7 @@ public final class SidebarWorkspaceDragRegistry: SidebarWorkspaceDragSessionRegi
             event: event,
             source: source
         )
-        source.bind(nativeSession: dragSession, sourceView: sourceView)
+        source.bind(sourceView: sourceView)
         dragSession.animatesToStartingPositionsOnCancelOrFail = false
         return true
     }

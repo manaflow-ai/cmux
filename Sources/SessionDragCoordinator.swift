@@ -33,12 +33,12 @@ final class SessionDragCoordinator {
 
     init(
         startDraggingSession: @escaping StartDraggingSession = { sourceView, item, event, source in
-            let session = sourceView.beginDraggingSession(
+            sourceView.beginDraggingSession(
                 with: [item],
                 event: event,
                 source: source
             )
-            source.bind(nativeSession: session, sourceView: sourceView)
+            source.bind(sourceView: sourceView)
         }
     ) {
         self.startDraggingSession = startDraggingSession

@@ -84,6 +84,60 @@ struct SidebarWorkspaceTableTests {
         }
         #expect(endWorkspaceDragCalls == 1)
     }
+
+    @Test
+    @MainActor
+    func abandonedWorkspaceWriterReleasesProvisionalTeardownOnNextMouseDown() async throws {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let row = makeRowConfiguration()
+        controller.apply(
+            rows: [row],
+            actions: makeTableActions(),
+            workspaceIds: [row.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+
+        // AppKit requested a writer, but no native session was created. A
+        // subsequent representable teardown must not leave the old delegate
+        // graph retained forever after that writer is abandoned.
+        var writer: (any NSPasteboardWriting)? = controller.tableView(
+            container.tableView,
+            pasteboardWriterForRow: 0
+        )
+        controller.dismantleContainerView(container)
+        writer = nil
+
+        // The next real pointer boundary is the bounded fallback for a writer
+        // that never reached willBeginAt/endedAt.
+        controller.prepareForMouseDown()
+
+        #expect(container.tableView.activeWorkspaceDragController == nil)
+        #expect(container.tableView.dataSource == nil)
+        #expect(container.tableView.delegate == nil)
+    }
+
+    @Test
+    @MainActor
+    func reconstructedWorkspaceDragKeepsTheOriginalSourceTableOwned() {
+        let controller = SidebarWorkspaceTableController()
+        let originalContainer = controller.makeContainerView()
+        let reconstructedContainer = controller.makeContainerView()
+
+        // AppKit's callback still belongs to the original table even though a
+        // newer representable is now the controller's current presentation.
+        controller.workspaceDragSessionDidBegin(
+            sourceTableView: originalContainer.tableView
+        )
+
+        #expect(originalContainer.tableView.activeWorkspaceDragController === controller)
+        #expect(reconstructedContainer.tableView.activeWorkspaceDragController == nil)
+
+        controller.workspaceDragSessionDidEnd()
+        #expect(originalContainer.tableView.activeWorkspaceDragController == nil)
+    }
 #endif
 
     @Test

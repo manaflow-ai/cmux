@@ -15,7 +15,6 @@ final class SessionDragSessionSource: NSObject, NSDraggingSource {
     private let transferRegistry: TabDragTransferRegistry
     private let onFinish: @MainActor (UUID) -> Void
     private var phase: Phase = .active
-    private var nativeSession: NSDraggingSession?
     private var sourceView: NSView?
 
     init(
@@ -55,9 +54,9 @@ final class SessionDragSessionSource: NSObject, NSDraggingSource {
         transferRegistration.clearResidualCapability(from: session.draggingPasteboard)
     }
 
-    func bind(nativeSession: NSDraggingSession, sourceView: NSView) {
+    /// Retains the source view until AppKit delivers this source's `endedAt` callback.
+    func bind(sourceView: NSView) {
         guard case .active = phase else { return }
-        self.nativeSession = nativeSession
         self.sourceView = sourceView
     }
 
@@ -67,7 +66,6 @@ final class SessionDragSessionSource: NSObject, NSDraggingSource {
         transferRegistry.end(transferRegistration)
         registry.discard(id: dragID)
         onFinish(dragID)
-        nativeSession = nil
         sourceView = nil
     }
 }

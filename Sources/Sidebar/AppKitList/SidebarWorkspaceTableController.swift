@@ -1001,6 +1001,13 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// reconstruction until AppKit's terminal callback.
     private func retainWorkspaceDragSource(_ tableView: NSTableView) {
         guard let tableView = tableView as? SidebarWorkspaceTableViewImpl else { return }
+        if let previousTableView = activeWorkspaceDragTableView,
+           previousTableView !== tableView {
+            // A reconstructed table may be handed in after AppKit has already
+            // selected the original source. Do not leave the old table holding
+            // a strong controller reference when ownership moves explicitly.
+            previousTableView.activeWorkspaceDragController = nil
+        }
         activeWorkspaceDragTableView = tableView
         tableView.activeWorkspaceDragController = self
     }
@@ -1192,7 +1199,13 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         }
         if let containerView {
             activeWorkspaceDragContainerView = containerView
-            retainWorkspaceDragSource(containerView.tableView)
+            // `sourceTableView` is the exact table AppKit called. Retaining the
+            // current representable's table as well would overwrite that
+            // identity and make endedAt detach the wrong source after a
+            // SwiftUI reconstruction.
+            if sourceTableView == nil || sourceTableView === containerView.tableView {
+                retainWorkspaceDragSource(containerView.tableView)
+            }
             installDeferredDropLifecycle(on: containerView)
         }
         // A drag consumes the press: the click action never fires, so no
@@ -1212,8 +1225,55 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// gesture is abandoned, the next press must not reuse its workspace id.
     func prepareForMouseDown() {
         guard !isWorkspaceDragSourceActive else { return }
+        if pendingWorkspaceDragWriter == nil,
+           pendingWorkspaceDragWorkspaceId != nil {
+            // AppKit can request a writer and then abandon the gesture before
+            // creating a native session. The weak marker tells us that no
+            // callback can arrive for that writer; release the provisional
+            // teardown hold at the next real pointer boundary.
+            discardAbandonedProvisionalWorkspaceDrag()
+        }
         pendingWorkspaceDragSessionId = nil
         pendingWorkspaceDragWorkspaceId = nil
+    }
+
+    /// Releases a provisional writer hold when AppKit never starts a session.
+    ///
+    /// A writer is requested before `willBeginAt`, so SwiftUI teardown can
+    /// temporarily retain the old table/controller graph. If the writer is
+    /// abandoned, there is no native `endedAt` callback to perform that
+    /// teardown; the next mouse-down is the first authoritative boundary at
+    /// which we can safely discard it without racing a live session.
+    private func discardAbandonedProvisionalWorkspaceDrag() {
+        guard !isWorkspaceDragSourceActive,
+              pendingWorkspaceDragWriter == nil else { return }
+
+        clearWorkspaceDragPresentation()
+        activeWorkspaceDragSessionId = nil
+        activeWorkspaceDragCapabilityValue = nil
+        activeWorkspaceDraggingSession = nil
+        activeWorkspaceDragSequenceNumber = nil
+        activeWorkspaceDragTableView?.activeWorkspaceDragController = nil
+        activeWorkspaceDragTableView = nil
+
+        if let retainedContainer = activeWorkspaceDragContainerView {
+            clearDropViewActions(in: retainedContainer)
+            detachController(from: retainedContainer.tableView)
+            retainedContainer.clipView.workspaceController = nil
+            retainedContainer.reorderDropView.onPendingDropLifecycleEnded = nil
+            activeWorkspaceDragContainerView = nil
+        }
+        workspaceDragSourceCompletionReceived = false
+
+        guard containerView == nil else { return }
+        let postUpdateActions = detachLoadedCells()
+        rows.removeAll(keepingCapacity: false)
+        workspaceIds.removeAll(keepingCapacity: false)
+        selectedScrollTargetWorkspaceId = nil
+        hoveredRowId = nil
+        contextMenuRowId = nil
+        actions = nil
+        mutationScheduler.stagePostUpdateActions(postUpdateActions)
     }
 
     /// Completes the exact native table session that AppKit reports.
