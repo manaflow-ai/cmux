@@ -4364,6 +4364,47 @@ mod tests {
         assert_eq!(h.spawned().len(), 1, "a new transport identity remains usable");
     }
 
+    #[tokio::test]
+    async fn identified_transport_must_publish_auth_before_its_first_frame() {
+        let h = harness(None, None);
+        let context = h.context_with_transport("supervised", h.owner.clone(), Some("relay-new"));
+        let frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "unregistered",
+            "session": "main",
+            "cols": 80,
+            "rows": 24,
+        });
+
+        h.manager.handle_frame(&frame, &context).await;
+        assert!(h.spawned().is_empty(), "an unregistered transport cannot open a PTY");
+
+        h.manager.update_transport_auth(&context);
+        h.manager.handle_frame(&frame, &context).await;
+        assert_eq!(h.spawned().len(), 1, "published authority admits the transport");
+    }
+
+    #[test]
+    fn transport_authority_registry_releases_every_disconnected_identity() {
+        let h = harness(None, None);
+        for index in 0..4096 {
+            let context = h.context_with_transport(
+                "supervised",
+                h.owner.clone(),
+                Some(&format!("relay-{index}")),
+            );
+            h.manager.update_transport_auth(&context);
+            assert_eq!(h.manager.inner.transport_auth.lock().unwrap().len(), 1);
+            context.cancellation.cancel();
+            h.manager.detach_transport_kind(
+                context.transport_id.as_deref().unwrap(),
+                context.transport_kind,
+            );
+            assert!(h.manager.inner.transport_auth.lock().unwrap().is_empty());
+        }
+    }
+
     #[test]
     fn tunnel_operations_on_different_attachments_do_not_share_a_gate() {
         let h = harness(None, None);
@@ -4415,8 +4456,8 @@ mod tests {
             h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-b"));
         context_a.transport_kind = TransportKind::Tunnel;
         context_b.transport_kind = TransportKind::Tunnel;
-        inner.cache_transport_auth(&context_a);
-        inner.cache_transport_auth(&context_b);
+        h.manager.update_transport_auth(&context_a);
+        h.manager.update_transport_auth(&context_b);
 
         let slow_inner = Arc::clone(&inner);
         let slow_context = context_a;
@@ -4467,7 +4508,7 @@ mod tests {
         }
         let mut context = h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
         context.transport_kind = TransportKind::Tunnel;
-        inner.cache_transport_auth(&context);
+        h.manager.update_transport_auth(&context);
 
         let operation_inner = Arc::clone(&inner);
         let operation_context = context.clone();
@@ -4519,7 +4560,7 @@ mod tests {
         }
         let mut context = h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
         context.transport_kind = TransportKind::Tunnel;
-        inner.cache_transport_auth(&context);
+        h.manager.update_transport_auth(&context);
 
         let operation_inner = Arc::clone(&inner);
         let operation_context = context;
@@ -4653,6 +4694,7 @@ mod tests {
         let inner = Arc::clone(&h.manager.inner);
         let mut context = h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
         context.transport_kind = TransportKind::Tunnel;
+        h.manager.update_transport_auth(&context);
         let cancellation = h.manager.new_open_cancellation().expect("open attempt token");
         let owner = OpeningOwner {
             owner: TransportOwner::from_context(&context),
@@ -4760,6 +4802,7 @@ mod tests {
         let h = harness(None, None);
         let mut context = h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
         context.transport_kind = TransportKind::Tunnel;
+        h.manager.update_transport_auth(&context);
         let manager = Arc::new(h.manager);
         let frame = serde_json::json!({
             "version": 4,
@@ -4796,6 +4839,7 @@ mod tests {
         let h = harness_with_control_and_gate(None, None, None, None, Some(gate));
         let mut context = h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
         context.transport_kind = TransportKind::Tunnel;
+        h.manager.update_transport_auth(&context);
         let manager = Arc::new(h.manager);
         let frame = serde_json::json!({
             "version": 4,
@@ -4835,6 +4879,7 @@ mod tests {
             Arc::new(ResolveGate { entered: Arc::clone(&entered), release: Arc::clone(&release) });
         let h = harness_with_control_and_gate(None, None, None, None, Some(gate));
         let context = h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
+        h.manager.update_transport_auth(&context);
         let manager = Arc::new(h.manager);
         let frame = serde_json::json!({
             "version": 4,
@@ -4876,6 +4921,7 @@ mod tests {
             Arc::new(ResolveGate { entered: Arc::clone(&entered), release: Arc::clone(&release) });
         let h = harness_with_control_and_gate(None, None, None, None, Some(gate));
         let context = h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
+        h.manager.update_transport_auth(&context);
         let manager = Arc::new(h.manager);
         let frame = serde_json::json!({
             "version": 4,
@@ -4905,7 +4951,7 @@ mod tests {
         let old = h.context_with_transport("supervised", h.owner.clone(), Some("relay-never-seen"));
 
         // No frame from this owner reached the manager before disconnect.
-        // The disconnect boundary must still publish a tombstone.
+        // The absent active snapshot is enough to reject a late frame.
         h.manager.detach_transport_kind("relay-never-seen", TransportKind::Relay);
 
         let frame = serde_json::json!({
@@ -5015,6 +5061,8 @@ mod tests {
         };
         let context_a = context(Arc::clone(&sent_a), "transport-a");
         let context_b = context(Arc::clone(&sent_b), "transport-b");
+        h.manager.update_transport_auth(&context_a);
+        h.manager.update_transport_auth(&context_b);
         let open = |pty_id: &str, session: &str| {
             serde_json::json!({
                 "version": 4,
