@@ -102,18 +102,20 @@ extension TabManager {
     ) {
         guard let stableId = snapshot.stableId,
               workspace.stableId == stableId,
-              let stored = workspaceCustomizationStore.customization(for: stableId) else {
+              let storedState = workspaceCustomizationStore
+                  .customizationAndTitleMutationRevision(for: stableId) else {
             return
         }
-        guard shouldApplyWorkspaceCustomization(
-            stored,
+        let shouldApplyTitle = shouldApplyWorkspaceTitle(
+            storedState.customization,
             to: snapshot,
-            titleMutationRevision: workspaceCustomizationStore
-                .customizationTitleMutationRevision(for: stableId)
-        ) else {
-            return
-        }
-        applyWorkspaceCustomization(stored, to: workspace)
+            titleMutationRevision: storedState.titleMutationRevision
+        )
+        applyWorkspaceCustomization(
+            storedState.customization,
+            to: workspace,
+            applyTitle: shouldApplyTitle
+        )
     }
 
     /// Applies one cached stable-ID recovery record.
@@ -128,17 +130,19 @@ extension TabManager {
               let stored = cachedCustomizations[stableId] else {
             return
         }
-        guard shouldApplyWorkspaceCustomization(
+        let shouldApplyTitle = shouldApplyWorkspaceTitle(
             stored,
             to: snapshot,
             titleMutationRevision: cachedTitleMutationRevisions[stableId]
-        ) else {
-            return
-        }
-        applyWorkspaceCustomization(stored, to: workspace)
+        )
+        applyWorkspaceCustomization(stored, to: workspace, applyTitle: shouldApplyTitle)
     }
 
-    private func shouldApplyWorkspaceCustomization(
+    /// Returns whether the journal title may replace the snapshot title.
+    ///
+    /// The title fence does not govern other customization fields. A stale or
+    /// equal automatic title must not prevent an independent color recovery.
+    private func shouldApplyWorkspaceTitle(
         _ customization: WorkspaceCustomization,
         to snapshot: SessionWorkspaceSnapshot,
         titleMutationRevision: UInt64?
@@ -156,6 +160,58 @@ extension TabManager {
             return titleMutationRevision > snapshotRevision
         case .absent, .value:
             return true
+        }
+    }
+
+    /// Pairs a session snapshot with the immutable journal state captured for
+    /// the same stable identity. A live workspace can lag another manager's
+    /// durable title, so the journal remains the source of truth unless a
+    /// queued local automatic write is newer and still pending.
+    func reconcileWorkspaceSnapshotCustomization(
+        _ snapshot: inout SessionWorkspaceSnapshot,
+        persistedCustomization: WorkspaceCustomization?,
+        persistedTitleMutationRevision: UInt64?,
+        pendingAutomaticTitle: PendingAutomaticWorkspaceTitle?
+    ) {
+        if let pendingAutomaticTitle {
+            switch pendingAutomaticTitle.title {
+            case let title?:
+                guard snapshot.customTitleSource != .user else { break }
+                snapshot.customTitle = title
+                snapshot.customTitleSource = .auto
+                snapshot.customTitleMutationRevision =
+                    pendingAutomaticTitle.titleMutationRevision
+                return
+            case nil:
+                guard snapshot.customTitleSource != .user else { break }
+                snapshot.customTitle = nil
+                snapshot.customTitleSource = nil
+                snapshot.customTitleMutationRevision =
+                    pendingAutomaticTitle.titleMutationRevision
+                return
+            }
+        }
+
+        guard let persistedCustomization,
+              let persistedTitleMutationRevision else {
+            return
+        }
+        switch persistedCustomization.customTitle {
+        case .absent:
+            break
+        case let .value(title):
+            snapshot.customTitle = title
+            snapshot.customTitleSource = .user
+            snapshot.customTitleMutationRevision = persistedTitleMutationRevision
+        case let .autoValue(title):
+            guard snapshot.customTitleSource != .user else { return }
+            snapshot.customTitle = title
+            snapshot.customTitleSource = .auto
+            snapshot.customTitleMutationRevision = persistedTitleMutationRevision
+        case .cleared:
+            snapshot.customTitle = nil
+            snapshot.customTitleSource = nil
+            snapshot.customTitleMutationRevision = persistedTitleMutationRevision
         }
     }
 
@@ -240,20 +296,23 @@ extension TabManager {
 
     private func applyWorkspaceCustomization(
         _ customization: WorkspaceCustomization,
-        to workspace: Workspace
+        to workspace: Workspace,
+        applyTitle: Bool = true
     ) {
-        switch customization.customTitle {
-        case .absent:
-            break
-        case let .value(title):
-            workspace.setCustomTitle(title, source: .user)
-        case let .autoValue(title):
-            // The journal is newer than the session snapshot. Clear any stale
-            // snapshot title before restoring the latest automatic value.
-            workspace.setCustomTitle(nil)
-            workspace.setCustomTitle(title, source: .auto)
-        case .cleared:
-            workspace.setCustomTitle(nil)
+        if applyTitle {
+            switch customization.customTitle {
+            case .absent:
+                break
+            case let .value(title):
+                workspace.setCustomTitle(title, source: .user)
+            case let .autoValue(title):
+                // The journal is newer than the session snapshot. Clear any stale
+                // snapshot title before restoring the latest automatic value.
+                workspace.setCustomTitle(nil)
+                workspace.setCustomTitle(title, source: .auto)
+            case .cleared:
+                workspace.setCustomTitle(nil)
+            }
         }
 
         switch customization.customColor {

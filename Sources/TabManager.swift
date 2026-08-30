@@ -2420,14 +2420,22 @@ class TabManager: ObservableObject {
             // RestorableAgentSessionIndex.load() (sysctl-per-record + disk) so closing a
             // workspace does not freeze the main thread; fall back to a fresh load only
             // while the cache has not loaded yet. See closedPanelHistoryEntry.
-            let titleMutationRevision = workspaceCustomizationStore
-                .customizationTitleMutationRevision(for: workspace.stableId)
+            let persistedWorkspaceCustomizationState = workspaceCustomizationStore
+                .customizationsAndTitleMutationRevisions(for: [workspace.stableId])
+            let pendingAutomaticTitle = pendingAutomaticWorkspaceTitles[workspace.stableId]
             var snapshot = workspace.sessionSnapshot(
                 includeScrollback: true,
                 restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
                     ?? RestorableAgentSessionIndex.load()
             )
-            snapshot.customTitleMutationRevision = titleMutationRevision
+            reconcileWorkspaceSnapshotCustomization(
+                &snapshot,
+                persistedCustomization: persistedWorkspaceCustomizationState
+                    .customizations[workspace.stableId],
+                persistedTitleMutationRevision: persistedWorkspaceCustomizationState
+                    .titleMutationRevisions[workspace.stableId],
+                pendingAutomaticTitle: pendingAutomaticTitle
+            )
             ClosedItemHistoryStore.shared.push(.workspace(ClosedWorkspaceHistoryEntry(
                 workspaceId: workspace.id,
                 windowId: AppDelegate.shared?.windowId(for: self),
@@ -6449,12 +6457,13 @@ extension TabManager {
         let restorableTabs = tabs
             .filter(\.isRestorableInSessionSnapshot)
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
-        // Capture journal fences before projecting workspace state. A
-        // concurrent clear after this read must remain newer than the snapshot
-        // rather than being stamped onto its older title projection.
-        let titleMutationRevisions = workspaceCustomizationStore.titleMutationRevisions(
-            for: restorableTabs.compactMap(\.stableId)
-        )
+        // Capture the persisted state before projecting workspace state. The
+        // snapshot helper pairs each local title with this immutable read and
+        // uses the durable value when the live title is stale.
+        let stableIds = restorableTabs.compactMap(\.stableId)
+        let persistedWorkspaceCustomizationState = workspaceCustomizationStore
+            .customizationsAndTitleMutationRevisions(for: stableIds)
+        let pendingAutomaticTitles = pendingAutomaticWorkspaceTitles
         var workspaceSnapshots = restorableTabs
             .map {
                 $0.sessionSnapshot(
@@ -6462,11 +6471,17 @@ extension TabManager {
                     restorableAgentIndex: restorableAgentIndex,
                     surfaceResumeBindingIndex: surfaceResumeBindingIndex
                 )
-            }
+        }
         didCaptureWorkspaceSessionSnapshots()
         for index in workspaceSnapshots.indices {
             guard let stableId = workspaceSnapshots[index].stableId else { continue }
-            workspaceSnapshots[index].customTitleMutationRevision = titleMutationRevisions[stableId]
+            reconcileWorkspaceSnapshotCustomization(
+                &workspaceSnapshots[index],
+                persistedCustomization: persistedWorkspaceCustomizationState.customizations[stableId],
+                persistedTitleMutationRevision: persistedWorkspaceCustomizationState
+                    .titleMutationRevisions[stableId],
+                pendingAutomaticTitle: pendingAutomaticTitles[stableId]
+            )
         }
         let selectedWorkspaceIndex = selectedTabId.flatMap { selectedTabId in
             restorableTabs.firstIndex(where: { $0.id == selectedTabId })
