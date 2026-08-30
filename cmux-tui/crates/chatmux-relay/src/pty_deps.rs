@@ -627,13 +627,19 @@ struct ChildLifecycle {
     pid: Option<u32>,
     exited: bool,
     termination_started: bool,
+    reaping: bool,
 }
 
 type ChildLifecycleHandle = Arc<Mutex<ChildLifecycle>>;
 
 impl ChildLifecycle {
     fn new(pid: Option<u32>) -> ChildLifecycleHandle {
-        Arc::new(Mutex::new(Self { pid, exited: false, termination_started: false }))
+        Arc::new(Mutex::new(Self {
+            pid,
+            exited: false,
+            termination_started: false,
+            reaping: false,
+        }))
     }
 
     fn terminate(
@@ -641,7 +647,7 @@ impl ChildLifecycle {
         signal: impl FnOnce(Option<u32>) -> std::io::Result<()>,
     ) -> bool {
         let mut state = lifecycle.lock().expect("child lifecycle lock");
-        if state.exited || state.termination_started {
+        if state.exited || state.termination_started || state.reaping {
             return false;
         }
         state.termination_started = true;
@@ -651,6 +657,19 @@ impl ChildLifecycle {
             state.termination_started = false;
             return false;
         }
+        true
+    }
+
+    /// Claim the wait owner transition before a fallback reap. This fence
+    /// remains set even when the child kill request reports an error, so a
+    /// late control drop cannot signal a PID after `Child::wait` reaps it.
+    fn begin_reaping(lifecycle: &ChildLifecycleHandle) -> bool {
+        let mut state = lifecycle.lock().expect("child lifecycle lock");
+        if state.exited || state.reaping {
+            return false;
+        }
+        state.reaping = true;
+        state.termination_started = true;
         true
     }
 }
@@ -851,9 +870,9 @@ fn spawn_real_pty(spec: &SpawnSpec, handoff: &SpawnHandoff) -> anyhow::Result<Pt
                     // fallback wait can reap it. Claim termination before
                     // reaping so MasterControl::drop cannot signal this PID
                     // after the kernel makes it available for reuse.
-                    let _ = ChildLifecycle::terminate(&wait_lifecycle, |_| {
-                        child_cleanup.child_mut().kill()
-                    });
+                    if ChildLifecycle::begin_reaping(&wait_lifecycle) {
+                        let _ = child_cleanup.child_mut().kill();
+                    }
                     child_cleanup.wait()
                 }
             };
