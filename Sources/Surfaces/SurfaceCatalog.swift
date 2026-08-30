@@ -466,7 +466,7 @@ final class SurfaceCatalog {
     private func completedMaterializationCleanupTask(id: SurfaceResourceID, token: UUID) -> Task<Void, Never> {
         let timeout = completedMaterializationRetention
         let clock = materializationClock
-        return Task { [weak self, clock] in
+        return Task { @MainActor [weak self, clock] in
             do {
                 try await clock.sleep(for: timeout)
             } catch {
@@ -554,7 +554,7 @@ final class SurfaceCatalog {
             let token = inFlight.token
             let timeout = abandonedMaterializationTimeout
             let clock = materializationClock
-            inFlight.abandonmentDeadlineTask = Task { [weak self, clock] in
+            inFlight.abandonmentDeadlineTask = Task { @MainActor [weak self, clock] in
                 do {
                     try await clock.sleep(for: timeout)
                 } catch {
@@ -590,7 +590,7 @@ final class SurfaceCatalog {
         retiredMaterializationTokens.insert(token)
         let timeout = retiredMaterializationRetention
         let clock = materializationClock
-        let evictionTask = Task { [weak self, clock] in
+        let evictionTask = Task { @MainActor [weak self, clock] in
             do {
                 try await clock.sleep(for: timeout)
             } catch {

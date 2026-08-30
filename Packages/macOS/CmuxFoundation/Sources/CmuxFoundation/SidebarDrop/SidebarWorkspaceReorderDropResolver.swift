@@ -399,9 +399,10 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
                 switch context.edge {
                 case .top:
                     if target.isGroupHeader, groupsById[groupId]?.isEmpty == true {
-                        // A header-only group has no member/boundary row. Treat
-                        // its full header as the explicit adopt zone so a root
-                        // placeholder never enters the commit row space.
+                        // The top edge of an empty header is also the root/group
+                        // divider. Let the horizontal hierarchy lane choose:
+                        // the left half means root, while the right half means
+                        // adopting into the header's group.
                         return (groupId, true)
                     }
                     guard !target.isGroupHeader else { return nil }

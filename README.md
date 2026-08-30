@@ -207,6 +207,8 @@ Command palette navigation shortcuts, including ⌃ P, are also customizable and
 | ⌘ ⇧ U | Jump to latest unread |
 | ⌥ ⌘ U | Toggle current item unread state |
 | ⌃ ⌘ U | Mark current item as oldest unread and jump to next latest unread |
+| — | Mark all notifications read (unbound by default; configure in Settings or `cmux.json`) |
+| — | Clear all notifications (unbound by default; configure in Settings or `cmux.json`) |
 
 ### Find
 

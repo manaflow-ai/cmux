@@ -288,6 +288,9 @@ jobs:
       - name: Validate nightly notarization behavior
         run: ./tests/test_notarize_nightly_dmg.sh
 
+      - name: Validate Computer Use helper notarization behavior
+        run: ./tests/test_notarize_computer_use_helper.sh
+
       - name: Validate release asset guard
         run: node scripts/release_asset_guard.test.js
 
@@ -580,7 +583,7 @@ jobs:
     # transitive skip otherwise marks every macOS job skipped even when
     # linux-preflight itself succeeds. Require the direct needs explicitly.
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' }}
-    name: app-host unit tests (${{ matrix.shard }}/4)
+    name: app-host unit tests (${{ matrix.shard }}/6)
     # App-host XCTest needs a runner that can broker testmanagerd control
     # sessions. Validated head-to-head that warp-macos-15-arm64-6x runs the
     # full app-host suite with 0 unexpected failures, so route through the
@@ -590,7 +593,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
     env:
       # This independent job-level marker makes every app-host wrapper fail
       # closed if a setup step or environment handoff loses either redirect.
@@ -601,7 +604,12 @@ jobs:
       CMUX_SKIP_ZIG_BUILD: "1"
       # Keep one-off focused gates on the lightest measured shard so shard 1 no
       # longer carries the full shard plus every extra regression guard.
-      CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD: "4"
+      CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD: "6"
+      # Four-way packing now exceeds the app-host's memory budget as the suite
+      # grows: a shard can crash around 1,000 UI tests and poison the remaining
+      # selectors. Six-way packing keeps each broad shard near 13 minutes of
+      # measured work; allow focused gates and one app-host restart headroom.
+      CMUX_UNIT_TEST_TIMEOUT_SECONDS: "1800"
       # XCTest app-host crashes can leave xcodebuild waiting in Swift's crash
       # backtracer until the job timeout. Keep crash handling non-interactive
       # and cheap so xcodebuild can restart/finish the suite.
@@ -905,18 +913,27 @@ jobs:
           # and --new-window must consolidate mirrors moved across source windows.
           # Keep these destructive/topology regressions outside the tolerant full
           # suite so an ordinary assertion failure cannot be accepted as expected.
+          # The placement case creates three native windows and several
+          # Ghostty-backed panels. Run the close and placement suites in separate
+          # app-host processes so renderer teardown from one topology workload
+          # cannot crash the next before its assertions execute.
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          scripts/ci/run-in-console-session.sh \
-            scripts/ci/run-app-host-xcodebuild.sh \
-            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
-            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-            -disableAutomaticPackageResolution \
-            -destination "platform=macOS" \
-            CMUX_SKIP_ZIG_BUILD=1 \
-            -only-testing:cmuxTests/RemoteTmuxMirrorCloseDetachTests \
-            test
+          for suite in \
+            RemoteTmuxMirrorCloseDetachTests \
+            RemoteTmuxMirrorDedicatedPlacementTests
+          do
+            scripts/ci/run-in-console-session.sh \
+              scripts/ci/run-app-host-xcodebuild.sh \
+              -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+              -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -disableAutomaticPackageResolution \
+              -destination "platform=macOS" \
+              CMUX_SKIP_ZIG_BUILD=1 \
+              -only-testing:"cmuxTests/$suite" \
+              test
+          done
 
       - name: Run browser system proxy mirror regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
@@ -985,21 +1002,27 @@ jobs:
         run: |
           # Focused gates for https://github.com/manaflow-ai/cmux/issues/7380 and #8054.
           # The tolerant full-suite step can crash-skip late suites (see #5888
-          # note above), so these regressions get a non-tolerant focused
-          # invocation.
+          # note above), so these regressions get non-tolerant focused
+          # invocations. Both suites create portal-owned AppKit/WebKit windows
+          # and touch process-wide window/portal registries; keep each in a
+          # fresh app-host process so Swift Testing cannot interleave them.
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          scripts/ci/run-in-console-session.sh \
-            scripts/ci/run-app-host-xcodebuild.sh \
-            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
-            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-            -disableAutomaticPackageResolution \
-            -destination "platform=macOS" \
-            CMUX_SKIP_ZIG_BUILD=1 \
-            -only-testing:cmuxTests/BrowserOmnibarSuggestionClickRoutingTests \
-            -only-testing:cmuxTests/BrowserPanelViewIdentityTests \
-            test
+          for suite in \
+            BrowserOmnibarSuggestionClickRoutingTests \
+            BrowserPanelViewIdentityTests
+          do
+            scripts/ci/run-in-console-session.sh \
+              scripts/ci/run-app-host-xcodebuild.sh \
+              -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+              -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -disableAutomaticPackageResolution \
+              -destination "platform=macOS" \
+              CMUX_SKIP_ZIG_BUILD=1 \
+              -only-testing:"cmuxTests/$suite" \
+              test
+          done
 
       - name: Run remote tmux mirror active-pane regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
@@ -1140,7 +1163,7 @@ jobs:
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           PHYSICAL_SHARD="${{ matrix.shard }}"
-          PHYSICAL_SHARD_TOTAL=4
+          PHYSICAL_SHARD_TOTAL=6
           LOGICAL_BATCHES_PER_WORKER=2
           LOGICAL_SHARD_TOTAL=$((PHYSICAL_SHARD_TOTAL * LOGICAL_BATCHES_PER_WORKER))
           LOGICAL_SHARDS=("$PHYSICAL_SHARD" "$((PHYSICAL_SHARD + PHYSICAL_SHARD_TOTAL))")
@@ -1373,6 +1396,10 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_autodiscovery.py
           python3 tests/test_codex_wrapper_resume_hooks.py
           python3 tests/test_claude_wrapper_hooks.py
+          python3 tests/test_codex_wrapper_computer_use_mcp.py
+          python3 tests/test_cmux_cua_mcp_smoke.py
+          python3 tests/test_cmux_cua_build_cache_safety.py
+          python3 tests/test_cmux_cua_helper_identity.py
           python3 tests/test_hermes_wrapper_hooks.py
           python3 tests/test_claude_wrapper_mutual_shim_loop.py
           python3 tests/test_claude_wrapper_shim_root_survives_tmpdir_change.py
@@ -2339,6 +2366,7 @@ jobs:
           APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
           CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
           HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
+          CMUX_CUA_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-cua"
           DIFF_SIDECAR="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-diff-sidecar"
           test -x "$APP_BINARY"
           test -x "$CLI_BINARY"
@@ -2346,13 +2374,16 @@ jobs:
           test -x "$TUI_CLIENT"
           lipo "$TUI_CLIENT" -verify_arch arm64 x86_64
           test -x "$HELPER_BINARY"
+          test -x "$CMUX_CUA_BINARY"
           test -x "$DIFF_SIDECAR"
-          file "$APP_BINARY" "$CLI_BINARY" "$HELPER_BINARY" "$DIFF_SIDECAR"
+          file "$APP_BINARY" "$CLI_BINARY" "$HELPER_BINARY" "$CMUX_CUA_BINARY" "$DIFF_SIDECAR"
           SDK_VERSION="$(otool -l "$APP_BINARY" | awk '/LC_BUILD_VERSION/ { in_version=1; next } in_version && /sdk / { print $2; exit }')"
           echo "App SDK version: $SDK_VERSION"
           lipo "$APP_BINARY" -verify_arch arm64 x86_64
           lipo "$CLI_BINARY" -verify_arch arm64 x86_64
           lipo "$HELPER_BINARY" -verify_arch arm64 x86_64
+          lipo "$CMUX_CUA_BINARY" -verify_arch arm64 x86_64
+          codesign --verify --strict --verbose=4 "$CMUX_CUA_BINARY"
           ./scripts/verify-diff-sidecar-artifact.sh "$DIFF_SIDECAR"
           [[ "$SDK_VERSION" == 26.* ]]
 
