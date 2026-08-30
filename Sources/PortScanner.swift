@@ -71,7 +71,7 @@ final class PortScanner: @unchecked Sendable {
     /// lifecycle changed. The queue is the sole owner, so cancellation and
     /// generation checks are deterministic and race-free.
     private var burstGeneration: UInt64 = 0
-    private var scheduledBurstWorkItems: [DispatchWorkItem] = []
+    private var scheduledBurstTimers: [UUID: DispatchSourceTimer] = [:]
 
     private var coalesceTimer: DispatchSourceTimer?
 
@@ -137,12 +137,6 @@ final class PortScanner: @unchecked Sendable {
         let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
         publicationState.invalidatePanelLifecycle(for: key)
         queue.async { [self] in
-            burstGeneration &+= 1
-            scheduledBurstWorkItems.forEach { $0.cancel() }
-            scheduledBurstWorkItems.removeAll()
-            burstActive = false
-            coalesceTimer?.cancel()
-            coalesceTimer = nil
             ttyNames.removeValue(forKey: key)
             panelRevisionByKey.removeValue(forKey: key)
             pendingKicks.remove(key)
@@ -151,7 +145,14 @@ final class PortScanner: @unchecked Sendable {
             }
             panelPortSnapshot.remove(keys: [key])
             panelPortOwnersByKey.removeValue(forKey: key)
-            if !pendingKicks.isEmpty {
+            if ttyNames.isEmpty {
+                burstGeneration &+= 1
+                scheduledBurstTimers.values.forEach { $0.cancel() }
+                scheduledBurstTimers.removeAll()
+                burstActive = false
+                coalesceTimer?.cancel()
+                coalesceTimer = nil
+            } else if !pendingKicks.isEmpty, !burstActive {
                 startCoalesce()
             }
         }
@@ -182,16 +183,6 @@ final class PortScanner: @unchecked Sendable {
         }
     }
 
-    /// Waits until all scanner-queue mutations submitted before this call have
-    /// completed. This is intentionally a queue barrier, not a wall-clock
-    /// delay, so lifecycle tests do not depend on timer timing.
-    func waitForIdleForTesting() async {
-        await withCheckedContinuation { continuation in
-            queue.async {
-                continuation.resume()
-            }
-        }
-    }
     @MainActor
     func refreshAgentPorts(workspaceId: UUID, agentRoots: Set<AgentPortRootIdentity>) {
         let normalizedRoots = Set(agentRoots.filter { $0.pid > 0 })
@@ -267,15 +258,19 @@ final class PortScanner: @unchecked Sendable {
 
         let start = burstStart ?? .now()
         let deadline = start + Self.burstOffsets[index]
-        let workItem = DispatchWorkItem { [weak self] in
+        let timerID = UUID()
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: deadline)
+        timer.setEventHandler { [weak self, weak timer] in
             guard let self else { return }
             guard generation == self.burstGeneration else { return }
+            self.scheduledBurstTimers.removeValue(forKey: timerID)
+            timer?.cancel()
             self.runScan(generation: generation)
-            self.scheduledBurstWorkItems.removeAll { $0.isCancelled }
             self.runBurst(index: index + 1, burstStart: start, generation: generation)
         }
-        scheduledBurstWorkItems.append(workItem)
-        queue.asyncAfter(deadline: deadline, execute: workItem)
+        scheduledBurstTimers[timerID] = timer
+        timer.resume()
     }
 
     // MARK: - Scan
