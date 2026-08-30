@@ -24216,10 +24216,18 @@ mod tests {
         // The later projection is durable, but its roster fold waits behind
         // the first unresolved row. Retrying the first row releases the
         // contiguous prefix and catches both terminals up to the journal head.
-        assert!(mux.list_agents(Some(second.id), None).is_empty());
+        {
+            let roster = mux.agent_roster.lock().unwrap();
+            assert!(!roster.roster.entries.contains_key(second_terminal.as_str()));
+        }
         mux.retry_pending_agent_hooks_for_terminal(&first_terminal).unwrap();
         assert_eq!(mux.list_agents(Some(first.id), None)[0].state, AgentState::Working);
         assert_eq!(mux.list_agents(Some(second.id), None)[0].state, AgentState::Working);
+        let roster = mux.agent_roster.lock().unwrap();
+        assert_eq!(
+            roster.roster.entries[second_terminal.as_str()].agent_state(),
+            AgentState::Working
+        );
     }
 
     #[test]
