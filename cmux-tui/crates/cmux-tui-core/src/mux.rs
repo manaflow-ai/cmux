@@ -23460,6 +23460,49 @@ mod tests {
     }
 
     #[test]
+    fn repeated_socket_done_reports_coalesce_after_roster_removal() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-roster-done-echo-{}", crate::workspace_registry::new_uuid_v4()));
+        let mux =
+            Mux::open_persistent("roster-done-echo", SurfaceOptions::default(), &root).unwrap();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let socket_echoes = || {
+            mux.session_journal_after(0, 1024)
+                .unwrap()
+                .records
+                .into_iter()
+                .filter(|record| {
+                    record
+                        .payload
+                        .get("adapter")
+                        .and_then(|adapter| adapter.get("id"))
+                        .and_then(Value::as_str)
+                        == Some(crate::journal_reducers::SOCKET_REPORT_ADAPTER)
+                })
+                .count()
+        };
+
+        mux.report_agent(surface.id, AgentState::Done, AgentSource::Socket, Some("poll".into()))
+            .unwrap();
+        assert_eq!(socket_echoes(), 1);
+        assert!(mux.agent_roster.lock().unwrap().roster.entries.is_empty());
+
+        mux.report_agent(surface.id, AgentState::Done, AgentSource::Socket, Some("poll".into()))
+            .unwrap();
+        mux.report_agent(surface.id, AgentState::Done, AgentSource::Socket, Some("poll".into()))
+            .unwrap();
+        assert_eq!(
+            socket_echoes(),
+            1,
+            "repeated Done polls must reuse the last socket receipt after removal"
+        );
+
+        mux.shutdown();
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn socket_reports_do_not_echo_when_hook_owns_roster_entry() {
         let root = std::env::temp_dir()
             .join(format!("cmux-roster-hook-echo-{}", crate::workspace_registry::new_uuid_v4()));
