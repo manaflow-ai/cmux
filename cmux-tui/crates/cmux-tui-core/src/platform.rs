@@ -248,7 +248,11 @@ pub fn normalize_filesystem_path(path: PathBuf) -> PathBuf {
         use std::os::windows::ffi::{OsStrExt, OsStringExt};
 
         const WINDOWS_PATH_HEADROOM: usize = 240;
-        let path = if path.is_absolute() {
+        let has_path_prefix = path
+            .components()
+            .next()
+            .is_some_and(|component| matches!(component, std::path::Component::Prefix(_)));
+        let path = if path.is_absolute() || has_path_prefix {
             path
         } else {
             match std::env::current_dir() {
