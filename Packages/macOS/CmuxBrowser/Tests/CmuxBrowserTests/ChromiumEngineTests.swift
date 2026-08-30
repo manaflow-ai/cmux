@@ -267,7 +267,7 @@ struct ChromiumEngineTests {
         }
     }
 
-    @Test("Navigation matching includes URL ports and fragments")
+    @Test("Navigation matching includes URL ports, fragments, and origin slashes")
     func navigationMatchingIncludesPortAndFragment() throws {
         let target = try #require(URL(string: "https://example.com:8443/path?q=1#section"))
         #expect(ChromiumBrowserSession.matches(
@@ -285,6 +285,18 @@ struct ChromiumEngineTests {
         #expect(ChromiumBrowserSession.matches(
             url: URL(string: "https://example.com/path?q=1#section"),
             target: URL(string: "https://example.com:443/path?q=1#section")!
+        ))
+        #expect(ChromiumBrowserSession.matches(
+            url: URL(string: "https://example.com/"),
+            target: URL(string: "https://example.com")!
+        ))
+        #expect(ChromiumBrowserSession.matches(
+            url: URL(string: "https://example.com/?q=1#section"),
+            target: URL(string: "https://example.com?q=1#section")!
+        ))
+        #expect(!ChromiumBrowserSession.matches(
+            url: URL(string: "https://example.com/other"),
+            target: URL(string: "https://example.com")!
         ))
     }
 
