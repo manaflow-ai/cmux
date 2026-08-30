@@ -868,7 +868,10 @@ struct ContentView: View {
         self.sidebarUnread = sidebarUnread ?? TerminalNotificationStore.shared.sidebarUnread
         self.titlebarControlsLayoutModel = titlebarControlsLayoutModel
             ?? TitlebarControlsLayoutModel()
-        self.videoBackgroundRuntime = videoBackgroundRuntime ?? VideoBackgroundRuntime()
+        self.videoBackgroundRuntime = videoBackgroundRuntime ?? VideoBackgroundRuntime(
+            audioArbiter: VideoBackgroundAudioArbiter(),
+            playbackCoordinator: VideoBackgroundPlaybackCoordinator()
+        )
     }
 
     @EnvironmentObject var tabManager: TabManager

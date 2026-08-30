@@ -12,8 +12,8 @@ final class VideoBackgroundRuntime {
     let playbackCoordinator: VideoBackgroundPlaybackCoordinator
 
     init(
-        audioArbiter: VideoBackgroundAudioArbiter = VideoBackgroundAudioArbiter(),
-        playbackCoordinator: VideoBackgroundPlaybackCoordinator = VideoBackgroundPlaybackCoordinator()
+        audioArbiter: VideoBackgroundAudioArbiter,
+        playbackCoordinator: VideoBackgroundPlaybackCoordinator
     ) {
         self.audioArbiter = audioArbiter
         self.playbackCoordinator = playbackCoordinator
