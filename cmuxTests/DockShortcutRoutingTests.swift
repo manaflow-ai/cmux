@@ -1566,6 +1566,60 @@ struct DockShortcutRoutingTests {
         }
     }
 
+    @Test("Dock selection callbacks require an explicit pointer token")
+    @MainActor
+    func dockSelectionCallbacksRequireExplicitPointerToken() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let panel = try harness.dock.seedShortcutTestPanel(
+                    inPane: harness.rootPane
+                )
+                let tabId = try #require(
+                    harness.dock.surfaceId(forPanelId: panel.id)
+                )
+                let tab = try #require(
+                    harness.dock.bonsplitController.tab(tabId)
+                )
+                let mainPanelId = try #require(
+                    harness.mainWorkspace.focusedPanelId
+                )
+                harness.appDelegate.noteMainPanelKeyboardFocusIntent(
+                    workspaceId: harness.mainWorkspace.id,
+                    panelId: mainPanelId,
+                    in: harness.window
+                )
+
+                harness.dock.beginUserDockInteraction()
+                harness.dock.splitTabBar(
+                    harness.dock.bonsplitController,
+                    didSelectTab: tab,
+                    inPane: harness.rootPane
+                )
+                #expect(
+                    harness.appDelegate.keyboardFocusCoordinator(
+                        for: harness.window
+                    )?.activeRightSidebarMode == .dock
+                )
+
+                harness.appDelegate.noteMainPanelKeyboardFocusIntent(
+                    workspaceId: harness.mainWorkspace.id,
+                    panelId: mainPanelId,
+                    in: harness.window
+                )
+                harness.dock.splitTabBar(
+                    harness.dock.bonsplitController,
+                    didSelectTab: tab,
+                    inPane: harness.rootPane
+                )
+                #expect(
+                    harness.appDelegate.keyboardFocusCoordinator(
+                        for: harness.window
+                    )?.activeRightSidebarMode == nil
+                )
+            }
+        }
+    }
+
     @Test("Repeated move-to-pane shortcut does not create a missing pane")
     @MainActor
     func repeatedMoveToPaneDoesNotCreateMissingPane() async throws {

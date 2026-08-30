@@ -97,7 +97,9 @@ private struct DockPointerInteractionHost: NSViewRepresentable {
 private final class DockPointerInteractionHostView: NSView {
     var store: DockSplitStore?
     private var eventMonitor: Any?
+    private var globalMouseUpMonitor: Any?
     private var windowResignKeyObserver: NSObjectProtocol?
+    private var deferredInteractionClearTask: Task<Void, Never>?
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
@@ -125,22 +127,36 @@ private final class DockPointerInteractionHostView: NSView {
             self?.handle(event: event)
             return event
         }
+        globalMouseUpMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseUp, .rightMouseUp, .otherMouseUp]
+        ) { [weak self] _ in
+            // A drag can leave the app before mouse-up is delivered to the
+            // local monitor. Clear on the next MainActor turn so a SwiftUI
+            // TapGesture handling an in-app mouse-up gets to consume the token.
+            self?.scheduleInteractionClear()
+        }
         if windowResignKeyObserver == nil, let window {
             windowResignKeyObserver = NotificationCenter.default.addObserver(
                 forName: NSWindow.didResignKeyNotification,
                 object: window,
                 queue: .main
             ) { [weak self] _ in
+                self?.cancelInteractionClear()
                 self?.store?.endUserDockInteraction()
             }
         }
     }
 
     func stopMonitoring() {
+        cancelInteractionClear()
         store?.endUserDockInteraction()
         if let eventMonitor {
             NSEvent.removeMonitor(eventMonitor)
             self.eventMonitor = nil
+        }
+        if let globalMouseUpMonitor {
+            NSEvent.removeMonitor(globalMouseUpMonitor)
+            self.globalMouseUpMonitor = nil
         }
         if let windowResignKeyObserver {
             NotificationCenter.default.removeObserver(windowResignKeyObserver)
@@ -153,15 +169,36 @@ private final class DockPointerInteractionHostView: NSView {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
             guard let window, event.window === window else { return }
             let point = convert(event.locationInWindow, from: nil)
-            guard bounds.contains(point) else { return }
+            guard bounds.contains(point) else {
+                cancelInteractionClear()
+                store?.endUserDockInteraction()
+                return
+            }
+            cancelInteractionClear()
             store?.beginUserDockInteraction()
         case .leftMouseUp, .rightMouseUp, .otherMouseUp:
-            // Mouse-up can be delivered to another window after a drag leaves
-            // the Dock. Always clear the token so a later programmatic callback
-            // cannot inherit a stale user interaction.
-            store?.endUserDockInteraction()
+            // SwiftUI's TapGesture invokes Bonsplit selection from the same
+            // mouse-up after local monitors run. Defer clearing one MainActor
+            // turn so that callback can consume the explicit token; the global
+            // monitor and window-resign observer cover releases outside the app.
+            scheduleInteractionClear()
         default:
             break
         }
+    }
+
+    private func scheduleInteractionClear() {
+        deferredInteractionClearTask?.cancel()
+        deferredInteractionClearTask = Task { @MainActor [weak self] in
+            await Task.yield()
+            guard !Task.isCancelled, let self else { return }
+            self.store?.endUserDockInteraction()
+            self.deferredInteractionClearTask = nil
+        }
+    }
+
+    private func cancelInteractionClear() {
+        deferredInteractionClearTask?.cancel()
+        deferredInteractionClearTask = nil
     }
 }
