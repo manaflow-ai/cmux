@@ -166,7 +166,8 @@ final class DockPointerInteractionHostView: NSView {
     func installMonitorIfNeeded() {
         guard isEnabled, window != nil else { return }
         monitorLease.install { [weak self] event in
-            self?.handle(event: event) ?? event
+            self?.handle(event: event)
+            return event
         }
     }
 
