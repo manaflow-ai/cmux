@@ -736,7 +736,8 @@ async fn serve_connection(
     };
     let auth_generation =
         auth_state.read().map(|authority| authority.generation).unwrap_or_default();
-    let Some(open_cancellation) = manager.new_open_cancellation() else {
+    let done = CancellationToken::new();
+    let Some(open_cancellation) = manager.new_open_cancellation_with_parent(&done) else {
         let _ = write_half.shutdown().await;
         return;
     };
@@ -755,7 +756,7 @@ async fn serve_connection(
         opened_seen: AtomicBool::new(false),
         open_cancellation,
         finished: AtomicBool::new(false),
-        done: CancellationToken::new(),
+        done,
     });
     // Writer: the only task that touches the write half. Applies the flow
     // water marks as the queue drains.

@@ -737,7 +737,8 @@ impl PtyManager {
         let authority_current = self.inner.cache_transport_auth(context);
         match frame_type {
             "pty_open" => {
-                let Some(cancellation) = cancellation.or_else(|| self.new_open_cancellation())
+                let Some(cancellation) =
+                    cancellation.or_else(|| self.new_open_cancellation_for_context(context))
                 else {
                     let pty_id = frame.get("ptyId").and_then(Value::as_str).unwrap_or_default();
                     if !pty_id.is_empty() {
@@ -921,6 +922,19 @@ impl PtyManager {
     pub fn detach_transport_kind(&self, transport_id: &str, kind: TransportKind) {
         let owner = TransportOwner { id: Some(transport_id.to_owned()), kind };
         let target_owner = owner;
+        // Publish the exact owner fence before scanning cached state. The
+        // owner may disconnect before its first frame, so there may be no
+        // auth snapshot, reservation, or attachment for `detach_matching` to
+        // discover. `cache_transport_auth` takes the same state boundary and
+        // therefore cannot recreate this owner after the fence is visible.
+        {
+            let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
+            self.inner
+                .detached_transports
+                .lock()
+                .expect("detached transport lock")
+                .insert(owner.clone());
+        }
         // The matcher publishes the disconnect fence before removing state.
         // A queued frame can then never repopulate the vacant cache.
         self.detach_matching(move |candidate| candidate == &target_owner, true).retire();
@@ -1075,6 +1089,29 @@ impl PtyManager {
     /// Allocate the capability that identifies one in-flight terminal open.
     /// IDs are never reused. Exhaustion is a fail-closed terminal limit.
     pub(crate) fn new_open_cancellation(&self) -> Option<OpenCancellation> {
+        self.allocate_open_cancellation(CancellationToken::new())
+    }
+
+    /// Allocate an open capability that is also cancelled when the owning
+    /// transport disconnects. A child token keeps the local timeout/revocation
+    /// cancellation independent while inheriting the transport lifetime.
+    pub(crate) fn new_open_cancellation_for_context(
+        &self,
+        context: &FrameContext,
+    ) -> Option<OpenCancellation> {
+        self.new_open_cancellation_with_parent(&context.cancellation)
+    }
+
+    /// Allocate an open capability whose lifetime is bounded by `parent`.
+    /// The caller can still cancel this capability independently.
+    pub(crate) fn new_open_cancellation_with_parent(
+        &self,
+        parent: &CancellationToken,
+    ) -> Option<OpenCancellation> {
+        self.allocate_open_cancellation(parent.child_token())
+    }
+
+    fn allocate_open_cancellation(&self, token: CancellationToken) -> Option<OpenCancellation> {
         let mut current = self.inner.next_open_attempt.load(Ordering::Relaxed);
         loop {
             if current == 0 {
@@ -1088,10 +1125,7 @@ impl PtyManager {
                 Ordering::Relaxed,
             ) {
                 Ok(_) => {
-                    return Some(OpenCancellation {
-                        token: CancellationToken::new(),
-                        attempt_id: current,
-                    });
+                    return Some(OpenCancellation { token, attempt_id: current });
                 }
                 Err(observed) => current = observed,
             }
