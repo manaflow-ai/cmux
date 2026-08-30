@@ -1,4 +1,5 @@
 import Foundation
+import CmuxFoundation
 import Observation
 
 /// Main-actor registry for one demand-owned elapsed scheduler.
@@ -13,20 +14,15 @@ final class SidebarAgentElapsedClock {
     private var targets: [ObjectIdentifier: SidebarAgentElapsedClockWeakTarget] = [:]
     @ObservationIgnored
     private let displayCache = SidebarAgentActivityDisplayCache()
-    /// Monotonic clock used only while a realized target needs elapsed text.
-    /// Keeping this injected makes the scheduler cancellable and testable,
-    /// while avoiding a permanently mounted SwiftUI timeline.
     @ObservationIgnored
-    private let clock: any Clock<Duration>
-    @ObservationIgnored
-    private var tickerTask: Task<Void, Never>?
+    private let scheduler: MainActorDeferredActionScheduler
 
     init(clock: any Clock<Duration> = ContinuousClock()) {
-        self.clock = clock
+        self.scheduler = MainActorDeferredActionScheduler(clock: clock)
     }
 
     deinit {
-        tickerTask?.cancel()
+        scheduler.cancel()
     }
 
     /// Diagnostic demand state for tests and owner introspection. Registration
@@ -36,7 +32,7 @@ final class SidebarAgentElapsedClock {
 
     /// Whether the demand-owned scheduler is currently armed.
     @ObservationIgnored
-    var isTickerRunning: Bool { tickerTask != nil }
+    var isTickerRunning: Bool { scheduler.isScheduled }
 
     var actions: SidebarAgentElapsedClockActions {
         let cache = displayCache
@@ -77,26 +73,24 @@ final class SidebarAgentElapsedClock {
     }
 
     private func startTickerIfNeeded() {
-        guard !targets.isEmpty, tickerTask == nil else { return }
-        let clock = clock
-        tickerTask = Task { @MainActor [weak self, clock] in
-            while !Task.isCancelled {
-                do {
-                    try await clock.sleep(for: .seconds(1))
-                } catch {
-                    return
-                }
-                guard let self, !Task.isCancelled, !self.targets.isEmpty else {
-                    return
-                }
-                self.tick(at: Date())
-            }
-        }
+        guard !targets.isEmpty, !scheduler.isScheduled else { return }
+        scheduleNextTick()
     }
 
     private func stopTickerIfUnused() {
         guard targets.isEmpty else { return }
-        tickerTask?.cancel()
-        tickerTask = nil
+        scheduler.cancel()
+    }
+
+    private func scheduleNextTick() {
+        guard !targets.isEmpty else {
+            scheduler.cancel()
+            return
+        }
+        scheduler.schedule(after: .seconds(1)) { [weak self] in
+            guard let self, !self.targets.isEmpty else { return }
+            self.tick(at: Date())
+            self.scheduleNextTick()
+        }
     }
 }
