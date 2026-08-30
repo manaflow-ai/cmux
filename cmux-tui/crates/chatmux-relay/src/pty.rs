@@ -844,7 +844,7 @@ impl PtyManager {
             changed
         };
         if changed {
-            self.inner.detach_matching_locked(|candidate| candidate == &owner).retire();
+            self.detach_matching(|candidate| candidate == &owner).retire();
         }
         let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
         if context.cancellation.is_cancelled()
@@ -2267,9 +2267,10 @@ impl Inner {
                 }
             };
             if !owner {
+                let cancellation_token = cancellation.token();
                 tokio::select! {
                     biased;
-                    _ = cancellation.token().cancelled() => {
+                    _ = cancellation_token.cancelled() => {
                         return Err("terminal open cancelled".to_owned());
                     }
                     _ = waiter.expect("shell waiter") => {}
