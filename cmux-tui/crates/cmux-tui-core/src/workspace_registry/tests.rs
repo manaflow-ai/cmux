@@ -37,6 +37,36 @@ fn seed_workspace(registry: &mut WorkspaceRegistry, key: &str) {
         .unwrap();
 }
 
+#[cfg(windows)]
+#[test]
+fn registry_opens_and_persists_under_a_long_windows_state_root() {
+    use std::os::windows::ffi::OsStrExt;
+
+    let mut root = temp_root("windows-long-state-root");
+    while root.as_os_str().encode_wide().count() + 1 + 120 < 423 {
+        root.push("x".repeat(120));
+    }
+    let remaining = 423 - root.as_os_str().encode_wide().count() - 1;
+    assert!((1..=255).contains(&remaining));
+    root.push("x".repeat(remaining));
+    assert_eq!(root.as_os_str().encode_wide().count(), 423);
+
+    fs::create_dir_all(&root).unwrap();
+    let machine_id = MachinePublicId::random().unwrap();
+    fs::write(root.join(MACHINE_ID_FILE), format!("{}\n", machine_id.as_str())).unwrap();
+    let pepper = ResourceEffectPepper::random().unwrap();
+    fs::write(root.join(RESOURCE_EFFECT_PEPPER_FILE), pepper.0.as_ref()).unwrap();
+
+    let mut registry = WorkspaceRegistry::open(&root, "long-state-path").unwrap();
+    seed_workspace(&mut registry, "persisted");
+    drop(registry);
+
+    let reopened = WorkspaceRegistry::open(&root, "long-state-path").unwrap();
+    assert_eq!(reopened.snapshot().unwrap().workspaces[0].key, "persisted");
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn interrupted_staged_workspace_keeps_reserved_public_id_without_early_publication() {
     let root = temp_root("interrupted-workspace-public-id");
