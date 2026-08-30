@@ -655,6 +655,12 @@ async fn relay_session(
     else {
         return Err(RelayError::transient("unable to initialize relay transport registry"));
     };
+    // Non-Unix builds do not expose the PTY transport registry, but shared
+    // session code still type-checks the context construction below. Keep a
+    // harmless sentinel available for those builds; all PTY use remains
+    // guarded by `cfg(unix)`.
+    #[cfg(not(unix))]
+    let transport_generation = 0;
 
     // Ordered PTY frame dispatch on its own task so a slow open (daemon
     // spawn) never stalls heartbeats or other frames.
