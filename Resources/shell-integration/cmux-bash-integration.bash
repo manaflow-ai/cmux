@@ -1606,12 +1606,12 @@ _cmux_watcher_parent_alive() {
 }
 
 _cmux_capture_shell_start_time() {
-    # Cache this shell's own start time once per shell lifetime: $$ never
+    # Cache this shell's own kernel start time once per shell lifetime: $$ never
     # changes, so the value cannot go stale, and watcher starts must not pay
-    # a process-identity lookup per command. Only a valid value tied to this
-    # shell PID is cached, so a transient provider failure heals on the next
-    # watcher start.
+    # a process-identity lookup per command. A coarse diagnostic `p` token is
+    # never a cache hit, so it is cleared and reacquired from the kernel.
     if [[ "${_CMUX_SHELL_START_PID:-}" == "$$" ]] \
+        && [[ "${_CMUX_SHELL_START_TIME:-}" == k* ]] \
         && _cmux_watcher_parent_identity_valid "$$" "${_CMUX_SHELL_START_TIME:-}"; then
         return 0
     fi
