@@ -83,10 +83,14 @@ extension DockSplitStore {
         } else {
             // Workspace Docks are part of their owning workspace, not the
             // window-wide right sidebar, so preserve main-panel ownership.
+            let ownerWindow = AppDelegate.shared?
+                .dockReferenceTabManager(for: self)
+                .flatMap { AppDelegate.shared?.windowId(for: $0) }
+                .flatMap { AppDelegate.shared?.mainWindow(for: $0) }
             AppDelegate.shared?.noteMainPanelKeyboardFocusIntent(
                 workspaceId: workspaceId,
                 panelId: panelId,
-                in: window
+                in: ownerWindow ?? window
             )
         }
         focusPanel(panelId)

@@ -5,9 +5,6 @@ extension Notification.Name {
     static let dockMenuCapabilitiesDidChange = Notification.Name(
         "cmux.dockMenuCapabilitiesDidChange"
     )
-    static let browserFindCapabilityDidChange = Notification.Name(
-        "cmux.browserFindCapabilityDidChange"
-    )
     static let terminalSelectionDidChange = Notification.Name(
         "cmux.terminalSelectionDidChange"
     )
