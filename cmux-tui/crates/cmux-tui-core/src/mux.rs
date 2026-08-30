@@ -9783,20 +9783,21 @@ impl Mux {
         let (commit, echo_sequence) = match (journal_sequence, echo_ingress) {
             (None, Some((ingress, key))) => {
                 let validated = self.journal_kernel.validate_ingress(ingress)?;
-                registry.commit_agent_projection_with_hook_state_and_journal(
-                    mutation,
-                    fingerprint,
-                    expected_revision,
-                    &terminal_id,
-                    &value,
-                    &deltas,
-                    effective_hook_state,
-                    ingress,
-                    &validated,
-                    "agent-report",
-                    key,
-                )
-                .map(|(commit, sequence)| (commit, Some(sequence)))?
+                registry
+                    .commit_agent_projection_with_hook_state_and_journal(
+                        mutation,
+                        fingerprint,
+                        expected_revision,
+                        &terminal_id,
+                        &value,
+                        &deltas,
+                        effective_hook_state,
+                        ingress,
+                        &validated,
+                        "agent-report",
+                        key,
+                    )
+                    .map(|(commit, sequence)| (commit, Some(sequence)))?
             }
             (Some(sequence), _) => (
                 registry.commit_agent_projection_with_hook_state_and_sequence(
