@@ -2931,6 +2931,14 @@ mod tests {
         fn kill(&self) {}
     }
 
+    /// Pauses provider resolution after the open reservation is published.
+    /// This gives lifecycle tests a deterministic boundary at which a
+    /// transport can detach while its provider task is still in flight.
+    struct ResolveGate {
+        entered: Arc<Notify>,
+        release: Arc<Notify>,
+    }
+
     #[derive(Default)]
     struct Recorded {
         spawned: Vec<FakePty>,
@@ -2946,6 +2954,7 @@ mod tests {
         read_dir: Option<Vec<String>>,
         ensure_socket_path: Option<PathBuf>,
         control: Option<Arc<dyn ControlHandle>>,
+        resolve_gate: Option<Arc<ResolveGate>>,
     }
 
     #[async_trait]
@@ -2968,6 +2977,10 @@ mod tests {
             PtyHandle { control, output, banner: None }
         }
         async fn resolve_cmux_tui(&self, _cancellation: CancellationToken) -> Option<CmuxTui> {
+            if let Some(gate) = &self.resolve_gate {
+                gate.entered.notify_one();
+                gate.release.notified().await;
+            }
             self.resolve.clone()
         }
         async fn ensure_daemon(
@@ -3048,6 +3061,16 @@ mod tests {
         ensure_socket_path: Option<PathBuf>,
         control: Option<Arc<dyn ControlHandle>>,
     ) -> Harness {
+        harness_with_control_and_gate(resolve, read_dir, ensure_socket_path, control, None)
+    }
+
+    fn harness_with_control_and_gate(
+        resolve: Option<CmuxTui>,
+        read_dir: Option<Vec<String>>,
+        ensure_socket_path: Option<PathBuf>,
+        control: Option<Arc<dyn ControlHandle>>,
+        resolve_gate: Option<Arc<ResolveGate>>,
+    ) -> Harness {
         let home = TestDirectory::new("harness");
         let home_path = home.path.clone();
         let env = env_map(&home_path);
@@ -3061,6 +3084,7 @@ mod tests {
             read_dir,
             ensure_socket_path,
             control,
+            resolve_gate,
         });
         let manager = PtyManager::with_limits(
             deps,
@@ -3482,6 +3506,7 @@ mod tests {
             read_dir: None,
             ensure_socket_path: None,
             control: None,
+            resolve_gate: None,
         });
         let manager =
             PtyManager::with_limits(deps, home_path.clone(), env, MAX_PTYS, 32, OUTPUT_BUFFER_CAP);
@@ -4009,7 +4034,8 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn cancelled_open_is_fenced_before_its_task_is_first_polled() {
         let h = harness(None, None);
-        let context = h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
+        let mut context = h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
+        context.transport_kind = TransportKind::Tunnel;
         let manager = Arc::new(h.manager);
         let frame = serde_json::json!({
             "version": 4,
@@ -4034,6 +4060,45 @@ mod tests {
         cancellation.cancel();
         task.await.unwrap();
         assert!(h.recorded.lock().unwrap().spawned.is_empty());
+        assert_eq!(manager.attachment_count(), 0);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn detaching_transport_cancels_an_in_flight_open() {
+        let entered = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let gate =
+            Arc::new(ResolveGate { entered: Arc::clone(&entered), release: Arc::clone(&release) });
+        let h = harness_with_control_and_gate(None, None, None, None, Some(gate));
+        let context = h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
+        let manager = Arc::new(h.manager);
+        let frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "p1",
+            "session": "main",
+            "cols": 80,
+            "rows": 24,
+        });
+        let cancellation = manager.new_open_cancellation().expect("open attempt token");
+        let task_manager = Arc::clone(&manager);
+        let task_context = context.clone();
+        let task_cancellation = cancellation.clone();
+        let task = tokio::spawn(async move {
+            task_manager
+                .handle_frame_with_open_cancellation(&frame, &task_context, Some(task_cancellation))
+                .await;
+        });
+
+        // Provider resolution is paused only after the reservation is live.
+        // Detach must signal the exact open before allowing the provider to
+        // continue, independent of scheduler timing.
+        entered.notified().await;
+        manager.detach_transport_kind("tunnel-a", TransportKind::Tunnel);
+        assert!(cancellation.is_cancelled());
+
+        release.notify_one();
+        task.await.unwrap();
         assert_eq!(manager.attachment_count(), 0);
     }
 
