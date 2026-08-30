@@ -263,6 +263,7 @@ struct WindowDockLifecycleTests {
     @MainActor
     func recoverableContextReplacementPreservesWindowDock() async throws {
         let _: Void = try await AppContextSerialGate.withExclusiveAppContext {
+            () async throws -> Void in
             _ = NSApplication.shared
             let previousAppDelegate = AppDelegate.shared
             let previousActiveManager =
