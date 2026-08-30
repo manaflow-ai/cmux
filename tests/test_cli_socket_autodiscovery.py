@@ -190,12 +190,11 @@ def run_ping(
     extra_env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
+    for key in list(env):
+        if key.startswith("CMUX_"):
+            env.pop(key, None)
     env["HOME"] = home
     env["CFFIXED_USER_HOME"] = home
-    env.pop("CMUX_SOCKET_PATH", None)
-    env.pop("CMUX_SOCKET", None)
-    env.pop("CMUX_BUNDLE_ID", None)
-    env.pop("CMUX_TAG", None)
     env["CMUX_CLI_SENTRY_DISABLED"] = "1"
     env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
     if extra_env:
@@ -461,6 +460,9 @@ def test_python_client_treats_stable_override_as_implicit() -> bool:
 
 def test_variant_last_socket_markers(cli_path: str) -> bool:
     pid = os.getpid()
+    nightly_slug = f"issue3542-nightly-{pid}"
+    dev_agent_slug = f"issue3542-dev-agent-{pid}"
+    isolated_nightly_slug = f"issue3542-isolated-nightly-{pid}"
     stable_socket = f"/tmp/cmux-issue3542-stable-{pid}.sock"
     nightly_socket = f"/tmp/cmux-issue3542-nightly-{pid}.sock"
     dev_agent_socket = f"/tmp/cmux-issue3542-dev-agent-{pid}.sock"
@@ -483,24 +485,24 @@ def test_variant_last_socket_markers(cli_path: str) -> bool:
             cli_path,
             apps,
             "cmux NIGHTLY",
-            "com.cmuxterm.app.nightly",
+            f"com.cmuxterm.app.nightly.{nightly_slug}",
         )
         isolated_nightly_cli = bundled_cli_for_variant(
             cli_path,
             apps,
             "cmux NIGHTLY issue3542",
-            "com.cmuxterm.app.nightly.issue3542",
+            f"com.cmuxterm.app.nightly.{isolated_nightly_slug}",
         )
         dev_agent_cli = bundled_cli_for_variant(
             cli_path,
             apps,
             "cmux DEV agent",
-            "com.cmuxterm.app.debug.agent",
+            f"com.cmuxterm.app.debug.{dev_agent_slug}",
         )
 
         write_marker(home, "last-socket-path", stable_socket)
-        write_marker(home, "nightly-last-socket-path", nightly_socket)
-        write_marker(home, "dev-agent-last-socket-path", dev_agent_socket)
+        write_marker(home, f"nightly-{nightly_slug}-last-socket-path", nightly_socket)
+        write_marker(home, f"dev-{dev_agent_slug}-last-socket-path", dev_agent_socket)
 
         try:
             if not expect_ping_uses_socket(stable_cli, home, stable_socket, "stable"):
@@ -584,7 +586,9 @@ def test_base_debug_cli_discovers_cmux_tag(cli_path: str) -> bool:
         return False
 
     env = os.environ.copy()
-    env["CMUX_SOCKET_PATH"] = "/tmp/cmux.sock"
+    for key in list(env):
+        if key.startswith("CMUX_"):
+            env.pop(key, None)
     env["CMUX_TAG"] = tag
     env["CMUX_CLI_SENTRY_DISABLED"] = "1"
     env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
