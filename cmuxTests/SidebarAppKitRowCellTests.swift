@@ -813,9 +813,14 @@ struct SidebarAppKitRowCellTests {
             excluding: background
         )
 
+        // The row palette snapshots SwiftUI's secondary color (including its
+        // semantic alpha) and multiplies that alpha for the description. Do
+        // the same for the expected raster instead of replacing the semantic
+        // alpha with 0.95, which would be a different color on macOS.
+        let tableSecondary = Self.tableEnvironment.secondaryTextColor
         let resolvedProse = cmuxCompositedNSColor(
             try Self.resolvedColor(
-                NSColor.secondaryLabelColor.withAlphaComponent(0.95),
+                tableSecondary.withAlphaComponent(tableSecondary.alphaComponent * 0.95),
                 in: darkAppearance
             ),
             over: background
@@ -830,7 +835,7 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
-    func rowPaletteSemanticColorsRemainDynamicAcrossAppearances() throws {
+    func rowPaletteSemanticColorsStayBoundToConfiguredScheme() throws {
         let lightAppearance = try #require(NSAppearance(named: .aqua))
         let darkAppearance = try #require(NSAppearance(named: .darkAqua))
         let semanticColor = NSColor(name: nil) { appearance in
@@ -842,18 +847,20 @@ struct SidebarAppKitRowCellTests {
             environment: Self.tableEnvironment,
             model: Self.makeModel()
         )
+        let expectedDark = try Self.resolvedColor(semanticColor, in: darkAppearance)
         let colors = [
-            (palette.semantic(semanticColor), CGFloat(1)),
-            (palette.semantic(semanticColor, opacity: 0.6), CGFloat(0.6)),
+            (palette.semantic(semanticColor), expectedDark),
+            (palette.semantic(semanticColor, opacity: 0.6), expectedDark.withAlphaComponent(0.6)),
         ]
 
-        for (color, expectedAlpha) in colors {
+        for (color, expected) in colors {
             let light = try Self.resolvedColor(color, in: lightAppearance)
             let dark = try Self.resolvedColor(color, in: darkAppearance)
 
-            #expect(Self.distance(light, dark) > 1)
-            #expect(abs(light.alphaComponent - expectedAlpha) < 0.001)
-            #expect(abs(dark.alphaComponent - expectedAlpha) < 0.001)
+            #expect(Self.distance(light, dark) < 0.001)
+            #expect(Self.distance(dark, expected) < 0.001)
+            #expect(abs(light.alphaComponent - expected.alphaComponent) < 0.001)
+            #expect(abs(dark.alphaComponent - expected.alphaComponent) < 0.001)
         }
     }
 
