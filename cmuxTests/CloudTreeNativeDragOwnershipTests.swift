@@ -167,6 +167,69 @@ struct CloudTreeNativeDragOwnershipTests {
         _ = container
     }
 
+    @Test("An unattributable late callback does not revoke a pending writer")
+    func lateUnknownEndedAtLeavesReplacementWriterPending() throws {
+        let transferRegistry = TabDragTransferRegistry()
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: Self.machineActions,
+            nodeActions: Self.nodeActions,
+            expansionStore: CloudTreeExpansionStore(
+                defaults: UserDefaults(suiteName: "cloud-tree-drag-unknown-\(UUID().uuidString)")!
+            ),
+            tabDragTransferRegistry: { transferRegistry }
+        )
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        let outline = try #require(coordinator.outlineView)
+        let node = Self.terminalNode()
+        coordinator.apply(nodes: [node])
+
+        let firstWriter = try #require(
+            coordinator.outlineView(outline, pasteboardWriterForItem: node)
+                as? CloudTreeSurfaceDragPasteboardWriter
+        )
+        let firstSession = TestDraggingSession(sequence: 31)
+        coordinator.outlineView(
+            outline,
+            draggingSession: firstSession,
+            willBeginAt: .zero,
+            forItems: [node]
+        )
+        coordinator.prepareForNativeDragBoundary()
+
+        let secondWriter = try #require(
+            coordinator.outlineView(outline, pasteboardWriterForItem: node)
+                as? CloudTreeSurfaceDragPasteboardWriter
+        )
+        let secondSession = TestDraggingSession(sequence: 32)
+        coordinator.outlineView(
+            outline,
+            draggingSession: secondSession,
+            willBeginAt: .zero,
+            forItems: [node]
+        )
+        coordinator.outlineView(
+            outline,
+            draggingSession: secondSession,
+            endedAt: .zero,
+            operation: []
+        )
+
+        let pendingWriter = try #require(
+            coordinator.outlineView(outline, pasteboardWriterForItem: node)
+                as? CloudTreeSurfaceDragPasteboardWriter
+        )
+        coordinator.outlineView(
+            outline,
+            draggingSession: firstSession,
+            endedAt: .zero,
+            operation: []
+        )
+        #expect(SurfaceResourceDragRegistry.shared.group(id: pendingWriter.dragID) != nil)
+        _ = firstWriter
+        _ = secondWriter
+        _ = container
+    }
+
     private static func terminalNode() -> CloudTreeNode {
         let resource = SurfaceResource(
             id: SurfaceResourceID(

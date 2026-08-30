@@ -782,10 +782,11 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 setDragging(false)
             }
             guard let activeDrag else {
-                // A native callback can still arrive after the provisional
-                // lookup was pruned. It remains a terminal boundary for any
-                // registrations that were waiting on that writer.
-                discardAllPendingDrags()
+                // This callback is attributable only when the coordinator
+                // recorded the same native session (the no-registration path
+                // still freezes the outline and clears its local owner in the
+                // defer above). An unknown late callback must not revoke a
+                // newer writer that is still waiting for its own willBeginAt.
                 return
             }
 #if DEBUG

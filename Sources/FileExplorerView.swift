@@ -537,6 +537,25 @@ struct FileExplorerPanelView: NSViewRepresentable {
             return descendant.hasPrefix(ancestor + "/")
         }
 
+        /// Applies the shared native-generation fence used by both file
+        /// preview drag sources. A different session must have a strictly
+        /// newer AppKit sequence before it can replace the active owner.
+        @discardableResult
+        func supersedeNativeDragIfNeeded(
+            previousSession: NSDraggingSession?,
+            newSession: NSDraggingSession,
+            finishPrevious: () -> Void,
+            clearPrevious: () -> Void
+        ) -> Bool {
+            guard let previousSession, previousSession !== newSession else { return true }
+            guard newSession.draggingSequenceNumber > previousSession.draggingSequenceNumber else {
+                return false
+            }
+            finishPrevious()
+            clearPrevious()
+            return true
+        }
+
         // MARK: - Drag-to-Preview
 
         func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> (any NSPasteboardWriting)? {
@@ -561,6 +580,24 @@ struct FileExplorerPanelView: NSViewRepresentable {
             _ = screenPoint
             _ = draggedItems
             if let outlineView = outlineView as? FileExplorerNSOutlineView {
+                if outlineView.activeNativeDragSession === session {
+                    return
+                }
+                guard supersedeNativeDragIfNeeded(
+                    previousSession: outlineView.activeNativeDragSession,
+                    newSession: session,
+                    finishPrevious: {
+                        outlineView.activeNativeDragOwnership?.finish(
+                            from: outlineView.activeNativeDragSession?.draggingPasteboard
+                                ?? session.draggingPasteboard
+                        )
+                    },
+                    clearPrevious: {
+                        outlineView.activeNativeDragDelegateMarker = nil
+                        outlineView.activeNativeDragOwnership = nil
+                        outlineView.activeNativeDragSession = nil
+                    }
+                ) else { return }
                 outlineView.activeNativeDragDelegateMarker = self
                 outlineView.activeNativeDragSession = session
                 outlineView.activeNativeDragOwnership =
@@ -1681,20 +1718,25 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         _ = rowIndexes
         guard tableView === searchResultsView else { return }
         if let previousSession = searchResultsView.activeNativeDragSession,
-           previousSession !== session {
-            guard session.draggingSequenceNumber > previousSession.draggingSequenceNumber else {
-                // Equal/lower sequence numbers are duplicate or stale begin
-                // callbacks. They must not overwrite the newer ownership
-                // record or strand its terminal callback.
-                return
+           previousSession === session {
+            return
+        }
+        guard coordinator.supersedeNativeDragIfNeeded(
+            previousSession: searchResultsView.activeNativeDragSession,
+            newSession: session,
+            finishPrevious: {
+                searchResultsView.activeNativeDragOwnership?.finish(
+                    from: searchResultsView.activeNativeDragSession?.draggingPasteboard
+                        ?? session.draggingPasteboard
+                )
+            },
+            clearPrevious: {
+                searchResultsView.activeNativeDragDelegateMarker = nil
+                searchResultsView.activeNativeDragOwnership = nil
+                searchResultsView.activeNativeDragSession = nil
             }
-            // A new native begin proves that AppKit has left an older drag
-            // loop even when that source omitted `endedAt`; retire only the
-            // superseded capability before installing this generation.
-            searchResultsView.activeNativeDragOwnership?.finish(from: previousSession.draggingPasteboard)
-            searchResultsView.activeNativeDragDelegateMarker = nil
-            searchResultsView.activeNativeDragOwnership = nil
-            searchResultsView.activeNativeDragSession = nil
+        ) else {
+            return
         }
         // The pasteboard writer retains this exact container through the native
         // terminal callback. Keep only a weak marker on the table: a strong
