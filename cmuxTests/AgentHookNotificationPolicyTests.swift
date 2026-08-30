@@ -54,6 +54,8 @@ struct AgentHookNotificationPolicyTests {
 
     @Test(arguments: [
         ("Claude Code", "API Error: 529 overloaded_error: Overloaded", "Model at capacity"),
+        ("Claude Code", "overloaded", "Model at capacity"),
+        ("Claude Code", "529", "Model at capacity"),
         ("Claude Code", "You've hit your usage limit. Please try again later.", "Quota exhausted"),
         ("Claude Code", "429 rate_limit_error: Rate limit exceeded", "Rate limited"),
         ("Codex", "Selected model is at capacity. Please try a different model.", "Model at capacity"),

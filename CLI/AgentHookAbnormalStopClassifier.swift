@@ -164,7 +164,10 @@ struct AgentHookAbnormalStopClassifier {
         let providerCapacityQualifier = messageTokens.contains {
             providerCapacityQualifiers.contains($0)
         }
-        let explicitCapacityReason = ["capacity", "stop capacity"].contains {
+        let explicitCapacityReason = [
+            "capacity", "at capacity", "overload", "overloaded", "529",
+            "stop capacity", "stop at capacity", "stop overload", "stop overloaded", "stop 529",
+        ].contains {
             normalizedMessage.trimmingCharacters(in: .whitespacesAndNewlines) == $0
         }
         if capacityCue && (providerCapacityQualifier || explicitCapacityReason) {
