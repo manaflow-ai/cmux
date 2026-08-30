@@ -5814,6 +5814,9 @@ impl Mux {
             None,
             &mutation,
             &fingerprint,
+            false,
+            None,
+            None,
             AgentReportOrigin::RosterFold,
             agent_adapter,
         ) {
