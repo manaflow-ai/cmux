@@ -595,6 +595,19 @@ impl OpenCancellation {
     }
 }
 
+async fn request_control_with_cancellation(
+    control: &Arc<dyn ControlHandle>,
+    command: &str,
+    params: Value,
+    cancellation: &OpenCancellation,
+) -> Option<Value> {
+    tokio::select! {
+        biased;
+        _ = cancellation.token.cancelled() => None,
+        response = control.request(command, params) => response,
+    }
+}
+
 /// Attachments whose ownership has already been removed from the manager.
 /// The controls are retired after the caller releases any outer trust lock,
 /// so a slow platform kill cannot block authorization readers or a later
@@ -2013,7 +2026,14 @@ impl Inner {
             if cancellation.is_cancelled() {
                 return Err("terminal open cancelled".to_owned());
             }
-            let Some(listed) = control.request("list-workspaces", json!({})).await else {
+            let Some(listed) = request_control_with_cancellation(
+                &control,
+                "list-workspaces",
+                json!({}),
+                cancellation,
+            )
+            .await
+            else {
                 control.end();
                 return Err("cannot inspect existing daemon surfaces".to_owned());
             };
@@ -2048,8 +2068,13 @@ impl Inner {
                 if cancellation.is_cancelled() {
                     return Err("terminal open cancelled".to_owned());
                 }
-                let Some(info) =
-                    control.request("process-info", json!({ "surface": tab.surface_id })).await
+                let Some(info) = request_control_with_cancellation(
+                    &control,
+                    "process-info",
+                    json!({ "surface": tab.surface_id }),
+                    cancellation,
+                )
+                .await
                 else {
                     control.end();
                     return Err("cannot inspect existing surface cwd".to_owned());
@@ -2169,7 +2194,13 @@ impl Inner {
                 }
             };
             if !owner {
-                waiter.expect("shell waiter").await;
+                tokio::select! {
+                    biased;
+                    _ = cancellation.token().cancelled() => {
+                        return Err("terminal open cancelled".to_owned());
+                    }
+                    _ = waiter.expect("shell waiter") => {}
+                }
                 continue;
             }
             if self.shell_sessions.lock().expect("shell lock").len() >= self.max_ptys {
