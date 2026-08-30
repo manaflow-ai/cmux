@@ -2617,6 +2617,7 @@ impl Mux {
             }
             std::thread::sleep(Duration::from_millis(25));
         }
+        mux.reconcile_retired_terminal_side_tables();
         mux.retry_pending_agent_hooks()?;
         crate::journal_hooks::start(&mux)?;
         Ok(mux)
@@ -2637,6 +2638,49 @@ impl Mux {
             self.retry_pending_agent_hooks_rows(pending)?;
         }
         Ok(())
+    }
+
+    /// A durable terminal tombstone is also the retry receipt for best-effort
+    /// side-table cleanup. A close reply stays successful after its resource
+    /// transaction commits; startup retries any stale agent state left by a
+    /// later cleanup failure.
+    fn reconcile_retired_terminal_side_tables(&self) {
+        let mut candidates = HashSet::new();
+        candidates.extend(self.agent_records.lock().unwrap().keys().cloned());
+        candidates.extend(self.agent_hook_fences.lock().unwrap().keys().cloned());
+        candidates.extend(self.terminal_notifications.lock().unwrap().keys().cloned());
+        let roster_terminal_ids =
+            self.agent_roster.lock().unwrap().roster.entries.keys().cloned().collect::<Vec<_>>();
+        for terminal_id in roster_terminal_ids {
+            if let Ok(terminal_id) = TerminalPublicId::parse(terminal_id) {
+                candidates.insert(terminal_id);
+            }
+        }
+
+        for terminal_id in candidates {
+            let retired: anyhow::Result<bool> = (|| {
+                let registry = self.workspace_registry.lock().unwrap();
+                let Some(host_id) = registry.terminal_host_id(&terminal_id)? else {
+                    return Ok(true);
+                };
+                Ok(registry
+                    .terminal_record(&host_id)?
+                    .is_none_or(|terminal| terminal.lifecycle == TerminalLifecycle::Tombstoned))
+            })();
+            match retired {
+                Ok(true) => {
+                    if self.purge_terminal_side_tables(&terminal_id).is_err() {
+                        self.report_internal_diagnostic(
+                            "retired terminal side-table cleanup remains deferred",
+                        );
+                    }
+                }
+                Ok(false) => {}
+                Err(_) => self.report_internal_diagnostic(
+                    "retired terminal side-table reconciliation remains deferred",
+                ),
+            }
+        }
     }
 
     fn retry_pending_agent_hooks_for_terminal(
@@ -9704,6 +9748,7 @@ impl Mux {
         if pending_cleanup.is_err() {
             self.report_internal_diagnostic("terminal agent hook cleanup deferred");
         }
+        pending_cleanup.context("purge pending agent hook receipts")?;
         let retired = {
             let mut host = self.agent_roster.lock().unwrap();
             let previous = host.roster.clone();
@@ -23883,6 +23928,48 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn startup_reconciliation_retries_agent_cleanup_after_durable_close() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-agent-cleanup-retry-{}", crate::workspace_registry::new_uuid_v4()));
+        let session = "agent-cleanup-retry";
+        let mux = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "UserPromptSubmit",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({"session_id":"cleanup-retry"}),
+        )
+        .unwrap();
+        mux.append_journal_ingress(&ingress, "test", "cleanup-retry-agent").unwrap();
+        assert_eq!(mux.list_agents(Some(surface.id), None).len(), 1);
+
+        // Simulate a process loss after the terminal close transaction
+        // commits but before the normal side-table cleanup runs.
+        let mutation = WorkspaceMutation::new("cleanup-retry-close", "test").unwrap();
+        {
+            let mut registry = mux.workspace_registry.lock().unwrap();
+            let host_id = registry.terminal_host_id(&terminal_id).unwrap().unwrap();
+            let incarnation = registry.terminal_record(&host_id).unwrap().unwrap().incarnation;
+            registry
+                .close_terminal(&mutation, None, None, &host_id, incarnation.as_deref())
+                .unwrap();
+        }
+        assert_eq!(mux.list_agents(Some(surface.id), None).len(), 1);
+
+        mux.shutdown();
+        drop(mux);
+        let reopened = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
+
+        assert!(reopened.list_agents(None, None).is_empty());
+        assert!(reopened.agent_roster.lock().unwrap().roster.is_retired(terminal_id.as_str()));
+        reopened.shutdown();
+        drop(reopened);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
