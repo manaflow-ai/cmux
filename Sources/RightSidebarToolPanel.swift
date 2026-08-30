@@ -19,15 +19,17 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     private var fileExplorerStateStorage: FileExplorerState?
     private var sessionIndexStoreStorage: SessionIndexStore?
     private var workspaceObservationCancellable: AnyCancellable?
+    private let fileExplorerSSHRootSynchronizer = FileExplorerSSHRootSynchronizer()
+    private var isVisibleInUI = false
 
     init(workspace: Workspace, mode: RightSidebarMode) {
         self.id = UUID()
         self.mode = mode
+        fileExplorerSSHRootSynchronizer.startObserving { [weak self] in
+            guard let self, let workspace = self.workspace else { return }
+            self.syncWorkspaceRoot(from: workspace)
+        }
         reattach(to: workspace)
-    }
-
-    deinit {
-        // Explicit no-op so future teardown has a single home.
     }
 
     var fileExplorerStore: FileExplorerStore {
@@ -93,7 +95,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
               let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
             return
         }
-        if workspace.isRemoteWorkspace {
+        if fileExplorerStore.usesRemoteProvider {
             let store = fileExplorerStore
             Task { [weak workspace, weak store] in
                 guard let workspace, let store else { return }
@@ -129,6 +131,15 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         fileExplorerStoreStorage?.applyWorkspaceRoot(.none)
         sessionIndexStoreStorage?.setCurrentDirectoryIfChanged(nil)
         workspaceObservationCancellable = nil
+        fileExplorerSSHRootSynchronizer.stop()
+    }
+
+    func setVisibleInUI(_ isVisible: Bool) {
+        guard isVisibleInUI != isVisible else { return }
+        isVisibleInUI = isVisible
+        if let workspace {
+            syncWorkspaceRoot(from: workspace)
+        }
     }
 
     func focus() {
@@ -179,7 +190,16 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
             workspace.$remoteConfiguration.map { _ in () }.eraseToAnyPublisher(),
             workspace.$remoteConnectionState.map { _ in () }.eraseToAnyPublisher(),
             workspace.$remoteConnectionDetail.map { _ in () }.eraseToAnyPublisher(),
-            workspace.$remoteDaemonStatus.map { _ in () }.eraseToAnyPublisher()
+            workspace.$remoteDaemonStatus.map { _ in () }.eraseToAnyPublisher(),
+            NotificationCenter.default.publisher(for: .ghosttyDidFocusSurface)
+                .filter { [weak workspace] notification in
+                    guard let workspace,
+                          let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID
+                    else { return false }
+                    return tabId == workspace.id
+                }
+                .map { _ in () }
+                .eraseToAnyPublisher()
         )
         .sink { [weak self, weak workspace] _ in
             Task { @MainActor in
@@ -190,40 +210,12 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     }
 
     private func syncFileExplorerRoot(from workspace: Workspace, store: FileExplorerStore) {
-        store.showHiddenFiles = true
-
-        if workspace.usesRemoteDirectoryProvenance {
-            guard let configuration = workspace.remoteConfiguration,
-                  configuration.transport == .ssh else {
-                store.applyWorkspaceRoot(.none)
-                return
-            }
-            let unavailableDetail = workspace.remoteConnectionDetail ?? workspace.remoteDaemonStatus.detail
-            store.applyWorkspaceRoot(
-                .remoteSSH(
-                    workspaceId: workspace.id,
-                    connection: SSHFileExplorerConnection(
-                        destination: configuration.destination,
-                        port: configuration.port,
-                        identityFile: configuration.identityFile,
-                        sshOptions: configuration.sshOptions
-                    ),
-                    displayTarget: configuration.displayTarget,
-                    rootPath: workspace.trustedRemoteCurrentDirectory,
-                    isAvailable: workspace.remoteConnectionState == .connected,
-                    unavailableDetail: unavailableDetail
-                )
-            )
-            return
-        }
-
-        let directory = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !directory.isEmpty else {
-            store.applyWorkspaceRoot(.none)
-            return
-        }
-
-        store.applyWorkspaceRoot(.local(workspaceId: workspace.id, path: directory))
+        let shouldMonitor = isVisibleInUI && (mode == .files || mode == .find)
+        fileExplorerSSHRootSynchronizer.applyWorkspaceRoot(
+            workspace: workspace,
+            store: store,
+            isEnabled: shouldMonitor
+        )
     }
 
     private func syncSessionIndexRoot(from workspace: Workspace, store: SessionIndexStore) {
@@ -258,6 +250,15 @@ struct RightSidebarToolPanelView: View {
             .simultaneousGesture(TapGesture().onEnded { requestPanelFocusIfNeeded() })
             .onChange(of: panel.focusFlashToken) { _, _ in
                 triggerFocusFlashAnimation()
+            }
+            .onAppear {
+                panel.setVisibleInUI(isVisibleInUI)
+            }
+            .onChange(of: isVisibleInUI) { _, isVisible in
+                panel.setVisibleInUI(isVisible)
+            }
+            .onDisappear {
+                panel.setVisibleInUI(false)
             }
     }
 

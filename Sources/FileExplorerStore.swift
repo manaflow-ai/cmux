@@ -225,7 +225,108 @@ struct SSHFileExplorerConnection: Equatable, Sendable {
     let destination: String
     let port: Int?
     let identityFile: String?
+    let configFile: String?
+    let useIPv4: Bool
+    let useIPv6: Bool
+    let forwardAgent: Bool
+    let compressionEnabled: Bool
     let sshOptions: [String]
+
+    init(
+        destination: String,
+        port: Int?,
+        identityFile: String?,
+        configFile: String? = nil,
+        useIPv4: Bool = false,
+        useIPv6: Bool = false,
+        forwardAgent: Bool = false,
+        compressionEnabled: Bool = false,
+        sshOptions: [String]
+    ) {
+        self.destination = destination
+        self.port = port
+        self.identityFile = identityFile
+        self.configFile = configFile
+        self.useIPv4 = useIPv4
+        self.useIPv6 = useIPv6
+        self.forwardAgent = forwardAgent
+        self.compressionEnabled = compressionEnabled
+        self.sshOptions = sshOptions
+    }
+
+    init(detectedSSHSession session: DetectedSSHSession) {
+        var options = session.sshOptions
+        if let jumpHost = session.jumpHost?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !jumpHost.isEmpty,
+           !Self.containsOption(options, key: "ProxyJump") {
+            options.append("ProxyJump=\(jumpHost)")
+        }
+        if let controlPath = session.controlPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !controlPath.isEmpty,
+           !Self.containsOption(options, key: "ControlPath") {
+            options.append("ControlPath=\(controlPath)")
+        }
+
+        self.init(
+            destination: session.destination,
+            port: session.port,
+            identityFile: session.identityFile,
+            configFile: session.configFile,
+            useIPv4: session.useIPv4,
+            useIPv6: session.useIPv6,
+            forwardAgent: session.forwardAgent,
+            compressionEnabled: session.compressionEnabled,
+            sshOptions: options
+        )
+    }
+
+    func sshArguments(command: String) -> [String] {
+        var arguments = SSHHostConfiguredRemoteCommand().overrideArguments
+        if useIPv4 {
+            arguments.append("-4")
+        } else if useIPv6 {
+            arguments.append("-6")
+        }
+        if forwardAgent {
+            arguments.append("-A")
+        }
+        if compressionEnabled {
+            arguments.append("-C")
+        }
+        if let configFile = configFile?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !configFile.isEmpty {
+            arguments += ["-F", configFile]
+        }
+        if let port {
+            arguments += ["-p", String(port)]
+        }
+        if let identityFile = identityFile?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !identityFile.isEmpty {
+            arguments += ["-i", identityFile]
+        }
+        let overriddenOptionKeys: Set<String> = ["batchmode", "connecttimeout"]
+        for option in sshOptions where !overriddenOptionKeys.contains(Self.optionKey(option) ?? "") {
+            arguments += ["-o", option]
+        }
+        arguments += ["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-T"]
+        arguments += [destination, command]
+        return arguments
+    }
+
+    private static func containsOption(_ options: [String], key: String) -> Bool {
+        let normalizedKey = key.lowercased()
+        return options.contains { optionKey($0) == normalizedKey }
+    }
+
+    private static func optionKey(_ option: String) -> String? {
+        let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed
+            .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
+            .first
+            .map(String.init)?
+            .lowercased()
+    }
 }
 
 protocol SSHFileExplorerTransport: AnyObject {
@@ -623,20 +724,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
     }
 
     private static func sshArguments(connection: SSHFileExplorerConnection, command: String) -> [String] {
-        var args: [String] = SSHHostConfiguredRemoteCommand().overrideArguments
-        if let port = connection.port {
-            args += ["-p", String(port)]
-        }
-        if let identityFile = connection.identityFile {
-            args += ["-i", identityFile]
-        }
-        for option in connection.sshOptions {
-            args += ["-o", option]
-        }
-        // Batch mode, no TTY, connection timeout
-        args += ["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-T"]
-        args += [connection.destination, command]
-        return args
+        connection.sshArguments(command: command)
     }
 
     private static func runSSHListCommand(
@@ -758,6 +846,10 @@ final class FileExplorerStore: ObservableObject {
         self.gitStatusProvider = gitStatusProvider
     }
 
+    var usesRemoteProvider: Bool {
+        provider is SSHFileExplorerProvider
+    }
+
     var displayRootPath: String {
         if let sshProvider = provider as? SSHFileExplorerProvider {
             guard !rootPath.isEmpty else {
@@ -828,15 +920,12 @@ final class FileExplorerStore: ObservableObject {
         }
         let path = rootPath
         if let sshProvider = provider as? SSHFileExplorerProvider {
-            let dest = sshProvider.destination
-            let port = sshProvider.port
-            let identity = sshProvider.identityFile
-            let opts = sshProvider.sshOptions
+            let connection = sshProvider.connection
             let gitStatusProvider = self.gitStatusProvider
             DispatchQueue.global(qos: .utility).async {
                 let status = gitStatusProvider.fetchStatusSSH(
-                    directory: path, destination: dest, port: port,
-                    identityFile: identity, sshOptions: opts
+                    directory: path,
+                    connection: connection
                 )
                 DispatchQueue.main.async { [weak self] in
                     self?.gitStatusByPath = status
@@ -920,12 +1009,14 @@ final class FileExplorerStore: ObservableObject {
         cancelAllLoads()
         rootNodes = []
         nodesByPath = [:]
-        guard !rootPath.isEmpty, provider != nil else { return }
+        guard !rootPath.isEmpty, let provider else { return }
         isRootLoading = true
         let path = rootPath
+        // Capture the provider that initiated this load so a cancelled task cannot
+        // list through a provider installed after cancelAllLoads().
         let task = Task { [weak self] in
             guard let self else { return }
-            await self.loadChildren(for: nil, at: path)
+            await self.loadChildren(for: nil, at: path, using: provider)
         }
         loadTasks[rootPath] = task
     }
@@ -934,13 +1025,16 @@ final class FileExplorerStore: ObservableObject {
         guard node.isDirectory else { return }
         expandedPaths.insert(node.path)
         if node.children == nil, loadTasks[node.path] == nil, !loadingPaths.contains(node.path) {
+            // Require a provider before flipping isLoading so a nil provider
+            // cannot leave the node stuck in the loading state.
+            guard let provider else { return }
             node.isLoading = true
             node.error = nil
             objectWillChange.send()
             let nodePath = node.path
             let task = Task { [weak self] in
                 guard let self else { return }
-                await self.loadChildren(for: node, at: nodePath)
+                await self.loadChildren(for: node, at: nodePath, using: provider)
             }
             loadTasks[node.path] = task
         }
@@ -996,9 +1090,12 @@ final class FileExplorerStore: ObservableObject {
         prefetchSchedulers[path] = scheduler
         scheduler.schedule(after: .milliseconds(200)) { [weak self] in
             Task { @MainActor [weak self] in
-                guard let self, node.children == nil, !self.loadingPaths.contains(path) else { return }
+                guard let self,
+                      let provider = self.provider,
+                      node.children == nil,
+                      !self.loadingPaths.contains(path) else { return }
                 // Silent prefetch: don't show loading indicator
-                await self.loadChildren(for: node, at: path, silent: true)
+                await self.loadChildren(for: node, at: path, using: provider, silent: true)
             }
         }
     }
@@ -1021,12 +1118,15 @@ final class FileExplorerStore: ObservableObject {
     // MARK: - Private
 
     @MainActor
-    private func loadChildren(for parentNode: FileExplorerNode?, at path: String, silent: Bool = false) async {
-        // A load cancelled by cancelAllLoads (e.g. a root reload during an SSH provider swap) must not
-        // reach provider.listDirectory: the provider may have been replaced, so a stale in-flight load
-        // would list the old path through the new transport. Bail before any listing.
+    private func loadChildren(
+        for parentNode: FileExplorerNode?,
+        at path: String,
+        using provider: FileExplorerProvider,
+        silent: Bool = false
+    ) async {
+        // Cooperative cancel: a task cancelled by cancelAllLoads() during a
+        // provider switch must not list through the newly installed provider.
         guard !Task.isCancelled else { return }
-        guard let provider else { return }
 
         if !silent {
             loadingPaths.insert(path)
@@ -1076,7 +1176,7 @@ final class FileExplorerStore: ObservableObject {
                 let childPath = child.path
                 let childTask = Task { [weak self] in
                     guard let self else { return }
-                    await self.loadChildren(for: child, at: childPath)
+                    await self.loadChildren(for: child, at: childPath, using: provider)
                 }
                 loadTasks[child.path] = childTask
             }

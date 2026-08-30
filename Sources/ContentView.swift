@@ -925,6 +925,7 @@ struct ContentView: View {
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
     @StateObject private var fileExplorerStore = FileExplorerStore()
     @StateObject private var sessionIndexStore = SessionIndexStore()
+    @State private var fileExplorerSSHRootSynchronizer = FileExplorerSSHRootSynchronizer()
     @StateObject private var selectedWorkspaceDirectoryObserver = SelectedWorkspaceDirectoryObserver()
     @State private var commandPaletteOverlayRenderModel = CommandPaletteOverlayRenderModel()
     @State private var backgroundWorkspacePrimeCoordinator = BackgroundWorkspacePrimeCoordinator()
@@ -2423,7 +2424,7 @@ struct ContentView: View {
         }
 
         sidebarSelectionState.selection = .tabs
-        if workspace.isRemoteWorkspace {
+        if fileExplorerStore.usesRemoteProvider {
             Task { [weak workspace, fileExplorerStore] in
                 guard let workspace else { return }
                 do {
@@ -2454,66 +2455,27 @@ struct ContentView: View {
             // No selection means we have no local cwd to scope by; clear so the
             // sessions panel doesn't keep filtering by a stale previous tab.
             sessionIndexStore.setCurrentDirectoryIfChanged(nil)
-            fileExplorerStore.applyWorkspaceRoot(.none)
+            fileExplorerSSHRootSynchronizer.clear(store: fileExplorerStore)
             return
         }
-
-        fileExplorerStore.showHiddenFiles = true
 
         if tab.usesRemoteDirectoryProvenance {
             sessionIndexStore.setCurrentDirectoryIfChanged(nil)
-            guard shouldSyncFileExplorerStore else {
-                fileExplorerStore.applyWorkspaceRoot(.none)
-                return
-            }
-            guard let config = tab.remoteConfiguration, config.transport == .ssh else {
-                fileExplorerStore.applyWorkspaceRoot(.none)
-                return
-            }
-            let unavailableDetail = tab.remoteConnectionDetail ?? tab.remoteDaemonStatus.detail
-
-            #if DEBUG
-            let hasUnavailableDetail = unavailableDetail?.isEmpty == false
-            cmuxDebugLog(
-                "fileExplorer.sync remote state=\(tab.remoteConnectionState.rawValue) " +
-                "hasDestination=\(config.destination.isEmpty ? 0 : 1) " +
-                "hasDisplayTarget=\(config.displayTarget.isEmpty ? 0 : 1) " +
-                "hasIdentityFile=\(config.identityFile == nil ? 0 : 1) " +
-                "hasDetail=\(hasUnavailableDetail ? 1 : 0)"
-            )
-            #endif
-
-            fileExplorerStore.applyWorkspaceRoot(
-                .remoteSSH(
-                    workspaceId: tab.id,
-                    connection: SSHFileExplorerConnection(
-                        destination: config.destination,
-                        port: config.port,
-                        identityFile: config.identityFile,
-                        sshOptions: config.sshOptions
-                    ),
-                    displayTarget: config.displayTarget,
-                    rootPath: tab.trustedRemoteCurrentDirectory,
-                    isAvailable: tab.remoteConnectionState == .connected,
-                    unavailableDetail: unavailableDetail
-                )
-            )
-            return
+        } else {
+            let directory = tab.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+            sessionIndexStore.setCurrentDirectoryIfChanged(directory.isEmpty ? nil : directory)
         }
 
-        let dir = tab.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !dir.isEmpty else {
-            sessionIndexStore.setCurrentDirectoryIfChanged(nil)
-            fileExplorerStore.applyWorkspaceRoot(.none)
-            return
-        }
-
-        sessionIndexStore.setCurrentDirectoryIfChanged(dir)
         guard shouldSyncFileExplorerStore else {
-            fileExplorerStore.applyWorkspaceRoot(.none)
+            fileExplorerSSHRootSynchronizer.clear(store: fileExplorerStore)
             return
         }
-        fileExplorerStore.applyWorkspaceRoot(.local(workspaceId: tab.id, path: dir))
+
+        fileExplorerSSHRootSynchronizer.applyWorkspaceRoot(
+            workspace: tab,
+            store: fileExplorerStore,
+            isEnabled: true
+        )
     }
 
     private var shouldSyncFileExplorerStore: Bool {
@@ -2808,6 +2770,20 @@ struct ContentView: View {
 
         // File explorer: keep the Combine subscription stable across body re-evaluations.
         view = AnyView(view.onChange(of: selectedWorkspaceDirectoryObserver.directoryChangeGeneration) { _ in
+            syncFileExplorerDirectory()
+        })
+        view = AnyView(view.task {
+            fileExplorerSSHRootSynchronizer.startObserving {
+                syncFileExplorerDirectory()
+            }
+        })
+        view = AnyView(view.onReceive(
+            NotificationCenter.default.publisher(for: .ghosttyDidFocusSurface)
+        ) { notification in
+            guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
+                  tabId == tabManager.selectedTabId else {
+                return
+            }
             syncFileExplorerDirectory()
         })
 
@@ -3377,6 +3353,7 @@ struct ContentView: View {
             }
             cancelCommandPaletteForkableAgentProbeResultExpiryRefresh()
             removeSidebarResizerPointerMonitor()
+            fileExplorerSSHRootSynchronizer.stop()
         })
 
         let commandPaletteOverlayView = AnyView(commandPaletteOverlay)
