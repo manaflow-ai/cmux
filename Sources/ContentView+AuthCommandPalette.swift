@@ -71,16 +71,23 @@ extension ContentView {
     static let commandPaletteCloudPortsCommandId = "palette.cloud.ports"
     static let commandPaletteCloudToolsCommandId = "palette.cloud.tools"
     static let commandPaletteCloudHandoffCommandId = "palette.cloud.handoff"
+    static let commandPaletteCloudNewMachineCommandId = "palette.cloud.newMachine"
 
     static func commandPaletteCloudCommandContributions() -> [CommandPaletteCommandContribution] {
         // Feature-gated: hide every Cloud VM command from the palette when the
         // Cloud VM UI flag is off, matching the dropdown and shortcut gates.
-        guard CmuxFeatureFlags.shared.isCloudVMUIEnabled else { return [] }
+        guard CloudMachinesFeature.isEnabled else { return [] }
         func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
             { _ in value }
         }
         let subtitle = constant(String(localized: "command.cloudVM.subtitle", defaultValue: "Cloud"))
         return [
+            CommandPaletteCommandContribution(
+                commandId: commandPaletteCloudNewMachineCommandId,
+                title: constant(String(localized: "command.cloudVM.newMachine.title", defaultValue: "New Cloud Machine\u{2026}")),
+                subtitle: subtitle,
+                keywords: ["cloud", "vm", "machine", "new", "create", "desktop", "base"]
+            ),
             CommandPaletteCommandContribution(
                 commandId: commandPaletteCloudOpenCommandId,
                 title: constant(String(localized: "command.cloudVM.open.title", defaultValue: "Open Base")),
@@ -139,6 +146,9 @@ extension ContentView {
     }
 
     func registerCloudCommandHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
+        registry.register(commandId: Self.commandPaletteCloudNewMachineCommandId) {
+            NewMachineSheetPresenter.shared.presentNewMachineFetchingPlan(preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow)
+        }
         registry.register(commandId: Self.commandPaletteCloudOpenCommandId) {
             _ = AppDelegate.shared?.performCloudVMAction(debugSource: "palette.cloud.open")
         }

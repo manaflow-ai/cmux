@@ -29,6 +29,7 @@ public final class MobileDisplaySettings {
     private static let terminalFolderTapEnabledKey = "cmux.mobile.terminalFolderTapEnabled"
     private static let workspacePreviewLineCountKey = "cmux.mobile.workspacePreviewLineCount"
     private static let unreadIndicatorLeftShiftKey = "cmux.mobile.debug.unreadIndicatorLeftShift.v2"
+    private static let unreadBadgeDiameterKey = "cmux.mobile.debug.unreadBadgeDiameter.v1"
     #if DEBUG
     private static let taskComposerShellIconVariantKey = "cmux.mobile.debug.taskComposerShellIconVariant.v1"
     #endif
@@ -43,6 +44,12 @@ public final class MobileDisplaySettings {
     /// With the workspace list's 12pt leading row inset, 10pt unread gutter, and
     /// 11pt unread dot, this places the dot's leading edge 10pt from the screen.
     public static let defaultUnreadIndicatorLeftShift = 1.5
+    /// Debug slider range for the unread count badge's circle diameter, in
+    /// points.
+    public static let unreadBadgeDiameterRange: ClosedRange<Double> = 8...28
+    /// The shipping badge diameter, picked by dogfood in the Unread Indicator
+    /// lab (the Mac sidebar badge is 16pt; the phone reads better at 20pt).
+    public static let defaultUnreadBadgeDiameter = 20.0
 
     /// Whether workspace-list row titles wrap onto multiple lines instead of
     /// truncating to a single line. Defaults to `false` (single-line). Mutating
@@ -117,6 +124,18 @@ public final class MobileDisplaySettings {
         }
     }
 
+    /// DEBUG-only layout tuning value, exposed in the Unread Indicator lab:
+    /// the count badge's circle diameter. Rows reserve rail spacing from it,
+    /// so growing the circle pushes the rail/text column right instead of
+    /// overlapping it.
+    public var unreadBadgeDiameter: Double {
+        didSet {
+            let clamped = Self.clamped(unreadBadgeDiameter, to: Self.unreadBadgeDiameterRange)
+            if clamped != unreadBadgeDiameter { unreadBadgeDiameter = clamped }
+            defaults.set(clamped, forKey: Self.unreadBadgeDiameterKey)
+        }
+    }
+
     #if DEBUG
     /// Persisted selection for the debug-only Shell icon lab.
     var taskComposerShellIconVariant: TaskComposerShellIconVariant {
@@ -172,6 +191,11 @@ public final class MobileDisplaySettings {
         self.unreadIndicatorLeftShift = Self.clamped(
             storedUnreadLeftShift ?? Self.defaultUnreadIndicatorLeftShift,
             to: Self.unreadIndicatorLeftShiftRange
+        )
+        let storedUnreadBadgeDiameter = defaults.object(forKey: Self.unreadBadgeDiameterKey) as? Double
+        self.unreadBadgeDiameter = Self.clamped(
+            storedUnreadBadgeDiameter ?? Self.defaultUnreadBadgeDiameter,
+            to: Self.unreadBadgeDiameterRange
         )
         #if DEBUG
         self.taskComposerShellIconVariant = defaults.string(

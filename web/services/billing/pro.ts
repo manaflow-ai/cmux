@@ -28,6 +28,11 @@ import {
 
 export const PRO_PLAN_ID = "pro";
 export const TEAM_PLAN_ID = "team";
+// Founder's Edition is a one-time purchase, not a Stripe subscription, so the
+// webhook's subscription reconciliation never writes or clears it. Grant it
+// with `cmuxVmPlan: "founders"` on the Stack user (the manual-override key
+// reconciliation leaves alone); entitlements then treat it as paid forever.
+export const FOUNDERS_PLAN_ID = "founders";
 export const FREE_PLAN_ID = "free";
 export const PRO_ACCESS_ITEM_ID = "cmux-pro-access";
 export const ACTIVE_STRIPE_PRO_STATUSES = ["active", "trialing", "past_due"] as const;

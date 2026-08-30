@@ -1,6 +1,6 @@
 import type { AuthedUser } from "./auth";
 import type { BillingCustomerType } from "./billingGateway";
-import { PRO_PLAN_ID, TEAM_PLAN_ID } from "../billing/pro";
+import { FOUNDERS_PLAN_ID, PRO_PLAN_ID, TEAM_PLAN_ID } from "../billing/pro";
 
 export type VmEntitlements = {
   readonly planId: string;
@@ -109,6 +109,46 @@ function resolveBillingContext(
   };
 }
 
+/**
+ * Machine sizes a person can pick, as memory in MB. Blaxel scales vCPUs with
+ * memory (a 4 GB machine reports 2 cpus), so memory is the whole size story.
+ */
+export const VM_MEMORY_OPTIONS_MB: readonly number[] = [2048, 4096, 8192, 16384, 24576, 32768];
+
+/** Largest machine a plan may create. Env-overridable per plan. */
+export function maxMemoryMbForPlan(
+  planId: string | null | undefined,
+  env: Record<string, string | undefined> = process.env,
+): number {
+  const normalized = normalizedPlanId(planId ?? "");
+  const planKey = normalized.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
+  const specific = env[`CMUX_VM_PLAN_${planKey}_MAX_MEMORY_MB`];
+  if (specific?.trim()) return positiveInteger(specific, `CMUX_VM_PLAN_${planKey}_MAX_MEMORY_MB`);
+  if (normalized === "free") {
+    // The free machine is the product demo: one full-size computer, not a
+    // cut-down teaser. The paywall is the 7-day access window and the
+    // machine count, never the machine's usefulness.
+    return positiveInteger(env.CMUX_VM_FREE_MAX_MEMORY_MB ?? "24576", "CMUX_VM_FREE_MAX_MEMORY_MB");
+  }
+  return positiveInteger(env.CMUX_VM_PAID_MAX_MEMORY_MB ?? "32768", "CMUX_VM_PAID_MAX_MEMORY_MB");
+}
+
+/** Size a plan gets when it doesn't ask for one; never above the plan's max. */
+export function defaultMemoryMbForPlan(
+  planId: string | null | undefined,
+  env: Record<string, string | undefined> = process.env,
+): number {
+  const normalized = normalizedPlanId(planId ?? "");
+  const planKey = normalized.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
+  const specific = env[`CMUX_VM_PLAN_${planKey}_DEFAULT_MEMORY_MB`];
+  const raw = specific?.trim()
+    ? positiveInteger(specific, `CMUX_VM_PLAN_${planKey}_DEFAULT_MEMORY_MB`)
+    : normalized === "free"
+      ? positiveInteger(env.CMUX_VM_FREE_DEFAULT_MEMORY_MB ?? "24576", "CMUX_VM_FREE_DEFAULT_MEMORY_MB")
+      : positiveInteger(env.CMUX_VM_PAID_DEFAULT_MEMORY_MB ?? "24576", "CMUX_VM_PAID_DEFAULT_MEMORY_MB");
+  return Math.min(raw, maxMemoryMbForPlan(planId, env));
+}
+
 export function maxActiveVmsForPlan(
   planId: string | null | undefined,
   env: Record<string, string | undefined> = process.env,
@@ -116,10 +156,49 @@ export function maxActiveVmsForPlan(
   return activeVmLimitForPlan(normalizedPlanId(planId ?? ""), env);
 }
 
-/** A paid Cloud VM plan is Pro or Team; everything else (free) is not. */
+/**
+ * How long a free-plan machine stays reachable after it is created, in days.
+ * After the window the machine (and its data) is preserved, but every access
+ * verb (attach, ssh, exec, ports, sessions) requires a paid plan; list/status/
+ * delete keep working so the machine is visible and disposable. 0 disables
+ * the window entirely (env kill switch).
+ */
+export function vmFreeAccessWindowDays(
+  env: Record<string, string | undefined> = process.env,
+): number {
+  const raw = env.CMUX_VM_FREE_ACCESS_WINDOW_DAYS;
+  if (raw === undefined || !raw.trim()) return 7;
+  const parsed = Number.parseInt(raw.trim(), 10);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error(`CMUX_VM_FREE_ACCESS_WINDOW_DAYS must be a non-negative integer, got: ${raw}`);
+  }
+  return parsed;
+}
+
+/**
+ * Whether the caller's CURRENT plan has outlived the free access window for a
+ * machine created at `createdAt`. Deliberately keyed on the caller's plan, not
+ * the plan recorded at create time: upgrading to Pro unlocks every machine the
+ * user already has.
+ */
+export function isVmFreeAccessExpired(
+  callerPlanId: string | null | undefined,
+  createdAt: Date | number | null | undefined,
+  env: Record<string, string | undefined> = process.env,
+  nowMs: number = Date.now(),
+): boolean {
+  if (isPaidVmPlan(normalizedPlanId(callerPlanId ?? ""))) return false;
+  const windowDays = vmFreeAccessWindowDays(env);
+  if (windowDays <= 0) return false;
+  const createdMs = createdAt instanceof Date ? createdAt.getTime() : createdAt;
+  if (typeof createdMs !== "number" || !Number.isFinite(createdMs)) return false;
+  return nowMs - createdMs > windowDays * 24 * 60 * 60 * 1000;
+}
+
+/** A paid Cloud VM plan is Pro, Team, or Founder's Edition; everything else (free) is not. */
 export function isPaidVmPlan(planId: string): boolean {
   const normalized = normalizedPlanId(planId);
-  return normalized === PRO_PLAN_ID || normalized === TEAM_PLAN_ID;
+  return normalized === PRO_PLAN_ID || normalized === TEAM_PLAN_ID || normalized === FOUNDERS_PLAN_ID;
 }
 
 /**
@@ -166,10 +245,15 @@ function activeVmLimitForPlan(planId: string, env: Record<string, string | undef
   if (specific?.trim()) return positiveInteger(specific, `CMUX_VM_PLAN_${planKey}_MAX_ACTIVE_VMS`);
 
   if (planId === "free") {
-    return positiveInteger(env.CMUX_VM_FREE_MAX_ACTIVE_VMS ?? "5", "CMUX_VM_FREE_MAX_ACTIVE_VMS");
+    // Cloud machines are a paid feature: free plans start at zero. Every
+    // create is the upgrade prompt (vmActiveLimitExceededResponse renders the
+    // paywall variant for unpaid plans, and the app's New Machine button opens
+    // the Pro flow at the ceiling). CMUX_VM_FREE_MAX_ACTIVE_VMS re-opens a
+    // demo allowance without a deploy.
+    return nonNegativeInteger(env.CMUX_VM_FREE_MAX_ACTIVE_VMS ?? "0", "CMUX_VM_FREE_MAX_ACTIVE_VMS");
   }
 
-  return positiveInteger(env.CMUX_VM_PAID_MAX_ACTIVE_VMS ?? "10", "CMUX_VM_PAID_MAX_ACTIVE_VMS");
+  return positiveInteger(env.CMUX_VM_PAID_MAX_ACTIVE_VMS ?? "5", "CMUX_VM_PAID_MAX_ACTIVE_VMS");
 }
 
 function normalizedPlanId(planId: string): string {
@@ -187,5 +271,13 @@ function positiveInteger(raw: string, key: string): number {
   if (!/^\d+$/.test(value)) throw new Error(`${key} must be a positive integer`);
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error(`${key} must be a positive integer`);
+  return parsed;
+}
+
+function nonNegativeInteger(raw: string, key: string): number {
+  const value = raw.trim();
+  if (!/^\d+$/.test(value)) throw new Error(`${key} must be a non-negative integer`);
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) throw new Error(`${key} must be a non-negative integer`);
   return parsed;
 }

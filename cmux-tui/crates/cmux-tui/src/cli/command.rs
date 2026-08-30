@@ -50,11 +50,7 @@ impl WireOperation {
 
     pub fn name(&self) -> Result<String, UsageError> {
         match self {
-            Self::Typed(operation) => serde_json::to_value(operation)
-                .map_err(|error| UsageError::new(format!("cannot encode operation: {error}")))?
-                .as_str()
-                .map(str::to_owned)
-                .ok_or_else(|| UsageError::new("operation did not encode as a string")),
+            Self::Typed(operation) => Ok(operation.wire_name().to_owned()),
             Self::Raw { name, .. } => Ok(name.clone()),
         }
     }
@@ -184,6 +180,7 @@ pub(super) fn parse(args: &[String]) -> Result<CommandPlan, UsageError> {
 fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let action = match strs(words).as_slice() {
         ["status"] => super::lifecycle::ServerAction::Status,
+        ["ensure"] => super::lifecycle::ServerAction::Ensure,
         ["stop"] => super::lifecycle::ServerAction::Stop { force: flags.boolean("force") },
         ["reload-config"] => super::lifecycle::ServerAction::ReloadConfig,
         ["start"] => {
@@ -195,7 +192,7 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
             let messages = &crate::localization::catalog().local_server;
             return Err(UsageError::new(messages.unknown_server_action(
                 action,
-                super::suggestion(action, &["start", "status", "stop", "reload-config"]),
+                super::suggestion(action, &["start", "ensure", "status", "stop", "reload-config"]),
             )));
         }
         _ => {
@@ -253,35 +250,42 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
     Ok(Tokens { words, flags, argv })
 }
 
+/// Metadata for flags which consume no following token.
+///
+/// Keeping this as data makes the tokenizer's grammar auditable and leaves a
+/// single place to extend when a command adds a boolean option. This is the
+/// same distinction Clap models with `ArgAction::SetTrue`, while retaining
+/// cmux's custom forwarding and error text.
+const BOOLEAN_FLAGS: &[&str] = &[
+    "empty",
+    "left",
+    "right",
+    "up",
+    "down",
+    "force",
+    "confirm-close",
+    "complete",
+    "clear-name",
+    "clear-kind",
+    "clear-foreground",
+    "clear-background",
+    "clear-cursor",
+    "clear-selection-background",
+    "clear-selection-foreground",
+    "clear-cursor-style",
+    "clear-cursor-blink",
+    "clear-palette",
+    "read-only",
+    "relaunch",
+    "styled",
+    "builtin",
+    "mutation",
+    "stream",
+    "ignore-case",
+];
+
 fn is_boolean_flag(name: &str) -> bool {
-    matches!(
-        name,
-        "empty"
-            | "left"
-            | "right"
-            | "up"
-            | "down"
-            | "force"
-            | "confirm-close"
-            | "complete"
-            | "clear-name"
-            | "clear-kind"
-            | "clear-foreground"
-            | "clear-background"
-            | "clear-cursor"
-            | "clear-selection-background"
-            | "clear-selection-foreground"
-            | "clear-cursor-style"
-            | "clear-cursor-blink"
-            | "clear-palette"
-            | "read-only"
-            | "relaunch"
-            | "styled"
-            | "builtin"
-            | "mutation"
-            | "stream"
-            | "ignore-case"
-    )
+    BOOLEAN_FLAGS.contains(&name)
 }
 
 fn parse_machine(
@@ -706,11 +710,7 @@ fn parse_screen_strings(
                 params.insert("confirm_close".into(), Value::Bool(true));
             }
             if let Some(token) = flags.take("confirmation-token") {
-                if token.is_empty() || token.len() > 128 {
-                    return Err(UsageError::new(
-                        "--confirmation-token must contain 1 to 128 UTF-8 bytes",
-                    ));
-                }
+                validate_bounded_text("--confirmation-token", &token)?;
                 params.insert("confirmation_token".into(), Value::String(token));
             }
             request(ResourceOperation::ScreenLayoutUndo, selectors, flags, params)
@@ -1069,6 +1069,25 @@ fn parse_terminal(
         [selector, "history", "clear"] => {
             selectors.insert("terminal", "term", selector)?;
             request(ResourceOperation::TerminalHistoryClear, selectors, flags, Map::new())
+        }
+        [selector, "output", "read"] => {
+            selectors.insert("terminal", "term", selector)?;
+            let mut params = Map::new();
+            if let Some(after) = flags.take("after") {
+                validate_decimal("--after", &after)?;
+                params.insert("after".into(), Value::String(after));
+            }
+            if let Some(max_bytes) = flags.take("max-bytes") {
+                insert_bounded_u32(
+                    &mut params,
+                    "max_bytes",
+                    "--max-bytes",
+                    max_bytes,
+                    1,
+                    4_194_304,
+                )?;
+            }
+            request(ResourceOperation::TerminalOutputRead, selectors, flags, params)
         }
         [selector, "screen", "wait"] => {
             selectors.insert("terminal", "term", selector)?;
@@ -1599,9 +1618,7 @@ fn projection_put_fields(flags: &mut Flags) -> Result<Map<String, Value>, UsageE
         [("frontend-id", "frontend_id"), ("window-id", "window_id"), ("generation", "generation")]
     {
         let value = flags.required(flag)?;
-        if value.is_empty() || value.len() > 128 {
-            return Err(UsageError::new(format!("--{flag} must contain 1 to 128 UTF-8 bytes")));
-        }
+        validate_bounded_text(&format!("--{flag}"), &value)?;
         params.insert(field.into(), Value::String(value));
     }
     if let Some(revision) = flags.take("expected-projection-revision") {
@@ -1730,6 +1747,14 @@ fn validate_correlation_key(value: &str) -> Result<(), UsageError> {
         Err(UsageError::new("correlation key cannot be empty"))
     } else if value.len() > 128 {
         Err(UsageError::new("correlation key cannot exceed 128 UTF-8 bytes"))
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_bounded_text(flag: &str, value: &str) -> Result<(), UsageError> {
+    if value.is_empty() || value.len() > 128 {
+        Err(UsageError::new(format!("{flag} must contain 1 to 128 UTF-8 bytes")))
     } else {
         Ok(())
     }
@@ -2096,6 +2121,19 @@ fn run_params(
     }
     if let Some(name) = flags.take("name") {
         params.insert("name".into(), Value::String(name));
+    }
+    if let Some(policy) = flags.take("on-exit") {
+        match policy.as_str() {
+            "close" | "keep" => {
+                params.insert("on_exit".into(), Value::String(policy));
+            }
+            "shell" => {
+                return Err(UsageError::new("--on-exit shell is not supported yet"));
+            }
+            _ => {
+                return Err(UsageError::new("--on-exit must be close or keep"));
+            }
+        }
     }
     Ok(params)
 }
@@ -2887,6 +2925,32 @@ mod tests {
         values.iter().map(|value| (*value).to_string()).collect()
     }
 
+    #[test]
+    fn boolean_flag_metadata_matches_tokenizer_contract() {
+        for name in BOOLEAN_FLAGS {
+            assert!(is_boolean_flag(name));
+            let args = vec!["workspace".into(), "create".into(), format!("--{name}")];
+            let tokens = tokenize(&args).expect("metadata flag must tokenize");
+            assert!(tokens.flags.values.contains_key(*name));
+            assert_eq!(tokens.flags.values[*name], None);
+        }
+    }
+
+    #[test]
+    fn non_boolean_flags_still_consume_the_next_token() {
+        let tokens = tokenize(&strings(&["workspace", "create", "--name", "value"]))
+            .expect("value flag must tokenize");
+        assert_eq!(tokens.flags.values.get("name"), Some(&Some("value".to_string())));
+    }
+
+    #[test]
+    fn bounded_text_validation_has_shared_limits() {
+        assert!(validate_bounded_text("--name", "ok").is_ok());
+        assert!(validate_bounded_text("--name", "").is_err());
+        assert!(validate_bounded_text("--name", &"x".repeat(129)).is_err());
+        assert!(validate_bounded_text("--name", &"x".repeat(128)).is_ok());
+    }
+
     fn protocol(values: &[&str]) -> RequestPlan {
         match parse(&strings(values)).unwrap() {
             CommandPlan::Protocol(plan) => plan,
@@ -3424,6 +3488,63 @@ mod tests {
         assert_eq!(empty_argument.params["argv"], json!(["printf", ""]));
         assert!(parse(&strings(&["pane", "current", "run", "--", "", "argument"])).is_err());
         assert!(parse(&strings(&["pane", "current", "run", "echo ok"])).is_err());
+    }
+
+    #[test]
+    fn run_on_exit_policy_is_validated_and_forwarded_verbatim() {
+        for scope in [["workspace", "current"], ["pane", "current"]] {
+            let kept = protocol(&[scope[0], scope[1], "run", "--on-exit", "keep", "--", "true"]);
+            assert_eq!(kept.params["on_exit"], "keep");
+
+            let closed = protocol(&[scope[0], scope[1], "run", "--on-exit", "close", "--", "true"]);
+            assert_eq!(closed.params["on_exit"], "close");
+
+            let default = protocol(&[scope[0], scope[1], "run", "--", "true"]);
+            assert!(default.params.get("on_exit").is_none());
+
+            let shell_policy =
+                parse(&strings(&[scope[0], scope[1], "run", "--on-exit", "shell", "--", "true"]));
+            assert!(
+                shell_policy.is_err_and(|error| error.to_string().contains("not supported yet")),
+                "--on-exit shell must be a typed not-yet-supported usage error"
+            );
+            assert!(
+                parse(&strings(&[scope[0], scope[1], "run", "--on-exit", "sh", "--", "true"]))
+                    .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn terminal_output_read_parses_cursor_and_bounded_window() {
+        const TERMINAL: &str = "term_00000000000000000000000000000008";
+        let plain = protocol(&["terminal", TERMINAL, "output", "read"]);
+        assert!(plain.params.get("after").is_none());
+        assert!(plain.params.get("max_bytes").is_none());
+
+        let resumed = protocol(&[
+            "terminal",
+            TERMINAL,
+            "output",
+            "read",
+            "--after",
+            "4096",
+            "--max-bytes",
+            "65536",
+        ]);
+        assert_eq!(resumed.params["after"], "4096");
+        assert_eq!(resumed.params["max_bytes"], 65536);
+
+        assert!(
+            parse(&strings(&["terminal", TERMINAL, "output", "read", "--after", "-1"])).is_err()
+        );
+        assert!(
+            parse(&strings(&["terminal", TERMINAL, "output", "read", "--max-bytes", "0"])).is_err()
+        );
+        assert!(
+            parse(&strings(&["terminal", TERMINAL, "output", "read", "--max-bytes", "4194305"]))
+                .is_err()
+        );
     }
 
     #[test]
@@ -3966,6 +4087,8 @@ mod tests {
                     "100",
                     "--rows",
                     "40",
+                    "--on-exit",
+                    "keep",
                     "--correlation-key",
                     "create-42",
                     "--",
@@ -4089,6 +4212,8 @@ mod tests {
                     "90",
                     "--rows",
                     "30",
+                    "--on-exit",
+                    "keep",
                     "--correlation-key",
                     "create-42",
                     "--",
@@ -4186,6 +4311,19 @@ mod tests {
                 "terminal.history.read",
             ),
             (vec!["terminal", TERMINAL, "history", "clear"], "terminal.history.clear"),
+            (
+                vec![
+                    "terminal",
+                    TERMINAL,
+                    "output",
+                    "read",
+                    "--after",
+                    "4096",
+                    "--max-bytes",
+                    "65536",
+                ],
+                "terminal.output_read",
+            ),
             (
                 vec![
                     "terminal",
@@ -4371,9 +4509,9 @@ mod tests {
             (vec!["sidebar", "view", "reload", "--view", VIEW], "sidebar_view.reload"),
         ];
 
-        assert_eq!(cases.len(), 117);
+        assert_eq!(cases.len(), 118);
         let catalog = operation_catalog();
-        assert_eq!(catalog["operations"].as_object().unwrap().len(), 124);
+        assert_eq!(catalog["operations"].as_object().unwrap().len(), 125);
         let mut seen = std::collections::BTreeSet::new();
         let mut covered_fields = BTreeMap::<&str, std::collections::BTreeSet<String>>::new();
         for (args, expected) in &cases {

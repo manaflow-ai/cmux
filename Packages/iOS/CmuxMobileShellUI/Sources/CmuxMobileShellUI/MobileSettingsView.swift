@@ -66,6 +66,22 @@ struct MobileSettingsView: View {
             Form {
                 MobileSettingsAccountSection(signOut: signOut)
 
+                // Directly under the account card so release notices stay
+                // discoverable after their one-time launch sheet is
+                // dismissed (HIG: keep skippable onboarding-style content
+                // findable in a settings area).
+                Section {
+                    NavigationLink {
+                        MobileWhatsNewListView()
+                    } label: {
+                        Label(
+                            L10n.string("mobile.settings.whatsNew", defaultValue: "What's New"),
+                            systemImage: "megaphone"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsWhatsNewRow")
+                }
+
                 // Stack team switcher. Only shown when the user belongs to more than
                 // one team. Rendered as an INLINE picker — each team is a row with a
                 // checkmark on the current one — so every team is visible at a glance
@@ -313,6 +329,19 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsShellIconLab")
+
+                    NavigationLink {
+                        UnreadIndicatorLabView()
+                    } label: {
+                        Label(
+                            L10n.string(
+                                "mobile.settings.unreadIndicatorLab",
+                                defaultValue: "Unread Indicator Lab"
+                            ),
+                            systemImage: "circle.badge"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsUnreadIndicatorLab")
                 }
                 #endif
 
@@ -490,6 +519,9 @@ struct MobileSettingsView: View {
                     ),
                     connectionMethod: connectionMethodStore?.method ?? .automatic,
                     onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
+                    onEnablePush: {
+                        await pushCoordinator.enable(trigger: "onboarding_replay")
+                    },
                     onReachedConnection: {},
                     onSkip: { showingOnboarding = false },
                     onRetryConnection: retryAutomaticConnection,

@@ -27,6 +27,55 @@ struct SidebarWorkspaceTableTests {
 
     @Test
     @MainActor
+    func nativeWorkspaceDragKeepsTableControllerAttachedThroughTeardown() {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+
+        // AppKit has accepted the source drag, but SwiftUI is about to dismantle
+        // the representable (the fullscreen/display-transition repro). The
+        // controller must remain the table's delegate until native completion.
+        controller.workspaceDragSessionDidBegin()
+        controller.dismantleContainerView(container)
+
+        #expect(container.tableView.dataSource === controller)
+        #expect(container.tableView.delegate === controller)
+
+        controller.workspaceDragSessionDidEnd()
+        #expect(container.tableView.dataSource == nil)
+        #expect(container.tableView.delegate == nil)
+    }
+
+#if DEBUG
+    @Test
+    @MainActor
+    func abandonedWorkspaceDragWriterDoesNotRetainADeadSession() async throws {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let row = makeRowConfiguration()
+        var endWorkspaceDragCalls = 0
+        controller.apply(
+            rows: [row],
+            actions: makeTableActions(endWorkspaceDrag: { endWorkspaceDragCalls += 1 }),
+            workspaceIds: [row.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+
+        // AppKit asks for the writer before it invokes willBeginAt. A
+        // reconstruction in this interval has no native session to complete,
+        // so the provisional writer must not retain a dead source pair.
+        #expect(controller.tableView(container.tableView, pasteboardWriterForRow: 0) != nil)
+        controller.dismantleContainerView(container)
+
+        #expect(container.tableView.dataSource == nil)
+        #expect(container.tableView.delegate == nil)
+        #expect(endWorkspaceDragCalls == 0)
+    }
+#endif
+
+    @Test
+    @MainActor
     func containerHasNoStructuralHorizontalRowInsetAndAlwaysActiveHoverTracking() throws {
         let container = SidebarWorkspaceTableController().makeContainerView()
         let column = try #require(container.tableView.tableColumns.first)
@@ -686,6 +735,7 @@ struct SidebarWorkspaceTableTests {
     @MainActor
     private func makeTableActions(
         updateWorkspaceDrag: @escaping (CGPoint, [SidebarWorkspaceReorderDropOverlay.Target], UUID?) -> SidebarWorkspaceTableReorderDropUpdate? = { _, _, _ in nil },
+        endWorkspaceDrag: @escaping () -> Void = {},
         clearWorkspaceDropIndicator: @escaping () -> Void = {}
     ) -> SidebarWorkspaceTableActions {
         SidebarWorkspaceTableActions(
@@ -695,7 +745,7 @@ struct SidebarWorkspaceTableTests {
             createEmptyWorkspaceGroup: {},
             beginWorkspaceDrag: { _ in },
             movingWorkspaceCount: { _ in 1 },
-            endWorkspaceDrag: {},
+            endWorkspaceDrag: endWorkspaceDrag,
             isValidWorkspaceDrag: { true },
             updateWorkspaceDrag: updateWorkspaceDrag,
             performWorkspaceDrop: { _, _, _ in false },

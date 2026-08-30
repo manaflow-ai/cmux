@@ -1090,6 +1090,20 @@ impl State {
 
     /// Workspace and screen indices of the screen containing a pane.
     pub fn screen_of(&self, pane: PaneId) -> Option<(usize, usize)> {
+        if let Some(screen_id) = self.resource_indexes.pane_screen.get(&pane).copied()
+            && let Some(workspace_id) =
+                self.resource_indexes.screen_workspace.get(&screen_id).copied()
+            && let Some(workspace_index) = self.workspace_index(workspace_id)
+            && let Some(workspace) = self.workspaces.get(workspace_index)
+            && let Some(screen_index) =
+                workspace.screens.iter().position(|screen| screen.id == screen_id)
+        {
+            return Some((workspace_index, screen_index));
+        }
+
+        // Resource projection can stage a pane before its reverse indexes are
+        // committed. Keep the topology scan as a bounded compatibility path
+        // for that transient state only.
         self.workspaces.iter().enumerate().find_map(|(wi, ws)| {
             ws.screens.iter().position(|screen| screen.root.contains(pane)).map(|si| (wi, si))
         })
