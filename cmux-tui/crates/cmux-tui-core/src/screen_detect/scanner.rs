@@ -93,12 +93,12 @@ pub(crate) fn scan(
     // Build an index once. The tracker can contain thousands of retired
     // terminals, so scanning the live list for every tracked entry creates
     // an avoidable O(tracked × live) pass on every tick.
-    let live_terminal_ids = terminals.iter().map(|(id, _)| id.as_str()).collect::<HashSet<_>>();
+    let terminal_ids = terminals.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>();
+    let live_terminal_ids = terminal_ids.iter().copied().collect::<HashSet<_>>();
     tracker.retain_terminals(|terminal_id| live_terminal_ids.contains(terminal_id));
-    let start = tracker.scan_start(terminals.len());
+    let scan_indices = tracker.scan_indices(&terminal_ids, MAX_FOREGROUND_LOOKUPS_PER_SCAN);
     let mut lookup_budget = MAX_FOREGROUND_LOOKUPS_PER_SCAN;
-    for offset in 0..terminals.len() {
-        let index = (start + offset) % terminals.len();
+    for index in scan_indices {
         let (terminal_id, surface) = &terminals[index];
         let Ok(revision) = surface.terminal_stream_revision() else { continue };
         let terminal_id = terminal_id.as_str();

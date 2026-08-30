@@ -12,7 +12,7 @@
 pub(crate) mod manifest;
 pub(crate) mod scanner;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
 use crate::AgentState;
@@ -85,9 +85,10 @@ struct TrackedTerminal {
 #[derive(Debug, Default)]
 pub(crate) struct ScreenDetectTracker {
     terminals: HashMap<String, TrackedTerminal>,
-    /// Start index for the next scan pass. The scanner uses this with its
-    /// fixed lookup budget so a large terminal set cannot starve the tail.
-    scan_cursor: usize,
+    /// Stable logical order for foreground lookups. The live catalog is a
+    /// HashMap, so its vector index can change whenever a terminal is added or
+    /// removed. Keeping IDs here makes the lookup budget fair across reorder.
+    scan_order: VecDeque<String>,
 }
 
 impl ScreenDetectTracker {
@@ -188,16 +189,44 @@ impl ScreenDetectTracker {
         entry.identity_check_not_before = Some(now + Duration::from_millis(delay_ms));
     }
 
-    /// Reserve the next fair scan slice. A caller with no terminals receives
-    /// zero and starts over when a terminal appears.
-    pub(crate) fn scan_start(&mut self, terminal_count: usize) -> usize {
-        if terminal_count == 0 {
-            self.scan_cursor = 0;
-            return 0;
+    /// Return live terminal indices in stable logical order and reserve the
+    /// next lookup slice. The catalog's HashMap order may change between
+    /// passes, so indexing directly into its snapshot can starve a terminal
+    /// that is repeatedly moved past the current budget window.
+    pub(crate) fn scan_indices(
+        &mut self,
+        terminal_ids: &[&str],
+        lookup_budget: usize,
+    ) -> Vec<usize> {
+        if terminal_ids.is_empty() {
+            self.scan_order.clear();
+            return Vec::new();
         }
-        let start = self.scan_cursor % terminal_count;
-        self.scan_cursor = (start + 1) % terminal_count;
-        start
+
+        let live_ids = terminal_ids.iter().copied().collect::<HashSet<_>>();
+        self.scan_order.retain(|terminal_id| live_ids.contains(terminal_id.as_str()));
+        let mut queued_ids = self.scan_order.iter().cloned().collect::<HashSet<_>>();
+        for terminal_id in terminal_ids {
+            if queued_ids.insert((*terminal_id).to_owned()) {
+                self.scan_order.push_back((*terminal_id).to_owned());
+            }
+        }
+
+        let index_by_id = terminal_ids
+            .iter()
+            .enumerate()
+            .map(|(index, terminal_id)| (*terminal_id, index))
+            .collect::<HashMap<_, _>>();
+        let mut indices = Vec::with_capacity(terminal_ids.len());
+        for terminal_id in &self.scan_order {
+            if let Some(index) = index_by_id.get(terminal_id.as_str()) {
+                indices.push(*index);
+            }
+        }
+
+        let step = lookup_budget.max(1).min(self.scan_order.len());
+        self.scan_order.rotate_left(step);
+        indices
     }
 
     /// True when this terminal previously journaled a screen-derived state
@@ -476,13 +505,36 @@ mod tests {
     }
 
     #[test]
-    fn scan_cursor_rotates_fairly_for_bounded_lookup_batches() {
+    fn scan_queue_advances_by_lookup_budget_for_bounded_batches() {
         let mut tracker = ScreenDetectTracker::default();
-        assert_eq!(tracker.scan_start(100), 0);
-        assert_eq!(tracker.scan_start(100), 1);
-        assert_eq!(tracker.scan_start(100), 2);
-        assert_eq!(tracker.scan_start(0), 0);
-        assert_eq!(tracker.scan_start(100), 0);
+        let terminal_ids = (0..100).map(|index| format!("term_{index:03}")).collect::<Vec<_>>();
+        let terminal_refs = terminal_ids.iter().map(String::as_str).collect::<Vec<_>>();
+        assert_eq!(&tracker.scan_indices(&terminal_refs, 64)[..3], &[0, 1, 2]);
+        assert_eq!(&tracker.scan_indices(&terminal_refs, 64)[..3], &[64, 65, 66]);
+        assert_eq!(&tracker.scan_indices(&terminal_refs, 64)[..3], &[28, 29, 30]);
+        assert!(tracker.scan_indices(&[], 64).is_empty());
+        assert_eq!(&tracker.scan_indices(&terminal_refs, 64)[..3], &[0, 1, 2]);
+    }
+
+    #[test]
+    fn scan_cursor_covers_large_catalog_before_repeating_a_lookup_slice() {
+        let mut tracker = ScreenDetectTracker::default();
+        let terminal_count = 1_000;
+        let lookup_budget = 64;
+        let passes = terminal_count.div_ceil(lookup_budget);
+        let mut covered = std::collections::HashSet::new();
+
+        let terminal_ids =
+            (0..terminal_count).map(|index| format!("term_{index:04}")).collect::<Vec<_>>();
+        let terminal_refs = terminal_ids.iter().map(String::as_str).collect::<Vec<_>>();
+        for _ in 0..passes {
+            let indices = tracker.scan_indices(&terminal_refs, lookup_budget);
+            for &index in &indices[..lookup_budget] {
+                covered.insert(index);
+            }
+        }
+
+        assert_eq!(covered.len(), terminal_count);
     }
 
     #[test]
