@@ -263,13 +263,17 @@ public actor IrxRelayCredentialAutopilot {
         let decision: IrxHostActivationPolicy.Decision
         if (isPostRecoveryUnauthorized || isMissingAuthentication)
             && !escalateUnauthorized {
-            // The host callback owns the shared 401 escalation counter. The
+            // The host callback owns the shared 401 escalation decision. The
             // autopilot's bounded hint burst must not independently terminate
-            // credential renewal before that owner decides.
+            // credential renewal, but it still supplies its local counter so
+            // repeated auxiliary failures follow the same backoff ladder.
             decision = retryPolicy.decision(
                 for: failure,
-                failureCount: 0,
-                jitterUnitInterval: Double.random(in: 0 ... 1)
+                failureCount: isPostRecoveryUnauthorized
+                    ? unauthorizedFailureCount
+                    : missingAuthenticationFailureCount,
+                jitterUnitInterval: Double.random(in: 0 ... 1),
+                escalateUnauthorized: false
             )
         } else if isPostRecoveryUnauthorized {
             decision = retryPolicy.decision(
@@ -293,7 +297,9 @@ public actor IrxRelayCredentialAutopilot {
         let decisionFailureCount: Int
         if (isPostRecoveryUnauthorized || isMissingAuthentication)
             && !escalateUnauthorized {
-            decisionFailureCount = 0
+            decisionFailureCount = isPostRecoveryUnauthorized
+                ? unauthorizedFailureCount
+                : missingAuthenticationFailureCount
         } else if isPostRecoveryUnauthorized {
             decisionFailureCount = unauthorizedFailureCount
         } else if isMissingAuthentication {
