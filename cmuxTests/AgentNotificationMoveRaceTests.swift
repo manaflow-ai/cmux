@@ -318,6 +318,7 @@ struct AgentNotificationRegressionTests {
 
         try await confirmation("policy-suppressed notification completed") { completed in
             fixture.store.configureNotificationDeliveryHandlerForTesting { _, _ in completed() }
+            fixture.store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in completed() }
             let routing = ControlRoutingSelectors(
                 hasWindowIDParam: false,
                 windowID: nil,
