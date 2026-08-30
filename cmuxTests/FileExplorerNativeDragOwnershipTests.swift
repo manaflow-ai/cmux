@@ -259,10 +259,10 @@ struct FileExplorerNativeDragOwnershipTests {
             forRowIndexes: IndexSet(integersIn: 0..<2)
         )
 
-        // AppKit promotes the last writer requested for this table. Every
-        // sibling registration must be revoked before the native session runs;
-        // otherwise a later token deallocation can clean the wrong generation.
-        #expect(!FilePreviewDragRegistry.shared.contains(id: firstOwnership.dragID))
+        // AppKit places every selected writer on the native pasteboard. Keep
+        // each registration live through the source callback so the first item
+        // remains routable and terminal cleanup can revoke all capabilities.
+        #expect(FilePreviewDragRegistry.shared.contains(id: firstOwnership.dragID))
         #expect(FilePreviewDragRegistry.shared.contains(id: secondOwnership.dragID))
 
         container.tableView(
@@ -272,6 +272,7 @@ struct FileExplorerNativeDragOwnershipTests {
             operation: []
         )
         #expect(!FilePreviewDragRegistry.shared.contains(id: secondOwnership.dragID))
+        #expect(!FilePreviewDragRegistry.shared.contains(id: firstOwnership.dragID))
     }
 
     @Test("A pointer boundary reclaims a search drag that lost endedAt")

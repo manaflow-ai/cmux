@@ -17,7 +17,11 @@ final class FileExplorerNSOutlineView: NSOutlineView {
     // edge weak avoids a view → writer → container cycle during reconstruction;
     // the immutable ownership record below carries terminal cleanup identity.
     weak var activeNativeDragWriter: FilePreviewDragPasteboardWriter?
-    var activeNativeDragOwnership: FilePreviewNativeDragOwnership?
+    var activeNativeDragOwnerships: [FilePreviewNativeDragOwnership] = []
+    var activeNativeDragOwnership: FilePreviewNativeDragOwnership? {
+        get { activeNativeDragOwnerships.first }
+        set { activeNativeDragOwnerships = newValue.map { [$0] } ?? [] }
+    }
     /// Called before a new pointer gesture so a lost native terminal callback
     /// cannot leave this outline's source graph latched forever.
     var onNativeDragPointerBoundary: (() -> Void)?

@@ -597,21 +597,30 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 if outlineView.activeNativeDragSession === session {
                     return
                 }
-                let promotedWriter = outlineView.pendingNativeDragWriter
-                pendingPreviewDrag.finishPending(excluding: promotedWriter)
+                let fallbackWriter = outlineView.pendingNativeDragWriter
+                var promotedWriters = pendingPreviewDrag.writers(for: outlineView)
+                if let fallbackWriter,
+                   !promotedWriters.contains(where: { $0 === fallbackWriter }) {
+                    promotedWriters.append(fallbackWriter)
+                }
+                pendingPreviewDrag.finishPending(preserving: promotedWriters)
+                let promotedWriter = promotedWriters.last ?? fallbackWriter
+                let promotedOwnerships = pendingPreviewDrag.promote(writers: promotedWriters)
                 supersedeNativeDragIfNeeded(
                     previousSession: outlineView.activeNativeDragSession,
                     newSession: session,
                     finishPrevious: {
-                        outlineView.activeNativeDragOwnership?.finish(
-                            from: outlineView.activeNativeDragSession?.draggingPasteboard
-                                ?? session.draggingPasteboard
-                        )
+                        let pasteboard = outlineView.activeNativeDragSession?.draggingPasteboard
+                            ?? session.draggingPasteboard
+                        for ownership in outlineView.activeNativeDragOwnerships {
+                            ownership.finish(from: pasteboard)
+                        }
                     },
                     clearPrevious: {
                         outlineView.activeNativeDragWriter?.releaseSourceGraph()
                         outlineView.activeNativeDragWriter = nil
                         outlineView.activeNativeDragDelegateMarker = nil
+                        outlineView.activeNativeDragOwnerships = []
                         outlineView.activeNativeDragOwnership = nil
                         outlineView.activeNativeDragSession = nil
                     }
@@ -619,13 +628,10 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 outlineView.activeNativeDragDelegateMarker = self
                 outlineView.activeNativeDragSession = session
                 outlineView.activeNativeDragWriter = promotedWriter
-                outlineView.activeNativeDragOwnership =
-                    outlineView.pendingNativeDragOwnership
-                        ?? outlineView.pendingNativeDragWriter?.nativeDragOwnership()
+                outlineView.activeNativeDragOwnerships = promotedOwnerships.isEmpty
+                    ? (promotedWriter?.nativeDragOwnership()).map { [$0] } ?? []
+                    : promotedOwnerships
                 outlineView.pendingNativeDragWriter = nil
-                if let tokenID = outlineView.pendingNativeDragTokenID {
-                    pendingPreviewDrag.remove(tokenID: tokenID)
-                }
                 outlineView.pendingNativeDragTokenID = nil
                 outlineView.pendingNativeDragOwnership = nil
             }
@@ -639,8 +645,10 @@ struct FileExplorerPanelView: NSViewRepresentable {
         ) {
             guard let outlineView = outlineView as? FileExplorerNSOutlineView,
                   outlineView.activeNativeDragSession === session else { return }
-            if let ownership = outlineView.activeNativeDragOwnership {
-                ownership.finish(from: session.draggingPasteboard)
+            if !outlineView.activeNativeDragOwnerships.isEmpty {
+                for ownership in outlineView.activeNativeDragOwnerships {
+                    ownership.finish(from: session.draggingPasteboard)
+                }
             } else {
                 // The matching session identity proves this is not a stale
                 // callback. Keep a compatibility fallback for an AppKit path
@@ -650,6 +658,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
             outlineView.activeNativeDragDelegateMarker = nil
             outlineView.activeNativeDragWriter?.releaseSourceGraph()
             outlineView.activeNativeDragWriter = nil
+            outlineView.activeNativeDragOwnerships = []
             outlineView.activeNativeDragOwnership = nil
             outlineView.activeNativeDragSession = nil
         }
@@ -672,10 +681,13 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 outlineView.activeNativeDragOwnership = nil
                 return
             }
-            outlineView.activeNativeDragOwnership?.finish(from: session.draggingPasteboard)
+            for ownership in outlineView.activeNativeDragOwnerships {
+                ownership.finish(from: session.draggingPasteboard)
+            }
             outlineView.activeNativeDragDelegateMarker = nil
             outlineView.activeNativeDragWriter?.releaseSourceGraph()
             outlineView.activeNativeDragWriter = nil
+            outlineView.activeNativeDragOwnerships = []
             outlineView.activeNativeDragOwnership = nil
             outlineView.activeNativeDragSession = nil
         }
@@ -1769,25 +1781,30 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
            previousSession === session {
             return
         }
-        let promotedWriter = searchResultsView.pendingNativeDragWriter
-        // A multi-selection asks for one writer per row. Only the promoted
-        // writer represents the native session; revoke every sibling before
-        // AppKit starts routing the session so their registrations cannot
-        // linger until an unordered token-deallocation callback.
-        pendingPreviewDrag.finishPending(excluding: promotedWriter)
+        let fallbackWriter = searchResultsView.pendingNativeDragWriter
+        var promotedWriters = pendingPreviewDrag.writers(for: tableView)
+        if let fallbackWriter,
+           !promotedWriters.contains(where: { $0 === fallbackWriter }) {
+            promotedWriters.append(fallbackWriter)
+        }
+        pendingPreviewDrag.finishPending(preserving: promotedWriters)
+        let promotedWriter = promotedWriters.last ?? fallbackWriter
+        let promotedOwnerships = pendingPreviewDrag.promote(writers: promotedWriters)
         coordinator.supersedeNativeDragIfNeeded(
             previousSession: searchResultsView.activeNativeDragSession,
             newSession: session,
             finishPrevious: {
-                searchResultsView.activeNativeDragOwnership?.finish(
-                    from: searchResultsView.activeNativeDragSession?.draggingPasteboard
-                        ?? session.draggingPasteboard
-                )
+                let pasteboard = searchResultsView.activeNativeDragSession?.draggingPasteboard
+                    ?? session.draggingPasteboard
+                for ownership in searchResultsView.activeNativeDragOwnerships {
+                    ownership.finish(from: pasteboard)
+                }
             },
             clearPrevious: {
                 searchResultsView.activeNativeDragWriter?.releaseSourceGraph()
                 searchResultsView.activeNativeDragWriter = nil
                 searchResultsView.activeNativeDragDelegateMarker = nil
+                searchResultsView.activeNativeDragOwnerships = []
                 searchResultsView.activeNativeDragOwnership = nil
                 searchResultsView.activeNativeDragSession = nil
             }
@@ -1796,14 +1813,11 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         // terminal callback. Keep only a weak marker on the table: a strong
         // table → container edge would create a retain cycle.
         searchResultsView.activeNativeDragDelegateMarker = self
-        searchResultsView.activeNativeDragWriter = searchResultsView.pendingNativeDragWriter
-        searchResultsView.activeNativeDragOwnership =
-            searchResultsView.pendingNativeDragOwnership
-                ?? searchResultsView.pendingNativeDragWriter?.nativeDragOwnership()
+        searchResultsView.activeNativeDragWriter = promotedWriter
+        searchResultsView.activeNativeDragOwnerships = promotedOwnerships.isEmpty
+            ? (promotedWriter?.nativeDragOwnership()).map { [$0] } ?? []
+            : promotedOwnerships
         searchResultsView.pendingNativeDragWriter = nil
-        if let tokenID = searchResultsView.pendingNativeDragTokenID {
-            pendingPreviewDrag.remove(tokenID: tokenID)
-        }
         searchResultsView.pendingNativeDragTokenID = nil
         searchResultsView.pendingNativeDragOwnership = nil
         searchResultsView.activeNativeDragSession = session
@@ -1818,8 +1832,10 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         guard tableView === searchResultsView else { return }
         defer {
             if searchResultsView.activeNativeDragSession === session {
-                if let ownership = searchResultsView.activeNativeDragOwnership {
-                    ownership.finish(from: session.draggingPasteboard)
+                if !searchResultsView.activeNativeDragOwnerships.isEmpty {
+                    for ownership in searchResultsView.activeNativeDragOwnerships {
+                        ownership.finish(from: session.draggingPasteboard)
+                    }
                 } else {
                     // This is the matching generation, so the fallback cannot
                     // accidentally parse a newer session's shared pasteboard.
@@ -1828,6 +1844,7 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
                 searchResultsView.activeNativeDragDelegateMarker = nil
                 searchResultsView.activeNativeDragWriter?.releaseSourceGraph()
                 searchResultsView.activeNativeDragWriter = nil
+                searchResultsView.activeNativeDragOwnerships = []
                 searchResultsView.activeNativeDragOwnership = nil
                 searchResultsView.activeNativeDragSession = nil
             }
@@ -1851,10 +1868,13 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
             searchResultsView.activeNativeDragOwnership = nil
             return
         }
-        searchResultsView.activeNativeDragOwnership?.finish(from: session.draggingPasteboard)
+        for ownership in searchResultsView.activeNativeDragOwnerships {
+            ownership.finish(from: session.draggingPasteboard)
+        }
         searchResultsView.activeNativeDragDelegateMarker = nil
         searchResultsView.activeNativeDragWriter?.releaseSourceGraph()
         searchResultsView.activeNativeDragWriter = nil
+        searchResultsView.activeNativeDragOwnerships = []
         searchResultsView.activeNativeDragOwnership = nil
         searchResultsView.activeNativeDragSession = nil
     }
@@ -1922,15 +1942,21 @@ private extension FileExplorerContainerView {
         guard searchResultsView.activeNativeDragSession == nil,
               outlineView.activeNativeDragSession == nil else { return }
         let dragPasteboard = NSPasteboard(name: .drag)
-        searchResultsView.activeNativeDragOwnership?.finish(from: dragPasteboard)
-        outlineView.activeNativeDragOwnership?.finish(from: dragPasteboard)
+        for ownership in searchResultsView.activeNativeDragOwnerships {
+            ownership.finish(from: dragPasteboard)
+        }
+        for ownership in outlineView.activeNativeDragOwnerships {
+            ownership.finish(from: dragPasteboard)
+        }
         searchResultsView.activeNativeDragDelegateMarker = nil
         searchResultsView.activeNativeDragWriter?.releaseSourceGraph()
         searchResultsView.activeNativeDragWriter = nil
+        searchResultsView.activeNativeDragOwnerships = []
         searchResultsView.activeNativeDragOwnership = nil
         outlineView.activeNativeDragDelegateMarker = nil
         outlineView.activeNativeDragWriter?.releaseSourceGraph()
         outlineView.activeNativeDragWriter = nil
+        outlineView.activeNativeDragOwnerships = []
         outlineView.activeNativeDragOwnership = nil
     }
 }

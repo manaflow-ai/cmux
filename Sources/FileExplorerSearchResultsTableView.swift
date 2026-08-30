@@ -14,7 +14,11 @@ final class FileExplorerSearchResultsTableView: NSTableView {
     // table edge prevents the writer's retained container from forming a
     // container → table → writer cycle when endedAt is delayed.
     weak var activeNativeDragWriter: FilePreviewDragPasteboardWriter?
-    var activeNativeDragOwnership: FilePreviewNativeDragOwnership?
+    var activeNativeDragOwnerships: [FilePreviewNativeDragOwnership] = []
+    var activeNativeDragOwnership: FilePreviewNativeDragOwnership? {
+        get { activeNativeDragOwnerships.first }
+        set { activeNativeDragOwnerships = newValue.map { [$0] } ?? [] }
+    }
     /// Called before AppKit evaluates a new pointer gesture. A new
     /// `mouseDown` cannot arrive while the old native drag loop is still live,
     /// so this is the authoritative boundary for a source whose `endedAt`
