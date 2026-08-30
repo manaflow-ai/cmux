@@ -23,9 +23,6 @@ public enum IrxHostActivationState: String, Codable, Equatable, Sendable {
 /// owns the injected ``CmxIrohRelayClock`` and performs the cancellable wait;
 /// this type only derives a bounded delay from the classified broker result.
 public struct IrxHostActivationPolicy: Equatable, Sendable {
-    private static let defaultPostRecoveryUnauthorizedFailureLimit = 2
-    private static let defaultMissingAuthenticationFailureLimit = 2
-
     /// The first and maximum retry bounds used by an irx host.
     public let retrySchedule: CmxIrohRetrySchedule
     private let postRecoveryUnauthorizedFailureLimit: Int
@@ -41,10 +38,8 @@ public struct IrxHostActivationPolicy: Equatable, Sendable {
     /// Creates an activation policy.
     public init(
         retrySchedule: CmxIrohRetrySchedule = .foregroundClient,
-        postRecoveryUnauthorizedFailureLimit: Int =
-            Self.defaultPostRecoveryUnauthorizedFailureLimit,
-        missingAuthenticationFailureLimit: Int =
-            Self.defaultMissingAuthenticationFailureLimit
+        postRecoveryUnauthorizedFailureLimit: Int = 2,
+        missingAuthenticationFailureLimit: Int = 2
     ) {
         self.retrySchedule = retrySchedule
         self.postRecoveryUnauthorizedFailureLimit = max(
