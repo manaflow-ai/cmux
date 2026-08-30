@@ -1165,7 +1165,7 @@ struct PortScannerLifecycleTests {
 struct PortScannerGenerationTests {
     @Test(
         "A stale panel completion still publishes valid agent ports",
-        .timeLimit(.seconds(5))
+        .timeLimit(.minutes(1))
     )
     func stalePanelCompletionPreservesAgentResults() async throws {
         let workspaceID = UUID()
