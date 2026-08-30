@@ -138,9 +138,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
         }
 
-        private func reclaimSupersededNativeDragIfNeeded(
-            keepPresentationFrozen: Bool = false
-        ) {
+        private func reclaimSupersededNativeDragIfNeeded() {
             guard let activeDrag else {
                 // A stale `isDragging` bit without a registration can only be
                 // presentation residue. Keep the tree frozen while AppKit is
@@ -160,9 +158,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     || outlineView.activeNativeDragOwner === self) {
                 outlineView.activeNativeDragOwner = nil
                 outlineView.activeNativeDragSession = nil
-            }
-            if !keepPresentationFrozen {
-                setDragging(false)
             }
         }
 
@@ -675,7 +670,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 // A newer begin is a native boundary even when the older
                 // outline omitted `endedAt`; retire the older registration
                 // before promoting this writer.
-                reclaimSupersededNativeDragIfNeeded(keepPresentationFrozen: true)
+                reclaimSupersededNativeDragIfNeeded()
             }
             let pendingToken: UUID? = {
                 if let writer = latestPendingDragWriter,
