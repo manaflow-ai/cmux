@@ -784,36 +784,29 @@ fn spawn_real_pty(spec: &SpawnSpec, handoff: &SpawnHandoff) -> anyhow::Result<Pt
     if std::thread::Builder::new()
         .name("cmux-relay-pty-wait".to_owned())
         .spawn(move || {
-            loop {
-                let code = {
-                    let mut lifecycle = wait_lifecycle.lock().expect("child lifecycle lock");
-                    match child_cleanup.child_mut().try_wait() {
-                        Ok(Some(status)) => {
-                            lifecycle.exited = true;
-                            Some(i64::from(status.exit_code() as i32))
-                        }
-                        Ok(None) => None,
-                        Err(_) => {
-                            if !lifecycle.termination_started {
-                                lifecycle.termination_started = true;
-                                let _ = child_cleanup.child_mut().kill();
-                            }
-                            let code = child_cleanup
-                                .wait()
-                                .map(|status| i64::from(status.exit_code() as i32))
-                                .unwrap_or(0);
-                            lifecycle.exited = true;
-                            Some(code)
-                        }
-                    }
-                };
-                if let Some(code) = code {
-                    child_cleanup.disarm();
-                    exit_completion.child_exited(code);
-                    return;
+            // `waitid(WNOWAIT)` blocks until the child exits while keeping its
+            // PID reserved. Mark the lifecycle exited before the owner calls
+            // `wait`, so a late control drop cannot signal a reused PID.
+            let pid = wait_lifecycle.lock().expect("child lifecycle lock").pid;
+            let wait_result = match pid {
+                Some(pid) if wait_for_child_exit_without_reaping(pid as libc::pid_t).is_ok() => {
+                    wait_lifecycle.lock().expect("child lifecycle lock").exited = true;
+                    child_cleanup.wait()
                 }
-                std::thread::sleep(Duration::from_millis(10));
-            }
+                _ => child_cleanup.wait(),
+            };
+            let wait_result = wait_result.or_else(|_| {
+                // Keep the old error path: a failed wait requests termination
+                // through the lifecycle gate, then retries the blocking reap.
+                let _ = ChildLifecycle::terminate(&wait_lifecycle, |_| {
+                    let _ = child_cleanup.child_mut().kill();
+                });
+                child_cleanup.wait()
+            });
+            let code = wait_result.map(|status| i64::from(status.exit_code() as i32)).unwrap_or(0);
+            wait_lifecycle.lock().expect("child lifecycle lock").exited = true;
+            child_cleanup.disarm();
+            exit_completion.child_exited(code);
         })
         .is_err()
     {
