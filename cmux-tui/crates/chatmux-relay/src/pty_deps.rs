@@ -577,6 +577,35 @@ impl Drop for PipeChildGuard {
     }
 }
 
+type PipeWaitTask = Box<dyn FnOnce() + Send + 'static>;
+
+fn spawn_pipe_wait_thread_with<F>(
+    child: std::process::Child,
+    command_rx: mpsc::Receiver<PipeChildCommand>,
+    completion: Arc<ProcessOutputCompletion>,
+    spawn: F,
+) -> std::io::Result<std::thread::JoinHandle<()>>
+where
+    F: FnOnce(PipeWaitTask) -> std::io::Result<std::thread::JoinHandle<()>>,
+{
+    let wait_task: PipeWaitTask = Box::new(move || {
+        let mut child = child;
+        let mut exit_ready = false;
+        while !exit_ready {
+            match command_rx.recv() {
+                Ok(PipeChildCommand::ExitReady) => exit_ready = true,
+                Ok(PipeChildCommand::Kill) => {
+                    let _ = child.kill();
+                }
+                Err(_) => exit_ready = true,
+            }
+        }
+        let code = child.wait().map(|status| status.code().unwrap_or(0) as i64).unwrap_or(0);
+        completion.child_exited(code);
+    });
+    spawn(wait_task)
+}
+
 /// Serialize process termination with the wait owner. A raw PID can be
 /// reused after the child exits, so a late control drop must not signal an
 /// unrelated process.
@@ -1604,6 +1633,28 @@ mod tests {
             .expect("spawn child");
         wait_for_child_exit_without_reaping(child.id() as libc::pid_t).expect("observe child");
         assert_eq!(child.wait().expect("reap child").code(), Some(23));
+    }
+
+    #[test]
+    fn failed_pipe_wait_thread_spawn_reaps_child() {
+        let child = std::process::Command::new("/bin/sh")
+            .args(["-c", "while :; do :; done"])
+            .spawn()
+            .expect("spawn child");
+        let pid = child.id() as libc::pid_t;
+        let output = ThreadOutput::new();
+        let completion = ProcessOutputCompletion::with_post_exit_grace(0, output, None);
+        let (_command_tx, command_rx) = mpsc::channel();
+        let result = spawn_pipe_wait_thread_with(child, command_rx, completion, |_task| {
+            Err(std::io::Error::other("injected thread creation failure"))
+        });
+
+        assert!(result.is_err());
+        // PipeChildGuard must kill and reap the child before the failed open
+        // returns. A zero signal only probes existence, so it does not alter
+        // any unrelated process.
+        let probe = unsafe { libc::kill(pid, 0) };
+        assert_eq!(probe, -1, "failed wait-thread setup must not leak child {pid}");
     }
 
     #[test]
