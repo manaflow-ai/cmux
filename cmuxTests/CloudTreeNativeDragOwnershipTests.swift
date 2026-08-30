@@ -9,7 +9,7 @@ import Testing
 #endif
 
 @MainActor
-@Suite("Cloud tree native drag ownership")
+@Suite("Cloud tree native drag ownership", .serialized)
 struct CloudTreeNativeDragOwnershipTests {
     @Test("An abandoned Cloud writer revokes its provisional capability immediately")
     func abandonedWriterRevokesProvisionalCapability() throws {
