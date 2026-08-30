@@ -1536,6 +1536,16 @@ mod tests {
     }
 
     #[test]
+    fn reaping_fence_blocks_late_termination_attempts() {
+        let lifecycle = ChildLifecycle::new(Some(42));
+        assert!(ChildLifecycle::begin_reaping(&lifecycle));
+        assert!(!ChildLifecycle::terminate(&lifecycle, |_| Ok(())));
+        let state = lifecycle.lock().expect("lifecycle lock");
+        assert!(state.reaping);
+        assert!(state.termination_started);
+    }
+
+    #[test]
     fn session_socket_path_matches_core_fallback_order() {
         let session = format!("legacy-{}", "x".repeat(200));
         let preferred_dir = PathBuf::from("/run/user/501/cmux-tui-501");
