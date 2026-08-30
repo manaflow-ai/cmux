@@ -261,20 +261,31 @@ fn spawn_stdin_pump(
                         }
                     }
                     Ok(PipeIoRequest::ClaimGeometry) => {
-                        // Same diag discipline as resize: diagnostics only,
-                        // the exit JSON stays the final stderr line.
-                        match session.claim_terminal_geometry(surface) {
-                            Ok(()) => eprintln!(
-                                "{}",
-                                serde_json::json!({"diag": {"claim": {"accepted": true}}})
-                            ),
-                            Err(error) => eprintln!(
-                                "{}",
-                                serde_json::json!({
-                                    "diag": {"claim": {"error": error.to_string()}}
-                                })
-                            ),
-                        }
+                        // Off-thread: on a remote session a claim is one
+                        // daemon round trip, and the embedder sends it right
+                        // before the keystroke that triggered it — blocking
+                        // here would delay that keystroke by a full round
+                        // trip. Input needs no ordering against the claim
+                        // (bytes ride the interactive lane; the claim only
+                        // gates whose RESIZES apply). Diag discipline as for
+                        // resize: diagnostics only, the exit JSON stays the
+                        // final stderr line.
+                        let session = session.clone();
+                        std::thread::Builder::new()
+                            .name("pipe-io-claim".into())
+                            .spawn(move || match session.claim_terminal_geometry(surface) {
+                                Ok(()) => eprintln!(
+                                    "{}",
+                                    serde_json::json!({"diag": {"claim": {"accepted": true}}})
+                                ),
+                                Err(error) => eprintln!(
+                                    "{}",
+                                    serde_json::json!({
+                                        "diag": {"claim": {"error": error.to_string()}}
+                                    })
+                                ),
+                            })
+                            .ok();
                     }
                     Ok(PipeIoRequest::Unknown) => {}
                     // A malformed line means the embedder side is broken;

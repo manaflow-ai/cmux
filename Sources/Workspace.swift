@@ -9156,6 +9156,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             ioMode: .manualMirror,
             manualInputHandler: pump.makeManualInputHandler()
         )
+        // Native resize feel: reflow the PRIMARY screen locally the moment
+        // the grid changes (exactly what a local or ssh terminal does), so
+        // scrollback re-wraps instantly instead of waiting one link round
+        // trip for the daemon's repaint; the alternate screen has no
+        // scrollback and is never locally reflowed, its TUI repaints itself
+        // when the daemon-side resize lands.
+        surface.setManualIONoReflow(false)
         pump.start(surface: surface)
         pump.onStateChange = { [weak surface] in
             surface?.owningWorkspace()?.postRemoteConnectionPresentationDidChange()
