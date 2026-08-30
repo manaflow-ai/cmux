@@ -572,28 +572,27 @@ final class PortScanner: @unchecked Sendable {
     ) {
         let hasPendingScan = scanCoordination.finishPanelScan()
         let isCurrentGeneration = generation == burstGeneration
-        if isCurrentGeneration {
-            deliverResults(
-                panelResults,
-                panelTTYs: panelTTYs,
-                panelRevisions: panelRevisions,
-                workspaceIds: workspaceIds,
-                agentPortsByWorkspace: agentPortsByWorkspace,
-                panelPortOwnersByKey: panelPortOwnersByKey,
-                panelProcessIdentitiesByKey: panelProcessIdentitiesByKey,
-                agentPortOwnersByWorkspace: agentPortOwnersByWorkspace,
-                agentProcessIdentitiesByWorkspace: agentProcessIdentitiesByWorkspace,
-                agentRevisions: agentRevisions,
-                panelCompletenessByKey: panelCompletenessByKey,
-                panelProcessScopeCompletenessByKey: panelProcessScopeCompletenessByKey,
-                agentCompletenessByWorkspace: agentCompletenessByWorkspace,
-                agentProcessScopeCompletenessByWorkspace: agentProcessScopeCompletenessByWorkspace,
-                panelLsofEvidence: panelLsofEvidence,
-                agentLsofEvidence: agentLsofEvidence,
-                inspectedPIDs: inspectedPIDs,
-                requestID: requestID
-            )
-        }
+        deliverResults(
+            panelResults,
+            panelTTYs: panelTTYs,
+            panelRevisions: panelRevisions,
+            workspaceIds: workspaceIds,
+            agentPortsByWorkspace: agentPortsByWorkspace,
+            panelPortOwnersByKey: panelPortOwnersByKey,
+            panelProcessIdentitiesByKey: panelProcessIdentitiesByKey,
+            agentPortOwnersByWorkspace: agentPortOwnersByWorkspace,
+            agentProcessIdentitiesByWorkspace: agentProcessIdentitiesByWorkspace,
+            agentRevisions: agentRevisions,
+            panelCompletenessByKey: panelCompletenessByKey,
+            panelProcessScopeCompletenessByKey: panelProcessScopeCompletenessByKey,
+            agentCompletenessByWorkspace: agentCompletenessByWorkspace,
+            agentProcessScopeCompletenessByWorkspace: agentProcessScopeCompletenessByWorkspace,
+            panelLsofEvidence: panelLsofEvidence,
+            agentLsofEvidence: agentLsofEvidence,
+            inspectedPIDs: inspectedPIDs,
+            requestID: requestID,
+            applyPanelResults: isCurrentGeneration
+        )
         if hasPendingScan {
             runScan(generation: burstGeneration)
         }
@@ -856,9 +855,10 @@ final class PortScanner: @unchecked Sendable {
         panelLsofEvidence: PortLsofScanResult,
         agentLsofEvidence: PortLsofScanResult?,
         inspectedPIDs: Set<Int>,
-        requestID: UInt64
+        requestID: UInt64,
+        applyPanelResults: Bool
     ) {
-        if scanCoordination.shouldApplyPanelResult(requestID: requestID) {
+        if applyPanelResults, scanCoordination.shouldApplyPanelResult(requestID: requestID) {
             let scannedPorts = Dictionary(uniqueKeysWithValues: panelResults.filter { key, _ in
                 ttyNames[key] == panelTTYs[key]
                     && panelRevisionByKey[key] == panelRevisions[key]
