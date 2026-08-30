@@ -1204,6 +1204,7 @@ impl Inner {
                     }
                 });
                 let on_session_exit: ExitSink = Arc::new(move |code: i64| {
+                    let _flow = exit_session.flow_lock.lock().expect("shell flow lock");
                     let viewers = {
                         let mut inner = exit_session.inner.lock().expect("shell inner lock");
                         inner.alive = false;
