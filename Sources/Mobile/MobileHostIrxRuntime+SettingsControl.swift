@@ -136,7 +136,11 @@ extension MobileHostIrxRuntime: CmxIrohSettingsControlling {
 
     func resetIrohSettingsToDefaults() async throws {}
 
-    func refreshIrohSettings(allowActivationRestart: Bool = true) async {
+    func refreshIrohSettings() async {
+        await refreshIrohSettings(allowActivationRestart: true)
+    }
+
+    private func refreshIrohSettings(allowActivationRestart: Bool) async {
         if (activationState == .failed
             || activationState == .retrying
             || activationState == .reauthenticationRequired),
