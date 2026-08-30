@@ -85,7 +85,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         // matching `endedAt` callback. When no session was promoted, however,
         // clear any stale delegate marker so a dismantled search table does not
         // retain an obsolete native-session identity.
-        nsView.clearSearchResultsDragOwnerIfIdle()
+        nsView.clearNativeDragMarkersIfIdle()
         coordinator.onContainerChange?(nil)
     }
 
@@ -105,6 +105,10 @@ struct FileExplorerPanelView: NSViewRepresentable {
         private var observationCancellable: AnyCancellable?
         private var styleObserver: Any?
         private var isUpdatingOutlineProgrammatically = false
+        private var pendingPreviewDragOwnership: [UUID: FilePreviewNativeDragOwnership] = [:]
+        private lazy var previewWriterOwnership = ProvisionalDragWriterOwnership { [weak self] tokenID in
+            self?.previewWriterDidDeallocate(tokenID: tokenID)
+        }
 
         init(
             store: FileExplorerStore,
@@ -540,20 +544,28 @@ struct FileExplorerPanelView: NSViewRepresentable {
         /// Applies the shared native-generation fence used by both file
         /// preview drag sources. A distinct `willBeginAt` session is an
         /// authoritative boundary and replaces the prior owner.
-        @discardableResult
         func supersedeNativeDragIfNeeded(
             previousSession: NSDraggingSession?,
             newSession: NSDraggingSession,
             finishPrevious: () -> Void,
             clearPrevious: () -> Void
-        ) -> Bool {
-            guard let previousSession, previousSession !== newSession else { return true }
+        ) {
+            guard let previousSession, previousSession !== newSession else { return }
             // A distinct `willBeginAt` callback is itself an AppKit native
             // boundary. Sequence numbers are useful for terminal fencing but
             // cannot reject this promotion because the OS may reuse them.
             finishPrevious()
             clearPrevious()
-            return true
+        }
+
+        private func previewWriterDidDeallocate(tokenID: UUID) {
+            guard let ownership = pendingPreviewDragOwnership.removeValue(forKey: tokenID) else { return }
+            ownership.finish(from: NSPasteboard(name: .drag))
+            guard let outlineView = outlineView as? FileExplorerNSOutlineView,
+                  outlineView.pendingNativeDragTokenID == tokenID else { return }
+            outlineView.pendingNativeDragWriter = nil
+            outlineView.pendingNativeDragTokenID = nil
+            outlineView.pendingNativeDragOwnership = nil
         }
 
         // MARK: - Drag-to-Preview
@@ -565,11 +577,17 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 filePath: node.path,
                 displayTitle: node.name,
                 nativeSourceView: outlineView,
-                nativeSourceOwner: self
+                nativeSourceOwner: self,
+                provisionalToken: previewWriterOwnership.makeToken()
             )
             if let outlineView = outlineView as? FileExplorerNSOutlineView {
                 outlineView.pendingNativeDragWriter = writer
                 outlineView.pendingNativeDragOwnership = writer.nativeDragOwnership()
+                outlineView.pendingNativeDragTokenID = writer.provisionalToken?.id
+                if let tokenID = writer.provisionalToken?.id,
+                   let ownership = outlineView.pendingNativeDragOwnership {
+                    pendingPreviewDragOwnership[tokenID] = ownership
+                }
             }
             return writer
         }
@@ -586,7 +604,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 if outlineView.activeNativeDragSession === session {
                     return
                 }
-                guard supersedeNativeDragIfNeeded(
+                supersedeNativeDragIfNeeded(
                     previousSession: outlineView.activeNativeDragSession,
                     newSession: session,
                     finishPrevious: {
@@ -600,13 +618,18 @@ struct FileExplorerPanelView: NSViewRepresentable {
                         outlineView.activeNativeDragOwnership = nil
                         outlineView.activeNativeDragSession = nil
                     }
-                ) else { return }
+                )
                 outlineView.activeNativeDragDelegateMarker = self
                 outlineView.activeNativeDragSession = session
                 outlineView.activeNativeDragOwnership =
                     outlineView.pendingNativeDragOwnership
                         ?? outlineView.pendingNativeDragWriter?.nativeDragOwnership()
                 outlineView.pendingNativeDragWriter = nil
+                if let tokenID = outlineView.pendingNativeDragTokenID {
+                    previewWriterOwnership.remove(id: tokenID)
+                    pendingPreviewDragOwnership.removeValue(forKey: tokenID)
+                }
+                outlineView.pendingNativeDragTokenID = nil
                 outlineView.pendingNativeDragOwnership = nil
             }
         }
@@ -648,6 +671,11 @@ struct FileExplorerPanelView: NSViewRepresentable {
                         .finish(from: NSPasteboard(name: .drag))
                 }
                 outlineView.pendingNativeDragWriter = nil
+                if let tokenID = outlineView.pendingNativeDragTokenID {
+                    previewWriterOwnership.remove(id: tokenID)
+                    pendingPreviewDragOwnership.removeValue(forKey: tokenID)
+                }
+                outlineView.pendingNativeDragTokenID = nil
                 outlineView.pendingNativeDragOwnership = nil
                 outlineView.activeNativeDragOwnership = nil
                 return
@@ -784,6 +812,10 @@ final class FileExplorerContainerView: NSView {
     private var presentation: FileExplorerPanelPresentation
     private let coordinator: FileExplorerPanelView.Coordinator
     private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?
+    private var pendingPreviewDragOwnership: [UUID: FilePreviewNativeDragOwnership] = [:]
+    private lazy var previewWriterOwnership = ProvisionalDragWriterOwnership { [weak self] tokenID in
+        self?.previewWriterDidDeallocate(tokenID: tokenID)
+    }
     private let searchDebounceDelayMilliseconds = 200
     private var searchBarVisibleHeight: CGFloat { max(48, GlobalFontMagnification.scaled(48)) }
     private var searchFieldVisibleHeight: CGFloat { max(24, GlobalFontMagnification.scaled(24)) }
@@ -1691,6 +1723,15 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         searchSnapshot.results.count
     }
 
+    private func previewWriterDidDeallocate(tokenID: UUID) {
+        guard let ownership = pendingPreviewDragOwnership.removeValue(forKey: tokenID) else { return }
+        ownership.finish(from: NSPasteboard(name: .drag))
+        guard searchResultsView.pendingNativeDragTokenID == tokenID else { return }
+        searchResultsView.pendingNativeDragWriter = nil
+        searchResultsView.pendingNativeDragTokenID = nil
+        searchResultsView.pendingNativeDragOwnership = nil
+    }
+
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard row >= 0, row < searchSnapshot.results.count else { return nil }
         let identifier = NSUserInterfaceItemIdentifier("FileSearchResultCell")
@@ -1715,10 +1756,16 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
             filePath: result.path,
             displayTitle: (result.relativePath as NSString).lastPathComponent,
             nativeSourceView: tableView,
-            nativeSourceOwner: self
+            nativeSourceOwner: self,
+            provisionalToken: previewWriterOwnership.makeToken()
         )
         searchResultsView.pendingNativeDragWriter = writer
+        searchResultsView.pendingNativeDragTokenID = writer.provisionalToken?.id
         searchResultsView.pendingNativeDragOwnership = writer.nativeDragOwnership()
+        if let tokenID = writer.provisionalToken?.id,
+           let ownership = searchResultsView.pendingNativeDragOwnership {
+            pendingPreviewDragOwnership[tokenID] = ownership
+        }
         return writer
     }
 
@@ -1735,7 +1782,7 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
            previousSession === session {
             return
         }
-        guard coordinator.supersedeNativeDragIfNeeded(
+        coordinator.supersedeNativeDragIfNeeded(
             previousSession: searchResultsView.activeNativeDragSession,
             newSession: session,
             finishPrevious: {
@@ -1749,9 +1796,7 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
                 searchResultsView.activeNativeDragOwnership = nil
                 searchResultsView.activeNativeDragSession = nil
             }
-        ) else {
-            return
-        }
+        )
         // The pasteboard writer retains this exact container through the native
         // terminal callback. Keep only a weak marker on the table: a strong
         // table → container edge would create a retain cycle.
@@ -1760,6 +1805,11 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
             searchResultsView.pendingNativeDragOwnership
                 ?? searchResultsView.pendingNativeDragWriter?.nativeDragOwnership()
         searchResultsView.pendingNativeDragWriter = nil
+        if let tokenID = searchResultsView.pendingNativeDragTokenID {
+            previewWriterOwnership.remove(id: tokenID)
+            pendingPreviewDragOwnership.removeValue(forKey: tokenID)
+        }
+        searchResultsView.pendingNativeDragTokenID = nil
         searchResultsView.pendingNativeDragOwnership = nil
         searchResultsView.activeNativeDragSession = session
     }
@@ -1801,7 +1851,12 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
                     .nativeDragOwnership()?
                     .finish(from: NSPasteboard(name: .drag))
             }
+            if let tokenID = searchResultsView.pendingNativeDragTokenID {
+                previewWriterOwnership.remove(id: tokenID)
+                pendingPreviewDragOwnership.removeValue(forKey: tokenID)
+            }
             searchResultsView.pendingNativeDragWriter = nil
+            searchResultsView.pendingNativeDragTokenID = nil
             searchResultsView.pendingNativeDragOwnership = nil
             searchResultsView.activeNativeDragOwnership = nil
             return
@@ -1871,10 +1926,15 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
 }
 
 private extension FileExplorerContainerView {
-    func clearSearchResultsDragOwnerIfIdle() {
-        guard searchResultsView.activeNativeDragSession == nil else { return }
+    func clearNativeDragMarkersIfIdle() {
+        guard searchResultsView.activeNativeDragSession == nil,
+              outlineView.activeNativeDragSession == nil else { return }
+        let dragPasteboard = NSPasteboard(name: .drag)
+        searchResultsView.activeNativeDragOwnership?.finish(from: dragPasteboard)
+        outlineView.activeNativeDragOwnership?.finish(from: dragPasteboard)
         searchResultsView.activeNativeDragDelegateMarker = nil
-        searchResultsView.pendingNativeDragWriter = nil
         searchResultsView.activeNativeDragOwnership = nil
+        outlineView.activeNativeDragDelegateMarker = nil
+        outlineView.activeNativeDragOwnership = nil
     }
 }

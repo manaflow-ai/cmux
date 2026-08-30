@@ -540,6 +540,7 @@ final class FilePreviewDragPasteboardWriter: NSPasteboardItem {
     // delegate that receives `endedAt`.
     private let nativeSourceView: NSView?
     private let nativeSourceOwner: AnyObject?
+    let provisionalToken: ProvisionalDragWriterOwnership.Token?
     private var transferData: Data?
     private var bonsplitRegistration: TabDragTransferRegistration?
     private var didMirrorTransferDataToDragPasteboard = false
@@ -549,13 +550,15 @@ final class FilePreviewDragPasteboardWriter: NSPasteboardItem {
         displayTitle: String,
         tabDragTransferRegistry: TabDragTransferRegistry? = nil,
         nativeSourceView: NSView? = nil,
-        nativeSourceOwner: AnyObject? = nil
+        nativeSourceOwner: AnyObject? = nil,
+        provisionalToken: ProvisionalDragWriterOwnership.Token? = nil
     ) {
         self.filePath = filePath
         self.displayTitle = displayTitle
         self.tabDragTransferRegistry = tabDragTransferRegistry ?? AppDelegate.shared?.tabDragTransferRegistry
         self.nativeSourceView = nativeSourceView
         self.nativeSourceOwner = nativeSourceOwner
+        self.provisionalToken = provisionalToken
         super.init()
         materializePayload()
     }
@@ -566,6 +569,10 @@ final class FilePreviewDragPasteboardWriter: NSPasteboardItem {
         ofType _: NSPasteboard.PasteboardType
     ) {
         fatalError("init(pasteboardPropertyList:ofType:) is not supported")
+    }
+
+    deinit {
+        provisionalToken?.notifyDeallocated()
     }
 
     static func dragID(from transferData: Data) -> UUID? {

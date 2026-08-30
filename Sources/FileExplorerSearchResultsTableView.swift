@@ -8,6 +8,7 @@ final class FileExplorerSearchResultsTableView: NSTableView {
     weak var activeNativeDragDelegateMarker: AnyObject?
     var activeNativeDragSession: NSDraggingSession?
     weak var pendingNativeDragWriter: FilePreviewDragPasteboardWriter?
+    var pendingNativeDragTokenID: UUID?
     var pendingNativeDragOwnership: FilePreviewNativeDragOwnership?
     var activeNativeDragOwnership: FilePreviewNativeDragOwnership?
     /// Called before AppKit evaluates a new pointer gesture. A new

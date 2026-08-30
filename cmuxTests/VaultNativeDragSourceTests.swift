@@ -278,6 +278,54 @@ struct VaultNativeDragSourceTests {
         #expect(previousSource.flatMap { registry.entry(id: $0.dragID) } == nil)
     }
 
+    @Test("An invalid replacement leaves the active native drag untouched")
+    func invalidReplacementDoesNotRetireActiveSource() throws {
+        let registry = SessionDragRegistry()
+        let transferRegistry = TabDragTransferRegistry()
+        var startedSource: SessionDragSessionSource?
+        let coordinator = SessionDragCoordinator(
+            startDraggingSession: { _, _, _, source in
+                startedSource = source
+            }
+        )
+        let sourceView = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 28))
+        let event = try Self.mouseEvent(
+            type: .leftMouseDown,
+            location: NSPoint(x: 20, y: 14),
+            windowNumber: 0
+        )
+        let firstEntry = Self.makeEntry(title: "active source", identifier: "active")
+        let replacementEntry = Self.makeEntry(title: "invalid replacement", identifier: "invalid")
+        let frame = sourceView.bounds
+
+        #expect(coordinator.beginSessionDrag(
+            firstEntry,
+            registry: registry,
+            tabDragTransferRegistry: transferRegistry,
+            from: sourceView,
+            event: event,
+            frame: frame,
+            image: NSImage(size: frame.size)
+        ))
+        let firstSource = try #require(startedSource)
+        #expect(registry.entry(id: firstSource.dragID) == firstEntry)
+
+        #expect(!coordinator.beginSessionDrag(
+            replacementEntry,
+            registry: registry,
+            tabDragTransferRegistry: transferRegistry,
+            from: sourceView,
+            event: event,
+            frame: .zero,
+            image: NSImage(size: frame.size)
+        ))
+        #expect(registry.entry(id: firstSource.dragID) == firstEntry)
+        #expect(transferRegistry.resolve(from: NSPasteboard(name: .drag)) != nil)
+
+        firstSource.finishDrag()
+        #expect(registry.entry(id: firstSource.dragID) == nil)
+    }
+
     @Test("A new native drag reclaims a source whose endedAt callback was lost")
     func newNativeDragReclaimsSupersededSource() throws {
         let registry = SessionDragRegistry()
