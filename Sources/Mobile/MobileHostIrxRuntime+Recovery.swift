@@ -380,10 +380,9 @@ extension MobileHostIrxRuntime {
         return true
     }
 
-    /// Gives non-auth terminal failures a few bounded recovery probes.
-    /// Once those probes are exhausted the runtime stays explicitly failed;
-    /// an account transition, policy re-enable, or Settings refresh resets the
-    /// ladder and starts a new activation deliberately.
+    /// Gives non-auth terminal failures a few bounded recovery probes, then
+    /// keeps an explicit failed state with a slow unattended probe. An account
+    /// transition, policy re-enable, or Settings refresh resets the ladder.
     private func scheduleFailedActivationRecovery(
         failure: IrxBrokerFailure,
         accountID: String
@@ -396,6 +395,7 @@ extension MobileHostIrxRuntime {
                     "host-runtime", "activation-recovery-exhausted",
                     failure.journalAttributes
                 )
+                scheduleTerminalActivationProbe(failure: failure, accountID: accountID)
             }
             return
         }

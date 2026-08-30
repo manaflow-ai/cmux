@@ -143,6 +143,7 @@ extension MobileHostIrxRuntime: CmxIrohSettingsControlling {
             cancelAutopilotRecovery()
             activationRetryFailureCount = 0
             activationUnauthorizedFailureCount = 0
+            activationMissingAuthenticationFailureCount = 0
             terminalRecoveryCount = 0
             setActivationState(.activating)
             Self.journal.record("host-runtime", "activation-retry-requested")
@@ -272,5 +273,43 @@ extension MobileHostIrxRuntime: CmxIrohSettingsControlling {
         }
         let withoutDot = host.hasSuffix(".") ? String(host.dropLast()) : host
         return withoutDot.lowercased()
+    }
+
+    /// Keeps an unattended host self-healing after a finite terminal probe
+    /// burst, without returning to a tight retry loop.
+    func scheduleTerminalActivationProbe(
+        failure: IrxBrokerFailure,
+        accountID: String
+    ) {
+        guard activeAccountID == accountID, activationRetryTask == nil else { return }
+        let delay: TimeInterval = 15 * 60
+        let token = generationToken
+        let clock = activationRetryClock
+        let deadline = clock.now().addingTimeInterval(delay)
+        let retryID = UUID()
+        activationRetryID = retryID
+        var attributes = failure.journalAttributes
+        attributes["delay_s"] = String(Int(delay))
+        attributes["state"] = IrxHostActivationState.failed.rawValue
+        Self.journal.record("host-runtime", "activation-terminal-probe-scheduled", attributes)
+        activationRetryTask = Task { @MainActor [weak self] in
+            defer {
+                if let self, self.activationRetryID == retryID {
+                    self.activationRetryTask = nil
+                    self.activationRetryID = nil
+                }
+            }
+            do {
+                try await clock.sleep(until: deadline)
+            } catch {
+                return
+            }
+            guard let self,
+                  !Task.isCancelled,
+                  self.generationToken == token,
+                  self.activeAccountID == accountID else { return }
+            self.setActivationState(.activating, failure: failure)
+            self.startActivation(accountID: accountID)
+        }
     }
 }

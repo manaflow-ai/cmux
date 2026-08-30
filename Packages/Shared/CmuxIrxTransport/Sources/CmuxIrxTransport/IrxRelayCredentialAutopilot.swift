@@ -330,9 +330,11 @@ public actor IrxRelayCredentialAutopilot {
                 transient: isPostRecoveryUnauthorized || isMissingAuthentication
                     ? 0 : min(failureCount + 1, 20),
                 unauthorized: isPostRecoveryUnauthorized
-                    ? min(unauthorizedFailureCount + 1, 20) : 0,
+                    ? min(unauthorizedFailureCount + 1, 20)
+                    : unauthorizedFailureCount,
                 missingAuthentication: isMissingAuthentication
-                    ? min(missingAuthenticationFailureCount + 1, 20) : 0
+                    ? min(missingAuthenticationFailureCount + 1, 20)
+                    : missingAuthenticationFailureCount
             )
         }
     }
