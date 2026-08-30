@@ -138,6 +138,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     /// inferring intent from `NSApp.currentEvent`.
     @ObservationIgnored private var pendingUserInteraction = false
     @ObservationIgnored private var pendingUserInteractionReleased = false
+    @ObservationIgnored private var pendingUserInteractionDragging = false
     @ObservationIgnored var forceCloseDockTabIds: Set<TabID> = []
     @ObservationIgnored var pendingCloseConfirmDockTabIds: Set<TabID> = []
     @ObservationIgnored var tabCloseButtonCloseDockTabIds: Set<TabID> = []
@@ -870,18 +871,32 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         guard isVisibleInUI, scope == .global else { return }
         pendingUserInteraction = true
         pendingUserInteractionReleased = false
+        pendingUserInteractionDragging = false
+    }
+
+    /// Marks a tab drag as an explicit Dock interaction. The drag callback is
+    /// delivered before the eventual mouse-up, so it has its own phase instead
+    /// of being mistaken for a click.
+    func beginUserDockDragInteraction() {
+        guard isVisibleInUI, scope == .global else { return }
+        pendingUserInteraction = true
+        pendingUserInteractionReleased = false
+        pendingUserInteractionDragging = true
     }
 
     func endUserDockInteraction() {
         pendingUserInteraction = false
         pendingUserInteractionReleased = false
+        pendingUserInteractionDragging = false
     }
 
     /// Advances a pointer click to the post-mouse-up phase. SwiftUI's tap
     /// gesture invokes Bonsplit selection after the local monitor returns, so
     /// the token remains consumable for that one callback only.
     func releaseUserDockInteraction() {
-        guard pendingUserInteraction else { return }
+        guard pendingUserInteraction, !pendingUserInteractionDragging else {
+            return
+        }
         pendingUserInteractionReleased = true
     }
 
@@ -892,6 +907,17 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         }
         pendingUserInteraction = false
         pendingUserInteractionReleased = false
+        pendingUserInteractionDragging = false
+        return true
+    }
+
+    @discardableResult
+    func consumeUserDockDragInteraction() -> Bool {
+        guard pendingUserInteraction, pendingUserInteractionDragging else {
+            return false
+        }
+        pendingUserInteraction = false
+        pendingUserInteractionDragging = false
         return true
     }
 

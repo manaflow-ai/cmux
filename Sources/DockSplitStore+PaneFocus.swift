@@ -346,7 +346,7 @@ extension DockSplitStore {
         // Bonsplit auto-closes an emptied source pane during a cross-pane move
         // without emitting `didClosePane`, so this callback must reconcile the
         // full ownership snapshot.
-        noteVisibleDockInteraction()
+        noteVisibleDockInteraction(allowingDrag: true)
         synchronizeOwnedPaneIds(with: controller)
         applyDockSelection(tabId: tab.id, inPane: destination)
         let movedPanel = panel(for: tab.id)
@@ -418,12 +418,14 @@ extension DockSplitStore {
     /// limiting the transaction to a visible Dock prevents hidden config/restore
     /// work from stealing the main window's keyboard focus while still making
     /// tab selection, pane focus, and drag moves one routing event.
-    private func noteVisibleDockInteraction() {
+    private func noteVisibleDockInteraction(allowingDrag: Bool = false) {
         guard isVisibleInUI,
               scope == .global,
               !isRestoringDockSelection,
               sessionRestoreDepth == 0,
-              consumeUserDockInteraction() else { return }
+              (allowingDrag
+                ? consumeUserDockDragInteraction()
+                : consumeUserDockInteraction()) else { return }
         // The Dock store is its own owner. Resolve the containing window from
         // the store; the pointer host supplied the explicit interaction token.
         noteKeyboardFocusIntent(window: nil)

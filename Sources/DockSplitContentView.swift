@@ -247,10 +247,10 @@ private final class DockPointerInteractionHostView: NSView {
                 threshold: dragThreshold
             ) else { return }
             // A drag is not a tab/pane click. Clear the click token once the
-            // pointer has crossed the system's small click tolerance so a
-            // swallowed mouse-up cannot arm a later programmatic mutation.
+            // pointer has crossed the system's small click tolerance, while
+            // retaining a drag phase for Bonsplit's didMoveTab callback.
             self.mouseDownLocation = nil
-            store?.endUserDockInteraction()
+            store?.beginUserDockDragInteraction()
         case .leftMouseUp, .rightMouseUp, .otherMouseUp:
             guard let window, event.window === window else {
                 cancelInteractionClear()

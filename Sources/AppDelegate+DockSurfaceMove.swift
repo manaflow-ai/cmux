@@ -212,10 +212,17 @@ extension AppDelegate {
         sourceDock.scheduleDockPortalReconcile(reason: "dock.moveSurfaceToWorkspace.source")
 
         if focus {
+            let destinationWindow = windowId(for: destinationManager)
+                .flatMap { mainWindow(for: $0) }
             if focusWindow, let destinationWindowId = windowId(for: destinationManager) {
                 _ = focusMainWindow(windowId: destinationWindowId)
             }
             destinationManager.focusTab(targetWorkspaceId, surfaceId: panelId, suppressFlash: true)
+            noteMainPanelKeyboardFocusIntent(
+                workspaceId: targetWorkspaceId,
+                panelId: panelId,
+                in: destinationWindow
+            )
         }
         return true
     }
@@ -251,8 +258,17 @@ extension AppDelegate {
         )
         sourceDock.scheduleDockPortalReconcile(reason: "dock.moveSurfaceToNewWorkspace.source")
 
-        if focus, focusWindow, let destinationWindowId = windowId(for: manager) {
-            _ = focusMainWindow(windowId: destinationWindowId)
+        if focus {
+            let destinationWindow = windowId(for: manager)
+                .flatMap { mainWindow(for: $0) }
+            if focusWindow, let destinationWindowId = windowId(for: manager) {
+                _ = focusMainWindow(windowId: destinationWindowId)
+            }
+            noteMainPanelKeyboardFocusIntent(
+                workspaceId: destinationWorkspace.id,
+                panelId: panelId,
+                in: destinationWindow
+            )
         }
         return true
     }

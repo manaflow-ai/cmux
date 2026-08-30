@@ -1607,6 +1607,24 @@ struct DockShortcutRoutingTests {
                     panelId: mainPanelId,
                     in: harness.window
                 )
+                harness.dock.beginUserDockDragInteraction()
+                harness.dock.splitTabBar(
+                    harness.dock.bonsplitController,
+                    didMoveTab: tab,
+                    fromPane: harness.rootPane,
+                    toPane: harness.rootPane
+                )
+                #expect(
+                    harness.appDelegate.keyboardFocusCoordinator(
+                        for: harness.window
+                    )?.activeRightSidebarMode == .dock
+                )
+
+                harness.appDelegate.noteMainPanelKeyboardFocusIntent(
+                    workspaceId: harness.mainWorkspace.id,
+                    panelId: mainPanelId,
+                    in: harness.window
+                )
                 harness.dock.beginUserDockInteraction()
                 harness.dock.splitTabBar(
                     harness.dock.bonsplitController,

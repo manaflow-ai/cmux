@@ -27,7 +27,15 @@ extension DockSplitStore {
         // before dispatching the action so subsequent menu/shortcut commands do
         // not fall through to the main workspace.
         let presentingWindow = dockContextMenuWindow
-        focusPanelFromDockInteraction(panelId, window: nil)
+        let keepsPanelInDock: Bool = switch action {
+        case .move, .moveToNewWorkspace:
+            false
+        default:
+            true
+        }
+        if keepsPanelInDock {
+            focusPanelFromDockInteraction(panelId, window: nil)
+        }
 
         switch action {
         case .rename:
