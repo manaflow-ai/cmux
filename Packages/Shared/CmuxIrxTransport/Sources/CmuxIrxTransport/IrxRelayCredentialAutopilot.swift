@@ -261,7 +261,8 @@ public actor IrxRelayCredentialAutopilot {
             && !failure.requiresReauthentication
         let isMissingAuthentication = failure.errorCode == "missing_authentication"
         let decision: IrxHostActivationPolicy.Decision
-        if isPostRecoveryUnauthorized && !escalateUnauthorized {
+        if (isPostRecoveryUnauthorized || isMissingAuthentication)
+            && !escalateUnauthorized {
             // The host callback owns the shared 401 escalation counter. The
             // autopilot's bounded hint burst must not independently terminate
             // credential renewal before that owner decides.
@@ -290,7 +291,10 @@ public actor IrxRelayCredentialAutopilot {
             )
         }
         let decisionFailureCount: Int
-        if isPostRecoveryUnauthorized {
+        if (isPostRecoveryUnauthorized || isMissingAuthentication)
+            && !escalateUnauthorized {
+            decisionFailureCount = 0
+        } else if isPostRecoveryUnauthorized {
             decisionFailureCount = unauthorizedFailureCount
         } else if isMissingAuthentication {
             decisionFailureCount = missingAuthenticationFailureCount
