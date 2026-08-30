@@ -62,20 +62,9 @@ struct DockSplitContentView: View {
     }
 }
 
-enum DockPointerInteractionPolicy {
-    static func isDrag(
-        from start: NSPoint,
-        to current: NSPoint,
-        threshold: CGFloat = 4
-    ) -> Bool {
-        max(abs(current.x - start.x), abs(current.y - start.y)) > threshold
-    }
-}
-
-/// Supplies an explicit, Dock-scoped pointer token to ``DockSplitStore`` before
-/// Bonsplit emits its selection callbacks. Bonsplit also emits those callbacks
-/// for programmatic mutations, so a callback must never infer user intent from
-/// the process-wide current event.
+/// Records Dock ownership at the pointer boundary before Bonsplit selection
+/// callbacks run. This keeps user-originated focus independent from callbacks
+/// that Bonsplit also emits for programmatic mutations.
 @MainActor
 private struct DockPointerInteractionHost: NSViewRepresentable {
     let store: DockSplitStore
@@ -107,27 +96,10 @@ private struct DockPointerInteractionHost: NSViewRepresentable {
 private final class DockPointerInteractionHostView: NSView {
     var store: DockSplitStore?
     private var eventMonitor: Any?
-    private var globalMouseUpMonitor: Any?
-    private var windowResignKeyObserver: NSObjectProtocol?
-    private var applicationResignActiveObserver: NSObjectProtocol?
-    private var trackingArea: NSTrackingArea?
-    private var mouseDownLocation: NSPoint?
-    private let interactionSourceID = UUID()
-
-    private let dragThreshold: CGFloat = 4
 
     deinit {
         if let eventMonitor {
             NSEvent.removeMonitor(eventMonitor)
-        }
-        if let globalMouseUpMonitor {
-            NSEvent.removeMonitor(globalMouseUpMonitor)
-        }
-        if let windowResignKeyObserver {
-            NotificationCenter.default.removeObserver(windowResignKeyObserver)
-        }
-        if let applicationResignActiveObserver {
-            NotificationCenter.default.removeObserver(applicationResignActiveObserver)
         }
     }
 
@@ -136,152 +108,33 @@ private final class DockPointerInteractionHostView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         // A SwiftUI host can migrate between windows while retaining this
-        // representable. Rebind the monitor/observer to the new window rather
-        // than leaving a token tied to the old one.
+        // representable. Rebind the monitor to the new window rather than
+        // leaving an event monitor attached to the old one.
         stopMonitoring()
         installMonitorIfNeeded()
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let trackingArea {
-            removeTrackingArea(trackingArea)
-        }
-        let next = NSTrackingArea(
-            rect: bounds,
-            options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
-            owner: self
-        )
-        addTrackingArea(next)
-        trackingArea = next
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        super.mouseExited(with: event)
-        mouseDownLocation = nil
-        store?.endUserDockInteraction(sourceID: interactionSourceID)
     }
 
     func installMonitorIfNeeded() {
         guard window != nil, eventMonitor == nil else { return }
         eventMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: [
-                .leftMouseDown,
-                .rightMouseDown,
-                .otherMouseDown,
-                .leftMouseUp,
-                .rightMouseUp,
-                .otherMouseUp,
-                .leftMouseDragged,
-                .rightMouseDragged,
-                .otherMouseDragged,
-                .mouseMoved,
-            ]
+            matching: [.leftMouseDown]
         ) { [weak self] event in
             self?.handle(event: event)
             return event
         }
-        globalMouseUpMonitor = NSEvent.addGlobalMonitorForEvents(
-            matching: [.leftMouseUp, .rightMouseUp, .otherMouseUp]
-        ) { [weak self] _ in
-            // A drag can leave the app before mouse-up is delivered to the
-            // local monitor. No in-app SwiftUI tap follows this callback, so
-            // clear immediately.
-            self?.store?.endUserDockInteraction(
-                sourceID: self?.interactionSourceID
-            )
-        }
-        if windowResignKeyObserver == nil, let window {
-            windowResignKeyObserver = NotificationCenter.default.addObserver(
-                forName: NSWindow.didResignKeyNotification,
-                object: window,
-                queue: .main
-            ) { [weak self] _ in
-                self?.store?.endUserDockInteraction(
-                    sourceID: self?.interactionSourceID
-                )
-            }
-        }
-        if applicationResignActiveObserver == nil {
-            applicationResignActiveObserver = NotificationCenter.default.addObserver(
-                forName: NSApplication.didResignActiveNotification,
-                object: NSApp,
-                queue: .main
-            ) { [weak self] _ in
-                self?.store?.endUserDockInteraction(
-                    sourceID: self?.interactionSourceID
-                )
-            }
-        }
     }
 
     func stopMonitoring() {
-        mouseDownLocation = nil
-        store?.endUserDockInteraction(sourceID: interactionSourceID)
         if let eventMonitor {
             NSEvent.removeMonitor(eventMonitor)
             self.eventMonitor = nil
         }
-        if let globalMouseUpMonitor {
-            NSEvent.removeMonitor(globalMouseUpMonitor)
-            self.globalMouseUpMonitor = nil
-        }
-        if let windowResignKeyObserver {
-            NotificationCenter.default.removeObserver(windowResignKeyObserver)
-            self.windowResignKeyObserver = nil
-        }
-        if let applicationResignActiveObserver {
-            NotificationCenter.default.removeObserver(applicationResignActiveObserver)
-            self.applicationResignActiveObserver = nil
-        }
     }
 
     private func handle(event: NSEvent) {
-        switch event.type {
-        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
-            guard let window, event.window === window else { return }
-            let point = convert(event.locationInWindow, from: nil)
-            guard bounds.contains(point) else {
-                mouseDownLocation = nil
-                store?.endUserDockInteraction(sourceID: interactionSourceID)
-                return
-            }
-            store?.endUserDockInteraction(sourceID: interactionSourceID)
-            mouseDownLocation = point
-            store?.beginUserDockInteraction(sourceID: interactionSourceID)
-        case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
-            guard let window, event.window === window else {
-                mouseDownLocation = nil
-                store?.endUserDockInteraction(sourceID: interactionSourceID)
-                return
-            }
-            let point = convert(event.locationInWindow, from: nil)
-            guard let mouseDownLocation else { return }
-            guard DockPointerInteractionPolicy.isDrag(
-                from: mouseDownLocation,
-                to: point,
-                threshold: dragThreshold
-            ) else { return }
-            // A drag is not a tab/pane click. Clear the click token once the
-            // pointer has crossed the system's small click tolerance, while
-            // retaining a drag phase for Bonsplit's didMoveTab callback.
-            self.mouseDownLocation = nil
-            store?.beginUserDockDragInteraction(sourceID: interactionSourceID)
-        case .leftMouseUp, .rightMouseUp, .otherMouseUp:
-            guard let window, event.window === window else {
-                mouseDownLocation = nil
-                store?.endUserDockInteraction(sourceID: interactionSourceID)
-                return
-            }
-            // SwiftUI's TapGesture invokes Bonsplit selection from the same
-            // mouse-up after local monitors run. Mark the click released; the
-            // next pointer event clears an unconsumed token.
-            store?.releaseUserDockInteraction(sourceID: interactionSourceID)
-            mouseDownLocation = nil
-        case .mouseMoved:
-            store?.clearSettledUserDockInteraction(sourceID: interactionSourceID)
-        default:
-            break
-        }
+        guard let window, event.window === window else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        guard bounds.contains(point) else { return }
+        store?.noteUserDockPointerInteraction(window: window)
     }
 }

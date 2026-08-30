@@ -128,19 +128,6 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     /// delegate skips the interactive auto-create / placeholder-repair path.
     /// Mirrors `Workspace.isProgrammaticSplit`.
     @ObservationIgnored var isProgrammaticDockSplit = false
-    /// Bonsplit reports selection callbacks for both pointer input and
-    /// programmatic state restoration. Keep restoration callbacks from
-    /// publishing Dock keyboard focus when a caller explicitly requested that
-    /// the current window focus be preserved.
-    @ObservationIgnored private var programmaticSelectionRestorationDepth = 0
-    /// One-shot signal set by the Dock's pointer host before Bonsplit handles a
-    /// tab/pane click. Delegate callbacks are also emitted for programmatic
-    /// mutations, so they must consume this explicit UI token instead of
-    /// inferring intent from `NSApp.currentEvent`.
-    @ObservationIgnored private var pendingUserInteraction = false
-    @ObservationIgnored private var pendingUserInteractionReleased = false
-    @ObservationIgnored private var pendingUserInteractionDragging = false
-    @ObservationIgnored private var pendingUserInteractionSourceID: UUID?
     @ObservationIgnored var forceCloseDockTabIds: Set<TabID> = []
     @ObservationIgnored var pendingCloseConfirmDockTabIds: Set<TabID> = []
     @ObservationIgnored var tabCloseButtonCloseDockTabIds: Set<TabID> = []
@@ -864,114 +851,6 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         isProgrammaticDockSplit = true
         defer { isProgrammaticDockSplit = previous }
         return body()
-    }
-
-    /// Runs Bonsplit selection mutations that restore an existing Dock state
-    /// without changing which container owns the window's keyboard focus.
-    @discardableResult
-    func withProgrammaticDockSelectionRestoration<T>(_ body: () -> T) -> T {
-        programmaticSelectionRestorationDepth += 1
-        defer { programmaticSelectionRestorationDepth -= 1 }
-        return body()
-    }
-
-    var isRestoringDockSelection: Bool {
-        programmaticSelectionRestorationDepth > 0
-    }
-
-    /// Marks the next Bonsplit selection callback as originating from a visible
-    /// Dock pointer interaction. The pointer host scopes this token to the Dock
-    /// view and clears it on mouse-up, including drag-out cancellation.
-    func beginUserDockInteraction(sourceID: UUID? = nil) {
-        guard isVisibleInUI, scope == .global else { return }
-        guard !pendingUserInteraction else { return }
-        pendingUserInteraction = true
-        pendingUserInteractionReleased = false
-        pendingUserInteractionDragging = false
-        pendingUserInteractionSourceID = sourceID
-    }
-
-    /// Marks a tab drag as an explicit Dock interaction. The drag callback is
-    /// delivered before the eventual mouse-up, so it has its own phase instead
-    /// of being mistaken for a click.
-    func beginUserDockDragInteraction(sourceID: UUID? = nil) {
-        guard isVisibleInUI, scope == .global else { return }
-        if pendingUserInteraction {
-            guard pendingUserInteractionSourceID == sourceID else { return }
-            pendingUserInteractionReleased = false
-            pendingUserInteractionDragging = true
-            return
-        }
-        pendingUserInteraction = true
-        pendingUserInteractionReleased = false
-        pendingUserInteractionDragging = true
-        pendingUserInteractionSourceID = sourceID
-    }
-
-    func endUserDockInteraction(sourceID: UUID? = nil) {
-        if let sourceID,
-           pendingUserInteractionSourceID != nil,
-           pendingUserInteractionSourceID != sourceID {
-            return
-        }
-        pendingUserInteraction = false
-        pendingUserInteractionReleased = false
-        pendingUserInteractionDragging = false
-        pendingUserInteractionSourceID = nil
-    }
-
-    /// Advances a pointer click to the post-mouse-up phase. SwiftUI's tap
-    /// gesture invokes Bonsplit selection after the local monitor returns, so
-    /// the token remains consumable for that one callback only.
-    func releaseUserDockInteraction(sourceID: UUID? = nil) {
-        guard pendingUserInteraction, !pendingUserInteractionDragging else {
-            return
-        }
-        if let sourceID,
-           pendingUserInteractionSourceID != nil,
-           pendingUserInteractionSourceID != sourceID {
-            return
-        }
-        pendingUserInteractionReleased = true
-    }
-
-    @discardableResult
-    func consumeUserDockInteraction() -> Bool {
-        guard pendingUserInteraction, pendingUserInteractionReleased else {
-            return false
-        }
-        pendingUserInteraction = false
-        pendingUserInteractionReleased = false
-        pendingUserInteractionDragging = false
-        pendingUserInteractionSourceID = nil
-        return true
-    }
-
-    @discardableResult
-    func consumeUserDockDragInteraction() -> Bool {
-        // A drag callback is user-owned only after the pointer host observes
-        // the threshold. A bare pressed token is reserved for the post-
-        // mouse-up tap callback; accepting it here would let a stale click or
-        // context-menu tracking loop claim focus during a later programmatic
-        // move.
-        guard pendingUserInteraction, pendingUserInteractionDragging else {
-            return false
-        }
-        pendingUserInteraction = false
-        pendingUserInteractionReleased = false
-        pendingUserInteractionDragging = false
-        pendingUserInteractionSourceID = nil
-        return true
-    }
-
-    /// Clears a settled pointer token when no Bonsplit callback consumed it.
-    /// Called on the next pointer event, so click delivery does not depend on a
-    /// wall-clock timeout or a particular SwiftUI scheduling turn.
-    func clearSettledUserDockInteraction(sourceID: UUID? = nil) {
-        guard pendingUserInteractionReleased || pendingUserInteractionDragging else {
-            return
-        }
-        endUserDockInteraction(sourceID: sourceID)
     }
 
 #if DEBUG

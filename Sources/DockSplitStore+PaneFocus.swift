@@ -96,9 +96,8 @@ extension DockSplitStore {
     }
 
     /// Resolves both workspace and per-window Docks through their shared live
-    /// registry before applying pointer focus. The terminal portal can outlive a
-    /// SwiftUI host callback briefly, so pointer activation cannot depend on that
-    /// callback to update the authoritative Dock selection.
+    /// registry before applying pointer focus. A terminal portal can outlive its
+    /// SwiftUI host briefly, so it must resolve the authoritative Dock directly.
     static func focusPanelFromDockPointer(_ panelId: UUID, window: NSWindow?) {
         liveStore(containingPanel: panelId)?.focusPanelFromDockInteraction(panelId, window: window)
     }
@@ -138,6 +137,14 @@ extension DockSplitStore {
         appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: ownerWindow ?? window)
     }
 
+    /// Records ownership for a left-click inside the visible window Dock before
+    /// Bonsplit delivers its selection callback. Programmatic callbacks do not
+    /// call this method, so they cannot steal focus from the main workspace.
+    func noteUserDockPointerInteraction(window: NSWindow?) {
+        guard isVisibleInUI, scope == .global else { return }
+        noteKeyboardFocusIntent(window: window)
+    }
+
     func browserPanel(owning responder: NSResponder?, in window: NSWindow?) -> BrowserPanel? {
         guard let responder, let window else { return nil }
         if let focused = focusedPanelId,
@@ -163,13 +170,11 @@ extension DockSplitStore {
 
     func restoreDockPaneSelection(_ selection: (pane: PaneID?, tab: TabID?)?) {
         guard let selection else { return }
-        withProgrammaticDockSelectionRestoration {
-            if let pane = selection.pane {
-                bonsplitController.focusPane(pane)
-            }
-            if let tab = selection.tab {
-                bonsplitController.selectTab(tab)
-            }
+        if let pane = selection.pane {
+            bonsplitController.focusPane(pane)
+        }
+        if let tab = selection.tab {
+            bonsplitController.selectTab(tab)
         }
     }
 
@@ -345,12 +350,10 @@ extension DockSplitStore {
     }
 
     func splitTabBar(_ controller: BonsplitController, didSelectTab tab: Bonsplit.Tab, inPane pane: PaneID) {
-        noteVisibleDockInteraction()
         applyDockSelection(tabId: tab.id, inPane: pane)
     }
 
     func splitTabBar(_ controller: BonsplitController, didFocusPane pane: PaneID) {
-        noteVisibleDockInteraction()
         guard let tab = controller.selectedTab(inPane: pane) else {
             applyVisibilityToAllPanels()
             return
@@ -407,7 +410,6 @@ extension DockSplitStore {
         // Bonsplit auto-closes an emptied source pane during a cross-pane move
         // without emitting `didClosePane`, so this callback must reconcile the
         // full ownership snapshot.
-        noteVisibleDockInteraction(allowingDrag: true)
         synchronizeOwnedPaneIds(with: controller)
         applyDockSelection(tabId: tab.id, inPane: destination)
         let movedPanel = panel(for: tab.id)
@@ -474,21 +476,4 @@ extension DockSplitStore {
         }
     }
 
-    /// Commits Dock ownership for a visible Bonsplit interaction. Bonsplit uses
-    /// the same delegate callbacks for programmatic mutations and tab-bar input;
-    /// limiting the transaction to a visible Dock prevents hidden config/restore
-    /// work from stealing the main window's keyboard focus while still making
-    /// tab selection, pane focus, and drag moves one routing event.
-    private func noteVisibleDockInteraction(allowingDrag: Bool = false) {
-        guard isVisibleInUI,
-              scope == .global,
-              !isRestoringDockSelection,
-              sessionRestoreDepth == 0,
-              (allowingDrag
-                ? consumeUserDockDragInteraction()
-                : consumeUserDockInteraction()) else { return }
-        // The Dock store is its own owner. Resolve the containing window from
-        // the store; the pointer host supplied the explicit interaction token.
-        noteKeyboardFocusIntent(window: nil)
-    }
 }

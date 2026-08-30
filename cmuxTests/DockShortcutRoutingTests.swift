@@ -1566,9 +1566,9 @@ struct DockShortcutRoutingTests {
         }
     }
 
-    @Test("Dock selection callbacks require an explicit pointer token")
+    @Test("Dock pointer ownership is explicit and callbacks stay focus-neutral")
     @MainActor
-    func dockSelectionCallbacksRequireExplicitPointerToken() async throws {
+    func dockPointerOwnershipDoesNotLeakThroughCallbacks() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             try await Self.withHarness { harness in
                 let panel = try harness.dock.seedShortcutTestPanel(
@@ -1589,13 +1589,7 @@ struct DockShortcutRoutingTests {
                     in: harness.window
                 )
 
-                harness.dock.beginUserDockInteraction()
-                harness.dock.releaseUserDockInteraction()
-                harness.dock.splitTabBar(
-                    harness.dock.bonsplitController,
-                    didSelectTab: tab,
-                    inPane: harness.rootPane
-                )
+                harness.dock.noteUserDockPointerInteraction(window: harness.window)
                 #expect(
                     harness.appDelegate.keyboardFocusCoordinator(
                         for: harness.window
@@ -1607,52 +1601,11 @@ struct DockShortcutRoutingTests {
                     panelId: mainPanelId,
                     in: harness.window
                 )
-                harness.dock.beginUserDockDragInteraction()
-                harness.dock.splitTabBar(
-                    harness.dock.bonsplitController,
-                    didMoveTab: tab,
-                    fromPane: harness.rootPane,
-                    toPane: harness.rootPane
-                )
-                #expect(
-                    harness.appDelegate.keyboardFocusCoordinator(
-                        for: harness.window
-                    )?.activeRightSidebarMode == .dock
-                )
-
-                harness.appDelegate.noteMainPanelKeyboardFocusIntent(
-                    workspaceId: harness.mainWorkspace.id,
-                    panelId: mainPanelId,
-                    in: harness.window
-                )
-                // A bare pressed token is not enough for a drag callback; this
-                // protects against a swallowed mouse-up or context-menu loop
-                // being mistaken for a user drag.
-                harness.dock.beginUserDockInteraction()
-                harness.dock.splitTabBar(
-                    harness.dock.bonsplitController,
-                    didMoveTab: tab,
-                    fromPane: harness.rootPane,
-                    toPane: harness.rootPane
-                )
-                #expect(
-                    harness.appDelegate.keyboardFocusCoordinator(
-                        for: harness.window
-                    )?.activeRightSidebarMode == nil
-                )
-
-                harness.appDelegate.noteMainPanelKeyboardFocusIntent(
-                    workspaceId: harness.mainWorkspace.id,
-                    panelId: mainPanelId,
-                    in: harness.window
-                )
-                harness.dock.beginUserDockInteraction()
                 harness.dock.splitTabBar(
                     harness.dock.bonsplitController,
                     didSelectTab: tab,
                     inPane: harness.rootPane
                 )
-                harness.dock.endUserDockInteraction()
                 #expect(
                     harness.appDelegate.keyboardFocusCoordinator(
                         for: harness.window
@@ -1660,22 +1613,6 @@ struct DockShortcutRoutingTests {
                 )
             }
         }
-    }
-
-    @Test("Dock pointer policy tolerates click jitter but cancels real drags")
-    func dockPointerPolicySeparatesJitterFromDrag() {
-        #expect(
-            !DockPointerInteractionPolicy.isDrag(
-                from: NSPoint(x: 10, y: 10),
-                to: NSPoint(x: 13, y: 12)
-            )
-        )
-        #expect(
-            DockPointerInteractionPolicy.isDrag(
-                from: NSPoint(x: 10, y: 10),
-                to: NSPoint(x: 15, y: 10)
-            )
-        )
     }
 
     @Test("Repeated move-to-pane shortcut does not create a missing pane")

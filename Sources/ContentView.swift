@@ -9101,7 +9101,7 @@ struct ContentView: View {
             }
         }
         registry.register(commandId: "palette.terminalSplitRight") {
-            if let dockSurfaceStore, let dockSurfacePanelId {
+            if let dockSurfaceStore {
                 guard focusCapturedDockSurface() else {
                     NSSound.beep()
                     return
@@ -9141,7 +9141,7 @@ struct ContentView: View {
             forkFocusedAgentConversationToNewWorkspace()
         }
         registry.register(commandId: "palette.terminalSplitDown") {
-            if let dockSurfaceStore, let dockSurfacePanelId {
+            if let dockSurfaceStore {
                 guard focusCapturedDockSurface() else {
                     NSSound.beep()
                     return
@@ -9163,7 +9163,7 @@ struct ContentView: View {
             }
         }
         registry.register(commandId: "palette.terminalSplitBrowserRight") {
-            if let dockSurfaceStore, let dockSurfacePanelId {
+            if let dockSurfaceStore {
                 guard focusCapturedDockSurface() else {
                     NSSound.beep()
                     return
@@ -9183,7 +9183,7 @@ struct ContentView: View {
             _ = tabManager.createBrowserSplit(direction: .right)
         }
         registry.register(commandId: "palette.terminalSplitBrowserDown") {
-            if let dockSurfaceStore, let dockSurfacePanelId {
+            if let dockSurfaceStore {
                 guard focusCapturedDockSurface() else {
                     NSSound.beep()
                     return
