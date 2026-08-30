@@ -877,11 +877,13 @@ fn spawn_real_pty(spec: &SpawnSpec, handoff: &SpawnHandoff) -> anyhow::Result<Pt
                 }
             };
             let wait_result = wait_result.or_else(|_| {
-                // Keep the old error path: a failed wait requests termination
-                // through the lifecycle gate, then retries the blocking reap.
-                let _ = ChildLifecycle::terminate(&wait_lifecycle, |_| {
-                    child_cleanup.child_mut().kill()
-                });
+                // A failed first wait still falls back to a blocking reap.
+                // Claim the reaping fence before asking the child to die so
+                // a kill error cannot reopen the lifecycle while `wait`
+                // releases the PID for reuse.
+                if ChildLifecycle::begin_reaping(&wait_lifecycle) {
+                    let _ = child_cleanup.child_mut().kill();
+                }
                 child_cleanup.wait()
             });
             let code = wait_result.map(|status| i64::from(status.exit_code() as i32)).unwrap_or(0);
