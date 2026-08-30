@@ -51,6 +51,10 @@ struct SidebarWorkspaceTrailingStatusSlot: View {
                 .accessibilityHidden(!showsCloseButton)
             }
         }
-        .frame(width: width, height: height, alignment: .trailing)
+        // Width is a floor, not a fix: the unread badge widens into a capsule
+        // for multi-digit counts and grows the slot leftward past the
+        // close-button reserve instead of overflowing it.
+        .frame(minWidth: width, alignment: .trailing)
+        .frame(height: height, alignment: .trailing)
     }
 }

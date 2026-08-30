@@ -21,6 +21,8 @@ struct SidebarWorkspaceTableRowHeightCalculator {
     }
 
     func estimatedGroupHeaderHeight(fontScale: CGFloat) -> CGFloat {
-        ceil(26 * max(0.5, fontScale) + 10)
+        // +6 mirrors SidebarGroupHeaderRowView.topInset, the unscaled beat
+        // that separates a group from the rows above it.
+        ceil(26 * max(0.5, fontScale) + 10) + 6
     }
 }

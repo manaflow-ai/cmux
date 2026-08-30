@@ -17,13 +17,23 @@ struct SidebarWorkspaceDescriptionText: View {
             maxDisplayedLines: Self.maxDisplayedLines,
             maxDisplayedCharacters: Self.maxDisplayedCharacters
         )
-        guard let renderedMarkdown = SidebarMarkdownRenderer(markdown: displayMarkdown).workspaceDescription else {
+        // Markdown must not parse from a character-cut value: the cut can
+        // sever a link mid-URL and the parser autolinks the remnant into a
+        // clickable link with a wrong destination. Line-bounded cuts cannot
+        // split a link, so only oversized values degrade to plain text
+        // (byte guard, conservative for the character bound above).
+        guard markdown.utf8.count <= Self.maxDisplayedCharacters,
+              let renderedMarkdown = SidebarMarkdownRenderer(markdown: displayMarkdown).workspaceDescription else {
             return (displayMarkdown: displayMarkdown, renderedMarkdown: nil)
         }
         let styledMarkdown = renderedMarkdown.applyingSidebarRowLinkPolicy(
-            activeForegroundColor: isActive ? activeForegroundColor : nil
+            activeForegroundColor: isActive ? activeForegroundColor : nil,
+            inactiveLinkColor: isActive ? nil : Self.inactiveForegroundColor
         )
-        return (displayMarkdown: displayMarkdown, renderedMarkdown: styledMarkdown)
+        return (
+            displayMarkdown: displayMarkdown,
+            renderedMarkdown: styledMarkdown
+        )
     }
 
     var body: some View {
@@ -77,8 +87,13 @@ struct SidebarWorkspaceDescriptionText: View {
             }
     }
 
+    /// Canonical inactive body-text tier for the legacy sidebar engine.
+    /// Shared (not re-declared) by the metadata block row so the two sites
+    /// cannot drift apart.
+    static let inactiveForegroundColor = Color.secondary.opacity(0.95)
+
     private var foregroundColor: Color {
-        isActive ? activeForegroundColor : .secondary.opacity(0.95)
+        isActive ? activeForegroundColor : Self.inactiveForegroundColor
     }
 
     private func logTextPreview(_ text: String, limit: Int = 120) -> String {

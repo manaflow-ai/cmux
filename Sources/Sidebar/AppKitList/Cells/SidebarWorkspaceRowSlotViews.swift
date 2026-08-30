@@ -22,9 +22,11 @@ extension NSTextField {
     }
 }
 
-/// Circle unread-count badge (parity with SidebarWorkspaceUnreadBadge).
-/// Draws the count directly so the glyph is optically centered — NSTextField
-/// intrinsic sizing carries asymmetric insets that shift small digits.
+/// Unread-count badge (parity with SidebarWorkspaceUnreadBadge): a circle
+/// that widens into a capsule when the count outgrows it, so 3-digit counts
+/// never clip. Draws the count directly so the glyph is optically centered —
+/// NSTextField intrinsic sizing carries asymmetric insets that shift small
+/// digits.
 @MainActor
 final class SidebarRowUnreadBadgeView: NSView {
     private var text: NSString = ""
@@ -44,6 +46,16 @@ final class SidebarRowUnreadBadgeView: NSView {
         textAttributes = [.font: font, .foregroundColor: textColor]
         layer?.backgroundColor = fillColor.cgColor
         needsDisplay = true
+    }
+
+    /// Width for the configured count at a given badge height: single digits
+    /// always render the classic circle (padding would push some glyphs into
+    /// a 17pt oval); wider counts get a capsule instead of clipping. The
+    /// corner radius in `layout()` already follows the shape.
+    func fittingWidth(height: CGFloat, horizontalPadding: CGFloat) -> CGFloat {
+        guard text.length > 1 else { return height }
+        let textWidth = ceil(text.size(withAttributes: textAttributes).width)
+        return max(height, textWidth + horizontalPadding * 2)
     }
 
     override func layout() {

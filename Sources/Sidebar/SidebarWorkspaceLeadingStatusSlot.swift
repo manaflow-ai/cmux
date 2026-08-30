@@ -15,7 +15,10 @@ struct SidebarWorkspaceLeadingStatusSlot: View {
 
     var body: some View {
         ZStack {
-            if showsBadge {
+            // The spinner replaces the badge entirely (AppKit parity: the
+            // hidden badge collapses out of layout); an invisible capsule
+            // must not keep sizing the slot by its count.
+            if showsBadge && !showsSpinner {
                 SidebarWorkspaceUnreadBadge(
                     unreadCount: unreadCount,
                     side: side,
@@ -23,7 +26,6 @@ struct SidebarWorkspaceLeadingStatusSlot: View {
                     fillColor: badgeFillColor,
                     textColor: badgeTextColor
                 )
-                .opacity(showsSpinner ? 0 : 1)
             }
             if showsSpinner {
                 SidebarWorkspaceLoadingSpinner(
@@ -33,7 +35,10 @@ struct SidebarWorkspaceLeadingStatusSlot: View {
                 )
             }
         }
-        .frame(width: side, height: side)
+        // Width is a floor, not a fix: the unread badge widens into a capsule
+        // for multi-digit counts and must not be clipped back to a circle.
+        .frame(minWidth: side)
+        .frame(height: side)
         .clipped()
     }
 }

@@ -179,11 +179,11 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         nameField.stringValue = model.name
         nameField.font = .systemFont(
             ofSize: GlobalFontMagnification.scaledSize(metrics.nameFontSize, percent: percent),
-            weight: .semibold
+            weight: SidebarTypography().groupName
         )
         nameField.textColor = model.isAnchorActive
             ? colorResolver.resolvedColor(.labelColor, for: colorScheme)
-            : colorResolver.resolvedColor(.labelColor, for: colorScheme, opacity: 0.9)
+            : colorResolver.resolvedColor(.secondaryLabelColor, for: colorScheme)
 
         let showsBadge = model.anchorUnreadCount > 0
         unreadBadgeView.isHidden = !showsBadge
@@ -194,7 +194,10 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             )
             unreadBadgeView.configure(
                 count: model.anchorUnreadCount,
-                fillColor: .controlAccentColor,
+                // cmux accent, not the system accent: workspace-row badges
+                // resolve to the cmux accent, and the two blues must not
+                // diverge when the user's system accent differs.
+                fillColor: cmuxAccentNSColor(for: colorScheme),
                 textColor: .white,
                 font: unreadBadgeFont
             )
@@ -308,9 +311,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         CATransaction.commit()
         let colorScheme: ColorScheme = model.colorSchemeIsDark ? .dark : .light
         nameField.textColor = SidebarAppearanceColorResolver().resolvedColor(
-            .labelColor,
-            for: colorScheme,
-            opacity: 0.9
+            .secondaryLabelColor,
+            for: colorScheme
         )
     }
 
@@ -359,6 +361,11 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
     // MARK: Layout
 
+    /// Empty space above the header background so a group starts with an 8pt
+    /// beat (this inset plus the uniform 2pt intercell gap) — the boundary
+    /// signal that survives even when the group is collapsed.
+    private static let topInset: CGFloat = 6
+
     /// Deterministic row height; must stay in lockstep with `layout()`.
     static func preferredHeight(model: SidebarGroupHeaderRowModel) -> CGFloat {
         let metrics = SidebarWorkspaceGroupHeaderMetrics(fontScale: model.fontScale)
@@ -369,7 +376,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         )
         let nameLineHeight = ceil(nameFont.ascender - nameFont.descender + nameFont.leading)
         let content = max(metrics.chevronFrame, metrics.iconFrame, metrics.plusFrame, nameLineHeight)
-        return ceil(content + 10)
+        return ceil(content + 10) + topInset
     }
 
     override func layout() {
@@ -382,10 +389,15 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         defer { CATransaction.commit() }
         let metrics = SidebarWorkspaceGroupHeaderMetrics(fontScale: model.fontScale)
         let outerPad = SidebarWorkspaceListMetrics.rowOuterHorizontalPadding
-        let bgFrame = NSRect(x: outerPad, y: 0, width: bounds.width - outerPad * 2, height: bounds.height)
+        let bgFrame = NSRect(
+            x: outerPad,
+            y: Self.topInset,
+            width: bounds.width - outerPad * 2,
+            height: bounds.height - Self.topInset
+        )
         backgroundView.frame = bgFrame
         let contentMaxX = bgFrame.maxX - SidebarWorkspaceListMetrics.rowContentHorizontalPadding
-        let midY = bounds.height / 2
+        let midY = bgFrame.midY
         var x = bgFrame.minX
 
         func centered(_ size: CGFloat) -> NSRect {
@@ -439,7 +451,9 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
         let indicatorX: CGFloat = 8
         let indicatorWidth = max(0, bounds.width - indicatorX - 8)
-        let topOffset: CGFloat = model.isFirstRow ? 0 : -(model.rowSpacing / 2)
+        // Drop lines anchor to the background's edges, not the cell's, so the
+        // top inset cannot detach them from the visible header.
+        let topOffset: CGFloat = Self.topInset + (model.isFirstRow ? 0 : -(model.rowSpacing / 2))
         topDropIndicator.frame = NSRect(x: indicatorX, y: topOffset, width: indicatorWidth, height: 2)
         let bottomInset = metrics.groupScopedBottomDropIndicatorLeadingInset
         bottomDropIndicator.frame = NSRect(
@@ -452,7 +466,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         let pillSize = hintPill.fittingPillSize()
         hintPill.frame = NSRect(
             x: bounds.width - pillSize.width - 10 + ShortcutHintDebugSettings.clamped(model.shortcutHintXOffset),
-            y: 6 + ShortcutHintDebugSettings.clamped(model.shortcutHintYOffset),
+            y: Self.topInset + 6 + ShortcutHintDebugSettings.clamped(model.shortcutHintYOffset),
             width: pillSize.width,
             height: pillSize.height
         )
