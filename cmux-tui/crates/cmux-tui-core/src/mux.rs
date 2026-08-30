@@ -2678,17 +2678,24 @@ impl Mux {
         }
 
         for terminal_id in candidates {
+            // A missing host mapping is ambiguous during startup: the
+            // resource row can be visible before its host record is
+            // materialized. Only a durable terminal retirement tombstone
+            // makes that absence proof that cleanup is safe.
+            let explicitly_retired =
+                self.agent_roster.lock().unwrap().roster.is_retired(terminal_id.as_str());
             let retired: anyhow::Result<bool> = (|| {
                 let registry = self.workspace_registry.lock().unwrap();
                 let Some(host_id) = registry.terminal_host_id(&terminal_id)? else {
-                    return Ok(true);
+                    return Ok(explicitly_retired);
                 };
                 // A resource row can outlive its host record while a
                 // reconnect is still materializing. Treat that gap as
                 // unknown, not as proof that the terminal was retired.
                 Ok(registry
                     .terminal_record(&host_id)?
-                    .is_some_and(|terminal| terminal.lifecycle == TerminalLifecycle::Tombstoned))
+                    .is_some_and(|terminal| terminal.lifecycle == TerminalLifecycle::Tombstoned)
+                    || explicitly_retired)
             })();
             match retired {
                 Ok(true) => {
@@ -9813,12 +9820,13 @@ impl Mux {
     }
 
     fn purge_terminal_runtime_side_tables(&self, runtime: &Surface) -> anyhow::Result<()> {
-        if let Some(terminal_id) = runtime.terminal_public_id() {
-            // Persist the terminal tombstone before clearing any runtime cache.
-            // A failed journal read or snapshot write must leave all side tables
-            // available for a later retry.
-            self.purge_terminal_side_tables(terminal_id)?;
-        }
+        // Keep the durable error observable, but always clear the in-memory
+        // runtime reservations in this call. Close and rollback paths may
+        // intentionally ignore the durable error after they have killed the
+        // process, so leaving these entries behind would leak one per failure.
+        let purge_result = runtime
+            .terminal_public_id()
+            .map_or(Ok(()), |terminal_id| self.purge_terminal_side_tables(terminal_id));
         if let Some(runtime_id) = runtime.terminal_runtime_id() {
             self.reserved_in_process_terminals.lock().unwrap().remove(&runtime_id);
             let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
@@ -9832,7 +9840,7 @@ impl Mux {
                 }
             }
         }
-        Ok(())
+        purge_result
     }
 
     pub fn list_agents(
@@ -24234,6 +24242,29 @@ mod tests {
     }
 
     #[test]
+    fn startup_reconciliation_preserves_agent_when_host_mapping_is_missing() {
+        let mux = test_mux();
+        let terminal_id = TerminalPublicId::parse("term_000000000000000000000000000000fe").unwrap();
+        mux.agent_records.lock().unwrap().insert(
+            terminal_id.clone(),
+            TerminalAgentRecord {
+                state: AgentState::Working,
+                source: AgentSource::Hook,
+                session: Some("reconnect-gap".into()),
+                agent: Some("claude".into()),
+                updated_at_ms: 1,
+            },
+        );
+
+        // No resource row means the host mapping is not available yet. It is
+        // not proof that this compatibility record belongs to a retired
+        // terminal, so reconciliation must leave it for a later retry.
+        mux.reconcile_retired_terminal_side_tables();
+        assert!(mux.agent_records.lock().unwrap().contains_key(&terminal_id));
+        mux.shutdown();
+    }
+
+    #[test]
     fn hosted_attachment_cleanup_kills_runtime_when_roster_purge_fails() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
@@ -24250,6 +24281,32 @@ mod tests {
             surface.kill_requested_for_test(),
             "cleanup must request runtime termination after purge failure"
         );
+
+        mux.workspace_registry.lock().unwrap().set_journal_reducer_state_failure(false).unwrap();
+        mux.shutdown();
+    }
+
+    #[test]
+    fn runtime_side_tables_are_cleared_when_roster_purge_fails() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let runtime_id = surface.terminal_runtime_id().unwrap_or(surface.id);
+        let identity = mux
+            .resource_terminal_host_identity(&surface)
+            .expect("test terminal has a host identity");
+        mux.reserved_in_process_terminals.lock().unwrap().insert(runtime_id, identity);
+        *mux.pending_cell_pixels.lock().unwrap() = Some(PendingCellPixelUpdate {
+            generation: 1,
+            target: (9, 18),
+            failures: HashSet::from([runtime_id]),
+            use_for_creation: true,
+        });
+
+        mux.workspace_registry.lock().unwrap().set_journal_reducer_state_failure(true).unwrap();
+        let result = mux.purge_terminal_runtime_side_tables(&surface);
+        assert!(result.is_err(), "the durable roster failure remains observable");
+        assert!(!mux.reserved_in_process_terminals.lock().unwrap().contains_key(&runtime_id));
+        assert!(mux.pending_cell_pixels.lock().unwrap().is_none());
 
         mux.workspace_registry.lock().unwrap().set_journal_reducer_state_failure(false).unwrap();
         mux.shutdown();
