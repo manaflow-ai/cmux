@@ -879,8 +879,8 @@ struct cmuxApp: App {
                     closeOtherTabsInFocusedPane()
                 }
                 .disabled(
-                    activeDockForMenu.map { !$0.menuCapabilities.canCloseOtherTabs }
-                        ?? !activeTabManager.canCloseOtherTabsInFocusedPane()
+                    !(activeDockForMenu?.menuCapabilities.canCloseOtherTabs
+                        ?? activeTabManager.canCloseOtherTabsInFocusedPane())
                 )
 
                 // The Close Workspace shortcut closes the current workspace with confirmation
@@ -987,8 +987,8 @@ struct cmuxApp: App {
                         activeTabManager.searchSelection()
                     }
                     .disabled(
-                        activeDockForMenu.map { !$0.menuCapabilities.canUseSelection }
-                            ?? !activeTabManager.canUseSelectionForFind
+                        !(activeDockForMenu?.menuCapabilities.canUseSelection
+                            ?? activeTabManager.canUseSelectionForFind)
                     )
 
                     Divider()
@@ -1009,8 +1009,8 @@ struct cmuxApp: App {
                         }
                     }
                     .disabled(
-                        activeDockForMenu.map { !$0.menuCapabilities.isTerminal }
-                            ?? activeTabManager.selectedTerminalPanel == nil
+                        !(activeDockForMenu?.menuCapabilities.isTerminal
+                            ?? activeTabManager.selectedTerminalPanel != nil)
                     )
                 }
             }
