@@ -75,9 +75,9 @@ public enum IrxRelayCredentialPolicy {
             return TimeInterval(components.seconds)
                 + TimeInterval(components.attoseconds) / 1_000_000_000_000_000_000
         }
-        let shouldUseUrgentFloor = (remainingValidity ?? 0) <= 2
+        let shouldBackOffPastExpiry = (remainingValidity ?? 0) <= 2
             && failureCount > 0
-        let acceleratedDelay = shouldUseUrgentFloor
+        let acceleratedDelay = shouldBackOffPastExpiry
             ? boundedPolicyDelay
             : min(expiryDelay ?? boundedPolicyDelay, boundedPolicyDelay)
         guard let retryAfterSeconds else { return acceleratedDelay }

@@ -65,6 +65,8 @@ final class MobileHostIrxRuntime {
     var hadLiveDiscovery = false
     var activationRetryTask: Task<Void, Never>?
     var activationRetryID: UUID?
+    var autopilotRecoveryTask: Task<Void, Never>?
+    var autopilotRecoveryID: UUID?
     var desiredActivityTask: Task<Void, Never>?
     var desiredActivityGeneration: UInt64 = 0
     var activationRetryFailureCount = 0

@@ -249,15 +249,17 @@ public struct IrohNetworkingSection: View {
                 .buttonStyle(.bordered)
                 .controlSize(.small)
             }
-            SettingsCardDivider()
-            SettingsCardRow(
-                configurationReview: .settingsOnly,
-                searchAnchorID: "setting:networking:policy",
-                String(localized: "settings.networking.policy", defaultValue: "Relay Policy"),
-                subtitle: policyStatusText
-            ) {
-                Image(systemName: policySymbol)
-                    .foregroundStyle(model.snapshot.policySource == .unavailable ? .orange : .secondary)
+            if model.snapshot.supportsRelayConfiguration {
+                SettingsCardDivider()
+                SettingsCardRow(
+                    configurationReview: .settingsOnly,
+                    searchAnchorID: "setting:networking:policy",
+                    String(localized: "settings.networking.policy", defaultValue: "Relay Policy"),
+                    subtitle: policyStatusText
+                ) {
+                    Image(systemName: policySymbol)
+                        .foregroundStyle(model.snapshot.policySource == .unavailable ? .orange : .secondary)
+                }
             }
             IrohDiagnosticsReportRows(
                 report: model.diagnosticReport,

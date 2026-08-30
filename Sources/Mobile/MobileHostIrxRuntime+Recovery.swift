@@ -16,6 +16,7 @@ extension MobileHostIrxRuntime {
             // the serialized task below completes actor/endpoint teardown.
             generationToken = UUID()
             cancelActivationRetry()
+            cancelAutopilotRecovery()
             activationTask?.cancel()
             activationTask = nil
             setActivationState(.inactive)
@@ -56,6 +57,7 @@ extension MobileHostIrxRuntime {
     /// account changes can cancel every retry-triggered activation as well.
     func startActivation(accountID: String) {
         cancelActivationRetry()
+        cancelAutopilotRecovery()
         activationTask?.cancel()
         activationTask = Task { @MainActor [weak self] in
             await self?.activate(accountID: accountID)
@@ -73,11 +75,19 @@ extension MobileHostIrxRuntime {
         activationRetryID = nil
     }
 
+    /// Cancels and forgets the independent credential-autopilot kick.
+    func cancelAutopilotRecovery() {
+        autopilotRecoveryTask?.cancel()
+        autopilotRecoveryTask = nil
+        autopilotRecoveryID = nil
+    }
+
     func handleAutopilotSuccess(accountID: String, token: UUID) {
         guard generationToken == token, activeAccountID == accountID else { return }
         activationRetryFailureCount = 0
         activationUnauthorizedFailureCount = 0
         terminalRecoveryCount = 0
+        cancelAutopilotRecovery()
         setActivationState(.active)
     }
 
@@ -149,6 +159,7 @@ extension MobileHostIrxRuntime {
         switch decision {
         case .reauthenticationRequired:
             cancelActivationRetry()
+            cancelAutopilotRecovery()
             setActivationState(.reauthenticationRequired, failure: failure)
             attributes["state"] = IrxHostActivationState
                 .reauthenticationRequired.rawValue
@@ -176,6 +187,7 @@ extension MobileHostIrxRuntime {
             let clock = activationRetryClock
             let deadline = clock.now().addingTimeInterval(delay)
             cancelActivationRetry()
+            cancelAutopilotRecovery()
             let retryID = UUID()
             activationRetryID = retryID
             activationRetryTask = Task { @MainActor [weak self] in
@@ -197,6 +209,7 @@ extension MobileHostIrxRuntime {
             }
         case .stopped:
             cancelActivationRetry()
+            cancelAutopilotRecovery()
             setActivationState(.failed, failure: failure)
             attributes["state"] = IrxHostActivationState.failed.rawValue
             Self.journal.record("host-runtime", "activation-stopped", attributes)
@@ -254,6 +267,7 @@ extension MobileHostIrxRuntime {
                 || failure.statusCode == 401
             if requiresReauthentication {
                 cancelActivationRetry()
+                cancelAutopilotRecovery()
                 setActivationState(.reauthenticationRequired, failure: failure)
                 var attributes = failure.journalAttributes
                 attributes["state"] = IrxHostActivationState
@@ -286,6 +300,7 @@ extension MobileHostIrxRuntime {
                 return
             }
             cancelActivationRetry()
+            cancelAutopilotRecovery()
             setActivationState(.failed, failure: failure)
             var attributes = failure.journalAttributes
             attributes["state"] = IrxHostActivationState.failed.rawValue
@@ -303,7 +318,7 @@ extension MobileHostIrxRuntime {
         accountID: String,
         token: UUID
     ) -> Bool {
-        guard activationRetryTask == nil else { return true }
+        guard autopilotRecoveryTask == nil else { return true }
         guard terminalRecoveryCount < 3 else {
             if terminalRecoveryCount >= 3 {
                 Self.journal.record(
@@ -325,12 +340,12 @@ extension MobileHostIrxRuntime {
         attributes["delay_s"] = String(Int(delay.rounded()))
         Self.journal.record("host-runtime", "autopilot-retry-scheduled", attributes)
         let retryID = UUID()
-        activationRetryID = retryID
-        activationRetryTask = Task { @MainActor [weak self] in
+        autopilotRecoveryID = retryID
+        autopilotRecoveryTask = Task { @MainActor [weak self] in
             defer {
-                guard let self, self.activationRetryID == retryID else { return }
-                self.activationRetryTask = nil
-                self.activationRetryID = nil
+                guard let self, self.autopilotRecoveryID == retryID else { return }
+                self.autopilotRecoveryTask = nil
+                self.autopilotRecoveryID = nil
             }
             do {
                 try await clock.sleep(until: deadline)
@@ -346,9 +361,10 @@ extension MobileHostIrxRuntime {
         return true
     }
 
-    /// Keeps non-auth terminal failures recoverable without a tight retry loop.
-    /// A later network/auth signal or the Settings refresh can still reset the
-    /// ladder and start immediately.
+    /// Gives non-auth terminal failures a few bounded recovery probes.
+    /// Once those probes are exhausted the runtime stays explicitly failed;
+    /// an account transition, policy re-enable, or Settings refresh resets the
+    /// ladder and starts a new activation deliberately.
     private func scheduleFailedActivationRecovery(
         failure: IrxBrokerFailure,
         accountID: String
@@ -426,6 +442,7 @@ extension MobileHostIrxRuntime {
     func deactivate(preserveReauthentication: Bool = false) async {
         generationToken = UUID()
         cancelActivationRetry()
+        cancelAutopilotRecovery()
         activationRetryFailureCount = 0
         activationUnauthorizedFailureCount = 0
         terminalRecoveryCount = 0
