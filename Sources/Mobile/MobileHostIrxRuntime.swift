@@ -64,7 +64,10 @@ final class MobileHostIrxRuntime {
     var activationUnauthorizedFailureCount = 0
     var terminalRecoveryCount = 0
     let activationRetryPolicy = IrxHostActivationPolicy(
-        retrySchedule: CmxIrohRetrySchedule()
+        retrySchedule: CmxIrohRetrySchedule(
+            initialDelay: 30,
+            maximumDelay: 300
+        )
     )
     var activationRetryClock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
     /// Changes on every (de)activation; per-connection supervisors compare it.

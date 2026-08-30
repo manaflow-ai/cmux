@@ -52,7 +52,11 @@ extension MobileIrxRuntimeComposition {
             ),
             journal: Self.journal
         )
-        let pilot = await makeAutopilot(broker: broker, endpoint: supervisor)
+        let pilot = await makeAutopilot(
+            broker: broker,
+            endpoint: supervisor,
+            session: session
+        )
         // When cached state is fresh, refresh registration/discovery after the
         // live objects are published so launch does not pay those round trips.
         let cachedBinding = await broker.cachedBinding()
