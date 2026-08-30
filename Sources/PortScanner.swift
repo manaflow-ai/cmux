@@ -70,7 +70,8 @@ final class PortScanner: @unchecked Sendable {
     /// Generation invalidates callbacks that were queued before a panel
     /// lifecycle changed. The queue is the sole owner, so cancellation and
     /// generation checks are deterministic and race-free.
-    private var scheduledBurstTimers: [UUID: DispatchSourceTimer] = [:]
+    private var burstGeneration: UInt64 = 0
+    private var scheduledBurstWorkItems: [DispatchWorkItem] = []
 
     private var coalesceTimer: DispatchSourceTimer?
 
@@ -136,9 +137,12 @@ final class PortScanner: @unchecked Sendable {
         let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
         publicationState.invalidatePanelLifecycle(for: key)
         queue.async { [self] in
-            // A panel unregister must not cancel scans for other panels.
-            // The next scan snapshots the remaining registered panels.
-            pendingKicks.remove(key)
+            burstGeneration &+= 1
+            scheduledBurstWorkItems.forEach { $0.cancel() }
+            scheduledBurstWorkItems.removeAll()
+            burstActive = false
+            coalesceTimer?.cancel()
+            coalesceTimer = nil
             ttyNames.removeValue(forKey: key)
             panelRevisionByKey.removeValue(forKey: key)
             pendingKicks.remove(key)
@@ -175,6 +179,17 @@ final class PortScanner: @unchecked Sendable {
             }
             // If a burst is active, its later scans pay down this count. A
             // follow-up burst starts when too few scans remained.
+        }
+    }
+
+    /// Waits until all scanner-queue mutations submitted before this call have
+    /// completed. This is intentionally a queue barrier, not a wall-clock
+    /// delay, so lifecycle tests do not depend on timer timing.
+    func waitForIdleForTesting() async {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                continuation.resume()
+            }
         }
     }
     @MainActor
@@ -235,35 +250,37 @@ final class PortScanner: @unchecked Sendable {
 
         guard !pendingKicks.isEmpty else { return }
         burstActive = true
-        runBurst(index: 0)
+        runBurst(index: 0, generation: burstGeneration)
     }
 
-    private func runBurst(index: Int, burstStart: DispatchTime? = nil) {
+    private func runBurst(index: Int, burstStart: DispatchTime? = nil, generation: UInt64) {
         // Already on `queue`.
+        guard generation == burstGeneration else { return }
         guard index < Self.burstOffsets.count else {
             burstActive = false
-            if !pendingKicks.isEmpty { startCoalesce() }
+            // If new kicks arrived during the burst, start a new coalesce cycle.
+            if !pendingKicks.isEmpty {
+                startCoalesce()
+            }
             return
         }
 
         let start = burstStart ?? .now()
-        let timerID = UUID()
-        let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(deadline: start + Self.burstOffsets[index])
-        timer.setEventHandler { [weak self, weak timer] in
+        let deadline = start + Self.burstOffsets[index]
+        let workItem = DispatchWorkItem { [weak self] in
             guard let self else { return }
-            self.scheduledBurstTimers.removeValue(forKey: timerID)
-            timer?.cancel()
-            self.runScan()
-            self.runBurst(index: index + 1, burstStart: start)
+            guard generation == self.burstGeneration else { return }
+            self.runScan(generation: generation)
+            self.scheduledBurstWorkItems.removeAll { $0.isCancelled }
+            self.runBurst(index: index + 1, burstStart: start, generation: generation)
         }
-        scheduledBurstTimers[timerID] = timer
-        timer.resume()
+        scheduledBurstWorkItems.append(workItem)
+        queue.asyncAfter(deadline: deadline, execute: workItem)
     }
 
     // MARK: - Scan
 
-    private func runScan() {
+    private func runScan(generation: UInt64 = 0) {
         // Already on `queue`. Snapshot which panels to scan and their TTYs.
         // We scan all registered panels, not just pending ones, since ports can
         // appear/disappear on any panel.
@@ -294,6 +311,7 @@ final class PortScanner: @unchecked Sendable {
         Task { [weak self] in
             guard let self else { return }
             await self.finishScan(
+                generation: generation,
                 panelSnapshot: panelSnapshot,
                 panelRevisions: panelRevisions,
                 agentRootsByWorkspace: agentRootsByWorkspace,
@@ -305,6 +323,7 @@ final class PortScanner: @unchecked Sendable {
 
     /// Completes one coalesced scan and assembles panel and agent ownership evidence.
     private func finishScan(
+        generation: UInt64,
         panelSnapshot: [PanelKey: String],
         panelRevisions: [PanelKey: UInt64],
         agentRootsByWorkspace: [UUID: Set<AgentPortRootIdentity>],
@@ -359,6 +378,7 @@ final class PortScanner: @unchecked Sendable {
             )
             queue.async { [weak self] in
                 self?.completePanelScan(
+                    generation: generation,
                     panelResults,
                     panelTTYs: panelSnapshot,
                     panelRevisions: panelRevisions,
@@ -530,6 +550,7 @@ final class PortScanner: @unchecked Sendable {
 
     /// Applies a completed panel scan on the scanner queue and starts any pending scan.
     private func completePanelScan(
+        generation: UInt64,
         _ panelResults: [(PanelKey, [Int])],
         panelTTYs: [PanelKey: String],
         panelRevisions: [PanelKey: UInt64],
@@ -550,6 +571,7 @@ final class PortScanner: @unchecked Sendable {
         requestID: UInt64
     ) {
         let hasPendingScan = scanCoordination.finishPanelScan()
+        guard generation == burstGeneration else { return }
         deliverResults(
             panelResults,
             panelTTYs: panelTTYs,
@@ -571,7 +593,7 @@ final class PortScanner: @unchecked Sendable {
             requestID: requestID
         )
         if hasPendingScan {
-            runScan()
+            runScan(generation: burstGeneration)
         }
     }
 
