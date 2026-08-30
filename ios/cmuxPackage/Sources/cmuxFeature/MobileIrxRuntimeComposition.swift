@@ -248,6 +248,7 @@ public actor MobileIrxRuntimeComposition {
     /// later call, which is exactly the poisoned state this single-flight
     /// all-or-nothing shape forbids.
     private func provisionedBroker() async throws -> IrxBrokerService {
+        if let broker, !reauthenticationRequired { return broker }
         guard let auth else { throw CompositionError.notSignedIn }
         let session = try await auth.authenticatedSessionSnapshot()
         if reauthenticationRequired {
@@ -257,7 +258,6 @@ public actor MobileIrxRuntimeComposition {
             await resetForSignOut()
         }
         await prepareForProvisioning(accountID: session.accountID)
-        if let broker, !reauthenticationRequired { return broker }
         if let provisionInFlight {
             return try await provisionInFlight.value
         }
