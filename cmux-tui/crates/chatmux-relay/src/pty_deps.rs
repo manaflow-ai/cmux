@@ -815,7 +815,7 @@ fn spawn_real_pty(spec: &SpawnSpec, handoff: &SpawnHandoff) -> anyhow::Result<Pt
         ProcessOutputCompletion::with_pty_cancellation(1, Arc::clone(&output))?;
     let spawned = pair.spawn(command)?;
     let cmux_pty::SpawnedPty { master, child } = spawned;
-    let child_cleanup = SpawnedChildCleanup::new(child);
+    let mut child_cleanup = SpawnedChildCleanup::new(child);
     if handoff.is_cancelled() {
         return Err(anyhow::anyhow!("PTY spawn cancelled"));
     }
@@ -850,7 +850,6 @@ fn spawn_real_pty(spec: &SpawnSpec, handoff: &SpawnHandoff) -> anyhow::Result<Pt
         return Err(anyhow::anyhow!("PTY reader thread spawn failed"));
     }
     // Blocking wait thread -> exit.
-    let mut child_cleanup = child_cleanup;
     let exit_completion = Arc::clone(&completion);
     let wait_lifecycle = Arc::clone(&lifecycle);
     if std::thread::Builder::new()
