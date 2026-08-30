@@ -1160,6 +1160,84 @@ struct PortScannerLifecycleTests {
     }
 }
 
+@MainActor
+@Suite("Port scanner generation")
+struct PortScannerGenerationTests {
+    @Test(
+        "A stale panel completion still publishes valid agent ports",
+        .timeLimit(.seconds(5))
+    )
+    func stalePanelCompletionPreservesAgentResults() async throws {
+        let workspaceID = UUID()
+        let rootIdentity = AgentPIDProcessIdentity(
+            pid: 100,
+            startSeconds: 10,
+            startMicroseconds: 0
+        )
+        let root = AgentPortRootIdentity(pid: 100, processIdentity: rootIdentity)
+        let scanner = PortScanner(commandRunner: ScriptedCommandRunner(results: []))
+        let (publications, continuation) = AsyncStream<[Int]>.makeStream(
+            bufferingPolicy: .unbounded
+        )
+        var iterator = publications.makeAsyncIterator()
+        scanner.onAgentPortsUpdated = { callbackWorkspaceID, ports in
+            guard callbackWorkspaceID == workspaceID else { return false }
+            continuation.yield(ports)
+            return true
+        }
+        defer {
+            continuation.finish()
+            scanner.onAgentPortsUpdated = nil
+        }
+
+        let agentRevision = scanner.publicationState.replaceAgentLifecycle(
+            workspaceId: workspaceID,
+            roots: [root]
+        )
+        let panelID = UUID()
+        scanner.registerTTY(workspaceId: workspaceID, panelId: panelID, ttyName: "ttys999")
+        scanner.queue.sync {
+            scanner.agentRevisionByWorkspace[workspaceID] = agentRevision
+            scanner.trackedAgentWorkspaces.insert(workspaceID)
+            scanner.forceAgentResultWorkspaces.insert(workspaceID)
+            _ = scanner.scanCoordination.beginPanelScan()
+        }
+        scanner.unregisterPanel(workspaceId: workspaceID, panelId: panelID)
+        scanner.queue.sync {}
+
+        scanner.queue.sync {
+            scanner.completePanelScan(
+                generation: 0,
+                [],
+                panelTTYs: [:],
+                panelRevisions: [:],
+                workspaceIds: [workspaceID],
+                agentPortsByWorkspace: [workspaceID: [5173]],
+                panelPortOwnersByKey: [:],
+                panelProcessIdentitiesByKey: [:],
+                agentPortOwnersByWorkspace: [:],
+                agentProcessIdentitiesByWorkspace: [:],
+                agentRevisions: [workspaceID: agentRevision],
+                panelCompletenessByKey: [:],
+                panelProcessScopeCompletenessByKey: [:],
+                agentCompletenessByWorkspace: [workspaceID: .complete],
+                agentProcessScopeCompletenessByWorkspace: [workspaceID: .complete],
+                panelLsofEvidence: PortLsofScanResult(
+                    values: [:],
+                    globallyComplete: true,
+                    incompletePIDs: []
+                ),
+                agentLsofEvidence: nil,
+                inspectedPIDs: [],
+                requestID: 1
+            )
+        }
+
+        let publishedPorts = try #require(await iterator.next())
+        #expect(publishedPorts == [5173])
+    }
+}
+
 @Suite("Port scanner retirement end to end")
 struct PortScannerPortRetirementTests {
     /// Drives the whole scanner — TTY registration, kick, coalesce, burst,
