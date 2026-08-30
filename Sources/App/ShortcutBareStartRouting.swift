@@ -82,8 +82,10 @@ extension AppDelegate {
         event: NSEvent,
         normalizedFlags: NSEvent.ModifierFlags
     ) -> TabManager? {
+        // Configured shortcut chords and leader sequences need full routing for their second stroke.
         guard normalizedFlags.isEmpty,
               activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
+              !isLeaderKeyWaitingForSecondKey,
               event.cmuxIsPrintableTextInput,
               let window = event.window ?? shortcutRoutingKeyWindow,
               window.firstResponder is GhosttyNSView,
