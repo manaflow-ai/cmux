@@ -511,6 +511,7 @@ fn make_context(
     out: &OutboundSink,
     pending: &Arc<AtomicU64>,
     auth: &AuthSnapshot,
+    auth_state: &Arc<std::sync::Mutex<AuthSnapshot>>,
     transport_id: &str,
 ) -> FrameContext {
     let sender = out.clone();
@@ -544,6 +545,13 @@ fn make_context(
         local_roots: auth.roots.clone(),
         owner_user_id: auth.owner.clone(),
         transport_id: Some(transport_id.to_owned()),
+        current_auth: {
+            let auth = Arc::clone(auth_state);
+            Arc::new(move || {
+                let snapshot = auth.lock().expect("auth lock").clone();
+                (snapshot.trust, snapshot.owner)
+            })
+        },
     }
 }
 
@@ -635,7 +643,7 @@ async fn relay_session(
                     }
                 };
                 let snapshot = auth.lock().expect("auth lock").clone();
-                let context = make_context(&out, &pending, &snapshot, &transport);
+                let context = make_context(&out, &pending, &snapshot, &auth, &transport);
                 tokio::select! {
                     biased;
                     _ = cancellation.cancelled() => break,
@@ -1068,7 +1076,7 @@ async fn relay_session(
                                 // synchronous and short, so this cannot create an unbounded wait.
                                 let snapshot = auth_direct.lock().expect("auth lock").clone();
                                 let context =
-                                    make_context(&out_tx, &pending, &snapshot, &transport_id);
+                                    make_context(&out_tx, &pending, &snapshot, &auth, &transport_id);
                                 tokio::select! {
                                     biased;
                                     _ = cancellation.cancelled() => break Ok(connected),
