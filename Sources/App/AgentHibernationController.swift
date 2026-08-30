@@ -21,7 +21,7 @@ struct AgentHibernationRecord {
     let panelProcessIDs: Set<Int>
     let processIDs: Set<Int>
     let processIdentities: [Int: AgentPIDProcessIdentity]
-    var processLiveness: RestorableAgentProcessLiveness = .unknown
+    private(set) var processLiveness: RestorableAgentProcessLiveness = .unknown
 }
 
 @MainActor
