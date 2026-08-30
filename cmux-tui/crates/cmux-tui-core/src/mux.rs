@@ -9862,7 +9862,7 @@ impl Mux {
             let retired = host.roster.retire_terminal(terminal_id.as_str(), journal_cursor);
             retired.then(|| (previous, host.cursor, host.roster.snapshot().to_string()))
         };
-        if let Some((previous, cursor, snapshot)) = retired {
+        let snapshot_error = if let Some((previous, cursor, snapshot)) = retired {
             let persisted = self.workspace_registry.lock().unwrap().put_journal_reducer_state(
                 crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
                 crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
@@ -9876,13 +9876,17 @@ impl Mux {
                 self.report_internal_diagnostic(
                     "terminal agent retirement deferred before snapshot",
                 );
-                return Err(error).context("persist agent roster tombstone");
+                Some(error.context("persist agent roster tombstone"))
+            } else {
+                None
             }
-        }
+        } else {
+            None
+        };
         self.agent_hook_fences.lock().unwrap().remove(terminal_id);
         self.agent_records.lock().unwrap().remove(terminal_id);
         self.terminal_notifications.lock().unwrap().remove(terminal_id);
-        Ok(())
+        snapshot_error.map_or(Ok(()), Err)
     }
 
     fn purge_terminal_runtime_side_tables(&self, runtime: &Surface) -> anyhow::Result<()> {
