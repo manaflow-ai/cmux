@@ -78,7 +78,6 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let topDropIndicatorVisible: Bool
     let bottomDropIndicatorVisible: Bool
     let chromePalette: ChromePalette
-    let onDragStart: () -> NSItemProvider
     let onToggleCollapsed: () -> Void
     let onFocusAnchor: (NSEvent.ModifierFlags) -> Void
     let onTapPlus: () -> Void

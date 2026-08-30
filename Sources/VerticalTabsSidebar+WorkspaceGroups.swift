@@ -419,7 +419,6 @@ extension VerticalTabsSidebar {
             isBeingDragged: snapshot.isBeingDragged,
             topDropIndicatorVisible: snapshot.topDropIndicatorVisible,
             bottomDropIndicatorVisible: snapshot.bottomDropIndicatorVisible, chromePalette: snapshot.chromePalette,
-            onDragStart: onDragStart,
             onToggleCollapsed: { [weak tabManager, groupId = snapshot.groupId] in
                 tabManager?.toggleWorkspaceGroupCollapsed(groupId: groupId)
             },
