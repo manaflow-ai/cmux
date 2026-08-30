@@ -2675,8 +2675,9 @@ mod tests {
 
         let before = h.sent().len();
         pty.emit("after detach");
+        let sent = h.sent();
         let outputs: Vec<&Value> =
-            h.sent()[before..].iter().filter(|frame| ty(frame) == "pty_output").collect();
+            sent[before..].iter().filter(|frame| ty(frame) == "pty_output").collect();
         assert_eq!(outputs.len(), 1);
         assert_eq!(outputs[0]["ptyId"], "p2");
     }
