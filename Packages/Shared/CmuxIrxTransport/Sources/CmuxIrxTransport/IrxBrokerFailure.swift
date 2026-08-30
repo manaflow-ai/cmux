@@ -1,5 +1,5 @@
 public import CMUXMobileCore
-public import CmuxIrohTransport
+import CmuxIrohTransport
 
 /// The authenticated broker operation that produced a failure.
 public enum IrxBrokerOperation: String, Codable, Equatable, Sendable {

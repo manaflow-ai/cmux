@@ -8,7 +8,7 @@ extension IrxBrokerService {
     func withBrokerOperation<Result: Sendable>(
         _ operation: IrxBrokerOperation,
         onError: ((any Error) -> Void)? = nil,
-        _ body: @escaping @Sendable () async throws -> Result
+        _ body: () async throws -> Result
     ) async throws -> Result {
         do {
             return try await body()

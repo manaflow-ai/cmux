@@ -148,9 +148,7 @@ extension MobileHostIrohRuntime {
                     )
                 },
                 forceRefresh: { [weak auth] in
-                    guard let auth else {
-                        throw CmxIrohBrokerTokenRecoveryError.transient
-                    }
+                    guard let auth else { throw CmxIrohBrokerTokenRecoveryError.transient }
                     try await auth.forceRefreshForIrohBroker()
                 }
             ),

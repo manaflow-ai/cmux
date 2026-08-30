@@ -1,4 +1,4 @@
-public import CMUXMobileCore
+import CMUXMobileCore
 public import CmuxIrohTransport
 public import Foundation
 
@@ -68,7 +68,7 @@ public actor IrxBrokerService {
         self.configuration = configuration
         self.identity = identity
         self.journal = journal
-        let bindingCache = IrxDiskCache(
+        let bindingCache = IrxDiskCache<IrxBindingSnapshot>(
             fileURL: configuration.cacheDirectory.appendingPathComponent("binding.json")
         )
         self.bindingCache = bindingCache

@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 public import CmuxIrohTransport
 
 /// Keeps the endpoint's relay credentials perpetually fresh: mints early
@@ -76,10 +76,11 @@ public actor IrxRelayCredentialAutopilot {
 
     private func run() async {
         var failureCount = 0
+        var bypassRefreshDeadlineOnce = false
         while !Task.isCancelled {
             let now = Date()
             let credentials = await broker.cachedRelayCredentials()
-            if let soonest = credentials.map({
+            if !bypassRefreshDeadlineOnce, let soonest = credentials.map({
                 IrxRelayCredentialPolicy.refreshDate(
                     for: $0, jitter: Double.random(in: 0...10))
             }).min(), soonest > now {
@@ -93,6 +94,7 @@ public actor IrxRelayCredentialAutopilot {
                 )
                 if Task.isCancelled { return }
             }
+            bypassRefreshDeadlineOnce = false
             do {
                 let minted = try await broker.mintRelayCredentials()
                 await endpoint.rotateCredentials(minted)
@@ -141,6 +143,7 @@ public actor IrxRelayCredentialAutopilot {
                 )
                 await onFailure?(failure)
                 failureCount = min(failureCount + 1, 20)
+                bypassRefreshDeadlineOnce = true
                 try? await clock.sleep(
                     until: clock.now().addingTimeInterval(delaySeconds)
                 )

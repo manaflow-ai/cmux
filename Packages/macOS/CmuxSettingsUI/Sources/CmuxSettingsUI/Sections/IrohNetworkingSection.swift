@@ -256,17 +256,7 @@ public struct IrohNetworkingSection: View {
                 isMutating: model.isMutating,
                 clear: { await model.clearDiagnosticReport() }
             )
-            if model.snapshot.requiresReauthentication {
-                SettingsCardNote(String(
-                    localized: "settings.networking.status.reauthenticationRequired.detail",
-                    defaultValue: "The broker rejected this Mac's session. Sign in again to restore iPhone connectivity."
-                ))
-            } else if !model.snapshot.staleRelayIDs.isEmpty || model.snapshot.failureDescription != nil {
-                SettingsCardNote(String(
-                    localized: "settings.networking.attention",
-                    defaultValue: "Your saved relay choice needs attention. Direct Iroh remains available, but cmux will not substitute an unselected relay."
-                ))
-            }
+            IrohNetworkingAttentionNote(snapshot: model.snapshot)
         }
     }
 
@@ -351,38 +341,7 @@ public struct IrohNetworkingSection: View {
     }
 
     private var runtimeStatusText: String {
-        if model.snapshot.requiresReauthentication {
-            return String(
-                localized: "settings.networking.status.reauthenticationRequired",
-                defaultValue: "Sign in again to reconnect this Mac"
-            )
-        }
-        switch model.snapshot.runtimeStatus {
-        case .inactive:
-            String(localized: "settings.networking.status.inactive", defaultValue: "Inactive")
-        case .starting:
-            String(localized: "settings.networking.status.starting", defaultValue: "Starting")
-        case .active:
-            String(localized: "settings.networking.status.active", defaultValue: "Iroh endpoint active")
-        case .direct:
-            String(localized: "settings.networking.status.direct", defaultValue: "Connected directly peer-to-peer")
-        case let .relayed(provider, region):
-            String(localized: "settings.networking.status.relayed", defaultValue: "Connected through \(provider), \(region)")
-        case let .privateNetwork(displayName):
-            if displayName.isEmpty {
-                String(
-                    localized: "settings.networking.status.private.generic",
-                    defaultValue: "Connected through a private network"
-                )
-            } else {
-                String(
-                    localized: "settings.networking.status.private",
-                    defaultValue: "Connected through \(displayName)"
-                )
-            }
-        case .degraded:
-            String(localized: "settings.networking.status.degraded", defaultValue: "Direct-only until relay settings recover")
-        }
+        Self.networkingRuntimeStatusText(for: model.snapshot)
     }
 
     private var policyStatusText: String {

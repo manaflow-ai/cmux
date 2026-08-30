@@ -38,7 +38,7 @@ extension MobileSection {
     func irohStatusSubtitle(_ snapshot: MobilePairingStatusSnapshot) -> String {
         switch snapshot.irohStatus {
         case .reauthenticationRequired:
-            String(
+            return String(
                 localized: "settings.mobile.iroh.status.reauth.subtitle",
                 defaultValue: "The broker rejected this Mac's session. Sign in again to make it visible on iPhone."
             )
@@ -57,12 +57,12 @@ extension MobileSection {
                 defaultValue: "The broker is temporarily unavailable; cmux will retry with backoff."
             )
         case .failed:
-            String(
+            return String(
                 localized: "settings.mobile.iroh.status.failed.subtitle",
                 defaultValue: "The endpoint stopped after a non-retryable broker error."
             )
         default:
-            String(
+            return String(
                 localized: "settings.mobile.iroh.status.subtitle",
                 defaultValue: "Authenticated endpoint used by iPhone connections."
             )
