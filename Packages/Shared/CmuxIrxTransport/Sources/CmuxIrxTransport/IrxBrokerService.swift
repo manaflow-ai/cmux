@@ -5,6 +5,7 @@ public import Foundation
 public enum IrxBrokerServiceError: Error, Sendable {
     case notRegistered
     case invalidIdentity
+    case invalidEndpointBinding
     case noCredentialsIssued
     case unknownRelayURL(String)
 }

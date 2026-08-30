@@ -69,6 +69,9 @@ public struct IrxBrokerFailure: Error, Codable, Equatable, Sendable {
             case .invalidIdentity:
                 kind = .invalid
                 errorCode = "invalid_identity"
+            case .invalidEndpointBinding:
+                kind = .invalid
+                errorCode = "invalid_endpoint_binding"
             case .notRegistered:
                 // A binding can disappear between registration and minting;
                 // the next activation attempt must be allowed to restore it.

@@ -17,6 +17,11 @@ extension MobileIrxRuntimeComposition {
         if let provisionedAccountID,
            provisionedAccountID != identity.accountID {
             await resetForSignOut()
+            _ = await provisionIfPossible()
+            return
+        }
+        if broker == nil {
+            _ = await provisionIfPossible()
             return
         }
         guard reauthenticationRequired,

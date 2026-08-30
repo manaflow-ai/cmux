@@ -315,8 +315,16 @@ final class MobileHostIrxRuntime {
                   activeAccountID == accountID else { return }
             registry = IrxServerSessionRegistry(journal: Self.journal)
 
+            guard startAcceptLoop(token: token) else {
+                let failure = IrxBrokerFailure(
+                    operation: .endpoint,
+                    error: IrxBrokerServiceError.invalidEndpointBinding
+                )
+                await handleActivationFailure(
+                    failure, accountID: accountID, token: token)
+                return
+            }
             publishRoute(identity: identity, relayURL: homeRelay)
-            startAcceptLoop(token: token)
             Self.journal.record(
                 "host-runtime", "active",
                 [
@@ -385,24 +393,15 @@ final class MobileHostIrxRuntime {
         )
     }
 
-    private func startAcceptLoop(token: UUID) {
+    @discardableResult
+    private func startAcceptLoop(token: UUID) -> Bool {
         guard let endpointSupervisor, let brokerService, let registry, let localBinding
-        else { return }
+        else { return false }
         let journal = Self.journal
-        guard let acceptor = try? acceptorPeer(binding: localBinding) else {
-            journal.record(
-                "host-runtime", "activation-failed",
-                [
-                    "operation": IrxBrokerOperation.endpoint.rawValue,
-                    "failure_kind": "invalid",
-                    "error_code": "acceptor_tuple",
-                ]
-            )
-            return
-        }
+        guard let acceptor = try? acceptorPeer(binding: localBinding) else { return false }
         // Admission reads the persisted trust snapshot synchronously; it
         // never awaits the broker (steady-state independence).
-        guard let stateDirectory else { return }
+        guard let stateDirectory else { return false }
         let trustReader = IrxDiskCacheTrustReader(stateDirectory: stateDirectory)
         let judge = IrxGrantJudge(
             acceptor: acceptor,
@@ -461,6 +460,7 @@ final class MobileHostIrxRuntime {
                 }
             }
         }
+        return true
     }
 
     private nonisolated func acceptorPeer(binding: IrxBindingSnapshot) throws -> CmxIrohGrantPeer {
