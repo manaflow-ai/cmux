@@ -195,7 +195,9 @@ extension AppDelegate {
         guard let dock = existingWindowDock(forWindowId: context.windowId),
               !dock.isRetired,
               dock.isVisibleInUI,
-              context.keyboardFocusCoordinator.focusedRightSidebarMode == .dock else {
+              context.keyboardFocusCoordinator.resolvedRightSidebarModeForShortcut(
+                  in: context.window
+              ) == .dock else {
             return nil
         }
         return dock

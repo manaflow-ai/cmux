@@ -12,7 +12,7 @@ extension DockSplitStore {
         liveStores.first(where: { $0.containsPane(paneId) })
     }
 
-    func focusedDockPanelSelection() -> (
+    func focusedDockSurfaceSelection() -> (
         paneId: PaneID,
         tab: Bonsplit.Tab,
         panelId: UUID,
@@ -26,7 +26,7 @@ extension DockSplitStore {
     }
 
     var focusedPanelId: UUID? {
-        focusedDockPanelSelection()?.panelId
+        focusedDockSurfaceSelection()?.panelId
     }
 
     /// Whether a panel id is present in the Dock tree.
@@ -228,7 +228,7 @@ extension DockSplitStore {
     /// body from the same focused pane/tab identity used by Dock commands.
     func refreshDockMenuCapabilities() {
         let next: DockMenuCapabilitySnapshot
-        guard let selection = focusedDockPanelSelection() else {
+        guard let selection = focusedDockSurfaceSelection() else {
             next = .empty
             if next != menuCapabilities {
                 menuCapabilities = next

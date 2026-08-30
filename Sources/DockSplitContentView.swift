@@ -187,8 +187,16 @@ final class DockPointerInteractionHostView: NSView {
         // This host is mounted at the DockPanel root, so its own bounds are the
         // explicit Dock ownership region (including the Bonsplit tab strip).
         // Keep clicks outside that region off the full-window hit-test path.
-        guard bounds.contains(point),
-              let hitView = window.contentView?.hitTest(event.locationInWindow),
+        guard bounds.contains(point) else {
+            return
+        }
+        if let store,
+           AppDelegate.shared?.focusedDockStoreForShortcut(
+               preferredWindow: window
+           ) === store {
+            return
+        }
+        guard let hitView = window.contentView?.hitTest(event.locationInWindow),
               isDockHitView(hitView, at: event.locationInWindow, in: window) else {
             return
         }
