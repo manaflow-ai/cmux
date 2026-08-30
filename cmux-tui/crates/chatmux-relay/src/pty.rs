@@ -3806,6 +3806,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cancelled_shell_waiter_does_not_claim_starting_session() {
+        let h = harness(None, None);
+        let cancellation = h.manager.new_open_cancellation().expect("open attempt token");
+        let context = h.context("supervised", h.owner.clone());
+        let env = env_map(&h.home);
+        let open_permit = OpenPermit::new(
+            h.manager.inner.open_slots.clone().try_acquire_owned().expect("open permit"),
+        );
+        let notify = Arc::new(Notify::new());
+        h.manager
+            .inner
+            .shell_starting
+            .lock()
+            .unwrap()
+            .insert("waiting".to_owned(), Arc::clone(&notify));
+
+        // Model a second opener that is waiting for the first owner. The
+        // cancellation branch must win without spawning or removing the
+        // owner's in-progress marker.
+        cancellation.cancel();
+        let result = Arc::clone(&h.manager.inner)
+            .open_shell(
+                "waiting",
+                80,
+                24,
+                &h.home,
+                &env,
+                "p1",
+                None,
+                &context,
+                &cancellation,
+                &open_permit,
+            )
+            .await;
+
+        assert_eq!(result.err().as_deref(), Some("terminal open cancelled"));
+        assert!(h.spawned().is_empty());
+        assert!(h.manager.inner.shell_starting.lock().unwrap().contains_key("waiting"));
+    }
+
+    #[tokio::test]
     async fn cancellation_during_shell_subscribe_is_not_cached_and_killed() {
         let h = harness(None, None);
         h.cancel_on_subscribe.store(true, Ordering::SeqCst);
