@@ -21,7 +21,8 @@ extension TabManager {
             pending.map { stableId, pendingTitle in
                 WorkspaceCustomizationPendingAutomaticTitle(
                     stableId: stableId,
-                    title: pendingTitle.title
+                    title: pendingTitle.title,
+                    titleMutationRevision: pendingTitle.titleMutationRevision
                 )
             }
         )
@@ -144,8 +145,18 @@ extension TabManager {
             case .absent, .value:
                 return
             }
+            guard let titleMutationRevision = workspaceCustomizationStore
+                .customizationTitleMutationRevision(
+                for: workspace.stableId
+            ) else {
+                return
+            }
+            let pending = pendingAutomaticWorkspaceTitles[workspace.stableId]
             pendingAutomaticWorkspaceTitles[workspace.stableId] =
-                PendingAutomaticWorkspaceTitle(title: workspace.customTitle)
+                PendingAutomaticWorkspaceTitle(
+                    title: workspace.customTitle,
+                    titleMutationRevision: pending?.titleMutationRevision ?? titleMutationRevision
+                )
             scheduleAutomaticWorkspaceTitlePersistence()
             return
         }

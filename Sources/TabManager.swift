@@ -462,11 +462,14 @@ class TabManager: ObservableObject {
     private var workspaceCycleCooldownTask: Task<Void, Never>?
     /// Coalesces automatic title journal writes so frequent process-title
     /// events do not encode the full customization snapshot on every event.
-    private struct PendingAutomaticWorkspaceTitle: Sendable {
+    struct PendingAutomaticWorkspaceTitle: Sendable {
         let title: String?
+        let titleMutationRevision: UInt64
     }
-    private var pendingAutomaticWorkspaceTitles: [UUID: PendingAutomaticWorkspaceTitle] = [:]
-    private var automaticWorkspaceTitlePersistenceTask: Task<Void, Never>?
+    // These members are internal because the persistence behavior is split
+    // across same-type extensions in separate source files.
+    var pendingAutomaticWorkspaceTitles: [UUID: PendingAutomaticWorkspaceTitle] = [:]
+    var automaticWorkspaceTitlePersistenceTask: Task<Void, Never>?
     private var pendingWorkspaceUnfocusTarget: (tabId: UUID, panelId: UUID)?
     var sidebarSelectedWorkspaceIds: Set<UUID> { sidebarMultiSelection.selectedWorkspaceIds }
     private var currentWindowTabBarLeadingInset: CGFloat?
@@ -740,7 +743,8 @@ class TabManager: ObservableObject {
         let pendingAutomaticTitles = pendingAutomaticWorkspaceTitles.map {
             WorkspaceCustomizationPendingAutomaticTitle(
                 stableId: $0.key,
-                title: $0.value.title
+                title: $0.value.title,
+                titleMutationRevision: $0.value.titleMutationRevision
             )
         }
         let workspaceCustomizationStore = workspaceCustomizationStore

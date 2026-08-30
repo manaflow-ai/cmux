@@ -3,6 +3,38 @@ import Foundation
 struct WorkspaceCustomizationPersistenceEntry: Codable, Equatable, Sendable {
     let customization: WorkspaceCustomization
     let revision: UInt64
+    let titleMutationRevision: UInt64
+
+    init(
+        customization: WorkspaceCustomization,
+        revision: UInt64,
+        titleMutationRevision: UInt64 = 0
+    ) {
+        self.customization = customization
+        self.revision = revision
+        self.titleMutationRevision = titleMutationRevision
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case customization
+        case revision
+        case titleMutationRevision
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        customization = try container.decode(
+            WorkspaceCustomization.self,
+            forKey: .customization
+        )
+        revision = try container.decode(UInt64.self, forKey: .revision)
+        // Older journals have no title-specific revision. Zero is a safe
+        // compatibility value; the next title mutation advances it.
+        titleMutationRevision = try container.decodeIfPresent(
+            UInt64.self,
+            forKey: .titleMutationRevision
+        ) ?? 0
+    }
 }
 
 struct WorkspaceCustomizationPersistenceSnapshot: Codable, Sendable {
@@ -22,9 +54,17 @@ struct WorkspaceCustomizationPersistenceSnapshot: Codable, Sendable {
 
     mutating func set(_ customization: WorkspaceCustomization, for key: String) {
         nextRevision &+= 1
+        let previous = entries[key]
+        let titleMutationRevision: UInt64
+        if previous?.customization.customTitle != customization.customTitle {
+            titleMutationRevision = nextRevision
+        } else {
+            titleMutationRevision = previous?.titleMutationRevision ?? 0
+        }
         entries[key] = WorkspaceCustomizationPersistenceEntry(
             customization: customization,
-            revision: nextRevision
+            revision: nextRevision,
+            titleMutationRevision: titleMutationRevision
         )
     }
 
@@ -96,11 +136,19 @@ final class WorkspaceCustomizationSynchronousWriter: @unchecked Sendable {
                 lhs.stableId.uuidString < rhs.stableId.uuidString
             }) {
                 let key = item.stableId.uuidString
-                if let currentTitle = snapshot.entries[key]?.customization.customTitle,
-                   case .value = currentTitle {
-                    // A user write may have landed after this automatic
-                    // record was queued. Preserve the user-owned value even
-                    // when the queue belongs to another manager copy.
+                guard let currentEntry = snapshot.entries[key],
+                      currentEntry.titleMutationRevision == item.titleMutationRevision else {
+                    // Any mutation after the automatic title was queued makes
+                    // this record stale, including an explicit clear from a
+                    // different manager instance. Preserve that later state.
+                    continue
+                }
+                switch currentEntry.customization.customTitle {
+                case .cleared, .autoValue:
+                    break
+                case .absent, .value:
+                    // Keep the legacy user-value guard as a defense in depth
+                    // for journals written before title-specific revisions.
                     continue
                 }
                 let trimmed = item.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""

@@ -68,6 +68,13 @@ public struct WorkspaceCustomizationStore {
         loadSnapshot().entries[stableId.uuidString]?.customization
     }
 
+    /// Reads the monotonic title mutation revision for one stable workspace identity.
+    /// A caller can use this as a fence for deferred writes that must not
+    /// overwrite a later mutation made by another manager instance.
+    public func customizationTitleMutationRevision(for stableId: UUID) -> UInt64? {
+        loadSnapshot().entries[stableId.uuidString]?.titleMutationRevision
+    }
+
     /// Reads a batch of recovery records with one defaults decode.
     ///
     /// - Parameter stableIds: The stable workspace identities to read.

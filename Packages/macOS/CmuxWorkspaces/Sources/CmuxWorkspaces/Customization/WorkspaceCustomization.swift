@@ -14,10 +14,15 @@ public enum WorkspaceCustomizationTitleSource: String, Codable, Equatable, Senda
 public struct WorkspaceCustomizationPendingAutomaticTitle: Sendable, Equatable {
     public let stableId: UUID
     public let title: String?
+    /// Title revision observed when the automatic title was queued. The write is
+    /// valid only while this remains the current title revision, so a later
+    /// title mutation from another manager cannot be overwritten by a stale queue.
+    public let titleMutationRevision: UInt64
 
-    public init(stableId: UUID, title: String?) {
+    public init(stableId: UUID, title: String?, titleMutationRevision: UInt64) {
         self.stableId = stableId
         self.title = title
+        self.titleMutationRevision = titleMutationRevision
     }
 }
 
