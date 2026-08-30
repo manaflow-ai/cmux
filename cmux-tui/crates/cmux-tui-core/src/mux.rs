@@ -9613,18 +9613,11 @@ impl Mux {
                 && source == AgentSource::Socket
                 && !effective_hook_state.is_some_and(|state| state.ended)
         });
-        let socket_report_unchanged = source == AgentSource::Socket
-            && records.get(&terminal_id).is_some_and(|existing| {
-                existing.source == AgentSource::Socket
-                    && existing.state == agent_state
-                    && existing.session.as_ref() == source_session.as_ref()
-                    && existing.agent.as_ref() == agent_adapter.as_ref()
-            });
-        // The echo reducer coalesces this semantic no-op. Keep its original
-        // timestamp too, so the compatibility projection and durable roster
-        // retain identical values across a restart.
+        // Hook-owned state remains a semantic no-op for a socket report. A
+        // socket-owned report still refreshes its durable timestamp; the
+        // echo key below coalesces only when that complete payload is equal.
         let record = match records.get(&terminal_id) {
-            Some(existing) if socket_report_ignored || socket_report_unchanged => existing.clone(),
+            Some(existing) if socket_report_ignored => existing.clone(),
             _ => TerminalAgentRecord {
                 state: agent_state,
                 source,
