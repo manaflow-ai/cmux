@@ -846,7 +846,16 @@ fn spawn_real_pty(spec: &SpawnSpec, handoff: &SpawnHandoff) -> anyhow::Result<Pt
                     wait_lifecycle.lock().expect("child lifecycle lock").exited = true;
                     child_cleanup.wait()
                 }
-                _ => child_cleanup.wait(),
+                _ => {
+                    // A failed waitid may leave the child live, while the
+                    // fallback wait can reap it. Claim termination before
+                    // reaping so MasterControl::drop cannot signal this PID
+                    // after the kernel makes it available for reuse.
+                    let _ = ChildLifecycle::terminate(&wait_lifecycle, |_| {
+                        child_cleanup.child_mut().kill()
+                    });
+                    child_cleanup.wait()
+                }
             };
             let wait_result = wait_result.or_else(|_| {
                 // Keep the old error path: a failed wait requests termination
