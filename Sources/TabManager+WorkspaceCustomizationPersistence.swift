@@ -80,12 +80,22 @@ extension TabManager {
         _ workspace: Workspace,
         source: Workspace.CustomTitleSource
     ) {
-        // Automatic naming normally belongs to the session snapshot. Journal
-        // only the first auto title after an explicit clear, which advances the
-        // clear tombstone without turning every refresh into a durable write.
-        if source == .auto,
-           workspaceCustomizationStore.customization(for: workspace.stableId)?.customTitle != .cleared {
-            return
+        // Automatic naming normally belongs to the session snapshot. Once an
+        // explicit clear has made auto-naming authoritative, journal each
+        // subsequent automatic value so a stale snapshot cannot roll the title
+        // back to an earlier refresh.
+        if source == .auto {
+            guard let field = workspaceCustomizationStore
+                .customization(for: workspace.stableId)?
+                .customTitle else {
+                return
+            }
+            switch field {
+            case .cleared, .autoValue:
+                break
+            case .absent, .value:
+                return
+            }
         }
         workspaceCustomizationStore.setCustomTitle(
             workspace.customTitle,
