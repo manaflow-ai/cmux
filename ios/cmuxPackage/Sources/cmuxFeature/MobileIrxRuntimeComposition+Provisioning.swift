@@ -104,14 +104,38 @@ extension MobileIrxRuntimeComposition {
                           session: session, broker: broker, endpoint: supervisor
                       ) else { return }
                 if refreshRegistration {
-                    _ = try? await broker.register(
-                        pairingEnabled: false, relayURLHint: nil)
+                    do {
+                        _ = try await broker.register(
+                            pairingEnabled: false, relayURLHint: nil)
+                    } catch {
+                        if await self.handleProvisioningFailure(error) {
+                            return
+                        }
+                        Self.journal.record(
+                            "client-runtime", "background-registration-failed",
+                            (error as? IrxBrokerFailure)?.journalAttributes ?? [
+                                "error": String(describing: error)
+                            ]
+                        )
+                    }
                 }
                 guard await self.isCurrentProvisioning(
                     session: session, broker: broker, endpoint: supervisor
                 ) else { return }
                 if refreshDiscovery {
-                    _ = try? await broker.discover()
+                    do {
+                        _ = try await broker.discover()
+                    } catch {
+                        if await self.handleProvisioningFailure(error) {
+                            return
+                        }
+                        Self.journal.record(
+                            "client-runtime", "background-discovery-failed",
+                            (error as? IrxBrokerFailure)?.journalAttributes ?? [
+                                "error": String(describing: error)
+                            ]
+                        )
+                    }
                 }
             }
             let warmupTask = Task { [weak self, supervisor] in
