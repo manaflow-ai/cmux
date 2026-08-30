@@ -26,6 +26,18 @@ final class RenderNodeContextMenuView: NSView {
     /// menu entirely, matching how SwiftUI treats a disabled row's menu.
     var isMenuEnabled = true
 
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        guard let event else { return false }
+        switch event.type {
+        case .rightMouseDown:
+            return true
+        case .leftMouseDown:
+            return event.modifierFlags.contains(.control)
+        default:
+            return false
+        }
+    }
+
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard let superview else { return nil }
         // AppKit supplies `point` in this view's superview coordinate system.
