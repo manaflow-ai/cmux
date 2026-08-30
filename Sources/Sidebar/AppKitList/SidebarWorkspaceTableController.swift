@@ -150,9 +150,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let pendingWriters = (
             pendingWorkspaceDragWriters.objectEnumerator()?.allObjects ?? []
         ).compactMap { $0 as? SidebarWorkspaceDragPasteboardWriter }
+        let currentTableView = containerView?.tableView
         for writer in pendingWriters where writer !== preservedWriter {
             if let tableView = writer.sourceViewForDrag as? SidebarWorkspaceTableViewImpl,
-               tableView !== activeWorkspaceDragTableView {
+               tableView !== activeWorkspaceDragTableView,
+               tableView !== currentTableView {
                 detachController(from: tableView)
             }
             writer.releaseSourceGraph()
@@ -161,7 +163,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
            pendingWorkspaceDragWriter !== preservedWriter,
            let tableView = pendingWorkspaceDragWriter.sourceViewForDrag
                 as? SidebarWorkspaceTableViewImpl,
-           tableView !== activeWorkspaceDragTableView {
+           tableView !== activeWorkspaceDragTableView,
+           tableView !== currentTableView {
             detachController(from: tableView)
         }
         workspaceDragWriterOwnership.removeAll()

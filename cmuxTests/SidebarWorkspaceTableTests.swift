@@ -126,6 +126,31 @@ struct SidebarWorkspaceTableTests {
 
     @Test
     @MainActor
+    func abandoningProvisionalWriterDoesNotDetachTheCurrentTable() async throws {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let row = makeRowConfiguration()
+        controller.apply(
+            rows: [row],
+            actions: makeTableActions(),
+            workspaceIds: [row.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+
+        var writer: (any NSPasteboardWriting)? = try #require(
+            controller.tableView(container.tableView, pasteboardWriterForRow: 0)
+        )
+        controller.prepareForMouseDown()
+
+        #expect(container.tableView.dataSource === controller)
+        #expect(container.tableView.delegate === controller)
+        writer = nil
+    }
+
+    @Test
+    @MainActor
     func repeatedProvisionalReconstructionRetainsEveryContainerForTeardown() async throws {
         let controller = SidebarWorkspaceTableController()
         let firstContainer = controller.makeContainerView()
