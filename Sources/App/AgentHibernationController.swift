@@ -21,7 +21,10 @@ struct AgentHibernationRecord {
     let panelProcessIDs: Set<Int>
     let processIDs: Set<Int>
     let processIdentities: [Int: AgentPIDProcessIdentity]
-    let processLiveness: RestorableAgentProcessLiveness = .unknown
+    // A defaulted var participates in the synthesized memberwise initializer,
+    // allowing callers that have process evidence to provide it while keeping
+    // older test and preview fixtures on the conservative `.unknown` value.
+    var processLiveness: RestorableAgentProcessLiveness = .unknown
 }
 
 @MainActor
