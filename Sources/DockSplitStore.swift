@@ -390,7 +390,9 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             guard let paneId = self.paneId(forPanelId: panelId) else {
                 return false
             }
-            return self.bonsplitController.toggleFullWidthTabMode(inPane: paneId)
+            _ = self.bonsplitController.toggleFullWidthTabMode(inPane: paneId)
+            // Bonsplit returns the resulting mode, not operation success.
+            return true
         }
         // Accept tabs dragged in from the main split area or another Dock. A
         // drag that started in a different controller is "external" to this one,

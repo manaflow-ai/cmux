@@ -874,7 +874,7 @@ struct cmuxApp: App {
                 splitCommandButton(title: String(localized: "menu.file.closeOtherTabs", defaultValue: "Close Other Tabs in Pane"), shortcut: menuShortcut(for: .closeOtherTabsInPane)) {
                     closeOtherTabsInFocusedPane()
                 }
-                .disabled(!canCloseOtherTabsForMenu)
+                .disabled(activeDockForMenu == nil && !activeTabManager.canCloseOtherTabsInFocusedPane())
 
                 // The Close Workspace shortcut closes the current workspace with confirmation
                 // when needed. If this is the last workspace, it closes the window.
@@ -979,7 +979,7 @@ struct cmuxApp: App {
                         restoreFindTargetFocus()
                         activeTabManager.searchSelection()
                     }
-                    .disabled(!canUseSelectionForMenu)
+                    .disabled(activeDockForMenu == nil && !activeTabManager.canUseSelectionForFind)
 
                     Divider()
 
@@ -998,7 +998,7 @@ struct cmuxApp: App {
                             NSSound.beep()
                         }
                     }
-                    .disabled(activeTerminalForMenu == nil)
+                    .disabled(activeDockForMenu == nil && activeTabManager.selectedTerminalPanel == nil)
                 }
             }
 
@@ -1306,34 +1306,6 @@ struct cmuxApp: App {
         )
     }
 
-    private var activeTerminalForMenu: TerminalPanel? {
-        if let dock = activeDockForMenu,
-           let panelId = dock.focusedPanelId {
-            return dock.panels[panelId] as? TerminalPanel
-        }
-        return activeTabManager.selectedTerminalPanel
-    }
-
-    private var canCloseOtherTabsForMenu: Bool {
-        guard let dock = activeDockForMenu,
-              let pane = dock.bonsplitController.focusedPaneId else {
-            return activeTabManager.canCloseOtherTabsInFocusedPane()
-        }
-        let selectedTabId = dock.bonsplitController.selectedTab(inPane: pane)?.id
-        return dock.bonsplitController.tabs(inPane: pane).contains { tab in
-            !tab.isPinned && tab.id != selectedTabId
-        }
-    }
-
-    private var canUseSelectionForMenu: Bool {
-        if let dock = activeDockForMenu,
-           let panelId = dock.focusedPanelId,
-           let terminal = dock.panels[panelId] as? TerminalPanel {
-            return terminal.hasSelection()
-        }
-        return activeTabManager.canUseSelectionForFind
-    }
-
     @discardableResult
     private func performFocusedBrowserAction(
         _ action: BrowserAction
@@ -1347,15 +1319,11 @@ struct cmuxApp: App {
         if let activeBrowserPanel {
             return activeBrowserPanel.searchState != nil
         }
-        if let dock = activeDockForMenu,
-           let panelId = dock.focusedPanelId {
-            if let terminal = dock.panels[panelId] as? TerminalPanel {
-                return terminal.searchState != nil
-            }
-            if let browser = dock.panels[panelId] as? BrowserPanel {
-                return browser.searchState != nil
-            }
-        }
+        // Keep Dock menu enablement on the single observable ownership gate;
+        // the action itself resolves the focused panel and beeps when no find
+        // session exists. Reading Dock panels here would fan out Commands-body
+        // invalidation on every tab/title/notification mutation.
+        if activeDockForMenu != nil { return true }
         return activeTabManager.isFindVisible
     }
 
