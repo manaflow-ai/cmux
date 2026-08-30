@@ -115,7 +115,12 @@ func automaticTitleRecordIsLegacyDecodable() throws {
     // The new decoder retains automatic provenance through its extension key.
     #expect(entry.customization.customTitle == .value("Auto title"))
     #expect(entry.customization.customColor == .absent)
-    #expect(fixture.store.customization(for: stableId)?.customTitle == .autoValue("Auto title"))
+    let reloaded = WorkspaceCustomizationStore(
+        defaults: fixture.defaults,
+        storageKey: fixture.storageKey,
+        legacyStorageKey: fixture.legacyStorageKey
+    )
+    #expect(reloaded.customization(for: stableId)?.customTitle == .autoValue("Auto title"))
 }
 
 @Test("title recovery reads the value and mutation fence from one record")
