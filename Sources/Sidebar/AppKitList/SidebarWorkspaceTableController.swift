@@ -1076,7 +1076,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 pendingWorkspaceDragSessionId = actionBundle.nativeWorkspaceDragLifecycle?.currentSessionId()
                 pendingWorkspaceDragWorkspaceId = workspaceId
             }
-            let payloadWorkspaceId = pendingWorkspaceDragWorkspaceId ?? workspaceId
+            let payloadWorkspaceId = workspaceId
+            pendingWorkspaceDragWorkspaceId = workspaceId
             activeWorkspaceDragSessionId = pendingWorkspaceDragSessionId
             if let activeWorkspaceDragSessionId {
                 let capabilityValue = SidebarTabDragPayload(
@@ -1242,8 +1243,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 .nativeWorkspaceDragLifecycle?
                 .reclaimSupersededNativeSources
             let activeSession = activeWorkspaceDraggingSession
-            workspaceDragSessionDidEnd(session: activeSession)
             reclaimSupersededNativeSources?()
+            workspaceDragSessionDidEnd(session: activeSession)
         }
         if pendingWorkspaceDragWriter == nil,
            activeWorkspaceDragContainerView != nil,
