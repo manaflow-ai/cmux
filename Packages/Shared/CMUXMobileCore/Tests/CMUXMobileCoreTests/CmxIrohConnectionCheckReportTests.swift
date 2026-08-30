@@ -77,6 +77,9 @@ struct CmxIrohConnectionCheckReportTests {
         )
 
         #expect(report.recommendation == .refreshAccount)
+        #expect(
+            report.stages.first { $0.kind == .relayPolicy }?.status == .notApplicable
+        )
     }
 
     @Test

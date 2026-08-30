@@ -101,7 +101,8 @@ extension MobileHostIrxRuntime {
                 expiresAt: nil,
                 now: Date(),
                 policyDelay: policyDelay,
-                retryAfterSeconds: retryAfterSeconds
+                retryAfterSeconds: retryAfterSeconds,
+                failureCount: activationRetryFailureCount
             )
             setActivationState(.retrying, failure: failure)
             attributes["delay_s"] = String(Int(delay.rounded()))

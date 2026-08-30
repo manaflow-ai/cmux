@@ -81,10 +81,15 @@ public struct CmxIrohConnectionCheckReport: Equatable, Sendable {
         case .starting, .retrying: .warning
         case .active, .direct, .relayed, .privateNetwork: .passed
         }
-        let policyStatus: StageStatus = switch snapshot.policySource {
-        case .server: .passed
-        case .cached: .warning
-        case .unavailable: .failed
+        let policyStatus: StageStatus
+        if snapshot.supportsRelayConfiguration {
+            policyStatus = switch snapshot.policySource {
+            case .server: .passed
+            case .cached: .warning
+            case .unavailable: .failed
+            }
+        } else {
+            policyStatus = .notApplicable
         }
         let relayStatus: StageStatus = switch relayReachability {
         case .notConfigured: .notApplicable

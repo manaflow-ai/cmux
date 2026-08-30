@@ -17,6 +17,12 @@ struct IrohNetworkingAttentionNote: View {
                 localized: "settings.mobile.iroh.status.retrying.subtitle",
                 defaultValue: "Connection is temporarily unavailable; cmux will retry automatically."
             ))
+        } else if !snapshot.supportsRelayConfiguration,
+                  snapshot.runtimeStatus == .degraded {
+            SettingsCardNote(String(
+                localized: "settings.mobile.iroh.status.failed.subtitle",
+                defaultValue: "This Mac's connection is unavailable. Check your account and try again."
+            ))
         } else if snapshot.supportsRelayConfiguration
             && (!snapshot.staleRelayIDs.isEmpty || snapshot.failureDescription != nil) {
             SettingsCardNote(String(
@@ -35,6 +41,12 @@ extension IrohNetworkingSection {
             return String(
                 localized: "settings.networking.status.reauthenticationRequired",
                 defaultValue: "Sign in again to reconnect this Mac"
+            )
+        }
+        if !snapshot.supportsRelayConfiguration, snapshot.runtimeStatus == .degraded {
+            return String(
+                localized: "settings.mobile.iroh.status.failed",
+                defaultValue: "Unavailable"
             )
         }
         return switch snapshot.runtimeStatus {

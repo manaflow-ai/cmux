@@ -121,6 +121,14 @@ struct IrxRelayCredentialPolicyTests {
             retryAfterSeconds: nil
         )
         #expect(delay == 1)
+        let backedOff = IrxRelayCredentialPolicy.boundedRetryDelay(
+            expiresAt: now.addingTimeInterval(-1),
+            now: now,
+            policyDelay: 30,
+            retryAfterSeconds: nil,
+            failureCount: 1
+        )
+        #expect(backedOff == 30)
     }
 
     @Test("expiry acceleration remains within the lifecycle cap without a floor")

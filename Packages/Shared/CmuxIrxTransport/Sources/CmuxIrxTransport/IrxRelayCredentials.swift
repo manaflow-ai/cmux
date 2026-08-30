@@ -57,22 +57,29 @@ public enum IrxRelayCredentialPolicy {
     /// server floor may exceed that local cap, and is applied after expiry
     /// acceleration so a nearly expired credential cannot cause a
     /// rate-limited broker to be contacted early. Already-expired credentials
-    /// use the one-second policy floor; only a validated server directive can
-    /// lengthen that urgent retry.
+    /// use the one-second policy floor on the first failure; subsequent
+    /// failures return to the exponential ladder so an outage cannot become a
+    /// one-second poll.
     public static func boundedRetryDelay(
         expiresAt: Date?,
         now: Date,
         policyDelay: TimeInterval,
-        retryAfterSeconds: Int?
+        retryAfterSeconds: Int?,
+        failureCount: Int = 0
     ) -> TimeInterval {
         let boundedPolicyDelay = max(0, policyDelay)
+        let remainingValidity = expiresAt?.timeIntervalSince(now)
         let expiryDelay = expiresAt.map { expiryDate -> TimeInterval in
             let duration = retryDelay(expiresAt: expiryDate, now: now)
             let components = duration.components
             return TimeInterval(components.seconds)
                 + TimeInterval(components.attoseconds) / 1_000_000_000_000_000_000
         }
-        let acceleratedDelay = min(expiryDelay ?? boundedPolicyDelay, boundedPolicyDelay)
+        let shouldUseUrgentFloor = (remainingValidity ?? 0) <= 2
+            && failureCount > 0
+        let acceleratedDelay = shouldUseUrgentFloor
+            ? boundedPolicyDelay
+            : min(expiryDelay ?? boundedPolicyDelay, boundedPolicyDelay)
         guard let retryAfterSeconds else { return acceleratedDelay }
         let serverFloor = min(
             TimeInterval(CmxIrohBrokerCooldown.maximumRetryAfterSeconds),

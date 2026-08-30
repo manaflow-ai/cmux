@@ -291,7 +291,8 @@ public actor IrxRelayCredentialAutopilot {
                 expiresAt: credentialExpiry,
                 now: Date(),
                 policyDelay: policyDelay,
-                retryAfterSeconds: retryAfterSeconds
+                retryAfterSeconds: retryAfterSeconds,
+                failureCount: failureCount
             )
             var attributes = failure.journalAttributes
             attributes["retry_delay_s"] = String(Int(delaySeconds.rounded()))
