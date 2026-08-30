@@ -54,6 +54,42 @@ describe("VM image resolver: request by kind", () => {
     ).toMatchObject({ image: "blaxel/base-image:latest", imageVersion: "blaxel-base-bootstrap-20260824a", kind: "base" });
   });
 
+  test("a generic env selector of the other kind falls through to the kind default", () => {
+    // Production reality before kinds existed: BLAXEL_SANDBOX_IMAGE names the
+    // desktop devbox and no desktop-specific selector is set. A kind=base
+    // request must resolve the manifest base default, not 503 on the desktop
+    // image's kind mismatch (seen in prod 2026-08-30 21:58 UTC).
+    expect(
+      resolveVmImage("blaxel", undefined, {
+        ...deployed,
+        BLAXEL_SANDBOX_IMAGE: "sandbox/cmux-devbox:latest",
+      }, { kind: "base" }),
+    ).toMatchObject({
+      image: "blaxel/base-image:latest",
+      imageVersion: "blaxel-base-bootstrap-20260824a",
+      kind: "base",
+    });
+    // The same env still serves desktop and kind-less requests unchanged.
+    expect(
+      resolveVmImage("blaxel", undefined, {
+        ...deployed,
+        BLAXEL_SANDBOX_IMAGE: "sandbox/cmux-devbox:latest",
+      }, { kind: "desktop" }),
+    ).toMatchObject({ image: "sandbox/cmux-devbox:latest", kind: "desktop" });
+    expect(
+      resolveVmImage("blaxel", undefined, {
+        ...deployed,
+        BLAXEL_SANDBOX_IMAGE: "sandbox/cmux-devbox:latest",
+      }),
+    ).toMatchObject({ image: "sandbox/cmux-devbox:latest" });
+  });
+
+  test("an explicitly requested image of the wrong kind still errors", () => {
+    const err = captureImageConfigError(() =>
+      resolveVmImage("blaxel", "sandbox/cmux-devbox:latest", deployed, { kind: "base" }));
+    expect(err.reason).toMatch(/desktop image, not a base image/);
+  });
+
   test("deployed runtimes fall back to the manifest kind default instead of throwing", () => {
     // The nightly app's `vm base open` with no image and nothing configured for
     // desktop used to 503; now the manifest default desktop image serves it.
