@@ -49,11 +49,15 @@ public struct IrxHostActivationPolicy: Equatable, Sendable {
     ///   - error: The broker or local activation failure.
     ///   - failureCount: Consecutive failures, starting at zero.
     ///   - jitterUnitInterval: A deterministic value from zero through one.
+    ///   - escalateUnauthorized: Whether repeated post-recovery auth failures
+    ///     should transition to reauthentication. Auxiliary lanes can disable
+    ///     escalation while still supplying their local count for backoff.
     /// - Returns: A terminal re-authentication/stop decision or a bounded retry.
     public func decision(
         for error: any Error,
         failureCount: Int,
-        jitterUnitInterval: Double
+        jitterUnitInterval: Double,
+        escalateUnauthorized: Bool = true
     ) -> Decision {
         let failure = error as? IrxBrokerFailure
             ?? IrxBrokerFailure(operation: .register, error: error)
@@ -61,11 +65,13 @@ public struct IrxHostActivationPolicy: Equatable, Sendable {
         // propagation race, so allow a small bounded retry window. It must
         // still escalate rather than rebuilding the endpoint forever when the
         // broker persistently rejects the rotated pair.
-        if failure.statusCode == 401,
+        if escalateUnauthorized,
+           failure.statusCode == 401,
            failureCount >= Self.maximumPostRecoveryUnauthorizedFailures {
             return .reauthenticationRequired
         }
-        if failure.statusCode == nil,
+        if escalateUnauthorized,
+           failure.statusCode == nil,
            failure.errorCode == "missing_authentication",
            failureCount >= Self.maximumMissingAuthenticationFailures {
             return .reauthenticationRequired
