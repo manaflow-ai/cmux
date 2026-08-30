@@ -1,7 +1,7 @@
 import Foundation
 
 /// A filesystem-free row snapshot rendered by the Source Control list.
-struct SourceControlResourceRow: Identifiable, Hashable {
+struct SourceControlResourceRow: Identifiable, Hashable, Sendable {
     let path: String
     let relativePath: String
     let status: GitFileStatus

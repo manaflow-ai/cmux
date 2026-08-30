@@ -26,23 +26,6 @@ struct SourceControlPanelView: View {
         return branch
     }
 
-    private var groups: [SourceControlGroupSection] {
-        var grouped = Dictionary(uniqueKeysWithValues: SourceControlGroup.allCases.map { ($0, [SourceControlResourceRow]()) })
-        let root = fileExplorerStore.rootPath
-        for entry in fileExplorerStore.gitStatusSnapshot.displayableEntries {
-            let relativePath = Self.relativePath(entry.path, root: root)
-            let row = SourceControlResourceRow(path: entry.path, relativePath: relativePath, status: entry.status)
-            grouped[row.group, default: []].append(row)
-        }
-        return SourceControlGroup.allCases.compactMap { group in
-            guard var resources = grouped[group], !resources.isEmpty else { return nil }
-            resources.sort { lhs, rhs in
-                lhs.relativePath.localizedStandardCompare(rhs.relativePath) == .orderedAscending
-            }
-            return SourceControlGroupSection(group: group, resources: resources)
-        }
-    }
-
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -94,7 +77,7 @@ struct SourceControlPanelView: View {
 
     @ViewBuilder
     private var content: some View {
-        let sections = groups
+        let sections = fileExplorerStore.sourceControlGroups
         if fileExplorerStore.rootPath.isEmpty {
             emptyState(
                 title: String(localized: "sourceControl.empty.noWorkspace.title", defaultValue: "No workspace selected"),
@@ -138,12 +121,5 @@ struct SourceControlPanelView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(24)
-    }
-
-    private static func relativePath(_ path: String, root: String) -> String {
-        guard !root.isEmpty else { return path }
-        let normalizedRoot = root.hasSuffix("/") ? String(root.dropLast()) : root
-        guard path.hasPrefix(normalizedRoot + "/") else { return path }
-        return String(path.dropFirst(normalizedRoot.count + 1))
     }
 }

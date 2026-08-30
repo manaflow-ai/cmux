@@ -167,19 +167,14 @@ extension TerminalControllerSocketSecurityTests {
             ("right_sidebar show --window", "--window requires an id"),
         ]
 
-        let defaults = UserDefaults.standard
-        let previousSourceControlEnabled = defaults.object(forKey: RightSidebarBetaFeatureSettings.sourceControlEnabledKey)
+        let suiteName = "RightSidebarRemoteCommandTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
         defaults.set(false, forKey: RightSidebarBetaFeatureSettings.sourceControlEnabledKey)
-        defer {
-            if let previousSourceControlEnabled {
-                defaults.set(previousSourceControlEnabled, forKey: RightSidebarBetaFeatureSettings.sourceControlEnabledKey)
-            } else {
-                defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.sourceControlEnabledKey)
-            }
-        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
 
         for (line, expectedMessage) in invalidCases {
-            switch TerminalController.shared.parseRightSidebarRemoteRequestForTesting(line) {
+            switch TerminalController.shared.parseRightSidebarRemoteRequestForTesting(line, defaults: defaults) {
             case .success(let request):
                 Issue.record("Expected parser failure for \(line), got \(request)")
             case .failure(let error):

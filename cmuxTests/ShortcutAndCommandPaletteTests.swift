@@ -1192,9 +1192,12 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         .switchRightSidebarToSessions,
         .switchRightSidebarToFeed,
         .switchRightSidebarToDock,
+        .switchRightSidebarToSourceControl,
     ]
+    private let sourceControlEnabledKey = RightSidebarBetaFeatureSettings.sourceControlEnabledKey
     private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
     private var savedShortcutData: [KeyboardShortcutSettings.Action: Data?] = [:]
+    private var savedSourceControlEnabled: Any?
     private var temporaryDirectoryURL: URL?
 
     override func setUpWithError() throws {
@@ -1205,6 +1208,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
                 (action, UserDefaults.standard.data(forKey: action.defaultsKey))
             }
         )
+        savedSourceControlEnabled = UserDefaults.standard.object(forKey: sourceControlEnabledKey)
 
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -1218,6 +1222,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         for action in touchedShortcutActions {
             UserDefaults.standard.removeObject(forKey: action.defaultsKey)
         }
+        UserDefaults.standard.set(true, forKey: sourceControlEnabledKey)
         KeyboardShortcutSettings.notifySettingsFileDidChange()
     }
 
@@ -1228,6 +1233,11 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
             } else {
                 UserDefaults.standard.removeObject(forKey: action.defaultsKey)
             }
+        }
+        if let savedSourceControlEnabled {
+            UserDefaults.standard.set(savedSourceControlEnabled, forKey: sourceControlEnabledKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: sourceControlEnabledKey)
         }
         KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
         KeyboardShortcutSettings.notifySettingsFileDidChange()
@@ -1243,6 +1253,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         XCTAssertEqual(RightSidebarMode.sessions.shortcutAction, .switchRightSidebarToSessions)
         XCTAssertEqual(RightSidebarMode.feed.shortcutAction, .switchRightSidebarToFeed)
         XCTAssertEqual(RightSidebarMode.dock.shortcutAction, .switchRightSidebarToDock)
+        XCTAssertEqual(RightSidebarMode.sourceControl.shortcutAction, .switchRightSidebarToSourceControl)
     }
 
     func testModeShortcutsUsePrivateControlDigitDefaults() {
@@ -1265,6 +1276,10 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         XCTAssertEqual(
             RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "5", modifiers: [.control], keyCode: 23)),
             .dock
+        )
+        XCTAssertEqual(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "6", modifiers: [.control], keyCode: 22)),
+            .sourceControl
         )
     }
 

@@ -51580,109 +51580,109 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, or source-control"
+            "value": "يحتاج right-sidebar set إلى وضع: files أو find أو vault أو sessions أو feed أو dock أو source-control"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, or source-control"
+            "value": "right-sidebar set zahtijeva način: files, find, vault, sessions, feed, dock ili source-control"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, or source-control"
+            "value": "right-sidebar set kræver en tilstand: files, find, vault, sessions, feed, dock eller source-control"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, or source-control"
+            "value": "right-sidebar set benötigt einen Modus: files, find, vault, sessions, feed, dock oder source-control"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, or source-control"
+            "value": "right-sidebar set requiere un modo: files, find, vault, sessions, feed, dock o source-control"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, or source-control"
+            "value": "right-sidebar set nécessite un mode : files, find, vault, sessions, feed, dock ou source-control"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, or source-control"
+            "value": "right-sidebar set richiede una modalità: files, find, vault, sessions, feed, dock o source-control"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, or source-control"
+            "value": "right-sidebar set ត្រូវការរបៀបមួយ៖ files, find, vault, sessions, feed, dock ឬ source-control"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, or source-control"
+            "value": "right-sidebar set에는 모드가 필요합니다: files, find, vault, sessions, feed, dock 또는 source-control"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, or source-control"
+            "value": "right-sidebar set krever en modus: files, find, vault, sessions, feed, dock eller source-control"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, or source-control"
+            "value": "right-sidebar set wymaga trybu: files, find, vault, sessions, feed, dock lub source-control"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, or source-control"
+            "value": "right-sidebar set requer um modo: files, find, vault, sessions, feed, dock ou source-control"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, or source-control"
+            "value": "для right-sidebar set требуется режим: files, find, vault, sessions, feed, dock или source-control"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, or source-control"
+            "value": "right-sidebar set ต้องมีโหมด: files, find, vault, sessions, feed, dock หรือ source-control"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, or source-control"
+            "value": "right-sidebar set bir mod gerektirir: files, find, vault, sessions, feed, dock veya source-control"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, or source-control"
+            "value": "right-sidebar set потребує режиму: files, find, vault, sessions, feed, dock або source-control"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, or source-control"
+            "value": "right-sidebar set 需要指定模式：files、find、vault、sessions、feed、dock 或 source-control"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, or source-control"
+            "value": "right-sidebar set 需要指定模式：files、find、vault、sessions、feed、dock 或 source-control"
           }
         }
       }
@@ -149066,13 +149066,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: Usage: right_sidebar <toggle|show|hide|focus|set|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
+            "value": "ERROR: Usage: right_sidebar <toggle|show|hide|focus|set|set-mode|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: 使用法: right_sidebar <toggle|show|hide|focus|set|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
+            "value": "ERROR: 使用法: right_sidebar <toggle|show|hide|focus|set|set-mode|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: الاستخدام: right_sidebar <toggle|show|hide|focus|set|set-mode|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Upotreba: right_sidebar <toggle|show|hide|focus|set|set-mode|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Brug: right_sidebar <toggle|show|hide|focus|set|set-mode|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Verwendung: right_sidebar <toggle|show|hide|focus|set|set-mode|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Uso: right_sidebar <toggle|show|hide|focus|set|set-mode|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Utilisation: right_sidebar <toggle|show|hide|focus|set|set-mode|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Uso: right_sidebar <toggle|show|hide|focus|set|set-mode|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: ការប្រើប្រាស់: right_sidebar <toggle|show|hide|focus|set|set-mode|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 사용법: right_sidebar <toggle|show|hide|focus|set|set-mode|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Bruk: right_sidebar <toggle|show|hide|focus|set|set-mode|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Użycie: right_sidebar <toggle|show|hide|focus|set|set-mode|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Uso: right_sidebar <toggle|show|hide|focus|set|set-mode|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Использование: right_sidebar <toggle|show|hide|focus|set|set-mode|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: การใช้งาน: right_sidebar <toggle|show|hide|focus|set|set-mode|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Kullanım: right_sidebar <toggle|show|hide|focus|set|set-mode|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Використання: right_sidebar <toggle|show|hide|focus|set|set-mode|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 用法：right_sidebar <toggle|show|hide|focus|set|set-mode|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 用法：right_sidebar <toggle|show|hide|focus|set|set-mode|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
           }
         }
       }
@@ -149146,109 +149254,109 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: Usage: right_sidebar set|set-mode <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: الاستخدام: right_sidebar set|set-mode <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: Usage: right_sidebar set|set-mode <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: Upotreba: right_sidebar set|set-mode <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: Usage: right_sidebar set|set-mode <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: Brug: right_sidebar set|set-mode <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: Usage: right_sidebar set|set-mode <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: Verwendung: right_sidebar set|set-mode <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: Usage: right_sidebar set|set-mode <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: Uso: right_sidebar set|set-mode <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: Usage: right_sidebar set|set-mode <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: Utilisation: right_sidebar set|set-mode <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: Usage: right_sidebar set|set-mode <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: Uso: right_sidebar set|set-mode <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: Usage: right_sidebar set|set-mode <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: ការប្រើប្រាស់: right_sidebar set|set-mode <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: Usage: right_sidebar set|set-mode <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: 사용법: right_sidebar set|set-mode <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: Usage: right_sidebar set|set-mode <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: Bruk: right_sidebar set|set-mode <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: Usage: right_sidebar set|set-mode <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: Użycie: right_sidebar set|set-mode <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: Usage: right_sidebar set|set-mode <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: Uso: right_sidebar set|set-mode <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: Usage: right_sidebar set|set-mode <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: Использование: right_sidebar set|set-mode <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: Usage: right_sidebar set|set-mode <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: การใช้งาน: right_sidebar set|set-mode <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: Usage: right_sidebar set|set-mode <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: Kullanım: right_sidebar set|set-mode <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: Usage: right_sidebar set|set-mode <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: Використання: right_sidebar set|set-mode <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: Usage: right_sidebar set|set-mode <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: 用法：right_sidebar set|set-mode <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: Usage: right_sidebar set|set-mode <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: 用法：right_sidebar set|set-mode <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         }
       }
@@ -169492,109 +169600,109 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hides Source Control from the right sidebar until you enable it here."
+            "value": "يخفي التحكم بالمصدر من الشريط الجانبي الأيمن حتى تفعّله هنا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hides Source Control from the right sidebar until you enable it here."
+            "value": "Kontrola izvornog koda skrivena je s desne bočne trake dok je ovdje ne omogućite."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hides Source Control from the right sidebar until you enable it here."
+            "value": "Skjuler kildekodekontrol fra højre sidepanel, indtil du aktiverer den her."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hides Source Control from the right sidebar until you enable it here."
+            "value": "Blendet die Quellcodeverwaltung aus der rechten Seitenleiste aus, bis Sie sie hier aktivieren."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hides Source Control from the right sidebar until you enable it here."
+            "value": "Oculta el control de código fuente de la barra lateral derecha hasta que lo actives aquí."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hides Source Control from the right sidebar until you enable it here."
+            "value": "Masque le contrôle de code source dans la barre latérale droite jusqu’à son activation ici."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hides Source Control from the right sidebar until you enable it here."
+            "value": "Nasconde il controllo del codice sorgente dalla barra laterale destra finché non lo abiliti qui."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hides Source Control from the right sidebar until you enable it here."
+            "value": "លាក់ការគ្រប់គ្រងកូដប្រភពពីរបារចំហៀងខាងស្តាំ រហូតដល់អ្នកបើកវានៅទីនេះ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hides Source Control from the right sidebar until you enable it here."
+            "value": "여기에서 활성화할 때까지 오른쪽 사이드바에서 소스 제어를 숨깁니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hides Source Control from the right sidebar until you enable it here."
+            "value": "Skjuler kildekodekontroll fra høyre sidepanel til du aktiverer den her."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hides Source Control from the right sidebar until you enable it here."
+            "value": "Ukrywa kontrolę kodu źródłowego na prawym pasku bocznym, dopóki nie włączysz jej tutaj."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hides Source Control from the right sidebar until you enable it here."
+            "value": "Oculta o controle de código-fonte da barra lateral direita até você ativá-lo aqui."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hides Source Control from the right sidebar until you enable it here."
+            "value": "Скрывает управление исходным кодом на правой боковой панели, пока вы не включите его здесь."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hides Source Control from the right sidebar until you enable it here."
+            "value": "ซ่อนการควบคุมซอร์สโค้ดจากแถบด้านขวาจนกว่าคุณจะเปิดใช้ที่นี่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hides Source Control from the right sidebar until you enable it here."
+            "value": "Burada etkinleştirene kadar Kaynak Denetimini sağ kenar çubuğunda gizler."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hides Source Control from the right sidebar until you enable it here."
+            "value": "Приховує керування вихідним кодом на правій бічній панелі, доки ви не ввімкнете його тут."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hides Source Control from the right sidebar until you enable it here."
+            "value": "在此启用前，源代码管理不会显示在右侧边栏中。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hides Source Control from the right sidebar until you enable it here."
+            "value": "在此啟用前，原始碼管理會隱藏在右側邊欄中。"
           }
         }
       }
@@ -169617,109 +169725,109 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows Source Control in the right sidebar mode switcher for Git changes."
+            "value": "يعرض التحكم بالمصدر في مبدّل أوضاع الشريط الجانبي الأيمن لتغييرات Git."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows Source Control in the right sidebar mode switcher for Git changes."
+            "value": "Prikazuje kontrolu izvornog koda u prebacivaču desne bočne trake za Git promjene."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows Source Control in the right sidebar mode switcher for Git changes."
+            "value": "Viser kildekodekontrol i højre sidepanels tilstandsvælger for Git-ændringer."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows Source Control in the right sidebar mode switcher for Git changes."
+            "value": "Zeigt die Quellcodeverwaltung im Modusumschalter der rechten Seitenleiste für Git-Änderungen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows Source Control in the right sidebar mode switcher for Git changes."
+            "value": "Muestra el control de código fuente en el selector de modos de la barra lateral derecha para cambios de Git."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows Source Control in the right sidebar mode switcher for Git changes."
+            "value": "Affiche le contrôle de code source dans le sélecteur de modes de la barre latérale droite pour les modifications Git."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows Source Control in the right sidebar mode switcher for Git changes."
+            "value": "Mostra il controllo del codice sorgente nel selettore della barra laterale destra per le modifiche Git."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows Source Control in the right sidebar mode switcher for Git changes."
+            "value": "បង្ហាញការគ្រប់គ្រងកូដប្រភពក្នុងកម្មវិធីប្ដូររបៀបរបារចំហៀងខាងស្តាំសម្រាប់ការផ្លាស់ប្តូរ Git។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows Source Control in the right sidebar mode switcher for Git changes."
+            "value": "Git 변경 사항을 위해 오른쪽 사이드바 모드 전환기에 소스 제어를 표시합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows Source Control in the right sidebar mode switcher for Git changes."
+            "value": "Viser kildekodekontroll i høyre sidepanels modusvelger for Git-endringer."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows Source Control in the right sidebar mode switcher for Git changes."
+            "value": "Pokazuje kontrolę kodu źródłowego w przełączniku trybu prawego paska bocznego dla zmian Git."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows Source Control in the right sidebar mode switcher for Git changes."
+            "value": "Mostra o controle de código-fonte no seletor de modo da barra lateral direita para alterações do Git."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows Source Control in the right sidebar mode switcher for Git changes."
+            "value": "Показывает управление исходным кодом в переключателе режимов правой боковой панели для изменений Git."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows Source Control in the right sidebar mode switcher for Git changes."
+            "value": "แสดงการควบคุมซอร์สโค้ดในตัวสลับโหมดแถบด้านขวาสำหรับการเปลี่ยนแปลง Git"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows Source Control in the right sidebar mode switcher for Git changes."
+            "value": "Git değişiklikleri için Kaynak Denetimini sağ kenar çubuğu mod seçicisinde gösterir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows Source Control in the right sidebar mode switcher for Git changes."
+            "value": "Показує керування вихідним кодом у перемикачі режимів правої бічної панелі для змін Git."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows Source Control in the right sidebar mode switcher for Git changes."
+            "value": "在右侧边栏模式切换器中显示源代码管理以查看 Git 更改。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows Source Control in the right sidebar mode switcher for Git changes."
+            "value": "在右側邊欄模式切換器中顯示原始碼管理以查看 Git 變更。"
           }
         }
       }
@@ -269269,109 +269377,109 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open a workspace in a Git repository to see changes."
+            "value": "افتح مساحة عمل في مستودع Git لرؤية التغييرات."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open a workspace in a Git repository to see changes."
+            "value": "Otvorite radni prostor u Git spremištu da biste vidjeli promjene."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open a workspace in a Git repository to see changes."
+            "value": "Åbn et arbejdsområde i et Git-lager for at se ændringer."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open a workspace in a Git repository to see changes."
+            "value": "Öffnen Sie einen Arbeitsbereich in einem Git-Repository, um Änderungen anzuzeigen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open a workspace in a Git repository to see changes."
+            "value": "Abre un espacio de trabajo en un repositorio Git para ver los cambios."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open a workspace in a Git repository to see changes."
+            "value": "Ouvrez un espace de travail dans un dépôt Git pour voir les modifications."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open a workspace in a Git repository to see changes."
+            "value": "Apri un workspace in un repository Git per visualizzare le modifiche."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open a workspace in a Git repository to see changes."
+            "value": "បើក workspace ក្នុងឃ្លាំង Git ដើម្បីមើលការផ្លាស់ប្តូរ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open a workspace in a Git repository to see changes."
+            "value": "변경 사항을 보려면 Git 저장소의 작업 공간을 여세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open a workspace in a Git repository to see changes."
+            "value": "Åpne et arbeidsområde i et Git-repositorium for å se endringer."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open a workspace in a Git repository to see changes."
+            "value": "Otwórz obszar roboczy w repozytorium Git, aby zobaczyć zmiany."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open a workspace in a Git repository to see changes."
+            "value": "Abra um workspace em um repositório Git para ver as alterações."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open a workspace in a Git repository to see changes."
+            "value": "Откройте рабочую область в репозитории Git, чтобы увидеть изменения."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open a workspace in a Git repository to see changes."
+            "value": "เปิดเวิร์กสเปซในที่เก็บ Git เพื่อดูการเปลี่ยนแปลง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open a workspace in a Git repository to see changes."
+            "value": "Değişiklikleri görmek için bir Git deposunda çalışma alanı açın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open a workspace in a Git repository to see changes."
+            "value": "Відкрийте робочу область у Git-репозиторії, щоб переглянути зміни."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open a workspace in a Git repository to see changes."
+            "value": "在 Git 仓库中打开工作区即可查看更改。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open a workspace in a Git repository to see changes."
+            "value": "在 Git 儲存庫中開啟工作區即可查看變更。"
           }
         }
       }
@@ -269519,125 +269627,111 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your working tree is clean."
+            "value": "شجرة العمل نظيفة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your working tree is clean."
+            "value": "Vaše radno stablo je čisto."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your working tree is clean."
+            "value": "Dit arbejdstræ er rent."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your working tree is clean."
+            "value": "Ihr Arbeitsbaum ist sauber."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your working tree is clean."
+            "value": "Tu árbol de trabajo está limpio."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your working tree is clean."
+            "value": "Votre arbre de travail est propre."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your working tree is clean."
+            "value": "L’albero di lavoro è pulito."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your working tree is clean."
+            "value": "មែកធាងការងាររបស់អ្នកស្អាត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your working tree is clean."
+            "value": "작업 트리가 깨끗합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your working tree is clean."
+            "value": "Arbeidstreet ditt er rent."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your working tree is clean."
+            "value": "Twoje drzewo robocze jest czyste."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your working tree is clean."
+            "value": "Sua árvore de trabalho está limpa."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your working tree is clean."
+            "value": "Рабочее дерево чистое."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your working tree is clean."
+            "value": "แผนผังการทำงานของคุณสะอาด"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your working tree is clean."
+            "value": "Çalışma ağacınız temiz."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your working tree is clean."
+            "value": "Ваше робоче дерево чисте."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your working tree is clean."
+            "value": "工作树是干净的。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your working tree is clean."
+            "value": "工作樹是乾淨的。"
           }
         }
-      }
-    },
-    "sourceControl.group.merge": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Merge Changes" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "マージの変更" } }
-      }
-    },
-    "sourceControl.group.staged": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Staged Changes" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ステージ済みの変更" } }
       }
     },
     "sourceControl.group.changes": {
@@ -269908,7 +270002,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@, %@"
+            "value": "%@، %@"
           }
         },
         "bs": {
@@ -270004,13 +270098,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@, %@"
+            "value": "%@，%@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@, %@"
+            "value": "%@，%@"
           }
         }
       }

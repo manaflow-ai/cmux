@@ -37,10 +37,11 @@ extension RightSidebarMode {
     static func modeShortcut(
         for event: NSEvent,
         allowingAction: (KeyboardShortcutSettings.Action) -> Bool,
-        registry: RightSidebarPanelRegistry = RightSidebarPanelRegistry()
+        registry: RightSidebarPanelRegistry = RightSidebarPanelRegistry(),
+        defaults: UserDefaults = .standard
     ) -> RightSidebarMode? {
         guard event.type == .keyDown else { return nil }
-        for mode in registry.availableModes() {
+        for mode in registry.availableModes(defaults: defaults) {
             guard let action = mode.shortcutAction,
                   allowingAction(action),
                   KeyboardShortcutSettings.shortcut(for: action).matches(event: event) else {

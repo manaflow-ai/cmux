@@ -1,7 +1,7 @@
 import Foundation
 
 /// The status groups currently exposed by the read-only Source Control panel.
-enum SourceControlGroup: String, CaseIterable, Hashable {
+enum SourceControlGroup: String, CaseIterable, Hashable, Sendable {
     case changes
     case untracked
 

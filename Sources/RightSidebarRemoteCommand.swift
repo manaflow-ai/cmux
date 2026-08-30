@@ -46,7 +46,10 @@ enum RightSidebarRemoteApplyResult: Equatable, Sendable {
 }
 
 extension RightSidebarRemoteRequest {
-    static func parse(tokens: [String]) -> Result<RightSidebarRemoteRequest, RightSidebarRemoteParseError> {
+    static func parse(
+        tokens: [String],
+        defaults: UserDefaults = .standard
+    ) -> Result<RightSidebarRemoteRequest, RightSidebarRemoteParseError> {
         var positional: [String] = []
         var target = RightSidebarRemoteTarget()
         var noFocus = false
@@ -102,7 +105,7 @@ extension RightSidebarRemoteRequest {
         }
 
         guard let action = positional.first?.lowercased() else {
-            return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage", defaultValue: "ERROR: Usage: right_sidebar <toggle|show|hide|focus|set|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]")))
+            return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage", defaultValue: "ERROR: Usage: right_sidebar <toggle|show|hide|focus|set|set-mode|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]")))
         }
 
         switch action {
@@ -137,7 +140,7 @@ extension RightSidebarRemoteRequest {
             }
             let rawMode = positional[1].trimmingCharacters(in: .whitespacesAndNewlines)
             if let mode = RightSidebarMode.from(cliArgument: rawMode) {
-                if mode == .sourceControl, !mode.isAvailable() {
+                if mode == .sourceControl, !mode.isAvailable(defaults: defaults) {
                     return .failure(.init(message: "ERROR: Right sidebar mode 'source-control' is unavailable; enable Source Control in Settings"))
                 }
                 return .success(.init(command: .setMode(mode, focus: !noFocus), target: target))
@@ -151,7 +154,7 @@ extension RightSidebarRemoteRequest {
                 return .failure(.init(message: String(localized: "rightSidebar.remote.error.unknownCommand", defaultValue: "ERROR: Unknown right sidebar command '\(action)'")))
             }
             if let mode = RightSidebarMode.from(cliArgument: action) {
-                if mode == .sourceControl, !mode.isAvailable() {
+                if mode == .sourceControl, !mode.isAvailable(defaults: defaults) {
                     return .failure(.init(message: "ERROR: Right sidebar mode 'source-control' is unavailable; enable Source Control in Settings"))
                 }
                 return .success(.init(command: .setMode(mode, focus: true), target: target))

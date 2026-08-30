@@ -716,6 +716,8 @@ final class FileExplorerStore: ObservableObject {
     /// Projection kept alongside ``gitStatusByPath``. The published map remains
     /// the store's single observation signal for existing Files consumers.
     private(set) var gitStatusSnapshot: GitStatusSnapshot = .empty
+    /// Precomputed Source Control sections built off the SwiftUI render path.
+    @Published private(set) var sourceControlGroups: [SourceControlGroupSection] = []
     @Published private(set) var contentRevision = 0
     @Published private(set) var rootStatusMessage: String?
     private(set) var workspaceRootIdentity: UUID?
@@ -835,6 +837,7 @@ final class FileExplorerStore: ObservableObject {
         let requestedProviderIdentity = provider.map(ObjectIdentifier.init)
         gitStatusByPath = [:]
         gitStatusSnapshot = .empty
+        sourceControlGroups = []
 
         guard !rootPath.isEmpty else {
             return
@@ -851,6 +854,10 @@ final class FileExplorerStore: ObservableObject {
                     directory: path, destination: dest, port: port,
                     identityFile: identity, sshOptions: opts
                 )
+                let sourceControlGroups = SourceControlGroupSection.makeSections(
+                    entries: snapshot.displayableEntries,
+                    root: requestedRootPath
+                )
                 DispatchQueue.main.async { [weak self] in
                     guard let self,
                           self.gitStatusRequestGeneration == requestGeneration,
@@ -860,6 +867,7 @@ final class FileExplorerStore: ObservableObject {
                         return
                     }
                     self.gitStatusSnapshot = snapshot
+                    self.sourceControlGroups = sourceControlGroups
                     self.gitStatusByPath = snapshot.statusesByPath
                 }
             }
@@ -867,6 +875,10 @@ final class FileExplorerStore: ObservableObject {
             let gitStatusProvider = self.gitStatusProvider
             DispatchQueue.global(qos: .utility).async {
                 let snapshot = gitStatusProvider.fetchSnapshot(directory: path)
+                let sourceControlGroups = SourceControlGroupSection.makeSections(
+                    entries: snapshot.displayableEntries,
+                    root: requestedRootPath
+                )
                 DispatchQueue.main.async { [weak self] in
                     guard let self,
                           self.gitStatusRequestGeneration == requestGeneration,
@@ -876,6 +888,7 @@ final class FileExplorerStore: ObservableObject {
                         return
                     }
                     self.gitStatusSnapshot = snapshot
+                    self.sourceControlGroups = sourceControlGroups
                     self.gitStatusByPath = snapshot.statusesByPath
                 }
             }

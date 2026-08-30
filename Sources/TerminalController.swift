@@ -14499,13 +14499,19 @@ class TerminalController {
     }
 
 #if DEBUG
-    func parseRightSidebarRemoteRequestForTesting(_ commandLine: String) -> Result<RightSidebarRemoteRequest, RightSidebarRemoteParseError> {
+    func parseRightSidebarRemoteRequestForTesting(
+        _ commandLine: String,
+        defaults: UserDefaults = .standard
+    ) -> Result<RightSidebarRemoteRequest, RightSidebarRemoteParseError> {
         let trimmed = commandLine.trimmingCharacters(in: .whitespacesAndNewlines)
         let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
         guard parts.first?.lowercased() == "right_sidebar" else {
-            return .failure(.init(message: "ERROR: Usage: right_sidebar <toggle|show|hide|focus|set|mode>"))
+            return .failure(.init(message: "ERROR: Usage: right_sidebar <toggle|show|hide|focus|set|set-mode|mode>"))
         }
-        return RightSidebarRemoteRequest.parse(tokens: Self.tokenizeArgs(parts.count > 1 ? parts[1] : ""))
+        return RightSidebarRemoteRequest.parse(
+            tokens: Self.tokenizeArgs(parts.count > 1 ? parts[1] : ""),
+            defaults: defaults
+        )
     }
 
     func rightSidebarCommandAllowsInAppFocusMutationsForTesting(_ commandLine: String) -> Bool {
