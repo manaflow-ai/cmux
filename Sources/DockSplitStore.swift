@@ -1342,6 +1342,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         } else if let filePreview = panel as? FilePreviewPanel {
             panelCancellables.removeValue(forKey: panel.id)
             filePreview.bindTabMetadata(to: self)
+        } else if panel is TerminalPanel {
+            // Keep the terminal search-state subscription installed above.
         } else {
             panelCancellables.removeValue(forKey: panel.id)
         }
