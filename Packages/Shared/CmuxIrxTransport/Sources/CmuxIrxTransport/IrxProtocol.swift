@@ -18,6 +18,11 @@ public enum IrxProtocol {
     /// keeping worst-case detection-plus-redial inside single-digit seconds.
     public static let keepaliveInterval: Duration = .seconds(5)
     public static let keepaliveDeadline: Duration = .seconds(2)
+    /// Consecutive pong misses before the connection is declared dead. One
+    /// transient stall (relay hiccup, brief peer pause) must never sever a
+    /// healthy session; a re-ping fires immediately after a miss, so real
+    /// death still detects in ~strikeLimit x deadline.
+    public static let keepaliveStrikeLimit = 2
 }
 
 /// Machine-readable close/denial codes. The code travels in the QUIC

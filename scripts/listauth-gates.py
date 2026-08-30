@@ -314,6 +314,8 @@ def gate_soak():
                 if args.mode == "relay" and not path.startswith("relay:"):
                     failures.append({"side": "client", "at_s": int(now - t0),
                                      "event": event, "why": "non-relay path in relay mode"})
+            if key == ("keepalive", "miss"):
+                obs["keepalive_misses"] = obs.get("keepalive_misses", 0) + 1
             if key == ("endpoint", "relay-credential-rotated"):
                 obs["client_rotations"] += 1
             if key == ("control-plane", "directory"):

@@ -233,8 +233,10 @@ public actor IrxConnection {
     /// Continuous client-side keepalive on a dedicated lane: one tiny ping
     /// every interval, pong deadline enforced per ping, every exchange
     /// journaled with RTT and the selected path (the soak's relay-attribution
-    /// evidence). A miss closes the connection with `keepalive-timeout` and
-    /// reports death so the engine redials immediately.
+    /// evidence). A single miss re-pings immediately (journaled as a `miss`,
+    /// not a death: one transient stall must never sever a healthy session);
+    /// `IrxProtocol.keepaliveStrikeLimit` consecutive misses close with
+    /// `keepalive-timeout` and report death so the engine redials at once.
     public func startClientKeepalive(
         interval: Duration = IrxProtocol.keepaliveInterval,
         deadline: Duration = IrxProtocol.keepaliveDeadline,
@@ -243,8 +245,11 @@ public actor IrxConnection {
         guard keepaliveTask == nil else { return }
         let lane = try await openLane(IrxLaneDescriptor(lane: .keepalive))
         keepaliveTask = Task { [journal] in
+            var strikes = 0
             while !Task.isCancelled {
-                try? await Task.sleep(for: interval)
+                if strikes == 0 {
+                    try? await Task.sleep(for: interval)
+                }
                 guard !Task.isCancelled else { return }
                 let seq = await self.nextPingSeq()
                 let sentAt = DispatchTime.now()
@@ -274,8 +279,21 @@ public actor IrxConnection {
                             "path": self.selectedPathDescription(),
                         ]
                     )
+                    strikes = 0
                 } catch {
                     guard !Task.isCancelled else { return }
+                    strikes += 1
+                    if strikes < IrxProtocol.keepaliveStrikeLimit {
+                        journal.record(
+                            "keepalive", "miss",
+                            [
+                                "seq": String(seq),
+                                "strike": String(strikes),
+                                "path": self.selectedPathDescription(),
+                            ]
+                        )
+                        continue
+                    }
                     journal.record(
                         "keepalive", "timeout",
                         ["seq": String(seq), "path": self.selectedPathDescription()]
