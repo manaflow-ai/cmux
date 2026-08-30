@@ -1497,6 +1497,26 @@ mod tests {
     }
 
     #[test]
+    fn failed_child_termination_can_be_retried() {
+        let lifecycle = ChildLifecycle::new(Some(42));
+        let attempts = AtomicUsize::new(0);
+
+        assert!(!ChildLifecycle::terminate(&lifecycle, |_| {
+            attempts.fetch_add(1, AtomicOrdering::Relaxed);
+            Err(std::io::Error::other("transient kill failure"))
+        }));
+        assert!(ChildLifecycle::terminate(&lifecycle, |_| {
+            attempts.fetch_add(1, AtomicOrdering::Relaxed);
+            Ok(())
+        }));
+        assert!(!ChildLifecycle::terminate(&lifecycle, |_| {
+            attempts.fetch_add(1, AtomicOrdering::Relaxed);
+            Ok(())
+        }));
+        assert_eq!(attempts.load(AtomicOrdering::Relaxed), 2);
+    }
+
+    #[test]
     fn session_socket_path_matches_core_fallback_order() {
         let session = format!("legacy-{}", "x".repeat(200));
         let preferred_dir = PathBuf::from("/run/user/501/cmux-tui-501");
