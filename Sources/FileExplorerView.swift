@@ -603,14 +603,6 @@ struct FileExplorerPanelView: NSViewRepresentable {
                     promotedWriters.append(fallbackWriter)
                 }
                 pendingPreviewDrag.finishPending(preserving: promotedWriters)
-                // The ordered list mirrors AppKit's pasteboard item order; use
-                // its first writer as the canonical source identity.
-                let promotedWriter = promotedWriters.first ?? fallbackWriter
-                let promotedOwnerships = pendingPreviewDrag.promote(writers: promotedWriters)
-                for writer in promotedWriters {
-                    writer.materializeRegisteredItem()
-                }
-                promotedWriter?.materializeRegisteredPayload(to: session.draggingPasteboard)
                 supersedeNativeDragIfNeeded(
                     previousSession: outlineView.activeNativeDragSession,
                     newSession: session,
@@ -630,6 +622,14 @@ struct FileExplorerPanelView: NSViewRepresentable {
                         outlineView.activeNativeDragSession = nil
                     }
                 )
+                // The ordered list mirrors AppKit's pasteboard item order; use
+                // its first writer as the canonical source identity.
+                let promotedWriter = promotedWriters.first ?? fallbackWriter
+                let promotedOwnerships = pendingPreviewDrag.promote(writers: promotedWriters)
+                for writer in promotedWriters {
+                    writer.materializeRegisteredItem()
+                }
+                promotedWriter?.materializeRegisteredPayload(to: session.draggingPasteboard)
                 outlineView.activeNativeDragDelegateMarker = self
                 outlineView.activeNativeDragSession = session
                 outlineView.activeNativeDragWriter = promotedWriter
@@ -1800,14 +1800,6 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
             promotedWriters.append(fallbackWriter)
         }
         pendingPreviewDrag.finishPending(preserving: promotedWriters)
-        // The ordered list mirrors AppKit's pasteboard item order; use its
-        // first writer as the canonical source identity.
-        let promotedWriter = promotedWriters.first ?? fallbackWriter
-        let promotedOwnerships = pendingPreviewDrag.promote(writers: promotedWriters)
-        for writer in promotedWriters {
-            writer.materializeRegisteredItem()
-        }
-        promotedWriter?.materializeRegisteredPayload(to: session.draggingPasteboard)
         coordinator.supersedeNativeDragIfNeeded(
             previousSession: searchResultsView.activeNativeDragSession,
             newSession: session,
@@ -1827,6 +1819,14 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
                 searchResultsView.activeNativeDragSession = nil
             }
         )
+        // The ordered list mirrors AppKit's pasteboard item order; use its
+        // first writer as the canonical source identity.
+        let promotedWriter = promotedWriters.first ?? fallbackWriter
+        let promotedOwnerships = pendingPreviewDrag.promote(writers: promotedWriters)
+        for writer in promotedWriters {
+            writer.materializeRegisteredItem()
+        }
+        promotedWriter?.materializeRegisteredPayload(to: session.draggingPasteboard)
         // The pasteboard writer retains this exact container through the native
         // terminal callback. Keep only a weak marker on the table: a strong
         // table → container edge would create a retain cycle.
@@ -1835,8 +1835,8 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         searchResultsView.activeNativeDragOwnerships = promotedOwnerships.isEmpty
             ? (promotedWriter?.nativeDragOwnership()).map { [$0] } ?? []
             : promotedOwnerships
-                searchResultsView.pendingNativeDragWriter = nil
-                searchResultsView.pendingNativeDragTokenID = nil
+        searchResultsView.pendingNativeDragWriter = nil
+        searchResultsView.pendingNativeDragTokenID = nil
         searchResultsView.activeNativeDragSession = session
     }
 
