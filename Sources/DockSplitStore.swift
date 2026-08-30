@@ -1204,21 +1204,21 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     func installSubscription(for panel: any Panel) {
         if let terminal = panel as? TerminalPanel {
             configureAgentHibernationResume(for: terminal)
+            let terminalSurface = terminal.surface
             let terminalSearchChanges = terminal.$searchState
                 .map { $0 != nil }
                 .removeDuplicates()
                 .map { _ in () }
             let terminalSelectionChanges = NotificationCenter.default.publisher(
                 for: .terminalSelectionDidChange,
-                object: terminal.surface
+                object: terminalSurface
             )
             // Ghostty can emit selection-change actions for every mouse-move
             // while a drag selection is in progress. Reduce that stream to the
             // capability value before refreshing the Dock snapshot so the
             // main-actor tree traversal runs only when selection availability
             // actually changes.
-            .receive(on: DispatchQueue.main)
-            .map { [weak terminal] _ in terminal?.hasSelection() ?? false }
+            .map { [weak terminalSurface] _ in terminalSurface?.hasSelection() ?? false }
             .removeDuplicates()
             .map { _ in () }
             panelCancellables[panel.id] = terminalSearchChanges

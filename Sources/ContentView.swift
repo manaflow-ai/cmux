@@ -6838,7 +6838,21 @@ struct ContentView: View {
             )
         }
 
-        if let browserTarget = commandPaletteBrowserActionTarget,
+        let dockSurfaceTarget = commandPaletteDockSurfaceTarget()
+        if let dockSurfaceTarget {
+            // Keep a transient Dock move/close from falling through to the
+            // selected main-workspace panel. The handlers and their context
+            // snapshot must either agree on this captured Dock target or fail
+            // closed until the palette is rebuilt.
+            guard let tabId = dockSurfaceTarget.dock.surfaceId(
+                forPanelId: dockSurfaceTarget.panelId
+            ), dockSurfaceTarget.dock.bonsplitController.tab(tabId) != nil else {
+                return snapshot
+            }
+        }
+
+        if dockSurfaceTarget == nil,
+           let browserTarget = commandPaletteBrowserActionTarget,
            let app = AppDelegate.shared,
            let dock = app.dock(resolving: browserTarget),
            let browserPanel = dock.browserPanel(
@@ -6897,7 +6911,7 @@ struct ContentView: View {
                     CommandPaletteContextKeys.panelHasUnread,
                     dock.panelIsUnread(browserTarget.panelId)
                 )
-        } else if let dockSurface = commandPaletteDockSurfaceTarget(),
+        } else if let dockSurface = dockSurfaceTarget,
                   let tabId = dockSurface.dock.surfaceId(
                       forPanelId: dockSurface.panelId
                   ),
@@ -9114,7 +9128,8 @@ struct ContentView: View {
                     direction: .right,
                     action: .splitRight,
                     preferredWindow: observedWindow,
-                    preferredDock: dockSurfaceStore
+                    preferredDock: dockSurfaceStore,
+                    preferredDockPanelId: dockSurfacePanelId
                 ) == true else {
                     NSSound.beep()
                     return
@@ -9154,7 +9169,8 @@ struct ContentView: View {
                     direction: .down,
                     action: .splitDown,
                     preferredWindow: observedWindow,
-                    preferredDock: dockSurfaceStore
+                    preferredDock: dockSurfaceStore,
+                    preferredDockPanelId: dockSurfacePanelId
                 ) == true else {
                     NSSound.beep()
                     return
@@ -9176,7 +9192,8 @@ struct ContentView: View {
                     direction: .right,
                     action: .splitBrowserRight,
                     preferredWindow: observedWindow,
-                    preferredDock: dockSurfaceStore
+                    preferredDock: dockSurfaceStore,
+                    preferredDockPanelId: dockSurfacePanelId
                 ) == true else {
                     NSSound.beep()
                     return
@@ -9196,7 +9213,8 @@ struct ContentView: View {
                     direction: .down,
                     action: .splitBrowserDown,
                     preferredWindow: observedWindow,
-                    preferredDock: dockSurfaceStore
+                    preferredDock: dockSurfaceStore,
+                    preferredDockPanelId: dockSurfacePanelId
                 ) == true else {
                     NSSound.beep()
                     return

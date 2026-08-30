@@ -253,7 +253,8 @@ extension AppDelegate {
         direction: SplitDirection,
         action: KeyboardShortcutSettings.Action?,
         preferredWindow: NSWindow?,
-        preferredDock: DockSplitStore? = nil
+        preferredDock: DockSplitStore? = nil,
+        preferredDockPanelId: UUID? = nil
     ) -> Bool {
         if kind == .browser, !BrowserAvailabilitySettings.isEnabled() {
             return false
@@ -261,17 +262,18 @@ extension AppDelegate {
         let store: DockSplitStore?
         if let preferredDock {
             // Command-palette handlers retain the Dock captured at presentation
-            // time. Revalidate that capture against the current ownership gate
-            // so a sidebar/mode change cannot mutate a hidden or stale Dock.
-            let current: DockSplitStore? = if let action {
-                focusedDockStoreForShortcut(
-                    action: action,
+            // time. Revalidate that capture against the scope-aware ownership
+            // predicate so a sidebar/mode change cannot mutate a hidden or
+            // stale Dock (including a workspace-scoped Dock).
+            let capturedPanelId = preferredDockPanelId
+                ?? preferredDock.focusedPanelId
+            store = capturedPanelId.flatMap {
+                isCurrentCommandPaletteDockTarget(
+                    preferredDock,
+                    panelId: $0,
                     preferredWindow: preferredWindow
-                )
-            } else {
-                focusedDockStoreForShortcut(preferredWindow: preferredWindow)
+                ) ? preferredDock : nil
             }
-            store = current === preferredDock ? current : nil
         } else {
             if let action {
                 store = focusedDockStoreForShortcut(
