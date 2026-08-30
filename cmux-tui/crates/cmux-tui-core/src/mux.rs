@@ -22785,6 +22785,73 @@ mod tests {
     }
 
     #[test]
+    fn roster_fold_pages_to_a_target_beyond_the_first_journal_page() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-roster-multiple-pages-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let mux = Mux::open_persistent("roster-multiple-pages", SurfaceOptions::default(), &root)
+            .unwrap();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("terminal");
+        let event = crate::JournalIngress {
+            producer_id: crate::agent_hooks::AGENT_HOOK_PRODUCER_ID.into(),
+            manifest_version: crate::agent_hooks::AGENT_HOOK_MANIFEST_VERSION,
+            kind: "agent.state.changed".into(),
+            schema_version: 1,
+            occurred_at_ms: None,
+            subjects: vec![crate::JournalSubject {
+                kind: "terminal".into(),
+                id: terminal_id.to_string(),
+            }],
+            sensitivity: Some(crate::JournalSensitivity::Sensitive),
+            payload: serde_json::json!({
+                "format": crate::agent_hooks::AGENT_HOOK_FORMAT,
+                "adapter": {
+                    "id": crate::journal_reducers::SOCKET_REPORT_ADAPTER,
+                    "version": 1,
+                },
+                "native_event": crate::journal_reducers::SOCKET_REPORT_NATIVE_EVENT,
+                "normalized": {
+                    "state": "working",
+                    "source": "socket",
+                    "source_session": "multiple-pages-test",
+                    "updated_at_ms": "42",
+                },
+                "native": {},
+            }),
+            causation_id: None,
+            correlation_id: None,
+        };
+        let validated = mux.journal_kernel.validate_ingress(&event).unwrap();
+        let mut target = None;
+        for index in 0..513 {
+            target = Some(
+                mux.workspace_registry
+                    .lock()
+                    .unwrap()
+                    .append_journal_ingress(
+                        &event,
+                        &validated,
+                        "test",
+                        &format!("roster-multiple-pages-{index}"),
+                    )
+                    .unwrap(),
+            );
+        }
+        let target = target.expect("target commit");
+
+        mux.fold_agent_roster(&event, &target);
+        let host = mux.agent_roster.lock().unwrap();
+        assert_eq!(host.cursor, target.sequence);
+        assert!(host.roster.entries.contains_key(terminal_id.as_str()));
+        drop(host);
+        mux.shutdown();
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn malformed_roster_snapshot_replays_from_the_journal_head() {
         let root = std::env::temp_dir()
             .join(format!("cmux-roster-corrupt-{}", crate::workspace_registry::new_uuid_v4()));
