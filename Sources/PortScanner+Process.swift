@@ -541,19 +541,7 @@ extension PortScanner {
         var values: [Int: Set<Int>] = [:]
         var incomplete: Set<Int> = []
         var complete = true
-        var chunk: [Int] = []
-        for pid in pids {
-            let candidate = chunk + [pid]
-            let csv = candidate.map(String.init).joined(separator: ",")
-            if !chunk.isEmpty && csv.utf8.count + Self.lsofArgumentOverhead > Self.lsofArgumentByteBudget {
-                let result = await runLsofChunk(pidsCsv: chunk.map(String.init).joined(separator: ","))
-                for (pid, ports) in result.values { values[pid, default: []].formUnion(ports) }
-                incomplete.formUnion(result.incompletePIDs)
-                complete = complete && result.globallyComplete
-                chunk = [pid]
-            } else { chunk = candidate }
-        }
-        if !chunk.isEmpty {
+        for chunk in Self.lsofPIDChunks(pids) {
             let result = await runLsofChunk(pidsCsv: chunk.map(String.init).joined(separator: ","))
             for (pid, ports) in result.values { values[pid, default: []].formUnion(ports) }
             incomplete.formUnion(result.incompletePIDs)
@@ -562,8 +550,34 @@ extension PortScanner {
         return PortLsofScanResult(values: values, globallyComplete: complete, incompletePIDs: incomplete)
     }
 
-    private static let lsofArgumentByteBudget = 32 * 1024
-    private static let lsofArgumentOverhead = 256
+    // Keep the complete argv entry below the platform's practical exec limit.
+    // The chunk builder below accounts for separators as it appends, so it
+    // never copies or re-serializes the growing prefix.
+    static let lsofArgumentByteBudget = 32 * 1024
+    static let lsofArgumentOverhead = 256
+
+    static func lsofPIDChunks(_ pids: [Int]) -> [[Int]] {
+        guard !pids.isEmpty else { return [] }
+        var chunks: [[Int]] = []
+        var chunk: [Int] = []
+        var chunkBytes = 0
+        for pid in pids {
+            let pidBytes = String(pid).utf8.count
+            let additionalBytes = chunk.isEmpty ? pidBytes : pidBytes + 1
+            if !chunk.isEmpty,
+               chunkBytes + additionalBytes + lsofArgumentOverhead > lsofArgumentByteBudget
+            {
+                chunks.append(chunk)
+                chunk = []
+                chunkBytes = 0
+            }
+            let separatorBytes = chunk.isEmpty ? 0 : 1
+            chunk.append(pid)
+            chunkBytes += pidBytes + separatorBytes
+        }
+        if !chunk.isEmpty { chunks.append(chunk) }
+        return chunks
+    }
 
     private func runLsofChunk(pidsCsv: String) async -> PortLsofScanResult {
         let result = await commandRunner.run(
