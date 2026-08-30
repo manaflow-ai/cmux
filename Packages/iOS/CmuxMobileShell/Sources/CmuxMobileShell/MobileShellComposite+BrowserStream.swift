@@ -473,7 +473,36 @@ extension MobileShellComposite {
 
     func refreshVisibleMobileBrowserPanels() {
         guard let workspaceID = selectedWorkspace?.rpcWorkspaceID.rawValue else { return }
-        Task { await refreshMobileBrowserPanels(workspaceID: workspaceID) }
+        // Single-flight with one trailing rerun: `workspace.updated` arrives
+        // up to once per 80ms while agents stream, and stacking one panel-list
+        // RPC per event contends with delta/list traffic on the same control
+        // transport. The newest requested workspace wins the trailing slot,
+        // and the trailing rerun sees post-burst state, so the result
+        // converges exactly as the per-event version did.
+        if visibleBrowserPanelsRefreshTask != nil {
+            visibleBrowserPanelsRefreshFollowUpWorkspaceID = workspaceID
+            return
+        }
+        let refreshID = UUID()
+        visibleBrowserPanelsRefreshID = refreshID
+        visibleBrowserPanelsRefreshTask = Task { @MainActor [weak self] in
+            defer {
+                if let self, self.visibleBrowserPanelsRefreshID == refreshID {
+                    self.visibleBrowserPanelsRefreshTask = nil
+                    self.visibleBrowserPanelsRefreshID = nil
+                }
+            }
+            var nextWorkspaceID: String? = workspaceID
+            while let currentWorkspaceID = nextWorkspaceID, let self {
+                await self.refreshMobileBrowserPanels(workspaceID: currentWorkspaceID)
+                // A teardown/client-swap cancellation already cleared the
+                // follow-up state for its successor; consuming it here would
+                // issue an RPC on the replacement connection.
+                guard !Task.isCancelled else { return }
+                nextWorkspaceID = self.visibleBrowserPanelsRefreshFollowUpWorkspaceID
+                self.visibleBrowserPanelsRefreshFollowUpWorkspaceID = nil
+            }
+        }
     }
 
     func restartActiveMobileBrowserStreams() {
