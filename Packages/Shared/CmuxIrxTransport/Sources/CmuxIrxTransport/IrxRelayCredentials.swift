@@ -1,3 +1,4 @@
+import CmuxIrohTransport
 public import Foundation
 
 /// One endpoint-bound relay credential (EdDSA JWT, ~300s TTL). The relay
@@ -47,6 +48,36 @@ public enum IrxRelayCredentialPolicy {
         let remaining = expiresAt.timeIntervalSince(now)
         guard remaining > 2 else { return .seconds(1) }
         return .seconds(remaining / 2)
+    }
+
+    /// Combines expiry acceleration with the lifecycle retry policy while
+    /// preserving a broker-provided `Retry-After` floor.
+    ///
+    /// The policy delay is bounded by the caller's retry schedule. A validated
+    /// server floor may exceed that local cap, and is applied after expiry
+    /// acceleration so a nearly expired credential cannot cause a
+    /// rate-limited broker to be contacted early.
+    public static func boundedRetryDelay(
+        expiresAt: Date?,
+        now: Date,
+        policyDelay: TimeInterval,
+        retryAfterSeconds: Int?
+    ) -> TimeInterval {
+        let boundedPolicyDelay = max(0, policyDelay)
+        let expiryDelay = expiresAt.flatMap { expiryDate -> TimeInterval? in
+            guard expiryDate.timeIntervalSince(now) > 2 else { return nil }
+            let duration = retryDelay(expiresAt: expiryDate, now: now)
+            let components = duration.components
+            return TimeInterval(components.seconds)
+                + TimeInterval(components.attoseconds) / 1_000_000_000_000_000_000
+        }
+        let acceleratedDelay = min(expiryDelay ?? boundedPolicyDelay, boundedPolicyDelay)
+        guard let retryAfterSeconds else { return acceleratedDelay }
+        let serverFloor = min(
+            TimeInterval(CmxIrohBrokerCooldown.maximumRetryAfterSeconds),
+            TimeInterval(max(1, retryAfterSeconds))
+        )
+        return max(acceleratedDelay, serverFloor)
     }
 }
 

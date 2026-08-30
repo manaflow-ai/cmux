@@ -99,6 +99,30 @@ struct IrxRelayCredentialPolicyTests {
         #expect(past == .seconds(1))
     }
 
+    @Test("retry-after floor survives expiry acceleration")
+    func boundedRetryDelayHonorsServerFloor() {
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        let delay = IrxRelayCredentialPolicy.boundedRetryDelay(
+            expiresAt: now.addingTimeInterval(10),
+            now: now,
+            policyDelay: 30,
+            retryAfterSeconds: 300
+        )
+        #expect(delay == 300)
+    }
+
+    @Test("expiry acceleration remains within the lifecycle cap without a floor")
+    func boundedRetryDelayHonorsPolicyCap() {
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        let delay = IrxRelayCredentialPolicy.boundedRetryDelay(
+            expiresAt: now.addingTimeInterval(1_000),
+            now: now,
+            policyDelay: 30,
+            retryAfterSeconds: nil
+        )
+        #expect(delay == 30)
+    }
+
     @Test("usability requires margin over expiry")
     func usability() {
         let now = Date(timeIntervalSince1970: 3_000_000)

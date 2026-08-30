@@ -5,6 +5,15 @@ import Foundation
 
 @MainActor
 extension MobileHostIrxRuntime {
+    /// Starts an activation through the lifecycle-owned task so sign-out and
+    /// account changes can cancel every retry-triggered activation as well.
+    func startActivation(accountID: String) {
+        activationTask?.cancel()
+        activationTask = Task { @MainActor [weak self] in
+            await self?.activate(accountID: accountID)
+        }
+    }
+
     func handleAutopilotSuccess(accountID: String, token: UUID) {
         guard generationToken == token, activeAccountID == accountID else { return }
         activationRetryFailureCount = 0
@@ -85,7 +94,7 @@ extension MobileHostIrxRuntime {
                       self.generationToken == token,
                       self.activeAccountID == accountID else { return }
                 self.activationRetryTask = nil
-                await self.activate(accountID: accountID)
+                self.startActivation(accountID: accountID)
             }
         case .stopped:
             activationRetryTask?.cancel()

@@ -134,14 +134,12 @@ public actor IrxRelayCredentialAutopilot {
                 case let .retry(delay, _): policyDelay = delay
                 case .stopped, .reauthenticationRequired: policyDelay = 1
                 }
-                let expiryDelay = expiry.flatMap { expiryDate -> TimeInterval? in
-                    guard expiryDate.timeIntervalSinceNow > 2 else { return nil }
-                    return Self.seconds(from: IrxRelayCredentialPolicy.retryDelay(
-                        expiresAt: expiryDate,
-                        now: Date()
-                    ))
-                }
-                let delaySeconds = min(expiryDelay ?? policyDelay, policyDelay)
+                let delaySeconds = IrxRelayCredentialPolicy.boundedRetryDelay(
+                    expiresAt: expiry,
+                    now: Date(),
+                    policyDelay: policyDelay,
+                    retryAfterSeconds: failure.retryAfterSeconds
+                )
                 var failureAttributes = failure.journalAttributes
                 failureAttributes["retry_delay_s"] = String(Int(delaySeconds.rounded()))
                 failureAttributes["failure_count"] = String(failureCount)
@@ -159,9 +157,4 @@ public actor IrxRelayCredentialAutopilot {
         }
     }
 
-    private static func seconds(from duration: Duration) -> TimeInterval {
-        let components = duration.components
-        return TimeInterval(components.seconds)
-            + TimeInterval(components.attoseconds) / 1_000_000_000_000_000_000
-    }
 }
