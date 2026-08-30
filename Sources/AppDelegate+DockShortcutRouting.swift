@@ -251,7 +251,7 @@ extension AppDelegate {
     func routeSplitToFocusedDock(
         kind: DockSurfaceKind,
         direction: SplitDirection,
-        action: KeyboardShortcutSettings.Action,
+        action: KeyboardShortcutSettings.Action?,
         preferredWindow: NSWindow?,
         preferredDock: DockSplitStore? = nil
     ) -> Bool {
@@ -263,16 +263,26 @@ extension AppDelegate {
             // Command-palette handlers retain the Dock captured at presentation
             // time. Revalidate that capture against the current ownership gate
             // so a sidebar/mode change cannot mutate a hidden or stale Dock.
-            let current = focusedDockStoreForShortcut(
-                action: action,
-                preferredWindow: preferredWindow
-            )
+            let current: DockSplitStore? = if let action {
+                focusedDockStoreForShortcut(
+                    action: action,
+                    preferredWindow: preferredWindow
+                )
+            } else {
+                focusedDockStoreForShortcut(preferredWindow: preferredWindow)
+            }
             store = current === preferredDock ? current : nil
         } else {
-            store = focusedDockStoreForShortcut(
-                action: action,
-                preferredWindow: preferredWindow
-            )
+            if let action {
+                store = focusedDockStoreForShortcut(
+                    action: action,
+                    preferredWindow: preferredWindow
+                )
+            } else {
+                store = focusedDockStoreForShortcut(
+                    preferredWindow: preferredWindow
+                )
+            }
         }
         guard let store else {
             return false

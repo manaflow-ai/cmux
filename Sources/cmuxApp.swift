@@ -1354,10 +1354,12 @@ struct cmuxApp: App {
     }
 
     private func performSplitFromMenu(direction: SplitDirection) {
-        let action: KeyboardShortcutSettings.Action = switch direction {
+        let action: KeyboardShortcutSettings.Action? = switch direction {
         case .right: .splitRight
         case .down: .splitDown
-        case .left, .up: .splitRight
+        // Left/up are geometry-only directions without their own configurable
+        // shortcut action; use the generic Dock-focus gate for those paths.
+        case .left, .up: nil
         }
         if appDelegate.routeSplitToFocusedDock(
             kind: .terminal,
@@ -1374,10 +1376,12 @@ struct cmuxApp: App {
     }
 
     private func performBrowserSplitFromMenu(direction: SplitDirection) {
-        let action: KeyboardShortcutSettings.Action = switch direction {
+        let action: KeyboardShortcutSettings.Action? = switch direction {
         case .right: .splitBrowserRight
         case .down: .splitBrowserDown
-        case .left, .up: .splitBrowserRight
+        // Left/up are geometry-only directions without their own configurable
+        // shortcut action; use the generic Dock-focus gate for those paths.
+        case .left, .up: nil
         }
         if appDelegate.routeSplitToFocusedDock(
             kind: .browser,
