@@ -12,9 +12,23 @@ import Testing
 @MainActor
 private final class SidebarAgentElapsedClockTestTarget: SidebarAgentElapsedClockTarget {
     private(set) var receivedDates: [Date] = []
+    private var tickWaiters: [CheckedContinuation<Void, Never>] = []
 
     func sidebarAgentElapsedClockDidTick(at now: Date) {
         receivedDates.append(now)
+        let waiters = tickWaiters
+        tickWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+    }
+
+    func waitForNextTick(after count: Int) async {
+        await withCheckedContinuation { continuation in
+            guard receivedDates.count <= count else {
+                continuation.resume()
+                return
+            }
+            tickWaiters.append(continuation)
+        }
     }
 }
 
@@ -141,6 +155,27 @@ struct SidebarWorkspaceAgentActivityTests {
         #expect(!clock.isTickerRunning)
         clock.tick(at: Date(timeIntervalSince1970: 124))
         #expect(target.receivedDates == [tickDate])
+    }
+
+    @MainActor
+    @Test
+    func elapsedClockSchedulerDeliversTicksFromAnInjectedClock() async {
+        let virtualClock = SidebarTestManualClock()
+        let clock = SidebarAgentElapsedClock(clock: virtualClock)
+        let target = SidebarAgentElapsedClockTestTarget()
+
+        clock.actions.register(target)
+        await virtualClock.waitUntilSleeping(for: .seconds(1))
+        let nextTick = Task {
+            await target.waitForNextTick(after: target.receivedDates.count)
+        }
+        virtualClock.advance(by: .seconds(1))
+        await nextTick.value
+
+        #expect(target.receivedDates.count == 1)
+        clock.actions.unregister(target)
+        await virtualClock.waitUntilIdle()
+        #expect(!clock.isTickerRunning)
     }
 
     @MainActor
