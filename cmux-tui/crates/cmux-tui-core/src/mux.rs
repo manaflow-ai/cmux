@@ -1097,7 +1097,6 @@ struct AgentRosterHost {
 }
 
 fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRosterHost> {
-    const MAX_REPLAY_RECORDS: usize = 100_000;
     use crate::journal_reducers::{
         AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, AgentRoster, RosterEvent,
     };
@@ -1122,18 +1121,12 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
         _ => AgentRosterHost::default(),
     };
     let initial_cursor = host.cursor;
-    let mut replayed_records = 0usize;
     loop {
         let page = registry.session_journal_after(host.cursor, 512)?;
         if page.records.is_empty() {
             break;
         }
         let previous_cursor = host.cursor;
-        replayed_records = replayed_records.saturating_add(page.records.len());
-        anyhow::ensure!(
-            replayed_records <= MAX_REPLAY_RECORDS,
-            "agent roster replay exceeds {MAX_REPLAY_RECORDS} records; reducer checkpoint required"
-        );
         for record in &page.records {
             host.roster.apply(&RosterEvent::from_record(record));
             host.cursor = host.cursor.max(record.sequence);
@@ -23006,6 +22999,49 @@ mod tests {
         assert_eq!(restored.cursor, journal_head);
         assert!(journal_head >= sequence);
         assert_eq!(restored.roster.entries[terminal_id.as_str()].agent.as_deref(), Some("claude"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn roster_restore_replays_beyond_legacy_record_cap() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-roster-large-replay-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let mux = Mux::open_persistent("roster-large-replay", SurfaceOptions::default(), &root)
+            .unwrap();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("terminal");
+        let event = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "UserPromptSubmit",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({"session_id":"large-replay"}),
+        )
+        .unwrap();
+        let validated = mux.journal_kernel.validate_ingress(&event).unwrap();
+        for index in 0..100_001 {
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .append_journal_ingress(&event, &validated, "test", &format!("large-replay-{index}"))
+                .unwrap();
+        }
+        mux.shutdown();
+        drop(mux);
+
+        let registry = WorkspaceRegistry::open(&root, "roster-large-replay").unwrap();
+        registry
+            .put_journal_reducer_state(
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+                0,
+                "{malformed",
+            )
+            .unwrap();
+        let restored = restore_agent_roster(&registry).unwrap();
+        assert_eq!(restored.cursor, registry.session_journal_after(0, 1).unwrap().head_sequence);
+        assert!(restored.roster.entries.contains_key(terminal_id.as_str()));
         std::fs::remove_dir_all(root).unwrap();
     }
 
