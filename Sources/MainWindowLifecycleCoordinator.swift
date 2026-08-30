@@ -73,7 +73,7 @@ final class MainWindowLifecycleCoordinator {
         guard windowlessRecoveryResumeIndexesWorkerTask == nil else {
             return nil
         }
-        let task = Task { @MainActor [weak self] in
+        let task: Task<ProcessDetectedResumeIndexes?, Never> = Task { @MainActor [weak self] in
             guard let self else {
                 return nil
             }
