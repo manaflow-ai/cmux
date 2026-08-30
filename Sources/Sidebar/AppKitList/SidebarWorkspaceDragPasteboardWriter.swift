@@ -180,13 +180,15 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem, NSTableViewD
         }
         guard provisionalSession === session else { return }
         if let lifecycle = actions?.nativeWorkspaceDragLifecycle,
-           let sessionId = lifecycle.currentSessionId() {
+           let boundSessionId = sessionId,
+           lifecycle.currentSessionId() == boundSessionId {
             let capabilityValue = SidebarTabDragPayload(
                 tabId: workspaceId,
-                sessionId: sessionId
+                sessionId: boundSessionId
             ).pasteboardValue
-            lifecycle.finish(sessionId, capabilityValue)
-        } else {
+            lifecycle.finish(boundSessionId, capabilityValue)
+        } else if actions?.nativeWorkspaceDragLifecycle == nil,
+                  sessionId == nil {
             actions?.endWorkspaceDrag()
         }
         releaseSourceGraph()
