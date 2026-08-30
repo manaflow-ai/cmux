@@ -40,6 +40,11 @@ final class FilePreviewNativeDragPendingOwnership {
         orderedWriters.append(WeakWriter(writer))
         guard let tokenID = writer.provisionalToken?.id,
               let ownership = writer.nativeDragOwnership() else {
+            if let tokenID = writer.provisionalToken?.id {
+                tokenOwnership.remove(id: tokenID)
+                orderedWriters.removeAll { $0.value === writer }
+                onWriterDeallocated(tokenID)
+            }
             return nil
         }
         ownershipByToken[tokenID] = ownership
@@ -110,8 +115,9 @@ final class FilePreviewNativeDragPendingOwnership {
     }
 
     private func writerDidDeallocate(tokenID: UUID) {
-        guard let ownership = ownershipByToken.removeValue(forKey: tokenID) else { return }
-        ownership.revokeRouting()
+        if let ownership = ownershipByToken.removeValue(forKey: tokenID) {
+            ownership.revokeRouting()
+        }
         onWriterDeallocated(tokenID)
     }
 

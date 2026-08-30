@@ -646,7 +646,14 @@ struct FileExplorerPanelView: NSViewRepresentable {
             operation: NSDragOperation
         ) {
             guard let outlineView = outlineView as? FileExplorerNSOutlineView,
-                  outlineView.activeNativeDragSession === session else { return }
+                  outlineView.activeNativeDragSession === session else {
+                // The delegate may have been rebuilt between writer creation
+                // and the terminal callback. Use this session's own pasteboard
+                // for idempotent capability cleanup; never inspect the
+                // process-wide board here.
+                FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: session)
+                return
+            }
             if !outlineView.activeNativeDragOwnerships.isEmpty {
                 for ownership in outlineView.activeNativeDragOwnerships {
                     ownership.finish(from: session.draggingPasteboard)
