@@ -1,12 +1,5 @@
 extension AppDelegate {
     func performEqualizeSplitsShortcut() {
-        if let dock = focusedDockStoreForShortcut(
-            action: .equalizeSplits,
-            preferredWindow: shortcutRoutingActiveWindow
-        ) {
-            _ = dock.performShortcutCommand(.equalizeSplits)
-            return
-        }
         guard let tabManager, let workspace = tabManager.selectedWorkspace else {
 #if DEBUG
             cmuxDebugLog("shortcut.action name=equalizeSplits result=noWorkspace")

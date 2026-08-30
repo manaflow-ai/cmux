@@ -874,7 +874,10 @@ struct cmuxApp: App {
                 splitCommandButton(title: String(localized: "menu.file.closeOtherTabs", defaultValue: "Close Other Tabs in Pane"), shortcut: menuShortcut(for: .closeOtherTabsInPane)) {
                     closeOtherTabsInFocusedPane()
                 }
-                .disabled(activeDockForMenu == nil && !activeTabManager.canCloseOtherTabsInFocusedPane())
+                .disabled(
+                    activeDockForMenu.map { !$0.menuCapabilities.canCloseOtherTabs }
+                        ?? !activeTabManager.canCloseOtherTabsInFocusedPane()
+                )
 
                 // The Close Workspace shortcut closes the current workspace with confirmation
                 // when needed. If this is the last workspace, it closes the window.
@@ -979,7 +982,10 @@ struct cmuxApp: App {
                         restoreFindTargetFocus()
                         activeTabManager.searchSelection()
                     }
-                    .disabled(activeDockForMenu == nil && !activeTabManager.canUseSelectionForFind)
+                    .disabled(
+                        activeDockForMenu.map { !$0.menuCapabilities.canUseSelection }
+                            ?? !activeTabManager.canUseSelectionForFind
+                    )
 
                     Divider()
 
@@ -998,7 +1004,10 @@ struct cmuxApp: App {
                             NSSound.beep()
                         }
                     }
-                    .disabled(activeDockForMenu == nil && activeTabManager.selectedTerminalPanel == nil)
+                    .disabled(
+                        activeDockForMenu.map { !$0.menuCapabilities.isTerminal }
+                            ?? activeTabManager.selectedTerminalPanel == nil
+                    )
                 }
             }
 
@@ -1316,14 +1325,12 @@ struct cmuxApp: App {
     }
 
     private var activeFindIsVisible: Bool {
+        if let dock = activeDockForMenu {
+            return dock.menuCapabilities.hasFindSession
+        }
         if let activeBrowserPanel {
             return activeBrowserPanel.searchState != nil
         }
-        // Keep Dock menu enablement on the single observable ownership gate;
-        // the action itself resolves the focused panel and beeps when no find
-        // session exists. Reading Dock panels here would fan out Commands-body
-        // invalidation on every tab/title/notification mutation.
-        if activeDockForMenu != nil { return true }
         return activeTabManager.isFindVisible
     }
 

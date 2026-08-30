@@ -453,6 +453,7 @@ extension DockSplitStore {
     }
 
     private func startDockFind() -> Bool {
+        defer { refreshDockMenuCapabilities() }
         if let terminal = focusedDockTerminalPanel {
             let hadExistingSearch = terminal.searchState != nil
             terminal.hostedView.preparePanelFocusIntentForActivation(
@@ -506,6 +507,7 @@ extension DockSplitStore {
     }
 
     private func hideDockFind() -> Bool {
+        defer { refreshDockMenuCapabilities() }
         if let terminal = focusedDockTerminalPanel {
             terminal.surface.closeSearchFromExplicitInput()
             return true
@@ -518,6 +520,7 @@ extension DockSplitStore {
     }
 
     private func useDockSelectionForFind() -> Bool {
+        defer { refreshDockMenuCapabilities() }
         guard let terminal = focusedDockTerminalPanel else {
             return false
         }

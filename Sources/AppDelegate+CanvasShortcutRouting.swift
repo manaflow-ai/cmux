@@ -78,13 +78,6 @@ extension AppDelegate {
     }
 
     func performToggleSplitZoomShortcut(tabManager routedManager: TabManager?) {
-        if let dock = focusedDockStoreForShortcut(
-            action: .toggleSplitZoom,
-            preferredWindow: shortcutRoutingActiveWindow
-        ) {
-            _ = dock.performShortcutCommand(.togglePaneZoom)
-            return
-        }
         if let workspace = routedManager?.selectedWorkspace, workspace.layoutMode == .canvas {
             _ = CanvasActionExecutor(workspace: workspace).perform(.toggleOverview)
         } else {

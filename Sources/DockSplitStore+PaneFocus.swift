@@ -1,6 +1,22 @@
 import AppKit
 import Bonsplit
 
+struct DockMenuCapabilitySnapshot: Equatable, Sendable {
+    let hasFocusedPanel: Bool
+    let isTerminal: Bool
+    let canUseSelection: Bool
+    let hasFindSession: Bool
+    let canCloseOtherTabs: Bool
+
+    static let empty = Self(
+        hasFocusedPanel: false,
+        isTerminal: false,
+        canUseSelection: false,
+        hasFindSession: false,
+        canCloseOtherTabs: false
+    )
+}
+
 extension DockSplitStore {
     /// Returns the live Dock store that owns `panelId`, if one exists.
     static func liveStore(containingPanel panelId: UUID) -> DockSplitStore? {
@@ -189,6 +205,42 @@ extension DockSplitStore {
         panelIsSelectedInVisibleDockPane(panelId) && focusedPanelId == panelId
     }
 
+    /// Captures the small set of Dock capabilities consumed by the app-level
+    /// Commands body. The body reads this value instead of traversing the Dock
+    /// panel/tab collections, keeping invalidation scoped to focus/capability
+    /// changes rather than every tab metadata update.
+    func refreshDockMenuCapabilities() {
+        guard let paneId = bonsplitController.focusedPaneId,
+              let tab = bonsplitController.selectedTab(inPane: paneId),
+              let panelId = surfaceIdToPanelId[tab.id],
+              let panel = panels[panelId] else {
+            if menuCapabilities != .empty {
+                menuCapabilities = .empty
+            }
+            return
+        }
+        let terminal = panel as? TerminalPanel
+        let browser = panel as? BrowserPanel
+        let tabs = bonsplitController.tabs(inPane: paneId)
+        let next = DockMenuCapabilitySnapshot(
+            hasFocusedPanel: true,
+            isTerminal: terminal != nil,
+            // Selection is mutable inside Ghostty and has no lightweight
+            // observable stream. Keep the menu enabled for terminal panels;
+            // the command validates the live selection at dispatch time.
+            canUseSelection: terminal != nil,
+            hasFindSession: terminal?.searchState != nil
+                || browser?.searchState != nil
+                || browser?.isDiffViewerFindOwner == true,
+            canCloseOtherTabs: tabs.contains {
+                $0.id != tab.id && !$0.isPinned
+            }
+        )
+        if next != menuCapabilities {
+            menuCapabilities = next
+        }
+    }
+
     @discardableResult
     func toggleDockPaneZoom(inPane paneId: PaneID) -> Bool {
         guard bonsplitController.togglePaneZoom(inPane: paneId) else { return false }
@@ -237,6 +289,7 @@ extension DockSplitStore {
     }
 
     func applyDockSelection(tabId: TabID, inPane pane: PaneID) {
+        defer { refreshDockMenuCapabilities() }
         applyVisibilityToAllPanels()
         guard paneIsRenderedInVisibleDock(pane),
               bonsplitController.focusedPaneId == pane,

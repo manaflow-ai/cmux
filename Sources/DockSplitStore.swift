@@ -44,6 +44,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     private(set) var errorMessage: String?
     private(set) var trustRequest: DockTrustRequest?
     private(set) var isVisibleInUI: Bool = false
+    private(set) var menuCapabilities = DockMenuCapabilitySnapshot.empty
     @ObservationIgnored private(set) var isRetired = false
     /// Host views currently showing this Dock. Normally at most one (the owning
     /// window's right sidebar), but SwiftUI remounts can briefly overlap an old
@@ -709,6 +710,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         } else {
             restoreDockPaneSelection(previousFocus)
         }
+        refreshDockMenuCapabilities()
         return panel.id
     }
 
@@ -795,6 +797,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             } else {
                 restoreDockPaneSelection(previousFocus)
             }
+            refreshDockMenuCapabilities()
             return panel.id
         }
 
@@ -834,6 +837,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         } else {
             restoreDockPaneSelection(previousFocus)
         }
+        refreshDockMenuCapabilities()
         return panel.id
     }
 
@@ -1283,14 +1287,22 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     func installSubscription(for panel: any Panel) {
         if let terminal = panel as? TerminalPanel {
             configureAgentHibernationResume(for: terminal)
+            panelCancellables[panel.id] = terminal.$searchState
+                .map { $0 != nil }
+                .removeDuplicates()
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] _ in
+                    self?.refreshDockMenuCapabilities()
+                }
         }
         installAttentionRouting(for: panel)
         if let browser = panel as? BrowserPanel {
-            let browserTabState = Publishers.CombineLatest4(
+            let browserTabState = Publishers.CombineLatest5(
                 browser.$pageTitle.removeDuplicates(),
                 browser.$currentURL.removeDuplicates(),
                 browser.$isLoading.removeDuplicates(),
-                browser.$faviconPNGData.removeDuplicates(by: { $0 == $1 })
+                browser.$faviconPNGData.removeDuplicates(by: { $0 == $1 }),
+                browser.$searchState.map { $0 != nil }.removeDuplicates()
             )
             let cancellable = browserTabState
                 .combineLatest(browser.$isMuted.removeDuplicates())
@@ -1315,6 +1327,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
                     let faviconUpdate: Data?? = existing.iconImageData == favicon ? nil : .some(favicon)
                     let loadingUpdate: Bool? = existing.isLoading == browser.isLoading ? nil : browser.isLoading
                     let mutedUpdate: Bool? = existing.isAudioMuted == browser.isMuted ? nil : browser.isMuted
+                    self.refreshDockMenuCapabilities()
                     guard titleUpdate != nil || faviconUpdate != nil || loadingUpdate != nil || mutedUpdate != nil else { return }
                     self.bonsplitController.updateTab(
                         tabId,
