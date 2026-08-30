@@ -248,7 +248,9 @@ private final class DockPointerInteractionHostView: NSView {
             }
             cancelInteractionClear()
             mouseDownLocation = point
-            store?.beginUserDockInteraction()
+            store?.beginUserDockInteraction(
+                dragCapable: event.type == .leftMouseDown
+            )
         case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
             guard let window, event.window === window else {
                 mouseDownLocation = nil

@@ -232,7 +232,14 @@ extension AppDelegate {
         }
         let store: DockSplitStore?
         if let preferredDock {
-            store = preferredDock.isRetired ? nil : preferredDock
+            // Command-palette handlers retain the Dock captured at presentation
+            // time. Revalidate that capture against the current ownership gate
+            // so a sidebar/mode change cannot mutate a hidden or stale Dock.
+            let current = focusedDockStoreForShortcut(
+                action: action,
+                preferredWindow: preferredWindow
+            )
+            store = current === preferredDock ? current : nil
         } else {
             store = focusedDockStoreForShortcut(
                 action: action,

@@ -139,6 +139,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     @ObservationIgnored private var pendingUserInteraction = false
     @ObservationIgnored private var pendingUserInteractionReleased = false
     @ObservationIgnored private var pendingUserInteractionDragging = false
+    @ObservationIgnored private var pendingUserInteractionDragCapable = false
     @ObservationIgnored var forceCloseDockTabIds: Set<TabID> = []
     @ObservationIgnored var pendingCloseConfirmDockTabIds: Set<TabID> = []
     @ObservationIgnored var tabCloseButtonCloseDockTabIds: Set<TabID> = []
@@ -869,11 +870,12 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     /// Marks the next Bonsplit selection callback as originating from a visible
     /// Dock pointer interaction. The pointer host scopes this token to the Dock
     /// view and clears it on mouse-up, including drag-out cancellation.
-    func beginUserDockInteraction() {
+    func beginUserDockInteraction(dragCapable: Bool = false) {
         guard isVisibleInUI, scope == .global else { return }
         pendingUserInteraction = true
         pendingUserInteractionReleased = false
         pendingUserInteractionDragging = false
+        pendingUserInteractionDragCapable = dragCapable
     }
 
     /// Marks a tab drag as an explicit Dock interaction. The drag callback is
@@ -884,12 +886,14 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         pendingUserInteraction = true
         pendingUserInteractionReleased = false
         pendingUserInteractionDragging = true
+        pendingUserInteractionDragCapable = true
     }
 
     func endUserDockInteraction() {
         pendingUserInteraction = false
         pendingUserInteractionReleased = false
         pendingUserInteractionDragging = false
+        pendingUserInteractionDragCapable = false
     }
 
     /// Advances a pointer click to the post-mouse-up phase. SwiftUI's tap
@@ -910,22 +914,25 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         pendingUserInteraction = false
         pendingUserInteractionReleased = false
         pendingUserInteractionDragging = false
+        pendingUserInteractionDragCapable = false
         return true
     }
 
     @discardableResult
     func consumeUserDockDragInteraction() -> Bool {
-        // A drag callback is user-owned only after the pointer host observed
-        // the drag threshold. A bare mouse-down token is reserved for the
-        // post-mouse-up tap callback; accepting it here would let a stale press
-        // or context-menu tracking loop claim focus during a later programmatic
-        // move.
-        guard pendingUserInteraction, pendingUserInteractionDragging else {
+        // A drag callback is user-owned after the pointer host observes the
+        // threshold, or while a left-button press is still drag-capable. The
+        // latter covers native Bonsplit sessions that consume the threshold
+        // event before this host monitor sees it; right-click menu presses are
+        // never drag-capable.
+        guard pendingUserInteraction,
+              pendingUserInteractionDragCapable else {
             return false
         }
         pendingUserInteraction = false
         pendingUserInteractionReleased = false
         pendingUserInteractionDragging = false
+        pendingUserInteractionDragCapable = false
         return true
     }
 
