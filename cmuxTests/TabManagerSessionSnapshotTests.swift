@@ -2418,7 +2418,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNil(restoredWorkspace.terminalPanel(for: restoredPanelId)?.requestedWorkingDirectory)
         XCTAssertEqual(
             restoredWorkspace.remoteConfiguration?.terminalStartupCommand,
-            "ssh -p 2222 -i \(expandedIdentityFile) -o StrictHostKeyChecking=accept-new -o ForwardAgent=yes -tt dev@example.com"
+            "/usr/bin/ssh -p 2222 -i \(expandedIdentityFile) -o StrictHostKeyChecking=accept-new -o ForwardAgent=yes -tt dev@example.com"
         )
         XCTAssertEqual(restoredWorkspace.remoteConfiguration?.agentSocketPath, restoredAgentSocketPath)
         XCTAssertEqual(restoredWorkspace.remoteConfiguration?.sshTerminalStartupEnvironment?["SSH_AUTH_SOCK"], restoredAgentSocketPath)
@@ -2470,7 +2470,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
         XCTAssertEqual(
             restoredWorkspace.remoteConfiguration?.terminalStartupCommand,
-            "ssh -p 2222 -o ForwardAgent=yes -tt dev@example.com"
+            "/usr/bin/ssh -p 2222 -o ForwardAgent=yes -tt dev@example.com"
         )
         XCTAssertNil(restoredWorkspace.remoteConfiguration?.agentSocketPath)
         XCTAssertNil(restoredWorkspace.remoteConfiguration?.sshTerminalStartupEnvironment?["SSH_AUTH_SOCK"])
@@ -3366,7 +3366,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNil(restoredWorkspace.remoteConfiguration?.persistentDaemonSlot)
         let terminalStartupCommand = try XCTUnwrap(restoredWorkspace.remoteConfiguration?.terminalStartupCommand)
         XCTAssertFalse(terminalStartupCommand.contains("ssh-pty-attach"), terminalStartupCommand)
-        XCTAssertTrue(terminalStartupCommand.contains("ssh -p 2222"), terminalStartupCommand)
+        XCTAssertTrue(terminalStartupCommand.contains("/usr/bin/ssh -p 2222"), terminalStartupCommand)
     }
 
     func testSessionSnapshotFallsBackFromSkipBootstrapPersistentSSHPTYWithoutDaemonBridge() throws {
@@ -3609,7 +3609,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertFalse(startupCommand.contains("ssh-pty-attach"), startupCommand)
         XCTAssertTrue(
             startupCommand.contains(
-                "ssh -o RemoteCommand=none -p 2222 -o StrictHostKeyChecking=accept-new"
+                "/usr/bin/ssh -o RemoteCommand=none -p 2222 -o StrictHostKeyChecking=accept-new"
             ),
             startupCommand
         )
@@ -3830,7 +3830,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertFalse(startupCommand.contains("ssh-pty-attach"), startupCommand)
         XCTAssertTrue(
             startupCommand.contains(
-                "ssh -o RemoteCommand=none -p 2222 -o StrictHostKeyChecking=accept-new"
+                "/usr/bin/ssh -o RemoteCommand=none -p 2222 -o StrictHostKeyChecking=accept-new"
             ),
             startupCommand
         )
@@ -3856,7 +3856,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let configuration = try XCTUnwrap(snapshot.workspaceConfiguration())
 
         XCTAssertNil(configuration.port)
-        XCTAssertEqual(configuration.terminalStartupCommand, "ssh -tt dev@example.com")
+        XCTAssertEqual(configuration.terminalStartupCommand, "/usr/bin/ssh -tt dev@example.com")
     }
 
     /// Regression for https://github.com/manaflow-ai/cmux/issues/5931 — a restored

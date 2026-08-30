@@ -4961,6 +4961,9 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
 
         var sawFirstResponderNotification = false
         var observedFirstResponderTransactions: [UUID] = []
+        let firstResponderExpectation = expectation(
+            description: "terminal first responder notification"
+        )
         let firstResponderToken = NotificationCenter.default.addObserver(
             forName: .ghosttyDidBecomeFirstResponderSurface,
             object: nil,
@@ -4969,6 +4972,9 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
             guard notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID == workspace.id,
                   notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID == leftPanel.id else {
                 return
+            }
+            if !sawFirstResponderNotification {
+                firstResponderExpectation.fulfill()
             }
             sawFirstResponderNotification = true
             if let transactionId = notification.userInfo?[GhosttyNotificationKey.focusTransactionId] as? UUID {
@@ -4984,6 +4990,7 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
             inPane: leftPaneId,
             focusTransactionId: transactionId
         )
+        wait(for: [firstResponderExpectation], timeout: 1)
         FocusSurfaceBroadcaster.shared.flush()
 
         XCTAssertGreaterThan(
@@ -6507,7 +6514,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertFalse(startupCommand.contains("ssh-pty-attach"), startupCommand)
         XCTAssertEqual(
             startupCommand,
-            "ssh -p 2222 -i /Users/example/.ssh/cmux -tt cmux-macmini"
+            "/usr/bin/ssh -p 2222 -i /Users/example/.ssh/cmux -tt cmux-macmini"
         )
     }
 
@@ -6554,7 +6561,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
         XCTAssertEqual(launch.workingDirectory, "/Users/cmux/fallback repo")
         XCTAssertNil(launch.terminalWorkingDirectory)
-        XCTAssertEqual(launch.initialTerminalCommand, "ssh -tt cmux-macmini")
+        XCTAssertEqual(launch.initialTerminalCommand, "/usr/bin/ssh -tt cmux-macmini")
         XCTAssertEqual(
             launch.initialTerminalInput,
             "cd -- '/Users/cmux/fallback repo' 2>/dev/null || [ ! -d '/Users/cmux/fallback repo' ] && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
