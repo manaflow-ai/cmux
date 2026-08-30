@@ -42,6 +42,14 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem {
         super.init()
     }
 
+    @available(*, unavailable)
+    required init(
+        pasteboardPropertyList propertyList: Any,
+        ofType type: NSPasteboard.PasteboardType
+    ) {
+        fatalError("init(pasteboardPropertyList:ofType:) is not supported")
+    }
+
     deinit {
         // The writer is AppKit's provisional ownership token. Its deallocation
         // proves that no native session callback can still arrive for this

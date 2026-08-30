@@ -35,6 +35,14 @@ final class CloudTreeSurfaceDragPasteboardWriter: NSPasteboardItem {
         super.init()
     }
 
+    @available(*, unavailable)
+    required init(
+        pasteboardPropertyList propertyList: Any,
+        ofType type: NSPasteboard.PasteboardType
+    ) {
+        fatalError("init(pasteboardPropertyList:ofType:) is not supported")
+    }
+
     deinit {
         // Deallocation is the only terminal signal available when AppKit
         // abandons a writer before creating a native session.
