@@ -3128,16 +3128,15 @@ class GhosttyApp {
             // allocating and dispatching a process-wide notification for the
             // much more common main-workspace drag-selection path.
             if let terminalSurface = surfaceView.terminalSurface {
-                performOnMain {
-                    guard GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(
-                        id: terminalSurface.id
-                    ) else {
-                        return
+                let isDockSurface = GhosttyApp.terminalSurfaceRegistry
+                    .isRightSidebarDockSurface(id: terminalSurface.id)
+                if isDockSurface {
+                    performOnMain {
+                        NotificationCenter.default.post(
+                            name: .terminalSelectionDidChange,
+                            object: terminalSurface
+                        )
                     }
-                    NotificationCenter.default.post(
-                        name: .terminalSelectionDidChange,
-                        object: terminalSurface
-                    )
                 }
             }
             return true

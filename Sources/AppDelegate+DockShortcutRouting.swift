@@ -122,7 +122,7 @@ extension KeyboardShortcutSettings.Action {
 /// so pressing e.g. Cmd+Shift+L while a Dock pane is focused spawned a browser in
 /// the main split tree instead of the Dock. Mirrors the existing focus-gated
 /// routing in `closeFocusedDockPanelForCommand` (`Workspace+DockBrowserLookup.swift`):
-/// the gate is `activeRightSidebarMode == .dock`, and the right-sidebar Dock is
+/// the gate is `focusedRightSidebarMode == .dock`, and the right-sidebar Dock is
 /// that window's own Dock (`RightSidebarPanelView` renders the per-window store).
 extension AppDelegate {
     /// Returns the coordinator's sidebar mode for shortcut context evaluation.
@@ -193,7 +193,7 @@ extension AppDelegate {
         guard let dock = existingWindowDock(forWindowId: context.windowId),
               !dock.isRetired,
               dock.isVisibleInUI,
-              context.keyboardFocusCoordinator.activeRightSidebarMode == .dock else {
+              context.keyboardFocusCoordinator.focusedRightSidebarMode == .dock else {
             return nil
         }
         return dock

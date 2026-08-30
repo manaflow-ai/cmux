@@ -39,6 +39,14 @@ final class MainWindowFocusController {
             }
         }
 
+        /// Returns a mode only after the requested sidebar endpoint actually
+        /// owns focus. Pending requests intentionally remain invisible to
+        /// surface-routing gates until the host reports `.focused`.
+        var focusedMode: RightSidebarMode? {
+            guard case .focused(let mode, _) = self else { return nil }
+            return mode
+        }
+
         var request: RightSidebarFocusRequest? {
             if case .requested(let request) = self {
                 return request
@@ -62,27 +70,6 @@ final class MainWindowFocusController {
         didSet {
             syncBonsplitTabShortcutHintEligibility()
             publishRightSidebarOwnsInputFocus()
-
-            // The Commands body derives Dock enablement from this controller,
-            // which is intentionally a MainActor model rather than an
-            // ObservableObject. Publish the ownership transition explicitly so
-            // menu items re-evaluate even when the Dock capability values
-            // themselves remain unchanged (for example, focusing an already
-            // selected Dock terminal).
-            let wasDockFocused: Bool = {
-                guard case .rightSidebar(.dock) = oldValue else { return false }
-                return true
-            }()
-            let isDockFocused: Bool = {
-                guard case .rightSidebar(.dock) = intent else { return false }
-                return true
-            }()
-            if wasDockFocused != isDockFocused {
-                NotificationCenter.default.post(
-                    name: .dockMenuCapabilitiesDidChange,
-                    object: self
-                )
-            }
         }
     }
 
@@ -96,7 +83,26 @@ final class MainWindowFocusController {
     }
     private var rememberedRightSidebarMode: RightSidebarMode?
     private var nextRightSidebarFocusRequestId: UInt64 = 0
-    private var rightSidebarFocusState: RightSidebarFocusState = .inactive
+    private var rightSidebarFocusState: RightSidebarFocusState = .inactive {
+        didSet {
+            guard oldValue.focusedMode != rightSidebarFocusState.focusedMode else {
+                return
+            }
+            // Menu enablement and Dock routing read this state directly. The
+            // explicit bridge keeps Commands current for focus transitions
+            // that do not change any Dock capability bits.
+            NotificationCenter.default.post(
+                name: .dockMenuCapabilitiesDidChange,
+                object: self
+            )
+        }
+    }
+
+    /// The right-sidebar mode after focus has been delivered to its endpoint.
+    /// Unlike ``activeRightSidebarMode``, pending requests are excluded.
+    var focusedRightSidebarMode: RightSidebarMode? {
+        rightSidebarFocusState.focusedMode
+    }
     /// The right sidebar's active mode when it owns focus, else `nil`. Surfaces the
     /// private focus state for the `sidebarMode` keyboard-shortcut context key.
     var activeRightSidebarMode: RightSidebarMode? {
