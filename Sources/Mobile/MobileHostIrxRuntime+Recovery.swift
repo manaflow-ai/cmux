@@ -9,8 +9,9 @@ extension MobileHostIrxRuntime {
     /// serialized so a policy lift cannot start a new endpoint while an older
     /// teardown is still closing its resources.
     func setDesiredActive(_ desired: Bool) {
-        desiredActive = desired
-        if !desired {
+        let effectiveDesired = desired && MobileRemoteControlPolicy.isEnabled
+        desiredActive = effectiveDesired
+        if !effectiveDesired {
             // Invalidate callbacks and publish the policy stop immediately;
             // the serialized task below completes actor/endpoint teardown.
             generationToken = UUID()
@@ -26,7 +27,7 @@ extension MobileHostIrxRuntime {
         desiredActivityTask = Task { @MainActor [weak self] in
             await previous?.value
             guard let self else { return }
-            if desired {
+            if effectiveDesired {
                 self.resumeActivationIfNeeded()
             } else {
                 await self.deactivate()

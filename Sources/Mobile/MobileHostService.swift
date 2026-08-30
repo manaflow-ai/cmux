@@ -1018,7 +1018,7 @@ final class MobileHostService {
             if listener == nil {
                 mobileHostLog.info("legacy mobile host listener disabled; starting Iroh only")
             }
-            if MobileHostIrxRuntime.isEnabled {
+            if MobileHostIrxRuntime.isEnabled, plan.activatesIroh {
                 MobileHostIrxRuntime.shared.setDesiredActive(true)
             } else if plan.activatesIroh {
                 MobileHostIrohRuntime.shared.setDesiredActive(true)
