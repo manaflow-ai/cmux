@@ -2025,6 +2025,29 @@ struct DockShortcutRoutingTests {
         }
     }
 
+    @Test("A single Dock tab can move to a new workspace")
+    @MainActor
+    func singleDockTabOffersNewWorkspaceDestination() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let panel = try harness.dock.seedShortcutTestPanel(
+                    inPane: harness.rootPane
+                )
+                let tabId = try #require(
+                    harness.dock.surfaceId(forPanelId: panel.id)
+                )
+
+                let destinations = harness.dock.dockTabMoveDestinations(
+                    for: tabId
+                )
+                #expect(
+                    destinations.first?.id ==
+                        DockSplitStore.dockMoveNewWorkspaceDestinationId
+                )
+            }
+        }
+    }
+
     @Test("Focus-neutral Dock selection restoration preserves main focus")
     @MainActor
     func focusNeutralDockSelectionRestorationPreservesMainFocus() async throws {
