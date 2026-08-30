@@ -976,6 +976,38 @@ struct RestorableAgentSessionIndex: Sendable {
         let terminationProcessIDs: Set<Int>
         let terminationProcessIdentities: [Int: AgentPIDProcessIdentity]
         let containsUnrelatedProcess: Bool
+
+        /// Keeps older in-process fixtures source-compatible while callers that
+        /// have persisted PID evidence can opt in explicitly.
+        init(
+            snapshot: SessionRestorableAgentSnapshot,
+            lifecycle: AgentHibernationLifecycleState?,
+            updatedAt: TimeInterval,
+            processLiveness: RestorableAgentProcessLiveness,
+            hasRecordedProcessID: Bool = false,
+            processIDs: Set<Int>,
+            processIdentities: [Int: AgentPIDProcessIdentity],
+            agentProcessIDs: Set<Int>,
+            agentProcessIdentities: [Int: AgentPIDProcessIdentity],
+            hibernationPanelProcessIDs: Set<Int>,
+            terminationProcessIDs: Set<Int>,
+            terminationProcessIdentities: [Int: AgentPIDProcessIdentity],
+            containsUnrelatedProcess: Bool
+        ) {
+            self.snapshot = snapshot
+            self.lifecycle = lifecycle
+            self.updatedAt = updatedAt
+            self.processLiveness = processLiveness
+            self.hasRecordedProcessID = hasRecordedProcessID
+            self.processIDs = processIDs
+            self.processIdentities = processIdentities
+            self.agentProcessIDs = agentProcessIDs
+            self.agentProcessIdentities = agentProcessIdentities
+            self.hibernationPanelProcessIDs = hibernationPanelProcessIDs
+            self.terminationProcessIDs = terminationProcessIDs
+            self.terminationProcessIdentities = terminationProcessIdentities
+            self.containsUnrelatedProcess = containsUnrelatedProcess
+        }
     }
 
     enum ProcessDetectedSessionIDSource: Equatable, Sendable {
