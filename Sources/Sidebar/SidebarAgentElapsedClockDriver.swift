@@ -1,20 +1,20 @@
-import Foundation
 import SwiftUI
 
-/// The sole TimelineView for default-sidebar elapsed labels. Its tiny
-/// representable sink keeps timeline invalidation out of the row/list tree.
+/// Zero-sized lifetime anchor for the shared elapsed clock.
+///
+/// The clock owns its cancellation-aware scheduler and starts it only when a
+/// realized SwiftUI/AppKit target registers. This view remains as a stable
+/// sidebar background identity, but it does not create a periodic timeline.
 @MainActor
 struct SidebarAgentElapsedClockDriver: View {
     let clock: SidebarAgentElapsedClock
 
     var body: some View {
-        // Keep the one clock mounted while activity is enabled. Target
+        // Keep the anchor mounted while activity is enabled. Target
         // registration is deliberately non-observed, so row realization can
-        // never write parent state during a LazyVStack update.
-        TimelineView(.periodic(from: .now, by: 1)) { timeline in
-            SidebarAgentElapsedClockTickView(clock: clock, now: timeline.date)
-        }
-        .frame(width: 0, height: 0)
-        .accessibilityHidden(true)
+        // never invalidate the lazy parent.
+        Color.clear
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
     }
 }

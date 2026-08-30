@@ -131,11 +131,14 @@ struct SidebarWorkspaceAgentActivityTests {
         let target = SidebarAgentElapsedClockTestTarget()
         let tickDate = Date(timeIntervalSince1970: 123)
 
+        #expect(!clock.isTickerRunning)
         clock.actions.register(target)
+        #expect(clock.isTickerRunning)
         clock.tick(at: tickDate)
         #expect(target.receivedDates == [tickDate])
 
         clock.actions.unregister(target)
+        #expect(!clock.isTickerRunning)
         clock.tick(at: Date(timeIntervalSince1970: 124))
         #expect(target.receivedDates == [tickDate])
     }

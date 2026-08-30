@@ -2,7 +2,8 @@ import AppKit
 import Foundation
 import SwiftUI
 
-/// AppKit bridge used only as the narrow TimelineView invalidation sink.
+/// Legacy AppKit bridge retained for callers that manually inject a clock tick.
+/// The production elapsed clock now schedules ticks only while targets exist.
 @MainActor
 struct SidebarAgentElapsedClockTickView: NSViewRepresentable {
     let clock: SidebarAgentElapsedClock
