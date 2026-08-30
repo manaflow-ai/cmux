@@ -204,6 +204,7 @@ extension CMUXCLI {
         let signal = payloadInputs.signal
         let messages = payloadInputs.messages + [
             lastMessage,
+            signal == "Stop" ? nil : signal,
         ].compactMap { $0 }
         let normalizedMessages = messages
         guard !AgentHookAbnormalStopClassifier().isUserInitiatedStop(

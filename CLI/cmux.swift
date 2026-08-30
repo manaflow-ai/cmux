@@ -29535,7 +29535,9 @@ struct CMUXCLI {
             let assistantMessageTurnId = (object["payload"] as? [String: Any]).flatMap {
                 firstString(in: $0, keys: ["turn_id", "turnId"])
             }
-            if (turnId == nil || sawRelevantTurn || assistantMessageTurnId == turnId),
+            if (turnId == nil
+                || assistantMessageTurnId == turnId
+                || (assistantMessageTurnId == nil && sawRelevantTurn)),
                codexTranscriptLineHasAssistantMessage(object) {
                 sawAssistantMessage = true
                 candidate = nil

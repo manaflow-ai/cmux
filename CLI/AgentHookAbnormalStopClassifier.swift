@@ -146,7 +146,7 @@ struct AgentHookAbnormalStopClassifier {
                 || normalized.contains("http 529")
                 || normalizedMessage.trimmingCharacters(in: .whitespacesAndNewlines) == "529"
         )
-        if normalized.contains("at capacity")
+        let capacityCue = normalized.contains("at capacity")
             || normalized.contains("over capacity")
             || normalized.contains("capacity reached")
             || normalized.contains("capacity error")
@@ -156,7 +156,18 @@ struct AgentHookAbnormalStopClassifier {
             || overloadCue
             || normalized.contains("server overloaded")
             || normalized.contains("overloaded error")
-            || status529Cue {
+            || status529Cue
+        let messageTokens = AgentHookNotificationClassifier.notificationCueTokens(normalizedMessage)
+        let providerCapacityQualifiers: Set<Substring> = [
+            "model", "server", "provider", "service", "api", "error", "llm", "endpoint",
+        ]
+        let providerCapacityQualifier = messageTokens.contains {
+            providerCapacityQualifiers.contains($0)
+        }
+        let explicitCapacityReason = ["capacity", "stop capacity"].contains {
+            normalizedMessage.trimmingCharacters(in: .whitespacesAndNewlines) == $0
+        }
+        if capacityCue && (providerCapacityQualifier || explicitCapacityReason) {
             return .capacity
         }
         let quotaCue = normalized.contains("usage limit")
