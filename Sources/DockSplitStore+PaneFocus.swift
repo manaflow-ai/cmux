@@ -290,6 +290,10 @@ extension DockSplitStore {
     func applyFocusedDockSelection() {
         guard let paneId = bonsplitController.focusedPaneId,
               let tabId = bonsplitController.selectedTab(inPane: paneId)?.id else {
+            // A focused empty pane still changes the menu target: clear stale
+            // capabilities even though there is no tab to pass to
+            // ``applyDockSelection``.
+            refreshDockMenuCapabilities()
             applyVisibilityToAllPanels()
             scheduleDockPortalReconcile(reason: "dock.selection.empty")
             return
@@ -352,6 +356,9 @@ extension DockSplitStore {
 
     func splitTabBar(_ controller: BonsplitController, didFocusPane pane: PaneID) {
         guard let tab = controller.selectedTab(inPane: pane) else {
+            // Pane focus can legitimately land on an empty pane while a split
+            // is being assembled. Keep menu validation in sync with that state.
+            refreshDockMenuCapabilities()
             applyVisibilityToAllPanels()
             return
         }

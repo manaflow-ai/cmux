@@ -57,13 +57,29 @@ extension ContentView {
         dock: DockSplitStore? = nil,
         preferredWindow: @escaping () -> NSWindow?
     ) {
+        // A Dock target is captured when the palette is presented. Keep that
+        // presentation-time ownership stable for the lifetime of the command
+        // handlers: a palette opened from the main workspace must not start
+        // dispatching into a Dock merely because focus changes before the user
+        // invokes a command. Conversely, a captured Dock must still be live and
+        // focused when the command executes; otherwise fail closed instead of
+        // mutating a stale/hidden split tree.
+        let capturedDock = dock
         let resolvedDock: () -> DockSplitStore? = {
-            dock ?? AppDelegate.shared?.focusedDockStoreForShortcut(
+            guard let capturedDock else { return nil }
+            guard AppDelegate.shared?.focusedDockStoreForShortcut(
                 preferredWindow: preferredWindow()
-            )
+            ) === capturedDock else {
+                return nil
+            }
+            return capturedDock
         }
         registry.register(commandId: "palette.nextTabInPane") {
-            if let dock = resolvedDock() {
+            if capturedDock != nil {
+                guard let dock = resolvedDock() else {
+                    NSSound.beep()
+                    return
+                }
                 if !dock.performShortcutCommand(.selectNextSurface) {
                     NSSound.beep()
                 }
@@ -72,7 +88,11 @@ extension ContentView {
             tabManager.selectNextSurface()
         }
         registry.register(commandId: "palette.previousTabInPane") {
-            if let dock = resolvedDock() {
+            if capturedDock != nil {
+                guard let dock = resolvedDock() else {
+                    NSSound.beep()
+                    return
+                }
                 if !dock.performShortcutCommand(.selectPreviousSurface) {
                     NSSound.beep()
                 }
@@ -82,7 +102,11 @@ extension ContentView {
         }
         for movement in SurfacePaneMovement.allCases {
             registry.register(commandId: movement.commandID) {
-                if let dock = resolvedDock() {
+                if capturedDock != nil {
+                    guard let dock = resolvedDock() else {
+                        NSSound.beep()
+                        return
+                    }
                     if !dock.performShortcutCommand(
                         .moveSurfaceToPane(
                             movement,

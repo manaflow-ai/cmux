@@ -159,11 +159,37 @@ private final class DockPointerInteractionHostView: NSView {
 
         guard let store else { return false }
         // Surface portals are intentionally reparented to a window-level host.
-        // Ask each visible Dock panel's ownership seam instead of depending on
-        // portal ancestry or accessibility identifiers.
+        // Resolve their stable panel identity directly from the portal hit
+        // registry instead of scanning every Dock panel on each mouse-down.
+        if let terminalView = TerminalWindowPortalRegistry.terminalViewAtWindowPoint(
+            windowPoint,
+            in: window
+        ),
+           let panelId = terminalView.terminalSurface?.id,
+           store.panelIsSelectedInVisibleDockPane(panelId) {
+            return true
+        }
+        if let webView = BrowserWindowPortalRegistry.webViewAtWindowPoint(
+            windowPoint,
+            in: window
+        ),
+           let context = BrowserWindowPortalRegistry.paneDropContext(for: webView),
+           context.isDockHosted,
+           context.workspaceId == store.workspaceId,
+           store.panelIsSelectedInVisibleDockPane(context.panelId) {
+            return true
+        }
+
+        // File previews and other Dock-native panels do not have a window-level
+        // portal identity. They are rare and remain behind this narrow fallback;
+        // terminal/browser panels are excluded because their portal lookups above
+        // are the authoritative O(1) path.
         return store.panels.values.contains { panel in
-            store.panelIsSelectedInVisibleDockPane(panel.id)
-                && panel.ownedFocusIntent(for: view, in: window) != nil
+            guard !(panel is TerminalPanel), !(panel is BrowserPanel),
+                  store.panelIsSelectedInVisibleDockPane(panel.id) else {
+                return false
+            }
+            return panel.ownedFocusIntent(for: view, in: window) != nil
         }
     }
 }
