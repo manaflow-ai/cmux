@@ -85,6 +85,7 @@ extension MobileIrxRuntimeComposition {
         cancelAutopilotRecovery()
         self.identity = identity
         self.provisionedAccountID = session.accountID
+        self.provisionedSessionGeneration = session.generation
         self.broker = broker
         endpointSupervisor = supervisor
         autopilot = pilot

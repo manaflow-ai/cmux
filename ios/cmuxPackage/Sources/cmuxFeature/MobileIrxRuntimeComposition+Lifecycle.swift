@@ -2,6 +2,29 @@ import CmuxAuthRuntime
 import CmuxIrxTransport
 
 extension MobileIrxRuntimeComposition {
+    /// Reconciles account/session transitions without relying on a foreground
+    /// event. A new generation is the only implicit recovery trigger after a
+    /// rejected refresh; the old session is never retried in place.
+    func handleAuthenticatedIdentity(
+        _ identity: AuthenticatedSessionIdentity?
+    ) async {
+        guard let identity else {
+            if broker != nil || reauthenticationRequired {
+                await resetForSignOut()
+            }
+            return
+        }
+        if let provisionedAccountID,
+           provisionedAccountID != identity.accountID {
+            await resetForSignOut()
+            return
+        }
+        guard reauthenticationRequired,
+              provisionedSessionGeneration != identity.generation else { return }
+        await resetForSignOut()
+        _ = await provisionIfPossible()
+    }
+
     /// Creates the client credential autopilot and routes terminal failures to
     /// this composition's lifecycle owner.
     func makeAutopilot(
@@ -47,6 +70,21 @@ extension MobileIrxRuntimeComposition {
         ) else { return }
         autopilotRecoveryCount = 0
         cancelAutopilotRecovery()
+    }
+
+    /// Detects the explicit sign-in transition that follows a rejected
+    /// refresh. A new session generation is the safe point to rebuild the
+    /// account-pinned broker; the old generation is never retried silently.
+    private func hasNewAuthenticatedSession() async -> Bool {
+        guard reauthenticationRequired,
+              let expectedGeneration = provisionedSessionGeneration,
+              let accountID = provisionedAccountID,
+              let auth,
+              let current = try? await auth.authenticatedSessionSnapshot() else {
+            return false
+        }
+        return current.accountID == accountID
+            && current.generation != expectedGeneration
     }
 
     /// Handles a terminal credential-refresh failure without leaving a
@@ -230,6 +268,7 @@ extension MobileIrxRuntimeComposition {
         broker = nil
         identity = nil
         provisionedAccountID = nil
+        provisionedSessionGeneration = nil
         Self.journal.record("client-runtime", "reset-for-sign-out")
     }
 }

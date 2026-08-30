@@ -68,6 +68,7 @@ public actor MobileIrxRuntimeComposition {
     private let stateDirectory: URL
 
     weak var auth: AuthCoordinator?
+    var authObservationTask: Task<Void, Never>?
     /// Identity donor (identity adoption): the legacy composition owns the
     /// Keychain identity, app-instance scope, and durable device ID.
     private weak var legacyComposition: MobileIrohRuntimeComposition?
@@ -78,6 +79,7 @@ public actor MobileIrxRuntimeComposition {
     var autopilot: IrxRelayCredentialAutopilot?
     var identity: IrxIdentity?
     var provisionedAccountID: String?
+    var provisionedSessionGeneration: UInt64?
     var provisioningTask: Task<Void, Never>?
     var provisionInFlight: Task<IrxBrokerService, any Error>?
     var backgroundProvisioningTask: Task<Void, Never>?
@@ -162,6 +164,15 @@ public actor MobileIrxRuntimeComposition {
     ) {
         self.auth = auth
         legacyComposition = legacy
+        authObservationTask?.cancel()
+        authObservationTask = Task { [weak self, weak auth] in
+            guard let auth else { return }
+            await auth.awaitBootstrapped()
+            for await identity in auth.authenticatedSessionIdentities() {
+                guard !Task.isCancelled else { return }
+                await self?.handleAuthenticatedIdentity(identity)
+            }
+        }
         Self.journal.record(
             "client-runtime", "configured",
             [
@@ -196,8 +207,13 @@ public actor MobileIrxRuntimeComposition {
     public func didBecomeActive() async {
         cancelAutopilotRecovery()
         autopilotRecoveryCount = 0
-        guard !reauthenticationRequired else { return }
-        await autopilot?.kick()
+        if reauthenticationRequired, await hasNewAuthenticatedSession() {
+            await resetForSignOut()
+            _ = await provisionIfPossible()
+        }
+        if !reauthenticationRequired {
+            await autopilot?.kick()
+        }
         for engine in enginesByPeer.values {
             await engine.warmUp(trigger: "foreground")
         }
