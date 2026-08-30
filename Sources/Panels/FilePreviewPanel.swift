@@ -846,24 +846,16 @@ final class FilePreviewDragPasteboardWriter: NSPasteboardItem {
     }
 
     override func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
-        _ = nativeDragOwnership()
-        materializeRegisteredItem()
         _ = pasteboard
-        var types: [NSPasteboard.PasteboardType] = [
+        // This is a read-only capability query. Registration happens only
+        // when the owner promotes a writer at willBeginAt.
+        return [
             DragOverlayRoutingPolicy.filePreviewTransferType,
             .fileURL
         ]
-        if bonsplitRegistration != nil {
-            types.insert(Self.bonsplitTransferType, at: 1)
-        }
-        return types
     }
 
     override func pasteboardPropertyList(forType type: NSPasteboard.PasteboardType) -> Any? {
-        if type == Self.bonsplitTransferType {
-            _ = nativeDragOwnership()
-            return bonsplitRegistration?.pasteboardItem.string(forType: Self.bonsplitTransferType)
-        }
         if type == DragOverlayRoutingPolicy.filePreviewTransferType {
             return transferDataForDrag()
         }

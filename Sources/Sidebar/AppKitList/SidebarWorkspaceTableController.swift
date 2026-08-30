@@ -288,6 +288,19 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 || pendingWorkspaceDragWriter != nil)
         if preserveProvisionalWorkspaceDrag {
             pendingWorkspaceDragActions = actions ?? pendingWorkspaceDragActions
+            var provisionalWriters = (
+                pendingWorkspaceDragWriters.objectEnumerator()?.allObjects ?? []
+            ).compactMap { $0 as? SidebarWorkspaceDragPasteboardWriter }
+            if let pendingWorkspaceDragWriter,
+               !provisionalWriters.contains(where: { $0 === pendingWorkspaceDragWriter }) {
+                provisionalWriters.append(pendingWorkspaceDragWriter)
+            }
+            for writer in provisionalWriters {
+                if let pendingWorkspaceDragActions {
+                    writer.configureProvisionalActions(pendingWorkspaceDragActions)
+                }
+                writer.installProvisionalDelegate()
+            }
         }
         if preserveNativeDragPresentation, activeWorkspaceDragContainerView == nil {
             activeWorkspaceDragContainerView = container

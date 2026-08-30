@@ -68,19 +68,35 @@ struct SidebarWorkspaceTableTests {
         // willBeginAt/endedAt after the representable has been dismantled.
         let writer = try #require(
             controller.tableView(container.tableView, pasteboardWriterForRow: 0)
+                as? SidebarWorkspaceDragPasteboardWriter
         )
         controller.dismantleContainerView(container)
 
         withExtendedLifetime(writer) {
             #expect(container.tableView.dataSource === controller)
-            #expect(container.tableView.delegate === controller)
+            #expect(container.tableView.delegate === writer)
 
             // `willBeginAt` can be the first callback after teardown. The
-            // controller must promote the provisional table to the native
-            // source owner before any published drag state can rebuild it.
-            controller.workspaceDragSessionDidBegin()
-            #expect(container.tableView.activeWorkspaceDragController === controller)
-            controller.workspaceDragSessionDidEnd()
+            // writer-owned delegate preserves the callback path without
+            // retaining the dismantled controller/container graph.
+            let session = TestDraggingSession(
+                sequence: 1,
+                pasteboard: NSPasteboard(
+                    name: NSPasteboard.Name("sidebar-provisional-\(UUID().uuidString)")
+                )
+            )
+            writer.tableView(
+                container.tableView,
+                draggingSession: session,
+                willBeginAt: .zero,
+                forRowIndexes: IndexSet(integer: 0)
+            )
+            writer.tableView(
+                container.tableView,
+                draggingSession: session,
+                endedAt: .zero,
+                operation: []
+            )
         }
         #expect(endWorkspaceDragCalls == 1)
     }
@@ -116,7 +132,7 @@ struct SidebarWorkspaceTableTests {
         // retaining the whole container graph is unnecessary and unbounded.
         #expect(weakContainer == nil)
         #expect(sourceTable.dataSource === controller)
-        #expect(sourceTable.delegate === controller)
+        #expect(sourceTable.delegate === (writer as? SidebarWorkspaceDragPasteboardWriter))
 
         controller.prepareForMouseDown()
         #expect(sourceTable.dataSource == nil)

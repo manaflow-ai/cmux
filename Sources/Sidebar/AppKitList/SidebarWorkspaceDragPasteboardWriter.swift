@@ -11,7 +11,7 @@ import Foundation
 /// logical drag session early; the controller still owns terminal cleanup from
 /// AppKit's `endedAt` callback.
 @MainActor
-final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem {
+final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem, NSTableViewDelegate {
     private static let pasteboardType = NSPasteboard.PasteboardType(
         SidebarWorkspaceDragSession.pasteboardTypeIdentifier
     )
@@ -24,6 +24,8 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem {
     // and its delegate cannot disappear between writer request and willBeginAt.
     private var sourceView: NSView?
     private var controller: SidebarWorkspaceTableController?
+    private var actions: SidebarWorkspaceTableActions?
+    private var provisionalSession: NSDraggingSession?
 
     init(
         workspaceId: UUID,
@@ -71,6 +73,24 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem {
         materializePayload()
     }
 
+    /// Captures the action bundle needed if the table is dismantled before
+    /// AppKit promotes this writer.
+    func configureProvisionalActions(_ actions: SidebarWorkspaceTableActions) {
+        self.actions = actions
+    }
+
+    /// Moves the provisional native callbacks onto this writer, allowing the
+    /// old controller/container graph to deallocate after SwiftUI dismantle.
+    ///
+    /// The writer remains retained by AppKit's pending/native item. If the old
+    /// controller is gone, the fallback below still performs the exact
+    /// token-scoped terminal transition.
+    func installProvisionalDelegate() {
+        guard let tableView = sourceView as? SidebarWorkspaceTableViewImpl else { return }
+        tableView.delegate = self
+        controller = nil
+    }
+
     /// The concrete payload currently stored by this writer.
     var payloadValue: String {
         SidebarTabDragPayload(tabId: workspaceId, sessionId: sessionId).pasteboardValue
@@ -87,8 +107,70 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem {
 
     /// Releases the source graph after this writer's native session terminates.
     func releaseSourceGraph() {
+        if let tableView = sourceView as? SidebarWorkspaceTableViewImpl,
+           tableView.delegate === self {
+            tableView.delegate = nil
+        }
         sourceView = nil
         controller = nil
+        actions = nil
+        provisionalSession = nil
+    }
+
+    func tableView(
+        _ tableView: NSTableView,
+        draggingSession session: NSDraggingSession,
+        willBeginAt screenPoint: NSPoint,
+        forRowIndexes rowIndexes: IndexSet
+    ) {
+        guard controller == nil else {
+            controller?.tableView(
+                tableView,
+                draggingSession: session,
+                willBeginAt: screenPoint,
+                forRowIndexes: rowIndexes
+            )
+            return
+        }
+        guard provisionalSession == nil || provisionalSession === session else { return }
+        provisionalSession = session
+        actions?.beginWorkspaceDrag(workspaceId)
+        if let sessionId = actions?.nativeWorkspaceDragLifecycle?.currentSessionId() {
+            bind(to: sessionId)
+            session.draggingPasteboard.setString(
+                payloadValue,
+                forType: Self.pasteboardType
+            )
+        }
+    }
+
+    func tableView(
+        _ tableView: NSTableView,
+        draggingSession session: NSDraggingSession,
+        endedAt screenPoint: NSPoint,
+        operation: NSDragOperation
+    ) {
+        guard controller == nil else {
+            controller?.tableView(
+                tableView,
+                draggingSession: session,
+                endedAt: screenPoint,
+                operation: operation
+            )
+            return
+        }
+        guard provisionalSession === session else { return }
+        if let lifecycle = actions?.nativeWorkspaceDragLifecycle,
+           let sessionId = lifecycle.currentSessionId() {
+            let capabilityValue = SidebarTabDragPayload(
+                tabId: workspaceId,
+                sessionId: sessionId
+            ).pasteboardValue
+            lifecycle.finish(sessionId, capabilityValue)
+        } else {
+            actions?.endWorkspaceDrag()
+        }
+        releaseSourceGraph()
     }
 
     /// Keeps the concrete item populated for the pre-session AppKit write.
