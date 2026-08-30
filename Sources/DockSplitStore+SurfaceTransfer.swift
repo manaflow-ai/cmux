@@ -668,10 +668,6 @@ extension DockSplitStore {
     ) {
         guard let panel = panel(for: tab.id), let app = AppDelegate.shared else { return }
         let panelId = panel.id
-        focusPanelFromDockInteraction(
-            panelId,
-            window: nil
-        )
         if destinationId == Self.dockMoveNewWorkspaceDestinationId {
             _ = app.moveDockSurfaceToNewWorkspace(sourceDock: self, panelId: panelId, focus: true, focusWindow: false)
         } else if destinationId.hasPrefix(Self.dockMoveExistingWorkspacePrefix) {
