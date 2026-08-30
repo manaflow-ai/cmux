@@ -88,7 +88,6 @@ extension MobileHostIrxRuntime {
         autopilotRecoveryTask = nil
         autopilotRecoveryID = nil
     }
-
     func handleAutopilotSuccess(accountID: String, token: UUID) {
         guard generationToken == token, activeAccountID == accountID else { return }
         activationRetryFailureCount = 0
@@ -274,7 +273,8 @@ extension MobileHostIrxRuntime {
         case .retry:
             if failure.operation == .hintRefresh {
                 // Hint publication is an optimization; keep the already bound
-                // endpoint healthy while the autopilot retries it.
+                // endpoint's existing state while the autopilot retries it.
+                guard activationState == .active else { return }
                 setActivationState(.active, failure: failure)
                 return
             }
