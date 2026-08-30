@@ -989,7 +989,9 @@ struct cmuxApp: App {
                 .chromePaletteHost(
                     initialPalette: appDelegate.chromePalette,
                     settingsRuntime: settingsRuntime,
-                    updates: { @MainActor in chromePaletteRuntimeCoordinator.makeUpdateStream() }
+                    updates: ChromePaletteUpdateSource(streamFactory: {
+                        chromePaletteRuntimeCoordinator.makeUpdateStream()
+                    })
                 )
                 .cmuxFontMagnificationEnvironment()
                 .cmuxAppearanceColorScheme(appearanceMode)
