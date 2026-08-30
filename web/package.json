@@ -13,6 +13,7 @@
     "coderouter:benchmark": "bun scripts/coderouter/benchmark.ts",
     "coderouter:reconcile-billing": "bun scripts/coderouter/reconcile-billing.ts",
     "testflight:backfill-legacy-ownership": "bun scripts/stripe/backfill-pro-testflight-legacy-ownership.ts",
+    "cloud-vm:deploy": "bun scripts/cloud-vm/deploy-vercel.mjs",
     "cloud-vm:env:audit": "bun scripts/cloud-vm/audit-vercel-env.mjs",
     "cloud-vm:migrate": "bun scripts/cloud-vm/migrate-vercel-aurora-iam.mjs",
     "cloud-vm:preflight": "bash scripts/cloud-vm/verify-migration-preflight.sh",

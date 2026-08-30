@@ -1,0 +1,62 @@
+name: Web deploy (staging)
+
+# Staging-first deploys: every web-affecting push to main migrates the staging
+# Aurora DB and deploys the cmux-staging Vercel project, so staging always
+# serves current main. Production is NOT deployed from pushes (web/vercel.json
+# disables the git integration); it ships only via web-promote-prod.yml.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - web/**
+      # The changelog page reads ../CHANGELOG.md at build time.
+      - CHANGELOG.md
+      - .github/workflows/web-deploy-staging.yml
+      - .github/workflows/cloud-vm-migrate.yml
+
+permissions:
+  contents: read
+  id-token: write
+
+# Queue pushes; never cancel a run that may be mid-migration.
+concurrency:
+  group: web-deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    uses: ./.github/workflows/cloud-vm-migrate.yml
+    with:
+      target: staging
+    secrets: inherit
+
+  deploy:
+    needs: migrate
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+        working-directory: web
+
+      - name: Deploy cmux-staging
+        run: bun run cloud-vm:deploy -- staging
+        working-directory: web
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+  smoke:
+    needs: deploy
+    uses: ./.github/workflows/cloud-vm-smoke.yml
+    with:
+      target: staging
+    secrets: inherit

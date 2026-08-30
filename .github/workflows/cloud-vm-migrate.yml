@@ -11,6 +11,21 @@ on:
         options:
           - staging
           - production
+  workflow_call:
+    inputs:
+      target:
+        description: Migration target (staging or production)
+        required: true
+        type: string
+      ref:
+        description: >-
+          Commit sha to run a production migration at (must be reviewed main
+          history; the caller is responsible for the ancestor check). Empty
+          keeps the default refs/heads/main pin. Ignored for staging, which
+          always migrates at the calling event's sha.
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -31,9 +46,10 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           # Staging must rehearse the dispatched branch before it can merge.
-          # Production remains pinned to reviewed main for both preflight and
-          # the prerequisite staging migration.
-          ref: ${{ inputs.target == 'production' && 'refs/heads/main' || github.sha }}
+          # Production runs at the caller-pinned main-history sha (workflow_call
+          # ref, guarded by the caller) or reviewed refs/heads/main, for both
+          # preflight and the prerequisite staging migration.
+          ref: ${{ inputs.target == 'production' && (inputs.ref || 'refs/heads/main') || github.sha }}
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -66,7 +82,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ inputs.target == 'production' && 'refs/heads/main' || github.sha }}
+          ref: ${{ inputs.target == 'production' && (inputs.ref || 'refs/heads/main') || github.sha }}
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -123,7 +139,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: refs/heads/main
+          ref: ${{ inputs.ref || 'refs/heads/main' }}
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
