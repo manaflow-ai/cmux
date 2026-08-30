@@ -1332,6 +1332,51 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn full_writer_queue_keeps_flow_resume_and_worker_completion() {
+        let rig = rig().await;
+        let (connection, _writer_rx, _flow_rx) = test_connection(&rig);
+        let pty = attach_test_pty(&rig, &connection).await;
+        let data_capacity = WRITER_QUEUE_CAPACITY - WRITER_CONTROL_MESSAGE_RESERVE - 1;
+        for index in 0..data_capacity {
+            assert!(connection.enqueue(WriterMessage::Frame(vec![index as u8])));
+        }
+
+        let flow = spawn_flow_worker(Arc::clone(&connection), connection.frame_context());
+        connection.publish_flow(true);
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                if pty.state.lock().unwrap().pause_calls == 1 {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("pause should reach the live attachment");
+
+        // A resume published after the queue is full must not be dropped.
+        connection.publish_flow(false);
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                if pty.state.lock().unwrap().resume_calls == 1 {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("resume should reach the live attachment");
+
+        connection.finish();
+        tokio::time::timeout(FLOW_DRAIN_TIMEOUT, flow)
+            .await
+            .expect("flow worker completion")
+            .expect("flow worker join");
+        assert!(connection.finished.load(Ordering::SeqCst));
+        rig.cancel.cancel();
+    }
+
+    #[tokio::test]
     async fn full_writer_queue_closes_without_growing_beyond_message_budget() {
         let rig = rig().await;
         let (connection, mut writer_rx, flow_rx) = test_connection(&rig);
