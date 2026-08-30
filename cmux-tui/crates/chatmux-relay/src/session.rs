@@ -546,6 +546,7 @@ fn make_context(
     out: &OutboundSink,
     pending: &Arc<AtomicU64>,
     auth: &AuthSnapshot,
+    auth_state: &Arc<std::sync::Mutex<AuthSnapshot>>,
     transport_id: &str,
     cancellation: &CancellationToken,
 ) -> FrameContext {
@@ -581,6 +582,13 @@ fn make_context(
         owner_user_id: auth.owner.clone(),
         transport_id: Some(transport_id.to_owned()),
         cancellation: cancellation.clone(),
+        current_auth: {
+            let auth = Arc::clone(auth_state);
+            Arc::new(move || {
+                let snapshot = auth.lock().expect("auth lock").clone();
+                (snapshot.trust, snapshot.owner)
+            })
+        },
     }
 }
 
@@ -672,8 +680,14 @@ async fn relay_session(
                     }
                 };
                 let snapshot = auth.lock().expect("auth lock").clone();
-                let context =
-                    make_context(&out, &pending, &snapshot, &transport, &connection_token);
+                let context = make_context(
+                    &out,
+                    &pending,
+                    &snapshot,
+                    &auth,
+                    &transport,
+                    &connection_token,
+                );
                 tokio::select! {
                     biased;
                     _ = connection_token.cancelled() => break,
@@ -1138,6 +1152,7 @@ async fn relay_session(
                                     &out_tx,
                                     &pending,
                                     &snapshot,
+                                    &auth,
                                     &transport_id,
                                     &connection_cancellation,
                                 );

@@ -281,6 +281,9 @@ pub struct FrameContext {
     pub transport_id: Option<String>,
     /// Raised when the transport that requested this work disconnects.
     pub cancellation: CancellationToken,
+    /// Reads the current authentication for this transport. Long-lived PTY
+    /// sinks must not rely on the credentials captured when they opened.
+    pub current_auth: Arc<dyn Fn() -> (String, Option<String>) + Send + Sync>,
 }
 
 #[derive(Clone)]
@@ -2331,6 +2334,11 @@ mod tests {
                 owner_user_id: owner,
                 transport_id: None,
                 cancellation: CancellationToken::new(),
+                current_auth: {
+                    let trust = trust.to_owned();
+                    let owner = owner.clone();
+                    Arc::new(move || (trust.clone(), owner.clone()))
+                },
             }
         }
 
@@ -2556,6 +2564,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn revoke_before_passive_output_does_not_leak_to_viewer() {
+        let h = harness(None, None);
+        let auth = Arc::new(StdMutex::new(("supervised".to_owned(), h.owner.clone())));
+        let sent = Arc::clone(&h.sent);
+        let auth_for_context = Arc::clone(&auth);
+        let context = FrameContext {
+            send: Arc::new(move |frame| sent.lock().unwrap().push(frame)),
+            buffered_amount: Arc::new(|| 0),
+            trust: "supervised".to_owned(),
+            local_roots: None,
+            owner_user_id: h.owner.clone(),
+            transport_id: Some("viewer-transport".to_owned()),
+            cancellation: CancellationToken::new(),
+            current_auth: Arc::new(move || auth_for_context.lock().unwrap().clone()),
+        };
+        let open = serde_json::json!({
+            "version": 4, "type": "pty_open", "ptyId": "p1", "session": "main",
+            "cols": 80, "rows": 24, "actorId": "user_owner", "trust": "supervised",
+            "allowedRoots": Value::Null,
+        });
+        h.manager.handle_frame(&open, &context).await;
+        *auth.lock().unwrap() = ("observe".to_owned(), Some("different-owner".to_owned()));
+        h.spawned()[0].emit("secret");
+        assert!(!h.sent().iter().any(|f| f["type"] == "pty_output"));
+    }
+
+    #[tokio::test]
     async fn close_requires_current_trust() {
         let h = harness(None, None);
         h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
@@ -2696,6 +2731,8 @@ mod tests {
             local_roots: None,
             owner_user_id: owner.clone(),
             transport_id: None,
+            cancellation: CancellationToken::new(),
+            current_auth: Arc::new(|| ("supervised".to_owned(), Some("user_owner".to_owned()))),
         };
         let open = |pty_id: &str| {
             serde_json::json!({
