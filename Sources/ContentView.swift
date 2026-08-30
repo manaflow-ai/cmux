@@ -6851,67 +6851,7 @@ struct ContentView: View {
             }
         }
 
-        if dockSurfaceTarget == nil,
-           let browserTarget = commandPaletteBrowserActionTarget,
-           let app = AppDelegate.shared,
-           let dock = app.dock(resolving: browserTarget),
-           let browserPanel = dock.browserPanel(
-               for: browserTarget.panelId
-           ),
-           let tabId = dock.surfaceId(
-               forPanelId: browserTarget.panelId
-           ),
-           let tab = dock.bonsplitController.tab(tabId) {
-                snapshot.setBool(
-                    CommandPaletteContextKeys.hasFocusedPanel,
-                    true
-                )
-                snapshot.setString(
-                    CommandPaletteContextKeys.panelName,
-                    tab.title
-                )
-                snapshot.setBool(
-                    CommandPaletteContextKeys.panelIsBrowser,
-                    true
-                )
-                snapshot.setBool(
-                    CommandPaletteContextKeys.panelBrowserFocusModeActive,
-                    browserPanel.isBrowserFocusModeActive
-                )
-                snapshot.setBool(
-                    CommandPaletteContextKeys.panelBrowserOmnibarVisible,
-                    browserPanel.isOmnibarVisible
-                )
-                snapshot.setBool(
-                    CommandPaletteContextKeys.panelHasPane,
-                    dock.paneId(forPanelId: browserTarget.panelId) != nil
-                )
-                snapshot.setBool(
-                    CommandPaletteContextKeys.panelSupportsDeepLinks,
-                    false
-                )
-                snapshot.setBool(
-                    CommandPaletteContextKeys.panelHasCustomName,
-                    tab.hasCustomTitle
-                )
-                snapshot.setBool(
-                    CommandPaletteContextKeys.panelShouldPin,
-                    !tab.isPinned
-                )
-                snapshot.setBool(
-                    CommandPaletteContextKeys.panelCanMoveToNewWorkspace,
-                    // A Dock may be left empty; moving its last panel is valid.
-                    true
-                )
-                snapshot.setBool(
-                    CommandPaletteContextKeys.workspaceHasSplits,
-                    dock.bonsplitController.allPaneIds.count > 1
-                )
-                snapshot.setBool(
-                    CommandPaletteContextKeys.panelHasUnread,
-                    dock.panelIsUnread(browserTarget.panelId)
-                )
-        } else if let dockSurface = dockSurfaceTarget,
+        if let dockSurface = dockSurfaceTarget,
                   let tabId = dockSurface.dock.surfaceId(
                       forPanelId: dockSurface.panelId
                   ),

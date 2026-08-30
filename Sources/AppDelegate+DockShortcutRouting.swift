@@ -289,7 +289,11 @@ extension AppDelegate {
         guard let store else {
             return false
         }
-        let sourcePanelId = store.focusedPanelId
+        // A palette caller may have authorized a panel that is not currently
+        // selected in the Dock (focus can lag while the palette dismisses).
+        // Preserve that validated identity as the split source instead of
+        // re-reading a potentially different focused pane.
+        let sourcePanelId = preferredDockPanelId ?? store.focusedPanelId
         let sourceBrowser = kind == .browser
             ? sourcePanelId.flatMap { store.browserPanel(for: $0) }
             : nil

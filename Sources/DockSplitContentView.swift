@@ -24,14 +24,6 @@ struct DockSplitContentView: View {
             )
             .onTapGesture { store.bonsplitController.focusPane(paneId) }
         }
-        .background {
-            DockPointerInteractionHost(
-                store: store,
-                isEnabled: store.scope == .global && store.isVisibleInUI
-            )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .allowsHitTesting(false)
-        }
     }
 
     func panelView(panel: any Panel, tabID: TabID, paneID: PaneID) -> DockSplitPanelContentView {
@@ -69,7 +61,7 @@ struct DockSplitContentView: View {
 /// callbacks run. This keeps user-originated focus independent from callbacks
 /// that Bonsplit also emits for programmatic mutations.
 @MainActor
-private struct DockPointerInteractionHost: NSViewRepresentable {
+struct DockPointerInteractionHost: NSViewRepresentable {
     let store: DockSplitStore
     let isEnabled: Bool
 
@@ -103,7 +95,7 @@ private struct DockPointerInteractionHost: NSViewRepresentable {
 }
 
 @MainActor
-private final class DockPointerInteractionHostView: NSView {
+final class DockPointerInteractionHostView: NSView {
     var store: DockSplitStore?
     var isEnabled = false
     private var eventMonitor: Any?
@@ -152,57 +144,15 @@ private final class DockPointerInteractionHostView: NSView {
     private func handle(event: NSEvent) {
         guard let window, event.window === window else { return }
         let point = convert(event.locationInWindow, from: nil)
-        let isInsideHostBounds = bounds.contains(point)
-        let registryHitOutsideHost = !isInsideHostBounds &&
-            BonsplitTabBarHitRegionRegistry.containsWindowPoint(
-                event.locationInWindow,
-                in: window
-            )
-
-        // Bonsplit's tab-bar registry is window-point based and can cover a
-        // strip hosted just outside this background view's local bounds. Check
-        // that path first, while still requiring the hit to belong to this
-        // Dock's host region so another workspace tab bar in the same window
-        // cannot claim Dock focus.
-        guard isInsideHostBounds || registryHitOutsideHost else { return }
-        let hitView = window.contentView?.hitTest(event.locationInWindow)
-        if (registryHitOutsideHost || BonsplitTabBarHitRegionRegistry.containsWindowPoint(
-            event.locationInWindow,
-            in: window
-        )),
-           let hitView,
-           isDockTabBarHitView(hitView, at: event.locationInWindow, in: window) {
-            store?.noteUserDockPointerInteraction(window: window)
-            return
-        }
-
-        guard isInsideHostBounds,
-              let hitView,
+        // This host is mounted at the DockPanel root, so its own bounds are the
+        // explicit Dock ownership region (including the Bonsplit tab strip).
+        // Keep clicks outside that region off the full-window hit-test path.
+        guard bounds.contains(point),
+              let hitView = window.contentView?.hitTest(event.locationInWindow),
               isDockHitView(hitView, at: event.locationInWindow, in: window) else {
             return
         }
         store?.noteUserDockPointerInteraction(window: window)
-    }
-
-    private func isDockTabBarHitView(
-        _ view: NSView,
-        at windowPoint: NSPoint,
-        in window: NSWindow
-    ) -> Bool {
-        guard view.window === window else { return false }
-        if let hostView = superview,
-           view === hostView || view.isDescendant(of: hostView) {
-            return true
-        }
-        // A SwiftUI remount can put the tab-bar host in a sibling subtree;
-        // constrain that fallback to the actual AppKit container frame rather
-        // than relying on a SwiftUI accessibility identifier to propagate.
-        return dockHostFrameInWindow(in: window)?.contains(windowPoint) == true
-    }
-
-    private func dockHostFrameInWindow(in window: NSWindow) -> NSRect? {
-        guard let superview, superview.window === window else { return nil }
-        return superview.convert(superview.bounds, to: nil)
     }
 
     private func isDockHitView(
@@ -216,8 +166,7 @@ private final class DockPointerInteractionHostView: NSView {
         if BonsplitTabBarHitRegionRegistry.containsWindowPoint(
             windowPoint,
             in: window
-        ),
-           isDockTabBarHitView(view, at: windowPoint, in: window) {
+        ) {
             return true
         }
 

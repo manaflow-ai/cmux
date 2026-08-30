@@ -82,6 +82,18 @@ struct DockPanelView: View {
             )
             .frame(width: 0, height: 0)
         )
+        // Keep the pointer monitor at the Dock root so its own AppKit bounds
+        // cover the complete Bonsplit tab strip and pane content. A monitor
+        // mounted inside an individual split view can miss tab chrome during
+        // SwiftUI remounts and would need an unreliable superview heuristic.
+        .overlay {
+            DockPointerInteractionHost(
+                store: store,
+                isEnabled: store.scope == .global && store.isVisibleInUI
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .allowsHitTesting(false)
+        }
         .accessibilityIdentifier("DockPanel")
         .onAppear {
             refreshAppearance(reason: "onAppear")
