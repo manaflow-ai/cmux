@@ -9207,23 +9207,7 @@ struct ContentView: View {
             }
         }
         registry.register(commandId: "palette.equalizeSplits") {
-            if let dockSurfaceStore {
-                guard focusCapturedDockSurface() else {
-                    NSSound.beep()
-                    return
-                }
-                if !dockSurfaceStore.performShortcutCommand(
-                    .equalizeSplits
-                ) {
-#if DEBUG
-                    cmuxDebugLog(
-                        "palette.equalizeSplits result=noSplitOrFailed " +
-                            "dock=\(dockSurfaceStore.workspaceId)"
-                    )
-#endif
-                }
-                return
-            }
+            if performDockShortcutCommand(.equalizeSplits) { return }
             if let workspace = tabManager.selectedWorkspace, !tabManager.equalizeSplits(tabId: workspace.id) {
 #if DEBUG
                 cmuxDebugLog("palette.equalizeSplits result=noSplitOrFailed workspaceId=\(workspace.id)")

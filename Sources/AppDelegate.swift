@@ -18957,6 +18957,9 @@ private extension NSWindow {
         // can honor the typing quiet period in release.
         if event.type == .keyDown, let app = AppDelegate.shared, cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: app) { return }
         if event.type == .keyDown { AppDelegate.shared?.recordTypingActivity() }
+        if event.type == .keyDown {
+            AppDelegate.shared?.cancelDockPointerOriginForKeyEvent(in: self)
+        }
         if event.type == .leftMouseDown,
            AppDelegate.shared?.handleMinimalModeSidebarChromeMouseDown(window: self, event: event) == true {
             return

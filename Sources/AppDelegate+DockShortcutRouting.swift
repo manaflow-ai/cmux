@@ -147,6 +147,20 @@ extension AppDelegate {
         return dockStoreForShortcut(context: context)
     }
 
+    /// Clears a Dock pointer-origin transaction when a key event begins in the
+    /// owning window. Pointer callbacks may be absent for a slop-area click;
+    /// keyboard focus changes must never allow that released origin to leak
+    /// into a later programmatic Bonsplit selection.
+    func cancelDockPointerOriginForKeyEvent(in window: NSWindow?) {
+        guard let window,
+              let context = mainWindowContexts[ObjectIdentifier(window)]
+                  ?? mainWindowContexts.values.first(where: { $0.window === window }),
+              let dock = context.existingWindowDock() else {
+            return
+        }
+        dock.cancelDockPointerInteraction(window: window)
+    }
+
     /// Validates a Dock captured by the command palette without collapsing
     /// workspace-scoped and window-scoped Docks into the window-focus gate.
     /// Window Docks must still own the current sidebar focus; workspace Docks
@@ -214,13 +228,20 @@ extension AppDelegate {
               sidebarState.isVisible else { return nil }
         guard let dock = existingWindowDock(forWindowId: context.windowId),
               !dock.isRetired,
-              dock.isVisibleInUI,
-              (resolvedSidebarMode
-                  ?? context.keyboardFocusCoordinator.resolvedRightSidebarModeForShortcut(
-                      in: context.window
-                  )) == .dock,
+              dock.isVisibleInUI else {
+            return nil
+        }
+        let responderOwnsDock = dockResponderOwnsFocus(
+            dock,
+            in: context.window
+        )
+        let resolvedMode = resolvedSidebarMode
+            ?? context.keyboardFocusCoordinator.resolvedRightSidebarModeForShortcut(
+                in: context.window
+            )
+        guard resolvedMode == .dock || responderOwnsDock,
               context.keyboardFocusCoordinator.focusedRightSidebarMode == .dock
-                  || dockResponderOwnsFocus(dock, in: context.window) else {
+                  || responderOwnsDock else {
             return nil
         }
         return dock

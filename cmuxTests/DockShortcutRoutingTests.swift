@@ -1627,7 +1627,7 @@ struct DockShortcutRoutingTests {
                     in: harness.window
                 )
 
-                harness.dock.noteUserDockPointerInteraction(window: harness.window)
+                harness.dock.beginUserDockPointerInteraction(window: harness.window)
                 #expect(
                     harness.appDelegate.keyboardFocusCoordinator(
                         for: harness.window
@@ -1682,7 +1682,7 @@ struct DockShortcutRoutingTests {
                     panelId: mainPanelId,
                     in: harness.window
                 )
-                harness.dock.noteUserDockPointerInteraction(
+                harness.dock.beginUserDockPointerInteraction(
                     window: harness.window
                 )
                 harness.dock.releaseDockPointerInteraction(

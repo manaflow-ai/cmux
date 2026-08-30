@@ -157,13 +157,6 @@ extension DockSplitStore {
         appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: ownerWindow ?? window)
     }
 
-    /// Records ownership for a left-click inside the visible window Dock before
-    /// Bonsplit delivers its selection callback. Programmatic callbacks do not
-    /// call this method, so they cannot steal focus from the main workspace.
-    func noteUserDockPointerInteraction(window: NSWindow?) {
-        beginUserDockPointerInteraction(window: window)
-    }
-
     func browserPanel(owning responder: NSResponder?, in window: NSWindow?) -> BrowserPanel? {
         guard let responder, let window else { return nil }
         if let focused = focusedPanelId,
