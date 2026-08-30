@@ -14,6 +14,10 @@ extension VerticalTabsSidebar {
         let settings = renderContext.tabItemSettings
         let anchorId = group.anchorWorkspaceId
         let liveAnchorId = group.liveAnchorWorkspaceId
+        // Empty groups use their durable group id as the native drag identity;
+        // live groups use the workspace anchor. Keep the visual source state
+        // keyed to the same identity the drag monitor publishes.
+        let dragIdentity = group.isEmpty ? group.id : anchorId
         let isAnchorActive = liveAnchorId.map { tabManager.selectedTabId == $0 } ?? false
         let isMultiSelected = liveAnchorId.map { selectedTabIds.contains($0) } ?? false
             && selectedTabIds.count > 1
@@ -102,7 +106,7 @@ extension VerticalTabsSidebar {
             cwdContextMenuItems: cwdContextMenuItems,
             rowSpacing: tabRowSpacing,
             isFirstRow: renderContext.sidebarReorderIds.first == anchorId,
-            isBeingDragged: dragState.draggedTabId == anchorId,
+            isBeingDragged: dragState.draggedTabId == dragIdentity,
             topDropIndicatorVisible: topDropIndicatorVisible,
             bottomDropIndicatorVisible: bottomDropIndicatorVisible,
             colorSchemeIsDark: renderContext.environment.colorScheme == .dark
@@ -166,6 +170,7 @@ extension VerticalTabsSidebar {
         let settings = renderContext.tabItemSettings
         let anchorId = group.anchorWorkspaceId
         let liveAnchorId = group.liveAnchorWorkspaceId
+        let dragIdentity = group.isEmpty ? group.id : anchorId
         let isAnchorActive = liveAnchorId.map { tabManager.selectedTabId == $0 } ?? false
         let isMultiSelected = liveAnchorId.map { selectedTabIds.contains($0) } ?? false
             && selectedTabIds.count > 1
@@ -259,7 +264,7 @@ extension VerticalTabsSidebar {
             newWorkspacePlacement: newWorkspacePlacement,
             rowSpacing: tabRowSpacing,
             isFirstRow: renderContext.sidebarReorderIds.first == anchorId,
-            isBeingDragged: dragState.draggedTabId == anchorId,
+            isBeingDragged: dragState.draggedTabId == dragIdentity,
             topDropIndicatorVisible: topDropIndicatorVisible,
             bottomDropIndicatorVisible: bottomDropIndicatorVisible,
             shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
@@ -273,28 +278,6 @@ extension VerticalTabsSidebar {
         snapshot: SidebarWorkspaceGroupRowSnapshot
     ) -> SidebarWorkspaceGroupRowView {
         let rowId = SidebarWorkspaceRenderItemID.group(snapshot.groupId)
-        // An empty header has no live workspace capability. Carry the typed
-        // group identity so the resolver can route it through `.reorderGroup`;
-        // live groups resolve their current anchor at drag start. A stale
-        // non-empty row fails closed instead of carrying a closed workspace
-        // identity; an empty group carries its stable group identity.
-        let onDragStart: () -> NSItemProvider = { [weak tabManager,
-                                                    groupId = snapshot.groupId,
-                                                    isEmpty = snapshot.memberCount == 0] in
-            let dragPayloadId: UUID
-            if let liveAnchorId = tabManager?.workspaceGroupAnchor(for: groupId)?.id {
-                dragPayloadId = liveAnchorId
-            } else if isEmpty {
-                dragPayloadId = groupId
-            } else {
-                return NSItemProvider()
-            }
-#if DEBUG
-            cmuxDebugLog("sidebar.onDrag groupAnchor=\(dragPayloadId.uuidString.prefix(5))")
-#endif
-            dragState.beginDragging(tabId: dragPayloadId)
-            return SidebarTabDragPayload(tabId: dragPayloadId).provider()
-        }
         let actions = makeWorkspaceGroupHeaderActions(
             groupId: snapshot.groupId,
             fallbackGroupName: snapshot.name,
@@ -335,7 +318,6 @@ extension VerticalTabsSidebar {
             isBeingDragged: snapshot.isBeingDragged,
             topDropIndicatorVisible: snapshot.topDropIndicatorVisible,
             bottomDropIndicatorVisible: snapshot.bottomDropIndicatorVisible,
-            onDragStart: onDragStart,
             actions: actions,
             onContextMenuAppear: {},
             onContextMenuDisappear: {}
@@ -346,8 +328,10 @@ extension VerticalTabsSidebar {
             groupId: snapshot.groupId,
             anchorWorkspaceId: snapshot.anchorWorkspaceId,
             shouldCollectWorkspaceDropTargets: snapshot.shouldCollectWorkspaceDropTargets,
-            onPointerFrameChange: { [pointerInteractionMonitor] frame in
-                pointerInteractionMonitor.updateGroupFrame(frame, for: rowId)
+            onPointerFrameChange: { [pointerInteractionMonitor, groupId = snapshot.groupId] frame in
+                // Preserve the stable group identity until the native drag
+                // begins; the coordinator resolves its live anchor then.
+                pointerInteractionMonitor.updateFrame(frame, for: rowId, workspaceId: groupId)
             },
             onPointerFrameDisappear: { [pointerInteractionMonitor] in
                 pointerInteractionMonitor.removeFrame(for: rowId)

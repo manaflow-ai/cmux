@@ -44,6 +44,7 @@ pub(super) fn handles(operation: ResourceOperation) -> bool {
             | ResourceOperation::TerminalStateRead
             | ResourceOperation::TerminalHistoryRead
             | ResourceOperation::TerminalHistoryClear
+            | ResourceOperation::TerminalOutputRead
             | ResourceOperation::TerminalWait
             | ResourceOperation::TerminalWaitExit
             | ResourceOperation::TerminalCopy
@@ -73,6 +74,7 @@ pub(super) fn dispatch(
         ResourceOperation::TerminalScreenRead => terminal_screen_read(mux, &request),
         ResourceOperation::TerminalStateRead => terminal_state_read(mux, &request),
         ResourceOperation::TerminalHistoryRead => terminal_history_read(mux, &request),
+        ResourceOperation::TerminalOutputRead => terminal_output_read(mux, &request),
         ResourceOperation::TerminalWait => terminal_wait(mux, &request),
         ResourceOperation::TerminalWaitExit => terminal_wait_exit(mux, &request),
         ResourceOperation::TerminalCopy => terminal_copy(mux, &request),
@@ -189,6 +191,22 @@ fn terminal_history_read(
         "next":next.map(|value| value.to_string()),
         "rows":rows,
     }))
+}
+
+/// Bounded plain-text window over one terminal's journaled output stream.
+/// Unlike the other content reads it does not require a live surface: like
+/// `terminal.wait_exit` it resolves through the durable exit receipt, so it
+/// answers for exited terminals under both exit policies (kept views and
+/// detached ones).
+fn terminal_output_read(
+    mux: &Arc<Mux>,
+    request: &ParsedResourceRequest,
+) -> Result<Value, ResourceError> {
+    let terminal_id = resolve_terminal_wait_exit_id(mux, &request.selectors)?;
+    let after = optional_decimal(&request.fields, "after")?;
+    // The catalog injects the default and enforces the 1..=4 MiB bounds.
+    let max_bytes = required_u64(&request.fields, "max_bytes")?;
+    mux.terminal_output_read(&terminal_id, after, max_bytes).map_err(resource_operation_error)
 }
 
 fn terminal_wait(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, ResourceError> {
@@ -327,7 +345,16 @@ fn terminal_effect(mux: &Arc<Mux>, request: ParsedResourceRequest) -> Result<Val
     validate_terminal_effect_fields(&request)?;
     let fields = request.fields.clone();
     let preparation = effects::prepare(mux, &request, || {
-        let (terminal_id, _) = resolve_terminal_surface(mux, &request.selectors)?;
+        // Explicit close is the only terminal effect that must keep working
+        // after the runtime is gone: an exited terminal survives as a durable
+        // receipt with zero views, and close is the one operation that
+        // retires that receipt. Resolve it like `terminal.wait_exit` instead
+        // of demanding a live surface.
+        let terminal_id = if request.envelope.operation == ResourceOperation::TerminalClose {
+            resolve_terminal_wait_exit_id(mux, &request.selectors)?
+        } else {
+            resolve_terminal_surface(mux, &request.selectors)?.0
+        };
         Ok(json!({"terminal_id":terminal_id,"fields":fields}))
     })?;
     match preparation {
@@ -353,6 +380,16 @@ fn execute_terminal_effect(
         Ok(fields) => fields.clone(),
         Err(error) => return effects::commit_known_failure(mux, prepared, error),
     };
+    if prepared.operation == "terminal.close" {
+        let commit = mux.commit_resource_terminal_close_effect(
+            &terminal_id,
+            &prepared.idempotency_key,
+            &prepared.operation,
+            &prepared.fingerprint,
+        );
+        return finish_projection_commit(mux, prepared, commit);
+    }
+
     let Some(surface_id) = mux.resource_surface_for_terminal(&terminal_id) else {
         return effects::commit_known_failure(
             mux,
@@ -384,7 +421,6 @@ fn execute_terminal_effect(
             surface.clear_history().map_err(|error| ActionFailure::Indeterminate(error.to_string()))
         }
         "terminal.viewport.scroll" => terminal_scroll_viewport(mux, &surface, &fields),
-        "terminal.close" => Ok(()),
         operation => Err(ActionFailure::Known(ResourceError::operation_failed(
             operation,
             "stored terminal effect operation is invalid",
@@ -393,16 +429,6 @@ fn execute_terminal_effect(
     };
     if let Err(failure) = action {
         return finish_action_failure(mux, prepared, failure);
-    }
-
-    if prepared.operation == "terminal.close" {
-        let commit = mux.commit_resource_terminal_close_effect(
-            surface_id,
-            &prepared.idempotency_key,
-            &prepared.operation,
-            &prepared.fingerprint,
-        );
-        return finish_projection_commit(mux, prepared, commit);
     }
 
     debug_assert!(effects::receipt_only_operation(&prepared.operation));
@@ -1624,6 +1650,7 @@ mod tests {
             ResourceOperation::TerminalStateRead,
             ResourceOperation::TerminalHistoryRead,
             ResourceOperation::TerminalHistoryClear,
+            ResourceOperation::TerminalOutputRead,
             ResourceOperation::TerminalWait,
             ResourceOperation::TerminalWaitExit,
             ResourceOperation::TerminalCopy,
@@ -2046,6 +2073,56 @@ mod tests {
         assert_eq!(terminal["tab_ids"], json!([]));
         assert_eq!(terminal["exit"]["outcome"], exited["outcome"]);
         assert!(mux.surface(surface.id).is_none());
+    }
+
+    #[test]
+    fn terminal_close_tombstones_an_exited_receipt_without_a_live_runtime() {
+        let (mux, _surface, selectors) = terminal_fixture(Some(vec!["fake-shell".into()]));
+        let public_id = TerminalPublicId::parse(selectors.terminal.as_deref().unwrap()).unwrap();
+        let host_id = mux
+            .terminal_registry_snapshot()
+            .unwrap()
+            .terminals
+            .into_iter()
+            .next()
+            .unwrap()
+            .terminal_id;
+        let exit = crate::terminal_host_protocol::TerminalExit {
+            outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 17 },
+            exited_at_ms: 4_567_890,
+        };
+        assert!(mux.persist_terminal_exit_for_test(&public_id, &exit).unwrap());
+        assert!(
+            mux.resource_surface_for_terminal(&public_id).is_none(),
+            "exit detach must retire the terminal runtime"
+        );
+
+        let closed = dispatch(
+            &mux,
+            parsed_request(
+                "terminal.close",
+                &selectors,
+                json!({}),
+                Some("close-exited-terminal-receipt"),
+            ),
+        )
+        .expect("terminal.close must retire an exited receipt without a live runtime");
+
+        assert_eq!(closed["replayed"], false);
+        assert!(
+            public_session_snapshot(&mux).unwrap()["terminals"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|terminal| terminal["id"] != public_id.as_str()),
+            "a closed exited receipt must leave the public session snapshot"
+        );
+        let tombstone = mux.resolve_terminal(&host_id).unwrap().unwrap();
+        assert_eq!(
+            tombstone.terminal.lifecycle,
+            crate::workspace_registry::TerminalLifecycle::Tombstoned
+        );
+        mux.shutdown();
     }
 
     #[cfg(unix)]

@@ -75,7 +75,6 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
     let bottomDropIndicatorVisible: Bool
-    let onDragStart: () -> NSItemProvider
     /// Shared group-header actions used by both the lazy SwiftUI row and the
     /// retained AppKit table cell.
     let actions: SidebarGroupHeaderRowActions
@@ -304,8 +303,6 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 leadingInset: metrics.groupScopedBottomDropIndicatorLeadingInset
             )
         }
-        .onDrag(onDragStart)
-        .internalOnlyTabDrag()
         .contextMenu {
             Button(
                 String(

@@ -193,16 +193,96 @@ import Testing
         #expect(monitor.middleClickWorkspaceId(at: CGPoint(x: 100, y: 80)) == nil)
     }
 
+    @Test func workspaceDragCandidateRespectsRowEligibility() {
+        let monitor = SidebarPointerInteractionMonitor()
+        let workspaceId = UUID()
+        let rowId = SidebarWorkspaceRenderItemID.workspace(workspaceId)
+        monitor.updateFrame(
+            CGRect(x: 0, y: 0, width: 200, height: 30),
+            for: rowId,
+            workspaceId: workspaceId
+        )
+
+        #expect(monitor.workspaceDragCandidate(at: CGPoint(x: 80, y: 15))?.workspaceId == workspaceId)
+        monitor.setWorkspaceDragEnabled(false, for: rowId)
+        #expect(monitor.workspaceDragCandidate(at: CGPoint(x: 80, y: 15)) == nil)
+        monitor.setWorkspaceDragEnabled(true, for: rowId)
+        #expect(monitor.workspaceDragCandidate(at: CGPoint(x: 80, y: 15))?.workspaceId == workspaceId)
+    }
+
+    @Test func failedNativeDragStartLeavesTheOriginalPointerSequenceIntact() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 320),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        let hostView = try #require(window.contentView)
+        let sourceMonitor = SidebarWorkspaceDragSourceMonitor()
+        let workspaceId = UUID()
+        var attemptedStarts = 0
+
+        sourceMonitor.attach(to: hostView)
+        sourceMonitor.start(
+            resolveCandidate: { _ in
+                SidebarWorkspaceDragCandidate(
+                    workspaceId: workspaceId,
+                    swiftUIFrame: CGRect(x: 0, y: 0, width: 120, height: 48)
+                )
+            },
+            onBeginDrag: { _, _, _, _, _ in
+                attemptedStarts += 1
+                return false
+            }
+        )
+        defer { sourceMonitor.stop() }
+
+        let mouseDown = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: NSPoint(x: 20, y: 300),
+            modifierFlags: [],
+            timestamp: 1,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1
+        ))
+        let mouseDragged = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDragged,
+            location: NSPoint(x: 30, y: 290),
+            modifierFlags: [],
+            timestamp: 2,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 2,
+            clickCount: 1,
+            pressure: 1
+        ))
+
+        #expect(sourceMonitor.handle(mouseDown) === mouseDown)
+        #expect(sourceMonitor.handle(mouseDragged) === mouseDragged)
+        #expect(attemptedStarts == 1)
+        #expect(
+            sourceMonitor.handle(mouseDragged) === mouseDragged,
+            "A failed start must not leave a pending candidate that retries against stale state."
+        )
+        #expect(attemptedStarts == 1)
+    }
+
     @Test func middleClickDoesNotResolveGroupHeaderAnchorWorkspace() {
         let monitor = SidebarPointerInteractionMonitor()
         let groupId = UUID()
-        monitor.updateGroupFrame(
+        monitor.updateFrame(
             CGRect(x: 20, y: 40, width: 180, height: 28),
-            for: .group(groupId)
+            for: .group(groupId),
+            workspaceId: groupId
         )
 
         #expect(monitor.rowId(at: CGPoint(x: 100, y: 54)) == .group(groupId))
         #expect(monitor.middleClickWorkspaceId(at: CGPoint(x: 100, y: 54)) == nil)
+        #expect(monitor.workspaceDragCandidate(at: CGPoint(x: 100, y: 54))?.workspaceId == groupId)
     }
 
     @Test func menuTrackingReconciliationIgnoresSubmenuEndNotifications() {

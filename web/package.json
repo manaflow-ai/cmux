@@ -49,6 +49,7 @@
     "@effect/sql": "0.48.6",
     "@effect/sql-pg": "0.49.7",
     "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/sdk-trace-base": "^2.9.0",
     "@orpc/client": "^1.14.7",
     "@orpc/openapi": "^1.14.7",
     "@orpc/server": "^1.14.7",
@@ -67,6 +68,7 @@
     "e2b": "^2.20.0",
     "effect": "^3.21.2",
     "freestyle": "0.1.51",
+    "freestyle-beta": "npm:freestyle@0.2.0-beta.7",
     "fzstd": "^0.1.1",
     "next": "16.3.0",
     "next-intl": "^4.11.2",
@@ -87,6 +89,7 @@
   },
   "devDependencies": {
     "@next/playwright": "16.3.0",
+    "@opentelemetry/context-async-hooks": "^2.7.1",
     "@playwright/test": "1.62.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
