@@ -254,9 +254,12 @@ def gate_background():
         if hit is None:
             failures.append({"why": f"{label} never observed after foreground"})
         else:
+            # Resume keeps the process alive: no sign-in anchor fires, so the
+            # foreground-relative WALL delta is the metric (host and sim share
+            # one clock). setup_ms would be total process uptime here.
             limit = args.limit_ms if label == "directory" else args.admitted_limit_ms
-            if hit["setup_ms"] > limit:
-                failures.append({"why": f"{label} {hit['setup_ms']}ms > {limit}ms"})
+            if hit["wall_ms"] > limit:
+                failures.append({"why": f"{label} {hit['wall_ms']}ms > {limit}ms"})
     finish("background", failures, {"return": row,
                                     "background_minutes": args.minutes})
 
