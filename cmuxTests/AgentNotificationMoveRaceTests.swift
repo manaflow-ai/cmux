@@ -113,6 +113,25 @@ struct AgentNotificationRegressionTests {
         }
     }
 
+    private func firstPolicyCompletion(
+        from stream: AsyncStream<Void>,
+        within timeout: Duration
+    ) async -> Void? {
+        await withTaskGroup(of: Void?.self) { group in
+            group.addTask {
+                var iterator = stream.makeAsyncIterator()
+                return await iterator.next()
+            }
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+                return nil
+            }
+            let value = await group.next() ?? nil
+            group.cancelAll()
+            return value
+        }
+    }
+
     private func waitForFile(at url: URL) async -> Bool {
         await waitForFile(at: url, timeout: .seconds(15))
     }
@@ -316,9 +335,19 @@ struct AgentNotificationRegressionTests {
         )
         defer { fixture.restore() }
 
+        let completion = AsyncStream.makeStream(
+            of: Void.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        defer { completion.continuation.finish() }
+
         try await confirmation("policy-suppressed notification completed") { completed in
-            fixture.store.configureNotificationDeliveryHandlerForTesting { _, _ in completed() }
-            fixture.store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in completed() }
+            let signalCompletion: () -> Void = {
+                completed()
+                completion.continuation.yield(())
+            }
+            fixture.store.configureNotificationDeliveryHandlerForTesting { _, _ in signalCompletion() }
+            fixture.store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in signalCompletion() }
             let routing = ControlRoutingSelectors(
                 hasWindowIDParam: false,
                 windowID: nil,
@@ -341,6 +370,11 @@ struct AgentNotificationRegressionTests {
                 return
             }
             #expect(notificationID == nil)
+            let didComplete = await firstPolicyCompletion(
+                from: completion.stream,
+                within: .seconds(15)
+            ) != nil
+            #expect(didComplete, "Policy evaluation must reach a side-effect completion callback")
         }
         #expect(fixture.store.notifications.allSatisfy { $0.title != "Suppressed" })
     }
