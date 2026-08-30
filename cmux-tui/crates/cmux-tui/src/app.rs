@@ -23832,7 +23832,7 @@ mod tests {
         SurfaceResizeDecision, SurfaceResizeOwnership, TERMINAL_PAINT_CADENCE, TerminalInput,
         TerminalPaintPacer, TerminalPointerAdmission, TerminalPointerAdmissionResult,
         TerminalPointerEncoding, TextInput, Toast, VIEWPORT_ANIMATION_DURATION, ViewportMotion,
-        ViewportPaneAreaProjection, WorkspaceRailSelection, WorkspaceRailTarget,
+        ViewportPaneAreaProjection, WorkspaceRailSelection,
         action_available_in_mode, browser_content_size_for_rect, browser_frame_source_crop,
         browser_hover_forward_allowed, browser_source_crop, canonical_terminal_content,
         catch_renderer_panic, clamp_split_ratio_for_tab_bars, client_menu_item,
