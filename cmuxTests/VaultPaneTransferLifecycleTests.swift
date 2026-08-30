@@ -32,8 +32,8 @@ struct VaultPaneTransferLifecycleTests {
         .browser,
     ]
 
-    @Test("An accepted surface pane transfer finishes its native Bonsplit source")
-    func acceptedSurfaceTransferFinishesNativeSource() async throws {
+    @Test("An accepted surface pane transfer defers native completion to endedAt")
+    func acceptedSurfaceTransferDefersNativeCompletionToEndedAt() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let fixture = try VaultPaneAppFixture()
             defer { fixture.tearDown() }
@@ -91,8 +91,12 @@ struct VaultPaneTransferLifecycleTests {
             #expect(plan.source == .surface)
             #expect(registry.resolve(from: pasteboard) != nil)
             #expect(router.perform(plan, pasteboard: pasteboard))
-            #expect(controller.internalController.tabDragSession == nil)
+            // Destination acceptance revokes routing, but the native source
+            // remains live until AppKit invokes its `endedAt` callback.
+            #expect(controller.internalController.tabDragSession != nil)
             #expect(registry.resolve(from: pasteboard) == nil)
+            source.finishDrag()
+            #expect(controller.internalController.tabDragSession == nil)
             withExtendedLifetime(source) {}
         }
     }
