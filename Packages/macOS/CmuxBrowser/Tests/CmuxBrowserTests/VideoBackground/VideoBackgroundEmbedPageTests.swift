@@ -13,6 +13,7 @@ struct VideoBackgroundEmbedPageTests {
         #expect(html.contains("controls: 0"))
         #expect(html.contains("playsinline: 1"))
         #expect(html.contains("pointer-events: none"))
+        #expect(html.contains("pendingVolume = 100.0"))
     }
 
     @Test func playlistPageUsesListTypePlaylist() {
@@ -60,5 +61,20 @@ struct VideoBackgroundEmbedPageTests {
         #expect(html.contains("Math.max(window.innerWidth / playerWidth, window.innerHeight / playerHeight)"))
         #expect(html.contains("window.addEventListener('resize', fitPlayer)"))
         #expect(!html.contains("width: '100%'"))
+    }
+
+    @Test func qualityAndVolumeAreAppliedToTheEmbed() {
+        let html = VideoBackgroundEmbedPage(
+            source: .youTubeVideo(id: "dQw4w9WgXcQ"),
+            queueManaged: true,
+            quality: "4k",
+            volume: 0.35
+        ).html
+        #expect(html.contains("width: 1920px"))
+        #expect(html.contains("height: 1080px"))
+        #expect(html.contains("loop: 0"))
+        #expect(html.contains("pendingVolume = 35.0"))
+        #expect(html.contains("event: 'ended'"))
+        #expect(VideoBackgroundEmbedPage.volumeScript(0.35) == "window.cmuxVideoBackgroundSetVolume(35.0);")
     }
 }

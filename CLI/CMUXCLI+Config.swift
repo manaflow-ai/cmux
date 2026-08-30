@@ -1,5 +1,6 @@
 import Foundation
 import CmuxFoundation
+import CmuxSettings
 
 extension CMUXCLI {
     func runConfigCommand(
@@ -127,6 +128,9 @@ extension CMUXCLI {
 
         Related (not cmux-owned, but cmux reads it for terminal behavior):
           \(Self.ghosttyConfigDisplayPath)
+
+        Video background shortcut:
+          cmux video-background setup-ghostty --yes
 
         Examples:
           cmux config doctor
@@ -702,5 +706,480 @@ extension CMUXCLI {
             return localized
         }
         return "unknown config parse error"
+    }
+}
+
+// MARK: - Video background CLI
+
+extension CMUXCLI {
+    /// Implements the local, socket-optional `cmux video-background` control
+    /// plane. Configuration writes go through ``VideoBackgroundConfigEditor``
+    /// so JSONC is read safely and the app can pick the change up through its
+    /// normal file watcher. A running app is refreshed opportunistically; the
+    /// command never activates or focuses it.
+    func runVideoBackgroundCommand(
+        commandArgs: [String],
+        socketPath: String?,
+        explicitPassword: String?,
+        jsonOutput: Bool
+    ) throws {
+        var args = commandArgs
+        let hadJSONFlag = args.contains("--json")
+        args.removeAll(where: { $0 == "--json" })
+        let hadConfirmationFlag = args.contains { $0 == "--yes" || $0 == "-y" }
+        args.removeAll(where: { $0 == "--yes" || $0 == "-y" })
+        let wantsJSON = jsonOutput || hadJSONFlag
+        let confirmed = hadConfirmationFlag
+        let action = args.first?.lowercased() ?? "status"
+        if action == "help" || action == "--help" || action == "-h" {
+            print(videoBackgroundUsage())
+            return
+        }
+
+        let editor = VideoBackgroundConfigEditor(
+            fileURL: URL(fileURLWithPath: Self.absoluteVideoBackgroundConfigPath())
+        )
+        let current = try editor.read()
+
+        switch action {
+        case "status", "show":
+            try printVideoBackgroundStatus(
+                snapshot: current,
+                editor: editor,
+                jsonOutput: wantsJSON
+            )
+
+        case "on", "enable":
+            try ensureVideoBackgroundGhosttyOpacity(
+                confirmed: confirmed,
+                jsonOutput: wantsJSON
+            )
+            let updated = try editor.update(.init(enabled: true))
+            try finishVideoBackgroundMutation(
+                action: "on",
+                snapshot: updated,
+                socketPath: socketPath,
+                explicitPassword: explicitPassword,
+                jsonOutput: wantsJSON
+            )
+
+        case "off", "disable":
+            let updated = try editor.update(.init(enabled: false))
+            try finishVideoBackgroundMutation(
+                action: "off",
+                snapshot: updated,
+                socketPath: socketPath,
+                explicitPassword: explicitPassword,
+                jsonOutput: wantsJSON
+            )
+
+        case "set", "source", "play":
+            let sources = try videoBackgroundSources(from: Array(args.dropFirst()))
+            if action == "play" {
+                try ensureVideoBackgroundGhosttyOpacity(
+                    confirmed: confirmed,
+                    jsonOutput: wantsJSON
+                )
+            }
+            let updated = try editor.update(
+                .init(
+                    enabled: action == "play" ? true : nil,
+                    source: sources[0],
+                    queue: sources
+                )
+            )
+            try finishVideoBackgroundMutation(
+                action: action,
+                snapshot: updated,
+                socketPath: socketPath,
+                explicitPassword: explicitPassword,
+                jsonOutput: wantsJSON
+            )
+
+        case "add", "enqueue":
+            let additions = try videoBackgroundSources(from: Array(args.dropFirst()))
+            var queue = effectiveVideoBackgroundQueue(from: current)
+            queue.append(contentsOf: additions)
+            let normalized = VideoBackgroundSettings().normalizedQueue(queue)
+            guard !normalized.isEmpty else {
+                throw CLIError(message: "video-background add requires at least one source")
+            }
+            let updated = try editor.update(.init(source: normalized[0], queue: normalized))
+            try finishVideoBackgroundMutation(
+                action: "add",
+                snapshot: updated,
+                socketPath: socketPath,
+                explicitPassword: explicitPassword,
+                jsonOutput: wantsJSON
+            )
+
+        case "remove", "rm":
+            guard args.count == 2, let rawIndex = Int(args[1]) else {
+                throw CLIError(message: "Usage: cmux video-background remove <1-based-index>")
+            }
+            var queue = effectiveVideoBackgroundQueue(from: current)
+            guard (1...queue.count).contains(rawIndex) else {
+                throw CLIError(message: "video-background remove index is outside the queue")
+            }
+            queue.remove(at: rawIndex - 1)
+            let updated = try editor.update(
+                .init(source: queue.first ?? "", queue: queue)
+            )
+            try finishVideoBackgroundMutation(
+                action: "remove",
+                snapshot: updated,
+                socketPath: socketPath,
+                explicitPassword: explicitPassword,
+                jsonOutput: wantsJSON
+            )
+
+        case "clear", "reset":
+            let updated = try editor.update(.init(source: "", queue: []))
+            try finishVideoBackgroundMutation(
+                action: "clear",
+                snapshot: updated,
+                socketPath: socketPath,
+                explicitPassword: explicitPassword,
+                jsonOutput: wantsJSON
+            )
+
+        case "list", "queue":
+            let queue = effectiveVideoBackgroundQueue(from: current)
+            if wantsJSON {
+                print(jsonString(["queue": queue, "count": queue.count]))
+            } else if queue.isEmpty {
+                print(String(localized: "cli.videoBackground.queue.empty", defaultValue: "Video background queue is empty."))
+            } else {
+                for (index, source) in queue.enumerated() {
+                    print("\(index + 1)\t\(source)")
+                }
+            }
+
+        case "next":
+            var queue = effectiveVideoBackgroundQueue(from: current)
+            guard queue.count > 1 else {
+                if wantsJSON {
+                    print(jsonString(["ok": true, "advanced": false, "queue": queue]))
+                } else {
+                    print(String(localized: "cli.videoBackground.next.single", defaultValue: "Queue has fewer than two entries; nothing to advance."))
+                }
+                return
+            }
+            queue.append(queue.removeFirst())
+            let updated = try editor.update(.init(source: queue[0], queue: queue))
+            try finishVideoBackgroundMutation(
+                action: "next",
+                snapshot: updated,
+                socketPath: socketPath,
+                explicitPassword: explicitPassword,
+                jsonOutput: wantsJSON
+            )
+
+        case "quality", "resolution":
+            let policy = VideoBackgroundSettings()
+            if args.count == 1 {
+                let value = policy.normalizedQuality(current.quality)
+                if wantsJSON { print(jsonString(["quality": value])) }
+                else { print("quality = \(value)") }
+                return
+            }
+            guard args.count == 2 else {
+                throw CLIError(message: "Usage: cmux video-background quality <720p|1080p|1440p|4k>")
+            }
+            let raw = args[1].lowercased()
+            let accepted = Set(VideoBackgroundSettings.qualityOptions).union(["720", "1080", "1440", "2160", "2k", "4k", "uhd", "auto"])
+            guard accepted.contains(raw) else {
+                throw CLIError(message: "Unknown video background quality '\(args[1])'")
+            }
+            let updated = try editor.update(.init(quality: raw))
+            try finishVideoBackgroundMutation(
+                action: "quality",
+                snapshot: updated,
+                socketPath: socketPath,
+                explicitPassword: explicitPassword,
+                jsonOutput: wantsJSON
+            )
+
+        case "opacity", "dim", "dimming":
+            let policy = VideoBackgroundSettings()
+            if args.count == 1 {
+                let value = current.dimOpacity ?? VideoBackgroundSettings.defaultDimOpacity
+                if wantsJSON { print(jsonString(["dimOpacity": value])) }
+                else { print("dimOpacity = \(String(format: "%.2f", value))") }
+                return
+            }
+            guard args.count == 2, let requested = Double(args[1]), requested.isFinite else {
+                throw CLIError(message: "Usage: cmux video-background opacity <0..1>")
+            }
+            let updated = try editor.update(.init(dimOpacity: policy.normalizedDimOpacity(requested)))
+            try finishVideoBackgroundMutation(
+                action: "opacity",
+                snapshot: updated,
+                socketPath: socketPath,
+                explicitPassword: explicitPassword,
+                jsonOutput: wantsJSON
+            )
+
+        case "audio", "mute", "muted":
+            if args.count == 1 {
+                let muted = current.muted ?? VideoBackgroundSettings.defaultMuted
+                if wantsJSON { print(jsonString(["muted": muted, "audio": !muted])) }
+                else { print(muted ? "audio = off" : "audio = on") }
+                return
+            }
+            guard args.count == 2 else {
+                throw CLIError(message: "Usage: cmux video-background audio <on|off>")
+            }
+            let value = args[1].lowercased()
+            guard ["on", "off", "true", "false"].contains(value) else {
+                throw CLIError(message: "Usage: cmux video-background audio <on|off>")
+            }
+            let audioOn = value == "on" || value == "true"
+            let updated = try editor.update(.init(muted: !audioOn))
+            try finishVideoBackgroundMutation(
+                action: "audio",
+                snapshot: updated,
+                socketPath: socketPath,
+                explicitPassword: explicitPassword,
+                jsonOutput: wantsJSON
+            )
+
+        case "volume":
+            let policy = VideoBackgroundSettings()
+            if args.count == 1 {
+                let value = snapshotVolume(current)
+                if wantsJSON { print(jsonString(["volume": value])) }
+                else { print("volume = \(String(format: "%.2f", value))") }
+                return
+            }
+            guard args.count == 2, let requested = Double(args[1]), requested.isFinite else {
+                throw CLIError(message: "Usage: cmux video-background volume <0..1>")
+            }
+            let normalizedRequest = requested > 1 ? requested / 100 : requested
+            let updated = try editor.update(.init(volume: policy.normalizedVolume(normalizedRequest)))
+            try finishVideoBackgroundMutation(
+                action: "volume",
+                snapshot: updated,
+                socketPath: socketPath,
+                explicitPassword: explicitPassword,
+                jsonOutput: wantsJSON
+            )
+
+        case "setup", "setup-ghostty", "ghostty-setup":
+            try ensureVideoBackgroundGhosttyOpacity(
+                confirmed: confirmed,
+                jsonOutput: wantsJSON,
+                alwaysWrite: true
+            )
+            let status = try videoBackgroundGhosttyOpacityStatus()
+            if wantsJSON {
+                print(jsonString([
+                    "ok": true,
+                    "background_opacity": status.opacity,
+                    "path": status.path.path,
+                    "recommended": VideoBackgroundSettings.defaultDimOpacity,
+                ]))
+            } else {
+                print(String(localized: "cli.videoBackground.ghostty.ready", defaultValue: "Ghostty background opacity is set to 80% for video backgrounds."))
+                print("path: \(Self.tildePath(status.path.path))")
+            }
+            _ = reloadConfigAfterFontSizeSet(socketPath: socketPath, explicitPassword: explicitPassword)
+
+        default:
+            throw CLIError(message: "Unknown video-background command '\(action)'. Run 'cmux video-background --help'.")
+        }
+    }
+
+    /// Returns command help kept beside the implementation so `--help` never
+    /// needs a running app or socket.
+    func videoBackgroundUsage() -> String {
+        let text = """
+        Usage: cmux video-background <status|on|off|set|add|remove|list|next|clear|quality|opacity|audio|volume|setup-ghostty> [args]
+
+        Configure the shared video background in every cmux window. Changes are
+        written to ~/.config/cmux/cmux.json and applied live when cmux is running.
+
+        Commands:
+          status                         Show enabled/source/queue/quality/audio and Ghostty opacity.
+          on|off [--yes]                 Enable or disable playback. --yes may set Ghostty opacity automatically.
+          set|source <source> [...]      Replace the queue (YouTube URL/ID or .mp4/.m4v/.mov path).
+          add <source> [...]             Append entries to the queue.
+          remove <1-based-index>         Remove one queue entry.
+          list                           Print the effective queue.
+          next                           Rotate the queue so the next entry starts now.
+          clear                          Empty the queue and legacy source.
+          quality <720p|1080p|1440p|4k>  Set the YouTube stream cap (default 1080p).
+          opacity <0..1>                 Set terminal dim opacity (default 0.8).
+          audio <on|off>                 Opt into audio (only the key cmux window plays it).
+          volume <0..1|0..100>          Set audio volume (0 is silent, 1/100 is full).
+          setup-ghostty [--yes]          Write background-opacity = 0.8 to cmux's Ghostty config.
+
+        Settings > Terminal > Video Background offers the same controls and a
+        confirmation before it edits cmux's Ghostty config.
+        """
+        return String(
+            localized: "cli.videoBackground.usage",
+            defaultValue: String.LocalizationValue(text)
+        )
+    }
+
+    private func videoBackgroundSources(from raw: [String]) throws -> [String] {
+        let values = raw
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !values.isEmpty else {
+            throw CLIError(message: "video-background requires at least one source")
+        }
+        guard values.count <= VideoBackgroundSettings.maximumQueueLength else {
+            throw CLIError(message: "video-background accepts at most \(VideoBackgroundSettings.maximumQueueLength) sources")
+        }
+        return values
+    }
+
+    private func effectiveVideoBackgroundQueue(
+        from snapshot: VideoBackgroundConfigEditor.Snapshot
+    ) -> [String] {
+        let policy = VideoBackgroundSettings()
+        let queue = policy.normalizedQueue(snapshot.queue ?? [])
+        if !queue.isEmpty { return queue }
+        guard let source = snapshot.source?.trimmingCharacters(in: .whitespacesAndNewlines), !source.isEmpty else {
+            return []
+        }
+        return [source]
+    }
+
+    private func snapshotVolume(_ snapshot: VideoBackgroundConfigEditor.Snapshot) -> Double {
+        VideoBackgroundSettings().normalizedVolume(snapshot.volume)
+    }
+
+    private static func absoluteVideoBackgroundConfigPath() -> String {
+        let home = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
+        return URL(fileURLWithPath: home)
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("cmux.json", isDirectory: false)
+            .path
+    }
+
+    private struct VideoBackgroundGhosttyOpacityStatus {
+        let opacity: Double
+        let path: URL
+        let isUsable: Bool
+    }
+
+    private func videoBackgroundGhosttyOpacityStatus() throws -> VideoBackgroundGhosttyOpacityStatus {
+        let path = try cmuxGhosttyConfigURLForCLI()
+        let contents = (try? String(contentsOf: path, encoding: .utf8)) ?? ""
+        let raw = CmuxGhosttyConfigSettingEditor().parsedValue(for: "background-opacity", in: contents)
+        let parsed = raw.flatMap { Double($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        let opacity = parsed?.isFinite == true ? min(max(parsed!, 0), 1) : 1
+        return VideoBackgroundGhosttyOpacityStatus(opacity: opacity, path: path, isUsable: opacity < 0.999)
+    }
+
+    private func ensureVideoBackgroundGhosttyOpacity(
+        confirmed: Bool,
+        jsonOutput: Bool,
+        alwaysWrite: Bool = false
+    ) throws {
+        let status = try videoBackgroundGhosttyOpacityStatus()
+        guard alwaysWrite || !status.isUsable else { return }
+        let pathText = Self.tildePath(status.path.path)
+        if !confirmed {
+            guard !jsonOutput, isatty(STDIN_FILENO) == 1, isatty(STDOUT_FILENO) == 1 else {
+                throw CLIError(
+                    message: "Video backgrounds need a translucent terminal. Run `cmux video-background setup-ghostty --yes` (edits \(pathText)) or pass `--yes` to `on`."
+                )
+            }
+            print("Video backgrounds need background-opacity below 1.0. Set it to 0.8 in \(pathText)? [y/N] ", terminator: "")
+            guard readLine()?.lowercased().hasPrefix("y") == true else {
+                throw CLIError(message: "Video background not enabled; Ghostty config was unchanged.")
+            }
+        }
+        try CmuxGhosttyConfigSettingEditor().writeSetting(
+            key: "background-opacity",
+            value: "0.8",
+            to: status.path
+        )
+    }
+
+    private func printVideoBackgroundStatus(
+        snapshot: VideoBackgroundConfigEditor.Snapshot,
+        editor: VideoBackgroundConfigEditor,
+        jsonOutput: Bool
+    ) throws {
+        let queue = effectiveVideoBackgroundQueue(from: snapshot)
+        let policy = VideoBackgroundSettings()
+        let enabled = snapshot.enabled ?? VideoBackgroundSettings.defaultEnabled
+        let muted = snapshot.muted ?? VideoBackgroundSettings.defaultMuted
+        let volume = snapshotVolume(snapshot)
+        let quality = policy.normalizedQuality(snapshot.quality)
+        let dim = snapshot.dimOpacity ?? VideoBackgroundSettings.defaultDimOpacity
+        let ghostty = try videoBackgroundGhosttyOpacityStatus()
+        if jsonOutput {
+            print(jsonString([
+                "enabled": enabled,
+                "source": snapshot.source ?? "",
+                "queue": queue,
+                "muted": muted,
+                "volume": volume,
+                "quality": quality,
+                "dimOpacity": dim,
+                "ghostty": [
+                    "background_opacity": ghostty.opacity,
+                    "usable": ghostty.isUsable,
+                    "recommended": 0.8,
+                    "path": ghostty.path.path,
+                ],
+                "config_path": editor.fileURL.path,
+            ]))
+            return
+        }
+        print("enabled = \(enabled)")
+        print("quality = \(quality)")
+        print("audio = \(muted ? "off" : "on")")
+        print("volume = \(String(format: "%.2f", volume))")
+        print("dimOpacity = \(String(format: "%.2f", dim))")
+        print("queue = \(queue.count) entr\(queue.count == 1 ? "y" : "ies")")
+        for (index, source) in queue.enumerated() { print("  \(index + 1)\t\(source)") }
+        print("Ghostty background-opacity = \(String(format: "%.2f", ghostty.opacity))")
+        print("Ghostty config: \(Self.tildePath(ghostty.path.path))")
+        if !ghostty.isUsable {
+            print(String(localized: "cli.videoBackground.opacity.warning", defaultValue: "Video is hidden while terminal opacity is 100%. Run `cmux video-background setup-ghostty --yes` to fix it."))
+        }
+    }
+
+    private func finishVideoBackgroundMutation(
+        action: String,
+        snapshot: VideoBackgroundConfigEditor.Snapshot,
+        socketPath: String?,
+        explicitPassword: String?,
+        jsonOutput: Bool
+    ) throws {
+        let reload = reloadConfigAfterFontSizeSet(socketPath: socketPath, explicitPassword: explicitPassword)
+        if jsonOutput {
+            print(jsonString([
+                "ok": true,
+                "action": action,
+                "enabled": snapshot.enabled ?? VideoBackgroundSettings.defaultEnabled,
+                "source": snapshot.source ?? "",
+                "queue": snapshot.queue ?? [],
+                "muted": snapshot.muted ?? VideoBackgroundSettings.defaultMuted,
+                "volume": snapshotVolume(snapshot),
+                "quality": VideoBackgroundSettings().normalizedQuality(snapshot.quality),
+                "dimOpacity": snapshot.dimOpacity ?? VideoBackgroundSettings.defaultDimOpacity,
+                "reload": reload.status,
+            ]))
+            return
+        }
+        let message = String.localizedStringWithFormat(
+            String(localized: "cli.videoBackground.updated", defaultValue: "Video background %@.", comment: "CLI video background mutation result"),
+            action
+        )
+        print(message)
+        switch reload.status {
+        case "reloaded": print(String(localized: "cli.videoBackground.reloaded", defaultValue: "Running cmux windows refreshed."))
+        case "failed": print(String(localized: "cli.videoBackground.savedReloadFailed", defaultValue: "Saved; cmux is not running or could not be refreshed. Run `cmux reload-config` when it is available."))
+        default: break
+        }
     }
 }

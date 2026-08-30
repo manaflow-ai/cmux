@@ -25,6 +25,10 @@ final class HostSettingsActions: SettingsHostActions {
     /// Serializes font-size config writes so rapid slider saves persist in order.
     private let fontConfigWriter = FontConfigWriter()
 
+    /// Serializes the video-background Ghostty opacity write with other config
+    /// edits while keeping file I/O off the main actor.
+    private let videoBackgroundGhosttyConfigWriter = VideoBackgroundGhosttyConfigWriter()
+
     /// AppKit window identifier the dedicated terminal-config window carries.
     /// Matches the value `ConfigSettingsView.configureWindow` assigns so the
     /// host reuses a config window opened from any entrypoint (the legacy
@@ -477,6 +481,34 @@ final class HostSettingsActions: SettingsHostActions {
         CmuxGhosttyConfigSettingEditor().formattedFontSize(points)
     }
 
+    func videoBackgroundGhosttyOpacityStatus() -> VideoBackgroundGhosttyOpacityStatus {
+        let environment = ConfigSourceEnvironment.live()
+        let url = environment.cmuxConfigURL
+        let contents = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        let raw = CmuxGhosttyConfigSettingEditor().parsedValue(
+            for: "background-opacity",
+            in: contents
+        )
+        let parsed = raw.flatMap { Double($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        let opacity = parsed?.isFinite == true ? min(max(parsed!, 0), 1) : nil
+        return VideoBackgroundGhosttyOpacityStatus(
+            isAvailable: true,
+            opacity: opacity,
+            configPath: environment.abbreviatedPath(for: url),
+            isUsable: (opacity ?? 1) < 0.999
+        )
+    }
+
+    func setVideoBackgroundGhosttyOpacity() async -> Bool {
+        guard await videoBackgroundGhosttyConfigWriter.write() else {
+            hostSettingsLogger.warning("failed to persist video background Ghostty opacity")
+            return false
+        }
+        GhosttyConfig.invalidateLoadCache()
+        GhosttyApp.shared.reloadConfiguration(source: "settings.terminal.videoBackground.ghosttyOpacity")
+        return true
+    }
+
     func mobilePairingStatus() -> MobilePairingStatusSnapshot? {
         Self.mobilePairingSnapshot(from: MobileHostService.shared.statusSnapshot())
     }
@@ -700,6 +732,22 @@ private actor FontConfigWriter {
     func write(key: String, value: String) -> Bool {
         do {
             try ConfigSourceEnvironment.live().writeCmuxConfigSetting(key: key, value: value)
+            return true
+        } catch {
+            return false
+        }
+    }
+}
+
+/// Serializes the one-click video-background transparency setup.
+private actor VideoBackgroundGhosttyConfigWriter {
+    /// Writes the recommended Ghostty opacity to cmux's managed config file.
+    func write() -> Bool {
+        do {
+            try ConfigSourceEnvironment.live().writeCmuxConfigSetting(
+                key: "background-opacity",
+                value: "0.8"
+            )
             return true
         } catch {
             return false
