@@ -494,6 +494,7 @@ final class AppIconSettingsTests: XCTestCase {
             setApplicationIconImage: { icon in
                 receivedRuntimeIcon = icon
             },
+            restoreBundleIconImage: {},
             startAppearanceObservation: {
                 startObservationCallCount += 1
             },
@@ -517,6 +518,7 @@ final class AppIconSettingsTests: XCTestCase {
         var dockTileNotificationCount = 0
         var startObservationCallCount = 0
         var stopObservationCallCount = 0
+        var restoreBundleIconCallCount = 0
 
         let environment = AppIconSettings.Environment(
             isApplicationFinishedLaunching: { true },
@@ -526,6 +528,9 @@ final class AppIconSettingsTests: XCTestCase {
             },
             setApplicationIconImage: { _ in
                 XCTFail("System mode must not assign applicationIconImage, or macOS drops the layered icon's appearance treatment")
+            },
+            restoreBundleIconImage: {
+                restoreBundleIconCallCount += 1
             },
             startAppearanceObservation: {
                 startObservationCallCount += 1
@@ -543,6 +548,44 @@ final class AppIconSettingsTests: XCTestCase {
         XCTAssertEqual(dockTileNotificationCount, 1)
         XCTAssertEqual(startObservationCallCount, 0)
         XCTAssertEqual(stopObservationCallCount, 1)
+        // A previous light/dark selection leaves a runtime icon installed;
+        // switching to system has to drop it, not just stop observing.
+        XCTAssertEqual(restoreBundleIconCallCount, 1)
+    }
+
+    func testSwitchingFromLightToSystemClearsTheRuntimeOverride() {
+        let lightIcon = NSImage(size: NSSize(width: 16, height: 16))
+        var runtimeIcon: NSImage?
+        var restoreCallCount = 0
+        var stopObservationCallCount = 0
+
+        let environment = AppIconSettings.Environment(
+            isApplicationFinishedLaunching: { true },
+            imageForMode: { _ in lightIcon },
+            setApplicationIconImage: { icon in
+                runtimeIcon = icon
+            },
+            restoreBundleIconImage: {
+                runtimeIcon = nil
+                restoreCallCount += 1
+            },
+            startAppearanceObservation: {},
+            stopAppearanceObservation: {
+                stopObservationCallCount += 1
+            },
+            notifyDockTilePlugin: {}
+        )
+
+        AppIconSettings.applyIcon(.light, environment: environment)
+        XCTAssertTrue(runtimeIcon === lightIcon)
+
+        AppIconSettings.applyIcon(.system, environment: environment)
+
+        // Without the reset the app keeps the flat light bitmap and macOS has
+        // nothing layered to treat until the next launch.
+        XCTAssertNil(runtimeIcon)
+        XCTAssertEqual(restoreCallCount, 1)
+        XCTAssertEqual(stopObservationCallCount, 2)
     }
 
     func testApplyAutomaticStartsObservationAndNotifiesDockTilePlugin() {
@@ -559,6 +602,7 @@ final class AppIconSettingsTests: XCTestCase {
             setApplicationIconImage: { _ in
                 XCTFail("Automatic mode should delegate live updates to the appearance observer")
             },
+            restoreBundleIconImage: {},
             startAppearanceObservation: {
                 startObservationCallCount += 1
             },
@@ -593,6 +637,7 @@ final class AppIconSettingsTests: XCTestCase {
             setApplicationIconImage: { _ in
                 runtimeIconSetCount += 1
             },
+            restoreBundleIconImage: {},
             startAppearanceObservation: {
                 startObservationCallCount += 1
             },

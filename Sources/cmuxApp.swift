@@ -5387,6 +5387,7 @@ enum AppIconSettings {
         let isApplicationFinishedLaunching: () -> Bool
         let imageForMode: (AppIconMode) -> NSImage?
         let setApplicationIconImage: (NSImage) -> Void
+        let restoreBundleIconImage: () -> Void
         let startAppearanceObservation: () -> Void
         let stopAppearanceObservation: () -> Void
         let notifyDockTilePlugin: () -> Void
@@ -5402,6 +5403,11 @@ enum AppIconSettings {
                 },
                 setApplicationIconImage: { icon in
                     NSApplication.shared.applicationIconImage = icon
+                },
+                restoreBundleIconImage: {
+                    // nil restores the bundle's own icon, which is the layered
+                    // one macOS applies its appearance treatment to.
+                    NSApplication.shared.applicationIconImage = nil
                 },
                 startAppearanceObservation: {
                     AppIconAppearanceObserver.shared.startObserving()
@@ -5440,9 +5446,11 @@ enum AppIconSettings {
         switch mode {
         case .system:
             // macOS applies Dark, Tinted and Clear treatment to the bundle's
-            // layered icon only. Assigning any NSImage here forfeits it, so
-            // this mode deliberately leaves applicationIconImage untouched.
+            // layered icon only, never to an NSImage assigned at runtime.
+            // A previous light/dark/automatic selection may have left one
+            // installed, so drop it rather than merely stopping observation.
             environment.stopAppearanceObservation()
+            environment.restoreBundleIconImage()
         case .automatic:
             environment.startAppearanceObservation()
         case .light:

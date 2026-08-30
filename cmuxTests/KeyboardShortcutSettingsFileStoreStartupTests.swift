@@ -165,6 +165,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
                 setApplicationIconImage: { _ in
                     runtimeIconSetCount += 1
                 },
+                restoreBundleIconImage: {},
                 startAppearanceObservation: {
                     startObservationCallCount += 1
                 },
