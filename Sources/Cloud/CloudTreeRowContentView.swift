@@ -75,15 +75,16 @@ struct CloudTreeRowContentView: View {
             groupRow(title: String(localized: "cloudTree.group.displays", defaultValue: "Displays"), count: count)
         case .workspacesGroup:
             groupRow(title: String(localized: "cloudTree.group.workspaces", defaultValue: "Workspaces"))
-        case .workspace(_, let workspace, let terminalCount, let openIn):
+        case .workspace(_, let workspace, let terminalCount, _):
+            // No open marker here (none on any row since #11069); the row's open
+            // verb reads "Go to Workspace" when it is already showing locally.
             CloudTreeLeafRow(
                 style: style,
                 icon: "folder.fill",
                 tint: CloudTreeIconPalette.workspace,
                 title: workspace.name,
                 titleWeight: workspace.focused ? .medium : .regular,
-                detail: style.showsGroupCounts ? CloudTreeRowContentView.count(terminalCount) : nil,
-                showsOpenMark: openIn != nil
+                detail: style.showsGroupCounts ? CloudTreeRowContentView.count(terminalCount) : nil
             )
         case .localWorkspace(let row):
             CloudTreeLeafRow(

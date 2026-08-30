@@ -18,7 +18,7 @@ Machine row › **Fork** (only when `capabilities.fork`) | `cmux vm fork <m> [--
 Machine row › **Delete…** | `cmux vm rm <m>` | `vm.destroy` | ✅
 Terminals / Workspaces group › **New Terminal** | `cmux surface new-terminal --machine <m> [-- <cmd>]` | `vm.terminal_new` | ✅
 Workspace row › **New Terminal Here** | `cmux surface new-terminal --machine <m> --remote-workspace <ws>` | `vm.terminal_new {workspace_id}` | ✅
-Workspace row › **Go to Workspace** (shown when the row carries an open mark), double-click, Return | `cmux workspace select <local-id>` (the local workspace from `vm tree --json` projections) | `workspace.select` | ✅ one open verb; never opens a second copy
+Workspace row › **Go to Workspace** (the open verb's label once the workspace is showing locally), double-click, Return | `cmux workspace select <local-id>` (the local workspace from `vm tree --json` projections) | `workspace.select` | ✅ one open verb; never opens a second copy
 Workspace row › **Open Workspace** (not open yet), double-click, Return | `cmux vm workspace open <m> <ws>` (also `cmux vm open <m>/<ws>`) — opens as its own local workspace | `vm.workspace_open` | ✅ an empty workspace opens nothing (D9)
 (no menu verb — drop onto the current pane) | `cmux vm workspace open <m> <ws> --here [--workspace <local>]` | `vm.workspace_open {here}` | ✅
 (no menu verb — CLI placement only) | `cmux vm workspace open <m> <ws> --tabs [--pane <p>]` | `vm.workspace_open {here, placement: tab}` | ✅
