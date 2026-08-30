@@ -43,9 +43,7 @@ extension HostSettingsActions {
             usesEphemeralFallback: status.usesEphemeralFallback,
             activeConnectionCount: status.activeConnectionCount,
             routes: routes,
-            irohStatus: mobilePairingStatus(state: status.effectiveIrohActivationState),
-            irohBrokerOperation: status.irxBrokerFailure?.operation.rawValue,
-            irohBrokerErrorCode: status.irxBrokerFailure?.errorCode
+            irohStatus: mobilePairingStatus(state: status.effectiveIrohActivationState)
         )
     }
 

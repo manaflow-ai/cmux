@@ -41,10 +41,6 @@ public struct MobilePairingStatusSnapshot: Sendable, Equatable {
     /// pairing listener's `isRunning` value.
     public let irohStatus: MobilePairingIrohStatus
 
-    /// Stable broker context for a visible retry or re-authentication message.
-    public let irohBrokerOperation: String?
-    public let irohBrokerErrorCode: String?
-
     /// Creates a pairing-status snapshot.
     ///
     /// - Parameters:
@@ -62,9 +58,7 @@ public struct MobilePairingStatusSnapshot: Sendable, Equatable {
         usesEphemeralFallback: Bool,
         activeConnectionCount: Int,
         routes: [MobilePairingRoute],
-        irohStatus: MobilePairingIrohStatus = .inactive,
-        irohBrokerOperation: String? = nil,
-        irohBrokerErrorCode: String? = nil
+        irohStatus: MobilePairingIrohStatus = .inactive
     ) {
         self.isRunning = isRunning
         self.configuredPort = configuredPort
@@ -73,7 +67,5 @@ public struct MobilePairingStatusSnapshot: Sendable, Equatable {
         self.activeConnectionCount = activeConnectionCount
         self.routes = routes
         self.irohStatus = irohStatus
-        self.irohBrokerOperation = irohBrokerOperation
-        self.irohBrokerErrorCode = irohBrokerErrorCode
     }
 }
