@@ -220,6 +220,10 @@ fn validate_agent_source(source: &str) -> anyhow::Result<()> {
             }),
         "agent source must contain 1 to {MAX_AGENT_SOURCE_BYTES} lowercase ASCII letters, digits, hyphens, or underscores"
     );
+    anyhow::ensure!(
+        source != crate::journal_reducers::SOCKET_REPORT_ADAPTER,
+        "agent source is reserved for internal socket reports"
+    );
     Ok(())
 }
 
