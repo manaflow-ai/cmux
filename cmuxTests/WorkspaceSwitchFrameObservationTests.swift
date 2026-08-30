@@ -48,7 +48,7 @@ struct WorkspaceSwitchFrameObservationTests {
     }
 
     @Test
-    func sourceRetirementReleasesUnresolvedFrameDemand() {
+    func sourceRetirementRetainsDemandUntilCancellation() {
         let notificationCenter = NotificationCenter()
         let sourceWorkspaceID = UUID()
         let targetWorkspaceID = UUID()
