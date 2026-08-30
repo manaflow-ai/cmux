@@ -1329,22 +1329,16 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             let activeSession = activeWorkspaceDraggingSession
             workspaceDragSessionDidEnd(session: activeSession)
         }
-        if !workspaceDragWriterOwnership.hasPendingTokens,
-           activeWorkspaceDragContainerView != nil,
-           !workspaceDragSourceCompletionReceived {
+        if !isWorkspaceDragSourceActive {
             // AppKit can request a writer and then abandon the gesture before
-            // creating a native session. With no pending writer token left,
-            // no callback can arrive for that request; release the provisional
-            // teardown hold at this real pointer boundary.
+            // creating a native session. A later mouse-down is the first
+            // authoritative boundary after that pre-session interval, even if
+            // the pasteboard still retains the writer; release the provisional
+            // controller/container hold without waiting for pasteboard churn.
             discardAbandonedProvisionalWorkspaceDrag()
         }
-        // Keep the provisional identity while AppKit still owns the writer.
-        // Its release may happen after this first mouse-down; clearing the
-        // identity here would make a later bounded recovery impossible.
-        if !workspaceDragWriterOwnership.hasPendingTokens {
-            pendingWorkspaceDragSessionId = nil
-            pendingWorkspaceDragWorkspaceId = nil
-        }
+        pendingWorkspaceDragSessionId = nil
+        pendingWorkspaceDragWorkspaceId = nil
     }
 
     /// Releases a provisional writer hold when AppKit never starts a session.
@@ -1356,10 +1350,13 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// which we can safely discard it without racing a live session.
     private func discardAbandonedProvisionalWorkspaceDrag() {
         guard !isWorkspaceDragSourceActive,
-              !workspaceDragWriterOwnership.hasPendingTokens,
-              pendingWorkspaceDragWriter == nil,
-              activeWorkspaceDragContainerView != nil,
               !workspaceDragSourceCompletionReceived else { return }
+        guard workspaceDragWriterOwnership.hasPendingTokens
+            || pendingWorkspaceDragWriter != nil
+            || activeWorkspaceDragContainerView != nil
+            || deferredProvisionalCellDetachContainer != nil
+            || pendingWorkspaceDragSessionId != nil
+            || pendingWorkspaceDragWorkspaceId != nil else { return }
 
         clearWorkspaceDragPresentation()
         activeWorkspaceDragSessionId = nil

@@ -169,6 +169,18 @@ struct FileExplorerNativeDragOwnershipTests {
             "Superseded cleanup must not erase the replacement drag's payload."
         )
 
+        let duplicateSession = SearchResultsDragTestSession(
+            sequence: 2,
+            pasteboard: sharedPasteboard
+        )
+        container.tableView(
+            container.searchResultsView,
+            draggingSession: duplicateSession,
+            willBeginAt: .zero,
+            forRowIndexes: IndexSet(integer: 0)
+        )
+        #expect(container.searchResultsView.activeNativeDragSession === secondSession)
+
         // A late callback from the superseded source must not clear the new
         // owner/session pair.
         container.tableView(

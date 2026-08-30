@@ -577,7 +577,14 @@ struct FileExplorerPanelView: NSViewRepresentable {
         ) {
             guard let outlineView = outlineView as? FileExplorerNSOutlineView,
                   outlineView.activeNativeDragSession === session else { return }
-            outlineView.activeNativeDragOwnership?.finish(from: session.draggingPasteboard)
+            if let ownership = outlineView.activeNativeDragOwnership {
+                ownership.finish(from: session.draggingPasteboard)
+            } else {
+                // The matching session identity proves this is not a stale
+                // callback. Keep a compatibility fallback for an AppKit path
+                // that released the plain writer before promotion.
+                FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: session)
+            }
             outlineView.activeNativeDragDelegateMarker = nil
             outlineView.activeNativeDragOwnership = nil
             outlineView.activeNativeDragSession = nil
@@ -1674,8 +1681,13 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         _ = rowIndexes
         guard tableView === searchResultsView else { return }
         if let previousSession = searchResultsView.activeNativeDragSession,
-           previousSession !== session,
-           session.draggingSequenceNumber > previousSession.draggingSequenceNumber {
+           previousSession !== session {
+            guard session.draggingSequenceNumber > previousSession.draggingSequenceNumber else {
+                // Equal/lower sequence numbers are duplicate or stale begin
+                // callbacks. They must not overwrite the newer ownership
+                // record or strand its terminal callback.
+                return
+            }
             // A new native begin proves that AppKit has left an older drag
             // loop even when that source omitted `endedAt`; retire only the
             // superseded capability before installing this generation.
@@ -1703,7 +1715,13 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         guard tableView === searchResultsView else { return }
         defer {
             if searchResultsView.activeNativeDragSession === session {
-                searchResultsView.activeNativeDragOwnership?.finish(from: session.draggingPasteboard)
+                if let ownership = searchResultsView.activeNativeDragOwnership {
+                    ownership.finish(from: session.draggingPasteboard)
+                } else {
+                    // This is the matching generation, so the fallback cannot
+                    // accidentally parse a newer session's shared pasteboard.
+                    FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: session)
+                }
                 searchResultsView.activeNativeDragDelegateMarker = nil
                 searchResultsView.activeNativeDragOwnership = nil
                 searchResultsView.activeNativeDragSession = nil

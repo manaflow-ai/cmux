@@ -51,9 +51,3 @@ public protocol SidebarWorkspaceDragSessionRegistering: SidebarWorkspaceDragRegi
     /// source holds; a missing `endedAt` callback remains generation-fenced.
     func reclaimSupersededNativeSources()
 }
-
-/// Supplies a no-op native-source reclamation default for identity-only registries.
-public extension SidebarWorkspaceDragSessionRegistering {
-    /// Leaves source reclamation unchanged when the conformer owns no AppKit source.
-    func reclaimSupersededNativeSources() {}
-}

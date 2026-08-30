@@ -509,7 +509,7 @@ final class FilePreviewDragRegistry {
 }
 
 @MainActor
-final class FilePreviewDragPasteboardWriter: NSObject, @preconcurrency NSPasteboardWriting {
+final class FilePreviewDragPasteboardWriter: NSPasteboardItem {
     private struct MirrorTabItem: Codable {
         let id: UUID
         let title: String
@@ -557,6 +557,15 @@ final class FilePreviewDragPasteboardWriter: NSObject, @preconcurrency NSPastebo
         self.nativeSourceView = nativeSourceView
         self.nativeSourceOwner = nativeSourceOwner
         super.init()
+        materializePayload()
+    }
+
+    @available(*, unavailable)
+    required init(
+        pasteboardPropertyList _: Any,
+        ofType _: NSPasteboard.PasteboardType
+    ) {
+        fatalError("init(pasteboardPropertyList:ofType:) is not supported")
     }
 
     static func dragID(from transferData: Data) -> UUID? {
@@ -792,7 +801,7 @@ final class FilePreviewDragPasteboardWriter: NSObject, @preconcurrency NSPastebo
         return data
     }
 
-    func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
+    override func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
         let data = transferDataForDrag()
         mirrorTransferDataToDragPasteboard(data)
         var types: [NSPasteboard.PasteboardType] = [
@@ -805,7 +814,7 @@ final class FilePreviewDragPasteboardWriter: NSObject, @preconcurrency NSPastebo
         return types
     }
 
-    func pasteboardPropertyList(forType type: NSPasteboard.PasteboardType) -> Any? {
+    override func pasteboardPropertyList(forType type: NSPasteboard.PasteboardType) -> Any? {
         if type == Self.bonsplitTransferType {
             let data = transferDataForDrag()
             mirrorTransferDataToDragPasteboard(data)
@@ -836,6 +845,23 @@ final class FilePreviewDragPasteboardWriter: NSObject, @preconcurrency NSPastebo
         bonsplitRegistration?.write(to: pasteboard)
         pasteboard.setData(transferData, forType: DragOverlayRoutingPolicy.filePreviewTransferType)
         pasteboard.setString(fileURLString, forType: .fileURL)
+    }
+
+    /// Stores every representation on the concrete item before AppKit binds it
+    /// to a drag pasteboard. This is required because AppKit may retain and
+    /// read an ``NSPasteboardItem`` directly without invoking the writer hooks.
+    private func materializePayload() {
+        let data = transferDataForDrag()
+        _ = setData(data, forType: DragOverlayRoutingPolicy.filePreviewTransferType)
+        _ = setString(
+            URL(fileURLWithPath: filePath).standardizedFileURL.absoluteString,
+            forType: .fileURL
+        )
+        if let bonsplitValue = bonsplitRegistration?.pasteboardItem.string(
+            forType: Self.bonsplitTransferType
+        ) {
+            _ = setString(bonsplitValue, forType: Self.bonsplitTransferType)
+        }
     }
 }
 

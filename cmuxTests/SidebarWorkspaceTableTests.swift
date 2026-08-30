@@ -201,21 +201,15 @@ struct SidebarWorkspaceTableTests {
         )
         controller.dismantleContainerView(container)
 
-        // The writer is the provisional ownership token. Until AppKit releases
-        // it, no native callback can be ruled out and the old table remains
-        // attached.
+        // The writer is still retained by AppKit, but no native session was
+        // promoted. The new pointer boundary must therefore be sufficient to
+        // release the old table/container graph without waiting for the system
+        // pasteboard to be replaced.
         controller.prepareForMouseDown()
-        #expect(container.tableView.dataSource === controller)
-        #expect(container.tableView.delegate === controller)
-
-        // Deallocation is the deterministic terminal signal for a request that
-        // never reached willBeginAt. Cleanup must happen immediately, without
-        // waiting for a later unrelated pointer event.
-        writer = nil
-
         #expect(container.tableView.activeWorkspaceDragController == nil)
         #expect(container.tableView.dataSource == nil)
         #expect(container.tableView.delegate == nil)
+        writer = nil
     }
 
     @Test
