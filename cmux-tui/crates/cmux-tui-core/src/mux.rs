@@ -24379,6 +24379,66 @@ mod tests {
     }
 
     #[test]
+    fn terminal_side_tables_clear_and_roster_retirement_retries_after_snapshot_failure() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+        mux.report_agent(
+            surface.id,
+            AgentState::Working,
+            AgentSource::Socket,
+            Some("snapshot-failure".into()),
+        )
+        .unwrap();
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "UserPromptSubmit",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({}),
+        )
+        .unwrap();
+        mux.workspace_registry
+            .lock()
+            .unwrap()
+            .enqueue_agent_hook_pending(
+                &ingress.producer_id,
+                "test",
+                "pending-before-snapshot-failure",
+                1,
+                &ingress,
+                AGENT_HOOK_RETRY_ERROR,
+                crate::workspace_registry::AgentHookRetryClass::Transient,
+            )
+            .unwrap();
+
+        mux.workspace_registry.lock().unwrap().set_journal_reducer_state_failure(true).unwrap();
+        let failed = mux.purge_terminal_side_tables(&terminal_id);
+        assert!(failed.is_err(), "the durable snapshot error must remain observable");
+        assert!(
+            !mux.agent_records.lock().unwrap().contains_key(&terminal_id),
+            "a failed roster snapshot must not retain the compatibility record"
+        );
+        assert!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .pending_agent_hook_projections()
+                .unwrap()
+                .is_empty(),
+            "durable pending hook receipts must still be purged"
+        );
+        assert!(
+            !mux.agent_roster.lock().unwrap().roster.is_retired(terminal_id.as_str()),
+            "the failed tombstone must remain retryable"
+        );
+
+        mux.workspace_registry.lock().unwrap().set_journal_reducer_state_failure(false).unwrap();
+        mux.purge_terminal_side_tables(&terminal_id).unwrap();
+        assert!(mux.agent_roster.lock().unwrap().roster.is_retired(terminal_id.as_str()));
+        mux.shutdown();
+    }
+
+    #[test]
     fn startup_reconciliation_removes_stale_ended_agent_projection() {
         let root = std::env::temp_dir().join(format!(
             "cmux-agent-stale-ended-projection-{}",
