@@ -24272,6 +24272,42 @@ mod tests {
     }
 
     #[test]
+    fn socket_echo_does_not_advance_cursor_past_unapplied_hook() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "UserPromptSubmit",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({}),
+        )
+        .unwrap();
+        let validated = mux.journal_kernel.validate_ingress(&ingress).unwrap();
+        let hook_commit = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .append_journal_ingress(&ingress, &validated, "unapplied-hook", "hook-1")
+            .unwrap();
+        assert_eq!(hook_commit.sequence, 1);
+        assert_eq!(
+            mux.workspace_registry.lock().unwrap().agent_hook_apply_cursor().unwrap(),
+            0
+        );
+
+        mux.report_agent(surface.id, AgentState::Working, AgentSource::Socket, Some("poll".into()))
+            .unwrap();
+
+        assert_eq!(
+            mux.workspace_registry.lock().unwrap().agent_hook_apply_cursor().unwrap(),
+            0,
+            "a socket echo must not consume an unapplied hook sequence"
+        );
+        assert_eq!(mux.session_journal_after(0, 16).unwrap().head_sequence, 2);
+    }
+
+    #[test]
     fn reopened_ended_hook_fence_rejects_late_events() {
         let root = std::env::temp_dir()
             .join(format!("cmux-agent-ended-reopen-{}", crate::workspace_registry::new_uuid_v4()));
