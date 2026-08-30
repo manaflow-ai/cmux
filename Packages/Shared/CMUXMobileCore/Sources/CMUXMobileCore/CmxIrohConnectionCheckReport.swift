@@ -149,8 +149,8 @@ public struct CmxIrohConnectionCheckReport: Equatable, Sendable {
         supportsRelayConfiguration: Bool,
         hasRelayConfigurationProblem: Bool
     ) -> Recommendation {
-        if transportStatus == .failed, failureKind == .offline { return .checkInternet }
         if requiresReauthentication { return .refreshAccount }
+        if transportStatus == .failed, failureKind == .offline { return .checkInternet }
         if (supportsRelayConfiguration && policyStatus == .failed)
             || hasRelayConfigurationProblem {
             return .reviewRelaySettings

@@ -103,6 +103,25 @@ struct CmxIrohConnectionCheckReportTests {
     }
 
     @Test
+    func reauthenticationOutranksAnEarlierOfflineDiagnostic() {
+        let report = CmxIrohConnectionCheckReport(
+            role: .macHost,
+            snapshot: CmxIrohSettingsSnapshot(
+                runtimeStatus: .degraded,
+                preference: .automatic,
+                managedRelays: [],
+                customRelays: [],
+                policySource: .unavailable,
+                requiresReauthentication: true
+            ),
+            diagnostics: diagnosticFailure(.timedOut),
+            relayReachability: .unavailable
+        )
+
+        #expect(report.recommendation == .refreshAccount)
+    }
+
+    @Test
     func missingMacIsDistinguishedFromAReachableRelay() {
         let report = CmxIrohConnectionCheckReport(
             role: .mobileClient,

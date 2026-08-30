@@ -62,7 +62,18 @@ actor MobileHostIrxEventWriter: MobileHostIndependentEventWriting {
     private func openedWriter() async throws -> IrxStreamWriter {
         if let writer { return writer }
         if let openingWriter {
-            return try await openingWriter.value
+            let openingID = openingWriterID
+            let opened = try await openingWriter.value
+            if let writer { return writer }
+            guard let openingID, openingWriterID == openingID else {
+                await opened.finish()
+                throw CancellationError()
+            }
+            openingWriter = nil
+            openingWriterID = nil
+            writer = opened
+            journal.record("host-events", "writer-opened")
+            return opened
         }
         let connection = connection
         let id = UUID()
