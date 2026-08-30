@@ -122,6 +122,7 @@ public struct CmxIrohConnectionCheckReport: Equatable, Sendable {
             sessionStatus: sessionStatus,
             failureKind: diagnostics.lastFailureKind,
             requiresReauthentication: snapshot.requiresReauthentication,
+            supportsRelayConfiguration: snapshot.supportsRelayConfiguration,
             hasRelayConfigurationProblem: snapshot.supportsRelayConfiguration
                 && (
                     snapshot.policySource == .unavailable
@@ -140,11 +141,13 @@ public struct CmxIrohConnectionCheckReport: Equatable, Sendable {
         sessionStatus: StageStatus,
         failureKind: DiagnosticFailureKind?,
         requiresReauthentication: Bool,
+        supportsRelayConfiguration: Bool,
         hasRelayConfigurationProblem: Bool
     ) -> Recommendation {
         if requiresReauthentication { return .refreshAccount }
         if transportStatus == .failed, failureKind == .offline { return .checkInternet }
-        if policyStatus == .failed || hasRelayConfigurationProblem {
+        if (supportsRelayConfiguration && policyStatus == .failed)
+            || hasRelayConfigurationProblem {
             return .reviewRelaySettings
         }
         // Corporate-allowlist advice requires a relay that was actually probed
