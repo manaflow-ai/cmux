@@ -479,6 +479,12 @@ struct Inner {
     /// removed. This closes the gap in which a stale frame could otherwise
     /// repopulate the cache while its opening is being cancelled.
     revoked_transports: Mutex<HashSet<TransportOwner>>,
+    /// A transport that has disconnected is permanently fenced for the life
+    /// of this manager. Relay transport ids are random per connection and
+    /// must never be reused, so a late frame cannot clear this tombstone by
+    /// publishing another snapshot with the same id. A reconnect receives a
+    /// new owner instead.
+    detached_transports: Mutex<HashSet<TransportOwner>>,
     /// Serializes short authority and attachment state transitions. It is
     /// never held while a PTY control method, callback, or provider await runs.
     tunnel_state: Mutex<()>,
@@ -664,6 +670,7 @@ impl PtyManager {
                 shell_starting: Mutex::new(HashMap::new()),
                 transport_auth: Mutex::new(HashMap::new()),
                 revoked_transports: Mutex::new(HashSet::new()),
+                detached_transports: Mutex::new(HashSet::new()),
                 tunnel_state: Mutex::new(()),
                 tunnel_authority_generation: AtomicU64::new(0),
                 next_open_attempt: AtomicU64::new(1),
@@ -694,6 +701,7 @@ impl PtyManager {
                 shell_starting: Mutex::new(HashMap::new()),
                 transport_auth: Mutex::new(HashMap::new()),
                 revoked_transports: Mutex::new(HashSet::new()),
+                detached_transports: Mutex::new(HashSet::new()),
                 tunnel_state: Mutex::new(()),
                 tunnel_authority_generation: AtomicU64::new(0),
                 next_open_attempt: AtomicU64::new(1),
@@ -818,6 +826,17 @@ impl PtyManager {
             if !self.inner.tunnel_authority_generation_current(context) {
                 return;
             }
+            if self
+                .inner
+                .detached_transports
+                .lock()
+                .expect("detached transport lock")
+                .contains(&owner)
+            {
+                // A disconnected owner is never re-authorized. A reconnect
+                // must use its freshly generated transport id.
+                return;
+            }
             let mut revoked = self.inner.revoked_transports.lock().expect("revoked transport lock");
             let transport_auth = self.inner.transport_auth.lock().expect("transport auth lock");
             let changed = transport_auth.get(&owner).is_some_and(|current| {
@@ -833,15 +852,23 @@ impl PtyManager {
             changed
         };
         if changed {
-            self.inner.detach_matching(|candidate| candidate == &owner).retire();
+            self.inner.detach_matching(|candidate| candidate == &owner, false).retire();
         }
         let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
         if !self.inner.tunnel_authority_generation_current(context) {
             return;
         }
+        if self.inner.detached_transports.lock().expect("detached transport lock").contains(&owner)
+        {
+            return;
+        }
         let mut revoked = self.inner.revoked_transports.lock().expect("revoked transport lock");
-        self.inner.transport_auth.lock().expect("transport auth lock").insert(owner, snapshot);
-        revoked.remove(&TransportOwner::from_context(context));
+        self.inner
+            .transport_auth
+            .lock()
+            .expect("transport auth lock")
+            .insert(owner.clone(), snapshot);
+        revoked.remove(&owner);
     }
 
     /// Advance the managed tunnel authority floor before publishing the
@@ -880,22 +907,25 @@ impl PtyManager {
     /// must use `detach_transport` so it cannot detach attachments the
     /// managed tunnel listener (or another socket) owns.
     pub fn detach_all(&self) {
-        self.detach_matching(|_| true).retire();
+        self.detach_matching(|_| true, true).retire();
     }
 
     /// One transport dropped: release only its attachments and cancel only
     /// its in-flight opens. Sessions live on either way (docs/TERMINAL.md).
     pub fn detach_transport(&self, transport_id: &str) {
-        self.detach_matching(|owner| owner.id.as_deref() == Some(transport_id)).retire();
+        // This legacy entry point does not carry a transport class. The
+        // matcher fences every typed identity for this opaque id.
+        self.detach_matching(|owner| owner.id.as_deref() == Some(transport_id), true).retire();
     }
 
     /// One typed transport dropped. This avoids treating an opaque relay ID
     /// as a namespace discriminator.
     pub fn detach_transport_kind(&self, transport_id: &str, kind: TransportKind) {
-        self.detach_matching(|owner| {
-            owner.id.as_deref() == Some(transport_id) && owner.kind == kind
-        })
-        .retire();
+        let owner = TransportOwner { id: Some(transport_id.to_owned()), kind };
+        let target_owner = owner;
+        // The matcher publishes the disconnect fence before removing state.
+        // A queued frame can then never repopulate the vacant cache.
+        self.detach_matching(move |candidate| candidate == &target_owner, true).retire();
     }
 
     /// Release all managed tunnel attachments. The relay connection clears
@@ -910,7 +940,7 @@ impl PtyManager {
     /// This lets session reconciliation release the global trust lock before
     /// touching platform PTY state.
     pub fn detach_tunnel_transports_deferred(&self) -> RetiredAttachments {
-        self.detach_matching(|owner| owner.kind == TransportKind::Tunnel)
+        self.detach_matching(|owner| owner.kind == TransportKind::Tunnel, true)
     }
 
     /// Cancel one opening reservation at the timeout boundary. The capability
@@ -938,18 +968,32 @@ impl PtyManager {
         }
     }
 
-    fn detach_matching(&self, owns: impl Fn(&TransportOwner) -> bool) -> RetiredAttachments {
+    fn detach_matching(
+        &self,
+        owns: impl Fn(&TransportOwner) -> bool,
+        fence_detached: bool,
+    ) -> RetiredAttachments {
         // Revoke the transport snapshot and opening reservations at one
         // authority boundary. Do not wait for an attachment operation while
         // holding the state lock: output/control callbacks take the gate
         // before that lock, so waiting here would deadlock the relay.
         let candidates = {
             let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
-            self.inner
-                .transport_auth
-                .lock()
-                .expect("transport auth lock")
-                .retain(|owner, _| !owns(owner));
+            let mut detached =
+                self.inner.detached_transports.lock().expect("detached transport lock");
+            let mut transport_auth = self.inner.transport_auth.lock().expect("transport auth lock");
+            // Every live opening and attachment is admitted through an auth
+            // snapshot. On a real disconnect, fence matching identities
+            // before removing state. Authority replacement uses the same
+            // cleanup without a terminal disconnect fence.
+            if fence_detached {
+                for owner in transport_auth.keys().filter(|owner| owns(owner)) {
+                    if owner.id.is_some() {
+                        detached.insert(owner.clone());
+                    }
+                }
+            }
+            transport_auth.retain(|owner, _| !owns(owner));
             let mut opening = self.inner.opening_state.lock().expect("opening state lock");
             let cancelled: Vec<(String, OpeningOwner)> = opening
                 .reservations
@@ -957,6 +1001,13 @@ impl PtyManager {
                 .filter(|(_, owner)| owns(&owner.owner))
                 .map(|(id, owner)| (id.clone(), owner.clone()))
                 .collect();
+            if fence_detached {
+                for (_, owner) in &cancelled {
+                    if owner.owner.id.is_some() {
+                        detached.insert(owner.owner.clone());
+                    }
+                }
+            }
             for (id, owner) in cancelled {
                 opening.reservations.remove(&id);
                 if let Some(cancellation) = opening.cancellations.remove(&owner) {
@@ -964,25 +1015,39 @@ impl PtyManager {
                 }
                 opening.cancelled.insert(id, owner);
             }
-            let active: Vec<(String, OpenCancellation)> = opening
+            let active: Vec<(String, OpeningOwner, OpenCancellation)> = opening
                 .active_openings
                 .iter()
                 .filter(|(_, (owner, _))| owns(&owner.owner))
-                .map(|(id, (_, cancellation))| (id.clone(), cancellation.clone()))
+                .map(|(id, (owner, cancellation))| {
+                    (id.clone(), owner.clone(), cancellation.clone())
+                })
                 .collect();
-            for (id, cancellation) in active {
+            for (id, owner, cancellation) in active {
+                if fence_detached && owner.owner.id.is_some() {
+                    detached.insert(owner.owner.clone());
+                }
                 opening.active_openings.remove(&id);
                 cancellation.cancel();
             }
 
-            self.inner
+            let candidates = self
+                .inner
                 .attachments
                 .lock()
                 .expect("attach lock")
                 .iter()
                 .filter(|(_, attachment)| owns(&attachment.owner))
                 .map(|(id, attachment)| (id.clone(), attachment.clone()))
-                .collect::<Vec<_>>()
+                .collect::<Vec<_>>();
+            if fence_detached {
+                for (_, attachment) in &candidates {
+                    if attachment.owner.id.is_some() {
+                        detached.insert(attachment.owner.clone());
+                    }
+                }
+            }
+            candidates
         };
 
         // Removal is linearized with publication by the same per-attachment
@@ -1671,6 +1736,9 @@ impl Inner {
     fn auth_for_transport(&self, context: &FrameContext) -> Option<AuthSnapshot> {
         let key = TransportOwner::from_context(context);
         let _state = self.tunnel_state.lock().expect("tunnel state lock");
+        if self.detached_transports.lock().expect("detached transport lock").contains(&key) {
+            return None;
+        }
         if self.revoked_transports.lock().expect("revoked transport lock").contains(&key) {
             return None;
         }
@@ -1955,6 +2023,11 @@ impl Inner {
         }
         let snapshot = AuthSnapshot::from_context(context);
         let owner = TransportOwner::from_context(context);
+        if self.detached_transports.lock().expect("detached transport lock").contains(&owner) {
+            // Disconnect is terminal for this transport identity. Do not let
+            // a queued frame recreate an entry after detach removed it.
+            return false;
+        }
         let revoked =
             self.revoked_transports.lock().expect("revoked transport lock").contains(&owner);
         if revoked {
@@ -2797,7 +2870,11 @@ impl Inner {
         if cancellation.is_cancelled() {
             return Err((RelayPtyErrorCode::Failed, "terminal open cancelled".to_owned()));
         }
-        let identify = control.request("identify", json!({})).await;
+        let identify =
+            request_control_with_cancellation(&control, "identify", json!({}), cancellation).await;
+        if cancellation.is_cancelled() {
+            return Err((RelayPtyErrorCode::Failed, "terminal open cancelled".to_owned()));
+        }
         let info = identify.as_ref().filter(|v| v.get("ok").and_then(Value::as_bool) == Some(true));
         let protocol = info
             .and_then(|v| v.get("data"))
@@ -2826,7 +2903,16 @@ impl Inner {
             if cancellation.is_cancelled() {
                 return Err((RelayPtyErrorCode::Failed, "terminal open cancelled".to_owned()));
             }
-            let listed = control.request("list-workspaces", json!({})).await;
+            let listed = request_control_with_cancellation(
+                &control,
+                "list-workspaces",
+                json!({}),
+                cancellation,
+            )
+            .await;
+            if cancellation.is_cancelled() {
+                return Err((RelayPtyErrorCode::Failed, "terminal open cancelled".to_owned()));
+            }
             let tabs = listed
                 .as_ref()
                 .filter(|v| v.get("ok").and_then(Value::as_bool) == Some(true))
@@ -2856,7 +2942,16 @@ impl Inner {
             if cancellation.is_cancelled() {
                 return Err((RelayPtyErrorCode::Failed, "terminal open cancelled".to_owned()));
             }
-            let info = control.request("process-info", json!({ "surface": surface_id })).await;
+            let info = request_control_with_cancellation(
+                &control,
+                "process-info",
+                json!({ "surface": surface_id }),
+                cancellation,
+            )
+            .await;
+            if cancellation.is_cancelled() {
+                return Err((RelayPtyErrorCode::Failed, "terminal open cancelled".to_owned()));
+            }
             let actual = info
                 .as_ref()
                 .filter(|v| v.get("ok").and_then(Value::as_bool) == Some(true))
