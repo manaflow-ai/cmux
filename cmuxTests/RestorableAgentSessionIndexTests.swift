@@ -768,6 +768,7 @@ struct RestorableAgentSessionIndexTests {
             fileManager: fm,
             registry: registry,
             detectedSnapshots: detectedSnapshots,
+            environment: [:],
             processArgumentsProvider: { _ in nil }
         )
         let restoredSessionIds = try panels.map { panelId in
@@ -870,6 +871,7 @@ struct RestorableAgentSessionIndexTests {
             fileManager: fm,
             registry: registry,
             detectedSnapshots: detectedSnapshots,
+            environment: [:],
             processArgumentsProvider: { _ in nil }
         )
         let restoredSessionIds = try zip(restoredWorkspaceIds, panels).map { workspaceId, panelId in
@@ -968,18 +970,26 @@ struct RestorableAgentSessionIndexTests {
             panelId: panelId
         )
         let detected = try XCTUnwrap(detectedSnapshots[restoredKey])
-        XCTAssertEqual(detected.snapshot.sessionId, detectedLatestFile.path)
+        let expectedLatestSessionURL = detectedLatestFile.resolvingSymlinksInPath()
+        XCTAssertEqual(
+            URL(fileURLWithPath: detected.snapshot.sessionId).resolvingSymlinksInPath(),
+            expectedLatestSessionURL
+        )
 
         let index = RestorableAgentSessionIndex.load(
             homeDirectory: root.path,
             fileManager: fm,
             registry: registry,
             detectedSnapshots: detectedSnapshots,
+            environment: [:],
             processArgumentsProvider: { _ in nil }
         )
         let snapshot = try XCTUnwrap(index.snapshot(workspaceId: restoredWorkspaceId, panelId: panelId))
 
-        XCTAssertEqual(snapshot.sessionId, detectedLatestFile.path)
+        XCTAssertEqual(
+            URL(fileURLWithPath: snapshot.sessionId).resolvingSymlinksInPath(),
+            expectedLatestSessionURL
+        )
     }
 
     @Test
@@ -1315,7 +1325,7 @@ struct RestorableAgentSessionIndexTests {
                 ]
             )
             let snapshot = try XCTUnwrap(
-                RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+                loadIndex(homeDirectory: root.path, fileManager: fm)
                     .snapshot(workspaceId: ws, panelId: panel),
                 "\(testCase.launcher): snapshot"
             )
@@ -1403,7 +1413,7 @@ struct RestorableAgentSessionIndexTests {
         )
 
         let snapshot = try XCTUnwrap(
-            RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+            loadIndex(homeDirectory: root.path, fileManager: fm)
                 .snapshot(workspaceId: ws, panelId: panel)
         )
         XCTAssertEqual(snapshot.sessionId, newId, "the surface must resume the newest session, not the replaced one")
@@ -1543,7 +1553,10 @@ struct RestorableAgentSessionIndexTests {
                 "arguments": ["/usr/local/bin/\(launcher)"],
                 "workingDirectory": launchCwd,
                 "capturedAt": updatedAt,
-                "source": "test",
+                // Codex's bounded restore admission accepts a legacy record
+                // without a durable state database only when its launch source
+                // is an explicit default/argv capture.
+                "source": launcher == "codex" ? "default" : "test",
             ],
         ]
     }
@@ -1668,6 +1681,8 @@ struct RestorableAgentSessionIndexTests {
             launcher: "codex", sessionId: sid, workspaceId: ws, panelId: panel,
             recordedCwd: dir.path, launchCwd: dir.path, updatedAt: 10
         )
+        let transcriptURL = try writeCodexTranscript(root: root, sessionID: sid, cwd: dir)
+        record["transcriptPath"] = transcriptURL.path
         record["launchCommand"] = [
             "launcher": "claude",
             "executablePath": "/Users/someone/.local/bin/claude",
@@ -1688,7 +1703,7 @@ struct RestorableAgentSessionIndexTests {
         )
 
         let snapshot = try XCTUnwrap(
-            RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+            loadIndex(homeDirectory: root.path, fileManager: fm)
                 .snapshot(workspaceId: ws, panelId: panel)
         )
         XCTAssertEqual(
@@ -1731,6 +1746,8 @@ struct RestorableAgentSessionIndexTests {
             launcher: "codex", sessionId: sid, workspaceId: ws, panelId: panel,
             recordedCwd: dir.path, launchCwd: dir.path, updatedAt: 10
         )
+        let transcriptURL = try writeCodexTranscript(root: root, sessionID: sid, cwd: dir)
+        record["transcriptPath"] = transcriptURL.path
         record["launchCommand"] = [
             "launcher": "codex",
             "executablePath": "sh",
@@ -1746,7 +1763,7 @@ struct RestorableAgentSessionIndexTests {
         )
 
         let snapshot = try XCTUnwrap(
-            RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+            loadIndex(homeDirectory: root.path, fileManager: fm)
                 .snapshot(workspaceId: ws, panelId: panel)
         )
         let resume = try XCTUnwrap(snapshot.resumeCommand)
@@ -1821,5 +1838,37 @@ struct RestorableAgentSessionIndexTests {
             to: stateDir.appendingPathComponent(storeFilename, isDirectory: false),
             options: .atomic
         )
+    }
+
+    private func loadIndex(
+        homeDirectory: String,
+        fileManager: FileManager
+    ) -> RestorableAgentSessionIndex {
+        RestorableAgentSessionIndex.load(
+            homeDirectory: homeDirectory,
+            fileManager: fileManager,
+            registry: CmuxVaultAgentRegistry.load(
+                homeDirectory: homeDirectory,
+                fileManager: fileManager
+            ),
+            detectedSnapshots: [:],
+            environment: [:]
+        )
+    }
+
+    private func writeCodexTranscript(root: URL, sessionID: String, cwd: URL) throws -> URL {
+        let transcriptURL = root.appendingPathComponent("codex-\(sessionID).jsonl", isDirectory: false)
+        let metadata: [String: Any] = [
+            "type": "session_meta",
+            "payload": [
+                "id": sessionID,
+                "cwd": cwd.path,
+                "source": "cli",
+                "originator": "codex-tui",
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: metadata)
+        try data.write(to: transcriptURL, options: .atomic)
+        return transcriptURL
     }
 }

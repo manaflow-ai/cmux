@@ -20,8 +20,7 @@ struct RestorableAgentProcessGenerationTests {
         sessionID: String,
         processID: Int,
         updatedAt: TimeInterval,
-        storeURL: URL,
-        previousHookStateDirectory: String?
+        storeURL: URL
     )
 
     @Test("Shared cache publishes unknown-to-exited liveness transitions")
@@ -34,6 +33,7 @@ struct RestorableAgentProcessGenerationTests {
             fileManager: fixture.fileManager,
             registry: CmuxVaultAgentRegistry(registrations: []),
             detectedSnapshots: [:],
+            environment: ["CMUX_AGENT_HOOK_STATE_DIR": fixture.hookStateDirectory.path],
             processArgumentsProvider: { _ in nil },
             processPresenceProvider: { _ in .unknown },
             processIdentityProvider: { _ in nil }
@@ -43,6 +43,7 @@ struct RestorableAgentProcessGenerationTests {
             fileManager: fixture.fileManager,
             registry: CmuxVaultAgentRegistry(registrations: []),
             detectedSnapshots: [:],
+            environment: ["CMUX_AGENT_HOOK_STATE_DIR": fixture.hookStateDirectory.path],
             processArgumentsProvider: { _ in nil },
             processPresenceProvider: { _ in .absent },
             processIdentityProvider: { _ in nil }
@@ -422,6 +423,7 @@ struct RestorableAgentProcessGenerationTests {
             fileManager: fixture.fileManager,
             registry: CmuxVaultAgentRegistry(registrations: []),
             detectedSnapshots: [:],
+            environment: ["CMUX_AGENT_HOOK_STATE_DIR": fixture.hookStateDirectory.path],
             processArgumentsProvider: { pid in
                 pid == fixture.processID ? processArguments : nil
             },
@@ -438,6 +440,7 @@ struct RestorableAgentProcessGenerationTests {
             fileManager: fixture.fileManager,
             registry: CmuxVaultAgentRegistry(registrations: []),
             detectedSnapshots: [:],
+            environment: ["CMUX_AGENT_HOOK_STATE_DIR": fixture.hookStateDirectory.path],
             processArgumentsProvider: { _ in nil },
             processPresenceProvider: { _ in .unknown },
             processIdentityProvider: { _ in nil }
@@ -501,8 +504,6 @@ struct RestorableAgentProcessGenerationTests {
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
         let hookStateDirectory = root.appendingPathComponent("hook-state", isDirectory: true)
-        let previousHookStateDirectory = getenv("CMUX_AGENT_HOOK_STATE_DIR").map { String(cString: $0) }
-
         let workspaceID = UUID()
         let panelID = UUID()
         let sessionID = "codex-generation-session"
@@ -527,7 +528,7 @@ struct RestorableAgentProcessGenerationTests {
                 "arguments": ["/usr/local/bin/codex"],
                 "workingDirectory": "/tmp/repo",
                 "capturedAt": updatedAt,
-                "source": "test",
+                "source": "default",
             ],
         ]
         let data = try JSONSerialization.data(
@@ -535,7 +536,6 @@ struct RestorableAgentProcessGenerationTests {
             options: [.prettyPrinted, .sortedKeys]
         )
         try data.write(to: storeURL, options: .atomic)
-        setenv("CMUX_AGENT_HOOK_STATE_DIR", hookStateDirectory.path, 1)
         return (
             root: root,
             hookStateDirectory: hookStateDirectory,
@@ -545,17 +545,11 @@ struct RestorableAgentProcessGenerationTests {
             sessionID: sessionID,
             processID: processID,
             updatedAt: updatedAt,
-            storeURL: storeURL,
-            previousHookStateDirectory: previousHookStateDirectory
+            storeURL: storeURL
         )
     }
 
     private func cleanup(_ fixture: Fixture) {
-        if let previousHookStateDirectory = fixture.previousHookStateDirectory {
-            setenv("CMUX_AGENT_HOOK_STATE_DIR", previousHookStateDirectory, 1)
-        } else {
-            unsetenv("CMUX_AGENT_HOOK_STATE_DIR")
-        }
         try? fixture.fileManager.removeItem(at: fixture.root)
     }
 }
