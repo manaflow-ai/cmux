@@ -8301,10 +8301,11 @@ impl MachineActionWorker {
                 let mut next_action_id = 1_u64;
                 let mut pending_replacement: Option<(u64, bool)> = None;
                 while !worker_stop.load(Ordering::Acquire) {
-                    let command = match receiver.recv_timeout(Duration::from_millis(50)) {
+                    // Dropping the sender in `shutdown` wakes a blocked receive,
+                    // so the worker does not need a timeout just to observe stop.
+                    let command = match receiver.recv() {
                         Ok(command) => command,
-                        Err(RecvTimeoutError::Timeout) => continue,
-                        Err(RecvTimeoutError::Disconnected) => break,
+                        Err(_) => break,
                     };
                     let completion = match command {
                         MachineControllerCommand::Perform { request, preparation } => {
