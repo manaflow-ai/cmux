@@ -1247,6 +1247,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
                 .combineLatest(browser.$isMuted.removeDuplicates())
                 .map { _ in false }
             let browserFindCapabilityChanges = browser.$searchState
+                .map { $0 != nil }
+                .removeDuplicates()
                 .map { _ in true }
                 .merge(with: NotificationCenter.default.publisher(
                     for: .browserFindCapabilityDidChange,
@@ -1260,6 +1262,10 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self, weak browser] shouldRefreshCapabilities in
                     guard let self, let browser else { return }
+                    if shouldRefreshCapabilities {
+                        self.refreshDockMenuCapabilities()
+                        return
+                    }
                     self.publishBrowserOpenTabSuggestion(for: browser)
                     guard let tabId = self.surfaceId(forPanelId: browser.id),
                           let existing = self.bonsplitController.tab(tabId) else { return }
@@ -1278,9 +1284,6 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
                     let faviconUpdate: Data?? = existing.iconImageData == favicon ? nil : .some(favicon)
                     let loadingUpdate: Bool? = existing.isLoading == browser.isLoading ? nil : browser.isLoading
                     let mutedUpdate: Bool? = existing.isAudioMuted == browser.isMuted ? nil : browser.isMuted
-                    if shouldRefreshCapabilities {
-                        self.refreshDockMenuCapabilities()
-                    }
                     guard titleUpdate != nil || faviconUpdate != nil || loadingUpdate != nil || mutedUpdate != nil else { return }
                     self.bonsplitController.updateTab(
                         tabId,
