@@ -18,13 +18,14 @@ extension IrxBrokerService {
             throw failure.with(operation: operation)
         } catch {
             onError?(error)
-            // Broker responses can be malformed during a deploy or proxy
-            // transition. Keep them on the bounded recovery ladder; callers
-            // that know an input is permanently invalid classify it explicitly.
+            // Every transport error that can be retried has a typed boundary
+            // above (connectivity, rate limiting, or an HTTP response). An
+            // unknown error is therefore a local/protocol failure and must
+            // fail closed instead of creating an endless renewal loop.
             throw IrxBrokerFailure(
                 operation: operation,
                 error: error,
-                fallbackKind: .transient
+                fallbackKind: .invalid
             )
         }
     }

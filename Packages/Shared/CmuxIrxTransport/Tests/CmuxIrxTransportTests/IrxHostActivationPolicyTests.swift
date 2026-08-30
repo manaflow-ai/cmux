@@ -137,6 +137,24 @@ struct IrxHostActivationPolicyTests {
         )
     }
 
+    @Test("unclassified local failures fail closed instead of retrying")
+    func unclassifiedFailureStops() {
+        struct LocalInputError: Error {}
+        let failure = IrxBrokerFailure(
+            operation: .register,
+            error: LocalInputError()
+        )
+
+        #expect(failure.kind == .invalid)
+        #expect(
+            policy.decision(
+                for: failure,
+                failureCount: 0,
+                jitterUnitInterval: 0
+            ) == .stopped
+        )
+    }
+
     @Test("a stale binding proof is retryable after the cache is invalidated")
     func staleBindingProofDoesNotLookLikeReauthentication() {
         let failure = IrxBrokerFailure(
