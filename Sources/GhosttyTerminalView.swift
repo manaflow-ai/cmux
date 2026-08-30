@@ -8709,7 +8709,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        let types = sender.draggingPasteboard.types ?? []
         if Self.hasLiveInternalDrag(in: sender.draggingPasteboard) {
             return false
         }

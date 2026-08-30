@@ -507,6 +507,7 @@ class TabManager: ObservableObject {
         initialWorkingDirectory: String? = nil,
         initialTerminalInput: String? = nil,
         autoWelcomeIfNeeded: Bool = true,
+        createInitialWorkspace: Bool = true,
         tabDragTransferRegistry: TabDragTransferRegistry? = nil,
         commandRunner: any CommandRunning = CommandRunner(),
         gitMetadataService: GitMetadataService = GitMetadataService(),
@@ -602,13 +603,18 @@ class TabManager: ObservableObject {
         workspaces.attach(host: self)
         workspaceReordering.attach(host: self)
         workspaceGrouping.attach(host: self)
-        addInitialWorkspaceAssumingActive(
-            title: initialWorkspaceTitle,
-            titleSource: .auto,
-            workingDirectory: initialWorkingDirectory,
-            initialTerminalInput: initialTerminalInput,
-            autoWelcomeIfNeeded: autoWelcomeIfNeeded
-        )
+        // The SwiftUI app root needs a command-routing fallback before AppKit
+        // registers the real per-window manager. It must not create a terminal:
+        // SwiftUI may initialize the app value more than once during launch.
+        if createInitialWorkspace {
+            addInitialWorkspaceAssumingActive(
+                title: initialWorkspaceTitle,
+                titleSource: .auto,
+                workingDirectory: initialWorkingDirectory,
+                initialTerminalInput: initialTerminalInput,
+                autoWelcomeIfNeeded: autoWelcomeIfNeeded
+            )
+        }
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidSetTitle,
             object: nil,
@@ -700,6 +706,22 @@ class TabManager: ObservableObject {
         setupChildExitSplitUITestIfNeeded()
         setupChildExitKeyboardUITestIfNeeded()
 #endif
+    }
+
+    /// Creates the process-level command-routing fallback used before AppKit
+    /// registers a real per-window manager.
+    ///
+    /// This bootstrap owner must remain terminal-free because SwiftUI may
+    /// initialize the app value more than once during launch.
+    static func makeAppBootstrap(
+        workspaceCustomizationStore: WorkspaceCustomizationStore? = nil,
+        nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker()
+    ) -> TabManager {
+        TabManager(
+            createInitialWorkspace: false,
+            workspaceCustomizationStore: workspaceCustomizationStore,
+            nativeSSHConnectionBroker: nativeSSHConnectionBroker
+        )
     }
 
     deinit {
@@ -3814,8 +3836,14 @@ class TabManager: ObservableObject {
     func focusTabFromNotification(
         _ tabId: UUID,
         surfaceId: UUID? = nil,
-        completion: ((Bool) -> Void)? = nil
+        completion: ((Bool) -> Void)? = nil,
+        effectIsCurrent:
+            @escaping @MainActor @Sendable () -> Bool = { true }
     ) -> Bool {
+        guard effectIsCurrent() else {
+            completion?(false)
+            return false
+        }
         guard let tab = tabs.first(where: { $0.id == tabId }) else {
 #if DEBUG
             cmuxDebugLog("notification.focus.fail tab=\(tabId.uuidString.prefix(5)) reason=missingTab")
@@ -3845,6 +3873,11 @@ class TabManager: ObservableObject {
             let accepted = location.controlFocus { [weak self] confirmed in
                 guard let self else { return }
                 guard self.pendingProjectedNotificationFocusRequestID == requestID else { return }
+                guard effectIsCurrent() else {
+                    self.pendingProjectedNotificationFocusRequestID = nil
+                    completion?(false)
+                    return
+                }
                 self.pendingProjectedNotificationFocusRequestID = nil
                 guard confirmed else {
                     completion?(false)
@@ -3879,6 +3912,10 @@ class TabManager: ObservableObject {
         }
         // Jump-to-unread should reveal the destination pane instead of keeping an old split-zoom
         // state active around it.
+        guard effectIsCurrent() else {
+            completion?(false)
+            return false
+        }
         tab.clearSplitZoom()
         notificationDismissal.setSuppressesFocusFlash(true)
         focusTab(tabId, surfaceId: surfaceId ?? desiredPanelId, suppressFlash: true)

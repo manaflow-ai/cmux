@@ -402,7 +402,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             if previousRowIds != rows.map(\.id) {
                 mutationScheduler.stageTableReload()
             }
-        } else if let containerView, previousRowIds != rows.map(\.id) {
+        } else if previousRowIds != rows.map(\.id) {
             // A retained native source still owns the old drop callbacks. The
             // row snapshot may change while hidden, but clearing those callbacks
             // would erase a deferred drop before AppKit completes the source.
