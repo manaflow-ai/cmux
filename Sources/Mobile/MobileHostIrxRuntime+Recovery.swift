@@ -138,6 +138,21 @@ extension MobileHostIrxRuntime {
             failureCount: activationRetryFailureCount,
             jitterUnitInterval: 0
         )
+        if failure.operation == .hintRefresh {
+            switch decision {
+            case .retry:
+                // Hint publication is an optimization; keep the already
+                // bound endpoint healthy while the autopilot retries it.
+                activationRetryFailureCount = min(activationRetryFailureCount + 1, 20)
+                return
+            case .stopped:
+                Self.journal.record(
+                    "host-runtime", "hint-refresh-stopped", failure.journalAttributes)
+                return
+            case .reauthenticationRequired:
+                break
+            }
+        }
         switch decision {
         case .reauthenticationRequired:
             activationRetryTask?.cancel()

@@ -293,11 +293,10 @@ final class MobileHostIrxRuntime {
                 ]
             )
             activationRetryFailureCount = 0
-            if let deferredHintFailure {
-                setActivationState(.retrying, failure: deferredHintFailure)
-            } else {
-                setActivationState(.active)
-            }
+            // The endpoint is usable even when the optional relay hint write
+            // is temporarily unavailable; the autopilot retries the hint
+            // independently without churning credentials.
+            setActivationState(.active)
             if deferredHintFailure != nil {
                 await pilot.kickHintRefresh()
             }

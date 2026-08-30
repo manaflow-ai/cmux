@@ -164,6 +164,17 @@ public actor IrxRelayCredentialAutopilot {
                         error: error,
                         fallbackKind: .transient
                     )
+                if !failure.isRetryable {
+                    if failure.requiresReauthentication {
+                        await onFailure?(failure)
+                        return .stopped
+                    }
+                    journal.record(
+                        "credential-autopilot", "hint-refresh-rejected",
+                        failure.journalAttributes
+                    )
+                    return .exhausted
+                }
                 guard let nextFailureCount = await waitForRetry(
                     after: failure,
                     failureCount: failureCount,
