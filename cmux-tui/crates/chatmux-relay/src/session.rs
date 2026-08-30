@@ -1,7 +1,11 @@
 //! Connected state: hello negotiation, heartbeats, trust sync, reconnect
 //! with jittered exponential backoff, and the exec/PTY frame dispatch.
 //! Behavior port of `stayOnline` / `relaySession` in
-//! `packages/relay/bin/cmux-relay.mjs`.
+//! `packages/relay/bin/cmux-relay.mjs`, plus a suspend/read-liveness
+//! watchdog the JS relay never had: a wall-vs-monotonic clock-jump detector
+//! and an inbound-traffic deadline that together redial promptly after a VM
+//! pause or host sleep instead of waiting out the kernel's TCP
+//! retransmission timeout on a zombie socket.
 //!
 //! Slices 2/3: `action_request` runs the exec verbs (`actions`); the
 //! `pty_*` family drives the PtyManager (`pty`). Both re-check the machine's
@@ -14,8 +18,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-#[cfg(unix)]
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
@@ -37,8 +39,6 @@ use crate::pairing::websocket_url;
 use crate::pty::FrameContext;
 #[cfg(unix)]
 use crate::pty::PtyManager;
-#[cfg(unix)]
-use crate::relay_wire::RelayPtyErrorCode;
 use crate::trust::{
     DEFAULT_RELAY_TRUST, Trust, clear_invalid_yolo_confirmation, effective_local_trust,
     has_yolo_confirmation, relay_trust,
@@ -47,16 +47,36 @@ use crate::wire::{
     CLI_VERSION, EXEC_PROTOCOL_VERSION, FRAME_VERSION, HelloFrame, PTY_PROTOCOL_VERSION,
     ServerFrame, advertised_protocol, heartbeat_frame, parse_server_frame, set_trust_frame,
 };
-#[cfg(unix)]
-use crate::wire::{PTY_OPERATIONAL_ERRORS_PROTOCOL_VERSION, pty_operational_error_code};
 
 const MAX_OUTBOUND_FRAMES: usize = 256;
 const MAX_WATCH_OUTBOUND_FRAMES: usize = 64;
 const MAX_OUTBOUND_BYTES: usize = 8 << 20;
+// Keep a small byte reserve outside the lossy watch/event budget. Watch
+// failures must still reach the client when watch frames consume all shared
+// bytes, so the client can re-open the stream instead of retaining a silent
+// watch ID.
+const MAX_CRITICAL_RESERVED_BYTES: usize = 64 << 10;
+const MAX_WATCH_BYTES: usize = MAX_OUTBOUND_BYTES - MAX_CRITICAL_RESERVED_BYTES;
 const MAX_PTY_INGRESS_FRAMES: usize = 64;
 // Keep room for the workspace fs_write 2 MiB payload plus its JSON envelope.
 const MAX_INBOUND_FRAME_BYTES: usize = 4 << 20;
 const CONNECTION_TASK_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
+/// One suspend/read-liveness sample per period while a socket is open.
+const LIVENESS_CHECK_INTERVAL: Duration = Duration::from_secs(5);
+/// Wall clock moving more than this relative to the monotonic clock between
+/// two liveness samples means the host slept under us (or the guest clock
+/// was stepped); either way the peer likely closed the socket while this
+/// process was not running, and no FIN/RST will ever arrive.
+const SUSPEND_CLOCK_JUMP: Duration = Duration::from_secs(30);
+/// The server answers every heartbeat with `heartbeat_ack` and marks a
+/// relay stale after 3 heartbeat intervals + 10s (the Relay DO `presence()`
+/// rule). Use the same budget here: a socket with no inbound traffic for
+/// that long is dead, whatever the OS says about the TCP connection.
+const READ_LIVENESS_HEARTBEATS: u32 = 3;
+const READ_LIVENESS_GRACE: Duration = Duration::from_secs(10);
+/// Before hello_accepted names the negotiated cadence, budget for the
+/// server-default 20s heartbeat interval.
+const PRE_HELLO_READ_DEADLINE: Duration = Duration::from_secs(70);
 
 pub struct SessionState {
     pub first_connect: bool,
@@ -74,64 +94,17 @@ struct AuthSnapshot {
     owner: Option<String>,
 }
 
-/// Own one producer's contribution to the socket backlog gauge. The token is
-/// created before queue admission so cancellation while waiting for capacity
-/// also releases the contribution.
-pub(crate) struct PendingBytes {
-    counter: Option<Arc<AtomicU64>>,
-    bytes: u64,
-}
-
-impl PendingBytes {
-    pub(crate) fn none() -> PendingBytes {
-        PendingBytes { counter: None, bytes: 0 }
-    }
-
-    pub(crate) fn new(counter: Arc<AtomicU64>, bytes: u64) -> PendingBytes {
-        counter.fetch_add(bytes, Ordering::SeqCst);
-        PendingBytes { counter: Some(counter), bytes }
-    }
-}
-
-impl Drop for PendingBytes {
-    fn drop(&mut self) {
-        if let Some(counter) = self.counter.take() {
-            release_pending_bytes(&counter, self.bytes);
-        }
-    }
-}
-
 pub(crate) struct OutboundFrame {
     pub(crate) text: String,
     pub(crate) live: Option<Arc<AtomicBool>>,
     pub(crate) ack: Option<tokio::sync::oneshot::Sender<()>>,
-    pending: Option<PendingBytes>,
     _bytes: OwnedSemaphorePermit,
+    _watch_bytes: Option<OwnedSemaphorePermit>,
 }
 
 impl OutboundFrame {
     pub(crate) fn is_live(&self) -> bool {
         self.live.as_ref().is_none_or(|live| live.load(Ordering::Acquire))
-    }
-
-    /// Complete a producer waiting for this frame to leave the writer. The
-    /// sender is optional for lossy frames, and sending is best effort because
-    /// the producer may have been cancelled already.
-    pub(crate) fn acknowledge(&mut self) {
-        // Release accounting before waking a producer waiting for this ack.
-        drop(self.pending.take());
-        if let Some(ack) = self.ack.take() {
-            let _ = ack.send(());
-        }
-    }
-}
-
-impl Drop for OutboundFrame {
-    fn drop(&mut self) {
-        // Covers queue teardown and producer send errors. The writer calls
-        // `acknowledge` explicitly for stale, sent, and failed frames; Drop
-        // makes the shutdown/EOF path safe even if a receiver is discarded.
-        self.acknowledge();
     }
 }
 
@@ -171,7 +144,8 @@ pub(crate) struct OutboundSink {
     critical: mpsc::Sender<OutboundFrame>,
     watch: mpsc::Sender<OutboundFrame>,
     bytes: Arc<Semaphore>,
-    critical_overflow: Arc<std::sync::atomic::AtomicBool>,
+    watch_bytes: Arc<Semaphore>,
+    critical_overflow: Arc<AtomicBool>,
 }
 
 impl OutboundSink {
@@ -184,7 +158,8 @@ impl OutboundSink {
                 critical,
                 watch,
                 bytes: Arc::new(Semaphore::new(MAX_OUTBOUND_BYTES)),
-                critical_overflow: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                watch_bytes: Arc::new(Semaphore::new(MAX_WATCH_BYTES)),
+                critical_overflow: Arc::new(AtomicBool::new(false)),
             },
             critical_rx,
             watch_rx,
@@ -196,20 +171,15 @@ impl OutboundSink {
     }
 
     pub(crate) async fn critical_value(&self, frame: Value) -> Result<(), ()> {
-        self.critical_value_with_pending(frame, PendingBytes::none()).await
-    }
-
-    pub(crate) async fn critical_value_with_pending(
-        &self,
-        frame: Value,
-        pending: PendingBytes,
-    ) -> Result<(), ()> {
         let Some(text) = Self::encode(frame) else { return Err(()) };
-        self.critical_text_with_token_ack_pending(text, None, None, pending).await
+        self.critical_text(text).await
     }
 
     pub(crate) async fn critical_text(&self, text: String) -> Result<(), ()> {
-        self.critical_text_with_token_ack_pending(text, None, None, PendingBytes::none()).await
+        // Keep relay-loop callers nonblocking. Waiting for a writer
+        // acknowledgement here can deadlock because the loop also owns the
+        // outbound consumer. Token-aware producers use the explicit ack path.
+        self.critical_text_with_token_ack(text, None, None).await
     }
 
     pub(crate) async fn critical_text_with_token(
@@ -217,9 +187,9 @@ impl OutboundSink {
         text: String,
         live: Option<Arc<AtomicBool>>,
     ) -> Result<(), ()> {
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        self.critical_text_with_token_ack(text, live, Some(tx)).await?;
-        rx.await.map_err(|_| ())
+        let (ack_tx, ack_rx) = tokio::sync::oneshot::channel();
+        self.critical_text_with_token_ack(text, live, Some(ack_tx)).await?;
+        ack_rx.await.map_err(|_| ())
     }
 
     pub(crate) async fn critical_text_with_token_ack(
@@ -227,16 +197,6 @@ impl OutboundSink {
         text: String,
         live: Option<Arc<AtomicBool>>,
         ack: Option<tokio::sync::oneshot::Sender<()>>,
-    ) -> Result<(), ()> {
-        self.critical_text_with_token_ack_pending(text, live, ack, PendingBytes::none()).await
-    }
-
-    pub(crate) async fn critical_text_with_token_ack_pending(
-        &self,
-        text: String,
-        live: Option<Arc<AtomicBool>>,
-        ack: Option<tokio::sync::oneshot::Sender<()>>,
-        pending: PendingBytes,
     ) -> Result<(), ()> {
         let bytes = u32::try_from(text.len()).map_err(|_| ())?;
         if bytes as usize > MAX_OUTBOUND_BYTES {
@@ -246,7 +206,7 @@ impl OutboundSink {
         let permit = Arc::clone(&self.bytes).acquire_many_owned(bytes).await.map_err(|_| ())?;
         let result = self
             .critical
-            .send(OutboundFrame { text, live, ack, pending: Some(pending), _bytes: permit })
+            .send(OutboundFrame { text, live, ack, _bytes: permit, _watch_bytes: None })
             .await
             .map_err(|_| ());
         if result.is_err() {
@@ -256,53 +216,11 @@ impl OutboundSink {
     }
 
     pub(crate) fn try_watch_value(&self, frame: Value) -> Result<(), ()> {
-        self.try_watch_value_with_pending(frame, PendingBytes::none())
-    }
-
-    pub(crate) fn try_watch_value_with_pending(
-        &self,
-        frame: Value,
-        pending: PendingBytes,
-    ) -> Result<(), ()> {
-        self.try_watch_value_with_token_pending(frame, None, pending)
-    }
-
-    pub(crate) fn try_watch_value_with_token(
-        &self,
-        frame: Value,
-        live: Option<Arc<AtomicBool>>,
-    ) -> Result<(), ()> {
-        self.try_watch_value_with_token_pending(frame, live, PendingBytes::none())
-    }
-
-    pub(crate) fn try_watch_value_with_token_pending(
-        &self,
-        frame: Value,
-        live: Option<Arc<AtomicBool>>,
-        pending: PendingBytes,
-    ) -> Result<(), ()> {
         let Some(text) = Self::encode(frame) else { return Err(()) };
-        self.try_watch_text_with_token_pending(text, live, pending)
+        self.try_watch_text(text)
     }
 
     pub(crate) fn try_critical_value(&self, frame: Value) -> Result<(), ()> {
-        self.try_critical_value_with_token_pending(frame, None, PendingBytes::none())
-    }
-
-    pub(crate) fn try_critical_value_with_token(
-        &self,
-        frame: Value,
-        live: Option<Arc<AtomicBool>>,
-    ) -> Result<(), ()> {
-        self.try_critical_value_with_token_pending(frame, live, PendingBytes::none())
-    }
-
-    pub(crate) fn try_critical_value_with_token_pending(
-        &self,
-        frame: Value,
-        live: Option<Arc<AtomicBool>>,
-        pending: PendingBytes,
-    ) -> Result<(), ()> {
         let result = (|| {
             let text = Self::encode(frame).ok_or(())?;
             let bytes = u32::try_from(text.len()).map_err(|_| ())?;
@@ -313,10 +231,10 @@ impl OutboundSink {
             self.critical
                 .try_send(OutboundFrame {
                     text,
-                    live,
+                    live: None,
                     ack: None,
-                    pending: Some(pending),
                     _bytes: permit,
+                    _watch_bytes: None,
                 })
                 .map_err(|_| ())
         })();
@@ -327,22 +245,13 @@ impl OutboundSink {
     }
 
     pub(crate) fn try_critical_text(&self, text: String) -> Result<(), ()> {
-        self.try_critical_text_with_token_pending(text, None, PendingBytes::none())
+        self.try_critical_text_with_token(text, None)
     }
 
     pub(crate) fn try_critical_text_with_token(
         &self,
         text: String,
         live: Option<Arc<AtomicBool>>,
-    ) -> Result<(), ()> {
-        self.try_critical_text_with_token_pending(text, live, PendingBytes::none())
-    }
-
-    pub(crate) fn try_critical_text_with_token_pending(
-        &self,
-        text: String,
-        live: Option<Arc<AtomicBool>>,
-        pending: PendingBytes,
     ) -> Result<(), ()> {
         let result = (|| {
             let bytes = u32::try_from(text.len()).map_err(|_| ())?;
@@ -355,8 +264,8 @@ impl OutboundSink {
                     text,
                     live,
                     ack: None,
-                    pending: Some(pending),
                     _bytes: permit,
+                    _watch_bytes: None,
                 })
                 .map_err(|_| ())
         })();
@@ -379,24 +288,20 @@ impl OutboundSink {
         text: String,
         live: Option<Arc<AtomicBool>>,
     ) -> Result<(), ()> {
-        self.try_watch_text_with_token_pending(text, live, PendingBytes::none())
-    }
-
-    pub(crate) fn try_watch_text_with_token_pending(
-        &self,
-        text: String,
-        live: Option<Arc<AtomicBool>>,
-        pending: PendingBytes,
-    ) -> Result<(), ()> {
         let bytes = u32::try_from(text.len()).map_err(|_| ())?;
+        if bytes as usize > MAX_WATCH_BYTES {
+            return Err(());
+        }
         let permit = Arc::clone(&self.bytes).try_acquire_many_owned(bytes).map_err(|_| ())?;
+        let watch_permit =
+            Arc::clone(&self.watch_bytes).try_acquire_many_owned(bytes).map_err(|_| ())?;
         self.watch
             .try_send(OutboundFrame {
                 text,
                 live,
                 ack: None,
-                pending: Some(pending),
                 _bytes: permit,
+                _watch_bytes: Some(watch_permit),
             })
             .map_err(|_| ())
     }
@@ -448,6 +353,29 @@ fn now_ms() -> i64 {
         .unwrap_or_default()
 }
 
+/// True when the wall clock moved more than `threshold` relative to the
+/// monotonic clock between two liveness samples. Deltas, not absolutes: a
+/// wall clock that is wrong but ticking (a guest that never resynced after
+/// a pause) advances in step with the monotonic clock and never trips this;
+/// a host suspend advances the wall clock while the monotonic clock stands
+/// still, and a clock step moves it without any monotonic time passing.
+fn clock_jumped(wall_delta_ms: i64, monotonic_delta: Duration, threshold: Duration) -> bool {
+    let monotonic_ms = i64::try_from(monotonic_delta.as_millis()).unwrap_or(i64::MAX);
+    let threshold_ms = i64::try_from(threshold.as_millis()).unwrap_or(i64::MAX);
+    wall_delta_ms.saturating_sub(monotonic_ms).saturating_abs() > threshold_ms
+}
+
+/// How long a socket may stay silent before it is treated as dead. Follows
+/// the negotiated heartbeat cadence once hello_accepted names it.
+fn read_liveness_deadline(heartbeat_interval: Option<Duration>) -> Duration {
+    match heartbeat_interval {
+        Some(interval) => {
+            interval.saturating_mul(READ_LIVENESS_HEARTBEATS).saturating_add(READ_LIVENESS_GRACE)
+        }
+        None => PRE_HELLO_READ_DEADLINE,
+    }
+}
+
 fn jitter() -> f64 {
     let mut byte = [0_u8; 1];
     let _ = getrandom::fill(&mut byte);
@@ -476,36 +404,6 @@ async fn shutdown_connection_tasks(
     timeout(CONNECTION_TASK_SHUTDOWN_TIMEOUT, connection_tasks.shutdown()).await.is_ok()
 }
 
-/// Resolve acknowledgements for frames that were accepted by a producer but
-/// never reached the socket because the writer stopped at EOF or shutdown.
-fn acknowledge_pending_frames(
-    critical_rx: &mut mpsc::Receiver<OutboundFrame>,
-    watch_rx: &mut mpsc::Receiver<OutboundFrame>,
-) {
-    while let Ok(mut frame) = critical_rx.try_recv() {
-        frame.acknowledge();
-    }
-    while let Ok(mut frame) = watch_rx.try_recv() {
-        frame.acknowledge();
-    }
-}
-
-/// Release bytes from the approximate socket backlog without allowing
-/// concurrent producers to subtract the same bytes twice.
-fn release_pending_bytes(pending: &AtomicU64, bytes: u64) {
-    if bytes == 0 {
-        return;
-    }
-    let mut current = pending.load(Ordering::SeqCst);
-    loop {
-        let next = current.saturating_sub(bytes);
-        match pending.compare_exchange_weak(current, next, Ordering::SeqCst, Ordering::SeqCst) {
-            Ok(_) => return,
-            Err(actual) => current = actual,
-        }
-    }
-}
-
 /// Keep the machine online until the process cancellation token is raised.
 /// Fatal errors are returned to the CLI; transient errors ride a jittered
 /// exponential backoff with a 30s ceiling.
@@ -516,6 +414,26 @@ pub async fn stay_online(
     cancellation: CancellationToken,
 ) -> Result<(), RelayError> {
     let runtime = SessionRuntime::with_roots(config.allowed_roots.clone());
+    // Tunnel-direct terminal data plane: serve terminals to spliced tunnel
+    // connections on loopback 127.0.0.1:9776. Managed sandboxes ONLY — this
+    // branch is the gate; paired human machines never start the listener.
+    // Best-effort: a failed bind degrades to the relay-socket terminal path.
+    #[cfg(unix)]
+    if state.managed {
+        match crate::tunnel_terminal::start_tunnel_terminal_listener(
+            Arc::clone(&runtime.pty),
+            cancellation.child_token(),
+            crate::tunnel_terminal::TUNNEL_TERMINAL_HOST,
+            crate::tunnel_terminal::TUNNEL_TERMINAL_PORT,
+        )
+        .await
+        {
+            Ok(_) => eprintln!("Tunnel terminal listener is up on loopback."),
+            Err(error) => eprintln!(
+                "Tunnel terminal listener bind failed: {error}. Terminals stay on the relay socket path."
+            ),
+        }
+    }
     let mut attempt: u32 = 0;
     loop {
         if cancellation.is_cancelled() {
@@ -529,6 +447,15 @@ pub async fn stay_online(
             }
             Err(RelayError::Fatal { message, exit_code }) => {
                 return Err(RelayError::Fatal { message, exit_code });
+            }
+            Err(RelayError::WakeRedial { message }) => {
+                // The socket died silently (host suspend, or a peer that
+                // vanished without a FIN). The network itself is not known
+                // to be down, so redial now; a failed dial lands back on
+                // the normal backoff ladder below.
+                eprintln!("Relay redialing: {message}");
+                attempt = 0;
+                continue;
             }
             Err(error) => {
                 eprintln!("Relay offline: {error}");
@@ -580,84 +507,43 @@ fn unsupported_platform_pty_reply(frame_type: &str, raw: &Value) -> Option<Value
 }
 
 /// Build a per-frame FrameContext reading the current reconciled auth.
-#[cfg(unix)]
 fn make_context(
     out: &OutboundSink,
     pending: &Arc<AtomicU64>,
     auth: &AuthSnapshot,
-    negotiated_relay_version: u64,
-    manager: &PtyManager,
+    transport_id: &str,
 ) -> FrameContext {
     let sender = out.clone();
     let pending_send = Arc::clone(pending);
     let pending_probe = Arc::clone(pending);
-    let reported_output_overflow = Arc::new(Mutex::new(HashSet::<String>::new()));
-    let overflow_reported = Arc::clone(&reported_output_overflow);
-    let overflow_manager = manager.clone();
     FrameContext {
         send: Arc::new(move |frame: Value| {
-            let frame_type = frame.get("type").and_then(Value::as_str).unwrap_or_default();
-            let pty_id = frame.get("ptyId").and_then(Value::as_str).map(str::to_owned);
             let size = serde_json::to_string(&frame).map(|text| text.len() as u64).unwrap_or(0);
-            let pending_frame = PendingBytes::new(Arc::clone(&pending_send), size);
+            pending_send.fetch_add(size, Ordering::SeqCst);
             let critical = matches!(
-                Some(frame_type),
+                frame.get("type").and_then(Value::as_str),
                 Some(
                     "pty_opened" | "pty_error" | "pty_exit" | "pty_closed" | "surface_list_result"
                 )
             );
             let result = if critical {
-                sender.try_critical_value_with_token_pending(frame, None, pending_frame)
+                sender.try_critical_value(frame)
             } else {
-                sender.try_watch_value_with_token_pending(frame, None, pending_frame)
+                sender.try_watch_value(frame)
             };
             if result.is_err() {
-                if frame_type == "pty_output" {
-                    if let Some(pty_id) = pty_id {
-                        let first = overflow_reported
-                            .lock()
-                            .expect("PTY overflow report lock")
-                            .insert(pty_id.clone());
-                        if first {
-                            let code = pty_operational_error_code(
-                                negotiated_relay_version,
-                                RelayPtyErrorCode::Overflow,
-                            );
-                            let message = if negotiated_relay_version
-                                >= crate::wire::RELAY_PROTOCOL_PTY_OPERATIONAL_ERRORS_VERSION
-                            {
-                                "terminal output overflowed; reattach to continue receiving output"
-                            } else {
-                                "terminal output buffer is full; reattach to continue receiving output"
-                            };
-                            let overflow = serde_json::json!({
-                                "version": PTY_PROTOCOL_VERSION,
-                                "type": "pty_error",
-                                "ptyId": pty_id,
-                                "code": code,
-                                "message": message,
-                            });
-                            let overflow_size = serde_json::to_string(&overflow)
-                                .map(|text| text.len() as u64)
-                                .unwrap_or(0);
-                            let overflow_pending =
-                                PendingBytes::new(Arc::clone(&pending_send), overflow_size);
-                            let _ =
-                                sender.try_critical_value_with_pending(overflow, overflow_pending);
-                            overflow_manager.detach_on_output_overflow(&pty_id);
-                        }
-                    }
-                }
                 eprintln!(
-                    "Dropping relay outbound frame because its bounded queue is full; mandatory={critical} type={frame_type}"
+                    "Dropping relay outbound frame because its bounded queue is full; mandatory={critical}"
                 );
+                pending_send
+                    .fetch_sub(size.min(pending_send.load(Ordering::SeqCst)), Ordering::SeqCst);
             }
         }),
         buffered_amount: Arc::new(move || pending_probe.load(Ordering::SeqCst)),
-        negotiated_version: negotiated_relay_version,
         trust: auth.trust.clone(),
         local_roots: auth.roots.clone(),
         owner_user_id: auth.owner.clone(),
+        transport_id: Some(transport_id.to_owned()),
     }
 }
 
@@ -708,11 +594,7 @@ async fn relay_session(
     let (out_tx, mut critical_rx, mut watch_rx) = OutboundSink::channels();
     let pending = Arc::new(AtomicU64::new(0));
     let action_slots = Arc::new(Semaphore::new(8));
-    let auth = Arc::new(std::sync::Mutex::new(AuthSnapshot {
-        trust: String::new(),
-        roots: None,
-        owner: None,
-    }));
+    let auth = Arc::new(std::sync::Mutex::new(AuthSnapshot::default()));
     let workspace_runtime = Arc::clone(&runtime.workspace);
     let workspace = crate::workspace::Connection::new(workspace_runtime, out_tx.clone());
     // A child token ends every task admitted by this physical connection on
@@ -720,9 +602,12 @@ async fn relay_session(
     // this child is also raised for ordinary reconnects.
     let connection_cancellation = cancellation.child_token();
     let mut connection_tasks = JoinSet::new();
-    // Shared with the ordered PTY worker so every frame gets the exact outer
-    // hello version negotiated on this connection.
-    let negotiated_version_shared = Arc::new(AtomicU64::new(0));
+
+    // The PtyManager is shared with the managed tunnel listener. Every PTY
+    // this socket opens carries this connection's identity, so closing or
+    // reconnecting the socket cannot detach an independent tunnel attachment.
+    #[cfg(unix)]
+    let transport_id = format!("relay-{}", crate::pty::random_hex(16));
 
     // Ordered PTY frame dispatch on its own task so a slow open (daemon
     // spawn) never stalls heartbeats or other frames.
@@ -738,7 +623,7 @@ async fn relay_session(
         let pending = Arc::clone(&pending);
         let auth = Arc::clone(&auth);
         let cancellation = connection_cancellation.clone();
-        let negotiated_version = Arc::clone(&negotiated_version_shared);
+        let transport = transport_id.clone();
         connection_tasks.spawn(async move {
             loop {
                 let frame = tokio::select! {
@@ -750,13 +635,7 @@ async fn relay_session(
                     }
                 };
                 let snapshot = auth.lock().expect("auth lock").clone();
-                let context = make_context(
-                    &out,
-                    &pending,
-                    &snapshot,
-                    negotiated_version.load(Ordering::Acquire),
-                    &manager,
-                );
+                let context = make_context(&out, &pending, &snapshot, &transport);
                 tokio::select! {
                     biased;
                     _ = cancellation.cancelled() => break,
@@ -773,6 +652,17 @@ async fn relay_session(
     let mut unknown_types: HashSet<String> = HashSet::new();
     let mut unknown_type_order: VecDeque<String> = VecDeque::new();
     let mut heartbeat: Option<tokio::time::Interval> = None;
+    let mut heartbeat_interval: Option<Duration> = None;
+    // Suspend and read-liveness watchdog. A VM pause or host sleep leaves
+    // this side holding an ESTABLISHED socket whose peer closed long ago;
+    // no FIN/RST arrives, so without this the relay would sit on the zombie
+    // socket until the kernel's TCP retransmission timeout (10+ minutes).
+    let mut liveness = tokio::time::interval(LIVENESS_CHECK_INTERVAL);
+    liveness.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    liveness.reset();
+    let mut last_inbound = tokio::time::Instant::now();
+    let mut last_wall_ms = now_ms();
+    let mut last_monotonic = tokio::time::Instant::now();
     let mut critical_burst = 0_u8;
 
     let result = loop {
@@ -798,6 +688,7 @@ async fn relay_session(
         enum Wake {
             Shutdown,
             Heartbeat,
+            Liveness,
             Outbound(bool, Option<OutboundFrame>),
             Incoming(Option<Result<Message, TungsteniteError>>),
         }
@@ -814,6 +705,7 @@ async fn relay_session(
                             None => std::future::pending().await,
                         }
                     }, if heartbeat.is_some() => Wake::Heartbeat,
+                    _ = liveness.tick() => Wake::Liveness,
                     _ = cancellation.cancelled() => Wake::Shutdown,
                     incoming = guard.next() => Wake::Incoming(incoming),
                 }
@@ -828,6 +720,7 @@ async fn relay_session(
                             None => std::future::pending().await,
                         }
                     }, if heartbeat.is_some() => Wake::Heartbeat,
+                    _ = liveness.tick() => Wake::Liveness,
                     _ = cancellation.cancelled() => Wake::Shutdown,
                     incoming = guard.next() => Wake::Incoming(incoming),
                 }
@@ -842,10 +735,36 @@ async fn relay_session(
                     break Ok(connected);
                 }
             }
+            Wake::Liveness => {
+                critical_burst = 0;
+                let wall_ms = now_ms();
+                let monotonic = tokio::time::Instant::now();
+                let wall_delta_ms = wall_ms.saturating_sub(last_wall_ms);
+                let monotonic_delta = monotonic.saturating_duration_since(last_monotonic);
+                last_wall_ms = wall_ms;
+                last_monotonic = monotonic;
+                if clock_jumped(wall_delta_ms, monotonic_delta, SUSPEND_CLOCK_JUMP) {
+                    break Err(RelayError::wake_redial(format!(
+                        "the host slept or its clock jumped ({wall_delta_ms}ms of wall time \
+                         across {}ms of run time); the socket peer is presumed gone",
+                        monotonic_delta.as_millis()
+                    )));
+                }
+                let idle = monotonic.saturating_duration_since(last_inbound);
+                let deadline = read_liveness_deadline(heartbeat_interval);
+                if idle >= deadline {
+                    break Err(RelayError::wake_redial(format!(
+                        "no server traffic for {}s (deadline {}s); the socket is presumed dead",
+                        idle.as_secs(),
+                        deadline.as_secs()
+                    )));
+                }
+            }
             Wake::Outbound(is_critical, Some(frame)) => {
-                let mut frame = frame;
                 if !frame.is_live() {
-                    frame.acknowledge();
+                    if let Some(ack) = frame.ack {
+                        let _ = ack.send(());
+                    }
                     continue;
                 }
                 if is_critical {
@@ -853,13 +772,16 @@ async fn relay_session(
                 } else {
                     critical_burst = 0;
                 }
-                let text = std::mem::take(&mut frame.text);
+                let text = frame.text;
+                let size = text.len() as u64;
                 let sent = send_socket_text(&socket, text, cancellation).await;
+                pending.fetch_sub(size.min(pending.load(Ordering::SeqCst)), Ordering::SeqCst);
                 if sent.is_err() {
-                    frame.acknowledge();
                     break Ok(connected);
                 }
-                frame.acknowledge();
+                if let Some(ack) = frame.ack {
+                    let _ = ack.send(());
+                }
             }
             Wake::Outbound(_, None) => {
                 critical_burst = 0;
@@ -871,6 +793,9 @@ async fn relay_session(
                     Some(Err(error)) => break Err(RelayError::transient(error.to_string())),
                     None => break Ok(connected),
                 };
+                // Any inbound traffic (heartbeat_ack included) proves the
+                // socket is alive; the read-liveness deadline restarts here.
+                last_inbound = tokio::time::Instant::now();
                 let text = match message {
                     Message::Text(text) => text,
                     Message::Ping(payload) => {
@@ -891,7 +816,6 @@ async fn relay_session(
                     ServerFrame::HelloAccepted(hello) => {
                         connected = true;
                         negotiated_version = hello.relay_protocol_version;
-                        negotiated_version_shared.store(negotiated_version, Ordering::Release);
                         clear_invalid_yolo_confirmation(config);
                         let configured = relay_trust(
                             config.pending_trust.as_deref().or(config.trust.as_deref()),
@@ -982,12 +906,12 @@ async fn relay_session(
                             snapshot.owner = config.owner_user_id.clone();
                             workspace.set_local_observe(local_observe);
                         }
-                        let mut interval = tokio::time::interval(Duration::from_millis(
-                            hello.heartbeat_interval_ms,
-                        ));
+                        let cadence = Duration::from_millis(hello.heartbeat_interval_ms);
+                        let mut interval = tokio::time::interval(cadence);
                         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
                         interval.reset();
                         heartbeat = Some(interval);
+                        heartbeat_interval = Some(cadence);
                     }
                     ServerFrame::UpgradeRequired { min_version, message } => {
                         let advertised = advertised_protocol();
@@ -1068,21 +992,24 @@ async fn relay_session(
                                     "version": version,
                                     "actionId": action_id,
                                     "ok": false,
-                                    // `busy` is not a RelayActionErrorCode. Keep the
-                                    // retry guidance in the message and use the
-                                    // contract's generic retryable failure code.
-                                    "code": "failed",
+                                    "code": "busy",
                                     "message": "relay is busy; retry this action",
                                 });
                                 let size = serde_json::to_string(&result)
                                     .map(|text| text.len() as u64)
                                     .unwrap_or(0);
-                                let pending_frame = PendingBytes::new(Arc::clone(&pending), size);
-                                let _ = tokio::select! {
+                                pending.fetch_add(size, Ordering::SeqCst);
+                                let sent = tokio::select! {
                                     biased;
                                     _ = connection_cancellation.cancelled() => Err(()),
-                                    result = out.critical_value_with_pending(result, pending_frame) => result,
+                                    result = out.critical_value(result) => result,
                                 };
+                                if sent.is_err() {
+                                    pending.fetch_sub(
+                                        size.min(pending.load(Ordering::SeqCst)),
+                                        Ordering::SeqCst,
+                                    );
+                                }
                                 continue;
                             }
                         };
@@ -1107,12 +1034,18 @@ async fn relay_session(
                             let size = serde_json::to_string(&result)
                                 .map(|text| text.len() as u64)
                                 .unwrap_or(0);
-                            let pending_frame = PendingBytes::new(Arc::clone(&pending), size);
-                            let _ = tokio::select! {
+                            pending.fetch_add(size, Ordering::SeqCst);
+                            let sent = tokio::select! {
                                 biased;
                                 _ = task_cancellation.cancelled() => Err(()),
-                                result = out.critical_value_with_pending(result, pending_frame) => result,
+                                result = out.critical_value(result) => result,
                             };
+                            if sent.is_err() {
+                                pending.fetch_sub(
+                                    size.min(pending.load(Ordering::SeqCst)),
+                                    Ordering::SeqCst,
+                                );
+                            }
                         });
                     }
                     ServerFrame::Pty { frame_type, raw } => {
@@ -1134,13 +1067,8 @@ async fn relay_session(
                                 // bounded work queue is saturated. The manager close path is
                                 // synchronous and short, so this cannot create an unbounded wait.
                                 let snapshot = auth_direct.lock().expect("auth lock").clone();
-                                let context = make_context(
-                                    &out_tx,
-                                    &pending,
-                                    &snapshot,
-                                    negotiated_version,
-                                    &manager_direct,
-                                );
+                                let context =
+                                    make_context(&out_tx, &pending, &snapshot, &transport_id);
                                 tokio::select! {
                                     biased;
                                     _ = cancellation.cancelled() => break Ok(connected),
@@ -1152,21 +1080,27 @@ async fn relay_session(
                                 Ok(()) => {}
                                 Err(mpsc::error::TrySendError::Closed(_)) => break Ok(connected),
                                 Err(mpsc::error::TrySendError::Full(raw)) => {
-                                    // Never silently discard a terminal command. A PTY
-                                    // refusal uses the v7 `busy` code only after the
-                                    // negotiated feature gate. Surface listing has no
-                                    // error response in the wire schema, so close the
-                                    // connection instead of fabricating an empty or
-                                    // invalid result.
-                                    let reply = raw.get("ptyId").and_then(Value::as_str).map(|id| {
-                                        serde_json::json!({
+                                    // Never silently discard a server command. Slow opens/listing
+                                    // have an explicit busy response; control frames use the same
+                                    // typed refusal when the serialized ingress queue is saturated.
+                                    let reply = raw
+                                        .get("ptyId")
+                                        .and_then(Value::as_str)
+                                        .map(|id| serde_json::json!({
                                             "version": PTY_PROTOCOL_VERSION,
                                             "type": "pty_error",
                                             "ptyId": id,
-                                            "code": if negotiated_version >= PTY_OPERATIONAL_ERRORS_PROTOCOL_VERSION { "busy" } else { "failed" },
+                                            "code": "busy",
                                             "message": if is_slow { "relay is busy; retry this terminal request" } else { "relay is busy; retry this terminal command" },
-                                        })
-                                    });
+                                        }))
+                                        .or_else(|| raw.get("requestId").and_then(Value::as_str).map(|id| serde_json::json!({
+                                            "version": PTY_PROTOCOL_VERSION,
+                                            "type": "surface_list_result",
+                                            "requestId": id,
+                                            "surfaces": [],
+                                            "code": "busy",
+                                            "message": "relay is busy; retry this terminal request",
+                                        })));
                                     if let Some(reply) = reply {
                                         // This response is mandatory. Send it directly so a full
                                         // outbound queue cannot block this loop and stop socket
@@ -1180,11 +1114,6 @@ async fn relay_session(
                                         if sent.is_err() {
                                             break Ok(connected);
                                         }
-                                    } else if raw.get("requestId").is_some() {
-                                        eprintln!(
-                                            "Closing relay connection because surface_list was rejected by a full ingress queue"
-                                        );
-                                        break Ok(connected);
                                     }
                                 }
                             }
@@ -1241,15 +1170,11 @@ async fn relay_session(
         }
     };
 
-    // Cancel and await workspace-owned request tasks before draining the
-    // outbound queues. Git tasks must reap their child before the connection
-    // releases its runtime resources; a synchronous `Drop` abort is not a
-    // sufficient child-reaping boundary.
+    // Workspace requests own Git children. Give them a cooperative
+    // cancellation window so each request can kill its process group and
+    // await the direct child before the socket connection is dropped.
     if !workspace.shutdown().await {
-        eprintln!(
-            "Workspace request shutdown exceeded {:?}; remaining handlers were aborted.",
-            CONNECTION_TASK_SHUTDOWN_TIMEOUT
-        );
+        eprintln!("Workspace request shutdown exceeded its bounded cleanup window.");
     }
     drop(workspace);
 
@@ -1264,11 +1189,11 @@ async fn relay_session(
         );
     }
 
-    acknowledge_pending_frames(&mut critical_rx, &mut watch_rx);
-
-    // Attachments die with the socket; sessions persist (docs/TERMINAL.md).
+    // This socket's attachments die with it; sessions persist, and the
+    // managed tunnel listener's attachments are another transport's — a
+    // reconnect must never detach them (docs/TERMINAL.md).
     #[cfg(unix)]
-    runtime.pty.detach_all();
+    runtime.pty.detach_transport(&transport_id);
     result
 }
 
@@ -1293,6 +1218,66 @@ mod tests {
         assert_eq!(list["type"], "surface_list_result");
         assert_eq!(list["requestId"], "list_1");
         assert_eq!(list["surfaces"], serde_json::json!([]));
+    }
+}
+
+#[cfg(test)]
+mod liveness_tests {
+    use super::{
+        PRE_HELLO_READ_DEADLINE, READ_LIVENESS_GRACE, SUSPEND_CLOCK_JUMP, clock_jumped,
+        read_liveness_deadline,
+    };
+    use std::time::Duration;
+
+    #[test]
+    fn matching_clock_deltas_are_not_a_jump() {
+        // A healthy tick: 5s of wall time across 5s of run time. This is
+        // also the wrong-but-ticking guest clock (absolute offset does not
+        // matter; only the deltas are compared).
+        assert!(!clock_jumped(5_000, Duration::from_secs(5), SUSPEND_CLOCK_JUMP));
+    }
+
+    #[test]
+    fn wall_clock_running_ahead_of_monotonic_is_a_suspend() {
+        // Host sleep: 14 minutes of wall time passed while the monotonic
+        // clock (which excludes suspend) saw one 5s sample.
+        assert!(clock_jumped(840_000, Duration::from_secs(5), SUSPEND_CLOCK_JUMP));
+    }
+
+    #[test]
+    fn wall_clock_stepped_backward_is_a_jump() {
+        // A guest clock resync stepping backward after a pause is the same
+        // signal: real time passed that this process never observed.
+        assert!(clock_jumped(-835_000, Duration::from_secs(5), SUSPEND_CLOCK_JUMP));
+    }
+
+    #[test]
+    fn the_jump_threshold_is_exclusive() {
+        let threshold_ms = 5_000 + i64::try_from(SUSPEND_CLOCK_JUMP.as_millis()).expect("ms");
+        assert!(!clock_jumped(threshold_ms, Duration::from_secs(5), SUSPEND_CLOCK_JUMP));
+        assert!(clock_jumped(threshold_ms + 1, Duration::from_secs(5), SUSPEND_CLOCK_JUMP));
+    }
+
+    #[test]
+    fn extreme_deltas_saturate_instead_of_overflowing() {
+        assert!(clock_jumped(i64::MAX, Duration::ZERO, SUSPEND_CLOCK_JUMP));
+        assert!(clock_jumped(i64::MIN, Duration::ZERO, SUSPEND_CLOCK_JUMP));
+        assert!(clock_jumped(0, Duration::from_millis(u64::MAX), SUSPEND_CLOCK_JUMP));
+    }
+
+    #[test]
+    fn read_deadline_follows_the_negotiated_heartbeat_cadence() {
+        // 3 heartbeats + 10s grace, matching the server's staleness rule.
+        assert_eq!(read_liveness_deadline(Some(Duration::from_secs(20))), Duration::from_secs(70));
+        assert_eq!(
+            read_liveness_deadline(Some(Duration::from_secs(1))),
+            Duration::from_secs(3) + READ_LIVENESS_GRACE
+        );
+    }
+
+    #[test]
+    fn read_deadline_before_hello_uses_the_server_default_budget() {
+        assert_eq!(read_liveness_deadline(None), PRE_HELLO_READ_DEADLINE);
     }
 }
 
@@ -1333,84 +1318,28 @@ mod cancellation_tests {
 }
 
 #[cfg(test)]
-mod outbound_tests {
-    use super::{OutboundSink, PendingBytes, acknowledge_pending_frames};
+mod outbound_frame_tests {
+    use super::OutboundSink;
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     #[tokio::test]
-    async fn accounted_stale_frame_releases_only_its_owned_bytes() {
-        let (sink, mut critical, mut watch) = OutboundSink::channels();
-        let live = Arc::new(AtomicBool::new(true));
-        let pending = Arc::new(AtomicU64::new(11));
+    async fn token_frames_are_marked_stale_before_socket_delivery() {
+        let (sink, mut critical, _) = OutboundSink::channels();
+        let live = Arc::new(AtomicBool::new(false));
         let (ack_tx, ack_rx) = tokio::sync::oneshot::channel();
-        sink.critical_text_with_token_ack_pending(
+        sink.critical_text_with_token_ack(
             "stale".to_owned(),
             Some(Arc::clone(&live)),
             Some(ack_tx),
-            PendingBytes::new(Arc::clone(&pending), 5),
-        )
-        .await
-        .expect("queue stale frame");
-        assert_eq!(pending.load(Ordering::SeqCst), 16);
-        live.store(false, Ordering::Release);
-        let mut frame = critical.try_recv().expect("queued critical frame");
-        assert!(!frame.is_live());
-        frame.acknowledge();
-        assert_eq!(pending.load(Ordering::SeqCst), 11);
-        assert!(ack_rx.await.is_ok());
-        acknowledge_pending_frames(&mut critical, &mut watch);
-    }
-
-    #[tokio::test]
-    async fn unaccounted_stale_watch_frame_preserves_pending_bytes() {
-        let (sink, _critical, mut watch) = OutboundSink::channels();
-        let live = Arc::new(AtomicBool::new(true));
-        let pending = AtomicU64::new(11);
-        sink.try_watch_text_with_token("event".to_owned(), Some(Arc::clone(&live)))
-            .expect("queue watch frame");
-        live.store(false, Ordering::Release);
-        let mut frame = watch.try_recv().expect("queued watch frame");
-        assert!(!frame.is_live());
-        frame.acknowledge();
-        assert_eq!(pending.load(Ordering::SeqCst), 11);
-    }
-
-    #[tokio::test]
-    async fn shutdown_drain_releases_accounted_frames_before_acknowledging() {
-        let (sink, mut critical, mut watch) = OutboundSink::channels();
-        let pending = Arc::new(AtomicU64::new(0));
-        let (ack_tx, ack_rx) = tokio::sync::oneshot::channel();
-        sink.critical_text_with_token_ack_pending(
-            "eof".to_owned(),
-            None,
-            Some(ack_tx),
-            PendingBytes::new(Arc::clone(&pending), 3),
         )
         .await
         .expect("queue frame");
-        acknowledge_pending_frames(&mut critical, &mut watch);
-        assert_eq!(pending.load(Ordering::SeqCst), 0);
-        assert!(ack_rx.await.is_ok());
-    }
-
-    #[tokio::test]
-    async fn closed_writer_releases_accounting_on_send_failure() {
-        let (sink, critical, _watch) = OutboundSink::channels();
-        drop(critical);
-        let pending = Arc::new(AtomicU64::new(0));
-        let (ack_tx, ack_rx) = tokio::sync::oneshot::channel();
-        assert!(
-            sink.critical_text_with_token_ack_pending(
-                "closed".to_owned(),
-                None,
-                Some(ack_tx),
-                PendingBytes::new(Arc::clone(&pending), 6),
-            )
-            .await
-            .is_err()
-        );
-        assert_eq!(pending.load(Ordering::SeqCst), 0);
-        assert!(ack_rx.await.is_ok());
+        let frame = critical.recv().await.expect("queued frame");
+        assert!(!frame.is_live());
+        live.store(true, Ordering::Release);
+        assert!(frame.is_live());
+        frame.ack.expect("ack sender").send(()).expect("ack receiver");
+        ack_rx.await.expect("ack");
     }
 }

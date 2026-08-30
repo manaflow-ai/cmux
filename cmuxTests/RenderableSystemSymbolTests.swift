@@ -262,14 +262,18 @@ struct RenderableSystemSymbolTests {
             weightRawValue: NSFont.Weight.regular.rawValue
         )
 
-        #expect(cache.shouldAttempt(key))
+        let initialAttempt = cache.shouldAttempt(key)
+        #expect(initialAttempt)
         cache.recordFailure(for: key)
-        #expect(cache.shouldAttempt(key) == false)
+        let attemptBeforeRetryInterval = cache.shouldAttempt(key)
+        #expect(!attemptBeforeRetryInterval)
 
         now = now.addingTimeInterval(61)
-        #expect(cache.shouldAttempt(key))
+        let attemptAfterRetryInterval = cache.shouldAttempt(key)
+        #expect(attemptAfterRetryInterval)
         cache.recordSuccess(for: key)
-        #expect(cache.shouldAttempt(key))
+        let attemptAfterSuccess = cache.shouldAttempt(key)
+        #expect(attemptAfterSuccess)
     }
 
     @MainActor

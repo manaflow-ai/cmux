@@ -411,6 +411,7 @@
     "pricing": "Pricing",
     "docs": "Docs",
     "changelog": "Changelog",
+    "support": "Support",
     "companyInformation": "Company information",
     "privacy": "Privacy",
     "terms": "Terms",
@@ -1835,6 +1836,11 @@
       "settingsFileChords": "Use a string for a single shortcut or a two-item array for a chord. Example: [\"ctrl+b\", \"c\"] means press Ctrl+B, then C.",
       "exampleConfig": "Example config",
       "schemaDescriptions": {
+        "computerUse": {
+          "description": "Local computer-use tools and menu-bar visibility.",
+          "enabled": "Allow supported agent launches in cmux terminals to attach the local computer-use tools.",
+          "showInMenuBar": "Show live computer-use sessions and focus actions in the menu bar."
+        },
         "agentChat": {
           "description": "Agent Chat GUI server settings. The built-in New agent chat action opens this URL in a browser workspace, probes /healthz first, and can run a configured start command when the server is down.",
           "url": "Base URL for the machine-local Agent Chat GUI server. cmux probes <url>/healthz before opening the workspace.",
@@ -4918,6 +4924,52 @@
       "submit": "Submit",
       "submitting": "Submitting...",
       "success": "Thanks. We received your request and will reply from founders@manaflow.com.",
+      "error": "Something went wrong. Please try again or email founders@manaflow.com."
+    }
+  },
+  "support": {
+    "metaTitle": "Support | cmux",
+    "metaDescription": "Get help with cmux. Send us a message and we will reply by email, or reach us on Discord and GitHub.",
+    "section": "Support",
+    "title": "Get help with cmux.",
+    "body": "Send us a message and we will reply by email. Include what you were doing, what you expected, and what happened instead so we can help faster.",
+    "channels": {
+      "docs": {
+        "label": "Documentation",
+        "description": "Guides for getting started, configuration, and troubleshooting."
+      },
+      "discord": {
+        "label": "Discord",
+        "description": "Ask the community and the team in real time."
+      },
+      "github": {
+        "label": "GitHub issues",
+        "description": "Report bugs and request features in the open."
+      },
+      "email": {
+        "label": "founders@manaflow.com",
+        "description": "Prefer email? Write to us directly."
+      }
+    },
+    "formAriaLabel": "Support contact form",
+    "form": {
+      "name": "Name",
+      "email": "Email address",
+      "topic": "Topic",
+      "message": "How can we help?",
+      "selectPlaceholder": "Select one",
+      "topicOptions": [
+        "Bug report",
+        "Billing or subscription",
+        "Account or sign-in",
+        "Cloud VMs",
+        "Feature request",
+        "Other"
+      ],
+      "privacy": "We use your email address only to reply to your support request. We do not sell contact information.",
+      "submit": "Send message",
+      "submitting": "Sending...",
+      "success": "Thanks. We received your message and will reply to your email from founders@manaflow.com.",
       "error": "Something went wrong. Please try again or email founders@manaflow.com."
     }
   },

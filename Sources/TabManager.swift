@@ -507,6 +507,7 @@ class TabManager: ObservableObject {
         initialWorkingDirectory: String? = nil,
         initialTerminalInput: String? = nil,
         autoWelcomeIfNeeded: Bool = true,
+        createInitialWorkspace: Bool = true,
         tabDragTransferRegistry: TabDragTransferRegistry? = nil,
         commandRunner: any CommandRunning = CommandRunner(),
         gitMetadataService: GitMetadataService = GitMetadataService(),
@@ -602,13 +603,18 @@ class TabManager: ObservableObject {
         workspaces.attach(host: self)
         workspaceReordering.attach(host: self)
         workspaceGrouping.attach(host: self)
-        addInitialWorkspaceAssumingActive(
-            title: initialWorkspaceTitle,
-            titleSource: .auto,
-            workingDirectory: initialWorkingDirectory,
-            initialTerminalInput: initialTerminalInput,
-            autoWelcomeIfNeeded: autoWelcomeIfNeeded
-        )
+        // The SwiftUI app root needs a command-routing fallback before AppKit
+        // registers the real per-window manager. It must not create a terminal:
+        // SwiftUI may initialize the app value more than once during launch.
+        if createInitialWorkspace {
+            addInitialWorkspaceAssumingActive(
+                title: initialWorkspaceTitle,
+                titleSource: .auto,
+                workingDirectory: initialWorkingDirectory,
+                initialTerminalInput: initialTerminalInput,
+                autoWelcomeIfNeeded: autoWelcomeIfNeeded
+            )
+        }
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidSetTitle,
             object: nil,
@@ -700,6 +706,22 @@ class TabManager: ObservableObject {
         setupChildExitSplitUITestIfNeeded()
         setupChildExitKeyboardUITestIfNeeded()
 #endif
+    }
+
+    /// Creates the process-level command-routing fallback used before AppKit
+    /// registers a real per-window manager.
+    ///
+    /// This bootstrap owner must remain terminal-free because SwiftUI may
+    /// initialize the app value more than once during launch.
+    static func makeAppBootstrap(
+        workspaceCustomizationStore: WorkspaceCustomizationStore? = nil,
+        nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker()
+    ) -> TabManager {
+        TabManager(
+            createInitialWorkspace: false,
+            workspaceCustomizationStore: workspaceCustomizationStore,
+            nativeSSHConnectionBroker: nativeSSHConnectionBroker
+        )
     }
 
     deinit {
@@ -858,7 +880,9 @@ class TabManager: ObservableObject {
     }
 
     var isFindVisible: Bool {
-        selectedTerminalPanel?.searchState != nil || focusedBrowserPanel?.searchState != nil
+        selectedTerminalPanel?.searchState != nil ||
+            focusedBrowserPanel?.searchState != nil ||
+            focusedMarkdownPanel?.searchState != nil
     }
 
     var canUseSelectionForFind: Bool {
@@ -888,9 +912,15 @@ class TabManager: ObservableObject {
 #endif
             return handled
         }
-        guard let browserPanel = focusedBrowserPanel else { return false }
-        browserPanel.startFind()
-        return browserPanel.searchState != nil
+        if let browserPanel = focusedBrowserPanel {
+            browserPanel.startFind()
+            // A diff viewer page owns find in-page; the native bar stays
+            // hidden but the shortcut was handled.
+            return browserPanel.searchState != nil || browserPanel.isDiffViewerFindOwner
+        }
+        guard let markdownPanel = focusedMarkdownPanel else { return false }
+        markdownPanel.startFind()
+        return markdownPanel.searchState != nil
     }
 
     func searchSelection() {
@@ -914,7 +944,11 @@ class TabManager: ObservableObject {
             return
         }
 
-        focusedBrowserPanel?.findNext()
+        if let browserPanel = focusedBrowserPanel {
+            browserPanel.findNext()
+            return
+        }
+        focusedMarkdownPanel?.findNext()
     }
 
     func findPrevious() {
@@ -923,7 +957,11 @@ class TabManager: ObservableObject {
             return
         }
 
-        focusedBrowserPanel?.findPrevious()
+        if let browserPanel = focusedBrowserPanel {
+            browserPanel.findPrevious()
+            return
+        }
+        focusedMarkdownPanel?.findPrevious()
     }
 
     @discardableResult
@@ -1022,7 +1060,11 @@ class TabManager: ObservableObject {
             return
         }
 
-        focusedBrowserPanel?.hideFind()
+        if let browserPanel = focusedBrowserPanel {
+            browserPanel.hideFind()
+            return
+        }
+        focusedMarkdownPanel?.hideFind()
     }
 
     func makeWorkspaceForCreation(
@@ -2166,9 +2208,9 @@ class TabManager: ObservableObject {
         workspaceGrouping.moveWorkspaceGroup(groupId: groupId, toIndex: targetIndex)
     }
 
-    /// Compatibility shim. With anchor-bound group lifecycle, "empty" groups
-    /// are no longer possible — a group exists iff its anchor exists in
-    /// `tabs[]`.
+    /// Compatibility shim retained for callers that used to ask the legacy
+    /// model to prune empty groups. Pinned empty groups are now durable and
+    /// disappear only through explicit Delete Group.
     func pruneEmptyWorkspaceGroups() {}
 
     // MARK: - WorkspaceGroupHosting (effects the group coordinator inverts)
@@ -2474,9 +2516,9 @@ class TabManager: ObservableObject {
         invalidateFocusHistoryTarget(workspaceId: tabId, panelId: nil)
 
         let removed = tabs.remove(at: index)
-        // Same anchor-close lifecycle as closeWorkspace: detaching a group's
-        // anchor dissolves the group; non-anchor members stay in tabs as
-        // ungrouped workspaces.
+        // Same anchor-close lifecycle as closeWorkspace: an unpinned group's
+        // anchor dissolves it, while a pinned group promotes a remaining member
+        // or retains an empty header.
         workspaces.dissolveGroupsAnchoredBy(closedWorkspaceId: removed.id)
         // Clear the detached workspace's own group membership so the
         // destination window — which has no matching WorkspaceGroup — doesn't
@@ -2688,7 +2730,7 @@ class TabManager: ObservableObject {
     /// Every batch-close entrypoint (menu, shortcut, socket) must route through
     /// this ordering.
     func anchorLastCloseOrder(_ workspaces: [Workspace]) -> [Workspace] {
-        let anchorIds = Set(workspaceGroups.map(\.anchorWorkspaceId))
+        let anchorIds = Set(workspaceGroups.compactMap(\.liveAnchorWorkspaceId))
         return workspaces.filter { !anchorIds.contains($0.id) }
             + workspaces.filter { anchorIds.contains($0.id) }
     }
@@ -3794,8 +3836,14 @@ class TabManager: ObservableObject {
     func focusTabFromNotification(
         _ tabId: UUID,
         surfaceId: UUID? = nil,
-        completion: ((Bool) -> Void)? = nil
+        completion: ((Bool) -> Void)? = nil,
+        effectIsCurrent:
+            @escaping @MainActor @Sendable () -> Bool = { true }
     ) -> Bool {
+        guard effectIsCurrent() else {
+            completion?(false)
+            return false
+        }
         guard let tab = tabs.first(where: { $0.id == tabId }) else {
 #if DEBUG
             cmuxDebugLog("notification.focus.fail tab=\(tabId.uuidString.prefix(5)) reason=missingTab")
@@ -3825,6 +3873,11 @@ class TabManager: ObservableObject {
             let accepted = location.controlFocus { [weak self] confirmed in
                 guard let self else { return }
                 guard self.pendingProjectedNotificationFocusRequestID == requestID else { return }
+                guard effectIsCurrent() else {
+                    self.pendingProjectedNotificationFocusRequestID = nil
+                    completion?(false)
+                    return
+                }
                 self.pendingProjectedNotificationFocusRequestID = nil
                 guard confirmed else {
                     completion?(false)
@@ -3859,6 +3912,10 @@ class TabManager: ObservableObject {
         }
         // Jump-to-unread should reveal the destination pane instead of keeping an old split-zoom
         // state active around it.
+        guard effectIsCurrent() else {
+            completion?(false)
+            return false
+        }
         tab.clearSplitZoom()
         notificationDismissal.setSuppressesFocusFlash(true)
         focusTab(tabId, surfaceId: surfaceId ?? desiredPanelId, suppressFlash: true)
@@ -6080,6 +6137,7 @@ extension TabManager {
             hasher.combine(group.isCollapsed)
             hasher.combine(group.isPinned)
             hasher.combine(group.anchorWorkspaceId)
+            hasher.combine(group.isEmpty)
             hasher.combine(group.customColor ?? "")
             hasher.combine(group.iconSymbol ?? "")
         }
@@ -6377,16 +6435,22 @@ extension TabManager {
         }()
         let groupSnapshots: [SessionWorkspaceGroupSnapshot]? = {
             let snapshots = workspaceGroups
-                .filter { occupiedGroupIds.contains($0.id) }
+                .filter { group in
+                    occupiedGroupIds.contains(group.id)
+                        || (group.isPinned && group.isEmpty)
+                }
                 .map { group in
                     let memberIds = restorableMembersByGroupId[group.id] ?? []
-                    let anchorIndex = memberIds.firstIndex(of: group.anchorWorkspaceId)
+                    let anchorIndex = group.liveAnchorWorkspaceId.flatMap {
+                        memberIds.firstIndex(of: $0)
+                    }
                     return SessionWorkspaceGroupSnapshot(
                         id: group.id,
                         name: group.name,
                         isCollapsed: group.isCollapsed,
                         anchorWorkspaceId: group.anchorWorkspaceId,
                         anchorMemberIndex: anchorIndex,
+                        anchorIsEmpty: group.isEmpty ? true : nil,
                         isPinned: group.isPinned,
                         customColor: group.customColor,
                         iconSymbol: group.iconSymbol
@@ -6592,8 +6656,27 @@ extension TabManager {
             }()
             var seen: Set<UUID> = []
             return groupSnapshots.compactMap { groupSnapshot in
-                guard let members = workspaceIdsByGroupId[groupSnapshot.id], !members.isEmpty,
-                      seen.insert(groupSnapshot.id).inserted else { return nil }
+                guard seen.insert(groupSnapshot.id).inserted else { return nil }
+                let members = workspaceIdsByGroupId[groupSnapshot.id] ?? []
+                if members.isEmpty {
+                    // Only pinned groups are durable without a live member.
+                    // Their persisted anchor id is a stable header identity;
+                    // older snapshots that omit it fall back to the group id.
+                    guard groupSnapshot.isPinned == true else { return nil }
+                    return WorkspaceGroup(
+                        id: groupSnapshot.id,
+                        name: groupSnapshot.name,
+                        isCollapsed: groupSnapshot.isCollapsed,
+                        isPinned: true,
+                        // The group id is the durable header identity. Older
+                        // snapshots stored a former workspace id here; use
+                        // the group id on restore so header drags resolve as
+                        // group moves rather than as missing workspaces.
+                        anchor: .empty(groupSnapshot.id),
+                        customColor: groupSnapshot.customColor,
+                        iconSymbol: groupSnapshot.iconSymbol
+                    )
+                }
                 // Resolve anchor: prefer the restore-stable index, then the
                 // persisted UUID hint. The UUID hint matches on ordinary
                 // session restore, but duplicate/corrupt snapshots can still
@@ -6613,7 +6696,7 @@ extension TabManager {
                     name: groupSnapshot.name,
                     isCollapsed: groupSnapshot.isCollapsed,
                     isPinned: groupSnapshot.isPinned ?? false,
-                    anchorWorkspaceId: anchorId,
+                    anchor: .workspace(anchorId),
                     customColor: groupSnapshot.customColor,
                     iconSymbol: groupSnapshot.iconSymbol
                 )
