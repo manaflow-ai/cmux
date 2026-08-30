@@ -98,8 +98,16 @@ private final class DockPointerInteractionHostView: NSView {
     private var eventMonitor: Any?
 
     deinit {
-        if let eventMonitor {
+        guard let eventMonitor else { return }
+        if Thread.isMainThread {
             NSEvent.removeMonitor(eventMonitor)
+        } else {
+            // SwiftUI normally dismantles this view on the MainActor, but an
+            // autorelease-driven final release can occur off-main. Keep the
+            // AppKit removal on its required actor in that backstop case.
+            Task { @MainActor [eventMonitor] in
+                NSEvent.removeMonitor(eventMonitor)
+            }
         }
     }
 
