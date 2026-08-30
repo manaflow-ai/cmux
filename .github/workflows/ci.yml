@@ -899,18 +899,27 @@ jobs:
           # and --new-window must consolidate mirrors moved across source windows.
           # Keep these destructive/topology regressions outside the tolerant full
           # suite so an ordinary assertion failure cannot be accepted as expected.
+          # The placement case creates three native windows and several
+          # Ghostty-backed panels. Run the close and placement suites in separate
+          # app-host processes so renderer teardown from one topology workload
+          # cannot crash the next before its assertions execute.
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          scripts/ci/run-in-console-session.sh \
-            scripts/ci/run-app-host-xcodebuild.sh \
-            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
-            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-            -disableAutomaticPackageResolution \
-            -destination "platform=macOS" \
-            CMUX_SKIP_ZIG_BUILD=1 \
-            -only-testing:cmuxTests/RemoteTmuxMirrorCloseDetachTests \
-            test
+          for suite in \
+            RemoteTmuxMirrorCloseDetachTests \
+            RemoteTmuxMirrorDedicatedPlacementTests
+          do
+            scripts/ci/run-in-console-session.sh \
+              scripts/ci/run-app-host-xcodebuild.sh \
+              -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+              -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -disableAutomaticPackageResolution \
+              -destination "platform=macOS" \
+              CMUX_SKIP_ZIG_BUILD=1 \
+              -only-testing:"cmuxTests/$suite" \
+              test
+          done
 
       - name: Run browser system proxy mirror regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
