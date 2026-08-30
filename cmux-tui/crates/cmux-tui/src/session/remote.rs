@@ -4243,8 +4243,9 @@ pub(super) fn test_session_with_blocked_attach_transport_failure(
 
 #[cfg(test)]
 mod tests {
+    use std::io::Read;
     #[cfg(unix)]
-    use std::io::{BufRead, Read, Write};
+    use std::io::{BufRead, Write};
     #[cfg(unix)]
     use std::os::unix::net::UnixStream;
     use std::sync::atomic::{AtomicBool, AtomicU64};
