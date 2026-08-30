@@ -372,6 +372,14 @@ mod tests {
     }
 
     #[test]
+    fn parse_request_rejects_input_larger_than_the_frame_limit() {
+        let encoded = base64::engine::general_purpose::STANDARD
+            .encode(vec![b'x'; 1024 * 1024 + 1]);
+        let line = serde_json::json!({"input": encoded}).to_string();
+        assert!(parse_request(&line).is_err());
+    }
+
+    #[test]
     fn exit_reasons_map_to_the_respawn_contract() {
         assert_eq!(PipeIoExitReason::TerminalEnded.exit_code(), EXIT_DO_NOT_RESPAWN);
         assert_eq!(PipeIoExitReason::ParentClosed.exit_code(), EXIT_DO_NOT_RESPAWN);
