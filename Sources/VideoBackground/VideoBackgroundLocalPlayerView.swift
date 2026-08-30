@@ -9,26 +9,67 @@ final class VideoBackgroundLocalPlayerView: NSView, VideoBackgroundPlayerView {
     private let player: AVQueuePlayer
     private let playerLayer: AVPlayerLayer
     private var looper: AVPlayerLooper?
+    private var endObserver: NSObjectProtocol?
+    private let onEnded: @MainActor () -> Void
+    private let onStarted: @MainActor () -> Void
     private var desiredPaused = false
 
-    init(fileURL: URL, muted: Bool = true) {
-        let player = AVQueuePlayer()
+    init(
+        fileURL: URL,
+        muted: Bool = true,
+        volume: Double = 1,
+        loops: Bool = true,
+        initialPosition: TimeInterval = 0,
+        onEnded: @escaping @MainActor () -> Void = {},
+        onStarted: @escaping @MainActor () -> Void = {}
+    ) {
+        let item = AVPlayerItem(url: fileURL)
+        let player = AVQueuePlayer(items: [item])
         player.isMuted = muted
+        player.volume = Float(volume.isFinite ? min(max(volume, 0), 1) : 1)
         player.preventsDisplaySleepDuringVideoPlayback = false
         self.player = player
         self.playerLayer = AVPlayerLayer(player: player)
+        self.onEnded = onEnded
+        self.onStarted = onStarted
 
         super.init(frame: .zero)
         wantsLayer = true
         playerLayer.videoGravity = .resizeAspectFill
         layer?.addSublayer(playerLayer)
 
-        looper = AVPlayerLooper(player: player, templateItem: AVPlayerItem(url: fileURL))
+        if loops {
+            looper = AVPlayerLooper(player: player, templateItem: item)
+        } else {
+            // AVPlayerItem end notifications are the native equivalent of the
+            // YouTube bridge's `ended` event for queue-managed playback.
+            endObserver = NotificationCenter.default.addObserver(
+                forName: .AVPlayerItemDidPlayToEndTime,
+                object: item,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.onEnded() }
+            }
+        }
+        if initialPosition > 0, initialPosition.isFinite {
+            player.seek(
+                to: CMTime(seconds: initialPosition, preferredTimescale: 600),
+                toleranceBefore: .zero,
+                toleranceAfter: .zero
+            )
+        }
         player.play()
+        onStarted()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
+
+    deinit {
+        if let endObserver {
+            NotificationCenter.default.removeObserver(endObserver)
+        }
+    }
 
     override var isOpaque: Bool { false }
     override var acceptsFirstResponder: Bool { false }
@@ -54,5 +95,19 @@ final class VideoBackgroundLocalPlayerView: NSView, VideoBackgroundPlayerView {
 
     func setMuted(_ muted: Bool) {
         player.isMuted = muted
+    }
+
+    func setPlaybackPosition(_ seconds: TimeInterval) {
+        guard seconds.isFinite, seconds >= 0 else { return }
+        player.seek(
+            to: CMTime(seconds: seconds, preferredTimescale: 600),
+            toleranceBefore: .zero,
+            toleranceAfter: .zero
+        )
+    }
+
+    func setVolume(_ volume: Double) {
+        let normalized = volume.isFinite ? min(max(volume, 0), 1) : 1
+        player.volume = Float(normalized)
     }
 }

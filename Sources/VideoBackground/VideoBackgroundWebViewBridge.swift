@@ -19,6 +19,9 @@ final class VideoBackgroundWebViewBridge: NSObject, WKNavigationDelegate, WKScri
     /// desired pause state here instead of trusting earlier evaluations.
     @MainActor var onPlayerReady: (@MainActor () -> Void)?
 
+    /// Invoked when a queue-managed YouTube item reaches its end.
+    @MainActor var onPlayerEnded: (@MainActor () -> Void)?
+
     init(onPlayerError: @escaping @MainActor (String) -> Void) {
         self.onPlayerError = onPlayerError
     }
@@ -90,6 +93,8 @@ final class VideoBackgroundWebViewBridge: NSObject, WKNavigationDelegate, WKScri
             onPlayerError("player-error: \(code)")
         case "ready":
             onPlayerReady?()
+        case "ended":
+            onPlayerEnded?()
         default:
             // "skipped" is informational; nothing to do.
             break

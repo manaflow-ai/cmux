@@ -38,7 +38,10 @@ Terminal presentation settings from Settings > Terminal.
 | `terminal.autoResumeAgentSessions` | boolean | `true` | Automatically run agent resume commands for restored terminal sessions when cmux reopens after quit. Set false to restore panes while keeping Claude Code, Codex, OpenCode, and other saved agent sessions idle until you resume them manually. |
 | `terminal.videoBackground.enabled` | boolean | `false` | Play a non-interactive dynamic video background behind terminal content in every window. Pauses while the window is hidden, during sleep, and in Low Power Mode. |
 | `terminal.videoBackground.source` | string | `""` | YouTube video or playlist URL, a raw YouTube video or playlist ID, or a local `.mp4`/`.m4v`/`.mov` file path. Playlists loop and advance automatically. |
+| `terminal.videoBackground.queue` | array of strings | `[]` | Ordered video sources played one after another and repeated; an empty queue falls back to `source`, and new windows share the playhead. |
+| `terminal.videoBackground.quality` | string | `"1080p"` | YouTube stream cap: `720p`, `1080p`, `1440p`, or `2160p`. |
 | `terminal.videoBackground.muted` | boolean | `true` | Keep the video silent. Set `false` to play its audio; only the most recently active window plays sound, and audio stops whenever the video pauses. |
+| `terminal.videoBackground.volume` | number | `1` | Volume from `0` (silent) to `1` (full) when audio is enabled. |
 | `terminal.videoBackground.dimOpacity` | number | `0.8` | Opacity of the terminal background fill drawn over the video (`0` undimmed, `1` hides the video). |
 
 ## notifications

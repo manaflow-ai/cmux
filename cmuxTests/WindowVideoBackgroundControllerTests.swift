@@ -39,6 +39,7 @@ struct WindowVideoBackgroundControllerTests {
         let defaults = try makeDefaults()
         defaults.set("/tmp/cmux-video-background-test.mp4", forKey: VideoBackgroundSettings.sourceKey)
         let window = makeWindow()
+        defer { window.close() }
 
         let controller = WindowVideoBackgroundController.ensure(on: window, defaults: defaults)
 
@@ -52,6 +53,7 @@ struct WindowVideoBackgroundControllerTests {
         defaults.set(true, forKey: VideoBackgroundSettings.enabledKey)
         defaults.set("/tmp/cmux-video-background-test.mp4", forKey: VideoBackgroundSettings.sourceKey)
         let window = makeWindow()
+        defer { window.close() }
 
         let controller = WindowVideoBackgroundController.ensure(on: window, defaults: defaults)
 
@@ -69,6 +71,7 @@ struct WindowVideoBackgroundControllerTests {
         defaults.set(true, forKey: VideoBackgroundSettings.enabledKey)
         defaults.set("/tmp/cmux-video-background-broken.mp4", forKey: VideoBackgroundSettings.sourceKey)
         let window = makeWindow()
+        defer { window.close() }
         let controller = WindowVideoBackgroundController.ensure(on: window, defaults: defaults)
         #expect(controller.presentation.isActive)
 
@@ -88,5 +91,36 @@ struct WindowVideoBackgroundControllerTests {
         controller.refresh()
         #expect(controller.presentation.isActive)
         #expect(hostView(in: window) != nil)
+    }
+
+    @Test
+    func sharedPlaybackCoordinatorKeepsQueueIndexAndRejectsStaleEndEvents() {
+        let coordinator = VideoBackgroundPlaybackCoordinator()
+        var snapshots: [VideoBackgroundPlaybackCoordinator.Snapshot] = []
+        let initial = coordinator.configure(
+            sourceTexts: ["dQw4w9WgXcQ", "M7lc1UVf-VE"],
+            quality: "1080p"
+        )
+        let registration = coordinator.register { snapshot in
+            snapshots.append(snapshot)
+        }
+
+        #expect(initial.index == 0)
+        #expect(initial.sources.count == 2)
+        #expect(registration.snapshot.currentSource == initial.currentSource)
+
+        coordinator.advance(after: initial.generation &- 1)
+        #expect(snapshots.isEmpty)
+
+        coordinator.advance(after: initial.generation)
+        #expect(snapshots.count == 1)
+        if let advanced = snapshots.last {
+            #expect(advanced.index == 1)
+            #expect(advanced.generation != initial.generation)
+        }
+
+        coordinator.unregister(registration.token)
+        coordinator.advance(after: snapshots.last?.generation ?? 0)
+        #expect(snapshots.count == 1)
     }
 }

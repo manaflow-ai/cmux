@@ -20,6 +20,9 @@ struct VideoBackgroundSettingsFileStoreTests {
             {
               "enabled": true,
               "source": "  https://www.youtube.com/watch?v=dQw4w9WgXcQ  ",
+              "queue": [" first ", "second"],
+              "quality": "4k",
+              "volume": 0.35,
               "muted": false,
               "dimOpacity": 0.6
             }
@@ -32,6 +35,9 @@ struct VideoBackgroundSettingsFileStoreTests {
             )
             #expect(defaults.object(forKey: VideoBackgroundSettings.dimOpacityKey) as? Double == 0.6)
             #expect(defaults.object(forKey: VideoBackgroundSettings.mutedKey) as? Bool == false)
+            #expect(defaults.array(forKey: VideoBackgroundSettings.queueKey) as? [String] == ["first", "second"])
+            #expect(defaults.string(forKey: VideoBackgroundSettings.qualityKey) == "2160p")
+            #expect(defaults.object(forKey: VideoBackgroundSettings.volumeKey) as? Double == 0.35)
         }
     }
 
@@ -56,6 +62,9 @@ struct VideoBackgroundSettingsFileStoreTests {
             {
               "enabled": "yes",
               "source": 42,
+              "queue": ["ok", 42],
+              "quality": "8k",
+              "volume": "loud",
               "dimOpacity": "dark"
             }
             """
@@ -63,6 +72,9 @@ struct VideoBackgroundSettingsFileStoreTests {
             #expect(defaults.object(forKey: VideoBackgroundSettings.enabledKey) == nil)
             #expect(defaults.object(forKey: VideoBackgroundSettings.sourceKey) == nil)
             #expect(defaults.object(forKey: VideoBackgroundSettings.dimOpacityKey) == nil)
+            #expect(defaults.object(forKey: VideoBackgroundSettings.queueKey) == nil)
+            #expect(defaults.object(forKey: VideoBackgroundSettings.qualityKey) == nil)
+            #expect(defaults.object(forKey: VideoBackgroundSettings.volumeKey) == nil)
         }
     }
 
@@ -72,6 +84,9 @@ struct VideoBackgroundSettingsFileStoreTests {
             VideoBackgroundSettings.enabledKey,
             VideoBackgroundSettings.sourceKey,
             VideoBackgroundSettings.dimOpacityKey,
+            VideoBackgroundSettings.queueKey,
+            VideoBackgroundSettings.qualityKey,
+            VideoBackgroundSettings.volumeKey,
             settingsFileBackupsDefaultsKey,
             importedManagedDefaultsKey,
         ]) {
