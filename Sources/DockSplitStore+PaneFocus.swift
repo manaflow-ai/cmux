@@ -2,14 +2,12 @@ import AppKit
 import Bonsplit
 
 struct DockMenuCapabilitySnapshot: Equatable, Sendable {
-    let hasFocusedPanel: Bool
     let isTerminal: Bool
     let canUseSelection: Bool
     let hasFindSession: Bool
     let canCloseOtherTabs: Bool
 
     static let empty = Self(
-        hasFocusedPanel: false,
         isTerminal: false,
         canUseSelection: false,
         hasFindSession: false,
@@ -247,7 +245,6 @@ extension DockSplitStore {
         let browser = panel as? BrowserPanel
         let tabs = bonsplitController.tabs(inPane: paneId)
         let next = DockMenuCapabilitySnapshot(
-            hasFocusedPanel: true,
             isTerminal: terminal != nil,
             canUseSelection: terminal?.hasSelection() == true,
             hasFindSession: terminal?.searchState != nil

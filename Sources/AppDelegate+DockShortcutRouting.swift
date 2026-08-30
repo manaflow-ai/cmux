@@ -205,10 +205,8 @@ extension AppDelegate {
     ) -> DockSplitStore? {
         guard case .dockScoped =
             action.dockShortcutRoutingDisposition else {
-            assertionFailure(
-                "Non-Dock-scoped shortcut requested the Dock gate: " +
-                    action.rawValue
-            )
+            // Keep dynamically assembled menu/shortcut callers fail-closed;
+            // the exhaustive disposition switch remains the source of truth.
             return nil
         }
         return focusedDockStoreForShortcut(
@@ -350,9 +348,6 @@ extension AppDelegate {
         preferredWindow: NSWindow?
     ) -> Bool {
         guard case .dockScoped = action.dockShortcutRoutingDisposition else {
-            assertionFailure(
-                "Non-Dock-scoped command requested the Dock gate: " + action.rawValue
-            )
             return false
         }
         guard let store = focusedDockStoreForShortcut(
