@@ -88,6 +88,10 @@ actor MobileHostIrxEventWriter: MobileHostIndependentEventWriting {
         openingWriterID = id
         do {
             let opened = try await task.value
+            // A reentrant follower may have completed this same open while
+            // the creator was suspended. Reuse the writer it cached instead
+            // of treating the completed open as superseded and finishing it.
+            if let writer { return writer }
             guard openingWriterID == id else {
                 await opened.finish()
                 throw CancellationError()
