@@ -170,6 +170,22 @@ extension AppDelegate {
         return existingFocusedDockStoreForShortcut(context: context)
     }
 
+    /// Read-only Dock ownership value for the per-event shortcut context. An
+    /// explicit Dock mode is enough to keep a shortcut eligible while SwiftUI
+    /// is still mounting the store; unlike ``focusedDockStoreForShortcut``, this
+    /// path never creates a Dock as a side effect of context evaluation.
+    func dockFocusForShortcutContext(preferredWindow: NSWindow?) -> Bool {
+        guard let context = preferredRegisteredMainWindowContext(
+            preferredWindow: preferredWindow
+        ) else {
+            return false
+        }
+        if context.keyboardFocusCoordinator.activeRightSidebarMode == .dock {
+            return context.fileExplorerState?.isVisible != false
+        }
+        return existingFocusedDockStoreForShortcut(context: context) != nil
+    }
+
     private func existingFocusedDockStoreForShortcut(
         context: MainWindowContext
     ) -> DockSplitStore? {
@@ -326,14 +342,20 @@ extension AppDelegate {
         in window: NSWindow
     ) -> Bool {
         guard let responder = window.firstResponder else { return false }
-        if let terminalSurface = responder.cmuxTerminalFocusOwningGhosttyView()?.terminalSurface,
-           terminalSurface.focusPlacement == .rightSidebarDock {
+        if let terminalSurface = responder.cmuxTerminalFocusOwningGhosttyView()?.terminalSurface {
+            guard terminalSurface.focusPlacement == .rightSidebarDock else {
+                return false
+            }
             return dock.panelIsSelectedInVisibleDockPane(terminalSurface.id)
         }
-        guard let browser = dock.browserPanel(owning: responder, in: window) else {
+        guard let focusedPanelId = dock.focusedPanelId,
+              let focusedBrowser = dock.browserPanel(for: focusedPanelId) else {
             return false
         }
-        return dock.panelIsSelectedInVisibleDockPane(browser.id)
+        guard focusedBrowser.ownedFocusIntent(for: responder, in: window) != nil else {
+            return false
+        }
+        return dock.panelIsSelectedInVisibleDockPane(focusedBrowser.id)
     }
 
     func matchesLegacyNextSurfaceShortcut(event: NSEvent) -> Bool {

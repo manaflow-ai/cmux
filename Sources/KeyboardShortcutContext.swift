@@ -162,7 +162,7 @@ extension AppDelegate {
         }
         context.setBool(
             ShortcutContextKnownKey.dockFocus.rawValue,
-            focusedDockStoreForShortcut(preferredWindow: window) != nil
+            dockFocusForShortcutContext(preferredWindow: window)
         )
         return context
     }
