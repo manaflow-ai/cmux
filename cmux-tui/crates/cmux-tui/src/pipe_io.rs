@@ -439,6 +439,15 @@ mod tests {
     }
 
     #[test]
+    fn request_line_reader_accepts_a_short_final_line_at_eof() {
+        let mut reader = std::io::Cursor::new(br#"{"claim":true}"#.to_vec());
+        let mut line = String::new();
+        assert!(read_request_line(&mut reader, &mut line).unwrap());
+        assert_eq!(line, r#"{"claim":true}"#);
+        assert!(!read_request_line(&mut reader, &mut line).unwrap());
+    }
+
+    #[test]
     fn exit_reasons_map_to_the_respawn_contract() {
         assert_eq!(PipeIoExitReason::TerminalEnded.exit_code(), EXIT_DO_NOT_RESPAWN);
         assert_eq!(PipeIoExitReason::ParentClosed.exit_code(), EXIT_DO_NOT_RESPAWN);
