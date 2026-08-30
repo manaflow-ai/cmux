@@ -529,6 +529,11 @@ final class SharedLiveAgentIndex {
         return index
     }
 
+    /// Whether an agent-index refresh has been scheduled and has not completed yet.
+    var hasScheduledRefresh: Bool {
+        refreshTask != nil || forkAvailabilityRefreshTask != nil
+    }
+
     /// Starts a full refresh for an ownership-sensitive restore.
     ///
     /// A TTL-valid cache is still only a historical observation: a new agent
@@ -1910,7 +1915,8 @@ final class SharedLiveAgentIndex {
             || hasPendingForkValidations
             || result.liveAgentProcessFingerprint != liveAgentProcessFingerprint
             || result.processScopeFingerprint != processScopeFingerprint
-            || index?.isComplete != result.index.isComplete {
+            || index?.isComplete != result.index.isComplete
+            || index?.completionFingerprint != result.index.completionFingerprint {
             changedPanelIdsByWorkspaceId = changeSet.panelIdsByWorkspaceId
             applyReloadedIndex(
                 result.index,

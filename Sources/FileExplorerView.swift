@@ -547,7 +547,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
             endedAt screenPoint: NSPoint,
             operation: NSDragOperation
         ) {
-            FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: NSPasteboard(name: .drag))
+            FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: session)
         }
 
         @MainActor
@@ -1609,7 +1609,7 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         operation: NSDragOperation
     ) {
         guard tableView === searchResultsView else { return }
-        FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: NSPasteboard(name: .drag))
+        FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: session)
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {

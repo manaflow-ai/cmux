@@ -194,6 +194,7 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             reauthenticates: reauthenticates
         )
         let script = ([
+            "cmux_ssh_attach_cli=/bin/true",
             "cmux_ssh_attach_signal_exit() {",
             "  cmux_ssh_attach_signal_status=\"$1\"",
             "  cmux_ssh_attach_signal_name=\"$2\"",
@@ -239,7 +240,7 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         #expect(
             waitForFile(
                 at: transcriptURL,
-                containing: "remote PTY bridge closed; reattaching",
+                containing: "SSH disconnected",
                 while: process,
                 timeout: 3
             )
@@ -274,6 +275,10 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             .appendingPathComponent("cmux-ssh-attach-queued-input-\(UUID().uuidString)")
         let backoffMarkerURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ssh-attach-backoff-ready-\(UUID().uuidString)")
+        let backoffReleaseURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-attach-backoff-release-\(UUID().uuidString)")
+        let attachDoneURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-attach-done-\(UUID().uuidString)")
         let transcriptURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ssh-attach-queued-input-transcript-\(UUID().uuidString)")
         let fakeCLIURL = FileManager.default.temporaryDirectory
@@ -295,6 +300,8 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             try? transcriptHandle.close()
             try? FileManager.default.removeItem(at: logURL)
             try? FileManager.default.removeItem(at: backoffMarkerURL)
+            try? FileManager.default.removeItem(at: backoffReleaseURL)
+            try? FileManager.default.removeItem(at: attachDoneURL)
             try? FileManager.default.removeItem(at: transcriptURL)
             try? FileManager.default.removeItem(at: fakeCLIURL)
         }
@@ -304,32 +311,28 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             reauthenticates: false
         )
         let script = ([
+            "cmux_ssh_attach_cli=",
             "cmux_ssh_attach_signal_exit() { exit \"$1\"; }",
             "cmux_ssh_attach_cli=\"$CMUX_TEST_FAKE_CLI\"",
-            "sleep() { printf 'ready\\n' > \"$CMUX_TEST_BACKOFF_MARKER\"; /bin/sleep \"$1\"; }",
+            "sleep() { printf 'ready\\n' > \"$CMUX_TEST_BACKOFF_MARKER\"; while [ ! -f \"$CMUX_TEST_BACKOFF_RELEASE\" ]; do /bin/sleep 0.01; done; }",
             "cmux_test_attach() {",
             "  count=$(grep -c '^attach$' \"$CMUX_TEST_LOG\" 2>/dev/null) || count=0",
             "  printf '%s\\n' attach >> \"$CMUX_TEST_LOG\"",
             "  if [ \"$count\" -eq 0 ]; then return 255; fi",
-            "  if IFS= read -r -t 1 cmux_test_input; then",
-            "    printf 'input:%s\\n' \"$cmux_test_input\" >> \"$CMUX_TEST_LOG\"",
-            "  fi",
-            "  printf '%s\\n' complete >> \"$CMUX_TEST_LOG\"",
+            "  CMUX_TEST_LOG=\"$CMUX_TEST_LOG\" CMUX_TEST_ATTACH_DONE=\"$CMUX_TEST_ATTACH_DONE\" /usr/bin/python3 -c 'import os, select, sys; os.set_blocking(0, False); ready, _, _ = select.select([0], [], [], 0); data = os.read(0, 8192) if ready else b\"\"; open(os.environ[\"CMUX_TEST_ATTACH_DONE\"], \"w\").write(\"done\\n\"); open(os.environ[\"CMUX_TEST_LOG\"], \"a\").write(\"input:\" + data.decode(errors=\"replace\") + \"\\n\" if data else \"\")'",
             "  return 0",
             "}",
         ] + retryLines).joined(separator: "\n")
 
         let process = Process()
         let standardInput = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-        process.arguments = [
-            "-c",
-            "import os, pty, sys; status = pty.spawn(['/bin/sh', '-c', sys.argv[1]]); sys.exit(os.waitstatus_to_exitcode(status))",
-            script,
-        ]
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/script")
+        process.arguments = ["-q", "/dev/null", "/bin/sh", "-c", script]
         process.environment = ProcessInfo.processInfo.environment.merging([
             "CMUX_TEST_LOG": logURL.path,
             "CMUX_TEST_BACKOFF_MARKER": backoffMarkerURL.path,
+            "CMUX_TEST_BACKOFF_RELEASE": backoffReleaseURL.path,
+            "CMUX_TEST_ATTACH_DONE": attachDoneURL.path,
             "CMUX_TEST_FAKE_CLI": fakeCLIURL.path,
             "CMUX_SSH_RECONNECT_DELAY_SECONDS": "1",
             "CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS": "1",
@@ -348,31 +351,68 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         #expect(enteredBackoff)
         if enteredBackoff {
             try standardInput.fileHandleForWriting.write(contentsOf: Data("queued-input\n".utf8))
+            try Data().write(to: backoffReleaseURL)
         }
         let secondAttachFinished = waitForFile(
-            at: logURL,
-            containing: "complete\n",
+            at: attachDoneURL,
+            containing: "done",
             while: process,
             timeout: 3
         )
         #expect(secondAttachFinished)
-        // The attach fixture has its own bounded reader, so it exits whether
-        // the queued line was delivered or discarded.
         try? standardInput.fileHandleForWriting.close()
-        if process.isRunning {
+        if !secondAttachFinished, process.isRunning {
             process.terminate()
         }
         process.waitUntilExit()
 
         let logContents = (try? String(contentsOf: logURL, encoding: .utf8)) ?? "<missing>"
-        let transcript = (try? String(contentsOf: transcriptURL, encoding: .utf8)) ?? "<missing>"
-        if secondAttachFinished {
-            #expect(logContents == "attach\nattach\ncomplete\n", Comment(rawValue: logContents))
-            #expect(
-                transcript.contains("Input typed while disconnected is discarded."),
-                Comment(rawValue: transcript)
-            )
-        }
+        #expect(process.terminationStatus == 0)
+        #expect(logContents == "attach\nattach\n")
+    }
+
+    @Test func reconnectStatusUpdatesOneLineAndShowsBackoff() throws {
+        let attemptURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-attach-status-attempt-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: attemptURL) }
+        let retryLines = SSHPTYAttachRetryScriptBuilder().lines(
+            command: "cmux_test_attach",
+            reauthenticates: false
+        )
+        let script = ([
+            "cmux_ssh_attach_cli=",
+            "cmux_ssh_attach_signal_exit() { exit \"$1\"; }",
+            "sleep() { :; }",
+            "cmux_test_attach() {",
+            "  if [ ! -f \"$CMUX_TEST_STATUS_ATTEMPT\" ]; then : > \"$CMUX_TEST_STATUS_ATTEMPT\"; return 255; fi",
+            "  return 253",
+            "}",
+        ] + retryLines).joined(separator: "\n")
+
+        let process = Process()
+        let transcriptPipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/script")
+        process.arguments = ["-q", "/dev/null", "/bin/sh", "-c", script]
+        process.environment = ProcessInfo.processInfo.environment.merging([
+            "CMUX_TEST_STATUS_ATTEMPT": attemptURL.path,
+            "CMUX_SSH_RECONNECT_DELAY_SECONDS": "8",
+            "CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS": "8",
+        ]) { _, override in override }
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = transcriptPipe
+        process.standardError = transcriptPipe
+
+        try process.run()
+        let transcriptData = transcriptPipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        let transcript = String(data: transcriptData, encoding: .utf8) ?? ""
+
+        #expect(process.terminationStatus == 253, Comment(rawValue: transcript))
+        #expect(transcript.contains("SSH disconnected"), Comment(rawValue: transcript))
+        #expect(transcript.contains("retry 1 in 8s"), Comment(rawValue: transcript))
+        #expect(transcript.contains("input discarded"), Comment(rawValue: transcript))
+        #expect(transcript.contains("\r\u{1B}[2K"), Comment(rawValue: transcript))
+        #expect(!transcript.contains("remote PTY bridge closed; reattaching"), Comment(rawValue: transcript))
     }
 
     @Test(arguments: ["bad", "21", "999999999999999999999999999999"])
@@ -452,7 +492,8 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             }
             Thread.sleep(forTimeInterval: 0.01)
         }
-        return false
+        let finalContents = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        return finalContents.contains(expectedContents)
     }
 
     private func run(

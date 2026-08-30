@@ -38,6 +38,12 @@ protocol PaneDropContainer: AnyObject {
         destination: BonsplitController.ExternalTabDropRequest.Destination
     ) -> Bool
 
+    /// Projects a Cloud tree row (one resource, or a workspace's collection) at this destination.
+    func performPortalSurfaceResourceDrop(
+        group: SurfaceResourceGroup,
+        destination: BonsplitController.ExternalTabDropRequest.Destination
+    ) -> Bool
+
     /// Returns the drag operation for a simulator file destination, if present.
     func simulatorFileDropOperation(
         urls: [URL],
@@ -92,6 +98,8 @@ extension PaneDropContainer {
                     destination: request.destination
                 )
             )
+        case .surfaceResources(let group):
+            handled = performPortalSurfaceResourceDrop(group: group, destination: request.destination)
         case .surface:
             return nil
         }
@@ -107,7 +115,7 @@ extension PaneDropContainer {
         source: PaneTransferSourceResolver.Source
     ) -> Bool {
         switch source {
-        case .vaultSession, .filePreview:
+        case .vaultSession, .filePreview, .surfaceResources:
             return true
         case .surface:
             return canPerformPortalSurfaceDrop(transfer)
@@ -137,6 +145,8 @@ extension PaneDropContainer {
                 urls: [URL(fileURLWithPath: entry.filePath)],
                 destination: destination
             ))
+        case .surfaceResources(let group):
+            return performPortalSurfaceResourceDrop(group: group, destination: destination)
         case .surface:
             return performPortalSurfaceDrop(
                 tabId: tabId,
@@ -153,6 +163,14 @@ extension PaneDropContainer {
         panelId _: UUID
     ) -> NSDragOperation? {
         nil
+    }
+
+    /// Declines Cloud rows for containers that cannot host a projected surface (the Dock).
+    func performPortalSurfaceResourceDrop(
+        group _: SurfaceResourceGroup,
+        destination _: BonsplitController.ExternalTabDropRequest.Destination
+    ) -> Bool {
+        false
     }
 
     /// Declines simulator handling for containers without simulator panels.
@@ -263,6 +281,14 @@ extension Workspace: PaneDropContainer {
         destination: BonsplitController.ExternalTabDropRequest.Destination
     ) -> Bool {
         handleSessionDrop(entry: entry, destination: destination)
+    }
+
+    /// Projects a dragged Cloud row through the surface catalog.
+    func performPortalSurfaceResourceDrop(
+        group: SurfaceResourceGroup,
+        destination: BonsplitController.ExternalTabDropRequest.Destination
+    ) -> Bool {
+        handleSurfaceResourceDrop(group: group, destination: destination)
     }
 
     /// Returns the workspace panel selected in the target pane.

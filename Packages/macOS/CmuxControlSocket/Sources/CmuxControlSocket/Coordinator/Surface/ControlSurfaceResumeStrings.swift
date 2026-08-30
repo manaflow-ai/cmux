@@ -7,6 +7,8 @@ public struct ControlSurfaceResumeStrings: Sendable, Equatable {
     public let agentSessionEndedMustBeBoolean: String
     /// The message returned when `launch_command` is present but malformed.
     public let launchCommandMustBeValid: String
+    /// The message returned when a restore claim is incomplete or malformed.
+    public let restoreClaimMustBeValid: String
 
     /// Creates the localized surface-resume message bundle.
     ///
@@ -14,11 +16,14 @@ public struct ControlSurfaceResumeStrings: Sendable, Equatable {
     ///   - agentSessionEndedMustBeBoolean: The malformed
     ///     `agent_session_ended` message.
     ///   - launchCommandMustBeValid: The malformed `launch_command` message.
+    ///   - restoreClaimMustBeValid: The malformed restore-claim message.
     public init(
         agentSessionEndedMustBeBoolean: String,
-        launchCommandMustBeValid: String
+        launchCommandMustBeValid: String,
+        restoreClaimMustBeValid: String = ""
     ) {
         self.agentSessionEndedMustBeBoolean = agentSessionEndedMustBeBoolean
         self.launchCommandMustBeValid = launchCommandMustBeValid
+        self.restoreClaimMustBeValid = restoreClaimMustBeValid
     }
 }

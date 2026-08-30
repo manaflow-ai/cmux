@@ -182,14 +182,14 @@ struct SidebarWorkspaceContextMenuWindowTargetsTests {
                 removeAttachment: { _, _ in },
                 openAttachments: { _, _ in }
             ),
-            onDragStart: { NSItemProvider() },
             onToggleChecklistExpansion: {},
             onConsumeChecklistAddFieldActivation: {},
             onChecklistPopoverPresentedChange: { _ in },
             onContextMenuAppear: {},
             onContextMenuDisappear: {},
             onPointerFrameChange: { _ in },
-            onPointerFrameDisappear: {}
+            onPointerFrameDisappear: {},
+            onPointerDragEligibilityChange: { _ in }
         )
     }
 }
