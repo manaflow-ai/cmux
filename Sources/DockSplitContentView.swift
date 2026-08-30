@@ -181,15 +181,22 @@ private final class DockPointerInteractionHostView: NSView {
         }
 
         // File previews and other Dock-native panels do not have a window-level
-        // portal identity. They are rare and remain behind this narrow fallback;
-        // terminal/browser panels are excluded because their portal lookups above
-        // are the authoritative O(1) path.
-        return store.panels.values.contains { panel in
-            guard !(panel is TerminalPanel), !(panel is BrowserPanel),
-                  store.panelIsSelectedInVisibleDockPane(panel.id) else {
-                return false
+        // portal identity. Resolve only the selected panel in each rendered
+        // pane; this keeps the fallback proportional to the pane topology
+        // rather than scanning every retained panel on every mouse-down.
+        let renderedPaneIDs = store.bonsplitController.zoomedPaneId.map { [$0] }
+            ?? store.bonsplitController.allPaneIds
+        for paneID in renderedPaneIDs {
+            guard store.paneIsRenderedInVisibleDock(paneID),
+                  let tabID = store.bonsplitController.selectedTab(inPane: paneID)?.id,
+                  let panelID = store.surfaceIdToPanelId[tabID],
+                  let panel = store.panels[panelID] else {
+                continue
             }
-            return panel.ownedFocusIntent(for: view, in: window) != nil
+            if panel.ownedFocusIntent(for: view, in: window) != nil {
+                return true
+            }
         }
+        return false
     }
 }

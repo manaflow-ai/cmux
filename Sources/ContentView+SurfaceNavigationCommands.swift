@@ -55,6 +55,7 @@ extension ContentView {
     func registerSurfaceNavigationCommandHandlers(
         _ registry: inout CommandPaletteHandlerRegistry,
         dock: DockSplitStore? = nil,
+        dockPanelId: UUID? = nil,
         preferredWindow: @escaping () -> NSWindow?
     ) {
         // A Dock target is captured when the palette is presented. Keep that
@@ -67,9 +68,13 @@ extension ContentView {
         let capturedDock = dock
         let resolvedDock: () -> DockSplitStore? = {
             guard let capturedDock else { return nil }
-            guard AppDelegate.shared?.focusedDockStoreForShortcut(
-                preferredWindow: preferredWindow()
-            ) === capturedDock else {
+            guard let app = AppDelegate.shared,
+                  let panelId = dockPanelId ?? capturedDock.focusedPanelId,
+                  app.isCurrentCommandPaletteDockTarget(
+                      capturedDock,
+                      panelId: panelId,
+                      preferredWindow: preferredWindow()
+                  ) else {
                 return nil
             }
             return capturedDock

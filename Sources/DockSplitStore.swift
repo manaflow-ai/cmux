@@ -1208,6 +1208,14 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
                 for: .terminalSelectionDidChange,
                 object: terminal.surface
             )
+            // Ghostty can emit selection-change actions for every mouse-move
+            // while a drag selection is in progress. Reduce that stream to the
+            // capability value before refreshing the Dock snapshot so the
+            // main-actor tree traversal runs only when selection availability
+            // actually changes.
+            .receive(on: DispatchQueue.main)
+            .map { [weak terminal] _ in terminal?.hasSelection() ?? false }
+            .removeDuplicates()
             .map { _ in () }
             panelCancellables[panel.id] = terminalSearchChanges
                 .merge(with: terminalSelectionChanges)

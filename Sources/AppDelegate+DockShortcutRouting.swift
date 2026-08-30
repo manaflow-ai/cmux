@@ -143,6 +143,34 @@ extension AppDelegate {
         return dockStoreForShortcut(context: context)
     }
 
+    /// Validates a Dock captured by the command palette without collapsing
+    /// workspace-scoped and window-scoped Docks into the window-focus gate.
+    /// Window Docks must still own the current sidebar focus; workspace Docks
+    /// are validated against their owning workspace's live store and panel map.
+    func isCurrentCommandPaletteDockTarget(
+        _ dock: DockSplitStore,
+        panelId: UUID,
+        preferredWindow: NSWindow?
+    ) -> Bool {
+        guard !dock.isRetired, dock.panels[panelId] != nil else { return false }
+
+        switch dock.scope {
+        case .global:
+            return focusedDockStoreForShortcut(preferredWindow: preferredWindow) === dock
+
+        case .workspace:
+            guard let manager = tabManagerFor(tabId: dock.workspaceId),
+                  let workspace = manager.tabs.first(where: {
+                      $0.id == dock.workspaceId
+                  }),
+                  workspace._dockSplit === dock,
+                  DockSplitStore.liveStore(containingPanel: panelId) === dock else {
+                return false
+            }
+            return true
+        }
+    }
+
     /// Read-only Dock ownership value for the per-event shortcut context. It
     /// reports only an existing, visible Dock that the coordinator owns, so the
     /// context and command/menu gates cannot disagree while SwiftUI mounts it.
