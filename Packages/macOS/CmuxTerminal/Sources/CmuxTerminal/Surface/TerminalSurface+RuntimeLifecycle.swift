@@ -379,10 +379,24 @@ extension TerminalSurface {
         // hibernation solely because both slots are occupied by unrelated
         // surfaces.
         if surface == nil {
+            let isNewHibernation = !runtimeSurfaceSuspendedForAgentHibernation
             if let reservation = agentHibernationRuntimeTeardownReservation {
                 agentHibernationRuntimeTeardownReservation = nil
                 runtimeTeardown.cancelIsolatedHibernationTeardown(reservation)
             }
+            if isNewHibernation {
+                // Hibernation retires the terminal and portal generations even
+                // when there is no native surface. Delayed hook reports and
+                // queued portal-host retries must not target the dormant model.
+                advanceTerminalLifecycleForRuntimeReplacement()
+                portalLifecycleGeneration &+= 1
+                pendingSocketInputQueue.removeAll(keepingCapacity: false)
+                pendingSocketInputBytes = 0
+                desiredFocusState = false
+            }
+            activePortalHostLease = nil
+            portalHostAuthority = nil
+            clearPortalHostVacancyRetries()
             runtimeSurfaceSuspendedForAgentHibernation = true
             backgroundSurfaceStartQueued = false
             backgroundSurfaceStartSource = .normal
