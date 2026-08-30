@@ -22465,6 +22465,7 @@ mod tests {
     fn agent_reports_apply_hook_authority() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
         let events = mux.subscribe();
         let initial_revision = mux.with_state(|state| state.resource_revision);
         let initial_epoch = mux.resource_event_epoch();
@@ -22492,14 +22493,15 @@ mod tests {
                 && session.as_ref() == "socket-session"
         ));
 
-        let hook = mux
-            .report_agent(
-                surface.id,
-                AgentState::Blocked,
-                AgentSource::Hook,
-                Some("hook-session".to_string()),
-            )
-            .unwrap();
+        let hook_ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "PermissionRequest",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({"session_id":"hook-session"}),
+        )
+        .unwrap();
+        mux.append_journal_ingress(&hook_ingress, "test", "hook-authority").unwrap();
+        let hook = mux.list_agents(Some(surface.id), None).remove(0);
         assert_eq!(hook.state, AgentState::Blocked);
         assert_eq!(hook.source, AgentSource::Hook);
 
@@ -22516,7 +22518,7 @@ mod tests {
 
         let filtered = mux.list_agents(Some(surface.id), Some(AgentState::Blocked));
         assert_eq!(filtered.len(), 1);
-        assert_eq!(filtered[0].session.as_deref(), Some("hook-session"));
+        assert_eq!(filtered[0].session, None);
         assert!(mux.list_agents(Some(surface.id), Some(AgentState::Done)).is_empty());
         assert_eq!(mux.with_state(|state| state.resource_revision), initial_revision + 3);
         assert_eq!(mux.resource_event_epoch(), initial_epoch + 3);
@@ -22529,7 +22531,7 @@ mod tests {
         assert_eq!(resource_events.batches[2].changes[0]["value"]["state"], "blocked");
         assert_eq!(
             resource_events.batches[2].changes[0]["value"]["source_session"],
-            "hook-session"
+            Value::Null
         );
         assert!(matches!(
             events.recv_timeout(Duration::from_millis(100)),
@@ -22537,12 +22539,11 @@ mod tests {
                 surface: event_surface,
                 state,
                 source,
-                session: Some(session),
+                session: None,
                 ..
             }) if event_surface == surface.id
                 && state.as_ref() == "blocked"
                 && source.as_ref() == "hook"
-                && session.as_ref() == "hook-session"
         ));
         assert!(!events.try_iter().any(|event| matches!(event, MuxEvent::TreeChanged)));
     }
@@ -22591,25 +22592,24 @@ mod tests {
         assert_eq!(raw.state, AgentState::Working);
         assert_eq!(mux.with_state(|state| state.resource_revision), created_revision + 1);
 
-        let hook_params = serde_json::json!({
-            "machine":"current",
-            "session":"current",
-            "terminal_id":terminal_id,
-            "state":"blocked",
-            "source":"hook",
-            "source_session":"hook-session",
-            "expected_revision":(created_revision + 1).to_string(),
-        });
-        let hook = public_request(
-            &mux,
-            "agent-hook",
-            "agent.report",
-            hook_params.clone(),
-            Some("agent-hook"),
-        );
-        assert_eq!(hook["result"]["revision"], (created_revision + 2).to_string());
-        assert_eq!(hook["result"]["value"]["source"], "hook");
-        assert_eq!(hook["result"]["value"]["state"], "blocked");
+        let hook_ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "PermissionRequest",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({"session_id":"hook-session"}),
+        )
+        .unwrap();
+        let hook_commit =
+            mux.append_journal_ingress(&hook_ingress, "test", "agent-hook").unwrap();
+        assert!(!hook_commit.replayed);
+        assert_eq!(mux.with_state(|state| state.resource_revision), created_revision + 2);
+        let hook_value = crate::resource_api::public_session_snapshot(&mux).unwrap()["agents"]
+            .as_array()
+            .and_then(|agents| agents.first())
+            .cloned()
+            .expect("hook projection");
+        assert_eq!(hook_value["source"], "hook");
+        assert_eq!(hook_value["state"], "blocked");
 
         let ignored = mux
             .report_agent(
@@ -22621,7 +22621,7 @@ mod tests {
             .unwrap();
         assert_eq!(ignored.state, AgentState::Blocked);
         assert_eq!(ignored.source, AgentSource::Hook);
-        assert_eq!(ignored.session.as_deref(), Some("hook-session"));
+        assert_eq!(ignored.session, None);
         assert_eq!(mux.with_state(|state| state.resource_revision), created_revision + 3);
         assert_eq!(mux.resource_event_epoch(), initial_epoch + 3);
         assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
@@ -22633,11 +22633,12 @@ mod tests {
         );
         assert_eq!(batches[0].changes[0]["value"]["source"], "socket");
         assert_eq!(batches[0].changes[0]["value"]["source_session"], "raw-session");
-        assert_eq!(batches[1].changes[0]["value"], hook["result"]["value"]);
-        assert_eq!(batches[2].changes[0]["value"], hook["result"]["value"]);
+        assert_eq!(batches[1].changes[0]["value"]["source"], "hook");
+        assert_eq!(batches[1].changes[0]["value"]["state"], "blocked");
+        assert_eq!(batches[2].changes[0]["value"], batches[1].changes[0]["value"]);
         assert_eq!(
             crate::resource_api::public_session_snapshot(&mux).unwrap()["agents"],
-            serde_json::json!([hook["result"]["value"].clone()])
+            serde_json::json!([batches[1].changes[0]["value"].clone()])
         );
 
         mux.shutdown();
@@ -22659,22 +22660,17 @@ mod tests {
         );
         assert_eq!(
             crate::resource_api::public_session_snapshot(&reopened).unwrap()["agents"],
-            serde_json::json!([hook["result"]["value"].clone()])
+            serde_json::json!([hook_value.clone()])
         );
 
         let epoch_before_replay = reopened.resource_event_epoch();
         let event_count_before_replay =
             reopened.resource_events_after(created_revision).unwrap().batches.len();
-        let replay = public_request(
-            &reopened,
-            "agent-hook-replay",
-            "agent.report",
-            hook_params,
-            Some("agent-hook"),
-        );
-        assert_eq!(replay["result"]["replayed"], true);
-        assert_eq!(replay["result"]["revision"], (created_revision + 2).to_string());
-        assert_eq!(replay["result"]["value"], hook["result"]["value"]);
+        let replay = reopened
+            .append_journal_ingress(&hook_ingress, "test", "agent-hook")
+            .unwrap();
+        assert!(replay.replayed);
+        assert_eq!(replay.sequence, hook_commit.sequence);
         assert_eq!(reopened.resource_event_epoch(), epoch_before_replay);
         assert_eq!(
             reopened.resource_events_after(created_revision).unwrap().batches.len(),
@@ -22718,37 +22714,31 @@ mod tests {
         let hook_thread = {
             let mux = mux.clone();
             let barrier = barrier.clone();
+            let terminal_id = terminal_id.clone();
             std::thread::spawn(move || {
                 barrier.wait();
-                mux.resource_report_agent_selected(
-                    crate::ResourceSelectors {
-                        machine: Some("current".into()),
-                        session: Some("current".into()),
-                        ..Default::default()
-                    },
-                    &terminal_id,
-                    AgentState::Blocked,
-                    AgentSource::Hook,
-                    Some("racing-hook".into()),
-                    None,
-                    &WorkspaceMutation::new("racing-hook", "resource-test").unwrap(),
+                let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+                    "claude",
+                    "PermissionRequest",
+                    Some(&terminal_id.to_string()),
+                    serde_json::json!({"session_id":"racing-hook"}),
                 )
-                .unwrap()
+                .unwrap();
+                mux.append_journal_ingress(&ingress, "test", "racing-hook").unwrap()
             })
         };
         barrier.wait();
         let raw_result = raw_thread.join().unwrap();
         let hook_commit = hook_thread.join().unwrap();
         assert!(matches!(raw_result.source, AgentSource::Socket | AgentSource::Hook));
-        assert!(
-            matches!(hook_commit.revision, value if value == revision + 1 || value == revision + 2)
-        );
+        assert_eq!(mux.with_state(|state| state.resource_revision), revision + 2);
+        assert!(hook_commit.sequence > 0);
 
         let records = mux.list_agents(Some(surface_id), None);
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].state, AgentState::Blocked);
         assert_eq!(records[0].source, AgentSource::Hook);
-        assert_eq!(records[0].session.as_deref(), Some("racing-hook"));
+        assert_eq!(records[0].session, None);
         assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
         let batches = mux.resource_events_after(revision).unwrap().batches;
         assert_eq!(batches.len(), 2);
@@ -23292,9 +23282,16 @@ mod tests {
         let mux =
             Mux::open_persistent("roster-hook-echo", SurfaceOptions::default(), &root).unwrap();
         let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
 
-        mux.report_agent(surface.id, AgentState::Working, AgentSource::Hook, Some("hook".into()))
-            .unwrap();
+        let hook = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "SessionStart",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({"session_id":"hook"}),
+        )
+        .unwrap();
+        mux.append_journal_ingress(&hook, "test", "hook-owned-roster").unwrap();
         let socket_echoes = || {
             mux.session_journal_after(0, 1024)
                 .unwrap()
@@ -24040,7 +24037,7 @@ mod tests {
     }
 
     #[test]
-    fn direct_hook_report_with_new_session_can_follow_hook_end() {
+    fn journal_hook_report_with_new_session_can_follow_hook_end() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
         let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
@@ -24053,32 +24050,20 @@ mod tests {
             )
             .unwrap()
         };
-        mux.append_journal_ingress(&hook("SessionEnd", "old"), "test", "direct-hook-session-end")
+        mux.append_journal_ingress(&hook("SessionEnd", "old"), "test", "journal-hook-session-end")
             .unwrap();
-        assert!(
-            mux.report_agent(
-                surface.id,
-                AgentState::Working,
-                AgentSource::Hook,
-                Some("new".into()),
-            )
-            .is_ok()
-        );
+        mux.append_journal_ingress(&hook("SessionStart", "new"), "test", "journal-hook-session-start")
+            .unwrap();
         let record = &mux.list_agents(Some(surface.id), None)[0];
         assert_eq!(record.source, AgentSource::Hook);
-        assert_eq!(record.session.as_deref(), Some("new"));
-        mux.apply_agent_hook_record(&hook("UserPromptSubmit", "new"), 2).unwrap();
+        assert_eq!(record.session, None);
+        mux.append_journal_ingress(&hook("UserPromptSubmit", "new"), "test", "journal-hook-turn")
+            .unwrap();
         assert_eq!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].session_id, "new");
-        assert_eq!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].sequence, 2);
-        assert!(
-            mux.report_agent(
-                surface.id,
-                AgentState::Working,
-                AgentSource::Hook,
-                Some("old".into()),
-            )
-            .is_err()
-        );
+        assert_eq!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].sequence, 3);
+        mux.append_journal_ingress(&hook("UserPromptSubmit", "old"), "test", "journal-hook-stale")
+            .unwrap();
+        assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Working);
     }
 
     #[test]
