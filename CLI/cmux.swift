@@ -34505,9 +34505,32 @@ export default CMUXSessionRestore;
                 break
             }
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
-            let target = resolveAgentHookTarget(mapped: mapped)
-            let workspaceId = target?.workspaceId ?? resolvedDirectWorkspaceArg ?? mapped?.workspaceId
-            let surfaceId = target?.surfaceId ?? resolvedDirectSurfaceArg ?? mapped?.surfaceId
+            guard let target = resolveAgentHookTarget(mapped: mapped) else {
+                // Child lifecycle state participates in Codex settlement just
+                // like the parent stop path. Never pass a rejected/stale
+                // mapped surface back into the ledger after target resolution
+                // has failed; keep this callback explicitly unattributed.
+                reportTargetResolutionFailure()
+                let childJournalKind: AgentJournalEventKind = {
+                    if case .codexSubagentStart = action {
+                        return .childSpawned
+                    }
+                    return .childCompleted
+                }()
+                emitJournal(
+                    childJournalKind,
+                    workspaceId: nil,
+                    surfaceId: nil,
+                    unattributedReason: "target-unresolved",
+                    isSubagent: true,
+                    detail: "child-lifecycle"
+                )
+                didSendFeedTelemetry = true
+                print("{}")
+                return
+            }
+            let workspaceId = target.workspaceId
+            let surfaceId = target.surfaceId
             let agentId = input.rawObject.flatMap {
                 firstString(in: $0, keys: ["agent_id", "agentId"])
             } ?? input.object.flatMap {
@@ -34526,21 +34549,19 @@ export default CMUXSessionRestore;
                 surfaceID: surfaceId,
                 starts: starts
             )
-            if let workspaceId, let surfaceId {
-                let childJournalKind: AgentJournalEventKind = {
-                    if case .codexSubagentStart = action {
-                        return .childSpawned
-                    }
-                    return .childCompleted
-                }()
-                emitJournal(
-                    childJournalKind,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    isSubagent: true,
-                    detail: decision.ownership == .foreground ? nil : "child-lifecycle-nested"
-                )
-            }
+            let childJournalKind: AgentJournalEventKind = {
+                if case .codexSubagentStart = action {
+                    return .childSpawned
+                }
+                return .childCompleted
+            }()
+            emitJournal(
+                childJournalKind,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                isSubagent: true,
+                detail: decision.ownership == .foreground ? nil : "child-lifecycle-nested"
+            )
             if case .codexSubagentStop = action,
                decision.ownership == .foreground,
                decision.settlement == .settled,
