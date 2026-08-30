@@ -1590,6 +1590,7 @@ struct DockShortcutRoutingTests {
                 )
 
                 harness.dock.beginUserDockInteraction()
+                harness.dock.releaseUserDockInteraction()
                 harness.dock.splitTabBar(
                     harness.dock.bonsplitController,
                     didSelectTab: tab,
@@ -1606,11 +1607,13 @@ struct DockShortcutRoutingTests {
                     panelId: mainPanelId,
                     in: harness.window
                 )
+                harness.dock.beginUserDockInteraction()
                 harness.dock.splitTabBar(
                     harness.dock.bonsplitController,
                     didSelectTab: tab,
                     inPane: harness.rootPane
                 )
+                harness.dock.endUserDockInteraction()
                 #expect(
                     harness.appDelegate.keyboardFocusCoordinator(
                         for: harness.window

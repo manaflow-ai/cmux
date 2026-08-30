@@ -222,7 +222,7 @@ extension DockSplitStore {
            AppDelegate.shared?.contextForMainWindow(eventWindow) != nil {
             return eventWindow
         }
-        return NSApp.currentEvent?.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+        return NSApp.keyWindow ?? NSApp.mainWindow
     }
 
     private func copyDockIdentifiers(
