@@ -116,6 +116,22 @@ private final class DockPointerInteractionHostView: NSView {
 
     private let dragThreshold: CGFloat = 4
 
+    deinit {
+        deferredInteractionClearTask?.cancel()
+        if let eventMonitor {
+            NSEvent.removeMonitor(eventMonitor)
+        }
+        if let globalMouseUpMonitor {
+            NSEvent.removeMonitor(globalMouseUpMonitor)
+        }
+        if let windowResignKeyObserver {
+            NotificationCenter.default.removeObserver(windowResignKeyObserver)
+        }
+        if let applicationResignActiveObserver {
+            NotificationCenter.default.removeObserver(applicationResignActiveObserver)
+        }
+    }
+
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     override func viewDidMoveToWindow() {

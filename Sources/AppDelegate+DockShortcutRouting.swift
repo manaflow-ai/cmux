@@ -139,22 +139,7 @@ extension AppDelegate {
         guard let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow) else {
             return nil
         }
-        let activeMode = context.keyboardFocusCoordinator.activeRightSidebarMode
-        if activeMode == .dock {
-            if let sidebarState = context.fileExplorerState,
-               !sidebarState.isVisible {
-                return nil
-            }
-            // The same mounted-store policy is used by shortcut-context and
-            // menu evaluation. A mode switch alone is not enough to route a
-            // command: until the Dock host is visible there is no Dock surface
-            // to act on, so the caller falls through to its normal container.
-            guard let dock = existingWindowDock(forWindowId: context.windowId),
-                  !dock.isRetired,
-                  dock.isVisibleInUI else { return nil }
-            return dock
-        }
-        return nil
+        return existingFocusedDockStoreForShortcut(context: context)
     }
 
     /// Read-only variant used while SwiftUI builds menus or command snapshots.

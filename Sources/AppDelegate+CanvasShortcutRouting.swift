@@ -18,6 +18,8 @@ extension AppDelegate {
         case .down: .splitBrowserDown
         case .left, .up: .splitBrowserRight
         }
+        _ = synchronizeActiveMainWindowContext(preferredWindow: shortcutRoutingActiveWindow)
+
         if routeSplitToFocusedDock(
             kind: .browser,
             direction: direction,
@@ -26,8 +28,6 @@ extension AppDelegate {
         ) {
             return true
         }
-
-        _ = synchronizeActiveMainWindowContext(preferredWindow: shortcutRoutingActiveWindow)
 
         if let workspace = tabManager?.selectedWorkspace, workspace.layoutMode == .canvas {
             guard let panelId = workspace.openNewCanvasPane(
