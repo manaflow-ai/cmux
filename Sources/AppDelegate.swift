@@ -6775,6 +6775,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         rememberRecoverableRoute: Bool
     ) -> MainWindowContext? {
         guard mainWindowContexts.values.contains(where: { $0 === context }) else { return nil }
+        // Persist queued automatic titles before removing the context's strong
+        // manager owner. This handoff is synchronous, so a quit immediately
+        // after window teardown cannot lose the queued journal update.
+        context.tabManager.flushPendingWorkspaceCustomizationWrites()
         let sidebarSnapshot = sessionSidebarSnapshot(for: context)
         let recoverableWindowDock: DockSplitStore?
         if rememberRecoverableRoute {

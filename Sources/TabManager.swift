@@ -734,22 +734,7 @@ class TabManager: ObservableObject {
         }
         observers.removeAll()
         workspaceCycleCooldownTask?.cancel()
-        let pendingAutomaticWorkspaceTitles = pendingAutomaticWorkspaceTitles
-        let workspaceCustomizationStore = workspaceCustomizationStore
         automaticWorkspaceTitlePersistenceTask?.cancel()
-        if !pendingAutomaticWorkspaceTitles.isEmpty {
-            Task { @MainActor in
-                for (stableId, title) in pendingAutomaticWorkspaceTitles.sorted(
-                    by: { $0.key.uuidString < $1.key.uuidString }
-                ) {
-                    workspaceCustomizationStore.setCustomTitle(
-                        title,
-                        for: stableId,
-                        source: .auto
-                    )
-                }
-            }
-        }
         agentPIDSweepTimer?.cancel()
         // The sidebar git/PR services cancel their own poll, probe, snapshot,
         // and refresh tasks in their deinits; they deallocate with this
