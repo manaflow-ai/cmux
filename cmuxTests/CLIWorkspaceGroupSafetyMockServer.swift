@@ -91,6 +91,11 @@ struct CLIWorkspaceGroupSafetyMockServer: Sendable {
         }
         let result: [String: Any]
         switch method {
+        case "workspace.create":
+            result = [
+                "workspace_id": "11111111-1111-1111-1111-111111111111",
+                "workspace_ref": "workspace:1",
+            ]
         case "workspace.group.create":
             result = [
                 "group": [

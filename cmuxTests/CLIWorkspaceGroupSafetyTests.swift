@@ -10,6 +10,20 @@ struct CLIWorkspaceGroupSafetyTests {
         #expect((params["child_workspace_ids"] as? [String]) == [])
     }
 
+    @Test func workspaceCreateForwardsInitialCommand() async throws {
+        let request = try await run(["workspace", "create", "--command", "echo hello", "--json"])
+        let params = try requestParams(request, method: "workspace.create")
+
+        #expect(params["initial_command"] as? String == "echo hello")
+    }
+
+    @Test func legacyNewWorkspaceForwardsInitialCommand() async throws {
+        let request = try await run(["new-workspace", "--command", "echo hello", "--json"])
+        let params = try requestParams(request, method: "workspace.create")
+
+        #expect(params["initial_command"] as? String == "echo hello")
+    }
+
     @Test func deleteDefaultsToNonDestructiveIntent() async throws {
         let request = try await run([
             "workspace", "group", "delete", "workspace_group:1", "--json",
