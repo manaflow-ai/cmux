@@ -1237,6 +1237,11 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         }
         installAttentionRouting(for: panel)
         if let browser = panel as? BrowserPanel {
+            struct BrowserDockSubscriptionEvent {
+                let refreshCapabilities: Bool
+                let refreshMetadata: Bool
+            }
+
             let browserTabState = Publishers.CombineLatest4(
                 browser.$pageTitle.removeDuplicates(),
                 browser.$currentURL.removeDuplicates(),
@@ -1245,25 +1250,40 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             )
             let browserMetadataChanges = browserTabState
                 .combineLatest(browser.$isMuted.removeDuplicates())
-                .map { _ in false }
+                .map { _ in BrowserDockSubscriptionEvent(
+                    refreshCapabilities: false,
+                    refreshMetadata: true
+                ) }
             let browserFindCapabilityChanges = browser.$searchState
                 .map { $0 != nil }
                 .removeDuplicates()
-                .map { _ in true }
+                .map { _ in BrowserDockSubscriptionEvent(
+                    refreshCapabilities: true,
+                    refreshMetadata: false
+                ) }
                 .merge(with: NotificationCenter.default.publisher(
                     for: .browserFindCapabilityDidChange,
                     object: browser
-                ).map { _ in true })
+                ).map { _ in BrowserDockSubscriptionEvent(
+                    refreshCapabilities: true,
+                    refreshMetadata: false
+                ) })
             let browserWebViewInstanceChanges = browser.$webViewInstanceID
-                .map { _ in true }
+                .removeDuplicates()
+                .map { _ in BrowserDockSubscriptionEvent(
+                    refreshCapabilities: true,
+                    refreshMetadata: true
+                ) }
             let cancellable = browserMetadataChanges
                 .merge(with: browserFindCapabilityChanges)
                 .merge(with: browserWebViewInstanceChanges)
                 .receive(on: DispatchQueue.main)
-                .sink { [weak self, weak browser] shouldRefreshCapabilities in
+                .sink { [weak self, weak browser] event in
                     guard let self, let browser else { return }
-                    if shouldRefreshCapabilities {
+                    if event.refreshCapabilities {
                         self.refreshDockMenuCapabilities()
+                    }
+                    guard event.refreshMetadata else {
                         return
                     }
                     self.publishBrowserOpenTabSuggestion(for: browser)
