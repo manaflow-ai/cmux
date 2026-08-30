@@ -34,9 +34,10 @@ pub(crate) const AGENT_ROSTER_REDUCER_ID: &str = "agent_roster";
 pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 5;
 
 /// Retirement tombstones protect delayed journal rows after a terminal leaves
-/// the resource tree. Keep a bounded safety net. Durable startup reconciliation
-/// removes entries for terminals that are confirmed gone.
-pub(crate) const MAX_RETIRED_TERMINAL_FENCES: usize = 1_024;
+/// the resource tree. Keep each exact tombstone while its journal rows may be
+/// retained. A future journal-compaction watermark can safely remove older
+/// tombstones; count-based eviction would allow delayed rows to resurrect a
+/// retired terminal.
 
 /// The adapter id and native event the socket report path uses for its echo
 /// journal events. The echo carries the explicit state in `normalized`, so
@@ -338,23 +339,7 @@ impl AgentRoster {
                 true
             }
         };
-        let pruned = self.prune_retired_terminals();
-        removed_entry || removed_fence || retired_changed || pruned
-    }
-
-    fn prune_retired_terminals(&mut self) -> bool {
-        let mut changed = false;
-        while self.retired_terminals.len() > MAX_RETIRED_TERMINAL_FENCES {
-            let oldest = self
-                .retired_terminals
-                .iter()
-                .min_by_key(|(terminal_id, sequence)| (**sequence, terminal_id.as_str()))
-                .map(|(terminal_id, _)| terminal_id.clone());
-            let Some(oldest) = oldest else { break };
-            self.retired_terminals.remove(&oldest);
-            changed = true;
-        }
-        changed
+        removed_entry || removed_fence || retired_changed
     }
 
     pub(crate) fn is_retired(&self, terminal_id: &str) -> bool {
@@ -707,7 +692,11 @@ mod tests {
             retired.retire_terminal(&terminal_id, sequence);
         }
         assert!(retired.hook_fences.is_empty());
-        assert!(retired.retired_terminals.len() <= EXPECTED_FENCE_LIMIT);
+        // A delayed journal row can arrive at any time while its sequence is
+        // retained. Keep every exact tombstone until a journal-compaction
+        // watermark exists; count-based eviction permits resurrection.
+        assert_eq!(retired.retired_terminals.len(), RETIRED_TERMINAL_COUNT);
+        assert_eq!(retired.retired_terminals.get("retired_0"), Some(&1));
         assert_eq!(retired.retired_terminals.get("retired_2047"), Some(&4_095));
     }
 }
