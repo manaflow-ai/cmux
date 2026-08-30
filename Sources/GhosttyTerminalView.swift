@@ -3131,7 +3131,12 @@ class GhosttyApp {
                 let isDockSurface = GhosttyApp.terminalSurfaceRegistry
                     .isRightSidebarDockSurface(id: terminalSurface.id)
                 if isDockSurface {
-                    performOnMain {
+                    // Capture only the Sendable identity across the actor hop;
+                    // resolve the current model after reaching the main actor.
+                    let terminalSurfaceID = terminalSurface.id
+                    Task { @MainActor [terminalSurfaceID] in
+                        guard let terminalSurface = GhosttyApp.terminalSurfaceRegistry
+                            .surface(id: terminalSurfaceID) else { return }
                         NotificationCenter.default.post(
                             name: .terminalSelectionDidChange,
                             object: terminalSurface
