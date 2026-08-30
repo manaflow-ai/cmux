@@ -13,7 +13,6 @@ extension MobileHostIrxRuntime: CmxIrohSettingsControlling {
         let broker = brokerService
         let endpoint = endpointSupervisor
         let trust = await broker?.cachedTrust()
-        let credentials = await broker?.cachedRelayCredentials() ?? []
         let online = await endpoint?.isHealthy() ?? false
         let homeRelay = await endpoint?.homeRelayURL()
         let path = Self.selectedPath(
@@ -47,7 +46,10 @@ extension MobileHostIrxRuntime: CmxIrohSettingsControlling {
             policySource: trust == nil
                 ? .unavailable
                 : (hadLiveDiscovery ? .server : .cached),
-            policyExpiresAt: credentials.map(\.expiresAt).max(),
+            // irx has no separately signed relay-policy lease; relay JWT
+            // expiry is owned by the credential autopilot and must not be
+            // presented as a policy-expiration timestamp in Settings.
+            policyExpiresAt: nil,
             failureDescription: activationState == .failed
                 || activationState == .retrying
                 || activationState == .reauthenticationRequired
@@ -134,11 +136,16 @@ extension MobileHostIrxRuntime: CmxIrohSettingsControlling {
 
     func resetIrohSettingsToDefaults() async throws {}
 
-    func refreshIrohSettings() async {
+    func refreshIrohSettings(allowActivationRestart: Bool = true) async {
         if (activationState == .failed
             || activationState == .retrying
             || activationState == .reauthenticationRequired),
            let accountID = activeAccountID {
+            if activationState == .reauthenticationRequired,
+               !allowActivationRestart {
+                publishIrxSettingsUpdate()
+                return
+            }
             cancelActivationRetry()
             cancelAutopilotRecovery()
             activationRetryFailureCount = 0
@@ -195,7 +202,7 @@ extension MobileHostIrxRuntime: CmxIrohSettingsControlling {
     }
 
     func runIrohConnectionCheck() async -> CmxIrohConnectionCheckReport {
-        await refreshIrohSettings()
+        await refreshIrohSettings(allowActivationRestart: false)
         let snapshot = await irohSettingsSnapshot()
         let diagnostics = await irohDiagnosticReport()
         let reachable = await endpointSupervisor?.isHealthy() ?? false
