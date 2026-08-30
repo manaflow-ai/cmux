@@ -30,6 +30,7 @@ final class CloudTreeSurfaceDragPasteboardWriter: NSPasteboardItem {
         self.coordinator = coordinator
         self.provisionalToken = provisionalToken
         super.init()
+        materializeRegistrationPayload()
     }
 
     @available(*, unavailable)
@@ -58,6 +59,23 @@ final class CloudTreeSurfaceDragPasteboardWriter: NSPasteboardItem {
         registration.pasteboardItem.string(forType: type)
             ?? registration.pasteboardItem.data(forType: type)
             ?? registration.pasteboardItem.propertyList(forType: type)
+    }
+
+    /// Copies the registration into ``NSPasteboardItem`` storage before AppKit
+    /// binds this item to a drag pasteboard. AppKit may use an item directly
+    /// (without asking the ``NSPasteboardWriting`` accessors), so keeping the
+    /// concrete item populated is required for both code paths.
+    private func materializeRegistrationPayload() {
+        let item = registration.pasteboardItem
+        for type in item.types {
+            if let string = item.string(forType: type) {
+                _ = setString(string, forType: type)
+            } else if let data = item.data(forType: type) {
+                _ = setData(data, forType: type)
+            } else if let propertyList = item.propertyList(forType: type) {
+                _ = setPropertyList(propertyList, forType: type)
+            }
+        }
     }
 
     /// The exact outline source that requested this writer.

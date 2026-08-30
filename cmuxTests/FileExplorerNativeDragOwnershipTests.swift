@@ -182,6 +182,68 @@ struct FileExplorerNativeDragOwnershipTests {
         secondWriter = nil
     }
 
+    @Test("A pointer boundary reclaims a search drag that lost endedAt")
+    func pointerBoundaryReclaimsSearchDragAfterDismantle() throws {
+        let searchController = SearchResultsDragTestSearchController()
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: FileExplorerStore(),
+            state: FileExplorerState(),
+            onOpenFilePreview: { _ in }
+        )
+        var container: FileExplorerContainerView? = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .find,
+            searchController: searchController
+        )
+        weak var weakContainer = container
+        searchController.publish(FileSearchSnapshot(
+            query: "needle",
+            results: [FileSearchResult(
+                path: "/tmp/search-result.txt",
+                relativePath: "search-result.txt",
+                lineNumber: 1,
+                columnNumber: 1,
+                preview: "needle"
+            )],
+            status: .matches,
+            isSearching: false
+        ))
+
+        var writer: (any NSPasteboardWriting)?
+        do {
+            let activeContainer = try #require(container)
+            writer = try #require(
+                activeContainer.tableView(
+                    activeContainer.searchResultsView,
+                    pasteboardWriterForRow: 0
+                )
+            )
+            let session = SearchResultsDragTestSession(
+                sequence: 11,
+                pasteboard: NSPasteboard(
+                    name: NSPasteboard.Name("file-explorer-boundary-\(UUID().uuidString)")
+                )
+            )
+            activeContainer.tableView(
+                activeContainer.searchResultsView,
+                draggingSession: session,
+                willBeginAt: .zero,
+                forRowIndexes: IndexSet(integer: 0)
+            )
+            FileExplorerPanelView.dismantleNSView(activeContainer, coordinator: coordinator)
+
+            // A subsequent pointer gesture is the first safe boundary after a
+            // missing endedAt. It must release the deliberate owner cycle and
+            // revoke only this session's preview capability.
+            activeContainer.prepareForNativeDragBoundary()
+            #expect(activeContainer.searchResultsView.activeNativeDragOwner == nil)
+            #expect(activeContainer.searchResultsView.activeNativeDragSession == nil)
+        }
+        container = nil
+        writer = nil
+        #expect(weakContainer == nil)
+    }
+
     @MainActor
     private final class SearchResultsDragTestSession: NSDraggingSession {
         private let sessionPasteboard: NSPasteboard

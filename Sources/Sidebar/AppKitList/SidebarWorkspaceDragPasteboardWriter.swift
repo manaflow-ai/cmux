@@ -38,6 +38,7 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem {
         self.controller = controller
         self.provisionalToken = provisionalToken
         super.init()
+        materializePayload()
     }
 
     @available(*, unavailable)
@@ -70,6 +71,7 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem {
         if let workspaceId {
             self.workspaceId = workspaceId
         }
+        materializePayload()
     }
 
     /// Workspace identity captured for this exact writer request.
@@ -84,5 +86,15 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem {
     override func pasteboardPropertyList(forType type: NSPasteboard.PasteboardType) -> Any? {
         guard type == Self.pasteboardType else { return nil }
         return SidebarTabDragPayload(tabId: workspaceId, sessionId: sessionId).pasteboardValue
+    }
+
+    /// Keeps the concrete ``NSPasteboardItem`` storage synchronized with the
+    /// writer's current generation. AppKit may bind an item directly to the
+    /// drag pasteboard without consulting the ``NSPasteboardWriting`` override.
+    private func materializePayload() {
+        _ = setString(
+            SidebarTabDragPayload(tabId: workspaceId, sessionId: sessionId).pasteboardValue,
+            forType: Self.pasteboardType
+        )
     }
 }

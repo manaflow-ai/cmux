@@ -57,6 +57,13 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     // keep a weak marker here so teardown can distinguish a live writer from an
     // ordinary, already-finished table update without retaining a second cycle.
     private weak var pendingWorkspaceDragWriter: SidebarWorkspaceDragPasteboardWriter?
+    // A rebuilt table can request a newer writer before the older table's
+    // `willBeginAt` callback arrives. Weak values let us recover that exact
+    // source without creating a controller/writer retain cycle.
+    private let pendingWorkspaceDragWriters = NSMapTable<NSView, SidebarWorkspaceDragPasteboardWriter>(
+        keyOptions: .weakMemory,
+        valueOptions: .weakMemory
+    )
     // The ownership object tracks every writer requested before AppKit decides
     // whether to create a native session and reports deallocation only for
     // tokens that are still provisional.
@@ -129,6 +136,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private func clearPendingWorkspaceDragWriters() {
         workspaceDragWriterOwnership.removeAll()
         pendingWorkspaceDragWriter = nil
+        pendingWorkspaceDragWriters.removeAllObjects()
     }
 
     private func workspaceDragWriterDidDeallocate(tokenID: UUID) {
@@ -1037,6 +1045,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // latched. A subsequent `willBeginAt` can then recover the new row's
         // payload after the old generation's terminal callback was suppressed.
         pendingWorkspaceDragWriter = writer
+        pendingWorkspaceDragWriters.setObject(writer, forKey: tableView)
         if isWorkspaceDragSourceActive {
             // A writer requested while a native session is already active is
             // not provisional; its token must not participate in abandoned
@@ -1071,21 +1080,22 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         _ = screenPoint
         let draggedRows = Array(rowIndexes)
         let provisionalWriter = pendingWorkspaceDragWriter
-        if let provisionalWriter,
-           provisionalWriter.sourceViewForDrag !== tableView {
-            // A callback for an older writer cannot promote or replace the
-            // newer row's native generation.
-            return
-        }
+        let sourceWriter = provisionalWriter?.sourceViewForDrag === tableView
+            ? provisionalWriter
+            : pendingWorkspaceDragWriters.object(forKey: tableView)
+        let provisionalWriterBelongsToTable = sourceWriter?.sourceViewForDrag === tableView
         let sourceWorkspaceId: UUID? = {
+            if let sourceWriter {
+                return sourceWriter.workspaceIdForDrag
+            }
             guard let sourceRow = draggedRows.first else {
-                return provisionalWriter?.workspaceIdForDrag ?? pendingWorkspaceDragWorkspaceId
+                return pendingWorkspaceDragWorkspaceId
             }
             guard rows.indices.contains(sourceRow) else {
                 // A representable may have been dismantled after AppKit asked
                 // for the writer. The writer's identity is still authoritative
                 // until this callback establishes the native session.
-                return provisionalWriter?.workspaceIdForDrag ?? pendingWorkspaceDragWorkspaceId
+                return pendingWorkspaceDragWorkspaceId
             }
             let rowConfiguration = rows[sourceRow]
             return actions?.workspaceIdForDrag?(
@@ -1094,9 +1104,16 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             ) ?? rowConfiguration.workspaceId
         }()
         guard let workspaceId = sourceWorkspaceId else {
-            // There is no source identity to bind. AppKit will still deliver
-            // its terminal callback, but this controller must not manufacture a
-            // process-wide session from a stale table row.
+            // AppKit has already created a native session even though the
+            // source identity was lost during reconstruction. Retain the exact
+            // table and record the native generation so `endedAt` still has a
+            // terminal owner; never manufacture a logical process-wide session
+            // from a stale row.
+            retainWorkspaceDragSource(tableView)
+            activeWorkspaceDraggingSession = session
+            activeWorkspaceDragSequenceNumber = session.draggingSequenceNumber
+            workspaceDragSessionDidBegin(sourceTableView: tableView)
+            clearPendingWorkspaceDragWriters()
             return
         }
         if isWorkspaceDragSourceActive {
@@ -1153,10 +1170,12 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                     capabilityValue,
                     forType: NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
                 )
-                provisionalWriter?.bind(
-                    to: activeWorkspaceDragSessionId,
-                    workspaceId: payloadWorkspaceId
-                )
+                if provisionalWriterBelongsToTable {
+                    sourceWriter?.bind(
+                        to: activeWorkspaceDragSessionId,
+                        workspaceId: payloadWorkspaceId
+                    )
+                }
             }
         }
         clearPendingWorkspaceDragWriters()

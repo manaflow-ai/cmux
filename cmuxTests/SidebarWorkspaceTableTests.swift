@@ -87,6 +87,98 @@ struct SidebarWorkspaceTableTests {
 
     @Test
     @MainActor
+    func workspaceWriterMaterializesThroughPasteboardWriteObjects() async throws {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let row = makeRowConfiguration()
+        controller.apply(
+            rows: [row],
+            actions: makeTableActions(),
+            workspaceIds: [row.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+
+        let writer = try #require(
+            controller.tableView(container.tableView, pasteboardWriterForRow: 0)
+        )
+        let pasteboard = NSPasteboard(
+            name: NSPasteboard.Name("sidebar-writer-round-trip-\(UUID().uuidString)")
+        )
+
+        // Exercise AppKit's real NSPasteboardWriting path. Calling the writer's
+        // accessors directly would miss the NSPasteboardItem binding behavior
+        // that can bypass a subclass override.
+        #expect(pasteboard.writeObjects([writer]))
+        let type = NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
+        let value = try #require(pasteboard.string(forType: type))
+        #expect(SidebarTabDragPayload.workspaceId(fromPasteboardString: value) == row.workspaceId)
+    }
+
+    @Test
+    @MainActor
+    func olderTableWillBeginStillOwnsSessionWhenLatestWriterIsFromRebuiltTable() async throws {
+        let controller = SidebarWorkspaceTableController()
+        let originalContainer = controller.makeContainerView()
+        let rebuiltContainer = controller.makeContainerView()
+        let first = makeRowConfiguration()
+        let second = makeRowConfiguration()
+        var sessionID: UUID?
+        let lifecycle = SidebarWorkspaceTableActions.NativeWorkspaceDragLifecycle(
+            currentSessionId: { sessionID },
+            finish: { endedID, _ in
+                #expect(endedID == sessionID)
+                sessionID = nil
+            },
+            reclaimSupersededNativeSources: {}
+        )
+        controller.apply(
+            rows: [first, second],
+            actions: makeTableActions(
+                beginWorkspaceDrag: { _ in sessionID = UUID() },
+                nativeWorkspaceDragLifecycle: lifecycle
+            ),
+            workspaceIds: [first.workspaceId, second.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+
+        // The rebuilt table asks for a newer writer before AppKit delivers the
+        // older table's willBeginAt callback. The callback still owns a real
+        // native session and must not be dropped just because the latest
+        // provisional marker points at another table.
+        let firstWriter = try #require(
+            controller.tableView(originalContainer.tableView, pasteboardWriterForRow: 0)
+        )
+        let secondWriter = try #require(
+            controller.tableView(rebuiltContainer.tableView, pasteboardWriterForRow: 1)
+        )
+        let pasteboard = NSPasteboard(
+            name: NSPasteboard.Name("sidebar-rebuilt-source-\(UUID().uuidString)")
+        )
+        let session = TestDraggingSession(sequence: 1, pasteboard: pasteboard)
+        controller.tableView(
+            originalContainer.tableView,
+            draggingSession: session,
+            willBeginAt: .zero,
+            forRowIndexes: IndexSet(integer: 0)
+        )
+
+        #expect(originalContainer.tableView.activeWorkspaceDragController === controller)
+        let type = NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
+        let value = try #require(pasteboard.string(forType: type))
+        #expect(SidebarTabDragPayload.workspaceId(fromPasteboardString: value) == first.workspaceId)
+
+        controller.workspaceDragSessionDidEnd(session: session)
+        #expect(originalContainer.tableView.activeWorkspaceDragController == nil)
+        _ = firstWriter
+        _ = secondWriter
+    }
+
+    @Test
+    @MainActor
     func abandonedWorkspaceWriterReleasesProvisionalTeardownWhenWriterDeallocates() async throws {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()

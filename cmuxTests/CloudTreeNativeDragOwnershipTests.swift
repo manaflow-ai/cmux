@@ -38,16 +38,7 @@ struct CloudTreeNativeDragOwnershipTests {
             let pasteboard = NSPasteboard(
                 name: NSPasteboard.Name("cloud-tree-provisional-payload-\(UUID().uuidString)")
             )
-            for type in writer.writableTypes(for: pasteboard) {
-                let value = writer.pasteboardPropertyList(forType: type)
-                if let string = value as? String {
-                    pasteboard.setString(string, forType: type)
-                } else if let data = value as? Data {
-                    pasteboard.setData(data, forType: type)
-                } else if let value {
-                    pasteboard.setPropertyList(value, forType: type)
-                }
-            }
+            #expect(pasteboard.writeObjects([writer]))
             #expect(transferRegistry.resolve(from: pasteboard) != nil)
             let record = try #require(
                 pasteboard.data(forType: DragOverlayRoutingPolicy.surfaceResourceTransferType)
@@ -118,6 +109,54 @@ struct CloudTreeNativeDragOwnershipTests {
         #expect(!coordinator.isDragging)
         #expect(outline.activeNativeDragOwner == nil)
         #expect(outline.activeNativeDragSession == nil)
+        _ = container
+    }
+
+    @Test("A pointer boundary reclaims a Cloud drag whose endedAt was lost")
+    func pointerBoundaryReclaimsCloudDragAfterReconstruction() throws {
+        let transferRegistry = TabDragTransferRegistry()
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: Self.machineActions,
+            nodeActions: Self.nodeActions,
+            expansionStore: CloudTreeExpansionStore(
+                defaults: UserDefaults(suiteName: "cloud-tree-drag-boundary-\(UUID().uuidString)")!
+            ),
+            tabDragTransferRegistry: { transferRegistry }
+        )
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        let outline = try #require(coordinator.outlineView)
+        let node = Self.terminalNode()
+        coordinator.apply(nodes: [node])
+
+        let writer = try #require(
+            coordinator.outlineView(outline, pasteboardWriterForItem: node)
+                as? CloudTreeSurfaceDragPasteboardWriter
+        )
+        let session = TestDraggingSession(sequence: 12)
+        coordinator.outlineView(
+            outline,
+            draggingSession: session,
+            willBeginAt: .zero,
+            forItems: [node]
+        )
+        #expect(coordinator.isDragging)
+        #expect(SurfaceResourceDragRegistry.shared.group(id: writer.dragID) != nil)
+
+        // The next pointer gesture is an authoritative native boundary even if
+        // AppKit omitted endedAt during an outline reconstruction.
+        coordinator.prepareForNativeDragBoundary()
+        #expect(!coordinator.isDragging)
+        #expect(SurfaceResourceDragRegistry.shared.group(id: writer.dragID) == nil)
+        #expect(outline.activeNativeDragOwner == nil)
+        #expect(outline.activeNativeDragSession == nil)
+
+        // A late callback from the retired source must remain harmless.
+        coordinator.outlineView(
+            outline,
+            draggingSession: session,
+            endedAt: .zero,
+            operation: []
+        )
         _ = container
     }
 

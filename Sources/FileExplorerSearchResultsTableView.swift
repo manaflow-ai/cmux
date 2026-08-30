@@ -2,15 +2,26 @@ import AppKit
 
 final class FileExplorerSearchResultsTableView: NSTableView {
     var fileExplorerPanelPlacement: FileExplorerPanelPlacement = .rightSidebar
-    /// Retains the table delegate until AppKit reports completion or a newer
-    /// native begin proves that an older session's callback was suppressed.
-    var activeNativeDragOwner: AnyObject?
+    /// Weak marker for the container retained by the pasteboard writer until
+    /// AppKit reports completion. A strong table → container edge would form a
+    /// cycle because the container owns this table.
+    weak var activeNativeDragOwner: AnyObject?
     var activeNativeDragSession: NSDraggingSession?
+    /// Called before AppKit evaluates a new pointer gesture. A new
+    /// `mouseDown` cannot arrive while the old native drag loop is still live,
+    /// so this is the authoritative boundary for a source whose `endedAt`
+    /// callback was suppressed during view reconstruction.
+    var onNativeDragPointerBoundary: (() -> Void)?
     var onCancel: (() -> Void)?
     var onMoveSelection: ((Int) -> Void)?
     var onCommit: (() -> Void)?
     var onFocus: (() -> Void)?
     var onModeShortcut: ((RightSidebarMode, NSWindow?) -> Bool)?
+
+    override func mouseDown(with event: NSEvent) {
+        onNativeDragPointerBoundary?()
+        super.mouseDown(with: event)
+    }
 
     override func becomeFirstResponder() -> Bool {
         let result = super.becomeFirstResponder()

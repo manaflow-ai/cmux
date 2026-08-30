@@ -876,6 +876,9 @@ final class FileExplorerContainerView: NSView {
         searchResultsView.onModeShortcut = { [weak coordinator] mode, window in
             coordinator?.handleModeShortcut(mode, in: window) ?? false
         }
+        searchResultsView.onNativeDragPointerBoundary = { [weak self] in
+            self?.prepareForNativeDragBoundary()
+        }
         let searchColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("searchResult"))
         searchColumn.isEditable = false
         searchColumn.resizingMask = .autoresizingMask
@@ -1653,8 +1656,9 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
             searchResultsView.activeNativeDragOwner = nil
             searchResultsView.activeNativeDragSession = nil
         }
-        // The search table's delegate/data source is this container. Keep that
-        // exact object alive until the matching native terminal callback.
+        // The pasteboard writer retains this exact container through the native
+        // terminal callback. Keep only a weak marker on the table: a strong
+        // table → container edge would create a retain cycle.
         searchResultsView.activeNativeDragOwner = self
         searchResultsView.activeNativeDragSession = session
     }
@@ -1673,6 +1677,20 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
             }
         }
         FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: session)
+    }
+
+    /// Reclaims a search drag whose native terminal callback was lost before a
+    /// subsequent pointer gesture. AppKit cannot deliver this `mouseDown`
+    /// while the prior native drag loop is active, making the boundary safe to
+    /// use for releasing the intentional container/table retain cycle.
+    func prepareForNativeDragBoundary() {
+        guard let session = searchResultsView.activeNativeDragSession else {
+            searchResultsView.activeNativeDragOwner = nil
+            return
+        }
+        FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: session)
+        searchResultsView.activeNativeDragOwner = nil
+        searchResultsView.activeNativeDragSession = nil
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {

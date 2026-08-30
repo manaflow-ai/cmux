@@ -22,6 +22,7 @@ final class ProvisionalDragWriterOwnership {
         /// Signals writer destruction while its controller is still retained.
         nonisolated func notifyDeallocated() {
             let owner = owner
+            let tokenID = id
             if Thread.isMainThread {
                 // AppKit drag callbacks and writer destruction are main-thread
                 // events; this keeps the normal abandonment path synchronous.
@@ -33,7 +34,7 @@ final class ProvisionalDragWriterOwnership {
                 // the actor hop executes, so cleanup cannot be lost during ARC
                 // stored-property destruction.
                 Task { @MainActor in
-                    owner.tokenDidDeallocate(id)
+                    owner.tokenDidDeallocate(tokenID)
                 }
             }
         }

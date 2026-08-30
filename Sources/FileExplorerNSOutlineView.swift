@@ -5,9 +5,10 @@ final class FileExplorerNSOutlineView: NSOutlineView {
     /// Leading margin applied to disclosure triangles and content.
     static let leadingMargin: CGFloat = 8
     var fileExplorerPanelPlacement: FileExplorerPanelPlacement = .rightSidebar
-    /// Retains the delegate/source graph while AppKit owns a native preview
-    /// drag, including a SwiftUI teardown between writer and `willBeginAt`.
-    var activeNativeDragOwner: AnyObject?
+    /// Weak marker for the owner retained by the pasteboard writer while
+    /// AppKit owns a native preview drag. Keeping this marker weak avoids a
+    /// table → container → table cycle during a SwiftUI teardown.
+    weak var activeNativeDragOwner: AnyObject?
     var activeNativeDragSession: NSDraggingSession?
     var onQuickSearchChanged: ((String?) -> Void)?
     private var quickSearchActive = false

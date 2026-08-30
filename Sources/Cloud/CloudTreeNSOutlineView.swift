@@ -12,6 +12,9 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     /// and `willBeginAt`.
     var activeNativeDragOwner: AnyObject?
     var activeNativeDragSession: NSDraggingSession?
+    /// Invoked before a new pointer gesture. AppKit cannot deliver this
+    /// boundary while the previous native drag loop is active.
+    var onNativeDragPointerBoundary: (() -> Void)?
 
     /// The active visual preset; the coordinator keeps this in step with the
     /// style it lays rows out with (chevron centering depends on it).
@@ -23,6 +26,11 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     var onQuickSearch: ((String) -> Void)?
     var onDidBecomeFirstResponder: (() -> Void)?
     private var quickSearchQuery: String?
+
+    override func mouseDown(with event: NSEvent) {
+        onNativeDragPointerBoundary?()
+        super.mouseDown(with: event)
+    }
 
     override func keyDown(with event: NSEvent) {
         if handle(event) { return }
