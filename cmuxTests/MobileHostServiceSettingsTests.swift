@@ -282,8 +282,6 @@ struct MobileHostServiceSettingsTests {
             ],
             activeConnectionCount: 0,
             lastErrorDescription: nil,
-            irxActivationState: .active,
-            irxBrokerFailure: nil,
             effectiveIrohActivationState: .active
         )
 
@@ -442,8 +440,6 @@ struct MobileHostTransportRouteCompositionTests {
             routes: [],
             activeConnectionCount: 0,
             lastErrorDescription: nil,
-            irxActivationState: .reauthenticationRequired,
-            irxBrokerFailure: failure,
             effectiveIrohActivationState: .reauthenticationRequired
         )
 

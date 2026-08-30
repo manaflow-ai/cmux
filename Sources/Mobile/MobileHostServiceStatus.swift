@@ -11,9 +11,6 @@ struct MobileHostServiceStatus {
     let routes: [CmxAttachRoute]
     let activeConnectionCount: Int
     let lastErrorDescription: String?
-    /// The irx lifecycle remains visible even when its route is torn down.
-    let irxActivationState: IrxHostActivationState
-    let irxBrokerFailure: IrxBrokerFailure?
     /// Lifecycle state selected from the owning runtime when this snapshot was captured.
     let effectiveIrohActivationState: IrxHostActivationState
 
