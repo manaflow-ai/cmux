@@ -272,10 +272,20 @@ extension CMUXCLI {
                     script,
                     to: managedRoot.appendingPathComponent("tmux", isDirectory: false)
                 )
+                let managedClaudeURL = managedRoot
+                    .appendingPathComponent("claude", isDirectory: false)
                 return ClaudeTeamsShimPlan(
                     directory: managedRoot,
-                    managedClaudeWrapperURL: managedRoot
-                        .appendingPathComponent("claude", isDirectory: false)
+                    // The app-installed root is still authoritative for the tmux
+                    // shim, but only a known cmux wrapper may be used as the
+                    // launch executable. A user/provider executable can occupy
+                    // the same slot (and is intentionally accepted by the
+                    // fallback-path contract); executing it as the managed
+                    // wrapper would bypass provider resolution and can turn a
+                    // harmless compatibility shim into an arbitrary launch.
+                    managedClaudeWrapperURL: isCmuxClaudeWrapper(at: managedClaudeURL.path)
+                        ? managedClaudeURL
+                        : nil
                 )
             } catch {
                 // Informational launches do not create teammates, so they may use the
