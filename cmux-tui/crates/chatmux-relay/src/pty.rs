@@ -646,9 +646,14 @@ impl PtyManager {
             return;
         }
         let frame_type = frame.get("type").and_then(Value::as_str).unwrap_or_default();
-        if !self.inner.cache_transport_auth(context) {
-            return;
-        }
+        // Keep the cache result for operations that enumerate state, but do
+        // not turn a failed cache admission into a silent drop for terminal
+        // verbs. `pty_open` validates its trust before allocation, while the
+        // existing-attachment verbs must reach their authorization path so a
+        // stale or malformed context emits `trust_revoked` and retires the
+        // attachment. The cache never stores an invalid snapshot, so this
+        // does not let an untrusted frame acquire authority.
+        let authority_current = self.inner.cache_transport_auth(context);
         match frame_type {
             "pty_open" => {
                 let Some(cancellation) = cancellation.or_else(|| self.new_open_cancellation())
@@ -663,9 +668,6 @@ impl PtyManager {
             }
             "pty_input" => {
                 let Some(pty_id) = frame.get("ptyId").and_then(Value::as_str) else { return };
-                if !self.inner.tunnel_authority_generation_current(context) {
-                    return;
-                }
                 if !self.inner.transport_owns(pty_id, context) {
                     return;
                 }
@@ -683,9 +685,6 @@ impl PtyManager {
             }
             "pty_resize" => {
                 let Some(pty_id) = frame.get("ptyId").and_then(Value::as_str) else { return };
-                if !self.inner.tunnel_authority_generation_current(context) {
-                    return;
-                }
                 if !self.inner.transport_owns(pty_id, context) {
                     return;
                 }
@@ -700,9 +699,6 @@ impl PtyManager {
             }
             "pty_flow" => {
                 let Some(pty_id) = frame.get("ptyId").and_then(Value::as_str) else { return };
-                if !self.inner.tunnel_authority_generation_current(context) {
-                    return;
-                }
                 if !self.inner.transport_owns(pty_id, context) {
                     return;
                 }
@@ -717,15 +713,14 @@ impl PtyManager {
             }
             "pty_close" => {
                 let Some(pty_id) = frame.get("ptyId").and_then(Value::as_str) else { return };
-                if !self.inner.tunnel_authority_generation_current(context) {
-                    return;
-                }
                 if !self.inner.transport_owns(pty_id, context) {
                     return;
                 }
                 self.inner.close_authorized(pty_id, context);
             }
-            "surface_list" => self.inner.clone().list_surfaces(frame, context).await,
+            "surface_list" if authority_current => {
+                self.inner.clone().list_surfaces(frame, context).await
+            }
             _ => {}
         }
     }
