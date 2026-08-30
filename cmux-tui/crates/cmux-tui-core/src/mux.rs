@@ -23807,6 +23807,55 @@ mod tests {
     }
 
     #[test]
+    fn roster_fold_does_not_apply_hook_rows_still_pending_projection() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, None).unwrap();
+        let second = mux.new_workspace(None, None).unwrap();
+        let first_terminal = first.terminal_public_id().cloned().expect("first terminal");
+        let second_terminal = second.terminal_public_id().cloned().expect("second terminal");
+        let ingress = |terminal_id: &TerminalPublicId, event: &str| {
+            crate::agent_hooks::agent_hook_journal_ingress(
+                "claude",
+                event,
+                Some(&terminal_id.to_string()),
+                serde_json::json!({}),
+            )
+            .unwrap()
+        };
+
+        // The first journal row is durable, but its resource projection is
+        // deliberately unavailable. The next row can still commit for a
+        // different terminal.
+        mux.set_resource_patch_failure_for_test(true);
+        let first_receipt = mux
+            .append_journal_ingress(
+                &ingress(&first_terminal, "UserPromptSubmit"),
+                "test",
+                "pending-before-fold",
+            )
+            .unwrap();
+        mux.set_resource_patch_failure_for_test(false);
+        mux.append_journal_ingress(
+            &ingress(&second_terminal, "UserPromptSubmit"),
+            "test",
+            "fold-after-pending",
+        )
+        .unwrap();
+
+        assert!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .pending_agent_hook_projections_for_terminal(&first_terminal)
+                .unwrap()
+                .iter()
+                .any(|(_, _, _, sequence, _)| *sequence == first_receipt.sequence)
+        );
+        assert!(mux.list_agents(Some(first.id), None).is_empty());
+        assert_eq!(mux.list_agents(Some(second.id), None)[0].state, AgentState::Working);
+    }
+
+    #[test]
     fn journal_commit_preseeds_hook_retry_before_projection() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
