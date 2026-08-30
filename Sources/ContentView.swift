@@ -856,7 +856,6 @@ struct ContentView: View {
     init(
         updateViewModel: UpdateStateModel,
         windowId: UUID,
-        initialSidebarWidth: CGFloat? = nil,
         featureFlags: CmuxFeatureFlags? = nil,
         sidebarUnread: SidebarUnreadModel? = nil,
         titlebarControlsLayoutModel: TitlebarControlsLayoutModel? = nil
@@ -867,13 +866,6 @@ struct ContentView: View {
         self.sidebarUnread = sidebarUnread ?? TerminalNotificationStore.shared.sidebarUnread
         self.titlebarControlsLayoutModel = titlebarControlsLayoutModel
             ?? TitlebarControlsLayoutModel()
-        let resolvedSidebarWidth = initialSidebarWidth
-            .map { Double($0) }
-            .map { SessionPersistencePolicy.sanitizedSidebarWidth($0) }
-            ?? SessionPersistencePolicy.sanitizedSidebarWidth(nil)
-        _sidebarLayout = State(
-            initialValue: SidebarLayoutModel(width: CGFloat(resolvedSidebarWidth))
-        )
     }
 
     @EnvironmentObject var tabManager: TabManager
@@ -909,7 +901,9 @@ struct ContentView: View {
     /// consume the width, never this body. All reads/writes outside view
     /// bodies go through `sidebarLayout.width` directly; the computed
     /// `sidebarWidth` alias keeps call sites readable.
-    @State private var sidebarLayout: SidebarLayoutModel
+    @State private var sidebarLayout = SidebarLayoutModel(
+        width: CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
+    )
     @State private var sidebarFocusBoundary = SidebarFocusBoundaryReference()
     private var sidebarWidth: CGFloat {
         get { sidebarLayout.width }
