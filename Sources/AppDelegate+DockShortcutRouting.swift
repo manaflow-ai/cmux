@@ -280,7 +280,12 @@ extension AppDelegate {
         ) else {
             return false
         }
-        return performDockCommand(command, in: store)
+        guard !command.isFocusHistoryNavigation
+            || store.focusHistoryIncludesPanesAndTabs else {
+            return false
+        }
+        performDockCommand(command, in: store)
+        return true
     }
 
     /// Executes a Dock-owned command from a menu or another synchronous entry
@@ -304,18 +309,19 @@ extension AppDelegate {
         ) else {
             return false
         }
-        return performDockCommand(command, in: store)
+        guard !command.isFocusHistoryNavigation
+            || store.focusHistoryIncludesPanesAndTabs else {
+            return false
+        }
+        performDockCommand(command, in: store)
+        return true
     }
 
     private func performDockCommand(
         _ command: DockShortcutCommand,
         in store: DockSplitStore
-    ) -> Bool {
-        if command.isFocusHistoryNavigation, !store.focusHistoryIncludesPanesAndTabs {
-            return false
-        }
+    ) {
         if !store.performShortcutCommand(command) { NSSound.beep() }
-        return true
     }
 
     func matchesLegacyNextSurfaceShortcut(event: NSEvent) -> Bool {
