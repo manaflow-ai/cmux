@@ -457,6 +457,12 @@ final class CmuxWebView: WKWebView {
         evaluateJavaScript(script) { [weak self] result, error in
             guard error != nil || result as? Bool != true else { return }
             self?.diffViewerDocumentState.rendererDidBecomeUnavailable()
+            if let self {
+                NotificationCenter.default.post(
+                    name: .browserFindCapabilityDidChange,
+                    object: self
+                )
+            }
             fallback()
         }
     }
@@ -469,6 +475,10 @@ final class CmuxWebView: WKWebView {
         )
 #endif
         diffViewerDocumentState.update(viewer: viewer, editable: editable, rendererReady: rendererReady)
+        NotificationCenter.default.post(
+            name: .browserFindCapabilityDidChange,
+            object: self
+        )
         if !viewer || editable {
             diffViewerNavigationKeyRouter.reset()
         }
@@ -476,15 +486,27 @@ final class CmuxWebView: WKWebView {
 
     func diffViewerNavigationDidStart(_ navigation: WKNavigation?) {
         diffViewerDocumentState.navigationDidStart(id: navigation.map(ObjectIdentifier.init))
+        NotificationCenter.default.post(
+            name: .browserFindCapabilityDidChange,
+            object: self
+        )
         diffViewerNavigationKeyRouter.reset()
     }
 
     func diffViewerNavigationDidCommit(_ navigation: WKNavigation?) {
         diffViewerDocumentState.navigationDidCommit(id: navigation.map(ObjectIdentifier.init))
+        NotificationCenter.default.post(
+            name: .browserFindCapabilityDidChange,
+            object: self
+        )
     }
 
     func diffViewerNavigationDidCancel(_ navigation: WKNavigation?) {
         diffViewerDocumentState.navigationDidCancel(id: navigation.map(ObjectIdentifier.init))
+        NotificationCenter.default.post(
+            name: .browserFindCapabilityDidChange,
+            object: self
+        )
     }
 
     private func handleDiffViewerNavigationKey(_ event: NSEvent) -> Bool {
@@ -508,6 +530,12 @@ final class CmuxWebView: WKWebView {
                     self?.diffViewerDocumentState.editableFocusTransitionDidFail()
                 }
                 self?.diffViewerDocumentState.rendererDidBecomeUnavailable()
+                if let self {
+                    NotificationCenter.default.post(
+                        name: .browserFindCapabilityDidChange,
+                        object: self
+                    )
+                }
             }
         })
     }

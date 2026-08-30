@@ -1216,8 +1216,16 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
                 browser.$faviconPNGData.removeDuplicates(by: { $0 == $1 }),
                 browser.$searchState.map { $0 != nil }.removeDuplicates()
             )
-            let cancellable = browserTabState
+            let browserMetadataChanges = browserTabState
                 .combineLatest(browser.$isMuted.removeDuplicates())
+                .map { _ in () }
+            let browserFindCapabilityChanges = NotificationCenter.default.publisher(
+                for: .browserFindCapabilityDidChange,
+                object: browser.webView
+            )
+            .map { _ in () }
+            let cancellable = browserMetadataChanges
+                .merge(with: browserFindCapabilityChanges)
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self, weak browser] _ in
                     guard let self, let browser else { return }

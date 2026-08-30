@@ -135,6 +135,20 @@ private final class DockPointerInteractionHostView: NSView {
         guard let window, event.window === window else { return }
         let point = convert(event.locationInWindow, from: nil)
         guard bounds.contains(point) else { return }
+        guard let hitView = window.contentView?.hitTest(event.locationInWindow),
+              isDockDescendant(hitView) else {
+            return
+        }
         store?.noteUserDockPointerInteraction(window: window)
+    }
+
+    private func isDockDescendant(_ view: NSView) -> Bool {
+        guard let dockContainer = superview else { return false }
+        var candidate: NSView? = view
+        while let current = candidate {
+            if current === dockContainer { return true }
+            candidate = current.superview
+        }
+        return false
     }
 }
