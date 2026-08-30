@@ -860,7 +860,10 @@ final class SharedLiveAgentIndex {
                   let entry = index.sidebarEntry(workspaceId: workspaceID, panelId: panelID) else {
                 continue
             }
-            for processID in entry.agentProcessIdentities.keys {
+            let processIdentities = entry.agentProcessIdentities.isEmpty
+                ? entry.processIdentities
+                : entry.agentProcessIdentities
+            for processID in processIdentities.keys {
                 guard processID > 0 else { continue }
                 sidebarProcessPanelIDsByPID[processID, default: []].insert(panelID)
                 sidebarProcessWorkspaceIDsByPID[processID, default: [:]][panelID] = workspaceID
