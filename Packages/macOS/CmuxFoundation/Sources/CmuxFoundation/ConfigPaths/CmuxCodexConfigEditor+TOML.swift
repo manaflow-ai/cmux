@@ -43,6 +43,33 @@ extension CmuxCodexConfigEditor {
         CmuxConfigLines().joined(lines, lineEnding: lineEnding)
     }
 
+    func removeLegacyCodexHooksSettings(from lines: inout [String]) {
+        var index = 0
+        var isRoot = true
+        var isFeaturesTable = false
+
+        while index < lines.count {
+            if tomlLineIsAnyTableHeader(lines[index]) {
+                isRoot = false
+                isFeaturesTable = tomlLineIsTable("features", line: lines[index])
+                index += 1
+                continue
+            }
+
+            let removesRootSetting = isRoot && (
+                tomlLineDefinesKey("codex_hooks", line: lines[index])
+                    || tomlLineDefinesDottedFeaturesKey("codex_hooks", line: lines[index])
+            )
+            let removesFeaturesSetting = isFeaturesTable
+                && tomlLineDefinesKey("codex_hooks", line: lines[index])
+            if removesRootSetting || removesFeaturesSetting {
+                lines.remove(at: index)
+            } else {
+                index += 1
+            }
+        }
+    }
+
     func tomlLineDefinesKey(_ key: String, line: String) -> Bool {
         let escapedKey = NSRegularExpression.escapedPattern(for: key)
         return line.range(
@@ -91,7 +118,7 @@ extension CmuxCodexConfigEditor {
     }
 
     func tomlLineIsAnyTableHeader(_ line: String) -> Bool {
-        let tomlKey = #"(?:[A-Za-z0-9_-]+|"[^"\n]*"|'[^'\n]*')"#
+        let tomlKey = #"(?:[A-Za-z0-9_-]+|"(?:[^"\\\n]|\\.)*"|'[^'\n]*')"#
         let tomlKeyPath = tomlKey + #"(?:\s*\.\s*"# + tomlKey + ")*"
         let pattern = #"^\s*(?:\[\s*"# + tomlKeyPath + #"\s*\]|\[\[\s*"# + tomlKeyPath
             + #"\s*\]\])\s*(#.*)?$"#

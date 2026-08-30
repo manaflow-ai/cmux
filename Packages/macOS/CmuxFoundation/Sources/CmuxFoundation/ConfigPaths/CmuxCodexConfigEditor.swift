@@ -54,6 +54,8 @@ public struct CmuxCodexConfigEditor: Sendable {
     /// - Parameters:
     ///   - existingContent: The current `config.toml` body.
     ///   - trustEntries: The cmux-owned hook trust tables to install.
+    ///   - removingHookTrustEntries: Prior cmux-owned trust identities whose exact
+    ///     keys and hashes should be removed without reinstalling them.
     ///   - removingKeyPrefixes: Raw key prefixes whose stale trust tables may be
     ///     removed during reinstall. The editor applies TOML basic-string
     ///     escaping before matching them.
@@ -63,13 +65,14 @@ public struct CmuxCodexConfigEditor: Sendable {
     public func installingHooks(
         in existingContent: String,
         trustEntries: [HookTrustEntry],
+        removingHookTrustEntries: [HookTrustEntry] = [],
         removingKeyPrefixes: Set<String> = [],
         removingTrustedHashes: Set<String> = []
     ) -> HookInstallResult {
         let removingEscapedKeyPrefixes = Set(removingKeyPrefixes.map { tomlBasicStringContent($0) })
         let trustClean = removingHookTrust(
             in: existingContent,
-            entries: trustEntries,
+            entries: trustEntries + removingHookTrustEntries,
             removingEscapedKeyPrefixes: removingEscapedKeyPrefixes,
             removingTrustedHashes: removingTrustedHashes
         )
@@ -116,8 +119,7 @@ public struct CmuxCodexConfigEditor: Sendable {
             stripMalformedCmuxCodexHookTrustMarker(from: &lines)
         }
         removeCodexHookTrustTables(withEscapedKeys: escapedKeys, from: &lines)
-        lines.removeAll { tomlLineDefinesKey("codex_hooks", line: $0) }
-        lines.removeAll { tomlLineDefinesDottedFeaturesKey("codex_hooks", line: $0) }
+        removeLegacyCodexHooksSettings(from: &lines)
         removeEmptyFeaturesTable(from: &lines)
         return tomlContent(from: lines, lineEnding: lineEnding)
     }

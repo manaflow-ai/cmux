@@ -90,6 +90,60 @@ struct CmuxCodexConfigEditorTests {
         #expect(result.content.contains(Self.featureBegin))
     }
 
+    @Test("Legacy codex hooks cleanup stays scoped to root and features")
+    func legacyCodexHooksCleanupPreservesCustomTables() {
+        let original = #"""
+        codex_hooks = true
+        features.codex_hooks = true
+        [features]
+        codex_hooks = true
+        [custom]
+        codex_hooks = "keep"
+        features.codex_hooks = "keep"
+        [custom.nested]
+        codex_hooks = "keep"
+        features.codex_hooks = "keep"
+        """# + "\n"
+        let installed = editor.installingHooks(in: original, trustEntries: [])
+        let uninstalled = editor.uninstallingHooks(from: installed.content)
+
+        let expected = #"""
+        [custom]
+        codex_hooks = "keep"
+        features.codex_hooks = "keep"
+        [custom.nested]
+        codex_hooks = "keep"
+        features.codex_hooks = "keep"
+        """# + "\n"
+        #expect(uninstalled == expected)
+    }
+
+    @Test("Stale trust cleanup preserves escaped quoted user table headers")
+    func staleTrustCleanupStopsAtEscapedQuotedUserTableHeader() {
+        let original = #"""
+        # cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 begin
+        [hooks.state."/tmp/cmux-hooks:stale"]
+        trusted_hash = "sha256:stale-hook"
+        ["custom\"quote\\slash"]
+        value = "keep"
+        enabled = true
+        # cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 end
+        """# + "\n"
+
+        let uninstalled = editor.uninstallingHooks(
+            from: original,
+            removingKeyPrefixes: ["/tmp/cmux-hooks:"],
+            removingTrustedHashes: ["sha256:stale-hook"]
+        )
+
+        let expected = #"""
+        ["custom\"quote\\slash"]
+        value = "keep"
+        enabled = true
+        """# + "\n"
+        #expect(uninstalled == expected)
+    }
+
     private static func occurrences(of needle: String, in haystack: String) -> Int {
         haystack.components(separatedBy: needle).count - 1
     }

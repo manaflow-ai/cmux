@@ -14,8 +14,7 @@ extension CmuxCodexConfigEditor {
         let lineEnding = CmuxConfigLines().lineEnding(of: existingContent)
         var lines = tomlLines(from: existingContent)
         removeCmuxCodexHooksFeatureBlock(from: &lines)
-        lines.removeAll { tomlLineDefinesKey("codex_hooks", line: $0) }
-        lines.removeAll { tomlLineDefinesDottedFeaturesKey("codex_hooks", line: $0) }
+        removeLegacyCodexHooksSettings(from: &lines)
 
         let insertedLines = [
             Self.cmuxCodexHooksFeatureBegin,

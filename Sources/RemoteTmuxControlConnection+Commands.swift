@@ -444,12 +444,34 @@ extension RemoteTmuxControlConnection {
     }
 
     /// Sends literal key bytes to a pane via tmux `send-keys -H` (hex-encoded),
-    /// which is binary-safe and needs no shell quoting.
+    /// which is binary-safe and needs no shell quoting. The control client drops
+    /// command lines above 30,000 characters, so keep each encoded command below
+    /// that ceiling while preserving byte order across commands.
     @discardableResult
     func sendKeys(paneId: Int, data: Data) -> Bool {
         guard !data.isEmpty else { return true }
-        let hex = Self.hexByteArguments(data)
-        return sendInternal("send-keys -t %\(paneId) -H \(hex)", kind: .other)
+        guard data.count <= RemoteTmuxPaneInputForwarder.defaultMaximumPendingBytes else { return false }
+
+        let maxBytesPerCommand = 8 * 1024
+        var commands: [String] = []
+        commands.reserveCapacity((data.count + maxBytesPerCommand - 1) / maxBytesPerCommand)
+
+        var chunkStart = data.startIndex
+        while chunkStart < data.endIndex {
+            let chunkEnd = data.index(
+                chunkStart,
+                offsetBy: maxBytesPerCommand,
+                limitedBy: data.endIndex
+            ) ?? data.endIndex
+            let hex = Self.hexByteArguments(data[chunkStart ..< chunkEnd])
+            commands.append("send-keys -t %\(paneId) -H \(hex)")
+            chunkStart = chunkEnd
+        }
+
+        return sendBatchInternal(
+            commands,
+            kinds: Array(repeating: .other, count: commands.count)
+        )
     }
 
     /// Sends a physical named key and lets tmux encode it for the target pane's

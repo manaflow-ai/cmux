@@ -1,7 +1,9 @@
 import CmuxCore
+import CmuxNotifications
 import CmuxSidebar
 import Foundation
 import Testing
+import UserNotifications
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -270,5 +272,138 @@ struct WorkspaceRemoteDaemonRecoveryTests {
             workspace.logEntries.count == logCountAfterRecovery + 1,
             "Recovery must reset the suspended connection fingerprint"
         )
+    }
+
+    /// https://github.com/manaflow-ai/cmux/issues/9584: an SSH error may be
+    /// recorded before the terminal transport proves it is connected. The
+    /// authoritative terminal-connected path must retract that recovered
+    /// failure even before the controller emits a separate `.connected`.
+    @Test
+    func terminalConnectionRetractsRecoveredNormalSSHFailure() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let store = TerminalNotificationStore(
+                userNotificationCenter: UserNotificationCenterService(
+                    center: UNUserNotificationCenter.current()
+                )
+            )
+            let previousAppDelegate = AppDelegate.shared
+            let appDelegate = AppDelegate()
+            let previousNotificationStore = appDelegate.notificationStore
+            AppDelegate.shared = appDelegate
+            appDelegate.notificationStore = store
+            store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+            defer {
+                store.resetNotificationDeliveryHandlerForTesting()
+                appDelegate.notificationStore = previousNotificationStore
+                AppDelegate.shared = previousAppDelegate
+            }
+
+            let workspace = Workspace()
+            let host = "issue9584-\(UUID().uuidString.lowercased()).example"
+            let target = "dev@\(host)"
+            let config = WorkspaceRemoteConfiguration(
+                destination: target,
+                port: 22,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64_025,
+                relayID: String(repeating: "3", count: 16),
+                relayToken: String(repeating: "4", count: 64),
+                localSocketPath: "/tmp/cmux-debug-test-terminal-connected.sock",
+                terminalStartupCommand: "ssh \(target)",
+                preserveAfterTerminalExit: true,
+                skipDaemonBootstrap: true
+            )
+            workspace.configureRemoteConnection(config, autoConnect: false)
+            let terminal = try #require(workspace.focusedTerminalPanel)
+
+            let unrelatedLogMessage = "User-visible note"
+            workspace.logEntries.append(
+                SidebarLogEntry(
+                    message: unrelatedLogMessage,
+                    level: .info,
+                    source: "user",
+                    timestamp: Date()
+                )
+            )
+            let unrelatedNotificationID = UUID()
+            store.replaceNotificationsForTesting([
+                TerminalNotification(
+                    id: unrelatedNotificationID,
+                    tabId: workspace.id,
+                    surfaceId: nil,
+                    correlationKey: "user-visible",
+                    title: "Unrelated notification",
+                    subtitle: "Keep",
+                    body: "Must survive remote recovery",
+                    createdAt: Date(),
+                    isRead: false
+                ),
+            ])
+
+            let remoteNotificationKey = "remote-host:\(host)"
+            let failureDetail = "ssh: connect to host example.com port 22: Operation timed out"
+            workspace.applyRemoteConnectionStateUpdate(.error, detail: failureDetail, target: target)
+
+            let remoteNotificationArrived = await waitForNotification(
+                in: store,
+                tabID: workspace.id,
+                correlationKey: remoteNotificationKey,
+                body: failureDetail
+            )
+            #expect(remoteNotificationArrived)
+
+            #expect(workspace.remoteConnectionState == .error)
+            #expect(workspace.statusEntries["remote.error"] != nil)
+            #expect(workspace.logEntries.contains { $0.source == "remote" && $0.message.contains(failureDetail) })
+            #expect(store.notifications.contains {
+                $0.tabId == workspace.id &&
+                    $0.correlationKey == remoteNotificationKey &&
+                    $0.body == failureDetail
+            })
+
+            #expect(
+                workspace.markRemoteTerminalSessionConnected(
+                    surfaceId: terminal.id,
+                    authority: .persistentTransport(
+                        config.scopedToOwnerWorkspace(workspace.id).proxyBrokerTransportKey
+                    )
+                )
+            )
+
+            #expect(workspace.remoteConnectionState == .connected)
+            #expect(workspace.remoteConnectionDetail == nil)
+            #expect(workspace.statusEntries["remote.error"] == nil)
+            #expect(!workspace.logEntries.contains { $0.source == "remote" })
+            #expect(workspace.logEntries.contains { $0.message == unrelatedLogMessage })
+            #expect(!store.notifications.contains {
+                $0.tabId == workspace.id && $0.correlationKey == remoteNotificationKey
+            })
+            #expect(store.notifications.contains { $0.id == unrelatedNotificationID })
+
+            workspace.applyRemoteConnectionStateUpdate(.error, detail: failureDetail, target: target)
+
+            #expect(workspace.logEntries.filter { $0.source == "remote" && $0.message.contains(failureDetail) }.count == 1)
+        }
+    }
+
+    private func waitForNotification(
+        in store: TerminalNotificationStore,
+        tabID: UUID,
+        correlationKey: String,
+        body: String
+    ) async -> Bool {
+        for _ in 0..<200 {
+            if store.notifications.contains(where: { notification in
+                notification.tabId == tabID
+                    && notification.correlationKey == correlationKey
+                    && notification.body == body
+            }) {
+                return true
+            }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return false
     }
 }

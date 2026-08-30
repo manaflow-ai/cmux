@@ -277,6 +277,87 @@ import Testing
         #expect(RemoteTmuxControlConnection.hexByteArguments(Data()) == "")
     }
 
+    @Test @MainActor func sendKeysPreserves9994BytePayload() async throws {
+        let data = Data((0 ..< 9_994).map { UInt8($0 % 251) })
+        let emission = try await captureSendKeysWire(paneId: 7, data: data)
+
+        #expect(emission.accepted)
+        #expect(emission.commands.allSatisfy { $0.utf8.count < 30_000 })
+        #expect(try decodeHexArguments(from: emission.commands, paneId: 7) == data)
+    }
+
+    @Test @MainActor func sendKeysSplits9995BytePayloadBelowControlCommandLimit() async throws {
+        let data = Data((0 ..< 9_995).map { UInt8($0 % 251) })
+        let emission = try await captureSendKeysWire(paneId: 7, data: data)
+
+        #expect(emission.accepted)
+        #expect(emission.commands.count > 1)
+        #expect(emission.commands.allSatisfy { $0.utf8.count < 30_000 })
+        #expect(try decodeHexArguments(from: emission.commands, paneId: 7) == data)
+    }
+
+    @Test @MainActor func sendKeysPreservesNonzeroBasedDataSlice() async throws {
+        let backing = Data((0 ..< 10_006).map { UInt8($0 % 251) })
+        let firstPayloadIndex = backing.index(backing.startIndex, offsetBy: 11)
+        let data = backing[firstPayloadIndex..<backing.endIndex]
+        #expect(data.startIndex == firstPayloadIndex)
+
+        let emission = try await captureSendKeysWire(paneId: 7, data: data)
+
+        #expect(emission.accepted)
+        #expect(emission.commands.allSatisfy { $0.utf8.count < 30_000 })
+        #expect(try decodeHexArguments(from: emission.commands, paneId: 7) == data)
+    }
+
+    @Test @MainActor func sendKeysRejectsOverBudgetLogicalInputWithoutPartialDelivery() async throws {
+        let data = Data((0 ..< 9_995).map { UInt8($0 % 251) })
+        let writerBudget = 30_000
+
+        let emission = try await captureSendKeysWire(
+            paneId: 7,
+            data: data,
+            maxPendingBytes: writerBudget
+        )
+
+        #expect(!emission.accepted)
+        #expect(emission.commands.isEmpty)
+    }
+
+    @Test @MainActor func sendKeysAcceptsRawAdmissionLimitWithProductionWriterBudget() async throws {
+        let rawAdmissionLimit = RemoteTmuxPaneInputForwarder.defaultMaximumPendingBytes
+        let data = Data((0 ..< rawAdmissionLimit).map { UInt8($0 % 251) })
+
+        let emission = try await captureSendKeysWire(
+            paneId: 7,
+            data: data,
+            maxPendingBytes: RemoteTmuxControlConnection.maxPendingStdinBytes
+        )
+
+        #expect(emission.accepted)
+        #expect(try decodeHexArguments(from: emission.commands, paneId: 7) == data)
+    }
+
+    @Test @MainActor func sendKeysRejectsOneByteAboveRawAdmissionWithoutWireEmission() async throws {
+        let rawAdmissionLimit = RemoteTmuxPaneInputForwarder.defaultMaximumPendingBytes
+        let data = Data(repeating: 0xa5, count: rawAdmissionLimit + 1)
+
+        let emission = try await captureSendKeysWire(
+            paneId: 7,
+            data: data,
+            maxPendingBytes: RemoteTmuxControlConnection.maxPendingStdinBytes
+        )
+
+        #expect(!emission.accepted)
+        #expect(emission.commands.isEmpty)
+    }
+
+    @Test @MainActor func sendKeysAcceptsEmptyPayloadWithoutWritingACommand() async throws {
+        let emission = try await captureSendKeysWire(paneId: 7, data: Data())
+
+        #expect(emission.accepted)
+        #expect(emission.commands.isEmpty)
+    }
+
     @Test @MainActor func pastePaneRejectsDisconnectedControlStream() {
         let connection = RemoteTmuxControlConnection(host: RemoteTmuxHost(destination: "user@host"), sessionName: "work")
         #expect(connection.pastePane(paneId: 1, text: "/tmp/image.png") == false)
@@ -436,6 +517,70 @@ import Testing
         let argv = host.interactiveAuthInvocation()
         #expect(consecutive(argv, "-p", "2222"))
         #expect(consecutive(argv, "-i", "/keys/id"))
+    }
+
+    @MainActor
+    private func captureSendKeysWire(
+        paneId: Int,
+        data: Data,
+        maxPendingBytes: Int = 1 << 16
+    ) async throws -> (accepted: Bool, commands: [String]) {
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@input-transport"),
+            sessionName: "input-transport"
+        )
+        let bootstrapPipe = Pipe()
+        let bootstrapWriter = RemoteTmuxControlPipeWriter(
+            handle: bootstrapPipe.fileHandleForWriting,
+            label: "remote-tmux-send-keys-bootstrap-test",
+            maxPendingBytes: 1 << 16,
+            onFailure: {}
+        )
+        let pipe = Pipe()
+        let writer = RemoteTmuxControlPipeWriter(
+            handle: pipe.fileHandleForWriting,
+            label: "remote-tmux-send-keys-wire-test",
+            maxPendingBytes: maxPendingBytes,
+            onFailure: {}
+        )
+        defer {
+            bootstrapWriter.close()
+            try? bootstrapPipe.fileHandleForReading.close()
+            writer.close()
+            try? pipe.fileHandleForReading.close()
+        }
+
+        connection.installStdinWriterForTesting(bootstrapWriter)
+        connection.handleMessageForTesting(.enter)
+        connection.handleMessageForTesting(.commandResult(commandNumber: 0, lines: [], isError: false))
+        connection.installStdinWriterForTesting(writer)
+
+        let accepted = connection.sendKeys(paneId: paneId, data: data)
+        writer.close()
+        var lineData = Data()
+        var commands: [String] = []
+        for try await byte in pipe.fileHandleForReading.bytes {
+            guard byte == UInt8(ascii: "\n") else {
+                lineData.append(byte)
+                continue
+            }
+            commands.append(String(decoding: lineData, as: UTF8.self))
+            lineData.removeAll(keepingCapacity: true)
+        }
+        #expect(lineData.isEmpty)
+        return (accepted, commands)
+    }
+
+    private func decodeHexArguments(from commands: [String], paneId: Int) throws -> Data {
+        let prefix = "send-keys -t %\(paneId) -H "
+        var decoded = Data()
+        for command in commands {
+            #expect(command.hasPrefix(prefix))
+            for argument in command.dropFirst(prefix.count).split(separator: " ") {
+                decoded.append(try #require(UInt8(argument, radix: 16)))
+            }
+        }
+        return decoded
     }
 
     /// True when `a` is immediately followed by `b` in `args` — i.e. an ssh

@@ -32606,6 +32606,12 @@ export default CMUXSessionRestore;
         }
 
         var hooks = existing["hooks"] as? [String: Any] ?? [:]
+        let previousCodexHookTrustEntries = Self.codexHookTrustEntries(
+            hooks: hooks,
+            hooksFilePath: filePath,
+            def: def,
+            includeLegacyOwnedCommands: true
+        )
         let newHooks = buildHooksDict(for: def)
 
         // Remove existing cmux-owned entries (both the per-agent hook
@@ -32729,7 +32735,9 @@ export default CMUXSessionRestore;
             hooksFilePath: filePath,
             def: def
         )
-        let codexLegacyHookTrustHashes = Self.codexLegacyHookTrustHashes(def: def)
+        let codexHookTrustHashesToRemove = Set(
+            previousCodexHookTrustEntries.map(\.trustedHash)
+        ).union(Self.codexLegacyHookTrustHashes(def: def))
 
         let newData = try JSONSerialization.data(withJSONObject: existing, options: [.prettyPrinted, .sortedKeys])
         let newString = String(data: newData, encoding: .utf8) ?? "{}"
@@ -32787,8 +32795,9 @@ export default CMUXSessionRestore;
                 let trustInstall = CmuxCodexConfigEditor().installingHooks(
                     in: existingContent,
                     trustEntries: codexHookTrustEntries,
+                    removingHookTrustEntries: previousCodexHookTrustEntries,
                     removingKeyPrefixes: codexHookTrustKeyPrefixes,
-                    removingTrustedHashes: codexLegacyHookTrustHashes
+                    removingTrustedHashes: codexHookTrustHashesToRemove
                 )
                 let newContent = trustInstall.content
                 if newContent != existingContent {

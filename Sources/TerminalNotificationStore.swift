@@ -446,7 +446,7 @@ final class TerminalNotificationStore: ObservableObject {
     var lastNotificationHookFailureDateByKey: [NotificationHookFailureThrottleKey: Date] = [:]
     private var indexes = NotificationIndexes()
     private let inFlightPolicyRequests = TerminalNotificationPolicyInFlightStore()
-    private init(userNotificationCenter: UserNotificationCenterService) {
+    init(userNotificationCenter: UserNotificationCenterService) {
         self.userNotificationCenter = userNotificationCenter
         nativeNotificationDeliveryHooks = NativeNotificationDeliveryHooks(
             userNotificationCenter: userNotificationCenter
@@ -2631,7 +2631,9 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func replaceNotificationsForTesting(_ notifications: [TerminalNotification]) {
-        TerminalMutationBus.shared.discardPendingNotifications()
+        if self === Self.shared {
+            TerminalMutationBus.shared.discardPendingNotifications()
+        }
         self.notifications = notifications
         notificationFeedHistory = NotificationFeedHistoryStore(fileURL: nil) { revision in
             MobileHostService.emitEvent(
