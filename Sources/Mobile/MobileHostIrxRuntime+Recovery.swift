@@ -5,6 +5,52 @@ import Foundation
 
 @MainActor
 extension MobileHostIrxRuntime {
+    /// Applies the mobile-host policy to the irx lifecycle. Requests are
+    /// serialized so a policy lift cannot start a new endpoint while an older
+    /// teardown is still closing its resources.
+    func setDesiredActive(_ desired: Bool) {
+        desiredActive = desired
+        if !desired {
+            // Invalidate callbacks and publish the policy stop immediately;
+            // the serialized task below completes actor/endpoint teardown.
+            generationToken = UUID()
+            cancelActivationRetry()
+            activationTask?.cancel()
+            activationTask = nil
+            setActivationState(.inactive)
+        }
+
+        desiredActivityGeneration &+= 1
+        let generation = desiredActivityGeneration
+        let previous = desiredActivityTask
+        desiredActivityTask = Task { @MainActor [weak self] in
+            await previous?.value
+            guard let self else { return }
+            if desired {
+                self.resumeActivationIfNeeded()
+            } else {
+                await self.deactivate()
+            }
+            if self.desiredActivityGeneration == generation {
+                self.desiredActivityTask = nil
+            }
+        }
+    }
+
+    /// Resumes an authenticated account after a policy stop. Reauthentication
+    /// and failed states stay visible until the user explicitly refreshes.
+    private func resumeActivationIfNeeded() {
+        guard desiredActive,
+              activationState == .inactive,
+              let accountID = activeAccountID else { return }
+        activationRetryFailureCount = 0
+        activationUnauthorizedFailureCount = 0
+        terminalRecoveryCount = 0
+        lastBrokerFailure = nil
+        setActivationState(.activating)
+        startActivation(accountID: accountID)
+    }
+
     /// Starts an activation through the lifecycle-owned task so sign-out and
     /// account changes can cancel every retry-triggered activation as well.
     func startActivation(accountID: String) {

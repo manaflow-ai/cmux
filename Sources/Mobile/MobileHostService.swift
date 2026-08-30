@@ -1018,7 +1018,9 @@ final class MobileHostService {
             if listener == nil {
                 mobileHostLog.info("legacy mobile host listener disabled; starting Iroh only")
             }
-            if plan.activatesIroh {
+            if MobileHostIrxRuntime.isEnabled {
+                MobileHostIrxRuntime.shared.setDesiredActive(true)
+            } else if plan.activatesIroh {
                 MobileHostIrohRuntime.shared.setDesiredActive(true)
             }
             return
@@ -1026,7 +1028,13 @@ final class MobileHostService {
 
         CmxIrohTCPFirstActivation.start(
             startTCP: { startListener(usePreferredPort: true) },
-            scheduleIroh: { MobileHostIrohRuntime.shared.setDesiredActive(true) }
+            scheduleIroh: {
+                if MobileHostIrxRuntime.isEnabled {
+                    MobileHostIrxRuntime.shared.setDesiredActive(true)
+                } else {
+                    MobileHostIrohRuntime.shared.setDesiredActive(true)
+                }
+            }
         )
     }
 
@@ -1105,7 +1113,11 @@ final class MobileHostService {
     }
 
     func stop() {
-        MobileHostIrohRuntime.shared.setDesiredActive(false)
+        if MobileHostIrxRuntime.isEnabled {
+            MobileHostIrxRuntime.shared.setDesiredActive(false)
+        } else {
+            MobileHostIrohRuntime.shared.setDesiredActive(false)
+        }
         stopLegacyListener(reason: "service stopped")
         for connection in MobileHostConnectionRegistry.shared.removeAll() {
             Task { await connection.close(reason: "service stopped") }
@@ -1268,7 +1280,11 @@ final class MobileHostService {
         let defaults = UserDefaults.standard
         // Settings control only the legacy TCP/Tailscale listener. Account-
         // authenticated Iroh stays available for signed-in Macs.
-        MobileHostIrohRuntime.shared.setDesiredActive(true)
+        if MobileHostIrxRuntime.isEnabled {
+            MobileHostIrxRuntime.shared.setDesiredActive(true)
+        } else {
+            MobileHostIrohRuntime.shared.setDesiredActive(true)
+        }
         // An invalid stored port (`resolvedDesiredPort == nil`, e.g. mid-edit)
         // must not restart a running listener. Treat it as "no change" by
         // reusing the applied port; a fresh start still binds the default via

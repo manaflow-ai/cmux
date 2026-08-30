@@ -55,12 +55,18 @@ final class MobileHostIrxRuntime {
     private var authObservationTask: Task<Void, Never>?
     var activeAccountID: String?
     var activeSessionGeneration: UInt64?
+    /// Whether the mobile host policy currently permits the irx endpoint.
+    /// This is separate from auth state so a managed-policy transition can
+    /// stop and later resume the same account without reconfiguring auth.
+    var desiredActive = true
     var activationTask: Task<Void, Never>?
     var activationState: IrxHostActivationState = .inactive
     var lastBrokerFailure: IrxBrokerFailure?
     var hadLiveDiscovery = false
     var activationRetryTask: Task<Void, Never>?
     var activationRetryID: UUID?
+    var desiredActivityTask: Task<Void, Never>?
+    var desiredActivityGeneration: UInt64 = 0
     var activationRetryFailureCount = 0
     var activationUnauthorizedFailureCount = 0
     var terminalRecoveryCount = 0
@@ -91,6 +97,7 @@ final class MobileHostIrxRuntime {
 
     func configure(auth: AuthCoordinator) {
         self.auth = auth
+        desiredActive = MobileRemoteControlPolicy.isEnabled
         Self.journal.record(
             "host-runtime", "configured",
             ["force_relay": String(Self.forceRelayOnly)]
@@ -116,6 +123,10 @@ final class MobileHostIrxRuntime {
         activeAccountID = accountID
         activeSessionGeneration = sessionGeneration
         guard let accountID else { return }
+        guard desiredActive else {
+            setActivationState(.inactive)
+            return
+        }
         activationRetryFailureCount = 0
         activationUnauthorizedFailureCount = 0
         terminalRecoveryCount = 0
