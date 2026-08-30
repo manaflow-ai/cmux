@@ -58,14 +58,22 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem {
     ///
     /// ``NSTableView`` asks for this writer before `willBeginAt`; the controller
     /// writes the authoritative session payload directly to the native drag
-    /// pasteboard at that boundary. The already-bound item representation is
-    /// intentionally not mutated here because AppKit does not permit changing
-    /// an ``NSPasteboardItem`` after it has been written.
+    /// pasteboard at that boundary. Re-materializing here keeps the concrete
+    /// item coherent for any AppKit path that reads it after promotion.
     func bind(to sessionId: UUID, workspaceId: UUID? = nil) {
         self.sessionId = sessionId
         if let workspaceId {
             self.workspaceId = workspaceId
         }
+        // Keep the concrete NSPasteboardItem as the single writer
+        // representation. The controller separately writes the same
+        // generation to the session pasteboard at willBeginAt.
+        materializePayload()
+    }
+
+    /// The concrete payload currently stored by this writer.
+    var payloadValue: String {
+        SidebarTabDragPayload(tabId: workspaceId, sessionId: sessionId).pasteboardValue
     }
 
     /// Workspace identity captured for this exact writer request.
@@ -83,15 +91,10 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem {
         controller = nil
     }
 
-    override func pasteboardPropertyList(forType type: NSPasteboard.PasteboardType) -> Any? {
-        guard type == Self.pasteboardType else { return nil }
-        return SidebarTabDragPayload(tabId: workspaceId, sessionId: sessionId).pasteboardValue
-    }
-
     /// Keeps the concrete item populated for the pre-session AppKit write.
     private func materializePayload() {
         _ = setString(
-            SidebarTabDragPayload(tabId: workspaceId, sessionId: sessionId).pasteboardValue,
+            payloadValue,
             forType: Self.pasteboardType
         )
     }

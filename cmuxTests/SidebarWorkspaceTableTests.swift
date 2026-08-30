@@ -397,7 +397,7 @@ struct SidebarWorkspaceTableTests {
             controller.tableView(container.tableView, pasteboardWriterForRow: 1)
         )
         let nextValue = try #require(
-            nextWriter.pasteboardPropertyList(forType: type) as? String
+                nextWriter.string(forType: type)
         )
         #expect(nextValue.contains(second.workspaceId.uuidString))
         #expect(!nextValue.contains(first.workspaceId.uuidString))
@@ -539,7 +539,7 @@ struct SidebarWorkspaceTableTests {
         )
         try withExtendedLifetime(firstWriter) {
             let value = try #require(
-                secondWriter.pasteboardPropertyList(forType: type) as? String
+                secondWriter.string(forType: type)
             )
             #expect(value.contains(second.workspaceId.uuidString))
             #expect(!value.contains(first.workspaceId.uuidString))

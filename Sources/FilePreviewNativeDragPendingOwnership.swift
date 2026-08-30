@@ -6,8 +6,19 @@ final class FilePreviewNativeDragPendingOwnership {
     typealias Writer = FilePreviewDragPasteboardWriter
     typealias Token = ProvisionalDragWriterOwnership.Token
 
+    private final class WeakWriter {
+        weak var value: Writer?
+
+        init(_ value: Writer) {
+            self.value = value
+        }
+    }
+
     private var ownershipByToken: [UUID: FilePreviewNativeDragOwnership] = [:]
-    private let writers = NSHashTable<Writer>.weakObjects()
+    // NSHashTable does not preserve request order. AppKit writes multi-row
+    // items in the same order it asks for them, so retain that order weakly to
+    // choose the first item deterministically while never retaining writers.
+    private var orderedWriters: [WeakWriter] = []
     private let onWriterDeallocated: @MainActor (UUID) -> Void
     private lazy var tokenOwnership = ProvisionalDragWriterOwnership { [weak self] tokenID in
         self?.writerDidDeallocate(tokenID: tokenID)
@@ -24,7 +35,9 @@ final class FilePreviewNativeDragPendingOwnership {
 
     /// Records a writer and captures its exact cleanup identity.
     func register(_ writer: Writer) -> FilePreviewNativeDragOwnership? {
-        writers.add(writer)
+        pruneWriterOrder()
+        orderedWriters.removeAll { $0.value === writer }
+        orderedWriters.append(WeakWriter(writer))
         guard let tokenID = writer.provisionalToken?.id,
               let ownership = writer.nativeDragOwnership() else {
             return nil
@@ -42,7 +55,9 @@ final class FilePreviewNativeDragPendingOwnership {
     /// Returns every writer requested by one source view for the same pending
     /// AppKit drag. NSTableView may ask once per selected row.
     func writers(for sourceView: NSView) -> [Writer] {
-        writers.allObjects.filter { $0.sourceViewForDrag === sourceView }
+        pruneWriterOrder()
+        return orderedWriters.compactMap(.value)
+            .filter { $0.sourceViewForDrag === sourceView }
     }
 
     /// Promotes all writers belonging to one native session and returns their
@@ -58,8 +73,9 @@ final class FilePreviewNativeDragPendingOwnership {
             }
             tokenOwnership.remove(id: tokenID)
         }
-        for writer in promotedWriters {
-            writers.remove(writer)
+        orderedWriters.removeAll { box in
+            guard let writer = box.value else { return true }
+            return promotedWriters.contains { $0 === writer }
         }
         return promotedOwnerships
     }
@@ -74,7 +90,8 @@ final class FilePreviewNativeDragPendingOwnership {
     /// so multi-row pasteboards resolve their first item correctly.
     func finishPending(preserving preservedWriters: [Writer]) {
         let preservedTokenIDs = Set(preservedWriters.compactMap { $0.provisionalToken?.id })
-        let pendingWriters = writers.allObjects
+        pruneWriterOrder()
+        let pendingWriters = orderedWriters.compactMap(.value)
         for writer in pendingWriters where !preservedWriters.contains(where: { $0 === writer }) {
             if let tokenID = writer.provisionalToken?.id {
                 ownershipByToken[tokenID]?.revokeRouting()
@@ -89,15 +106,16 @@ final class FilePreviewNativeDragPendingOwnership {
             ownershipByToken.removeValue(forKey: tokenID)
             tokenOwnership.remove(id: tokenID)
         }
-        writers.removeAllObjects()
-        for writer in preservedWriters {
-            writers.add(writer)
-        }
+        orderedWriters = preservedWriters.map(WeakWriter.init)
     }
 
     private func writerDidDeallocate(tokenID: UUID) {
         guard let ownership = ownershipByToken.removeValue(forKey: tokenID) else { return }
         ownership.revokeRouting()
         onWriterDeallocated(tokenID)
+    }
+
+    private func pruneWriterOrder() {
+        orderedWriters.removeAll { $0.value == nil }
     }
 }

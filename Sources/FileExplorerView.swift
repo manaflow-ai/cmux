@@ -604,7 +604,9 @@ struct FileExplorerPanelView: NSViewRepresentable {
                     promotedWriters.append(fallbackWriter)
                 }
                 pendingPreviewDrag.finishPending(preserving: promotedWriters)
-                let promotedWriter = promotedWriters.last ?? fallbackWriter
+                // The ordered list mirrors AppKit's pasteboard item order; use
+                // its first writer as the canonical source identity.
+                let promotedWriter = promotedWriters.first ?? fallbackWriter
                 let promotedOwnerships = pendingPreviewDrag.promote(writers: promotedWriters)
                 supersedeNativeDragIfNeeded(
                     previousSession: outlineView.activeNativeDragSession,
@@ -1788,7 +1790,9 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
             promotedWriters.append(fallbackWriter)
         }
         pendingPreviewDrag.finishPending(preserving: promotedWriters)
-        let promotedWriter = promotedWriters.last ?? fallbackWriter
+        // The ordered list mirrors AppKit's pasteboard item order; use its
+        // first writer as the canonical source identity.
+        let promotedWriter = promotedWriters.first ?? fallbackWriter
         let promotedOwnerships = pendingPreviewDrag.promote(writers: promotedWriters)
         coordinator.supersedeNativeDragIfNeeded(
             previousSession: searchResultsView.activeNativeDragSession,

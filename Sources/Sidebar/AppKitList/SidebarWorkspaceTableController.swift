@@ -57,6 +57,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     // keep a weak marker here so teardown can distinguish a live writer from an
     // ordinary, already-finished table update without retaining a second cycle.
     private weak var pendingWorkspaceDragWriter: SidebarWorkspaceDragPasteboardWriter?
+    private var pendingWorkspaceDragTokenID: UUID?
     // The native NSDraggingItem owns the writer through endedAt; the
     // controller keeps only the exact source table and cleanup identities.
     private weak var activeWorkspaceDragWriter: SidebarWorkspaceDragPasteboardWriter?
@@ -165,13 +166,16 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         }
         workspaceDragWriterOwnership.removeAll()
         pendingWorkspaceDragWriter = nil
+        pendingWorkspaceDragTokenID = nil
         pendingWorkspaceDragWriters.removeAllObjects()
     }
 
     private func workspaceDragWriterDidDeallocate(tokenID: UUID) {
-        if pendingWorkspaceDragWriter?.provisionalToken.id == tokenID {
-            pendingWorkspaceDragWriter = nil
-        }
+        // ARC deallocation is bridged to the main actor asynchronously. An
+        // older token must not tear down a newer provisional request.
+        guard pendingWorkspaceDragTokenID == tokenID else { return }
+        pendingWorkspaceDragWriter = nil
+        pendingWorkspaceDragTokenID = nil
         guard !workspaceDragWriterOwnership.hasPendingTokens else { return }
         // A provisional writer has no AppKit `endedAt` callback. Its final
         // deallocation is the ownership boundary that proves no native source
@@ -1082,6 +1086,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // latched. A subsequent `willBeginAt` can then recover the new row's
         // payload after the old generation's terminal callback was suppressed.
         pendingWorkspaceDragWriter = writer
+        pendingWorkspaceDragTokenID = writer.provisionalToken.id
         pendingWorkspaceDragWriters.setObject(writer, forKey: tableView)
         if isWorkspaceDragSourceActive {
             // A writer requested while a native session is already active is
@@ -1196,11 +1201,20 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             let payloadWorkspaceId = workspaceId
             pendingWorkspaceDragWorkspaceId = workspaceId
             activeWorkspaceDragSessionId = pendingWorkspaceDragSessionId
+            if provisionalWriterBelongsToTable {
+                if let activeWorkspaceDragSessionId {
+                    sourceWriter?.bind(
+                        to: activeWorkspaceDragSessionId,
+                        workspaceId: payloadWorkspaceId
+                    )
+                }
+            }
             if let activeWorkspaceDragSessionId {
-                let capabilityValue = SidebarTabDragPayload(
-                    tabId: payloadWorkspaceId,
-                    sessionId: activeWorkspaceDragSessionId
-                ).pasteboardValue
+                let capabilityValue = sourceWriter?.payloadValue
+                    ?? SidebarTabDragPayload(
+                        tabId: payloadWorkspaceId,
+                        sessionId: activeWorkspaceDragSessionId
+                    ).pasteboardValue
                 activeWorkspaceDragCapabilityValue = capabilityValue
                 // The writer runs before AppKit creates the session. Re-write
                 // the live pasteboard here so the terminal callback can fence
@@ -1209,12 +1223,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                     capabilityValue,
                     forType: NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
                 )
-                if provisionalWriterBelongsToTable {
-                    sourceWriter?.bind(
-                        to: activeWorkspaceDragSessionId,
-                        workspaceId: payloadWorkspaceId
-                    )
-                }
             }
         }
         clearPendingWorkspaceDragWriters(preserving: sourceWriter)
