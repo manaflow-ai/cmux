@@ -477,10 +477,21 @@ final class WindowBrowserHostView: NSView {
         // Live pane transfers stay in the portal so every source reaches the
         // same BrowserPaneDropTargetView router. Sidebar reorder and stale or
         // unknown transfer payloads still pass through to the SwiftUI layers.
+        let dragPasteboardTypes = dragPasteboard.types
         if Self.shouldPassThroughToDragTargets(
-            pasteboardTypes: dragPasteboard.types,
+            pasteboardTypes: dragPasteboardTypes,
             eventType: eventType,
-            hasActiveDropDrag: hasActivePaneDropDrag
+            hasActiveDropDrag: hasActivePaneDropDrag,
+            hasLiveTabTransfer: DragOverlayRoutingPolicy.hasLiveTabTransfer(
+                in: dragPasteboard,
+                pasteboardTypes: dragPasteboardTypes,
+                resolver: AppDelegate.shared?.liveTabDragCapabilityResolver
+            ),
+            hasLiveFileDropPayload: DragOverlayRoutingPolicy.hasLiveFileDropPayload(
+                from: dragPasteboard,
+                pasteboardTypes: dragPasteboardTypes,
+                resolver: AppDelegate.shared?.liveTabDragCapabilityResolver
+            )
         ) {
             if routingContext.eventKind == .pointerUp,
                hasActivePaneDropDrag,
@@ -695,6 +706,15 @@ final class WindowBrowserHostView: NSView {
             return false
         }
 
+        // The portal is installed above the SwiftUI content, so its cached slot
+        // frames can lag the native divider while a right-sidebar resize is in
+        // flight. Ask the live view hierarchy underneath the portal first. This
+        // delegates ownership to the actual synchronous tracker whenever the
+        // AppKit sidebar path is active, independent of portal geometry timing.
+        if shouldPassThroughToLiveSidebarDivider(at: point) {
+            return true
+        }
+
         // Browser portal host sits above SwiftUI content. Allow pointer/mouse events
         // to reach the SwiftUI sidebar divider resizer zone.
         let visibleSlots = subviews.compactMap { $0 as? WindowBrowserSlotView }
@@ -763,6 +783,37 @@ final class WindowBrowserHostView: NSView {
         let trailingGap = bounds.maxX - dividerX
         guard trailingGap > Self.minimumVisibleLeadingContentWidth else { return false }
         return SidebarResizeInteraction.Edge.trailing.hitRange(dividerX: dividerX).contains(point.x)
+    }
+
+    private func shouldPassThroughToLiveSidebarDivider(at point: NSPoint) -> Bool {
+        guard let rootView = dividerSearchRootView(),
+              let hostIndex = rootView.subviews.firstIndex(where: { $0 === self }),
+              let window else {
+            return false
+        }
+
+        let windowPoint = convert(point, to: nil)
+        for sibling in rootView.subviews[..<hostIndex].reversed() {
+            guard sibling.window === window,
+                  !sibling.isHidden,
+                  sibling.alphaValue > 0 else {
+                continue
+            }
+            let pointInSibling = sibling.convert(windowPoint, from: nil)
+            guard sibling.bounds.contains(pointInSibling),
+                  let hitView = sibling.hitTest(pointInSibling) else {
+                continue
+            }
+
+            var current: NSView? = hitView
+            while let view = current {
+                if view is SidebarDividerTrackingView {
+                    return true
+                }
+                current = view.superview
+            }
+        }
+        return false
     }
 
     private func updateDividerCursor(
@@ -839,12 +890,16 @@ final class WindowBrowserHostView: NSView {
     static func shouldPassThroughToDragTargets(
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         eventType: NSEvent.EventType?,
-        hasActiveDropDrag: Bool = false
+        hasActiveDropDrag: Bool = false,
+        hasLiveTabTransfer: Bool = false,
+        hasLiveFileDropPayload: Bool = false
     ) -> Bool {
         DragOverlayRoutingPolicy.shouldPassThroughPortalHitTesting(
             pasteboardTypes: pasteboardTypes,
             eventType: eventType,
-            hasActiveDropDrag: hasActiveDropDrag
+            hasActiveDropDrag: hasActiveDropDrag,
+            hasLiveTabTransfer: hasLiveTabTransfer,
+            hasLiveFileDropPayload: hasLiveFileDropPayload
         )
     }
 
@@ -1322,7 +1377,21 @@ final class WindowBrowserSlotView: NSView {
 
     func setPaneDropContext(_ context: BrowserPaneDropContext?) {
         paneDropTargetView.dropContext = context
-        isRightSidebarDockSlot = context.map { AppDelegate.shared?.dockForPane($0.paneId) != nil } ?? false
+        // The pane context is the authoritative ownership snapshot whenever it
+        // is available. A nil context is also used by portal recovery while a
+        // visible slot keeps its frame, so do not erase the stable Dock
+        // classification during that transient routing-context gap.
+        if let context {
+            isRightSidebarDockSlot = context.isDockHosted
+        }
+    }
+
+    /// Clears both the active drop-routing context and the stable Dock
+    /// ownership classification. This is for a real hide/release, not for the
+    /// transient context gaps that occur while a visible portal is reparented.
+    func clearPaneDropContext() {
+        paneDropTargetView.dropContext = nil
+        isRightSidebarDockSlot = false
     }
 
     var currentPaneDropContext: BrowserPaneDropContext? {
@@ -2442,7 +2511,14 @@ final class WindowBrowserPortal: NSObject {
 
     private func ensureContainerView(for entry: Entry, webView: WKWebView) -> WindowBrowserSlotView {
         if let existing = entry.containerView {
-            existing.setPaneDropContext(entry.paneDropContext)
+            if let paneDropContext = entry.paneDropContext {
+                existing.setPaneDropContext(paneDropContext)
+            } else {
+                // A missing entry snapshot is a transient routing gap during
+                // portal rebinds. Keep the slot's stable ownership until an
+                // explicit hide/release path clears it.
+                existing.setPaneDropContext(nil)
+            }
             existing.setSearchOverlay(entry.searchOverlay)
             existing.setDesignComposer(entry.designComposer)
             existing.setOmnibarSuggestions(entry.omnibarSuggestions)
@@ -2450,7 +2526,9 @@ final class WindowBrowserPortal: NSObject {
             return existing
         }
         let created = WindowBrowserSlotView(frame: .zero)
-        created.setPaneDropContext(entry.paneDropContext)
+        if let paneDropContext = entry.paneDropContext {
+            created.setPaneDropContext(paneDropContext)
+        }
         created.setSearchOverlay(entry.searchOverlay)
         created.setDesignComposer(entry.designComposer)
         created.setOmnibarSuggestions(entry.omnibarSuggestions)
@@ -2857,7 +2935,19 @@ final class WindowBrowserPortal: NSObject {
         guard entry.paneDropContext != context else { return }
         entry.paneDropContext = context
         entriesByWebViewId[webViewId] = entry
-        entry.containerView?.setPaneDropContext(context)
+        guard let containerView = entry.containerView else { return }
+        if let context {
+            containerView.setPaneDropContext(context)
+        } else if !containerView.isHidden {
+            // A mounted portal can lose its SwiftUI routing snapshot during
+            // reparenting before the entry's visibility flag catches up. Use
+            // the physical slot state here: while the slot is still visible,
+            // retain its stable Dock ownership until a real hide/release path
+            // calls clearPaneDropContext().
+            containerView.setPaneDropContext(nil)
+        } else {
+            containerView.clearPaneDropContext()
+        }
     }
 
     func paneDropContext(forWebViewId webViewId: ObjectIdentifier) -> BrowserPaneDropContext? {
@@ -3016,12 +3106,22 @@ final class WindowBrowserPortal: NSObject {
         )
     }
 
-    func bind(webView: WKWebView, to anchorView: NSView, visibleInUI: Bool, zPriority: Int = 0) {
+    func bind(
+        webView: WKWebView,
+        to anchorView: NSView,
+        visibleInUI: Bool,
+        zPriority: Int = 0,
+        paneDropContext: BrowserPaneDropContext? = nil
+    ) {
         guard ensureInstalled() else { return }
 
         let webViewId = ObjectIdentifier(webView)
         let anchorId = ObjectIdentifier(anchorView)
         let previousEntry = entriesByWebViewId[webViewId]
+        // A non-nil context supplied by a reconciler is an atomic ownership
+        // seed. Otherwise retain the entry snapshot until SwiftUI delivers its
+        // next authoritative update.
+        let resolvedPaneDropContext = paneDropContext ?? previousEntry?.paneDropContext
         let shouldPreserveExternalFullscreenHost =
             webView.cmuxIsManagedByExternalFullscreenWindow(relativeTo: window)
         let containerView = ensureContainerView(
@@ -3072,7 +3172,7 @@ final class WindowBrowserPortal: NSObject {
             visibleInUI: visibleInUI,
             zPriority: zPriority,
             dropZone: previousEntry?.dropZone,
-            paneDropContext: previousEntry?.paneDropContext,
+            paneDropContext: resolvedPaneDropContext,
             searchOverlay: previousEntry?.searchOverlay,
             designComposer: previousEntry?.designComposer,
             omnibarSuggestions: previousEntry?.omnibarSuggestions,
@@ -3080,6 +3180,11 @@ final class WindowBrowserPortal: NSObject {
             transientRecoveryReason: previousEntry?.transientRecoveryReason,
             transientRecoveryRetriesRemaining: previousEntry?.transientRecoveryRetriesRemaining ?? 0
         )
+        if let resolvedPaneDropContext {
+            containerView.setPaneDropContext(resolvedPaneDropContext)
+        } else if previousEntry == nil {
+            containerView.clearPaneDropContext()
+        }
 
         let didChangeAnchor: Bool = {
             guard let previousAnchor = previousEntry?.anchorView else { return true }
@@ -3277,7 +3382,14 @@ final class WindowBrowserPortal: NSObject {
             containerView.setSearchOverlay(nil)
             containerView.setDesignComposer(nil)
             containerView.setOmnibarSuggestions(nil)
-            containerView.setPaneDropContext(nil)
+            if entry.visibleInUI {
+                // Anchor/geometry recovery can hide a still-owned slot for one
+                // pass. Keep its Dock classification through that transient
+                // state; an explicit visibility update or release clears it.
+                containerView.setPaneDropContext(nil)
+            } else {
+                containerView.clearPaneDropContext()
+            }
             containerView.setPortalDragDropZone(nil)
             containerView.setDropZoneOverlay(zone: nil)
             // Tab/workspace visibility changes should hide the portal slot without forcing
@@ -3721,7 +3833,17 @@ final class WindowBrowserPortal: NSObject {
         containerView.setSearchOverlay(shouldHide ? nil : entry.searchOverlay)
         containerView.setDesignComposer(shouldHide ? nil : entry.designComposer)
         containerView.setOmnibarSuggestions(shouldHide ? nil : entry.omnibarSuggestions)
-        containerView.setPaneDropContext(containerView.isHidden ? nil : entry.paneDropContext)
+        if containerView.isHidden {
+            if entry.visibleInUI {
+                // The hidden slot may be waiting for a transient anchor/window
+                // recovery. Preserve ownership until the slot is truly released.
+                containerView.setPaneDropContext(nil)
+            } else {
+                containerView.clearPaneDropContext()
+            }
+        } else {
+            containerView.setPaneDropContext(entry.paneDropContext)
+        }
         containerView.setDropZoneOverlay(zone: containerView.isHidden ? nil : entry.dropZone)
         if revealedForDisplay {
             refreshReasons.append("reveal")
@@ -3995,7 +4117,13 @@ enum BrowserWindowPortalRegistry {
         return portal
     }
 
-    static func bind(webView: WKWebView, to anchorView: NSView, visibleInUI: Bool, zPriority: Int = 0) {
+    static func bind(
+        webView: WKWebView,
+        to anchorView: NSView,
+        visibleInUI: Bool,
+        zPriority: Int = 0,
+        paneDropContext: BrowserPaneDropContext? = nil
+    ) {
         guard let window = anchorView.window else { return }
 
         let windowId = ObjectIdentifier(window)
@@ -4007,7 +4135,13 @@ enum BrowserWindowPortalRegistry {
             portalsByWindowId[oldWindowId]?.detachWebView(withId: webViewId)
         }
 
-        nextPortal.bind(webView: webView, to: anchorView, visibleInUI: visibleInUI, zPriority: zPriority)
+        nextPortal.bind(
+            webView: webView,
+            to: anchorView,
+            visibleInUI: visibleInUI,
+            zPriority: zPriority,
+            paneDropContext: paneDropContext
+        )
         webViewToWindowId[webViewId] = windowId
         pruneWebViewMappings(for: windowId, validWebViewIds: nextPortal.webViewIds())
         postRegistryDidChange(for: webView)

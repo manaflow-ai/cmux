@@ -32,6 +32,12 @@ import SwiftUI
 /// no wrapping or casting. Reads work without an injected ``SettingsRuntime``
 /// (the `@State` is seeded from the catalog default); the runtime is only
 /// needed to observe and persist changes, resolved from the environment.
+/// Deliberately not main-actor isolated. SwiftUI's `DynamicProperty.update()`
+/// requirement is nonisolated, so a main-actor conformance forces a
+/// cross-isolation bridge whose runtime executor check crashes on macOS 26.4.x.
+/// SwiftUI drives `update()` and the property-wrapper accessors on the main
+/// thread, while the wrapper's stored members are value projections or
+/// `Sendable` closures.
 @propertyWrapper
 public struct LiveSetting<Value: SettingCodable>: DynamicProperty {
     @Environment(\.settingsRuntime) private var runtime
@@ -130,7 +136,11 @@ public struct LiveSetting<Value: SettingCodable>: DynamicProperty {
     /// executor check on every view update.
     public func update() {
         guard let runtime else { return }
+        // Capture locals so the closures passed to `activate` don't capture
+        // `self` (a non-Sendable struct) — avoids a Swift 6 sendable-capture
+        // warning now that this type is nonisolated.
         let binding = $value
+        let makeStream = makeStream
         driver.activate({ makeStream(runtime) }) { binding.wrappedValue = $0 }
     }
 }

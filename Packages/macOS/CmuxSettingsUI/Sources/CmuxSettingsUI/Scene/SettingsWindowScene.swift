@@ -506,6 +506,14 @@ public struct SettingsWindowRoot: View {
         )
         .id(anchorID(for: .automation))
 
+        ComputerUseSection(
+            jsonStore: jsonStore,
+            catalog: catalog,
+            errorLog: runtime.errorLog,
+            hostActions: hostActions
+        )
+        .id(anchorID(for: .computerUse))
+
         BrowserSection(
             defaultsStore: defaultsStore,
             catalog: catalog,

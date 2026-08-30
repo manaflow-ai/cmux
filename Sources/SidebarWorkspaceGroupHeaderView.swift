@@ -319,8 +319,6 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 leadingInset: metrics.groupScopedBottomDropIndicatorLeadingInset
             )
         }
-        .onDrag(onDragStart)
-        .internalOnlyTabDrag()
         .contextMenu {
             Button(
                 String(

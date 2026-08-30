@@ -257,11 +257,20 @@ struct VMSummary {
     let image: String
     let createdAt: Int64
     let base: VMBaseSummary?
+    /// The backend's `kind` (desktop/base) when it reports one; older control
+    /// planes omit it and ``resolvedKind`` infers it from the image id.
+    var kind: VMMachineKind? = nil
     /// User-chosen label; the id stays the machine's address.
     var displayName: String?
+    /// When the free plan's access window closes for this machine (epoch ms);
+    /// nil on paid plans or when the window is disabled server-side.
+    var freeAccessExpiresAt: Int64?
 
     /// The name to show people: the label when set, otherwise the machine id.
     var preferredName: String { displayName?.isEmpty == false ? displayName! : id }
+
+    /// Whether the machine has a screen: the server's word first, image name second.
+    var resolvedKind: VMMachineKind { kind ?? VMMachineKind.inferred(fromImage: image) }
 }
 
 /// Plan context served alongside the machine list: how many active VMs the
@@ -269,6 +278,14 @@ struct VMSummary {
 struct VMPlanLimits {
     let maxActiveVms: Int
     let planId: String
+    /// Days a free-plan machine stays reachable after creation; 0 = no window.
+    let freeAccessWindowDays: Int
+    /// The earliest free-access expiry across the caller's machines (epoch ms);
+    /// nil when no machine is on a window. Server-authoritative.
+    var freeAccessExpiresAt: Int64?
+    /// Which image each kind provisions on the caller's provider, for the New
+    /// Machine sheet's summary line. Empty on control planes that predate it.
+    var imageKinds: [VMImageKindOption] = []
 }
 
 struct VMListPage {
@@ -381,6 +398,37 @@ struct VMWebSocketDaemonEndpoint {
     let expiresAtUnix: Int64
 }
 
+/// Attach through the cmux-tui remote daemon in the machine (Phase 1 of the
+/// cmuxd-remote → cmux-tui migration). The route carries the ingress token; the
+/// invitation is present only when this device is not yet enrolled with the daemon.
+struct VMCmuxRemoteEndpoint {
+    struct Invitation {
+        let uri: String
+        let invitationId: String
+        let expiresAtUnix: Int64
+    }
+
+    let route: String
+    let token: String
+    let expiresAtUnix: Int64
+    let session: String
+    let invitation: Invitation?
+    /// The machine daemon's build identity, for naming a protocol mismatch.
+    struct DaemonBuild {
+        let commit: String?
+        let remoteProtocol: Int?
+        let version: String?
+    }
+
+    let daemonBuild: DaemonBuild?
+}
+
+struct VMCmuxRemoteApproval {
+    let approved: Bool
+    let state: String
+    let deviceFingerprint: String?
+}
+
 enum VMAttachEndpoint {
     case ssh(VMSSHEndpoint)
     case websocket(VMWebSocketPtyEndpoint)
@@ -445,7 +493,16 @@ actor VMClient {
         if let rawLimits = obj["limits"] as? [String: Any],
            let maxActiveVms = (rawLimits["maxActiveVms"] as? Int) ?? (rawLimits["maxActiveVms"] as? NSNumber)?.intValue,
            let planId = rawLimits["planId"] as? String {
-            limits = VMPlanLimits(maxActiveVms: maxActiveVms, planId: planId)
+            let freeAccessWindowDays = (rawLimits["freeAccessWindowDays"] as? Int)
+                ?? (rawLimits["freeAccessWindowDays"] as? NSNumber)?.intValue
+                ?? 0
+            limits = VMPlanLimits(
+                maxActiveVms: maxActiveVms,
+                planId: planId,
+                freeAccessWindowDays: freeAccessWindowDays,
+                freeAccessExpiresAt: Self.epochMilliseconds(rawLimits["freeAccessExpiresAt"]),
+                imageKinds: Self.decodeImageKinds(rawLimits["imageKinds"])
+            )
         }
         let vms = try items.enumerated().map { index, dict -> VMSummary in
             guard let id = dict["id"] as? String, !id.isEmpty else {
@@ -462,17 +519,47 @@ actor VMClient {
             let createdAt = (dict["createdAt"] as? Int64)
                 ?? Int64((dict["createdAt"] as? Double) ?? 0)
             var summary = VMSummary(id: id, provider: provider, status: displayStatus, image: image, createdAt: createdAt, base: decodeBaseSummary(dict["base"]))
+            summary.kind = Self.decodeKind(dict["kind"])
             if let label = dict["displayName"] as? String, !label.isEmpty {
                 summary.displayName = label
             }
+            summary.freeAccessExpiresAt = Self.epochMilliseconds(dict["freeAccessExpiresAt"])
             return summary
         }
         return VMListPage(vms: vms, limits: limits)
     }
 
-    func create(image: String? = nil, provider: String? = nil, persistentHome: Bool = false, perMachineHome: Bool = false, memoryMb: Int? = nil, idempotencyKey: String) async throws -> VMSummary {
+    /// A valid `kind` string → the kind; anything else → nil so the image
+    /// heuristic decides.
+    private static func decodeKind(_ raw: Any?) -> VMMachineKind? {
+        guard let raw = raw as? String else { return nil }
+        return VMMachineKind(rawValue: raw.lowercased())
+    }
+
+    /// `limits.imageKinds: [{kind, image}]`; malformed entries are skipped.
+    private static func decodeImageKinds(_ raw: Any?) -> [VMImageKindOption] {
+        guard let items = raw as? [[String: Any]] else { return [] }
+        return items.compactMap { item in
+            guard let kind = decodeKind(item["kind"]),
+                  let image = item["image"] as? String, !image.isEmpty else { return nil }
+            return VMImageKindOption(kind: kind, image: image)
+        }
+    }
+
+    /// JSON numbers arrive as Int64 or Double depending on magnitude; `null`/absent → nil.
+    private static func epochMilliseconds(_ raw: Any?) -> Int64? {
+        if let value = raw as? Int64 { return value }
+        if let value = raw as? Int { return Int64(value) }
+        if let value = raw as? Double, value.isFinite { return Int64(value) }
+        return nil
+    }
+
+    /// Creates a machine. `kind` asks the backend for its desktop or shell image;
+    /// `image` is the explicit override (`vm new --image`) and wins server-side.
+    func create(image: String? = nil, kind: VMMachineKind? = nil, provider: String? = nil, persistentHome: Bool = false, perMachineHome: Bool = false, memoryMb: Int? = nil, idempotencyKey: String) async throws -> VMSummary {
         var body: [String: Any] = [:]
         if let image { body["image"] = image }
+        if let kind { body["kind"] = kind.rawValue }
         if let provider { body["provider"] = provider }
         if persistentHome { body["persistentHome"] = true }
         if perMachineHome { body["perMachineHome"] = true }
@@ -505,22 +592,27 @@ actor VMClient {
         let createdAt = serverCreatedAt > 0 ? serverCreatedAt : Int64(Date().timeIntervalSince1970 * 1000)
         let rawStatus = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "running"
-        return VMSummary(id: id, provider: providerValue, status: displayStatus, image: imageValue, createdAt: createdAt, base: nil)
+        var summary = VMSummary(id: id, provider: providerValue, status: displayStatus, image: imageValue, createdAt: createdAt, base: nil)
+        summary.kind = Self.decodeKind(obj["kind"])
+        return summary
     }
 
-    func openBase(name: String? = nil) async throws -> VMSummary {
-        try await baseRequest(path: "/api/vm/base/open", name: name, reason: nil)
+    /// Opens (creating on first use) the persistent Base machine. `kind` only
+    /// matters when Base does not exist yet; an existing Base keeps its image.
+    func openBase(name: String? = nil, kind: VMMachineKind? = nil) async throws -> VMSummary {
+        try await baseRequest(path: "/api/vm/base/open", name: name, kind: kind, reason: nil)
     }
 
-    func resetBase(name: String? = nil, reason: String? = nil) async throws -> VMSummary {
-        try await baseRequest(path: "/api/vm/base/reset", name: name, reason: reason)
+    func resetBase(name: String? = nil, kind: VMMachineKind? = nil, reason: String? = nil) async throws -> VMSummary {
+        try await baseRequest(path: "/api/vm/base/reset", name: name, kind: kind, reason: reason)
     }
 
-    private func baseRequest(path: String, name: String?, reason: String?) async throws -> VMSummary {
+    private func baseRequest(path: String, name: String?, kind: VMMachineKind?, reason: String?) async throws -> VMSummary {
         var body: [String: Any] = [:]
         if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             body["name"] = name
         }
+        if let kind { body["kind"] = kind.rawValue }
         if let reason, !reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             body["reason"] = reason
         }
@@ -543,7 +635,9 @@ actor VMClient {
         let createdAt = serverCreatedAt > 0 ? serverCreatedAt : Int64(Date().timeIntervalSince1970 * 1000)
         let rawStatus = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "running"
-        return VMSummary(id: id, provider: providerValue, status: displayStatus, image: imageValue, createdAt: createdAt, base: decodeBaseSummary(obj["base"]))
+        var summary = VMSummary(id: id, provider: providerValue, status: displayStatus, image: imageValue, createdAt: createdAt, base: decodeBaseSummary(obj["base"]))
+        summary.kind = Self.decodeKind(obj["kind"])
+        return summary
     }
 
     func status(id: String) async throws -> VMSummary {
@@ -561,7 +655,12 @@ actor VMClient {
             ?? Int64((obj["createdAt"] as? Double) ?? 0)
         let rawStatus = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "unknown"
-        return VMSummary(id: id, provider: provider, status: displayStatus, image: image, createdAt: createdAt, base: decodeBaseSummary(obj["base"]))
+        var summary = VMSummary(id: id, provider: provider, status: displayStatus, image: image, createdAt: createdAt, base: decodeBaseSummary(obj["base"]))
+        summary.kind = Self.decodeKind(obj["kind"])
+        if let label = obj["displayName"] as? String, !label.isEmpty {
+            summary.displayName = label
+        }
+        return summary
     }
 
     /// Sets or clears the machine's user-facing label via PATCH /api/vm/{id}.
@@ -701,6 +800,95 @@ actor VMClient {
         try ensureOK(http, data: data)
         let obj = try decodeJSONObject(data)
         return try decodeAttachEndpoint(obj)
+    }
+
+    /// Transport capabilities a cmux-tui client may advertise (`remote-probe --json` →
+    /// `capabilities`). The control plane keys routing on them — `direct-ws-user-agent`
+    /// earns the branded machine host — so only well-formed tokens travel: short
+    /// lowercase slugs, deduplicated in order, capped like the server's validator.
+    static func sanitizedClientCapabilities(_ raw: [String]) -> [String] {
+        var seen = Set<String>()
+        var tokens: [String] = []
+        for entry in raw {
+            let token = entry.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard token.range(of: "^[a-z0-9-]{1,64}$", options: .regularExpression) != nil,
+                  seen.insert(token).inserted else { continue }
+            tokens.append(token)
+            if tokens.count == 16 { break }
+        }
+        return tokens
+    }
+
+    func openCmuxRemote(
+        id: String,
+        deviceFingerprint: String? = nil,
+        clientCapabilities: [String] = []
+    ) async throws -> VMCmuxRemoteEndpoint {
+        let encodedID = try pathSegment(id, fieldName: "vm id")
+        var body: [String: Any] = ["transport": "cmux-remote"]
+        if let deviceFingerprint, !deviceFingerprint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            body["deviceFingerprint"] = deviceFingerprint
+        }
+        let capabilities = Self.sanitizedClientCapabilities(clientCapabilities)
+        if !capabilities.isEmpty {
+            body["clientCapabilities"] = capabilities
+        }
+        let (data, http) = try await request(
+            "POST",
+            path: "/api/vm/\(encodedID)/attach-endpoint",
+            jsonBody: body,
+            timeoutSeconds: Self.attachTimeoutSeconds
+        )
+        try ensureOK(http, data: data)
+        let obj = try decodeJSONObject(data)
+        guard (obj["transport"] as? String) == "cmux-remote",
+              let route = obj["route"] as? String, !route.isEmpty,
+              let token = obj["token"] as? String,
+              let session = obj["session"] as? String else {
+            throw VMClientError.malformedResponse("Cloud VM cmux-remote attach response was missing required fields.")
+        }
+        let expiresAtUnix = (obj["expiresAtUnix"] as? Int64) ?? Int64((obj["expiresAtUnix"] as? Double) ?? 0)
+        var invitation: VMCmuxRemoteEndpoint.Invitation?
+        if let raw = obj["invitation"] as? [String: Any],
+           let uri = raw["uri"] as? String, !uri.isEmpty,
+           let invitationId = raw["invitationId"] as? String, !invitationId.isEmpty {
+            let invitationExpires = (raw["expiresAtUnix"] as? Int64) ?? Int64((raw["expiresAtUnix"] as? Double) ?? 0)
+            invitation = .init(uri: uri, invitationId: invitationId, expiresAtUnix: invitationExpires)
+        }
+        var daemonBuild: VMCmuxRemoteEndpoint.DaemonBuild?
+        if let raw = obj["daemonBuild"] as? [String: Any] {
+            daemonBuild = .init(
+                commit: raw["commit"] as? String,
+                remoteProtocol: (raw["remoteProtocol"] as? Int) ?? (raw["remoteProtocol"] as? Double).map(Int.init),
+                version: raw["version"] as? String
+            )
+        }
+        return VMCmuxRemoteEndpoint(
+            route: route,
+            token: token,
+            expiresAtUnix: expiresAtUnix,
+            session: session,
+            invitation: invitation,
+            daemonBuild: daemonBuild
+        )
+    }
+
+    func approveCmuxRemoteEnrollment(id: String, invitationId: String) async throws -> VMCmuxRemoteApproval {
+        let encodedID = try pathSegment(id, fieldName: "vm id")
+        let (data, http) = try await request(
+            "POST",
+            path: "/api/vm/\(encodedID)/cmux-remote/approve",
+            jsonBody: ["invitationId": invitationId],
+            timeoutSeconds: 60
+        )
+        try ensureOK(http, data: data)
+        let obj = try decodeJSONObject(data)
+        let state = (obj["state"] as? String) ?? "pending"
+        return VMCmuxRemoteApproval(
+            approved: (obj["approved"] as? Bool) ?? false,
+            state: state,
+            deviceFingerprint: obj["deviceFingerprint"] as? String
+        )
     }
 
     func listSessions(id: String) async throws -> [VMCloudSession] {
