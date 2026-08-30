@@ -1126,9 +1126,13 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
         if page.records.is_empty() {
             break;
         }
+        let previous_cursor = host.cursor;
         for record in &page.records {
             host.roster.apply(&RosterEvent::from_record(record));
             host.cursor = host.cursor.max(record.sequence);
+        }
+        if host.cursor == previous_cursor {
+            break;
         }
     }
     if host.cursor != initial_cursor || !snapshot_valid {
@@ -5692,6 +5696,7 @@ impl Mux {
                     return;
                 }
             };
+            let mut advanced = false;
             for record in page.records {
                 if record.sequence <= read_cursor {
                     continue;
@@ -5709,6 +5714,12 @@ impl Mux {
                     self.apply_roster_delta_to_record_cache(delta);
                 }
                 read_cursor = record.sequence;
+                advanced = true;
+                if read_cursor == commit.sequence {
+                    break;
+                }
+            }
+            if advanced {
                 let (cursor, snapshot) = {
                     let host = self.agent_roster.lock().unwrap();
                     (host.cursor, host.roster.snapshot().to_string())
@@ -5723,9 +5734,11 @@ impl Mux {
                 {
                     eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
                 }
-                if read_cursor == commit.sequence {
-                    return;
-                }
+            } else {
+                return;
+            }
+            if read_cursor >= commit.sequence {
+                return;
             }
         }
     }
