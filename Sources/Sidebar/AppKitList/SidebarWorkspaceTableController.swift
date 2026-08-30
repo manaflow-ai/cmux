@@ -146,8 +146,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private func clearPendingWorkspaceDragWriters(
         preserving preservedWriter: SidebarWorkspaceDragPasteboardWriter? = nil
     ) {
-        let pendingWriters = pendingWorkspaceDragWriters.objectEnumerator()?.allObjects ?? []
-            .compactMap { $0 as? SidebarWorkspaceDragPasteboardWriter }
+        let pendingWriters = (
+            pendingWorkspaceDragWriters.objectEnumerator()?.allObjects ?? []
+        ).compactMap { $0 as? SidebarWorkspaceDragPasteboardWriter }
         for writer in pendingWriters where writer !== preservedWriter {
             if let tableView = writer.sourceViewForDrag as? SidebarWorkspaceTableViewImpl,
                tableView !== activeWorkspaceDragTableView {
@@ -330,7 +331,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             contextMenuRowId = nil
         }
         cancelSelectionIntent()
-        clearDropViewActions(in: container)
+        if !preserveNativeDragPresentation {
+            clearDropViewActions(in: container)
+        }
         setAppKitDropIndicator(nil, scope: .raw, includeRowTargets: false)
         if !preserveNativeDragPresentation && !preserveProvisionalWorkspaceDrag {
             detachController(from: container.tableView)

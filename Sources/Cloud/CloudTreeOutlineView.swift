@@ -107,14 +107,17 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         private func discardAllPendingDrags(
             preserving preservedWriter: CloudTreeSurfaceDragPasteboardWriter? = nil
         ) {
-            let pending = pendingDrags.values
+            let pending = pendingDrags
             pendingDrags.removeAll(keepingCapacity: false)
-            dragWriterOwnership.removeAll()
             latestPendingDragWriter = nil
-            for pending in pending {
-                if pending.writer !== preservedWriter {
-                    pending.writer?.releaseSourceGraph()
+            for (tokenID, pending) in pending {
+                if pending.writer === preservedWriter {
+                    pendingDrags[tokenID] = pending
+                    latestPendingDragWriter = preservedWriter
+                    continue
                 }
+                dragWriterOwnership.remove(id: tokenID)
+                pending.writer?.releaseSourceGraph()
                 discardPendingDrag(pending)
             }
         }
