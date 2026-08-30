@@ -1212,6 +1212,10 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
     // terminal. Use the current journal head as the fence cursor because all
     // rows replayed above are at or below it.
     let journal_head = registry.session_journal_after(0, 1)?.head_sequence;
+    // The synchronous pass is deliberately bounded. Mark every incomplete
+    // replay, including a prefix blocked on a pending projection, so the
+    // background worker continues from the same cursor after construction.
+    host.startup_replay_pending = host.cursor < journal_head;
     for terminal_id in registry.tombstoned_terminal_public_ids()? {
         host.roster.retire_terminal(terminal_id.as_str(), journal_head);
     }
@@ -2565,39 +2569,13 @@ impl Mux {
         // legacy record cache in sync for compatibility with direct hook
         // projection paths and older callers that inspect it during startup.
         let mut agent_records = agent_records;
-        // A reducer Remove means that this terminal ended. Do not resurrect
-        // its old compatibility projection after a crash between the journal
-        // commit and projection update. Keep records for other terminals that
-        // have no roster event yet, because direct hook reports still use the
-        // compatibility path.
-        agent_records.retain(|terminal_id, _| {
-            !agent_roster.roster.has_terminal_removal_fence(terminal_id.as_str())
-        });
-        for (terminal_id, entry) in &agent_roster.roster.entries {
-            let Ok(terminal_id) = TerminalPublicId::parse(terminal_id) else { continue };
-            let record = TerminalAgentRecord {
-                state: entry.agent_state(),
-                source: entry.agent_source(),
-                session: entry.session.clone(),
-                agent: entry.agent.clone(),
-                updated_at_ms: entry.updated_at_ms,
-            };
-            // A repeated direct report refreshes the compatibility projection
-            // without appending a journal echo. On restart, retain that newer
-            // timestamp when the roster snapshot still has the older echo.
-            // Preserve only records with the same source, since source
-            // authority determines which projection is allowed to win.
-            let keep_newer_direct_record =
-                agent_records.get(&terminal_id).is_some_and(|existing| {
-                    matches!(existing.source, AgentSource::Socket | AgentSource::Detected)
-                        && existing.source == record.source
-                        && existing.state == record.state
-                        && existing.session == record.session
-                        && existing.updated_at_ms > record.updated_at_ms
-                });
-            if !keep_newer_direct_record {
-                agent_records.insert(terminal_id, record);
-            }
+        // A bounded startup replay may contain an older prefix of the
+        // journal. Do not let that partial reducer state replace the current
+        // public projection, which is already restored from the latest
+        // committed resource mutation. The worker reconciles this cache after
+        // it reaches the journal head.
+        if !agent_roster.startup_replay_pending {
+            merge_agent_roster_into_record_cache(&agent_roster.roster, &mut agent_records);
         }
         let journal_producers = registry.journal_producer_manifests()?;
         let session_public_id = registry.session_id().clone();
@@ -6140,6 +6118,26 @@ impl Mux {
                         continue;
                     }
 
+                    // The startup cache intentionally stayed on the
+                    // resource projection while the reducer consumed its
+                    // bounded prefix. Reconcile only after this race-safe
+                    // head check proves that the complete journal is folded.
+                    if mux.journal_event_epoch() != observed_epoch {
+                        continue;
+                    }
+                    let startup_replay_completed = {
+                        let mut host = mux.agent_roster.lock().unwrap();
+                        if host.startup_replay_pending && host.cursor >= current_head {
+                            host.startup_replay_pending = false;
+                            true
+                        } else {
+                            false
+                        }
+                    };
+                    if startup_replay_completed {
+                        mux.reconcile_agent_record_cache_from_roster();
+                    }
+
                     mux.agent_roster_fold_worker_running.store(false, Ordering::Release);
                     if mux.journal_event_epoch() != observed_epoch
                         && mux
@@ -6187,6 +6185,48 @@ impl Mux {
         }
         self.agent_roster.lock().unwrap().persisted_cursor = cursor;
         Ok(())
+    }
+
+    fn merge_agent_roster_into_record_cache(
+        roster: &crate::journal_reducers::AgentRoster,
+        records: &mut HashMap<TerminalPublicId, TerminalAgentRecord>,
+    ) {
+        // A durable removal or ended hook fence is stronger than a stale
+        // compatibility projection. Keep records for terminals with no
+        // roster decision yet, because direct reports may legitimately be
+        // newer than the last journal echo.
+        records.retain(|terminal_id, _| !roster.has_terminal_removal_fence(terminal_id.as_str()));
+        for (terminal_id, entry) in &roster.entries {
+            let Ok(terminal_id) = TerminalPublicId::parse(terminal_id) else { continue };
+            let record = TerminalAgentRecord {
+                state: entry.agent_state(),
+                source: entry.agent_source(),
+                session: entry.session.clone(),
+                agent: entry.agent.clone(),
+                updated_at_ms: entry.updated_at_ms,
+            };
+            // A repeated direct report refreshes the compatibility projection
+            // without appending a journal echo. Preserve that newer value when
+            // the roster snapshot still has an older equivalent transition.
+            // Source equality is required because authority determines which
+            // projection is allowed to win.
+            let keep_newer_direct_record = records.get(&terminal_id).is_some_and(|existing| {
+                matches!(existing.source, AgentSource::Socket | AgentSource::Detected)
+                    && existing.source == record.source
+                    && existing.state == record.state
+                    && existing.session == record.session
+                    && existing.updated_at_ms > record.updated_at_ms
+            });
+            if !keep_newer_direct_record {
+                records.insert(terminal_id, record);
+            }
+        }
+    }
+
+    fn reconcile_agent_record_cache_from_roster(&self) {
+        let roster = self.agent_roster.lock().unwrap().roster.clone();
+        let mut records = self.agent_records.lock().unwrap();
+        Self::merge_agent_roster_into_record_cache(&roster, &mut records);
     }
 
     fn apply_roster_delta_to_record_cache(&self, delta: crate::journal_reducers::RosterDelta) {
@@ -6264,11 +6304,11 @@ impl Mux {
                     && previous_session.as_deref() == session
             },
         );
-        let hook_owned_socket_report =
+        let hook_owned_external_report =
             previous.as_ref().is_some_and(|(_, previous_source, _, _)| {
-                previous_source == AgentSource::Hook.as_str() && source == AgentSource::Socket
+                previous_source == AgentSource::Hook.as_str() && source != AgentSource::Hook
             });
-        if unchanged || hook_owned_socket_report {
+        if unchanged || hook_owned_external_report {
             return None;
         }
         let previous = previous
@@ -6306,7 +6346,15 @@ impl Mux {
         updated_at_ms: u64,
         _idempotency_key: &str,
     ) -> anyhow::Result<crate::JournalIngress> {
-        use crate::journal_reducers::{SOCKET_REPORT_ADAPTER, SOCKET_REPORT_NATIVE_EVENT};
+        use crate::journal_reducers::{
+            DETECTED_REPORT_ADAPTER, DETECTED_REPORT_NATIVE_EVENT, SOCKET_REPORT_ADAPTER,
+            SOCKET_REPORT_NATIVE_EVENT,
+        };
+        let (adapter_id, native_event) = match source {
+            AgentSource::Socket => (SOCKET_REPORT_ADAPTER, SOCKET_REPORT_NATIVE_EVENT),
+            AgentSource::Detected => (DETECTED_REPORT_ADAPTER, DETECTED_REPORT_NATIVE_EVENT),
+            AgentSource::Hook => return Err(anyhow::anyhow!("hook reports do not use echoes")),
+        };
         let ingress = crate::JournalIngress {
             producer_id: crate::agent_hooks::AGENT_HOOK_PRODUCER_ID.into(),
             manifest_version: crate::agent_hooks::AGENT_HOOK_MANIFEST_VERSION,
@@ -6320,8 +6368,8 @@ impl Mux {
             sensitivity: Some(crate::JournalSensitivity::Sensitive),
             payload: serde_json::json!({
                 "format": crate::agent_hooks::AGENT_HOOK_FORMAT,
-                "adapter": {"id": SOCKET_REPORT_ADAPTER, "version": 1},
-                "native_event": SOCKET_REPORT_NATIVE_EVENT,
+                "adapter": {"id": adapter_id, "version": 1},
+                "native_event": native_event,
                 "normalized": {
                     "state": state.as_str(),
                     "source": source.as_str(),
@@ -9881,14 +9929,14 @@ impl Mux {
             "source":source.as_str(),
             "source_session":session,
         });
-        // Socket echo admission and its resource commit must share the same
-        // fence. Otherwise two equal polls can both derive the same key
-        // before either one publishes the receipt, and the replay path would
-        // incorrectly report a missing fresh record.
-        let socket_sequence_guard = (source == AgentSource::Socket && !sequence_lock_held)
+        // External echo admission and its resource commit must share the
+        // same fence. Otherwise two equal reports can both derive the same
+        // key before either one publishes the receipt, and the replay path
+        // can incorrectly report a missing fresh record.
+        let external_sequence_guard = (source != AgentSource::Hook && !sequence_lock_held)
             .then(|| self.agent_hook_fences.lock().unwrap());
-        let commit_sequence_lock_held = sequence_lock_held || socket_sequence_guard.is_some();
-        let (echo_sequence, echo_timestamp, echo_ingress) = if source == AgentSource::Socket {
+        let commit_sequence_lock_held = sequence_lock_held || external_sequence_guard.is_some();
+        let (echo_sequence, echo_timestamp, echo_ingress) = if source != AgentSource::Hook {
             let terminal_id = {
                 let state_guard = self.state.lock().unwrap();
                 let runtime = state_guard
@@ -9937,7 +9985,7 @@ impl Mux {
             echo_timestamp,
             echo_ingress.as_ref(),
         );
-        drop(socket_sequence_guard);
+        drop(external_sequence_guard);
         let (_, record, fold_receipt) = commit_result?;
         if let Some(receipt) = fold_receipt {
             self.fold_agent_roster(
@@ -9978,11 +10026,11 @@ impl Mux {
             "source_session":source_session,
         });
         // Hold the hook fence while deriving the semantic echo key and
-        // committing it. This closes the equal-poll race without adding a
+        // committing it. This closes the equal-report race without adding a
         // second, independent serialization primitive.
-        let socket_sequence_guard =
-            (source == AgentSource::Socket).then(|| self.agent_hook_fences.lock().unwrap());
-        let (journal_sequence, reported_at_ms, echo_ingress) = if source == AgentSource::Socket {
+        let external_sequence_guard =
+            (source != AgentSource::Hook).then(|| self.agent_hook_fences.lock().unwrap());
+        let (journal_sequence, reported_at_ms, echo_ingress) = if source != AgentSource::Hook {
             let timestamp = now_ms();
             match self.agent_report_echo_key(
                 terminal_id,
@@ -10014,7 +10062,7 @@ impl Mux {
             expected_revision,
             mutation,
             &fingerprint,
-            socket_sequence_guard.is_some(),
+            external_sequence_guard.is_some(),
             None,
             journal_sequence,
             AgentReportOrigin::Direct,
@@ -10022,7 +10070,7 @@ impl Mux {
             reported_at_ms,
             echo_ingress.as_ref(),
         );
-        drop(socket_sequence_guard);
+        drop(external_sequence_guard);
         if result.is_ok() && source != AgentSource::Hook {
             let _ = self.retry_pending_agent_hooks_for_terminal(terminal_id);
         }
@@ -10123,7 +10171,9 @@ impl Mux {
         if roster.roster.is_retired(terminal_id.as_str()) {
             anyhow::bail!("terminal {terminal_id} has been retired");
         }
-        let durable_hook_end = roster.roster.has_ended_hook_fence(terminal_id.as_str());
+        let durable_hook_session =
+            roster.roster.ended_hook_session(terminal_id.as_str()).map(str::to_owned);
+        let durable_hook_end = durable_hook_session.is_some();
         drop(roster);
         let mut direct_hook_state = None;
         if source != AgentSource::Hook {
@@ -10131,7 +10181,14 @@ impl Mux {
                 .as_ref()
                 .and_then(|guard| guard.get(&terminal_id))
                 .filter(|fence| fence.ended);
-            if durable_hook_end || ended_fence.is_some() {
+            let new_lifecycle_session = source_session.as_deref().is_some_and(|session| {
+                !session.is_empty()
+                    && !session.starts_with("cmux-hook-sequence:")
+                    && !session.starts_with("cmux-hook-ended:")
+                    && !ended_fence.is_some_and(|fence| session == fence.session_id)
+                    && !durable_hook_session.as_deref().is_some_and(|old| session == old)
+            });
+            if (durable_hook_end || ended_fence.is_some()) && !new_lifecycle_session {
                 anyhow::bail!("agent_session_ended");
             }
         } else if let Some(fence) = sequence_guard
@@ -10168,18 +10225,36 @@ impl Mux {
             }
         }
         let effective_hook_state = direct_hook_state.as_ref().or(hook_state);
-        let persisted_source_session = if source == AgentSource::Hook {
-            source_session.clone().filter(|value| {
-                !value.starts_with("cmux-hook-sequence:") && !value.starts_with("cmux-hook-ended:")
-            })
+        let source_session = if source == AgentSource::Hook {
+            // Internal sequence markers are transport metadata. Expose the
+            // validated native identity from hook state to clients, while
+            // keeping generated legacy identities private.
+            source_session
+                .filter(|value| {
+                    !value.starts_with("cmux-hook-sequence:")
+                        && !value.starts_with("cmux-hook-ended:")
+                })
+                .or_else(|| {
+                    hook_state.and_then(|state| {
+                        (!state.agent_session_id.starts_with("legacy:"))
+                            .then(|| state.agent_session_id.clone())
+                    })
+                })
         } else {
             if source_session.as_deref().is_some_and(|value| {
                 value.starts_with("cmux-hook-sequence:") || value.starts_with("cmux-hook-ended:")
             }) {
                 anyhow::bail!("reserved hook marker is invalid for non-hook agent source");
             }
-            // Preserve a valid fresh socket identity. The internal hook
-            // marker is only a compatibility fallback when no identity was
+            source_session.filter(|value| {
+                !value.starts_with("cmux-hook-sequence:") && !value.starts_with("cmux-hook-ended:")
+            })
+        };
+        let persisted_source_session = if source == AgentSource::Hook {
+            source_session.clone()
+        } else {
+            // Preserve a valid external identity. The internal hook marker
+            // is only a compatibility fallback when no identity was
             // supplied, while durable hook state carries the fence itself.
             source_session.clone().or_else(|| {
                 sequence_guard
@@ -10188,9 +10263,6 @@ impl Mux {
                     .map(|fence| format!("cmux-hook-sequence:{}", fence.sequence))
             })
         };
-        let source_session = source_session.filter(|value| {
-            !value.starts_with("cmux-hook-sequence:") && !value.starts_with("cmux-hook-ended:")
-        });
         let now = reported_at_ms.unwrap_or_else(now_ms);
         let mut records = self.agent_records.lock().unwrap();
         let lower_authority_report_ignored = records.get(&terminal_id).is_some_and(|existing| {
@@ -23051,7 +23123,7 @@ mod tests {
 
         let filtered = mux.list_agents(Some(surface.id), Some(AgentState::Blocked));
         assert_eq!(filtered.len(), 1);
-        assert_eq!(filtered[0].session, None);
+        assert_eq!(filtered[0].session.as_deref(), Some("hook-session"));
         assert!(mux.list_agents(Some(surface.id), Some(AgentState::Done)).is_empty());
         assert_eq!(mux.with_state(|state| state.resource_revision), initial_revision + 3);
         assert_eq!(mux.resource_event_epoch(), initial_epoch + 3);
@@ -23062,14 +23134,17 @@ mod tests {
         assert_eq!(resource_events.batches[1].changes[0]["value"]["source"], "hook");
         assert_eq!(resource_events.batches[2].changes[0]["value"]["source"], "hook");
         assert_eq!(resource_events.batches[2].changes[0]["value"]["state"], "blocked");
-        assert_eq!(resource_events.batches[2].changes[0]["value"]["source_session"], Value::Null);
+        assert_eq!(
+            resource_events.batches[2].changes[0]["value"]["source_session"],
+            "hook-session"
+        );
         assert!(matches!(
             events.recv_timeout(Duration::from_millis(100)),
             Ok(MuxEvent::AgentChanged {
                 surface: event_surface,
                 state,
                 source,
-                session: None,
+                session: Some(session),
                 ..
             }) if event_surface == surface.id
                 && state.as_ref() == "blocked"
@@ -23265,7 +23340,7 @@ mod tests {
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].state, AgentState::Blocked);
         assert_eq!(records[0].source, AgentSource::Hook);
-        assert_eq!(records[0].session, None);
+        assert_eq!(records[0].session.as_deref(), Some("racing-hook"));
         assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
         let batches = mux.resource_events_after(revision).unwrap().batches;
         assert_eq!(batches.len(), 2);
@@ -24895,7 +24970,7 @@ mod tests {
     }
 
     #[test]
-    fn fresh_socket_session_remains_fenced_until_explicit_hook_start() {
+    fn fresh_external_session_can_follow_hook_end_and_survives_restart() {
         let root = std::env::temp_dir()
             .join(format!("cmux-agent-hook-restart-{}", crate::workspace_registry::new_uuid_v4()));
         let mux =
@@ -24913,22 +24988,29 @@ mod tests {
         };
         mux.append_journal_ingress(&hook("SessionEnd", "old-hook"), "test", "ended-hook").unwrap();
 
-        assert!(
-            mux.report_agent(
+        let record = mux
+            .report_agent(
                 surface.id,
                 AgentState::Working,
                 AgentSource::Socket,
                 Some("new-socket-session".into()),
             )
-            .is_err()
-        );
-        assert!(mux.list_agents(Some(surface.id), None).is_empty());
+            .unwrap();
+        assert_eq!(record.source, AgentSource::Socket);
+        assert_eq!(record.session.as_deref(), Some("new-socket-session"));
 
         mux.shutdown();
         drop(mux);
         let reopened =
             Mux::open_persistent("agent-hook-restart", SurfaceOptions::default(), &root).unwrap();
         let reopened_surface = reopened.resource_surface_for_terminal(&terminal_id).unwrap();
+        let reopened_record = reopened
+            .list_agents(Some(reopened_surface), None)
+            .into_iter()
+            .next()
+            .expect("socket transition is restored from its journal echo");
+        assert_eq!(reopened_record.source, AgentSource::Socket);
+        assert_eq!(reopened_record.session.as_deref(), Some("new-socket-session"));
         assert!(
             reopened
                 .report_agent(
@@ -24937,9 +25019,8 @@ mod tests {
                     AgentSource::Socket,
                     Some("new-socket-session".into()),
                 )
-                .is_err()
+                .is_ok()
         );
-        assert!(reopened.list_agents(Some(reopened_surface), None).is_empty());
 
         reopened
             .append_journal_ingress(&hook("SessionStart", "new-hook"), "test", "new-hook-start")
@@ -24952,19 +25033,57 @@ mod tests {
                 .roster
                 .has_ended_hook_fence(terminal_id.as_str())
         );
-        assert!(
-            reopened
-                .report_agent(
-                    reopened_surface,
-                    AgentState::Working,
-                    AgentSource::Socket,
-                    Some("new-socket-session".into()),
-                )
-                .is_ok()
-        );
-        let reopened_record = &reopened.list_agents(Some(reopened_surface), None)[0];
-        assert_eq!(reopened_record.source, AgentSource::Hook);
+        let hook_record = reopened
+            .list_agents(Some(reopened_surface), None)
+            .into_iter()
+            .next()
+            .expect("new hook session is live");
+        assert_eq!(hook_record.source, AgentSource::Hook);
         reopened.shutdown();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn detected_session_can_follow_hook_end_and_survives_restart() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-agent-detected-restart-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let mux = Mux::open_persistent("agent-detected-restart", SurfaceOptions::default(), &root)
+            .unwrap();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+        let ended = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "SessionEnd",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({"session_id":"old-hook"}),
+        )
+        .unwrap();
+        mux.append_journal_ingress(&ended, "test", "detected-ended").unwrap();
+        let record = mux
+            .report_agent(
+                surface.id,
+                AgentState::Working,
+                AgentSource::Detected,
+                Some("new-screen-session".into()),
+            )
+            .unwrap();
+        assert_eq!(record.source, AgentSource::Detected);
+        assert_eq!(record.session.as_deref(), Some("new-screen-session"));
+        mux.shutdown();
+        drop(mux);
+
+        let reopened =
+            Mux::open_persistent("agent-detected-restart", SurfaceOptions::default(), &root)
+                .unwrap();
+        let reopened_surface = reopened.resource_surface_for_terminal(&terminal_id).unwrap();
+        let restored = reopened.list_agents(Some(reopened_surface), None);
+        assert_eq!(restored.len(), 1);
+        assert_eq!(restored[0].source, AgentSource::Detected);
+        assert_eq!(restored[0].session.as_deref(), Some("new-screen-session"));
+        reopened.shutdown();
+        drop(reopened);
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -24992,7 +25111,7 @@ mod tests {
         .unwrap();
         let record = &mux.list_agents(Some(surface.id), None)[0];
         assert_eq!(record.source, AgentSource::Hook);
-        assert_eq!(record.session, None);
+        assert_eq!(record.session.as_deref(), Some("new"));
         mux.append_journal_ingress(&hook("UserPromptSubmit", "new"), "test", "journal-hook-turn")
             .unwrap();
         assert_eq!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].session_id, "new");

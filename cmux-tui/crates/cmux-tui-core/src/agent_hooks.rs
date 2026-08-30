@@ -221,8 +221,9 @@ fn validate_agent_source(source: &str) -> anyhow::Result<()> {
         "agent source must contain 1 to {MAX_AGENT_SOURCE_BYTES} lowercase ASCII letters, digits, hyphens, or underscores"
     );
     anyhow::ensure!(
-        source != crate::journal_reducers::SOCKET_REPORT_ADAPTER,
-        "agent source is reserved for internal socket reports"
+        source != crate::journal_reducers::SOCKET_REPORT_ADAPTER
+            && source != crate::journal_reducers::DETECTED_REPORT_ADAPTER,
+        "agent source is reserved for internal report adapters"
     );
     Ok(())
 }
@@ -888,7 +889,7 @@ mod tests {
     fn socket_adapter_name_is_reserved_for_internal_reports() {
         let error =
             agent_hook_journal_ingress("socket", "PermissionRequest", None, json!({})).unwrap_err();
-        assert!(error.to_string().contains("reserved for internal socket reports"));
+        assert!(error.to_string().contains("reserved for internal report adapters"));
     }
 
     #[test]
