@@ -19,6 +19,7 @@ public actor IrxRelayCredentialAutopilot {
     private struct FailureCounts: Sendable {
         var transient = 0
         var unauthorized = 0
+        var missingAuthentication = 0
     }
 
     /// The disposition the autopilot selected for a classified failure.
@@ -175,10 +176,13 @@ public actor IrxRelayCredentialAutopilot {
                     after: failure,
                     failureCount: failureCounts.transient,
                     unauthorizedFailureCount: failureCounts.unauthorized,
+                    missingAuthenticationFailureCount:
+                        failureCounts.missingAuthentication,
                     credentialExpiry: expiry
                 ) else { return }
                 failureCounts.transient = nextFailureCount.transient
                 failureCounts.unauthorized = nextFailureCount.unauthorized
+                failureCounts.missingAuthentication = nextFailureCount.missingAuthentication
                 bypassRefreshDeadlineOnce = true
             }
         }
@@ -194,6 +198,7 @@ public actor IrxRelayCredentialAutopilot {
     private func refreshHint(initialFailureCount: Int) async -> HintRefreshOutcome {
         var failureCount = initialFailureCount
         var unauthorizedFailureCount = 0
+        var missingAuthenticationFailureCount = 0
         for _ in 0 ..< Self.maximumHintRetryAttempts {
             guard !Task.isCancelled else { return .stopped }
             do {
@@ -225,11 +230,13 @@ public actor IrxRelayCredentialAutopilot {
                     after: failure,
                     failureCount: failureCount,
                     unauthorizedFailureCount: unauthorizedFailureCount,
+                    missingAuthenticationFailureCount: missingAuthenticationFailureCount,
                     credentialExpiry: nil,
                     escalateUnauthorized: false
                 ) else { return .stopped }
                 failureCount = nextFailureCount.transient
                 unauthorizedFailureCount = nextFailureCount.unauthorized
+                missingAuthenticationFailureCount = nextFailureCount.missingAuthentication
             }
         }
         journal.record(
@@ -246,11 +253,13 @@ public actor IrxRelayCredentialAutopilot {
         after failure: IrxBrokerFailure,
         failureCount: Int,
         unauthorizedFailureCount: Int,
+        missingAuthenticationFailureCount: Int,
         credentialExpiry: Date?,
         escalateUnauthorized: Bool = true
     ) async -> FailureCounts? {
         let isPostRecoveryUnauthorized = failure.statusCode == 401
             && !failure.requiresReauthentication
+        let isMissingAuthentication = failure.errorCode == "missing_authentication"
         let decision: IrxHostActivationPolicy.Decision
         if isPostRecoveryUnauthorized && !escalateUnauthorized {
             // The host callback owns the shared 401 escalation counter. The
@@ -267,6 +276,12 @@ public actor IrxRelayCredentialAutopilot {
                 failureCount: unauthorizedFailureCount,
                 jitterUnitInterval: Double.random(in: 0 ... 1)
             )
+        } else if isMissingAuthentication {
+            decision = retryPolicy.decision(
+                for: failure,
+                failureCount: missingAuthenticationFailureCount,
+                jitterUnitInterval: Double.random(in: 0 ... 1)
+            )
         } else {
             decision = retryPolicy.decision(
                 for: failure,
@@ -274,8 +289,14 @@ public actor IrxRelayCredentialAutopilot {
                 jitterUnitInterval: Double.random(in: 0 ... 1)
             )
         }
-        let decisionFailureCount = isPostRecoveryUnauthorized
-            ? unauthorizedFailureCount : failureCount
+        let decisionFailureCount: Int
+        if isPostRecoveryUnauthorized {
+            decisionFailureCount = unauthorizedFailureCount
+        } else if isMissingAuthentication {
+            decisionFailureCount = missingAuthenticationFailureCount
+        } else {
+            decisionFailureCount = failureCount
+        }
         let event = failure.operation == .hintRefresh
             ? "hint-refresh-failed" : "mint-failed"
         switch decision {
@@ -306,10 +327,12 @@ public actor IrxRelayCredentialAutopilot {
             )
             guard !Task.isCancelled else { return nil }
             return FailureCounts(
-                transient: isPostRecoveryUnauthorized
-                    ? failureCount : min(failureCount + 1, 20),
+                transient: isPostRecoveryUnauthorized || isMissingAuthentication
+                    ? 0 : min(failureCount + 1, 20),
                 unauthorized: isPostRecoveryUnauthorized
-                    ? min(unauthorizedFailureCount + 1, 20) : 0
+                    ? min(unauthorizedFailureCount + 1, 20) : 0,
+                missingAuthentication: isMissingAuthentication
+                    ? min(missingAuthenticationFailureCount + 1, 20) : 0
             )
         }
     }

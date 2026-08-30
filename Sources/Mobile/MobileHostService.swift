@@ -1019,9 +1019,14 @@ final class MobileHostService {
                 mobileHostLog.info("legacy mobile host listener disabled; starting Iroh only")
             }
             if MobileHostIrxRuntime.isEnabled, plan.activatesIroh {
+                MobileHostIrohRuntime.shared.setDesiredActive(false)
                 MobileHostIrxRuntime.shared.setDesiredActive(true)
             } else if plan.activatesIroh {
+                MobileHostIrxRuntime.shared.setDesiredActive(false)
                 MobileHostIrohRuntime.shared.setDesiredActive(true)
+            } else {
+                MobileHostIrxRuntime.shared.setDesiredActive(false)
+                MobileHostIrohRuntime.shared.setDesiredActive(false)
             }
             return
         }
@@ -1030,8 +1035,10 @@ final class MobileHostService {
             startTCP: { startListener(usePreferredPort: true) },
             scheduleIroh: {
                 if MobileHostIrxRuntime.isEnabled {
+                    MobileHostIrohRuntime.shared.setDesiredActive(false)
                     MobileHostIrxRuntime.shared.setDesiredActive(true)
                 } else {
+                    MobileHostIrxRuntime.shared.setDesiredActive(false)
                     MobileHostIrohRuntime.shared.setDesiredActive(true)
                 }
             }
@@ -1113,11 +1120,11 @@ final class MobileHostService {
     }
 
     func stop() {
-        if MobileHostIrxRuntime.isEnabled {
-            MobileHostIrxRuntime.shared.setDesiredActive(false)
-        } else {
-            MobileHostIrohRuntime.shared.setDesiredActive(false)
-        }
+        // Stop both owners: the runtime feature flag can change while the
+        // process is alive, so branching here could leave the old endpoint
+        // bound and let the two stacks contend for one broker slot.
+        MobileHostIrxRuntime.shared.setDesiredActive(false)
+        MobileHostIrohRuntime.shared.setDesiredActive(false)
         stopLegacyListener(reason: "service stopped")
         for connection in MobileHostConnectionRegistry.shared.removeAll() {
             Task { await connection.close(reason: "service stopped") }
@@ -1281,8 +1288,10 @@ final class MobileHostService {
         // Settings control only the legacy TCP/Tailscale listener. Account-
         // authenticated Iroh stays available for signed-in Macs.
         if MobileHostIrxRuntime.isEnabled {
+            MobileHostIrohRuntime.shared.setDesiredActive(false)
             MobileHostIrxRuntime.shared.setDesiredActive(true)
         } else {
+            MobileHostIrxRuntime.shared.setDesiredActive(false)
             MobileHostIrohRuntime.shared.setDesiredActive(true)
         }
         // An invalid stored port (`resolvedDesiredPort == nil`, e.g. mid-edit)

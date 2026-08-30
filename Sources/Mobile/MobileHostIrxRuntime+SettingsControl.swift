@@ -137,7 +137,7 @@ extension MobileHostIrxRuntime: CmxIrohSettingsControlling {
     func refreshIrohSettings() async {
         if (activationState == .failed
             || activationState == .retrying
-           || activationState == .reauthenticationRequired),
+            || activationState == .reauthenticationRequired),
            let accountID = activeAccountID {
             cancelActivationRetry()
             cancelAutopilotRecovery()

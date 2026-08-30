@@ -71,6 +71,7 @@ final class MobileHostIrxRuntime {
     var desiredActivityGeneration: UInt64 = 0
     var activationRetryFailureCount = 0
     var activationUnauthorizedFailureCount = 0
+    var activationMissingAuthenticationFailureCount = 0
     var terminalRecoveryCount = 0
     let activationRetryPolicy = IrxHostActivationPolicy(
         retrySchedule: CmxIrohRetrySchedule(
@@ -131,6 +132,7 @@ final class MobileHostIrxRuntime {
         }
         activationRetryFailureCount = 0
         activationUnauthorizedFailureCount = 0
+        activationMissingAuthenticationFailureCount = 0
         terminalRecoveryCount = 0
         lastBrokerFailure = nil
         setActivationState(.activating)
@@ -290,7 +292,9 @@ final class MobileHostIrxRuntime {
             // Relay hints are server-capped at 1h; refresh the registration on
             // every credential rotation so the advertised hint never expires.
             await pilot.setOnRotation { [weak self, weak broker, weak supervisor] in
-                guard let broker, let supervisor else { return }
+                guard let broker, let supervisor else {
+                    throw CancellationError()
+                }
                 let relay = await supervisor.homeRelayURL()
                 try await broker.registerHintIfNeeded(
                     pairingEnabled: true, relayURLHint: relay)
@@ -324,6 +328,7 @@ final class MobileHostIrxRuntime {
             )
             activationRetryFailureCount = 0
             activationUnauthorizedFailureCount = 0
+            activationMissingAuthenticationFailureCount = 0
             terminalRecoveryCount = 0
             // The endpoint is usable even when the optional relay hint write
             // is temporarily unavailable; the autopilot retries the hint

@@ -48,6 +48,7 @@ extension MobileHostIrxRuntime {
               let accountID = activeAccountID else { return }
         activationRetryFailureCount = 0
         activationUnauthorizedFailureCount = 0
+        activationMissingAuthenticationFailureCount = 0
         terminalRecoveryCount = 0
         lastBrokerFailure = nil
         setActivationState(.activating)
@@ -87,6 +88,7 @@ extension MobileHostIrxRuntime {
         guard generationToken == token, activeAccountID == accountID else { return }
         activationRetryFailureCount = 0
         activationUnauthorizedFailureCount = 0
+        activationMissingAuthenticationFailureCount = 0
         terminalRecoveryCount = 0
         cancelAutopilotRecovery()
         setActivationState(.active)
@@ -117,12 +119,23 @@ extension MobileHostIrxRuntime {
     ) -> IrxHostActivationPolicy.Decision {
         let isPostRecoveryUnauthorized = failure.statusCode == 401
             && !failure.requiresReauthentication
-        let count = isPostRecoveryUnauthorized
-            ? activationUnauthorizedFailureCount
-            : activationRetryFailureCount
+        let isMissingAuthentication = failure.errorCode == "missing_authentication"
+        let count: Int
+        if isPostRecoveryUnauthorized {
+            count = activationUnauthorizedFailureCount
+        } else if isMissingAuthentication {
+            count = activationMissingAuthenticationFailureCount
+        } else {
+            count = activationRetryFailureCount
+        }
         if isPostRecoveryUnauthorized {
             activationUnauthorizedFailureCount = min(
                 activationUnauthorizedFailureCount + 1,
+                20
+            )
+        } else if isMissingAuthentication {
+            activationMissingAuthenticationFailureCount = min(
+                activationMissingAuthenticationFailureCount + 1,
                 20
             )
         }
@@ -172,7 +185,11 @@ extension MobileHostIrxRuntime {
                 now: Date(),
                 policyDelay: policyDelay,
                 retryAfterSeconds: retryAfterSeconds,
-                failureCount: activationRetryFailureCount
+                failureCount: failure.statusCode == 401
+                    ? activationUnauthorizedFailureCount
+                    : (failure.errorCode == "missing_authentication"
+                        ? activationMissingAuthenticationFailureCount
+                        : activationRetryFailureCount)
             )
             setActivationState(.retrying, failure: failure)
             attributes["delay_s"] = String(Int(delay.rounded()))
@@ -182,7 +199,8 @@ extension MobileHostIrxRuntime {
             Self.journal.record("host-runtime", "activation-retry-scheduled", attributes)
             await cleanupActivationResources(invalidateGeneration: true)
             let retryToken = generationToken
-            if failure.statusCode != 401 {
+            if failure.statusCode != 401,
+               failure.errorCode != "missing_authentication" {
                 activationRetryFailureCount = min(activationRetryFailureCount + 1, 20)
             }
             let clock = activationRetryClock
@@ -447,6 +465,7 @@ extension MobileHostIrxRuntime {
         cancelAutopilotRecovery()
         activationRetryFailureCount = 0
         activationUnauthorizedFailureCount = 0
+        activationMissingAuthenticationFailureCount = 0
         terminalRecoveryCount = 0
         activationTask?.cancel()
         activationTask = nil

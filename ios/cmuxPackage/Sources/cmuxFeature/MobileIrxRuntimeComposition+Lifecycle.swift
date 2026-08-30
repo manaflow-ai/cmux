@@ -50,7 +50,8 @@ extension MobileIrxRuntimeComposition {
             )
         }
         await pilot.setOnRotation { [weak self, broker, endpoint] in
-            await self?.handleAutopilotRotation(
+            guard let self else { throw CancellationError() }
+            await self.handleAutopilotRotation(
                 session: session,
                 broker: broker,
                 endpoint: endpoint
