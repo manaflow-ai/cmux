@@ -47,7 +47,7 @@ final class CloudTreeSurfaceDragPasteboardWriter: NSPasteboardItem {
 
     override func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
         _ = pasteboard
-        return registration.pasteboardItem.types ?? []
+        return registration.pasteboardItem.types
     }
 
     override func pasteboardPropertyList(forType type: NSPasteboard.PasteboardType) -> Any? {
