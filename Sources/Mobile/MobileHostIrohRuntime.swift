@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxIrohTransport
+import CmuxIrxTransport
 import CryptoKit
 import Foundation
 import Observation
@@ -128,6 +129,10 @@ final class MobileHostIrohRuntime {
         pathHints: [CmxIrohPathHint]
     )?
     var routePublicationPhase: RoutePublicationPhase = .unavailable
+    /// The last definitive broker-auth rejection. Kept separately from the
+    /// legacy relay-policy diagnostics so Settings can distinguish sign-in
+    /// from a merely degraded relay catalog after the endpoint is torn down.
+    var irohAuthenticationFailure: IrxBrokerFailure?
     var preparedSignOut: CmxIrohHostSignOutPreparation?
     var signOutIntentActive = false
     var signOutPreparationTask: Task<Void, Never>?
@@ -279,11 +284,13 @@ final class MobileHostIrohRuntime {
         // deactivating transition ends the need for it.
         cancelFailureRecovery(resetBackoff: false)
         if eraseAccountState {
+            clearIrohAuthenticationFailure()
             clearIrohRoutePublication(revision: revision)
             await quarantineForSignOut()
         } else if restartActiveRuntime
                     || activeAccountID != targetAccountID
                     || targetAccountID == nil {
+            clearIrohAuthenticationFailure()
             let previousRuntime = runtime
             runtime = nil
             clearIrohRoutePublication(revision: revision)
@@ -307,6 +314,7 @@ final class MobileHostIrohRuntime {
               !signOutIntentActive,
               desiredActive,
               let targetAccountID,
+              irohAuthenticationFailure == nil,
               runtime == nil else { return }
 
         diagnosticLog.record(DiagnosticEvent(
@@ -319,6 +327,9 @@ final class MobileHostIrohRuntime {
         } catch is CancellationError {
             return
         } catch {
+            if await handleIrohActivationFailure(error, revision: revision) {
+                return
+            }
             let failureKind = Self.diagnosticFailureKind(for: error)
             let failureType = String(reflecting: type(of: error))
             diagnosticLog.record(DiagnosticEvent(

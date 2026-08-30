@@ -522,6 +522,7 @@ extension MobileHostIrohRuntime {
         runtime = hostRuntime
         activeAccountID = accountID
         activeAppInstanceID = appInstanceID
+        clearIrohAuthenticationFailure()
         _ = publishIrohRouteIfActive(revision: revision)
         diagnosticLog.record(DiagnosticEvent(
             .endpointActive,
