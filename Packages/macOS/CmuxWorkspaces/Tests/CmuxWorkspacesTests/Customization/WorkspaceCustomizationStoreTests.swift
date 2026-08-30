@@ -177,6 +177,42 @@ func titleRecoveryRecordIncludesMutationFence() throws {
         #expect(fixture.store.customization(for: stableId)?.customTitle == .value("Direct"))
     }
 
+    @Test("preserves ordering for same-revision automatic titles from separate stores")
+    func sameRevisionAutomaticTitlesUseQueueOrdering() throws {
+        let fixture = try makeFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let otherStore = WorkspaceCustomizationStore(
+            defaults: fixture.defaults,
+            storageKey: fixture.storageKey,
+            legacyStorageKey: fixture.legacyStorageKey
+        )
+        let stableId = UUID()
+
+        fixture.store.setCustomTitle(nil, for: stableId)
+        let revision = try #require(
+            fixture.store.customizationAndTitleMutationRevision(for: stableId)
+        ).titleMutationRevision
+
+        fixture.store.persistPendingAutomaticTitlesSynchronously([
+            WorkspaceCustomizationPendingAutomaticTitle(
+                stableId: stableId,
+                title: "First",
+                titleMutationRevision: revision,
+                automaticTitleOrdering: 1
+            ),
+        ])
+        otherStore.persistPendingAutomaticTitlesSynchronously([
+            WorkspaceCustomizationPendingAutomaticTitle(
+                stableId: stableId,
+                title: "Second",
+                titleMutationRevision: revision,
+                automaticTitleOrdering: 2
+            ),
+        ])
+
+        #expect(fixture.store.customization(for: stableId)?.customTitle == .autoValue("Second"))
+    }
+
 private enum LegacyWorkspaceCustomizationField: Codable, Equatable {
     case absent
     case value(String)

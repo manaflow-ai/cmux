@@ -4,21 +4,25 @@ struct WorkspaceCustomizationPersistenceEntry: Codable, Equatable, Sendable {
     let customization: WorkspaceCustomization
     let revision: UInt64
     let titleMutationRevision: UInt64
+    let automaticTitleOrdering: UInt64
 
     init(
         customization: WorkspaceCustomization,
         revision: UInt64,
-        titleMutationRevision: UInt64 = 0
+        titleMutationRevision: UInt64 = 0,
+        automaticTitleOrdering: UInt64 = 0
     ) {
         self.customization = customization
         self.revision = revision
         self.titleMutationRevision = titleMutationRevision
+        self.automaticTitleOrdering = automaticTitleOrdering
     }
 
     private enum CodingKeys: String, CodingKey {
         case customization
         case revision
         case titleMutationRevision
+        case automaticTitleOrdering
     }
 
     init(from decoder: Decoder) throws {
@@ -33,6 +37,10 @@ struct WorkspaceCustomizationPersistenceEntry: Codable, Equatable, Sendable {
         titleMutationRevision = try container.decodeIfPresent(
             UInt64.self,
             forKey: .titleMutationRevision
+        ) ?? 0
+        automaticTitleOrdering = try container.decodeIfPresent(
+            UInt64.self,
+            forKey: .automaticTitleOrdering
         ) ?? 0
     }
 }
@@ -58,16 +66,22 @@ struct WorkspaceCustomizationPersistenceSnapshot: Codable, Sendable {
         entries[key] = WorkspaceCustomizationPersistenceEntry(
             customization: customization,
             revision: nextRevision,
-            titleMutationRevision: previous?.titleMutationRevision ?? 0
+            titleMutationRevision: previous?.titleMutationRevision ?? 0,
+            automaticTitleOrdering: previous?.automaticTitleOrdering ?? 0
         )
     }
 
-    mutating func setTitle(_ customization: WorkspaceCustomization, for key: String) {
+    mutating func setTitle(
+        _ customization: WorkspaceCustomization,
+        for key: String,
+        automaticTitleOrdering: UInt64 = 0
+    ) {
         nextRevision &+= 1
         entries[key] = WorkspaceCustomizationPersistenceEntry(
             customization: customization,
             revision: nextRevision,
-            titleMutationRevision: nextRevision
+            titleMutationRevision: nextRevision,
+            automaticTitleOrdering: automaticTitleOrdering
         )
     }
 
@@ -170,11 +184,17 @@ final class WorkspaceCustomizationSynchronousWriter: @unchecked Sendable {
                 lhs.stableId.uuidString < rhs.stableId.uuidString
             }) {
                 let key = item.stableId.uuidString
-                guard let currentEntry = snapshot.entries[key],
-                      currentEntry.titleMutationRevision == item.titleMutationRevision else {
+                guard let currentEntry = snapshot.entries[key] else { continue }
+                let sameRevision = currentEntry.titleMutationRevision == item.titleMutationRevision
+                let newerConcurrentAutomaticTitle =
+                    currentEntry.titleMutationRevision > item.titleMutationRevision
+                    && currentEntry.automaticTitleOrdering > 0
+                    && item.automaticTitleOrdering > currentEntry.automaticTitleOrdering
+                guard sameRevision || newerConcurrentAutomaticTitle else {
                     // Any mutation after the automatic title was queued makes
-                    // this record stale, including an explicit clear from a
-                    // different manager instance. Preserve that later state.
+                    // this record stale unless it is a later automatic title
+                    // queued by another manager at the same observed revision.
+                    // Explicit user mutations retain precedence.
                     continue
                 }
                 switch currentEntry.customization.customTitle {
@@ -194,7 +214,8 @@ final class WorkspaceCustomizationSynchronousWriter: @unchecked Sendable {
                         customTitle: field,
                         customColor: snapshot.entries[key]?.customization.customColor ?? .absent
                     ),
-                    for: key
+                    for: key,
+                    automaticTitleOrdering: item.automaticTitleOrdering
                 )
             }
             snapshot.trim(to: capacity)

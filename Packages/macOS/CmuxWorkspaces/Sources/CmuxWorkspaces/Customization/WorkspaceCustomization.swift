@@ -18,15 +18,20 @@ public struct WorkspaceCustomizationPendingAutomaticTitle: Sendable, Equatable {
     /// valid only while this remains the current title revision, so a later
     /// title mutation from another manager cannot be overwritten by a stale queue.
     public let titleMutationRevision: UInt64
+    /// Process-local tie-breaker for queues created by separate managers at
+    /// the same title mutation revision.
+    public let automaticTitleOrdering: UInt64
 
     public init(
         stableId: UUID,
         title: String?,
-        titleMutationRevision: UInt64 = 0
+        titleMutationRevision: UInt64 = 0,
+        automaticTitleOrdering: UInt64 = 0
     ) {
         self.stableId = stableId
         self.title = title
         self.titleMutationRevision = titleMutationRevision
+        self.automaticTitleOrdering = automaticTitleOrdering
     }
 }
 

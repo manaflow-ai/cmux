@@ -465,11 +465,13 @@ class TabManager: ObservableObject {
     struct PendingAutomaticWorkspaceTitle: Sendable {
         let title: String?
         let titleMutationRevision: UInt64
+        let automaticTitleOrdering: UInt64
     }
     // These members are internal because the persistence behavior is split
     // across same-type extensions in separate source files.
     var pendingAutomaticWorkspaceTitles: [UUID: PendingAutomaticWorkspaceTitle] = [:]
     var automaticWorkspaceTitlePersistenceTask: Task<Void, Never>?
+    private static var nextAutomaticWorkspaceTitleOrdering: UInt64 = 0
     private var pendingWorkspaceUnfocusTarget: (tabId: UUID, panelId: UUID)?
     var sidebarSelectedWorkspaceIds: Set<UUID> { sidebarMultiSelection.selectedWorkspaceIds }
     private var currentWindowTabBarLeadingInset: CGFloat?
@@ -744,7 +746,8 @@ class TabManager: ObservableObject {
             WorkspaceCustomizationPendingAutomaticTitle(
                 stableId: $0.key,
                 title: $0.value.title,
-                titleMutationRevision: $0.value.titleMutationRevision
+                titleMutationRevision: $0.value.titleMutationRevision,
+                ordering: $0.value.ordering
             )
         }
         let workspaceCustomizationStore = workspaceCustomizationStore

@@ -22,7 +22,8 @@ extension TabManager {
                 WorkspaceCustomizationPendingAutomaticTitle(
                     stableId: stableId,
                     title: pendingTitle.title,
-                    titleMutationRevision: pendingTitle.titleMutationRevision
+                    titleMutationRevision: pendingTitle.titleMutationRevision,
+                    automaticTitleOrdering: pendingTitle.automaticTitleOrdering
                 )
             }
         )
@@ -146,11 +147,19 @@ extension TabManager {
                 return
             }
             let pending = pendingAutomaticWorkspaceTitles[workspace.stableId]
+            let automaticTitleOrdering: UInt64
+            if let pending {
+                automaticTitleOrdering = pending.automaticTitleOrdering
+            } else {
+                Self.nextAutomaticWorkspaceTitleOrdering &+= 1
+                automaticTitleOrdering = Self.nextAutomaticWorkspaceTitleOrdering
+            }
             pendingAutomaticWorkspaceTitles[workspace.stableId] =
                 PendingAutomaticWorkspaceTitle(
                     title: workspace.customTitle,
                     titleMutationRevision: pending?.titleMutationRevision
-                        ?? record.titleMutationRevision
+                        ?? record.titleMutationRevision,
+                    automaticTitleOrdering: automaticTitleOrdering
                 )
             scheduleAutomaticWorkspaceTitlePersistence()
             return
