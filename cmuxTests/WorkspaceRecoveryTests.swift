@@ -680,6 +680,65 @@ struct WorkspaceRecoveryTests {
     }
 
     @Test
+    func newestAutomaticTitleReplacesStalePendingAcrossManagers() throws {
+        let fixture = try makeCustomizationStore()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+
+        let firstManager = TabManager(
+            initialWorkingDirectory: "/tmp/newest-auto-title-manager",
+            autoWelcomeIfNeeded: false,
+            workspaceCustomizationStore: fixture.store
+        )
+        let firstWorkspace = try #require(firstManager.selectedWorkspace)
+        #expect(firstManager.setCustomTitle(
+            tabId: firstWorkspace.id,
+            title: "User Title"
+        ))
+        firstManager.clearCustomTitle(tabId: firstWorkspace.id)
+        #expect(firstManager.setCustomTitle(
+            tabId: firstWorkspace.id,
+            title: "Queued Automatic Title",
+            source: .auto
+        ))
+
+        // A second manager flushes a newer automatic title while the first
+        // manager still has its older title queued. The first manager must
+        // refresh both the durable revision and ordering when it receives the
+        // newest title, or its flush is incorrectly rejected as stale.
+        let secondManager = TabManager(
+            autoWelcomeIfNeeded: false,
+            workspaceCustomizationStore: fixture.store
+        )
+        secondManager.restoreSessionSnapshot(SessionTabManagerSnapshot(
+            selectedWorkspaceIndex: 0,
+            workspaces: [firstWorkspace.sessionSnapshot(includeScrollback: false)]
+        ))
+        let secondWorkspace = try #require(secondManager.selectedWorkspace)
+        #expect(secondWorkspace.stableId == firstWorkspace.stableId)
+        #expect(secondManager.setCustomTitle(
+            tabId: secondWorkspace.id,
+            title: "Newer Automatic Title",
+            source: .auto
+        ))
+        secondManager.flushPendingWorkspaceCustomizationWrites()
+        #expect(
+            fixture.store.customization(for: firstWorkspace.stableId)?.customTitle ==
+                .autoValue("Newer Automatic Title")
+        )
+
+        #expect(firstManager.setCustomTitle(
+            tabId: firstWorkspace.id,
+            title: "Newest Automatic Title",
+            source: .auto
+        ))
+        firstManager.flushPendingWorkspaceCustomizationWrites()
+        #expect(
+            fixture.store.customization(for: firstWorkspace.stableId)?.customTitle ==
+                .autoValue("Newest Automatic Title")
+        )
+    }
+
+    @Test
     func autoTitleRecoveryPreservesIndependentColor() throws {
         let fixture = try makeCustomizationStore()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
