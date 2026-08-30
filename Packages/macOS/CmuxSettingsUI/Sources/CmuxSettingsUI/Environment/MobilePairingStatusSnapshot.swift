@@ -37,6 +37,14 @@ public struct MobilePairingStatusSnapshot: Sendable, Equatable {
     /// The addresses the iOS app can use to reach this Mac.
     public let routes: [MobilePairingRoute]
 
+    /// The authenticated irx endpoint state, independent from the TCP
+    /// pairing listener's `isRunning` value.
+    public let irohStatus: MobilePairingIrohStatus
+
+    /// Stable broker context for a visible retry or re-authentication message.
+    public let irohBrokerOperation: String?
+    public let irohBrokerErrorCode: String?
+
     /// Creates a pairing-status snapshot.
     ///
     /// - Parameters:
@@ -53,7 +61,10 @@ public struct MobilePairingStatusSnapshot: Sendable, Equatable {
         boundPort: Int?,
         usesEphemeralFallback: Bool,
         activeConnectionCount: Int,
-        routes: [MobilePairingRoute]
+        routes: [MobilePairingRoute],
+        irohStatus: MobilePairingIrohStatus = .inactive,
+        irohBrokerOperation: String? = nil,
+        irohBrokerErrorCode: String? = nil
     ) {
         self.isRunning = isRunning
         self.configuredPort = configuredPort
@@ -61,5 +72,8 @@ public struct MobilePairingStatusSnapshot: Sendable, Equatable {
         self.usesEphemeralFallback = usesEphemeralFallback
         self.activeConnectionCount = activeConnectionCount
         self.routes = routes
+        self.irohStatus = irohStatus
+        self.irohBrokerOperation = irohBrokerOperation
+        self.irohBrokerErrorCode = irohBrokerErrorCode
     }
 }

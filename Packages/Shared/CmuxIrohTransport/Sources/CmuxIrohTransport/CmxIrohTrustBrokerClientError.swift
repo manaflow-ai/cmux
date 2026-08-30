@@ -22,6 +22,9 @@ public enum CmxIrohTrustBrokerClientError:
     /// This never admits a new peer. Callers may retain only state whose own
     /// signed lease or policy expiry remains authoritative.
     static func preservesVerifiedStateDuringRefresh(_ error: any Error) -> Bool {
+        if let recovery = error as? CmxIrohBrokerTokenRecoveryError {
+            return recovery == .transient
+        }
         if (error as? any CmxRetryAfterProviding)?.retryAfterSeconds != nil {
             return true
         }
@@ -57,6 +60,9 @@ public enum CmxIrohTrustBrokerClientError:
 
     /// Accepts only failures that are safe to retry before any binding is trusted.
     static func retriesInitialActivation(_ error: any Error) -> Bool {
+        if let recovery = error as? CmxIrohBrokerTokenRecoveryError {
+            return recovery == .transient
+        }
         if (error as? any CmxRetryAfterProviding)?.retryAfterSeconds != nil {
             return true
         }

@@ -18,30 +18,6 @@ private func cmxIsSafeBrokerHeaderValue(_ value: String) -> Bool {
         )
 }
 
-/// One access + refresh credential pair captured from a single session snapshot.
-///
-/// Assembling a request from one snapshot prevents pairing a stale access token
-/// with a freshly-rotated refresh token (or vice versa) when a force refresh
-/// lands between two independent token reads.
-public struct CmxIrohBrokerCredentials: Sendable, CustomStringConvertible,
-    CustomDebugStringConvertible {
-    public let accessToken: String
-    public let refreshToken: String
-
-    public init(accessToken: String, refreshToken: String) {
-        self.accessToken = accessToken
-        self.refreshToken = refreshToken
-    }
-
-    /// Redacted: the synthesized reflection would copy live bearer/refresh
-    /// tokens into logs, assertion output, and crash reports.
-    public var description: String {
-        "CmxIrohBrokerCredentials(accessToken: <redacted>, refreshToken: <redacted>)"
-    }
-
-    public var debugDescription: String { description }
-}
-
 private func isUnsupportedRegistrationScope(
     _ error: CmxIrohTrustBrokerClientError
 ) -> Bool {
@@ -54,130 +30,6 @@ private func isMissingScopedDiscoveryRoute(
 ) -> Bool {
     guard case let .rejected(statusCode, _) = error else { return false }
     return statusCode == 404
-}
-
-/// One authenticated account and credential pair captured atomically.
-///
-/// Platform auth coordinators map their native session snapshot into this
-/// transport-owned value so account pinning and exactly-once rejection
-/// recovery stay identical on macOS and iOS.
-public struct CmxIrohAccountCredentialSnapshot: Sendable {
-    public let accountID: String
-    public let credentials: CmxIrohBrokerCredentials
-
-    public init(
-        accountID: String,
-        credentials: CmxIrohBrokerCredentials
-    ) {
-        self.accountID = accountID
-        self.credentials = credentials
-    }
-}
-
-/// Supplies the short-lived Stack credentials required by native API calls.
-///
-/// The ONLY construction input is `credentialPair`, which must return BOTH
-/// tokens from ONE capture. Making the pair the required source removes the
-/// torn-credential hazard structurally: a source assembled from two
-/// independent token reads (where a session transition between them pairs one
-/// session's access token with another's refresh token) is no longer
-/// expressible. The single-token accessors are derived from the pair for
-/// callers that need one token.
-///
-/// The pair read distinguishes two failure states. Returning `nil` means the
-/// credentials are DEFINITIVELY absent (signed out, account switched) and the
-/// broker fails closed with ``CmxIrohTrustBrokerClientError/missingAuthentication``.
-/// Throwing means the source could not read a coherent pair RIGHT NOW (the
-/// token store is owned by a launch/foreground revalidation, or an expired
-/// access token's re-mint is in flight or offline); the broker classifies
-/// that as ``CmxIrohTrustBrokerClientError/connectivity`` so callers retry and
-/// cached-policy fallbacks apply instead of tearing trusted state down.
-public struct CmxIrohBrokerTokenSource: Sendable {
-    public let accessToken: @Sendable () async throws -> String?
-    public let refreshToken: @Sendable () async throws -> String?
-    /// Both tokens from ONE snapshot, so a request can never mix an old access
-    /// token with a rotated refresh token.
-    public let credentialPair: @Sendable () async throws -> CmxIrohBrokerCredentials?
-    /// Replaces a pair the broker just rejected as unauthorized.
-    ///
-    /// A pair that was coherent at capture can still be rejected when another
-    /// lane rotates the session between capture and server validation (the
-    /// wake-time RPC force refresh, most commonly). Live sources force-mint
-    /// through their session owner and return the replacement pair; frozen
-    /// pinned sources (sign-out revocation) return nil so a destructive flow
-    /// never silently switches credentials. The client retries the rejected
-    /// request at most once with the recovered pair.
-    public let recoveredCredentialPair:
-        @Sendable (_ rejected: CmxIrohBrokerCredentials) async throws
-            -> CmxIrohBrokerCredentials?
-
-    public init(
-        credentialPair: @escaping @Sendable () async throws -> CmxIrohBrokerCredentials?,
-        recoveredCredentialPair: @escaping @Sendable (
-            _ rejected: CmxIrohBrokerCredentials
-        ) async throws -> CmxIrohBrokerCredentials? = { _ in nil }
-    ) {
-        self.credentialPair = credentialPair
-        self.recoveredCredentialPair = recoveredCredentialPair
-        self.accessToken = { try await credentialPair()?.accessToken }
-        self.refreshToken = { try await credentialPair()?.refreshToken }
-    }
-
-    /// Builds a live token source pinned to one account.
-    ///
-    /// A rejected pair first re-reads the atomic session snapshot. If another
-    /// lane already rotated it, that newer pair is reused. Otherwise the
-    /// platform auth owner is asked to refresh once, followed by one final
-    /// account-pinned snapshot. Account switches and missing sessions fail
-    /// closed throughout.
-    public static func accountPinned(
-        to expectedAccountID: String,
-        snapshot: @escaping @Sendable () async throws
-            -> CmxIrohAccountCredentialSnapshot?,
-        forceRefresh: @escaping @Sendable () async throws -> Void
-    ) -> Self {
-        Self(
-            credentialPair: {
-                guard let captured = try await snapshot(),
-                      captured.accountID == expectedAccountID else {
-                    return nil
-                }
-                return captured.credentials
-            },
-            recoveredCredentialPair: { rejected in
-                do {
-                    if let captured = try await snapshot(),
-                       captured.accountID == expectedAccountID,
-                       captured.credentials.accessToken != rejected.accessToken {
-                        return captured.credentials
-                    }
-                } catch is CancellationError {
-                    throw CancellationError()
-                } catch {
-                    // A transient snapshot read can still be repaired by the
-                    // one explicit refresh below.
-                }
-                do {
-                    try await forceRefresh()
-                } catch is CancellationError {
-                    throw CancellationError()
-                } catch {
-                    return nil
-                }
-                let refreshed: CmxIrohAccountCredentialSnapshot?
-                do {
-                    refreshed = try await snapshot()
-                } catch is CancellationError {
-                    throw CancellationError()
-                } catch {
-                    return nil
-                }
-                guard let refreshed,
-                      refreshed.accountID == expectedAccountID else { return nil }
-                return refreshed.credentials
-            }
-        )
-    }
 }
 
 /// Injectable URL-loading boundary used by the trust broker client.
@@ -837,6 +689,13 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
                 recovered = try await tokenSource.recoveredCredentialPair(pair)
             } catch is CancellationError {
                 throw CancellationError()
+            } catch let error as CmxIrohBrokerTokenRecoveryError {
+                switch error {
+                case .authenticationRequired:
+                    throw error
+                case .transient:
+                    throw CmxIrohTrustBrokerClientError.connectivity
+                }
             } catch {
                 throw CmxIrohTrustBrokerClientError.connectivity
             }

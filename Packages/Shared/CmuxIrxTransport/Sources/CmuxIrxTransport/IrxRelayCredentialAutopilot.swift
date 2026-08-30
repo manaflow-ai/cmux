@@ -1,4 +1,5 @@
 public import Foundation
+public import CmuxIrohTransport
 
 /// Keeps the endpoint's relay credentials perpetually fresh: mints early
 /// (min(refreshAfter, expiry-120s) minus jitter), rotates with insertRelay
@@ -10,23 +11,35 @@ public actor IrxRelayCredentialAutopilot {
     private let broker: IrxBrokerService
     private let endpoint: IrxEndpointSupervisor
     private let journal: IrxJournal
+    private let clock: any CmxIrohRelayClock
     private var loop: Task<Void, Never>?
     /// Runs after every successful rotation. Hosts re-register here so their
     /// advertised relay hint (server-capped at a 1h lifetime) never expires.
-    public var onRotation: (@Sendable () async -> Void)?
+    public var onRotation: (@Sendable () async throws -> Void)?
+    /// Reports a classified broker failure to the lifecycle owner. The owner
+    /// decides whether an auth rejection tears down the endpoint or a transient
+    /// failure remains on the bounded refresh ladder.
+    public var onFailure: (@Sendable (IrxBrokerFailure) async -> Void)?
 
     public init(
         broker: IrxBrokerService,
         endpoint: IrxEndpointSupervisor,
-        journal: IrxJournal
+        journal: IrxJournal,
+        clock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
     ) {
         self.broker = broker
         self.endpoint = endpoint
         self.journal = journal
+        self.clock = clock
     }
 
-    public func setOnRotation(_ handler: @escaping @Sendable () async -> Void) {
+    public func setOnRotation(_ handler: @escaping @Sendable () async throws -> Void) {
         onRotation = handler
+    }
+
+    /// Installs the lifecycle failure sink for mint and hint-refresh errors.
+    public func setOnFailure(_ handler: @escaping @Sendable (IrxBrokerFailure) async -> Void) {
+        onFailure = handler
     }
 
     /// Usable credentials for binding/dialing RIGHT NOW: cached when fresh
@@ -62,6 +75,7 @@ public actor IrxRelayCredentialAutopilot {
     }
 
     private func run() async {
+        var failureCount = 0
         while !Task.isCancelled {
             let now = Date()
             let credentials = await broker.cachedRelayCredentials()
@@ -74,25 +88,69 @@ public actor IrxRelayCredentialAutopilot {
                     "credential-autopilot", "sleeping",
                     ["until_refresh_s": String(Int(wait))]
                 )
-                try? await Task.sleep(for: .seconds(wait))
+                try? await clock.sleep(
+                    until: clock.now().addingTimeInterval(wait)
+                )
                 if Task.isCancelled { return }
             }
             do {
                 let minted = try await broker.mintRelayCredentials()
                 await endpoint.rotateCredentials(minted)
-                await onRotation?()
+                try await onRotation?()
+                failureCount = 0
             } catch {
-                let expiry = credentials.map(\.expiresAt).max() ?? Date()
-                let delay = IrxRelayCredentialPolicy.retryDelay(expiresAt: expiry, now: Date())
+                let failure = error as? IrxBrokerFailure
+                    ?? IrxBrokerFailure(operation: .mint, error: error)
+                let expiry = credentials.map(\.expiresAt).max()
+                let decision = IrxHostActivationPolicy().decision(
+                    for: failure,
+                    failureCount: failureCount,
+                    jitterUnitInterval: Double.random(in: 0 ... 1)
+                )
+                if case .reauthenticationRequired = decision {
+                    journal.record(
+                        "credential-autopilot", "mint-failed", failure.journalAttributes)
+                    await onFailure?(failure)
+                    return
+                }
+                if case .stopped = decision {
+                    journal.record(
+                        "credential-autopilot", "mint-stopped", failure.journalAttributes)
+                    await onFailure?(failure)
+                    return
+                }
+                let policyDelay: TimeInterval
+                switch decision {
+                case let .retry(delay, _): policyDelay = delay
+                case .stopped, .reauthenticationRequired: policyDelay = 1
+                }
+                let expiryDelay = expiry.flatMap { expiryDate -> TimeInterval? in
+                    guard expiryDate.timeIntervalSinceNow > 2 else { return nil }
+                    return Self.seconds(from: IrxRelayCredentialPolicy.retryDelay(
+                        expiresAt: expiryDate,
+                        now: Date()
+                    ))
+                }
+                let delaySeconds = min(expiryDelay ?? policyDelay, policyDelay)
+                var failureAttributes = failure.journalAttributes
+                failureAttributes["retry_delay_s"] = String(Int(delaySeconds.rounded()))
+                failureAttributes["failure_count"] = String(failureCount)
                 journal.record(
                     "credential-autopilot", "mint-failed",
-                    [
-                        "error": String(describing: error),
-                        "retry": String(describing: delay),
-                    ]
+                    failureAttributes
                 )
-                try? await Task.sleep(for: delay)
+                await onFailure?(failure)
+                failureCount = min(failureCount + 1, 20)
+                try? await clock.sleep(
+                    until: clock.now().addingTimeInterval(delaySeconds)
+                )
             }
         }
+    }
+
+    private static func seconds(from duration: Duration) -> TimeInterval {
+        let components = duration.components
+        return TimeInterval(components.seconds)
+            + TimeInterval(components.attoseconds) / 1_000_000_000_000_000_000
     }
 }

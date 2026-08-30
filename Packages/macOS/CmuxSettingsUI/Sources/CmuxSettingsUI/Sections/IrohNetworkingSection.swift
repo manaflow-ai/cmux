@@ -256,7 +256,12 @@ public struct IrohNetworkingSection: View {
                 isMutating: model.isMutating,
                 clear: { await model.clearDiagnosticReport() }
             )
-            if !model.snapshot.staleRelayIDs.isEmpty || model.snapshot.failureDescription != nil {
+            if model.snapshot.requiresReauthentication {
+                SettingsCardNote(String(
+                    localized: "settings.networking.status.reauthenticationRequired.detail",
+                    defaultValue: "The broker rejected this Mac's session. Sign in again to restore iPhone connectivity."
+                ))
+            } else if !model.snapshot.staleRelayIDs.isEmpty || model.snapshot.failureDescription != nil {
                 SettingsCardNote(String(
                     localized: "settings.networking.attention",
                     defaultValue: "Your saved relay choice needs attention. Direct Iroh remains available, but cmux will not substitute an unselected relay."
@@ -346,6 +351,12 @@ public struct IrohNetworkingSection: View {
     }
 
     private var runtimeStatusText: String {
+        if model.snapshot.requiresReauthentication {
+            return String(
+                localized: "settings.networking.status.reauthenticationRequired",
+                defaultValue: "Sign in again to reconnect this Mac"
+            )
+        }
         switch model.snapshot.runtimeStatus {
         case .inactive:
             String(localized: "settings.networking.status.inactive", defaultValue: "Inactive")

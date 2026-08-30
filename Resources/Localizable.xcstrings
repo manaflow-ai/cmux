@@ -271327,6 +271327,90 @@
           }
         }
       }
+    },
+    "settings.mobile.iroh.status": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Iroh Endpoint" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Iroh エンドポイント" } }
+      }
+    },
+    "settings.mobile.iroh.status.inactive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Inactive" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "停止中" } }
+      }
+    },
+    "settings.mobile.iroh.status.starting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Starting" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "起動中" } }
+      }
+    },
+    "settings.mobile.iroh.status.active": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Active" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アクティブ" } }
+      }
+    },
+    "settings.mobile.iroh.status.retrying": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Retrying" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "再試行中" } }
+      }
+    },
+    "settings.mobile.iroh.status.reauth": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Sign in again" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "再度サインイン" } }
+      }
+    },
+    "settings.mobile.iroh.status.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Authenticated endpoint used by iPhone connections." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "iPhone 接続で使用する認証済みエンドポイントです。" } }
+      }
+    },
+    "settings.mobile.iroh.status.reauth.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The broker rejected this Mac's session. Sign in again to make it visible on iPhone." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブローカーがこの Mac のセッションを拒否しました。iPhone に表示するには再度サインインしてください。" } }
+      }
+    },
+    "settings.mobile.iroh.status.retrying.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The %@ operation is temporarily unavailable; cmux will retry with backoff." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ 操作は一時的に利用できません。cmux はバックオフして再試行します。" } }
+      }
+    },
+    "settings.mobile.iroh.status.retrying.subtitle.generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The broker is temporarily unavailable; cmux will retry with backoff." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブローカーは一時的に利用できません。cmux はバックオフして再試行します。" } }
+      }
+    },
+    "settings.networking.status.reauthenticationRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Sign in again to reconnect this Mac" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "この Mac を再接続するには再度サインインしてください" } }
+      }
+    },
+    "settings.networking.status.reauthenticationRequired.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The broker rejected this Mac's session. Sign in again to restore iPhone connectivity." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブローカーがこの Mac のセッションを拒否しました。iPhone 接続を復元するには再度サインインしてください。" } }
+      }
     }
   },
   "version": "1.0"

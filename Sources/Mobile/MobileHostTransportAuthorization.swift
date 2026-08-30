@@ -2,6 +2,7 @@ import CMUXMobileCore
 import CmuxAgentChat
 import CmuxAuthRuntime
 import CmuxIrohTransport
+import CmuxIrxTransport
 import CmuxMobileTransport
 import CmuxSettings
 import CmuxTerminalCore
@@ -252,6 +253,8 @@ enum MobileHostPublicStatusCache {
     private static let lock = NSLock()
     private nonisolated(unsafe) static var legacyRoutes: [CmxAttachRoute] = []
     private nonisolated(unsafe) static var irohRoute: CmxAttachRoute?
+    private nonisolated(unsafe) static var irxActivationState: IrxHostActivationState = .inactive
+    private nonisolated(unsafe) static var irxBrokerFailure: IrxBrokerFailure?
 
     static func update(routes nextRoutes: [CmxAttachRoute]) {
         lock.lock()
@@ -297,10 +300,35 @@ enum MobileHostPublicStatusCache {
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
 
+    /// Publishes the irx lifecycle state independently from route publication.
+    /// A failed broker auth must remain visible even though its endpoint route
+    /// is deliberately removed during clean teardown.
+    static func update(
+        irxActivationState state: IrxHostActivationState,
+        failure: IrxBrokerFailure? = nil
+    ) {
+        lock.lock()
+        irxActivationState = state
+        irxBrokerFailure = failure
+        lock.unlock()
+        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
+    }
+
+    static func irxActivationStatus() -> (
+        state: IrxHostActivationState,
+        failure: IrxBrokerFailure?
+    ) {
+        lock.lock()
+        defer { lock.unlock() }
+        return (irxActivationState, irxBrokerFailure)
+    }
+
     static func removeAll() {
         lock.lock()
         legacyRoutes = []
         irohRoute = nil
+        irxActivationState = .inactive
+        irxBrokerFailure = nil
         lock.unlock()
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }

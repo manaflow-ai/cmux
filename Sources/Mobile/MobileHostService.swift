@@ -220,32 +220,6 @@ enum MobileHostRequestActivity {
     #endif
 }
 
-struct MobileHostServiceStatus {
-    let isRunning: Bool
-    let port: Int?
-    /// The preferred port from settings the listener tried to bind.
-    let configuredPort: Int
-    /// True when the listener is running on an OS-assigned ephemeral port
-    /// because the configured port could not be bound.
-    let usesEphemeralFallback: Bool
-    let routes: [CmxAttachRoute]
-    let activeConnectionCount: Int
-    let lastErrorDescription: String?
-
-    var payload: [String: Any] {
-        let now = Date()
-        return [
-            "is_running": isRunning,
-            "port": port ?? NSNull(),
-            "configured_port": configuredPort,
-            "uses_ephemeral_fallback": usesEphemeralFallback,
-            "routes": routes.mobileHostJSONObjects(for: .authenticated, at: now),
-            "active_connection_count": activeConnectionCount,
-            "last_error": lastErrorDescription ?? NSNull()
-        ]
-    }
-}
-
 /// What ``MobileHostService/syncToSettings()`` should do to reconcile
 /// the live listener with the current settings. A pure value so the
 /// restart-on-port-change logic is unit-testable without a real `NWListener`.
@@ -1251,6 +1225,7 @@ final class MobileHostService {
     private func makeStatus(routes: [CmxAttachRoute]) -> MobileHostServiceStatus {
         let isRunning = (listener != nil && listenerPort != nil)
             || MobileHostPublicStatusCache.hasIrohRoute()
+        let irxStatus = MobileHostPublicStatusCache.irxActivationStatus()
         return MobileHostServiceStatus(
             isRunning: isRunning,
             port: listenerPort,
@@ -1260,7 +1235,9 @@ final class MobileHostService {
             usesEphemeralFallback: isRunning && listenerUsesEphemeralFallback,
             routes: routes,
             activeConnectionCount: MobileHostConnectionRegistry.shared.count,
-            lastErrorDescription: lastErrorDescription
+            lastErrorDescription: lastErrorDescription,
+            irxActivationState: irxStatus.state,
+            irxBrokerFailure: irxStatus.failure
         )
     }
 

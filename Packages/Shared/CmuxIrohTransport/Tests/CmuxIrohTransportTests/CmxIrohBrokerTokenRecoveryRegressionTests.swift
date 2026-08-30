@@ -9,10 +9,6 @@ import Testing
 /// missing pair.
 @Suite("broker token recovery regression")
 struct CmxIrohBrokerTokenRecoveryRegressionTests {
-    private enum RefreshFailure: Error, Equatable {
-        case unauthorized
-    }
-
     @Test("account-pinned recovery preserves a rejected refresh outcome")
     func accountPinnedPreservesRefreshFailure() async {
         let source = CmxIrohBrokerTokenSource.accountPinned(
@@ -27,11 +23,11 @@ struct CmxIrohBrokerTokenRecoveryRegressionTests {
                 )
             },
             forceRefresh: {
-                throw RefreshFailure.unauthorized
+                throw CmxIrohBrokerTokenRecoveryError.authenticationRequired
             }
         )
 
-        await #expect(throws: RefreshFailure.unauthorized) {
+        await #expect(throws: CmxIrohBrokerTokenRecoveryError.authenticationRequired) {
             _ = try await source.recoveredCredentialPair(
                 CmxIrohBrokerCredentials(
                     accessToken: "stale-access",

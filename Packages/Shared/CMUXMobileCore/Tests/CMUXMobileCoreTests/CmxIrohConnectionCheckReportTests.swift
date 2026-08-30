@@ -59,6 +59,26 @@ struct CmxIrohConnectionCheckReportTests {
     }
 
     @Test
+    func reauthenticationRequiredIsExplicitAndRecommendsSignIn() {
+        let report = CmxIrohConnectionCheckReport(
+            role: .macHost,
+            snapshot: CmxIrohSettingsSnapshot(
+                runtimeStatus: .degraded,
+                preference: .automatic,
+                managedRelays: [],
+                customRelays: [],
+                policySource: .unavailable,
+                requiresReauthentication: true
+            ),
+            diagnostics: .empty,
+            relayReachability: .unavailable
+        )
+
+        #expect(report.recommendation == .refreshAccount)
+        #expect(report.stages.first { $0.kind == .encryptedTransport }?.status == .failed)
+    }
+
+    @Test
     func missingMacIsDistinguishedFromAReachableRelay() {
         let report = CmxIrohConnectionCheckReport(
             role: .mobileClient,

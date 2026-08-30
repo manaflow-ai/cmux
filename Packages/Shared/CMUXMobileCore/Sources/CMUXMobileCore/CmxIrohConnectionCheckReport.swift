@@ -121,6 +121,7 @@ public struct CmxIrohConnectionCheckReport: Equatable, Sendable {
             discoveryStatus: discoveryStatus,
             sessionStatus: sessionStatus,
             failureKind: diagnostics.lastFailureKind,
+            requiresReauthentication: snapshot.requiresReauthentication,
             hasRelayConfigurationProblem: !snapshot.staleRelayIDs.isEmpty
                 || snapshot.failureDescription != nil
         )
@@ -134,8 +135,10 @@ public struct CmxIrohConnectionCheckReport: Equatable, Sendable {
         discoveryStatus: StageStatus,
         sessionStatus: StageStatus,
         failureKind: DiagnosticFailureKind?,
+        requiresReauthentication: Bool,
         hasRelayConfigurationProblem: Bool
     ) -> Recommendation {
+        if requiresReauthentication { return .refreshAccount }
         if transportStatus == .failed, failureKind == .offline { return .checkInternet }
         if policyStatus == .failed || hasRelayConfigurationProblem {
             return .reviewRelaySettings

@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxIrohTransport
+import CmuxIrxTransport
 import CmuxSettings
 import Foundation
 import Testing
@@ -280,7 +281,9 @@ struct MobileHostServiceSettingsTests {
                 ),
             ],
             activeConnectionCount: 0,
-            lastErrorDescription: nil
+            lastErrorDescription: nil,
+            irxActivationState: .active,
+            irxBrokerFailure: nil
         )
 
         let snapshot = HostSettingsActions.mobilePairingSnapshot(from: status, now: now)
@@ -423,6 +426,29 @@ struct MobileHostTransportRouteCompositionTests {
 
         MobileHostPublicStatusCache.update(irohIdentity: nil)
         #expect(MobileHostPublicStatusCache.snapshot().map(\.kind) == [.tailscale])
+    }
+
+    @Test func brokerReauthenticationStateReachesMobileSettingsSnapshot() {
+        let failure = IrxBrokerFailure(
+            operation: .register,
+            error: CmxIrohBrokerTokenRecoveryError.authenticationRequired
+        )
+        let status = MobileHostServiceStatus(
+            isRunning: false,
+            port: nil,
+            configuredPort: 58_465,
+            usesEphemeralFallback: false,
+            routes: [],
+            activeConnectionCount: 0,
+            lastErrorDescription: nil,
+            irxActivationState: .reauthenticationRequired,
+            irxBrokerFailure: failure
+        )
+
+        let snapshot = HostSettingsActions.mobilePairingSnapshot(from: status)
+        #expect(snapshot.irohStatus == .reauthenticationRequired)
+        #expect(snapshot.irohBrokerOperation == "register")
+        #expect(snapshot.irohBrokerErrorCode == "unauthorized")
     }
 }
 

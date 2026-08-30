@@ -478,7 +478,7 @@ public struct MobileSection: View {
     /// Read-only connection count and the reachable routes the phone can use.
     @ViewBuilder
     private var diagnostics: some View {
-        let snapshot = status.current
+        if let snapshot = status.current { irohStatusRow(snapshot) }
         SettingsCardRow(
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:mobile:connections",
