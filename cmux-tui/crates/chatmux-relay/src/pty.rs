@@ -760,6 +760,7 @@ fn send_typed_pty_error(
     send_pty_error(context, pty_id, wire_code, message);
 }
 
+impl Inner {
     async fn open(self: Arc<Self>, frame: &Value, context: &FrameContext) {
         let pty_id = frame.get("ptyId").and_then(Value::as_str).unwrap_or_default().to_owned();
         if pty_id.is_empty() {
@@ -3410,11 +3411,15 @@ mod tests {
         entered.wait();
 
         let (done_tx, done_rx) = sync_channel(1);
-        h.manager.detach_tunnel_transports();
-        done_tx.send(()).unwrap();
+        let revoke_manager = h.manager.clone();
+        let revoke = thread::spawn(move || {
+            revoke_manager.detach_tunnel_transports();
+            done_tx.send(()).unwrap();
+        });
         let completed_without_waiting = done_rx.recv_timeout(Duration::from_millis(250)).is_ok();
         release.wait();
         operation.join().unwrap();
+        revoke.join().unwrap();
         assert!(completed_without_waiting, "revocation must not wait for PTY I/O");
         assert!(!h.manager.has_attachment("p1"));
     }
