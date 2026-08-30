@@ -238,7 +238,7 @@ struct RenderNodeContextMenuBuilder {
         case "escape": return "\u{1B}"
         case "space": return " "
         case "tab": return "\t"
-        case "delete": return String(UnicodeScalar(NSBackspaceCharacter)!)
+        case "delete": return String(UnicodeScalar(NSDeleteCharacter)!)
         case "uparrow": return String(UnicodeScalar(NSUpArrowFunctionKey)!)
         case "downarrow": return String(UnicodeScalar(NSDownArrowFunctionKey)!)
         case "leftarrow": return String(UnicodeScalar(NSLeftArrowFunctionKey)!)
@@ -249,9 +249,9 @@ struct RenderNodeContextMenuBuilder {
     }
 
     /// Resolves a `[.command, .shift]`-style token to AppKit modifier flags.
-    /// SwiftUI's `.keyboardShortcut` defaults to command when unspecified.
+    /// The interpreted renderer uses no modifiers when unspecified.
     private func renderNodeNSModifierFlags(_ source: String?) -> NSEvent.ModifierFlags {
-        guard let source = source?.lowercased() else { return [.command] }
+        guard let source = source?.lowercased() else { return [] }
         var flags: NSEvent.ModifierFlags = []
         if source.contains("command") { flags.insert(.command) }
         if source.contains("shift") { flags.insert(.shift) }
