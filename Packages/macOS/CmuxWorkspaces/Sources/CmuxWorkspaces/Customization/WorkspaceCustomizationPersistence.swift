@@ -158,7 +158,7 @@ final class WorkspaceCustomizationSynchronousWriter: @unchecked Sendable {
                 let field: WorkspaceCustomizationField = trimmed.isEmpty
                     ? .cleared
                     : .autoValue(trimmed)
-                snapshot.set(
+                snapshot.setTitle(
                     WorkspaceCustomization(
                         customTitle: field,
                         customColor: snapshot.entries[key]?.customization.customColor ?? .absent
