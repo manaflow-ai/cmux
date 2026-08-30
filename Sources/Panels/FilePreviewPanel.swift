@@ -578,6 +578,9 @@ final class FilePreviewDragPasteboardWriter: NSPasteboardItem {
         nativeSourceOwner = nil
     }
 
+    /// The exact table or outline that requested this writer.
+    var sourceViewForDrag: NSView? { nativeSourceView }
+
     static func dragID(from transferData: Data) -> UUID? {
         guard let transfer = try? JSONDecoder().decode(MirrorTabTransferData.self, from: transferData) else {
             return nil

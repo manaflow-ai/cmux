@@ -734,6 +734,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 setDragging(true)
                 return
             }
+            dragWriterOwnership.remove(id: pendingToken)
             // Cloud rows are single-selection sources, so any additional
             // provisional writers belong to the same pre-session query and
             // must be revoked rather than left in the capability registries.
