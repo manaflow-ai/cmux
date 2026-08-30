@@ -1499,7 +1499,7 @@ fn resolve_sidebar_view_specs(
                                 .map(str::to_string),
                         }),
                         Ok(_) => {
-                            crate::client_log::stderr_log!("config", 
+                            crate::client_log::stderr_log!("config",
                                 "cmux-tui: ignoring duplicate sidebar action {:?} in {owner} view {id:?}",
                                 raw_action.action().trim()
                             );
@@ -3612,7 +3612,7 @@ pub fn load() -> Config {
                 .and_then(|id| profiles.iter().position(|profile| profile.id == id))
                 .unwrap_or_else(|| {
                     if let Some(requested) = requested {
-                        crate::client_log::stderr_log!("config", 
+                        crate::client_log::stderr_log!("config",
                             "cmux-tui: sidebar.profile {requested:?} was not found; using the first profile"
                         );
                     }
