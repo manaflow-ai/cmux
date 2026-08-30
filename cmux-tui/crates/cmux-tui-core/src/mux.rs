@@ -24450,6 +24450,56 @@ mod tests {
     }
 
     #[test]
+    fn socket_agent_report_folds_roster_and_coalesces_repeated_state() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let before_cursor = mux.agent_roster.lock().unwrap().cursor;
+        let before_head = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .session_journal_after(0, 1)
+            .unwrap()
+            .head_sequence;
+
+        mux.report_agent(
+            surface.id,
+            AgentState::Working,
+            AgentSource::Socket,
+            Some("repeat-session".into()),
+        )
+        .unwrap();
+        let after_first_cursor = mux.agent_roster.lock().unwrap().cursor;
+        let after_first_head = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .session_journal_after(0, 1)
+            .unwrap()
+            .head_sequence;
+        assert!(after_first_cursor > before_cursor);
+        assert!(after_first_head > before_head);
+
+        mux.report_agent(
+            surface.id,
+            AgentState::Working,
+            AgentSource::Socket,
+            Some("repeat-session".into()),
+        )
+        .unwrap();
+        assert_eq!(mux.agent_roster.lock().unwrap().cursor, after_first_cursor);
+        assert_eq!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .session_journal_after(0, 1)
+                .unwrap()
+                .head_sequence,
+            after_first_head
+        );
+    }
+
+    #[test]
     fn agent_reports_require_a_terminal_and_never_create_a_default_projection() {
         let mux = test_mux();
         let browser = mux.new_browser_tab("about:blank".into(), None, None).unwrap();
