@@ -858,17 +858,17 @@ impl PtyManager {
     }
 
     fn detach_matching(&self, owns: impl Fn(&TransportOwner) -> bool) -> RetiredAttachments {
-        // The state lock couples authority transitions with the final open
-        // install. PTY kill calls happen after it is released, so one slow
-        // attachment cannot block unrelated tunnel operations.
-        let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
-        self.inner
-            .transport_auth
-            .lock()
-            .expect("transport auth lock")
-            .retain(|owner, _| !owns(owner));
-        let mut retired = Vec::new();
-        {
+        // Revoke the transport snapshot and opening reservations at one
+        // authority boundary. Do not wait for an attachment operation while
+        // holding the state lock: output/control callbacks take the gate
+        // before that lock, so waiting here would deadlock the relay.
+        let candidates = {
+            let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
+            self.inner
+                .transport_auth
+                .lock()
+                .expect("transport auth lock")
+                .retain(|owner, _| !owns(owner));
             let mut opening = self.inner.opening_state.lock().expect("opening state lock");
             let cancelled: Vec<(String, OpeningOwner)> = opening
                 .reservations
@@ -884,19 +884,37 @@ impl PtyManager {
                 opening.cancelled.insert(id, owner);
             }
 
-            let mut attachments = self.inner.attachments.lock().expect("attach lock");
-            let ids: Vec<String> = attachments
+            self.inner
+                .attachments
+                .lock()
+                .expect("attach lock")
                 .iter()
                 .filter(|(_, attachment)| owns(&attachment.owner))
-                .map(|(id, _)| id.clone())
-                .collect();
-            for id in ids {
-                if let Some(attachment) = attachments.remove(&id) {
-                    retired.push(attachment);
-                }
+                .map(|(id, attachment)| (id.clone(), attachment.clone()))
+                .collect::<Vec<_>>()
+        };
+
+        // Removal is linearized with publication by the same per-attachment
+        // gate. If an output callback already owns the gate, it completes
+        // before removal. If removal wins, the callback observes that its
+        // identity is gone and cannot publish after revocation.
+        let mut retired = Vec::new();
+        for (id, candidate) in candidates {
+            let operation = candidate.operation_gate.lock().expect("attachment operation lock");
+            let removed = {
+                let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
+                let mut attachments = self.inner.attachments.lock().expect("attach lock");
+                let same = attachments.get(&id).is_some_and(|current| {
+                    Arc::ptr_eq(&current.operation_gate, &candidate.operation_gate)
+                });
+                if same { attachments.remove(&id) } else { None }
+            };
+            if let Some(removed) = removed {
+                removed.closing.store(true, Ordering::SeqCst);
+                retired.push(removed);
             }
+            drop(operation);
         }
-        drop(_state);
         RetiredAttachments { inner: Arc::clone(&self.inner), attachments: retired }
     }
 
@@ -1328,6 +1346,7 @@ impl Inner {
             self.attachment_is_authorized(pty_id, &attachment, &auth, context)
         };
         if !authorized {
+            drop(_operation);
             self.handle_authorization_failure(pty_id, &attachment, &auth, context, "output");
             return;
         }
@@ -1341,6 +1360,7 @@ impl Inner {
         // frame exactly at the cap, but must reject one that would push the
         // buffered amount over the cap.
         if buffered.saturating_add(chunk.len() as u64) > self.output_cap {
+            drop(_operation);
             self.retire_if_current(pty_id, &attachment);
             send_pty_error(
                 context,
@@ -1517,6 +1537,47 @@ impl Inner {
 
     fn close_authorized(&self, pty_id: &str, context: &FrameContext) {
         let Some(auth) = self.auth_for_transport(context) else { return };
+
+        // A close may arrive while the PTY provider is still resolving. In
+        // that window there is no attachment to authorize, but the opening
+        // reservation is already consuming capacity. Cancel only the exact
+        // owner that the caller is allowed to retire, so a late close cannot
+        // cancel a replacement that reused the same pty id.
+        let opening_owner = self
+            .opening_state
+            .lock()
+            .expect("opening state lock")
+            .reservations
+            .get(pty_id)
+            .cloned();
+        if let Some(owner) = opening_owner {
+            let owner_matches = context.transport_id.is_none()
+                || owner.owner == TransportOwner::from_context(context);
+            let authorized = owner_matches
+                && Self::matching_trust(&auth, context).is_some()
+                && self.tunnel_authority_generation_current(context)
+                && self.transport_auth_is_current(context, &auth);
+            if !authorized {
+                return;
+            }
+            let cancellation = {
+                let _state = self.tunnel_state.lock().expect("tunnel state lock");
+                let mut opening = self.opening_state.lock().expect("opening state lock");
+                if opening.reservations.get(pty_id) != Some(&owner) {
+                    None
+                } else {
+                    opening.reservations.remove(pty_id);
+                    let cancellation = opening.cancellations.remove(&owner);
+                    opening.cancelled.insert(pty_id.to_owned(), owner);
+                    cancellation
+                }
+            };
+            if let Some(cancellation) = cancellation {
+                cancellation.cancel();
+            }
+            return;
+        }
+
         let Some(attachment) = self.attachment(pty_id) else { return };
         let _operation = attachment.operation_gate.lock().expect("attachment operation lock");
         let authorized = {
@@ -1604,6 +1665,9 @@ impl Inner {
     }
 
     fn retire_if_current(&self, pty_id: &str, attachment: &Attachment) {
+        // The operation gate is the publication/removal linearization point.
+        // Callers must release any prior guard before entering this helper.
+        let operation = attachment.operation_gate.lock().expect("attachment operation lock");
         let removed = {
             let _state = self.tunnel_state.lock().expect("tunnel state lock");
             let mut attachments = self.attachments.lock().expect("attach lock");
@@ -1612,6 +1676,10 @@ impl Inner {
             });
             if same { attachments.remove(pty_id) } else { None }
         };
+        if let Some(ref removed) = removed {
+            removed.closing.store(true, Ordering::SeqCst);
+        }
+        drop(operation);
         if let Some(removed) = removed {
             self.retire_attachment(removed);
         }
@@ -4242,10 +4310,7 @@ mod tests {
         // continue, independent of scheduler timing.
         entered.notified().await;
         manager
-            .handle_frame(
-                &serde_json::json!({ "type": "pty_close", "ptyId": "p1" }),
-                &context,
-            )
+            .handle_frame(&serde_json::json!({ "type": "pty_close", "ptyId": "p1" }), &context)
             .await;
         assert!(cancellation.is_cancelled());
 
