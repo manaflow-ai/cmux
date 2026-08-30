@@ -8,6 +8,9 @@ extension Notification.Name {
     static let browserFindCapabilityDidChange = Notification.Name(
         "cmux.browserFindCapabilityDidChange"
     )
+    static let terminalSelectionDidChange = Notification.Name(
+        "cmux.terminalSelectionDidChange"
+    )
 }
 
 @MainActor

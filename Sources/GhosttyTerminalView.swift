@@ -3124,6 +3124,12 @@ class GhosttyApp {
             return true
         case GHOSTTY_ACTION_SELECTION_CHANGED:
             surfaceView.selectionAccessibilitySignal.request()
+            if let terminalSurface = surfaceView.terminalSurface {
+                NotificationCenter.default.post(
+                    name: .terminalSelectionDidChange,
+                    object: terminalSurface
+                )
+            }
             return true
         case GHOSTTY_ACTION_GOTO_SPLIT:
             let gotoDirection = action.action.goto_split

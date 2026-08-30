@@ -234,10 +234,7 @@ extension DockSplitStore {
         let next = DockMenuCapabilitySnapshot(
             hasFocusedPanel: true,
             isTerminal: terminal != nil,
-            // Selection is mutable inside Ghostty and has no lightweight
-            // observable stream. Keep the menu enabled for terminal panels;
-            // the command validates the live selection at dispatch time.
-            canUseSelection: terminal != nil,
+            canUseSelection: terminal?.hasSelection() == true,
             hasFindSession: terminal?.searchState != nil
                 || browser?.searchState != nil
                 || browser?.isDiffViewerFindOwner == true,

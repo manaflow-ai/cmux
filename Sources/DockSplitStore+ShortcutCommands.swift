@@ -57,10 +57,12 @@ extension DockSplitStore {
         guard !isRetired else { return false }
         switch command {
         case .selectNextSurface:
+            guard focusedPanelId != nil else { return false }
             bonsplitController.selectNextTab()
             applyFocusedShortcutSelection()
             return true
         case .selectPreviousSurface:
+            guard focusedPanelId != nil else { return false }
             bonsplitController.selectPreviousTab()
             applyFocusedShortcutSelection()
             return true

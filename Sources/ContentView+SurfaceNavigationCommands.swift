@@ -64,14 +64,18 @@ extension ContentView {
         }
         registry.register(commandId: "palette.nextTabInPane") {
             if let dock = resolvedDock() {
-                _ = dock.performShortcutCommand(.selectNextSurface)
+                if !dock.performShortcutCommand(.selectNextSurface) {
+                    NSSound.beep()
+                }
                 return
             }
             tabManager.selectNextSurface()
         }
         registry.register(commandId: "palette.previousTabInPane") {
             if let dock = resolvedDock() {
-                _ = dock.performShortcutCommand(.selectPreviousSurface)
+                if !dock.performShortcutCommand(.selectPreviousSurface) {
+                    NSSound.beep()
+                }
                 return
             }
             tabManager.selectPreviousSurface()

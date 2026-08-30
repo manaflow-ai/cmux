@@ -1200,9 +1200,18 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     func installSubscription(for panel: any Panel) {
         if let terminal = panel as? TerminalPanel {
             configureAgentHibernationResume(for: terminal)
-            panelCancellables[panel.id] = terminal.$searchState
+            let terminalSearchChanges = terminal.$searchState
                 .map { $0 != nil }
                 .removeDuplicates()
+                .map { _ in () }
+            let terminalSelectionChanges = NotificationCenter.default.publisher(
+                for: .terminalSelectionDidChange,
+                object: terminal.surface
+            )
+            .map { _ in () }
+            panelCancellables[panel.id] = terminalSearchChanges
+                .merge(with: terminalSelectionChanges)
+                .receive(on: DispatchQueue.main)
                 .sink { [weak self] _ in
                     self?.refreshDockMenuCapabilities()
                 }
