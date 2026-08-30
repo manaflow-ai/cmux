@@ -7,13 +7,3 @@ public enum CmxIrxAuthenticationState: Equatable, Sendable {
     /// The broker rejected the session and the user must sign in again.
     case reauthenticationRequired
 }
-
-/// Supplies observable irx authentication state to a platform UI.
-public protocol CmxIrxAuthenticationStatusProviding: AnyObject, Sendable {
-    /// Returns the current credential-free irx authentication state.
-    func irxAuthenticationState() async -> CmxIrxAuthenticationState
-
-    /// Emits the current state followed by every later state transition.
-    func irxAuthenticationStateUpdates() async
-        -> AsyncStream<CmxIrxAuthenticationState>
-}
