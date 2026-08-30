@@ -21,6 +21,7 @@ struct CodexTerminalErrorNotificationTests {
 
         let server = try CodexTerminalErrorSocketServer(
             socketPath: socketPath,
+            workspaceID: workspaceID,
             surfaceID: surfaceID
         )
         server.start()
@@ -72,6 +73,7 @@ struct CodexTerminalErrorNotificationTests {
 
         let server = try CodexTerminalErrorSocketServer(
             socketPath: socketPath,
+            workspaceID: workspaceID,
             surfaceID: surfaceID
         )
         server.start()
@@ -164,6 +166,7 @@ struct CodexTerminalErrorNotificationTests {
 
         let server = try CodexTerminalErrorSocketServer(
             socketPath: socketPath,
+            workspaceID: workspaceID,
             surfaceID: surfaceID
         )
         server.start()
@@ -234,6 +237,7 @@ struct CodexTerminalErrorNotificationTests {
 
 private final class CodexTerminalErrorSocketServer: @unchecked Sendable {
     private let listenerFD: Int32
+    private let workspaceID: String
     private let surfaceID: String
     private let lock = NSLock()
     private var recordedCommands: [String] = []
@@ -243,7 +247,11 @@ private final class CodexTerminalErrorSocketServer: @unchecked Sendable {
         lock.withLock { recordedCommands }
     }
 
-    init(socketPath: String, surfaceID: String) throws {
+    init(
+        socketPath: String,
+        workspaceID: String,
+        surfaceID: String
+    ) throws {
         unlink(socketPath)
         let listenerFD = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
         guard listenerFD >= 0 else { throw Self.posixError("socket") }
@@ -278,6 +286,7 @@ private final class CodexTerminalErrorSocketServer: @unchecked Sendable {
             throw Self.posixError("bind/listen")
         }
         self.listenerFD = listenerFD
+        self.workspaceID = workspaceID
         self.surfaceID = surfaceID
     }
 
@@ -326,8 +335,22 @@ private final class CodexTerminalErrorSocketServer: @unchecked Sendable {
     private func response(for line: String) -> String {
         guard let data = line.data(using: .utf8),
               let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let id = payload["id"] as? String else {
+              let id = payload["id"] as? String,
+              let method = payload["method"] as? String else {
             return "OK"
+        }
+        if method == "agent.resolve_delivery_target" {
+            let params = payload["params"] as? [String: Any] ?? [:]
+            let source = params["surface_id"] == nil ? "pid" : "surface"
+            var result: [String: Any] = [
+                "source": source,
+                "workspace_id": workspaceID,
+                "surface_id": surfaceID,
+            ]
+            if source == "pid" {
+                result["pid_resolution"] = "corroborated"
+            }
+            return Self.v2Response(id: id, result: result)
         }
         let response: [String: Any] = [
             "id": id,
@@ -336,6 +359,19 @@ private final class CodexTerminalErrorSocketServer: @unchecked Sendable {
         ]
         let responseData = try? JSONSerialization.data(withJSONObject: response)
         return String(data: responseData ?? Data("{}".utf8), encoding: .utf8) ?? "{}"
+    }
+
+    private static func v2Response(id: String, result: [String: Any]) -> String {
+        let response: [String: Any] = [
+            "id": id,
+            "ok": true,
+            "result": result,
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: response),
+              let encoded = String(data: data, encoding: .utf8) else {
+            return "{}"
+        }
+        return encoded
     }
 
     private static func writeAll(_ string: String, to fd: Int32) -> Bool {
