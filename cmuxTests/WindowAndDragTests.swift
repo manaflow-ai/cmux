@@ -3041,89 +3041,6 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
         }
     }
 
-    func testSearchResultsContainerSurvivesDismantleUntilNativeEndedAt() throws {
-        let searchController = SearchResultsDragTestSearchController()
-        let store = FileExplorerStore()
-        let state = FileExplorerState()
-        let coordinator = FileExplorerPanelView.Coordinator(
-            store: store,
-            state: state,
-            onOpenFilePreview: { _ in }
-        )
-        var container: FileExplorerContainerView? = FileExplorerContainerView(
-            coordinator: coordinator,
-            presentation: .find,
-            searchController: searchController
-        )
-        weak var weakContainer: FileExplorerContainerView?
-        weakContainer = container
-
-        searchController.publish(FileSearchSnapshot(
-            query: "needle",
-            results: [FileSearchResult(
-                path: "/tmp/search-result.txt",
-                relativePath: "search-result.txt",
-                lineNumber: 1,
-                columnNumber: 1,
-                preview: "needle"
-            )],
-            status: .matches,
-            isSearching: false
-        ))
-
-        var writer: (any NSPasteboardWriting)?
-        let sessionPasteboard = NSPasteboard(
-            name: NSPasteboard.Name("file-explorer-ended-at-\(UUID().uuidString)")
-        )
-        let session = SearchResultsDragTestSession(
-            sequence: 42,
-            pasteboard: sessionPasteboard
-        )
-
-        do {
-            let activeContainer = try XCTUnwrap(container)
-            writer = try XCTUnwrap(
-                activeContainer.tableView(
-                    activeContainer.searchResultsView,
-                    pasteboardWriterForRow: 0
-                )
-            )
-            activeContainer.tableView(
-                activeContainer.searchResultsView,
-                draggingSession: session,
-                willBeginAt: .zero,
-                forRowIndexes: IndexSet(integer: 0)
-            )
-            XCTAssertTrue(activeContainer.searchResultsView.activeNativeDragOwner === activeContainer)
-            XCTAssertTrue(activeContainer.searchResultsView.activeNativeDragSession === session)
-
-            // This is the SwiftUI representable's dismantle boundary. The
-            // writer must retain the container because NSTableView's delegate
-            // is weak.
-            FileExplorerPanelView.dismantleNSView(activeContainer, coordinator: coordinator)
-        }
-        container = nil
-        try withExtendedLifetime(writer) {
-            let retainedContainer = try XCTUnwrap(
-                weakContainer,
-                "The native writer must retain FileExplorerContainerView after dismantle."
-            )
-            XCTAssertTrue(retainedContainer.searchResultsView.delegate === retainedContainer)
-
-            // AppKit's terminal callback is the cleanup authority. It must
-            // still run after dismantle and release only this session's owner
-            // graph.
-            retainedContainer.tableView(
-                retainedContainer.searchResultsView,
-                draggingSession: session,
-                endedAt: .zero,
-                operation: []
-            )
-            XCTAssertNil(retainedContainer.searchResultsView.activeNativeDragOwner)
-            XCTAssertNil(retainedContainer.searchResultsView.activeNativeDragSession)
-        }
-    }
-
     func testPreviewPayloadWithoutFileURLUsesItsLiveRegistryEntry() throws {
         let isolatedRegistry = TabDragTransferRegistry()
         let writer = FilePreviewDragPasteboardWriter(
@@ -3157,34 +3074,6 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
         FilePreviewDragRegistry.shared.discard(id: dragId)
         XCTAssertFalse(DragOverlayRoutingPolicy.hasLiveFileDropPayload(from: pasteboard))
         XCTAssertTrue(DragOverlayRoutingPolicy.fileURLs(from: pasteboard).isEmpty)
-    }
-
-    @MainActor
-    private final class SearchResultsDragTestSession: NSDraggingSession {
-        private let sessionPasteboard: NSPasteboard
-        private let sequence: Int
-
-        init(sequence: Int, pasteboard: NSPasteboard) {
-            self.sequence = sequence
-            sessionPasteboard = pasteboard
-            super.init()
-        }
-
-        override var draggingPasteboard: NSPasteboard { sessionPasteboard }
-        override var draggingSequenceNumber: Int { sequence }
-    }
-
-    @MainActor
-    private final class SearchResultsDragTestSearchController: FileSearchControlling {
-        var onSnapshotChanged: ((FileSearchSnapshot) -> Void)?
-
-        func search(query: String, rootPath: String, isLocal: Bool, contentRevision: Int) {}
-
-        func cancel(clear: Bool) {}
-
-        func publish(_ snapshot: FileSearchSnapshot) {
-            onSnapshotChanged?(snapshot)
-        }
     }
 
     func testRegistrySweepsExpiredDragEntries() {
