@@ -321,6 +321,8 @@ struct RenderNodeMenuBuilderTests {
             pressure: 1
         ))
 
+        #expect(overlay.acceptsFirstMouse(for: event))
+
         // `hitTest` receives points in the superview's coordinates, so the
         // offset overlay must claim the point inside its frame.
         #expect(overlay.performHitTest(
