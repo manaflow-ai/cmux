@@ -635,6 +635,97 @@ struct WorkspaceRecoveryTests {
     }
 
     @Test
+    func sessionSnapshotUsesDurableAutomaticTitleWhenLiveTitleIsStale() throws {
+        let fixture = try makeCustomizationStore()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+
+        let sourceManager = TabManager(
+            initialWorkingDirectory: "/tmp/durable-title-source",
+            autoWelcomeIfNeeded: false,
+            workspaceCustomizationStore: fixture.store
+        )
+        let sourceWorkspace = try #require(sourceManager.selectedWorkspace)
+        #expect(sourceManager.setCustomTitle(tabId: sourceWorkspace.id, title: "User Title"))
+        sourceManager.clearCustomTitle(tabId: sourceWorkspace.id)
+        #expect(sourceManager.setCustomTitle(
+            tabId: sourceWorkspace.id,
+            title: "Durable Automatic Title",
+            source: .auto
+        ))
+        sourceManager.flushPendingWorkspaceCustomizationWrites()
+
+        let staleManager = SnapshotRaceTabManager(
+            initialWorkingDirectory: "/tmp/stale-live-title",
+            autoWelcomeIfNeeded: false,
+            workspaceCustomizationStore: fixture.store
+        )
+        staleManager.restoreSessionSnapshot(SessionTabManagerSnapshot(
+            selectedWorkspaceIndex: 0,
+            workspaces: [sourceWorkspace.sessionSnapshot(includeScrollback: false)]
+        ))
+        let staleWorkspace = try #require(staleManager.selectedWorkspace)
+        staleWorkspace.customTitle = "Stale Live Title"
+        staleWorkspace.customTitleSource = .auto
+
+        let snapshot = staleManager.sessionSnapshot(includeScrollback: false)
+        let snapshotWorkspace = try #require(snapshot.workspaces.first)
+        #expect(snapshotWorkspace.customTitle == "Durable Automatic Title")
+        #expect(snapshotWorkspace.customTitleSource == .auto)
+
+        let restoredManager = TabManager(
+            autoWelcomeIfNeeded: false,
+            workspaceCustomizationStore: fixture.store
+        )
+        restoredManager.restoreSessionSnapshot(snapshot)
+        let restoredWorkspace = try #require(restoredManager.selectedWorkspace)
+        #expect(restoredWorkspace.customTitle == "Durable Automatic Title")
+        #expect(restoredWorkspace.effectiveCustomTitleSource == .auto)
+    }
+
+    @Test
+    func equalTitleFenceDoesNotSuppressIndependentColorRecovery() throws {
+        let fixture = try makeCustomizationStore()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+
+        let sourceManager = TabManager(
+            initialWorkingDirectory: "/tmp/independent-color-recovery",
+            autoWelcomeIfNeeded: false,
+            workspaceCustomizationStore: fixture.store
+        )
+        let sourceWorkspace = try #require(sourceManager.selectedWorkspace)
+        #expect(sourceManager.setCustomTitle(tabId: sourceWorkspace.id, title: "User Title"))
+        sourceManager.clearCustomTitle(tabId: sourceWorkspace.id)
+        #expect(sourceManager.setCustomTitle(
+            tabId: sourceWorkspace.id,
+            title: "Automatic Title",
+            source: .auto
+        ))
+        sourceManager.flushPendingWorkspaceCustomizationWrites()
+        fixture.store.setCustomColor("#123456", for: sourceWorkspace.stableId)
+        let titleRevision = try #require(
+            fixture.store.customizationAndTitleMutationRevision(for: sourceWorkspace.stableId)
+        ).titleMutationRevision
+
+        var snapshot = sourceWorkspace.sessionSnapshot(includeScrollback: false)
+        snapshot.customTitle = "Automatic Title"
+        snapshot.customTitleSource = .auto
+        snapshot.customTitleMutationRevision = titleRevision
+        snapshot.customColor = nil
+
+        let restoredManager = TabManager(
+            autoWelcomeIfNeeded: false,
+            workspaceCustomizationStore: fixture.store
+        )
+        restoredManager.restoreSessionSnapshot(SessionTabManagerSnapshot(
+            selectedWorkspaceIndex: 0,
+            workspaces: [snapshot]
+        ))
+        let restoredWorkspace = try #require(restoredManager.selectedWorkspace)
+        #expect(restoredWorkspace.customTitle == "Automatic Title")
+        #expect(restoredWorkspace.customColor == "#123456")
+    }
+
+    @Test
     func queuedAutomaticTitleSurvivesAConcurrentClearWithoutPerEventReads() throws {
         let fixture = try makeCustomizationStore()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
