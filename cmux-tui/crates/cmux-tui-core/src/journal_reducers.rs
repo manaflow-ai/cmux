@@ -601,4 +601,34 @@ mod tests {
         assert_eq!(deltas.len(), 1);
         assert!(!roster.is_retired("term_a"));
     }
+
+    #[test]
+    fn terminal_fences_are_bounded() {
+        const EXPECTED_FENCE_LIMIT: usize = 1_024;
+        let payload = json!({});
+        let mut live = AgentRoster::default();
+        for sequence in 1..=EXPECTED_FENCE_LIMIT * 2 {
+            let subjects = terminal_subject("long_lived");
+            live.apply(&hook_event(
+                sequence as u64,
+                if sequence % 2 == 0 { "agent.session.started" } else { "agent.turn.started" },
+                &subjects,
+                &payload,
+            ));
+        }
+        assert_eq!(live.hook_fences.len(), 1);
+
+        let mut retired = AgentRoster::default();
+        for index in 0..(EXPECTED_FENCE_LIMIT * 2) {
+            let terminal_id = format!("retired_{index}");
+            let subjects = terminal_subject(&terminal_id);
+            let sequence = index as u64 * 2 + 1;
+            retired.apply(&hook_event(sequence, "agent.turn.started", &subjects, &payload));
+            retired.apply(&hook_event(sequence + 1, "agent.session.ended", &subjects, &payload));
+            retired.retire_terminal(&terminal_id, sequence);
+        }
+        assert!(retired.hook_fences.is_empty());
+        assert!(retired.retired_terminals.len() <= EXPECTED_FENCE_LIMIT);
+        assert_eq!(retired.retired_terminals.get("retired_2047"), Some(&4_095));
+    }
 }

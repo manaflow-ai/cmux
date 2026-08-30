@@ -22990,6 +22990,7 @@ mod tests {
             .join(format!("cmux-roster-echo-{}", crate::workspace_registry::new_uuid_v4()));
         let mux = Mux::open_persistent("roster-echo", SurfaceOptions::default(), &root).unwrap();
         let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
         let socket_echoes = || {
             mux.session_journal_after(0, 1024)
                 .unwrap()
@@ -23007,18 +23008,97 @@ mod tests {
         };
 
         assert_eq!(socket_echoes(), 0);
-        mux.report_agent(surface.id, AgentState::Working, AgentSource::Socket, Some("poll".into()))
+        let first = mux
+            .report_agent(surface.id, AgentState::Working, AgentSource::Socket, Some("poll".into()))
             .unwrap();
         assert_eq!(socket_echoes(), 1);
-        mux.report_agent(surface.id, AgentState::Working, AgentSource::Socket, Some("poll".into()))
+        std::thread::sleep(Duration::from_millis(5));
+        let repeated = mux
+            .report_agent(surface.id, AgentState::Working, AgentSource::Socket, Some("poll".into()))
             .unwrap();
         assert_eq!(socket_echoes(), 1);
-        mux.report_agent(surface.id, AgentState::Blocked, AgentSource::Socket, Some("poll".into()))
-            .unwrap();
-        assert_eq!(socket_echoes(), 2);
+        assert_eq!(repeated.updated_at_ms, first.updated_at_ms);
+        let durable_timestamp = first.updated_at_ms;
 
         mux.shutdown();
         drop(mux);
+        let reopened =
+            Mux::open_persistent("roster-echo", SurfaceOptions::default(), &root).unwrap();
+        let reopened_surface = reopened
+            .resource_surface_for_terminal(&terminal_id)
+            .expect("reopened workspace terminal");
+        assert_eq!(
+            reopened.list_agents(Some(reopened_surface), None)[0].updated_at_ms,
+            durable_timestamp
+        );
+        let socket_echoes = || {
+            reopened
+                .session_journal_after(0, 1024)
+                .unwrap()
+                .records
+                .into_iter()
+                .filter(|record| {
+                    record
+                        .payload
+                        .get("adapter")
+                        .and_then(|adapter| adapter.get("id"))
+                        .and_then(Value::as_str)
+                        == Some(crate::journal_reducers::SOCKET_REPORT_ADAPTER)
+                })
+                .count()
+        };
+        assert_eq!(socket_echoes(), 1);
+        reopened
+            .report_agent(
+                reopened_surface,
+                AgentState::Blocked,
+                AgentSource::Socket,
+                Some("poll".into()),
+            )
+            .unwrap();
+        assert_eq!(socket_echoes(), 2);
+        reopened.shutdown();
+        drop(reopened);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn unsupported_hook_events_do_not_make_compatibility_projection_authoritative() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-roster-unsupported-{}", crate::workspace_registry::new_uuid_v4()));
+        let session = "roster-unsupported";
+        let mux = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+        mux.report_agent(
+            surface.id,
+            AgentState::Working,
+            AgentSource::Hook,
+            Some("compatibility-session".into()),
+        )
+        .unwrap();
+
+        let child = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "SubagentStart",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({"session_id":"child-session"}),
+        )
+        .unwrap();
+        assert_eq!(child.kind, "agent.child.spawned");
+        mux.append_journal_ingress(&child, "test", "unsupported-hook").unwrap();
+        assert_eq!(mux.list_agents(Some(surface.id), None).len(), 1);
+
+        mux.shutdown();
+        drop(mux);
+        let reopened = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
+        let reopened_surface = reopened.resource_surface_for_terminal(&terminal_id).unwrap();
+        let records = reopened.list_agents(Some(reopened_surface), None);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].source, AgentSource::Hook);
+        assert_eq!(records[0].session.as_deref(), Some("compatibility-session"));
+        reopened.shutdown();
+        drop(reopened);
         std::fs::remove_dir_all(root).unwrap();
     }
 
