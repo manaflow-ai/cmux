@@ -12,13 +12,36 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `3da10da73`, the head of
-https://github.com/manaflow-ai/ghostty/pull/200. It reports a terminal outcome
-for every accepted tokened iOS render, rejects renderer-thread requests that
-iOS external-drain mode cannot consume, and exposes a nonblocking prompt reveal
-operation. The pin includes the prior fork changes below, including VT
-formatter cursor restoration at `f76c132e5`, VT stream-boundary visibility at
-`9513174f2`, and Hangul canonical font resolution at `3fbdd078d`.
+The submodule pinned by this branch is `466f85867`, reachable from fork `main`.
+It carries the renderer/API compatibility pin plus the Fish SSH feature-gating
+fix (`fd13a3fc2`): the embedded Ghostty CLI wrapper is installed whenever
+either `ssh-env` or `ssh-terminfo` is enabled. The pin includes the prior fork
+changes below, including tokened iOS render dispositions, VT formatter cursor
+restoration, VT stream-boundary visibility, and Hangul canonical font
+resolution.
+
+The corresponding universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-466f8586749216b686c5397d9f03e10eac1955c4-crashsubdir-cmux-crash-sentry-off-v1
+with SHA-256 `a27c76e786da0b625b4cab8c0e0ae052e559bbf598fecca1935087b262844afb`
+pinned in `scripts/ghosttykit-checksums.txt`.
+
+### Fish SSH wrapper feature disjunction
+
+- Pull request: https://github.com/manaflow-ai/ghostty/pull/207
+- Commit: `466f85867` (merge cmux Fish and render API compatibility pin)
+- File: `src/shell-integration/fish/vendor_conf.d/ghostty-shell-integration.fish`
+- Summary:
+  - Separates the non-empty `GHOSTTY_BIN` guard from the feature disjunction so
+    Fish installs the wrapper for `ssh-env`, `ssh-terminfo`, or both.
+  - Avoids Fish's sequential `and`/`or` evaluation accidentally requiring the
+    later `ssh-terminfo` check after `ssh-env` succeeds.
+- Conflict note:
+  - Preserve the explicit feature disjunction if upstream rewrites the Fish
+    integration. A single enabled SSH feature must still install the wrapper.
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-466f8586749216b686c5397d9f03e10eac1955c4-crashsubdir-cmux-crash-sentry-off-v1
+  - SHA-256 `a27c76e786da0b625b4cab8c0e0ae052e559bbf598fecca1935087b262844afb`
+    is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### iOS tokened render disposition and nonblocking prompt reveal
 
