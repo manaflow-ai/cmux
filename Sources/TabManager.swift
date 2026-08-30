@@ -6162,6 +6162,11 @@ class TabManager: ObservableObject {
         }
     }
 #endif
+    /// Test seam for mutating persisted workspace state after live snapshots are captured.
+    ///
+    /// This declaration lives in the class body so focused tests can override
+    /// it while production keeps the default no-op behavior.
+    func didCaptureWorkspaceSessionSnapshots() {}
 }
 
 extension TabManager {
@@ -6529,9 +6534,6 @@ extension TabManager {
             workspaceGroups: groupSnapshots
         )
     }
-
-    /// Test seam for mutating persisted workspace state after live snapshots are captured.
-    func didCaptureWorkspaceSessionSnapshots() {}
 
     func sessionSnapshotWorkspaceIds() -> [UUID] {
         Array(
