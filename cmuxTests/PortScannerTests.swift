@@ -1160,6 +1160,22 @@ struct PortScannerLifecycleTests {
     }
 }
 
+@Suite("Port scanner lsof batching")
+struct PortScannerLsofBatchingTests {
+    @Test("Large PID lists are split without exceeding the argument budget")
+    func largePIDListUsesBoundedCSVArguments() {
+        let pids = Array(1...2_000)
+        let chunks = PortScanner.lsofPIDChunks(pids)
+
+        #expect(chunks.count > 1)
+        #expect(chunks.flatMap { $0 } == pids)
+        for chunk in chunks {
+            let csvBytes = chunk.map(String.init).joined(separator: ",").utf8.count
+            #expect(csvBytes + PortScanner.lsofArgumentOverhead <= PortScanner.lsofArgumentByteBudget)
+        }
+    }
+}
+
 @Suite("Port scanner retirement end to end")
 struct PortScannerPortRetirementTests {
     /// Drives the whole scanner — TTY registration, kick, coalesce, burst,
