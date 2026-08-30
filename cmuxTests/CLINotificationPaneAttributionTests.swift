@@ -1,7 +1,10 @@
 import Darwin
 import Foundation
-import XCTest
+@preconcurrency import XCTest
 
+// Stays on XCTest deliberately: this extends the existing bundled-CLI socket
+// harness (`CLINotifyProcessIntegrationRegressionTests`), whose process runner
+// and mock server lifecycle are shared with the surrounding integration suite.
 extension CLINotifyProcessIntegrationRegressionTests {
     /// Regression for https://github.com/manaflow-ai/cmux/issues/11189: when
     /// the ambient surface is stale and the live resolver cannot prove a pane,

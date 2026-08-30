@@ -59,6 +59,7 @@ struct TerminalCallerTTYResolverTests {
         // always choose the live proof, independent of candidate order.
         let liveCandidates = [
             (binding: runtime, ttyName: "/dev/ttys777"),
+            (binding: TerminalCallerTTYBinding(workspaceId: UUID(), surfaceId: UUID()), ttyName: "ttys888"),
         ]
         let restoredCandidates = [
             (binding: restored, ttyName: "ttys777"),

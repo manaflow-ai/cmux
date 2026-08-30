@@ -143,7 +143,7 @@ class CapturingSocketServer:
                 if "id" not in request:
                     return None
                 if request.get("method") == "surface.list":
-                    surfaces = self.surfaces or [
+                    surfaces = self.surfaces if self.surfaces is not None else [
                         {
                             "id": self.surface_id,
                             "ref": self.surface_id,
