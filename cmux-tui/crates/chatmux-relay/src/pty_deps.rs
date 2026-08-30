@@ -1399,6 +1399,72 @@ mod tests {
         }
     }
 
+    #[derive(Debug)]
+    struct TestChildKiller {
+        kills: TestArc<AtomicUsize>,
+    }
+
+    impl cmux_pty::ChildKiller for TestChildKiller {
+        fn kill(&mut self) -> std::io::Result<()> {
+            self.kills.fetch_add(1, AtomicOrdering::Relaxed);
+            Ok(())
+        }
+
+        fn clone_killer(&self) -> Box<dyn cmux_pty::ChildKiller + Send + Sync> {
+            Box::new(Self { kills: TestArc::clone(&self.kills) })
+        }
+    }
+
+    #[derive(Debug)]
+    struct TestMaster;
+
+    impl MasterPty for TestMaster {
+        fn resize(&self, _size: PtySize) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        fn get_size(&self) -> anyhow::Result<PtySize> {
+            Ok(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
+        }
+
+        fn try_clone_reader(&self) -> anyhow::Result<Box<dyn Read + Send>> {
+            Ok(Box::new(std::io::empty()))
+        }
+
+        fn take_writer(&self) -> anyhow::Result<Box<dyn Write + Send>> {
+            Ok(Box::new(std::io::sink()))
+        }
+
+        fn process_group_leader(&self) -> Option<libc::pid_t> {
+            None
+        }
+
+        fn as_raw_fd(&self) -> Option<std::os::unix::io::RawFd> {
+            None
+        }
+
+        fn tty_name(&self) -> Option<PathBuf> {
+            None
+        }
+    }
+
+    #[test]
+    fn master_control_kill_does_not_signal_reaped_pid() {
+        let kills = TestArc::new(AtomicUsize::new(0));
+        let lifecycle = ChildLifecycle::new(Some(42));
+        lifecycle.lock().expect("lifecycle lock").exited = true;
+        let control = MasterControl {
+            master: Mutex::new(Box::new(TestMaster)),
+            writer: Mutex::new(Box::new(std::io::sink())),
+            killer: Mutex::new(Box::new(TestChildKiller { kills: TestArc::clone(&kills) })),
+            lifecycle,
+        };
+
+        control.kill();
+
+        assert_eq!(kills.load(AtomicOrdering::Relaxed), 0);
+    }
+
     #[test]
     fn session_socket_path_matches_core_fallback_order() {
         let session = format!("legacy-{}", "x".repeat(200));
