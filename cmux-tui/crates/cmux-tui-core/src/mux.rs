@@ -1135,7 +1135,19 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
             break;
         }
     }
-    if host.cursor != initial_cursor || !snapshot_valid {
+    // Sealed segments are checkpoint-aligned. Once the reducer has replayed
+    // through that boundary, retirement rows at or below it are covered by a
+    // durable checkpoint and no longer need in-memory tombstones.
+    let sealed_through = registry
+        .journal_segments()?
+        .into_iter()
+        .map(|segment| segment.end_sequence)
+        .max()
+        .unwrap_or(0);
+    let compacted = sealed_through > 0
+        && host.cursor >= sealed_through
+        && host.roster.compact_retired_terminals(sealed_through);
+    if host.cursor != initial_cursor || !snapshot_valid || compacted {
         registry.put_journal_reducer_state(
             AGENT_ROSTER_REDUCER_ID,
             AGENT_ROSTER_REDUCER_VERSION,
@@ -5743,6 +5755,39 @@ impl Mux {
         }
     }
 
+    /// Compact exact retirement fences after a checkpoint-aligned journal
+    /// segment seal. The fold lock serializes this with roster updates, and a
+    /// failed metadata write restores the previous in-memory snapshot so the
+    /// durable and live reducers never disagree.
+    fn compact_agent_roster_through(&self, through_sequence: u64) -> anyhow::Result<()> {
+        if through_sequence == 0 {
+            return Ok(());
+        }
+        let _fold = self.agent_roster_fold.lock().unwrap();
+        let (previous, cursor, snapshot) = {
+            let mut host = self.agent_roster.lock().unwrap();
+            if host.cursor < through_sequence {
+                return Ok(());
+            }
+            let previous = host.roster.clone();
+            if !host.roster.compact_retired_terminals(through_sequence) {
+                return Ok(());
+            }
+            (previous, host.cursor, host.roster.snapshot().to_string())
+        };
+        let persisted = self.workspace_registry.lock().unwrap().put_journal_reducer_state(
+            crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+            crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+            cursor,
+            &snapshot,
+        );
+        if let Err(error) = persisted {
+            self.agent_roster.lock().unwrap().roster = previous;
+            return Err(error).context("persist compacted agent roster snapshot");
+        }
+        Ok(())
+    }
+
     fn apply_roster_delta_to_record_cache(&self, delta: crate::journal_reducers::RosterDelta) {
         use crate::journal_reducers::RosterDelta;
         let mut records = self.agent_records.lock().unwrap();
@@ -6268,6 +6313,12 @@ impl Mux {
             if let Some(commit) = commit {
                 if !commit.journal.replayed {
                     self.publish_journal_event();
+                }
+                if let Err(error) = self.compact_agent_roster_through(commit.through_sequence) {
+                    self.report_internal_diagnostic(
+                        "journal sealed but agent roster compaction was deferred",
+                    );
+                    eprintln!("cmux-tui: agent roster compaction failed: {error}");
                 }
                 return Ok(commit);
             }

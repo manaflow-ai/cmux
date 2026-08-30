@@ -342,6 +342,15 @@ impl AgentRoster {
         removed_entry || removed_fence || retired_changed
     }
 
+    /// Remove retirement fences whose source records are covered by a sealed
+    /// checkpoint. Segment sealing is checkpoint-aligned, so no reducer replay
+    /// can revisit a record at or below this watermark after compaction.
+    pub(crate) fn compact_retired_terminals(&mut self, through_sequence: u64) -> bool {
+        let before = self.retired_terminals.len();
+        self.retired_terminals.retain(|_, retired_at| *retired_at > through_sequence);
+        self.retired_terminals.len() != before
+    }
+
     pub(crate) fn is_retired(&self, terminal_id: &str) -> bool {
         self.retired_terminals.contains_key(terminal_id)
     }
