@@ -15,6 +15,9 @@ struct DockPanelView: View {
     let mode: RightSidebarMode
     let rootDirectory: String?
     let windowAppearance: WindowAppearanceSnapshot
+    /// App-owned pointer router; `nil` keeps standalone previews/tests free of
+    /// process-wide AppKit monitors.
+    let pointerEventRouter: DockPointerInteractionEventRouter?
     /// True when the right sidebar (this Dock) owns keyboard focus. The Dock
     /// dims its focus ring when false so Dock and main-pane focus are mutually
     /// exclusive (the main pane dims its ring when this is true).
@@ -32,6 +35,7 @@ struct DockPanelView: View {
         mode: RightSidebarMode,
         rootDirectory: String?,
         windowAppearance: WindowAppearanceSnapshot,
+        pointerEventRouter: DockPointerInteractionEventRouter? = nil,
         rightSidebarOwnsInputFocus: Bool = false,
         unreadSource: SidebarUnreadModel
     ) {
@@ -40,6 +44,7 @@ struct DockPanelView: View {
         self.mode = mode
         self.rootDirectory = rootDirectory
         self.windowAppearance = windowAppearance
+        self.pointerEventRouter = pointerEventRouter
         self.rightSidebarOwnsInputFocus = rightSidebarOwnsInputFocus
         _unreadProjection = State(initialValue: DockUnreadPanelProjection(
             source: unreadSource,
@@ -89,6 +94,7 @@ struct DockPanelView: View {
         .overlay {
             DockPointerInteractionHost(
                 store: store,
+                router: pointerEventRouter,
                 isEnabled: store.scope == .global && store.isVisibleInUI
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)

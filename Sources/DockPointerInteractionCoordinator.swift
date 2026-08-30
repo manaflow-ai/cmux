@@ -9,13 +9,13 @@ enum DockPointerHitTarget: Equatable {
 /// Pure policy for turning AppKit hit-test signals into Dock ownership. The
 /// geometry/portal lookups stay in the host view, while this bounded decision
 /// is executable in unit tests without constructing a Bonsplit hierarchy.
-enum DockPointerHitClassification {
-    nonisolated static func target(
-        registryTabItemHit: Bool,
-        hierarchyTabItemHit: Bool,
-        interactiveChromeHit: Bool,
-        selectedPanelHit: Bool
-    ) -> DockPointerHitTarget? {
+struct DockPointerHitSignals: Equatable, Sendable {
+    let registryTabItemHit: Bool
+    let hierarchyTabItemHit: Bool
+    let interactiveChromeHit: Bool
+    let selectedPanelHit: Bool
+
+    var target: DockPointerHitTarget? {
         if registryTabItemHit || hierarchyTabItemHit {
             return interactiveChromeHit ? nil : .tabItem
         }
@@ -30,28 +30,44 @@ enum DockPointerHitClassification {
 /// only the host that owns the event's window.
 @MainActor
 final class DockPointerInteractionEventRouter {
-    static let shared = DockPointerInteractionEventRouter()
-
     private struct Entry {
         weak var host: DockPointerInteractionHostView?
     }
 
-    private var hostsByWindow: [ObjectIdentifier: Entry] = [:]
+    /// Hosts are kept in mount order so a transient SwiftUI overlap can fall
+    /// back to the older live host when the newer one is dismantled.
+    private var hostsByWindow: [ObjectIdentifier: [Entry]] = [:]
     private var eventMonitor: Any?
 
-    private init() {}
+    init() {}
 
     func register(_ host: DockPointerInteractionHostView, in window: NSWindow) {
         pruneDeadHosts()
         let hostID = ObjectIdentifier(host)
         // A SwiftUI representable can migrate between windows. Remove any old
         // registration for this host before installing its new owner window.
-        hostsByWindow = hostsByWindow.filter { _, entry in
-            guard let registeredHost = entry.host else { return false }
-            return ObjectIdentifier(registeredHost) != hostID
+        for key in Array(hostsByWindow.keys) {
+            hostsByWindow[key]?.removeAll { entry in
+                guard let registeredHost = entry.host else { return true }
+                return ObjectIdentifier(registeredHost) == hostID
+            }
+            if hostsByWindow[key]?.isEmpty == true {
+                hostsByWindow.removeValue(forKey: key)
+            }
         }
-        hostsByWindow[ObjectIdentifier(window)] = Entry(host: host)
+        hostsByWindow[ObjectIdentifier(window), default: []].append(
+            Entry(host: host)
+        )
         installMonitorIfNeeded()
+    }
+
+    func isRegistered(
+        _ host: DockPointerInteractionHostView,
+        in window: NSWindow
+    ) -> Bool {
+        hostsByWindow[ObjectIdentifier(window)]?.contains { entry in
+            entry.host === host
+        } == true
     }
 
     func unregister(_ host: DockPointerInteractionHostView) {
@@ -62,11 +78,17 @@ final class DockPointerInteractionEventRouter {
     /// host is being deallocated and therefore cannot capture `self` strongly.
     func unregister(hostID: ObjectIdentifier, in window: NSWindow?) {
         let windowID = window.map(ObjectIdentifier.init)
-        hostsByWindow = hostsByWindow.filter { key, entry in
-            guard let registeredHost = entry.host else { return false }
-            guard ObjectIdentifier(registeredHost) == hostID else { return true }
-            if let windowID { return key != windowID }
-            return false
+        for key in Array(hostsByWindow.keys) {
+            if let windowID, key != windowID {
+                continue
+            }
+            hostsByWindow[key]?.removeAll { entry in
+                guard let registeredHost = entry.host else { return true }
+                return ObjectIdentifier(registeredHost) == hostID
+            }
+            if hostsByWindow[key]?.isEmpty == true {
+                hostsByWindow.removeValue(forKey: key)
+            }
         }
         pruneDeadHosts()
     }
@@ -91,11 +113,24 @@ final class DockPointerInteractionEventRouter {
     private func route(_ event: NSEvent) {
         guard let window = event.window else { return }
         pruneDeadHosts()
-        hostsByWindow[ObjectIdentifier(window)]?.host?.handlePointerEvent(event)
+        guard let host = hostsByWindow[ObjectIdentifier(window)]?
+            .reversed()
+            .compactMap(\.host)
+            .first else {
+            return
+        }
+        host.handlePointerEvent(event)
     }
 
     private func pruneDeadHosts() {
-        hostsByWindow = hostsByWindow.filter { $0.value.host != nil }
+        var liveHostsByWindow: [ObjectIdentifier: [Entry]] = [:]
+        for (windowID, entries) in hostsByWindow {
+            let liveEntries = entries.filter { $0.host != nil }
+            if !liveEntries.isEmpty {
+                liveHostsByWindow[windowID] = liveEntries
+            }
+        }
+        hostsByWindow = liveHostsByWindow
         guard hostsByWindow.isEmpty, let eventMonitor else { return }
         NSEvent.removeMonitor(eventMonitor)
         self.eventMonitor = nil
@@ -207,7 +242,7 @@ extension DockSplitStore {
         dockPointerInteractionCoordinator.begin(
             window: window,
             initialPaneID: selection?.paneId,
-            initialTabID: selection.map { TabID(uuid: $0.tab.id) }
+            initialTabID: selection?.tab.id
         )
         noteKeyboardFocusIntent(window: window)
     }
@@ -250,7 +285,7 @@ extension DockSplitStore {
         applyDockSelection(tabId: tab.id, inPane: pane)
         _ = consumeDockPointerSelection(
             pane: pane,
-            tab: TabID(uuid: tab.id),
+            tab: tab.id,
             window: nil
         )
     }
@@ -269,7 +304,7 @@ extension DockSplitStore {
         applyDockSelection(tabId: tab.id, inPane: pane)
         _ = consumeDockPointerSelection(
             pane: pane,
-            tab: TabID(uuid: tab.id),
+            tab: tab.id,
             window: nil
         )
     }
@@ -300,7 +335,7 @@ extension DockSplitStore {
         }
         _ = consumeDockPointerSelection(
             pane: destination,
-            tab: TabID(uuid: tab.id),
+            tab: tab.id,
             window: nil
         )
         scheduleDockPortalReconcile(reason: "dock.moveTab")

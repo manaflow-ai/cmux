@@ -63,11 +63,13 @@ struct DockSplitContentView: View {
 @MainActor
 struct DockPointerInteractionHost: NSViewRepresentable {
     let store: DockSplitStore
+    let router: DockPointerInteractionEventRouter?
     let isEnabled: Bool
 
     func makeNSView(context: Context) -> DockPointerInteractionHostView {
         let view = DockPointerInteractionHostView()
         view.store = store
+        view.router = router
         view.isEnabled = isEnabled
         return view
     }
@@ -79,7 +81,11 @@ struct DockPointerInteractionHost: NSViewRepresentable {
         if nsView.store !== store {
             nsView.store?.cancelDockPointerInteraction()
         }
+        if nsView.router !== router {
+            nsView.stopMonitoring()
+        }
         nsView.store = store
+        nsView.router = router
         nsView.isEnabled = isEnabled
         nsView.refreshTeardownCleanup()
         if isEnabled {
@@ -95,6 +101,7 @@ struct DockPointerInteractionHost: NSViewRepresentable {
     ) {
         nsView.stopMonitoring()
         nsView.store = nil
+        nsView.router = nil
     }
 }
 
@@ -127,6 +134,7 @@ private final class DockPointerTeardownBox: @unchecked Sendable {
 @MainActor
 final class DockPointerInteractionHostView: NSView {
     var store: DockSplitStore?
+    weak var router: DockPointerInteractionEventRouter?
     var isEnabled = false
     private weak var registeredWindow: NSWindow?
     private var windowResignKeyObserver: NSObjectProtocol?
@@ -160,14 +168,18 @@ final class DockPointerInteractionHostView: NSView {
     }
 
     func installMonitorIfNeeded() {
-        guard isEnabled, let window else { return }
-        if registeredWindow === window {
+        guard isEnabled, let window, let router else { return }
+        if registeredWindow === window,
+           router.isRegistered(
+               self,
+               in: window
+           ) {
             refreshTeardownCleanup()
             return
         }
         stopMonitoring()
         registeredWindow = window
-        DockPointerInteractionEventRouter.shared.register(self, in: window)
+        router.register(self, in: window)
         windowResignKeyObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didResignKeyNotification,
             object: window,
@@ -194,11 +206,12 @@ final class DockPointerInteractionHostView: NSView {
         }
         let hostID = ObjectIdentifier(self)
         let ownerStore = store
+        let ownerRouter = router
         let installedWindowObserver = windowResignKeyObserver
         let installedApplicationObserver = applicationResignActiveObserver
         teardownBox.replace(with: { [weak ownerStore, weak registeredWindow] in
             ownerStore?.cancelDockPointerInteraction(window: registeredWindow)
-            DockPointerInteractionEventRouter.shared.unregister(
+            ownerRouter?.unregister(
                 hostID: hostID,
                 in: registeredWindow
             )
@@ -314,12 +327,12 @@ final class DockPointerInteractionHostView: NSView {
             )
         }
 
-        return DockPointerHitClassification.target(
+        return DockPointerHitSignals(
             registryTabItemHit: registryTabItemHit,
             hierarchyTabItemHit: hierarchyTabItemHit,
             interactiveChromeHit: isInteractiveChrome,
             selectedPanelHit: selectedPanelHit
-        )
+        ).target
     }
 
     private func selectedDockNativePanelHit(

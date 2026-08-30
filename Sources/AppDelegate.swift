@@ -563,6 +563,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         WorkspaceTerminalFontSizeArbiter()
     /// Owns the one process-local Vault drag capability registry.
     let sessionDragRegistry = SessionDragRegistry()
+    /// Composition-root owner for the single AppKit Dock pointer monitor.
+    /// Individual Dock hosts register with this injected router only while
+    /// their owning window is mounted.
+    let dockPointerEventRouter = DockPointerInteractionEventRouter()
     /// Owns pane-transfer capabilities shared by every window, workspace, and Dock.
     private var tabDragTransferRegistryStorage: TabDragTransferRegistry?
     var tabDragTransferRegistry: TabDragTransferRegistry {

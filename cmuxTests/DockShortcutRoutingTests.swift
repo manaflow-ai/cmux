@@ -1790,45 +1790,73 @@ struct DockShortcutRoutingTests {
     @MainActor
     func dockPointerHitPolicyClassifiesOwnershipSignals() {
         #expect(
-            DockPointerHitClassification.target(
+            DockPointerHitSignals(
                 registryTabItemHit: true,
                 hierarchyTabItemHit: false,
                 interactiveChromeHit: false,
                 selectedPanelHit: false
-            ) == .tabItem
+            ).target == .tabItem
         )
         #expect(
-            DockPointerHitClassification.target(
+            DockPointerHitSignals(
                 registryTabItemHit: true,
                 hierarchyTabItemHit: false,
                 interactiveChromeHit: true,
                 selectedPanelHit: false
-            ) == nil
+            ).target == nil
         )
         #expect(
-            DockPointerHitClassification.target(
+            DockPointerHitSignals(
                 registryTabItemHit: false,
                 hierarchyTabItemHit: false,
                 interactiveChromeHit: false,
                 selectedPanelHit: true
-            ) == .panel
+            ).target == .panel
         )
         #expect(
-            DockPointerHitClassification.target(
+            DockPointerHitSignals(
                 registryTabItemHit: false,
                 hierarchyTabItemHit: true,
                 interactiveChromeHit: true,
                 selectedPanelHit: true
-            ) == nil
+            ).target == nil
         )
         #expect(
-            DockPointerHitClassification.target(
+            DockPointerHitSignals(
                 registryTabItemHit: false,
                 hierarchyTabItemHit: false,
                 interactiveChromeHit: false,
                 selectedPanelHit: false
-            ) == nil
+            ).target == nil
         )
+    }
+
+    @Test("Dock pointer router restores the surviving host after a remount overlap")
+    @MainActor
+    func dockPointerRouterRestoresOverlappingHost() {
+        let router = DockPointerInteractionEventRouter()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.close() }
+
+        let originalHost = DockPointerInteractionHostView()
+        let remountedHost = DockPointerInteractionHostView()
+        router.register(originalHost, in: window)
+        router.register(remountedHost, in: window)
+
+        #expect(router.isRegistered(originalHost, in: window))
+        #expect(router.isRegistered(remountedHost, in: window))
+
+        router.unregister(remountedHost)
+        #expect(router.isRegistered(originalHost, in: window))
+        #expect(!router.isRegistered(remountedHost, in: window))
+
+        router.unregister(originalHost)
+        #expect(!router.isRegistered(originalHost, in: window))
     }
 
     @Test("Repeated move-to-pane shortcut does not create a missing pane")
