@@ -551,6 +551,14 @@ impl Drop for ActiveOpening {
         if state.active_openings.get(&self.id).is_some_and(|(owner, _)| owner == &self.owner) {
             state.active_openings.remove(&self.id);
         }
+        // A close can remove this pre-reservation attempt and leave an
+        // owner-specific tombstone so a late task cannot claim a replacement
+        // with the same pty id. The tombstone is needed only until this task
+        // has unwound. Match the full owner, including attempt_id, so an old
+        // task cannot clear a newer attempt's fence.
+        if state.cancelled.get(&self.id) == Some(&self.owner) {
+            state.cancelled.remove(&self.id);
+        }
     }
 }
 impl Drop for OpeningReservation {
@@ -1109,6 +1117,14 @@ impl Inner {
         }
         let pty_id = frame.get("ptyId").and_then(Value::as_str).unwrap_or_default().to_owned();
         if pty_id.is_empty() {
+            return;
+        }
+        // `cache_transport_auth` deliberately rejects malformed trust before
+        // touching the authority cache. Keep the protocol response here,
+        // before the cache lookup can return `None`, so a malformed open is a
+        // typed refusal rather than a silent drop.
+        if Trust::parse(&context.trust).is_none() {
+            send_pty_error(context, &pty_id, "trust_refused", "terminal trust is not established");
             return;
         }
         let Some(auth) = self.auth_for_transport(context) else {
