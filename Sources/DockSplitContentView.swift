@@ -133,7 +133,7 @@ final class DockPointerInteractionHostView: NSView {
 
     var store: DockSplitStore?
     var isEnabled = false
-    private var eventMonitor: Any?
+    private weak var registeredWindow: NSWindow?
     private var windowResignKeyObserver: NSObjectProtocol?
     private var applicationResignActiveObserver: NSObjectProtocol?
     // The reference is immutable and its methods marshal all handle access to
@@ -165,22 +165,14 @@ final class DockPointerInteractionHostView: NSView {
     }
 
     func installMonitorIfNeeded() {
-        guard isEnabled, let window, eventMonitor == nil else { return }
-        let monitor = NSEvent.addLocalMonitorForEvents(
-            matching: [
-                .leftMouseDown,
-                .leftMouseUp,
-                .rightMouseDown,
-                .rightMouseUp,
-                .otherMouseDown,
-                .otherMouseUp,
-            ]
-        ) { [weak self] event in
-            self?.handle(event: event)
-            return event
+        guard isEnabled, let window else { return }
+        if registeredWindow === window {
+            refreshTeardownCleanup()
+            return
         }
-        guard let monitor else { return }
-        eventMonitor = monitor
+        stopMonitoring()
+        registeredWindow = window
+        DockPointerInteractionEventRouter.shared.register(self, in: window)
         windowResignKeyObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didResignKeyNotification,
             object: window,
@@ -201,16 +193,20 @@ final class DockPointerInteractionHostView: NSView {
     /// Rebinds the deinit cleanup to the store currently used by this host.
     /// SwiftUI may reuse the AppKit view while replacing its store.
     func refreshTeardownCleanup() {
-        guard let eventMonitor else {
+        guard let registeredWindow else {
             teardownBox.replace(with: nil)
             return
         }
+        let hostID = ObjectIdentifier(self)
         let ownerStore = store
         let installedWindowObserver = windowResignKeyObserver
         let installedApplicationObserver = applicationResignActiveObserver
         teardownBox.replace(with: { [weak ownerStore] in
-            ownerStore?.cancelDockPointerInteraction()
-            NSEvent.removeMonitor(eventMonitor)
+            ownerStore?.cancelDockPointerInteraction(window: registeredWindow)
+            DockPointerInteractionEventRouter.shared.unregister(
+                hostID: hostID,
+                in: registeredWindow
+            )
             if let installedWindowObserver {
                 NotificationCenter.default.removeObserver(installedWindowObserver)
             }
@@ -224,24 +220,14 @@ final class DockPointerInteractionHostView: NSView {
         // A host can move between windows while a pointer sequence is in
         // flight. Clear the coordinator unconditionally before rebinding.
         teardownBox.perform()
-        eventMonitor = nil
+        registeredWindow = nil
         windowResignKeyObserver = nil
         applicationResignActiveObserver = nil
     }
 
-    private func handle(event: NSEvent) {
+    func handlePointerEvent(_ event: NSEvent) {
         guard let window else { return }
-        guard event.window === window else {
-            if event.type == .leftMouseDown
-                || event.type == .leftMouseUp
-                || event.type == .rightMouseDown
-                || event.type == .rightMouseUp
-                || event.type == .otherMouseDown
-                || event.type == .otherMouseUp {
-                store?.cancelDockPointerInteraction()
-            }
-            return
-        }
+        guard event.window === window else { return }
 
         switch event.type {
         case .leftMouseDown:

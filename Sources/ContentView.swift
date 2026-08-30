@@ -9015,19 +9015,23 @@ struct ContentView: View {
             }
         }
         registry.register(commandId: "palette.terminalFind") {
-            if performDockTerminalCommand(.startFind) { return }
+            // Find is a shared terminal/browser action. Keep the Dock's
+            // browser implementation reachable from the palette just as it
+            // is from the menu-bar path; only text-box/terminal-only commands
+            // use the terminal capability gate below.
+            if performDockShortcutCommand(.startFind) { return }
             tabManager.startSearch()
         }
         registry.register(commandId: "palette.terminalFindNext") {
-            if performDockTerminalCommand(.findNext) { return }
+            if performDockShortcutCommand(.findNext) { return }
             tabManager.findNext()
         }
         registry.register(commandId: "palette.terminalFindPrevious") {
-            if performDockTerminalCommand(.findPrevious) { return }
+            if performDockShortcutCommand(.findPrevious) { return }
             tabManager.findPrevious()
         }
         registry.register(commandId: "palette.terminalHideFind") {
-            if performDockTerminalCommand(.hideFind) { return }
+            if performDockShortcutCommand(.hideFind) { return }
             tabManager.hideFind()
         }
         registry.register(commandId: "palette.terminalUseSelectionForFind") {

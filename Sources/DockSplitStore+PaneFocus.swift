@@ -79,11 +79,24 @@ extension DockSplitStore {
     /// dismissal move together so AppKit focus, Dock selection, and read state
     /// converge on the same panel.
     func focusPanelFromDockInteraction(_ panelId: UUID, window: NSWindow?) {
-        // Workspace-scoped Docks belong to the workspace model rather than
-        // the window-wide right-sidebar focus domain. Only a per-window Dock
-        // can publish this intent; the two trees have distinct restore routes.
-        if scope == .global {
+        // A window Dock owns the right-sidebar focus domain. A legacy
+        // workspace Dock is part of its owning workspace's main focus domain;
+        // publishing that intent is still required before a move/drop so the
+        // old main terminal cannot immediately reclaim first responder.
+        switch scope {
+        case .global:
             noteKeyboardFocusIntent(window: window)
+        case .workspace:
+            let appDelegate = AppDelegate.shared
+            let ownerWindow = appDelegate?
+                .dockReferenceTabManager(for: self)
+                .flatMap { appDelegate?.windowId(for: $0) }
+                .flatMap { appDelegate?.mainWindow(for: $0) }
+            appDelegate?.noteMainPanelKeyboardFocusIntent(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                in: ownerWindow ?? window
+            )
         }
         focusPanel(panelId)
         guard let appDelegate = AppDelegate.shared,

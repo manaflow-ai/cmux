@@ -1,6 +1,91 @@
 import AppKit
 import Bonsplit
 
+/// Delivers Dock pointer events through one process-wide AppKit monitor.
+/// `NSEvent.addLocalMonitorForEvents` is application-scoped, so installing one
+/// monitor per visible Dock makes every click fan out through every window's
+/// hit-test tree. This router keeps a single window-to-host index and invokes
+/// only the host that owns the event's window.
+@MainActor
+final class DockPointerInteractionEventRouter {
+    static let shared = DockPointerInteractionEventRouter()
+
+    private struct Entry {
+        weak var host: DockPointerInteractionHostView?
+    }
+
+    private var hostsByWindow: [ObjectIdentifier: Entry] = [:]
+    private var eventMonitor: Any?
+
+    private init() {}
+
+    func register(_ host: DockPointerInteractionHostView, in window: NSWindow) {
+        pruneDeadHosts()
+        let hostID = ObjectIdentifier(host)
+        // A SwiftUI representable can migrate between windows. Remove any old
+        // registration for this host before installing its new owner window.
+        hostsByWindow = hostsByWindow.filter { _, entry in
+            guard let registeredHost = entry.host else { return false }
+            return ObjectIdentifier(registeredHost) != hostID
+        }
+        hostsByWindow[ObjectIdentifier(window)] = Entry(host: host)
+        installMonitorIfNeeded()
+    }
+
+    func unregister(_ host: DockPointerInteractionHostView) {
+        unregister(hostID: ObjectIdentifier(host), in: nil)
+    }
+
+    /// Stable-identity variant used by teardown closures that may run while a
+    /// host is being deallocated and therefore cannot capture `self` strongly.
+    func unregister(hostID: ObjectIdentifier, in window: NSWindow?) {
+        let windowID = window.map(ObjectIdentifier.init)
+        hostsByWindow = hostsByWindow.filter { key, entry in
+            guard let registeredHost = entry.host else { return false }
+            guard ObjectIdentifier(registeredHost) == hostID else { return true }
+            if let windowID { return key != windowID }
+            return false
+        }
+        pruneDeadHosts()
+    }
+
+    private func installMonitorIfNeeded() {
+        guard eventMonitor == nil else { return }
+        eventMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [
+                .leftMouseDown,
+                .leftMouseUp,
+                .rightMouseDown,
+                .rightMouseUp,
+                .otherMouseDown,
+                .otherMouseUp,
+            ]
+        ) { [weak self] event in
+            self?.route(event)
+            return event
+        }
+    }
+
+    private func route(_ event: NSEvent) {
+        guard let window = event.window else { return }
+        pruneDeadHosts()
+        hostsByWindow[ObjectIdentifier(window)]?.host?.handlePointerEvent(event)
+    }
+
+    private func pruneDeadHosts() {
+        hostsByWindow = hostsByWindow.filter { $0.value.host != nil }
+        guard hostsByWindow.isEmpty, let eventMonitor else { return }
+        NSEvent.removeMonitor(eventMonitor)
+        self.eventMonitor = nil
+    }
+
+    deinit {
+        if let eventMonitor {
+            NSEvent.removeMonitor(eventMonitor)
+        }
+    }
+}
+
 /// Carries a user-originated Dock pointer interaction across AppKit and
 /// Bonsplit callbacks without relying on the process-wide current event or a
 /// scheduling turn.
