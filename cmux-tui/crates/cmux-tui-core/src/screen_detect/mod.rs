@@ -116,6 +116,14 @@ impl ScreenDetectTracker {
         true
     }
 
+    /// Let a failed screen read retry on the next scan instead of waiting for
+    /// the max-evaluation interval or another output revision.
+    pub(crate) fn note_evaluation_failure(&mut self, terminal_id: &str) {
+        if let Some(entry) = self.terminals.get_mut(terminal_id) {
+            entry.last_evaluated_at = None;
+        }
+    }
+
     /// Fold one evaluated detection. `None` detection means the foreground
     /// process is not a supported agent (or is gone): a live screen-derived
     /// entry is closed with a session-ended-equivalent `Done` emission.
@@ -323,6 +331,15 @@ mod tests {
         // Swapping agents in place is an edge, and so is exiting.
         assert!(tracker.note_foreground_agent("term_a", Some("claude")));
         assert!(tracker.note_foreground_agent("term_a", None));
+    }
+
+    #[test]
+    fn screen_detect_tracker_retries_after_failed_screen_read() {
+        let mut tracker = ScreenDetectTracker::default();
+        let t0 = Instant::now();
+        assert!(tracker.observe_revision("term_a", 1, t0));
+        tracker.note_evaluation_failure("term_a");
+        assert!(tracker.observe_revision("term_a", 1, t0 + Duration::from_millis(1)));
     }
 
     #[test]
