@@ -192,6 +192,21 @@ func titleRecoveryRecordIncludesMutationFence() throws {
         #expect(fixture.store.customization(for: stableId)?.customTitle == .value("Direct"))
     }
 
+    @Test("ignores unrelated UserDefaults changes")
+    func snapshotCacheIgnoresUnrelatedDefaultsChanges() throws {
+        let fixture = try makeFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let stableId = UUID()
+
+        fixture.store.setCustomTitle("First", for: stableId)
+        let generationBeforeUnrelatedChange = fixture.store.changeGeneration()
+
+        fixture.defaults.set("unrelated", forKey: "workspaceCustomizations.unrelated")
+
+        #expect(fixture.store.changeGeneration() == generationBeforeUnrelatedChange)
+        #expect(fixture.store.customization(for: stableId)?.customTitle == .value("First"))
+    }
+
     @Test("preserves ordering for same-revision automatic titles from separate stores")
     func sameRevisionAutomaticTitlesUseQueueOrdering() throws {
         let fixture = try makeFixture()
