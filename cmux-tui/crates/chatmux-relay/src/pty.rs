@@ -2635,6 +2635,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn shared_session_output_uses_each_viewers_own_transport_sink() {
+        let h = harness(None, None);
+        let sent_one = Arc::new(StdMutex::new(Vec::new()));
+        let sent_two = Arc::new(StdMutex::new(Vec::new()));
+        let owner = h.owner.clone();
+        let context = |sent: Arc<StdMutex<Vec<Value>>>| FrameContext {
+            send: Arc::new(move |frame| sent.lock().unwrap().push(frame)),
+            buffered_amount: Arc::new(|| 0),
+            trust: "supervised".to_owned(),
+            local_roots: None,
+            owner_user_id: owner.clone(),
+            transport_id: None,
+        };
+        let open = |pty_id: &str| {
+            serde_json::json!({
+                "version": 4, "type": "pty_open", "ptyId": pty_id, "session": "shared",
+                "cols": 80, "rows": 24, "actorId": "user_owner", "trust": "supervised",
+                "allowedRoots": Value::Null,
+            })
+        };
+        h.manager.handle_frame(&open("viewer-one"), &context(Arc::clone(&sent_one))).await;
+        h.manager.handle_frame(&open("viewer-two"), &context(Arc::clone(&sent_two))).await;
+        h.spawned()[0].emit("shared output");
+
+        let one = sent_one.lock().unwrap();
+        let two = sent_two.lock().unwrap();
+        assert!(
+            one.iter().any(|frame| frame["type"] == "pty_output" && frame["ptyId"] == "viewer-one")
+        );
+        assert!(!one.iter().any(|frame| frame["ptyId"] == "viewer-two"));
+        assert!(
+            two.iter().any(|frame| frame["type"] == "pty_output" && frame["ptyId"] == "viewer-two")
+        );
+        assert!(!two.iter().any(|frame| frame["ptyId"] == "viewer-one"));
+    }
+
+    #[tokio::test]
     async fn detaching_one_viewer_leaves_the_other_live_exit_reaches_every_viewer() {
         let h = harness(None, None);
         h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
