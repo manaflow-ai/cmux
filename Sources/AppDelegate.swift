@@ -4885,7 +4885,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// environment scope alone.  The terminal surface owns the controlling
     /// TTY and is the authoritative mapping for this save pass.
     @MainActor
-    private func currentSurfaceTTYDeviceBindings()
+    func currentSurfaceTTYDeviceBindings()
         -> [SurfaceResumeBindingIndex.PanelKey: Int64] {
         var bindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
         func appendBindings(from dock: DockSplitStore) {
