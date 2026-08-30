@@ -46,4 +46,67 @@ public struct WorkspaceCustomization: Codable, Equatable, Sendable {
         self.customTitle = customTitle
         self.customColor = customColor
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case customTitle
+        case customColor
+        // This key is intentionally additive. Older cmux versions ignore
+        // unknown keyed values and continue to decode `customTitle` as `.value`.
+        case customTitleSource
+    }
+
+    /// Decodes both the original field-only format and the provenance-aware
+    /// format. Automatic titles are represented as `.value` plus an additive
+    /// source key on disk so older binaries do not reject the whole journal.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let decodedTitle = try container.decode(
+            WorkspaceCustomizationField.self,
+            forKey: .customTitle
+        )
+        let decodedSource = try container.decodeIfPresent(
+            WorkspaceCustomizationTitleSource.self,
+            forKey: .customTitleSource
+        )
+        if decodedSource == .some(.auto),
+           case let .value(title) = decodedTitle {
+            self.customTitle = .autoValue(title)
+        } else {
+            self.customTitle = decodedTitle
+        }
+        self.customColor = try container.decode(
+            WorkspaceCustomizationField.self,
+            forKey: .customColor
+        )
+    }
+
+    /// Encodes automatic title provenance as an additive key while retaining
+    /// the old `.value` wire shape for downgrade compatibility.
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch customTitle {
+        case let .autoValue(title):
+            try container.encode(
+                WorkspaceCustomizationField.value(title),
+                forKey: .customTitle
+            )
+            try container.encode(
+                WorkspaceCustomizationTitleSource.auto,
+                forKey: .customTitleSource
+            )
+        default:
+            try container.encode(customTitle, forKey: .customTitle)
+        }
+        switch customColor {
+        case .autoValue:
+            // Automatic provenance is meaningful only for titles. Do not
+            // emit a new enum case in the color field that old decoders reject.
+            try container.encode(
+                WorkspaceCustomizationField.absent,
+                forKey: .customColor
+            )
+        default:
+            try container.encode(customColor, forKey: .customColor)
+        }
+    }
 }
