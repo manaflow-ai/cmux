@@ -173,7 +173,7 @@ extension MobileHostIrxRuntime {
             if failure.operation == .hintRefresh {
                 // Hint publication is an optimization; keep the already bound
                 // endpoint healthy while the autopilot retries it.
-                setActivationState(.active)
+                setActivationState(.active, failure: failure)
                 return
             }
             let endpoint = endpointSupervisor
@@ -200,6 +200,22 @@ extension MobileHostIrxRuntime {
                 await cleanupActivationResources(invalidateGeneration: true)
                 return
             }
+            let currentToken = generationToken
+            let endpoint = endpointSupervisor
+            let broker = brokerService
+            let healthy = await endpoint?.isHealthy() ?? false
+            let credentials = await broker?.cachedRelayCredentials() ?? []
+            guard generationToken == currentToken,
+                  activeAccountID == accountID else { return }
+            if healthy, credentials.contains(where: { $0.isUsable(at: Date()) }) {
+                setActivationState(.active, failure: failure)
+                scheduleAutopilotRecovery(
+                    failure: failure,
+                    accountID: accountID,
+                    token: currentToken
+                )
+                return
+            }
             activationRetryTask?.cancel()
             activationRetryTask = nil
             setActivationState(.failed, failure: failure)
@@ -208,6 +224,48 @@ extension MobileHostIrxRuntime {
             Self.journal.record("host-runtime", "activation-stopped", attributes)
             await cleanupActivationResources(invalidateGeneration: true)
             scheduleFailedActivationRecovery(failure: failure, accountID: accountID)
+        }
+    }
+
+    /// Restarts only credential renewal while a still-healthy endpoint keeps
+    /// serving existing sessions after a terminal mint response.
+    private func scheduleAutopilotRecovery(
+        failure: IrxBrokerFailure,
+        accountID: String,
+        token: UUID
+    ) {
+        guard activationRetryTask == nil, terminalRecoveryCount < 3 else {
+            if terminalRecoveryCount >= 3 {
+                Self.journal.record(
+                    "host-runtime", "autopilot-recovery-exhausted",
+                    failure.journalAttributes
+                )
+            }
+            return
+        }
+        let delay = activationRetryPolicy.retrySchedule.delay(
+            failureCount: terminalRecoveryCount,
+            retryAfterSeconds: nil,
+            jitterUnitInterval: 0
+        )
+        terminalRecoveryCount += 1
+        let clock = activationRetryClock
+        let deadline = clock.now().addingTimeInterval(delay)
+        var attributes = failure.journalAttributes
+        attributes["delay_s"] = String(Int(delay.rounded()))
+        Self.journal.record("host-runtime", "autopilot-retry-scheduled", attributes)
+        activationRetryTask = Task { @MainActor [weak self] in
+            do {
+                try await clock.sleep(until: deadline)
+            } catch {
+                return
+            }
+            guard let self,
+                  !Task.isCancelled,
+                  self.generationToken == token,
+                  self.activeAccountID == accountID else { return }
+            self.activationRetryTask = nil
+            await self.autopilot?.kick()
         }
     }
 

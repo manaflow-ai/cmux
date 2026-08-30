@@ -69,6 +69,13 @@ final class MobileHostIrxRuntime {
             maximumDelay: 300
         )
     )
+    /// Relay credentials expire in minutes, so renewal uses the foreground
+    /// ladder rather than the deliberately slower activation ladder. Keeping
+    /// these policies separate prevents a short broker outage from leaving a
+    /// still-usable endpoint with expired relay credentials for minutes.
+    let credentialRefreshPolicy = IrxHostActivationPolicy(
+        retrySchedule: .foregroundClient
+    )
     var activationRetryClock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
     /// Changes on every (de)activation; per-connection supervisors compare it.
     var generationToken = UUID()
@@ -233,7 +240,7 @@ final class MobileHostIrxRuntime {
                 broker: broker,
                 endpoint: supervisor,
                 journal: Self.journal,
-                retryPolicy: activationRetryPolicy
+                retryPolicy: credentialRefreshPolicy
             )
             autopilot = pilot
             // Registration FIRST: non-legacy namespaces need the binding

@@ -104,28 +104,6 @@ public actor IrxBrokerService {
         self.grantCache = IrxDiskCache(fileURL: dir.appendingPathComponent("grants.json"))
     }
 
-    /// Compatibility initializer for callers that do not need auth recovery.
-    public init(
-        configuration: Configuration,
-        identity: IrxIdentity,
-        accessTokenPair: @escaping @Sendable () async throws -> (access: String, refresh: String)?,
-        journal: IrxJournal
-    ) throws {
-        let tokenSource = CmxIrohBrokerTokenSource(credentialPair: {
-            guard let pair = try await accessTokenPair() else { return nil }
-            return CmxIrohBrokerCredentials(
-                accessToken: pair.access,
-                refreshToken: pair.refresh
-            )
-        })
-        try self.init(
-            configuration: configuration,
-            identity: identity,
-            tokenSource: tokenSource,
-            journal: journal
-        )
-    }
-
     /// The underlying trust-broker client, exposed for the legacy-dialect
     /// admission registry (online revalidation parity for old phones).
     public nonisolated var hostBrokerClient: CmxIrohTrustBrokerClient { client }

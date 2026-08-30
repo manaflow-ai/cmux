@@ -147,6 +147,9 @@ extension MobileHostIrxRuntime: CmxIrohSettingsControlling {
             startActivation(accountID: accountID)
             return
         }
+        if activationState == .active, let autopilot {
+            await autopilot.kick()
+        }
         guard let broker = brokerService else {
             hadLiveDiscovery = false
             publishIrxSettingsUpdate()

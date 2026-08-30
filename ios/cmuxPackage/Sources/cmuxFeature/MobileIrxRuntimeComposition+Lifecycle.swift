@@ -63,6 +63,11 @@ extension MobileIrxRuntimeComposition {
         // foreground lifecycle calls ``kick()`` again, so this terminal path
         // cannot rebuild/register in a tight loop while the user is offline or
         // resolving an account/policy issue.
+        guard await isCurrentProvisioning(
+            session: session,
+            broker: broker,
+            endpoint: endpoint
+        ) else { return }
         await autopilot?.stop()
         Self.journal.record(
             "client-runtime", "autopilot-paused-until-foreground")

@@ -24,7 +24,7 @@ enum IrxBrokerArmingSupport {
                 cacheDirectory: cacheDirectory
             ),
             identity: identity,
-            accessTokenPair: { nil },
+            tokenSource: CmxIrohBrokerTokenSource(credentialPair: { nil }),
             journal: IrxJournal(subsystem: "dev.cmux.tests", category: "irx-arming")
         )
     }
