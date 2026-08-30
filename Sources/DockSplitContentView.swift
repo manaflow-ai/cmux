@@ -138,7 +138,7 @@ final class DockPointerInteractionHostView: NSView {
     private var applicationResignActiveObserver: NSObjectProtocol?
     // The reference is immutable and its methods marshal all handle access to
     // the MainActor, which makes it safe to request from `deinit`.
-    nonisolated(unsafe) private let teardownBox = DockPointerTeardownBox()
+    nonisolated(unsafe) private var teardownBox = DockPointerTeardownBox()
 
     deinit {
         if Thread.isMainThread {
@@ -288,12 +288,7 @@ final class DockPointerInteractionHostView: NSView {
         at windowPoint: NSPoint,
         in window: NSWindow
     ) -> DockPointerHitTarget? {
-        // Native accessory controls (close, mute, pin, zoom, and split/new
-        // buttons) own their click. They must not turn a metadata action into a
-        // Dock keyboard-focus handoff.
-        if let view, isInteractiveDockChrome(view) {
-            return nil
-        }
+        let isInteractiveChrome = view.map(isInteractiveDockChrome) ?? false
 
         // Bonsplit owns the actual tab-item AppKit hit regions. Consult both
         // the registry and the provider in the hit-view ancestry: the latter
@@ -307,10 +302,10 @@ final class DockPointerInteractionHostView: NSView {
             // still identifies this point as a tab item. The registry is kept
             // by Bonsplit's AppKit tab regions, which are more precise than the
             // root hosting view returned by `hitTest` during remounts.
-            return .tabItem
+            return isInteractiveChrome ? nil : .tabItem
         }
         if tabItemHitInViewHierarchy(view, at: windowPoint) {
-            return .tabItem
+            return isInteractiveChrome ? nil : .tabItem
         }
 
         guard let store else { return nil }

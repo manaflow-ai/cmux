@@ -8348,6 +8348,15 @@ struct ContentView: View {
             }
             return true
         }
+        let performDockTerminalCommand: (DockShortcutCommand) -> Bool = {
+            command in
+            guard let dockSurfaceStore,
+                  let dockSurfacePanelId,
+                  dockSurfaceStore.panels[dockSurfacePanelId] is TerminalPanel else {
+                return false
+            }
+            return performDockShortcutCommand(command)
+        }
 
         registry.register(commandId: "palette.newWorkspace") {
             AppDelegate.shared?.performNewWorkspaceAction(
@@ -9000,51 +9009,51 @@ struct ContentView: View {
             }
         }
         registry.register(commandId: "palette.terminalFind") {
-            if performDockShortcutCommand(.startFind) { return }
+            if performDockTerminalCommand(.startFind) { return }
             tabManager.startSearch()
         }
         registry.register(commandId: "palette.terminalFindNext") {
-            if performDockShortcutCommand(.findNext) { return }
+            if performDockTerminalCommand(.findNext) { return }
             tabManager.findNext()
         }
         registry.register(commandId: "palette.terminalFindPrevious") {
-            if performDockShortcutCommand(.findPrevious) { return }
+            if performDockTerminalCommand(.findPrevious) { return }
             tabManager.findPrevious()
         }
         registry.register(commandId: "palette.terminalHideFind") {
-            if performDockShortcutCommand(.hideFind) { return }
+            if performDockTerminalCommand(.hideFind) { return }
             tabManager.hideFind()
         }
         registry.register(commandId: "palette.terminalUseSelectionForFind") {
-            if performDockShortcutCommand(.useSelectionForFind) { return }
+            if performDockTerminalCommand(.useSelectionForFind) { return }
             tabManager.searchSelection()
         }
         registry.register(commandId: "palette.terminalToggleTextBoxInput") {
-            if performDockShortcutCommand(.toggleTerminalTextBox) { return }
+            if performDockTerminalCommand(.toggleTerminalTextBox) { return }
             if !tabManager.toggleFocusedTerminalTextBox() {
                 NSSound.beep()
             }
         }
         registry.register(commandId: "palette.terminalFocusTextBoxInput") {
-            if performDockShortcutCommand(.focusTextBoxInput) { return }
+            if performDockTerminalCommand(.focusTextBoxInput) { return }
             if !tabManager.focusFocusedTerminalTextBoxInputOrTerminal() {
                 NSSound.beep()
             }
         }
         registry.register(commandId: "palette.terminalAttachTextBoxFile") {
-            if performDockShortcutCommand(.attachTextBoxFile) { return }
+            if performDockTerminalCommand(.attachTextBoxFile) { return }
             if !tabManager.attachFileToFocusedTerminalTextBoxInput() {
                 NSSound.beep()
             }
         }
         registry.register(commandId: "palette.terminalSendCtrlF") {
-            if performDockShortcutCommand(.sendCtrlFToTerminal) { return }
+            if performDockTerminalCommand(.sendCtrlFToTerminal) { return }
             if !tabManager.sendCtrlFToFocusedTerminal() {
                 NSSound.beep()
             }
         }
         registry.register(commandId: "palette.terminalClearScreenKeepScrollback") {
-            if performDockShortcutCommand(.clearScreenKeepScrollback) { return }
+            if performDockTerminalCommand(.clearScreenKeepScrollback) { return }
             if !tabManager.clearFocusedTerminalKeepingScrollback() {
                 NSSound.beep()
             }
