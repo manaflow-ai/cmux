@@ -33,22 +33,21 @@ final class FilePreviewNativeDragPendingOwnership {
         tokenOwnership.makeToken()
     }
 
-    /// Records a writer and captures its exact cleanup identity.
+    /// Records a writer without creating process-local routing state.
+    ///
+    /// AppKit may ask for writers and then abandon the gesture before a native
+    /// session exists. Registration is therefore deferred until AppKit
+    /// consumes the writer or the owner promotes it.
     func register(_ writer: Writer) -> FilePreviewNativeDragOwnership? {
         pruneWriterOrder()
         orderedWriters.removeAll { $0.value === writer }
         orderedWriters.append(WeakWriter(writer))
-        guard let tokenID = writer.provisionalToken?.id,
-              let ownership = writer.nativeDragOwnership() else {
-            if let tokenID = writer.provisionalToken?.id {
-                tokenOwnership.remove(id: tokenID)
-                orderedWriters.removeAll { $0.value === writer }
-                onWriterDeallocated(tokenID)
-            }
-            return nil
+        writer.setNativeDragOwnershipHandler { [weak self] writer, ownership in
+            guard let self,
+                  let tokenID = writer.provisionalToken?.id else { return }
+            self.ownershipByToken[tokenID] = ownership
         }
-        ownershipByToken[tokenID] = ownership
-        return ownership
+        return nil
     }
 
     /// Removes a promoted writer from the provisional set.
@@ -75,7 +74,9 @@ final class FilePreviewNativeDragPendingOwnership {
                 promotedOwnerships.append(ownership)
             } else if let ownership = writer.nativeDragOwnership() {
                 promotedOwnerships.append(ownership)
+                ownershipByToken.removeValue(forKey: tokenID)
             }
+            writer.clearNativeDragOwnershipHandler()
             tokenOwnership.remove(id: tokenID)
         }
         orderedWriters.removeAll { box in
@@ -103,6 +104,7 @@ final class FilePreviewNativeDragPendingOwnership {
                 ownershipByToken.removeValue(forKey: tokenID)
                 tokenOwnership.remove(id: tokenID)
             }
+            writer.clearNativeDragOwnershipHandler()
             writer.releaseSourceGraph()
         }
         let remainingOwnership = ownershipByToken.filter { !preservedTokenIDs.contains($0.key) }

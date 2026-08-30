@@ -608,6 +608,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 // its first writer as the canonical source identity.
                 let promotedWriter = promotedWriters.first ?? fallbackWriter
                 let promotedOwnerships = pendingPreviewDrag.promote(writers: promotedWriters)
+                promotedWriter?.materializeRegisteredPayload(to: session.draggingPasteboard)
                 supersedeNativeDragIfNeeded(
                     previousSession: outlineView.activeNativeDragSession,
                     newSession: session,
@@ -693,7 +694,11 @@ struct FileExplorerPanelView: NSViewRepresentable {
             for ownership in outlineView.activeNativeDragOwnerships {
                 ownership.finish(from: session.draggingPasteboard)
             }
+            pendingPreviewDrag.finishPending()
             outlineView.activeNativeDragDelegateMarker = nil
+            outlineView.pendingNativeDragWriter = nil
+            outlineView.pendingNativeDragTokenID = nil
+            outlineView.pendingNativeDragOwnership = nil
             outlineView.activeNativeDragWriter?.releaseSourceGraph()
             outlineView.activeNativeDragWriter = nil
             outlineView.activeNativeDragOwnerships = []
@@ -1801,6 +1806,7 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         // first writer as the canonical source identity.
         let promotedWriter = promotedWriters.first ?? fallbackWriter
         let promotedOwnerships = pendingPreviewDrag.promote(writers: promotedWriters)
+        promotedWriter?.materializeRegisteredPayload(to: session.draggingPasteboard)
         coordinator.supersedeNativeDragIfNeeded(
             previousSession: searchResultsView.activeNativeDragSession,
             newSession: session,
@@ -1882,6 +1888,10 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         for ownership in searchResultsView.activeNativeDragOwnerships {
             ownership.finish(from: session.draggingPasteboard)
         }
+        pendingPreviewDrag.finishPending()
+        searchResultsView.pendingNativeDragWriter = nil
+        searchResultsView.pendingNativeDragTokenID = nil
+        searchResultsView.pendingNativeDragOwnership = nil
         searchResultsView.activeNativeDragDelegateMarker = nil
         searchResultsView.activeNativeDragWriter?.releaseSourceGraph()
         searchResultsView.activeNativeDragWriter = nil

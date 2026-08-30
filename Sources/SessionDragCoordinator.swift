@@ -38,7 +38,6 @@ final class SessionDragCoordinator {
                 event: event,
                 source: source
             )
-            source.bind(sourceView: sourceView)
         }
     ) {
         self.startDraggingSession = startDraggingSession
@@ -113,6 +112,10 @@ final class SessionDragCoordinator {
         )
 #endif
         startDraggingSession(sourceView, item, event, source)
+        // Binding is an invariant of the coordinator, not of the default
+        // starter closure. Injected starters used by tests and alternate
+        // AppKit hosts must retain the exact source view as well.
+        source.bind(sourceView: sourceView)
         return true
     }
 
