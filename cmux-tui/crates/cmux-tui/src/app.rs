@@ -20417,7 +20417,16 @@ impl App {
             _ => {}
         }
         if !matches!(mouse.kind, MouseEventKind::Moved | MouseEventKind::Down(MouseButton::Left)) {
-            self.commit_workspace_preview_for_pane_input(mouse.column, mouse.row);
+            if self.pane_area_at(mouse.column, mouse.row).is_some() {
+                self.commit_workspace_preview_for_pane_input(mouse.column, mouse.row);
+            } else {
+                // Any discrete pointer input outside the pane is an explicit
+                // exit from the workspace preview transaction. A sidebar
+                // context-menu, middle-button, or wheel event must not leave
+                // the rendered target active after the pointer leaves the
+                // pane area.
+                self.cancel_workspace_preview();
+            }
         }
         match mouse.kind {
             MouseEventKind::Down(MouseButton::Left) => self.handle_left_down_with_admission(
@@ -42705,6 +42714,67 @@ mod tests {
             .unwrap();
             assert_eq!(app.workspace_preview, None, "pointer action {kind:?} left preview active");
             assert_eq!(app.focus, FocusTarget::Pane, "pointer action {kind:?} left rail focused");
+        }
+
+        for surface in [first.id, second.id] {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
+    fn workspace_preview_pointer_actions_cancel_when_sidebar_owns_pointer() {
+        let mux =
+            Mux::new("workspace-sidebar-preview-sidebar-pointer-test", SurfaceOptions::default());
+        let first = mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
+        let second = mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        let tree = Session::Local(mux.clone()).tree();
+        let origin = tree.workspaces[0].id;
+        let target = tree.workspaces[1].id;
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.replace_tree(app.session.tree());
+        app.tree.active_workspace = 1;
+        app.sidebar_workspace_selection = 1;
+        app.workspace_rail_selection = WorkspaceRailSelection::Workspace;
+        app.workspace_preview = Some(WorkspacePreview { origin, target, origin_scroll: 0 });
+        app.focus = FocusTarget::WorkspaceRail;
+        app.sync_layout((100, 20));
+
+        let row = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::Workspace { id, .. } if *id == target).then_some(*rect)
+            })
+            .expect("previewed workspace row");
+
+        for kind in [
+            MouseEventKind::Down(MouseButton::Right),
+            MouseEventKind::Down(MouseButton::Middle),
+            MouseEventKind::ScrollDown,
+            MouseEventKind::ScrollRight,
+        ] {
+            app.tree.active_workspace = 1;
+            app.sidebar_workspace_selection = 1;
+            app.workspace_rail_selection = WorkspaceRailSelection::Workspace;
+            app.workspace_preview = Some(WorkspacePreview { origin, target, origin_scroll: 0 });
+            app.focus = FocusTarget::WorkspaceRail;
+            app.menu = None;
+            app.drag = None;
+            app.active_pointer_buttons.clear();
+            app.ignored_pty_mouse_buttons.clear();
+
+            app.handle_mouse(MouseEvent {
+                kind,
+                column: row.x,
+                row: row.y,
+                modifiers: KeyModifiers::NONE,
+            })
+            .unwrap();
+
+            assert_eq!(app.workspace_preview, None, "sidebar pointer action {kind:?}");
+            assert_eq!(app.tree.active_workspace, 0, "sidebar pointer action {kind:?}");
+            assert_eq!(app.focus, FocusTarget::WorkspaceRail, "sidebar pointer action {kind:?}");
         }
 
         for surface in [first.id, second.id] {
