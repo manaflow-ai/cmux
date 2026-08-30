@@ -4046,6 +4046,35 @@ mod tests {
         fn end(&self) {}
     }
 
+    /// A control plane that accepts a request but never answers until the
+    /// test releases it. This models a daemon that wedged after connect.
+    struct HangingControl {
+        started: Arc<Notify>,
+        release: Arc<Notify>,
+    }
+
+    impl ControlHandle for HangingControl {
+        fn request(
+            &self,
+            _cmd: &str,
+            _params: Value,
+        ) -> std::pin::Pin<Box<dyn Future<Output = Option<Value>> + Send + '_>> {
+            let started = Arc::clone(&self.started);
+            let release = Arc::clone(&self.release);
+            Box::pin(async move {
+                started.notify_one();
+                release.notified().await;
+                None
+            })
+        }
+        fn send(&self, _cmd: &str, _params: Value) {}
+        fn on_event(&self, _handler: EventHandler) {}
+        fn on_close(&self, _handler: CloseHandler) {}
+        fn pause(&self) {}
+        fn resume(&self) {}
+        fn end(&self) {}
+    }
+
     #[tokio::test]
     async fn missing_surface_refuses_with_typed_terminal_gone() {
         let cmux = CmuxTui { file: "/opt/cmux-tui".to_owned(), prefix: Vec::new() };
@@ -4070,6 +4099,46 @@ mod tests {
         assert_eq!(error["message"], "terminal is no longer available");
         // A gone terminal must NOT degrade to a whole-session attach.
         assert!(!sent.iter().any(|f| ty(f) == "pty_opened"));
+    }
+
+    #[tokio::test]
+    async fn existing_surface_probe_stops_when_open_is_cancelled() {
+        let started = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let control = Arc::new(HangingControl {
+            started: Arc::clone(&started),
+            release: Arc::clone(&release),
+        });
+        let cmux = CmuxTui { file: "/opt/cmux-tui".to_owned(), prefix: Vec::new() };
+        let h = harness_with_control(Some(cmux), None, None, Some(control));
+        let context = h.context("supervised", h.owner.clone());
+        let frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "p1",
+            "session": "main",
+            "surface": "resource-1",
+            "cols": 80,
+            "rows": 24,
+        });
+        let cancellation = h.manager.new_open_cancellation().expect("open attempt token");
+        let task_manager = Arc::new(h.manager);
+        let task_context = context.clone();
+        let task_cancellation = cancellation.clone();
+        let task = tokio::spawn(async move {
+            task_manager
+                .handle_frame_with_open_cancellation(&frame, &task_context, Some(task_cancellation))
+                .await;
+        });
+
+        started.notified().await;
+        cancellation.cancel();
+        task.await.unwrap();
+        assert!(!task_manager.has_attachment("p1"));
+        let state = task_manager.inner.opening_state.lock().unwrap();
+        assert!(state.reservations.is_empty());
+        assert!(state.active_openings.is_empty());
+        release.notify_waiters();
     }
 
     #[tokio::test]
@@ -4123,6 +4192,39 @@ mod tests {
         // A caller with no transport identity owns the whole manager (legacy).
         h.manager.handle_frame(&close, &h.context("supervised", h.owner.clone())).await;
         assert!(!h.manager.has_attachment("p1"));
+    }
+
+    #[tokio::test]
+    async fn detached_transport_rejects_late_frames_and_allows_a_fresh_owner() {
+        let h = harness(None, None);
+        let old = h.context_with_transport("supervised", h.owner.clone(), Some("relay-old"));
+        h.manager.update_transport_auth(&old);
+        h.manager.detach_transport_kind("relay-old", TransportKind::Relay);
+
+        let old_frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "late",
+            "session": "main",
+            "cols": 80,
+            "rows": 24,
+        });
+        h.manager.handle_frame(&old_frame, &old).await;
+        assert!(h.spawned().is_empty(), "a detached transport must stay fenced");
+        assert!(!h.manager.inner.cache_transport_auth(&old));
+
+        let fresh = h.context_with_transport("supervised", h.owner.clone(), Some("relay-fresh"));
+        h.manager.update_transport_auth(&fresh);
+        let fresh_frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "fresh",
+            "session": "main",
+            "cols": 80,
+            "rows": 24,
+        });
+        h.manager.handle_frame(&fresh_frame, &fresh).await;
+        assert_eq!(h.spawned().len(), 1, "a new transport identity remains usable");
     }
 
     #[test]
