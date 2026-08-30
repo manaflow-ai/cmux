@@ -269,6 +269,7 @@ extension MobileHostIrxRuntime {
         case .advisory:
             // The endpoint remains usable; retain the classified context for
             // the journal/diagnostic ring without changing its active state.
+            guard activationState == .active else { return }
             setActivationState(.active, failure: failure)
         case .retry:
             if failure.operation == .hintRefresh {

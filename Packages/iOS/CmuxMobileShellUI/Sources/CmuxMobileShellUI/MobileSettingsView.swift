@@ -526,7 +526,8 @@ struct MobileSettingsView: View {
             .task {
                 guard let provider = irxAuthenticationStatusProvider else { return }
                 irxAuthenticationState = await provider.irxAuthenticationState()
-                for await state in provider.irxAuthenticationStateUpdates() {
+                let updates = await provider.irxAuthenticationStateUpdates()
+                for await state in updates {
                     guard !Task.isCancelled else { return }
                     irxAuthenticationState = state
                 }

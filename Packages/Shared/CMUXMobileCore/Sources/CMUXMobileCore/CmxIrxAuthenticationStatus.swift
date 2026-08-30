@@ -14,6 +14,6 @@ public protocol CmxIrxAuthenticationStatusProviding: AnyObject, Sendable {
     func irxAuthenticationState() async -> CmxIrxAuthenticationState
 
     /// Emits the current state followed by every later state transition.
-    func irxAuthenticationStateUpdates()
+    func irxAuthenticationStateUpdates() async
         -> AsyncStream<CmxIrxAuthenticationState>
 }

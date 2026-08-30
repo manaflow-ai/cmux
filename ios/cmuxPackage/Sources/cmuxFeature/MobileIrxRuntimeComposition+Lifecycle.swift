@@ -8,7 +8,7 @@ extension MobileIrxRuntimeComposition {
     }
 
     /// Publishes irx authentication transitions without exposing credentials.
-    public func irxAuthenticationStateUpdates()
+    public func irxAuthenticationStateUpdates() async
         -> AsyncStream<CmxIrxAuthenticationState>
     {
         let id = UUID()
