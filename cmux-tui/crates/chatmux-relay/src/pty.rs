@@ -4201,10 +4201,11 @@ mod tests {
         });
         let cancellation = h.manager.new_open_cancellation().expect("open attempt token");
         let task_manager = Arc::new(h.manager);
+        let spawned_task_manager = Arc::clone(&task_manager);
         let task_context = context.clone();
         let task_cancellation = cancellation.clone();
         let task = tokio::spawn(async move {
-            task_manager
+            spawned_task_manager
                 .handle_frame_with_open_cancellation(&frame, &task_context, Some(task_cancellation))
                 .await;
         });
@@ -5042,6 +5043,7 @@ mod tests {
             local_roots: None,
             owner_user_id: Some("user_owner".to_owned()),
             transport_id: Some(transport.to_owned()),
+            cancellation: CancellationToken::new(),
             transport_kind: TransportKind::Relay,
             auth_generation: None,
         };
@@ -5220,6 +5222,7 @@ mod tests {
             local_roots: None,
             owner_user_id: None,
             transport_id: None,
+            cancellation: CancellationToken::new(),
             transport_kind: TransportKind::Legacy,
             auth_generation: None,
         };
