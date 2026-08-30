@@ -47,11 +47,37 @@ def main() -> int:
         )
         make_executable(
             live_managed_bin / "claude",
-            "#!/usr/bin/env bash\necho managed-claude-shim-must-not-run >&2\nexit 42\n",
+            """#!/usr/bin/env bash
+set -euo pipefail
+printf 'ran\n' > "$FAKE_CLAUDE_WRAPPER_LOG"
+shim_root="${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:?}"
+filtered_path=""
+old_ifs="$IFS"
+IFS=:
+for entry in $PATH; do
+  if [[ "$entry" == "$shim_root" ||
+        "$entry" == */cmux-cli-shims/* ||
+        "$entry" == */cmux-cli-shims ]]; then
+    continue
+  fi
+  filtered_path="${filtered_path:+$filtered_path:}$entry"
+done
+IFS="$old_ifs"
+PATH="$filtered_path"
+export PATH
+exec claude "$@"
+""",
         )
 
         claude_log = tmp / "claude.log"
+        claude_wrapper_log = tmp / "claude-wrapper.log"
         codex_log = tmp / "codex.log"
+        login_shell = tmp / "login-shell"
+
+        make_executable(
+            login_shell,
+            "#!/bin/sh\nprintf '%s' \"$PATH\"\n",
+        )
 
         make_executable(
             fallback_bin / "claude-node-helper",
@@ -85,10 +111,12 @@ exit 86
         env = os.environ.copy()
         env["HOME"] = str(home)
         env["PATH"] = "/usr/bin:/bin"
+        env["SHELL"] = str(login_shell)
         env["TMPDIR"] = str(tmp)
         env["CMUX_CLAUDE_WRAPPER_SHIM"] = str(managed_bin / "claude")
         env["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"] = str(managed_bin)
         env["FAKE_CLAUDE_LOG"] = str(claude_log)
+        env["FAKE_CLAUDE_WRAPPER_LOG"] = str(claude_wrapper_log)
         env["FAKE_CODEX_LOG"] = str(codex_log)
         env.pop("CMUX_CUSTOM_CLAUDE_PATH", None)
 
@@ -142,6 +170,9 @@ exit 86
         )
         if codex_version.returncode != 0 or codex_version.stdout.strip() != "codex fake 1.0":
             print("FAIL: unmanaged Codex Teams version invocation required a live surface")
+            print(f"exit={codex_version.returncode}")
+            print(f"stdout={codex_version.stdout.strip()}")
+            print(f"stderr={codex_version.stderr.strip()}")
             return 1
         if codex_log.exists():
             print("FAIL: Codex Teams version invocation started a real team")
@@ -311,7 +342,9 @@ exit 86
                 timeout=30,
             )
             live_reached_provider = claude_log.exists()
+            live_reached_wrapper = claude_wrapper_log.exists()
             claude_log.unlink(missing_ok=True)
+            claude_wrapper_log.unlink(missing_ok=True)
             mismatch_env = live_env.copy()
             mismatch_env["CMUX_CLAUDE_WRAPPER_SHIM"] = str(managed_bin / "claude")
             mismatch_env["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"] = str(managed_bin)
@@ -325,11 +358,21 @@ exit 86
                 env=mismatch_env,
                 timeout=30,
             )
-        if live.returncode != 0 or not live_reached_provider or not (live_managed_bin / "tmux").is_file():
+        if (
+            live.returncode != 0
+            or not live_reached_wrapper
+            or not live_reached_provider
+            or not (live_managed_bin / "tmux").is_file()
+        ):
             print("FAIL: live surface UUID root was rejected when TMPDIR differed")
             print(f"stderr={live.stderr.strip()}")
             return 1
-        if mismatch.returncode == 0 or claude_log.exists() or mismatched_tmux.exists():
+        if (
+            mismatch.returncode == 0
+            or claude_wrapper_log.exists()
+            or claude_log.exists()
+            or mismatched_tmux.exists()
+        ):
             print("FAIL: managed wrapper root for a different surface was accepted")
             return 1
 
