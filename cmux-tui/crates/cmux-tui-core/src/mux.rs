@@ -1094,6 +1094,11 @@ impl AgentSource {
 struct AgentRosterHost {
     roster: crate::journal_reducers::AgentRoster,
     cursor: u64,
+    /// A valid reducer snapshot or an observed agent journal event makes the
+    /// roster authoritative. Older sessions may only have the compatibility
+    /// projection, which must remain available until that durable source is
+    /// present.
+    authoritative: bool,
 }
 
 fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRosterHost> {
@@ -1110,7 +1115,11 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
             match AgentRoster::restore(&snapshot) {
                 Some(roster) => {
                     snapshot_valid = true;
-                    AgentRosterHost { roster, cursor }
+                    let authoritative = cursor > 0
+                        || !roster.entries.is_empty()
+                        || !roster.hook_fences.is_empty()
+                        || !roster.retired_terminals.is_empty();
+                    AgentRosterHost { roster, cursor, authoritative }
                 }
                 None => {
                     eprintln!("cmux-tui: invalid agent roster snapshot; replaying journal");
@@ -1121,17 +1130,20 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
         _ => AgentRosterHost::default(),
     };
     let initial_cursor = host.cursor;
+    let mut saw_agent_event = false;
     loop {
         let page = registry.session_journal_after(host.cursor, 512)?;
         if page.records.is_empty() {
             break;
         }
         for record in &page.records {
+            saw_agent_event |= record.producer.id == crate::agent_hooks::AGENT_HOOK_PRODUCER_ID;
             host.roster.apply(&RosterEvent::from_record(record));
             host.cursor = host.cursor.max(record.sequence);
         }
     }
-    if host.cursor != initial_cursor || !snapshot_valid {
+    host.authoritative |= saw_agent_event;
+    if host.authoritative && (host.cursor != initial_cursor || !snapshot_valid) {
         registry.put_journal_reducer_state(
             AGENT_ROSTER_REDUCER_ID,
             AGENT_ROSTER_REDUCER_VERSION,
@@ -2435,6 +2447,18 @@ impl Mux {
         // legacy record cache in sync for compatibility with direct hook
         // projection paths and older callers that inspect it during startup.
         let mut agent_records = agent_records;
+        if agent_roster.authoritative {
+            let roster_terminal_ids = agent_roster
+                .roster
+                .entries
+                .keys()
+                .filter_map(|terminal_id| TerminalPublicId::parse(terminal_id).ok())
+                .collect::<HashSet<_>>();
+            // A reducer Remove means that the agent ended. Do not resurrect
+            // its old compatibility projection after a crash between the
+            // journal commit and projection update.
+            agent_records.retain(|terminal_id, _| roster_terminal_ids.contains(terminal_id));
+        }
         for (terminal_id, entry) in &agent_roster.roster.entries {
             let Ok(terminal_id) = TerminalPublicId::parse(terminal_id) else { continue };
             let record = TerminalAgentRecord {
@@ -9028,11 +9052,11 @@ impl Mux {
             for placement in removed {
                 self.purge_surface_side_tables(placement.id);
             }
-            self.purge_terminal_runtime_side_tables(surface)?;
+            let purge_result = self.purge_terminal_runtime_side_tables(surface);
             if !surface.is_dead() {
                 surface.kill();
             }
-            return Ok(());
+            return purge_result;
         };
         self.persist_terminal_exit(
             &identity.terminal_id,
@@ -9046,11 +9070,11 @@ impl Mux {
         for placement in removed {
             self.purge_surface_side_tables(placement.id);
         }
-        self.purge_terminal_runtime_side_tables(surface)?;
+        let purge_result = self.purge_terminal_runtime_side_tables(surface);
         if !surface.is_dead() {
             surface.kill();
         }
-        Ok(())
+        purge_result
     }
 
     pub(crate) fn terminate_discovered_terminal_host(
