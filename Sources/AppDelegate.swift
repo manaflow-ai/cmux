@@ -4021,10 +4021,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "snapshotDisplay={\(debugSessionDisplayDescription(snapshot.display))}"
         )
 #endif
-        context.tabManager.restoreSessionSnapshot(snapshot.tabManager, workspaceCreateIdempotencyCache: TerminalController.shared.workspaceCreateIdempotencyCache)
+        context.tabManager.restoreSessionSnapshot(
+            snapshot.tabManager,
+            deferBrowserPanels: true,
+            workspaceCreateIdempotencyCache: TerminalController.shared.workspaceCreateIdempotencyCache
+        )
         context.restoreWindowDockSessionSnapshot(
             snapshot,
-            notificationStore: notificationStore
+            notificationStore: notificationStore,
+            deferBrowserPanels: true
         )
         // Seed restored per-config frames for later configuration switches.
         if let configFrames = snapshot.configFrames {
@@ -9868,6 +9873,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 remapClosedPanelHistory: remapClosedPanelHistoryFromSessionSnapshot,
                 excludingStableIdentities: excludingStableIdentitiesFromSessionSnapshot,
                 excludingWorkspaceIds: excludingWorkspaceIdsFromSessionSnapshot,
+                deferBrowserPanels: true,
                 workspaceCreateIdempotencyCache: TerminalController.shared.workspaceCreateIdempotencyCache
             )
             if let configFrames = sessionWindowSnapshot.configFrames {
@@ -10023,6 +10029,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 lastCascadePoint = window.cascadeTopLeft(from: NSPoint(x: window.frame.minX, y: window.frame.maxY))
             }
         }
+        // cmux owns pane focus/selection; AppKit's automatic key-view walk is
+        // recursively traversed while a restored Bonsplit topology is mounted.
+        // Suppress that walk only for the restore transaction; ordinary windows
+        // retain AppKit's default key-view behavior.
+        if isRestoringSessionWindowSnapshot {
+            window.autorecalculatesKeyViewLoop = false
+        }
         window.contentView = MainWindowHostingView(rootView: root)
 
         // Apply shared window styling.
@@ -10060,7 +10073,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             fileExplorerState: fileExplorerState,
             cmuxConfigStore: cmuxConfigStore
         )
-        restoreWindowDockSessionSnapshot(forWindowId: windowId, from: sessionWindowSnapshot, excludingStableIdentities: excludingStableIdentitiesFromSessionSnapshot)
+        restoreWindowDockSessionSnapshot(
+            forWindowId: windowId,
+            from: sessionWindowSnapshot,
+            excludingStableIdentities: excludingStableIdentitiesFromSessionSnapshot,
+            deferBrowserPanels: isRestoringSessionWindowSnapshot
+        )
+        if isRestoringSessionWindowSnapshot {
+            window.autorecalculatesKeyViewLoop = true
+            window.recalculateKeyViewLoop()
+        }
         publishCmuxWindowLifecycle(name: "window.created", windowId: windowId, origin: "create")
         installFileDropOverlay(on: window, tabManager: tabManager)
         if !shouldActivate || TerminalController.shouldSuppressSocketCommandActivation() {
@@ -14880,6 +14902,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             markFocusedNotificationAsOldestUnreadAndJumpToNextLatestUnread(
                 preferredWindow: mainWindowForShortcutEvent(event)
             )
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .markAllNotificationsRead) {
+            notificationStore?.markAllRead()
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .clearAllNotifications) {
+            notificationStore?.clearAll()
             return true
         }
 
