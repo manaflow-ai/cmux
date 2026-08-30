@@ -133,6 +133,50 @@ func titleRecoveryRecordIncludesMutationFence() throws {
     #expect(record.titleMutationRevision > 0)
 }
 
+    @Test("invalidates a cached snapshot when another store changes the defaults")
+    func snapshotCacheInvalidatesAcrossStoreInstances() throws {
+        let fixture = try makeFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let stableId = UUID()
+        let otherStore = WorkspaceCustomizationStore(
+            defaults: fixture.defaults,
+            storageKey: fixture.storageKey,
+            legacyStorageKey: fixture.legacyStorageKey
+        )
+
+        fixture.store.setCustomTitle("First", for: stableId)
+        #expect(fixture.store.customization(for: stableId)?.customTitle == .value("First"))
+
+        otherStore.setCustomTitle("Second", for: stableId)
+        #expect(fixture.store.customization(for: stableId)?.customTitle == .value("Second"))
+    }
+
+    @Test("invalidates when the backing UserDefaults value changes directly")
+    func snapshotCacheInvalidatesForDirectDefaultsMutation() throws {
+        let fixture = try makeFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let stableId = UUID()
+
+        fixture.store.setCustomTitle("First", for: stableId)
+        #expect(fixture.store.customization(for: stableId)?.customTitle == .value("First"))
+
+        let replacement = WorkspaceCustomizationPersistenceSnapshot(
+            nextRevision: 1,
+            entries: [
+                stableId.uuidString: WorkspaceCustomizationPersistenceEntry(
+                    customization: WorkspaceCustomization(
+                        customTitle: .value("Direct"),
+                        customColor: .absent
+                    ),
+                    revision: 1
+                ),
+            ]
+        )
+        fixture.defaults.set(try JSONEncoder().encode(replacement), forKey: fixture.storageKey)
+
+        #expect(fixture.store.customization(for: stableId)?.customTitle == .value("Direct"))
+    }
+
 private enum LegacyWorkspaceCustomizationField: Codable, Equatable {
     case absent
     case value(String)
@@ -180,4 +224,5 @@ private func makeFixture(capacity: Int = 512) throws -> (
             legacyStorageKey
         )
     }
+
 }

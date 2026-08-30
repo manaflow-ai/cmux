@@ -106,6 +106,11 @@ private final class WorkspaceCustomizationPersistenceLock: @unchecked Sendable {
 /// is thread-safe for individual calls, but does not make this compound
 /// transaction atomic.
 final class WorkspaceCustomizationSynchronousWriter: @unchecked Sendable {
+    private struct CachedSnapshot {
+        let data: Data?
+        let snapshot: WorkspaceCustomizationPersistenceSnapshot
+    }
+
     private let defaults: UserDefaults?
     private let storageKey: String
     private let capacity: Int
@@ -115,11 +120,37 @@ final class WorkspaceCustomizationSynchronousWriter: @unchecked Sendable {
     // critical section is bounded to one snapshot decode/encode and defaults
     // update because deinitializers cannot suspend for an actor hop.
     private let lock = WorkspaceCustomizationPersistenceLock.shared.value
+    // This short lock protects only the cache reference. Notification
+    // callbacks must not take the transaction lock: another writer can be in a
+    // defaults setter that synchronously waits for this callback to return.
+    private let cacheLock = NSLock()
+    private var cachedSnapshot: CachedSnapshot?
+    private var defaultsChangeObserver: (any NSObjectProtocol)?
 
     init(defaults: UserDefaults?, storageKey: String, capacity: Int) {
         self.defaults = defaults
         self.storageKey = storageKey
         self.capacity = capacity
+        guard defaults != nil else { return }
+
+        // Observe every UserDefaults instance. The notification object identifies
+        // the instance that wrote the value, so filtering by object would leave
+        // separately-created stores for the same suite stale. This writer has a
+        // per-instance cache, and a process-wide notification invalidates all
+        // copies that may read the same defaults database.
+        self.defaultsChangeObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            self?.invalidateCachedSnapshot()
+        }
+    }
+
+    deinit {
+        if let defaultsChangeObserver {
+            NotificationCenter.default.removeObserver(defaultsChangeObserver)
+        }
     }
 
     func withLock<T>(_ body: () -> T) -> T {
@@ -193,18 +224,27 @@ final class WorkspaceCustomizationSynchronousWriter: @unchecked Sendable {
     private func loadSnapshotUnlocked(
         defaults: UserDefaults
     ) -> WorkspaceCustomizationPersistenceSnapshot {
-        guard let data = defaults.data(forKey: storageKey),
+        let data = defaults.data(forKey: storageKey)
+        if let cachedSnapshot = cachedSnapshot(matching: data) {
+            return cachedSnapshot
+        }
+
+        guard let data,
               var snapshot = try? JSONDecoder().decode(
                   WorkspaceCustomizationPersistenceSnapshot.self,
                   from: data
               ),
               snapshot.version == WorkspaceCustomizationPersistenceSnapshot.currentVersion else {
-            return WorkspaceCustomizationPersistenceSnapshot()
+            let empty = WorkspaceCustomizationPersistenceSnapshot()
+            setCachedSnapshot(CachedSnapshot(data: data, snapshot: empty))
+            return empty
         }
         let previousCount = snapshot.entries.count
         snapshot.trim(to: capacity)
         if snapshot.entries.count != previousCount {
             persistSnapshotUnlocked(snapshot, defaults: defaults)
+        } else {
+            setCachedSnapshot(CachedSnapshot(data: data, snapshot: snapshot))
         }
         return snapshot
     }
@@ -215,9 +255,32 @@ final class WorkspaceCustomizationSynchronousWriter: @unchecked Sendable {
     ) {
         guard !snapshot.entries.isEmpty else {
             defaults.removeObject(forKey: storageKey)
+            setCachedSnapshot(CachedSnapshot(data: nil, snapshot: snapshot))
             return
         }
         guard let data = try? JSONEncoder().encode(snapshot) else { return }
         defaults.set(data, forKey: storageKey)
+        setCachedSnapshot(CachedSnapshot(data: data, snapshot: snapshot))
+    }
+
+    private func invalidateCachedSnapshot() {
+        cacheLock.lock()
+        cachedSnapshot = nil
+        cacheLock.unlock()
+    }
+
+    private func cachedSnapshot(
+        matching data: Data?
+    ) -> WorkspaceCustomizationPersistenceSnapshot? {
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        guard let cachedSnapshot, cachedSnapshot.data == data else { return nil }
+        return cachedSnapshot.snapshot
+    }
+
+    private func setCachedSnapshot(_ snapshot: CachedSnapshot) {
+        cacheLock.lock()
+        cachedSnapshot = snapshot
+        cacheLock.unlock()
     }
 }
