@@ -35,6 +35,14 @@ extension GhosttySurfaceView {
         )
         let workQueue = outputQueue
         let gate = viewportRestoreGate
+        // Seeding inputs read on the main actor: whether the pixel pump owns
+        // primary-screen scrolling (alt screens replay every frame and must
+        // never inherit a held primary anchor), and the pixel-state epoch so
+        // a typing snap racing this capture voids the seed.
+        let seedsPixelScrollAuthority =
+            delegate?.ghosttySurfaceViewOwnsLocalPrimaryScreenScroll(self) == true
+        let pixelState = localPixelScrollState
+        let pixelStateEpoch = pixelState.withLock { $0.epoch }
         return await withCheckedContinuation { continuation in
             let operationID = registerPendingVerifiedReplayViewportAnchorCapture(
                 continuation: continuation
@@ -65,6 +73,36 @@ extension GhosttySurfaceView {
                     }
                 } else {
                     captured = nil
+                }
+                // A gesture that begins while the replay presentation is
+                // frozen must compose against the position the frozen pixels
+                // still show. Without a held authority its first pixel batch
+                // rebases from the live viewport, which mid-replay is the
+                // bottom reset, teleporting the reader. Seed the pump's held
+                // position from the captured anchor; a live gesture's own
+                // held position always wins over the seed.
+                if captured != nil, seedsPixelScrollAuthority {
+                    let size = ghostty_surface_size(operation.surface)
+                    let cellHeightPx = Double(size.cell_height_px)
+                    let seedRow = scrollbar.offset
+                    let seedRevision = scrollbar.row_space_revision
+                    let seedTotal = scrollbar.total
+                    if cellHeightPx >= 1 {
+                        let seeded = pixelState.withLock {
+                            $0.seedHeldPositionIfIdle(
+                                row: seedRow,
+                                positionPx: Double(seedRow) * cellHeightPx,
+                                revision: seedRevision,
+                                total: seedTotal,
+                                epoch: pixelStateEpoch
+                            )
+                        }
+                        if seeded {
+                            MobileDebugLog.anchormux(
+                                "verified_replay.viewport_anchor.seeded row=\(seedRow) revision=\(seedRevision)"
+                            )
+                        }
+                    }
                 }
                 Task { @MainActor [weak self] in
                     guard let self else { return }
@@ -127,18 +165,22 @@ extension GhosttySurfaceView {
                     )
                     : nil
                 let postReplayRevision = postReplay.row_space_revision
-                let claimed = gate.withLock { state -> Bool in
-                    guard state.activeRestoreTicket == operationID,
-                          state.interactionGeneration == captured.interactionGeneration else {
-                        return false
+                let claim = gate.withLock { state -> VerifiedReplayViewportRestoreClaim in
+                    let claim = VerifiedReplayViewportRestoreClaim.decide(
+                        activeTicket: state.activeRestoreTicket,
+                        operationID: operationID,
+                        interactionGeneration: state.interactionGeneration,
+                        capturedInteractionGeneration: captured.interactionGeneration
+                    )
+                    if claim == .claimed {
+                        state.activeRestoreTicket = nil
                     }
-                    state.activeRestoreTicket = nil
-                    return true
+                    return claim
                 }
                 var restoredScrollbar = ghostty_surface_scrollbar_s()
                 // A gesture between the claim and C call composes with the
                 // restored frozen viewport, so this unlocked window is benign.
-                let restored = claimed
+                let restored = claim == .claimed
                     ? (targetTopRow.map {
                         ghostty_surface_scroll_to_row_if_revision(
                             operation.surface,
@@ -148,9 +190,12 @@ extension GhosttySurfaceView {
                         )
                     } ?? false)
                     : false
-                if !claimed, targetTopRow != nil {
+                if claim != .claimed, targetTopRow != nil {
+                    let reason = claim == .staleInteraction
+                        ? "user_interaction_late"
+                        : "restore_ticket_revoked"
                     MobileDebugLog.anchormux(
-                        "verified_replay.viewport_restore.skipped reason=user_interaction_late"
+                        "verified_replay.viewport_restore.skipped reason=\(reason)"
                     )
                 }
                 if readPostReplay {

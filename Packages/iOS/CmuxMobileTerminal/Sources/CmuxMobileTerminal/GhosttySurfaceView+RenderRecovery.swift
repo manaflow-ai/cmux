@@ -85,9 +85,14 @@ extension GhosttySurfaceView {
 
         // Viewport anchoring is best-effort; a timeout must not replace an
         // otherwise healthy surface or turn replay into another recovery loop.
+        // Both give-ups reveal the replay's bottom reset, so they must be
+        // visible in the log next to the restore-skip lines.
         if let pending = pendingVerifiedReplayViewportAnchorCapture,
            now - pending.startedAt >= Self.visibleSnapshotTimeout {
             pendingVerifiedReplayViewportAnchorCapture = nil
+            MobileDebugLog.anchormux(
+                "verified_replay.viewport_anchor_capture.TIMEOUT elapsedMs=\(Int((now - pending.startedAt) * 1000))"
+            )
             pending.continuation.resume(returning: nil)
         }
 
@@ -95,6 +100,9 @@ extension GhosttySurfaceView {
            now - pending.startedAt >= Self.visibleSnapshotTimeout {
             pendingVerifiedReplayViewportAnchorRestore = nil
             viewportRestoreGate.withLock { $0.activeRestoreTicket = nil }
+            MobileDebugLog.anchormux(
+                "verified_replay.viewport_restore.TIMEOUT elapsedMs=\(Int((now - pending.startedAt) * 1000))"
+            )
             pending.continuation.resume(returning: false)
         }
 
