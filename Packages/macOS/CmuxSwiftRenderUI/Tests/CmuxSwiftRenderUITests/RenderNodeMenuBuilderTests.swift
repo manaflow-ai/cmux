@@ -256,14 +256,20 @@ struct RenderNodeMenuBuilderTests {
                        modifiers: [RenderModifier(name: "keyboardShortcut",
                                                   args: [ModifierArg(label: nil, value: "\".\"")])],
                        action: ButtonAction(commands: [.log("period")])),
+            RenderNode(kind: .button, text: "Delete",
+                       modifiers: [RenderModifier(name: "keyboardShortcut",
+                                                  args: [ModifierArg(label: nil, value: ".delete")])],
+                       action: ButtonAction(commands: [.log("delete")])),
         ]
 
         let menu = RenderNodeContextMenuBuilder(dispatch: .noop).makeMenu(nodes: nodes)
 
         #expect(menu.items[0].keyEquivalent == "\r")
+        #expect(menu.items[0].keyEquivalentModifierMask.isEmpty)
         #expect(menu.items[1].keyEquivalent == "c")
         #expect(menu.items[1].keyEquivalentModifierMask == [.command, .shift])
         #expect(menu.items[2].keyEquivalent == ".")
+        #expect(menu.items[3].keyEquivalent == String(UnicodeScalar(NSDeleteCharacter)!))
     }
 
     @Test("overlay presents only when the IR yields actual items")
