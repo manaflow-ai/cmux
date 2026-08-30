@@ -2,6 +2,53 @@ import CmuxWorkspaces
 import Foundation
 
 extension TabManager {
+    /// Gives automatic title persistence a short coalescing window. Process
+    /// title notifications can arrive for every shell command, and each store
+    /// write encodes the complete recovery snapshot synchronously on the main
+    /// actor. A fixed window bounds durability lag while collapsing bursts.
+    private static let automaticWorkspaceTitlePersistenceDelay: Duration = .milliseconds(250)
+
+    /// Flushes all queued automatic title records. Lifecycle code calls this
+    /// before termination, while tests and restore boundaries can use it to
+    /// make the durability point explicit.
+    func flushPendingWorkspaceCustomizationWrites() {
+        automaticWorkspaceTitlePersistenceTask?.cancel()
+        automaticWorkspaceTitlePersistenceTask = nil
+        guard !pendingAutomaticWorkspaceTitles.isEmpty else { return }
+        let pending = pendingAutomaticWorkspaceTitles
+        pendingAutomaticWorkspaceTitles.removeAll(keepingCapacity: true)
+        for (stableId, title) in pending.sorted(by: { $0.key.uuidString < $1.key.uuidString }) {
+            workspaceCustomizationStore.setCustomTitle(
+                title,
+                for: stableId,
+                source: .auto
+            )
+        }
+    }
+
+    private func scheduleAutomaticWorkspaceTitlePersistence() {
+        guard automaticWorkspaceTitlePersistenceTask == nil else { return }
+        automaticWorkspaceTitlePersistenceTask = Task { [weak self] in
+            do {
+                try await ContinuousClock().sleep(
+                    for: Self.automaticWorkspaceTitlePersistenceDelay
+                )
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            self?.flushPendingWorkspaceCustomizationWrites()
+        }
+    }
+
+    private func cancelPendingAutomaticWorkspaceTitle(for stableId: UUID) {
+        pendingAutomaticWorkspaceTitles.removeValue(forKey: stableId)
+        if pendingAutomaticWorkspaceTitles.isEmpty {
+            automaticWorkspaceTitlePersistenceTask?.cancel()
+            automaticWorkspaceTitlePersistenceTask = nil
+        }
+    }
+
     /// Migrates v1 directory records only when one restored workspace owns the directory.
     func prepareLegacyWorkspaceCustomizationMigration(
         afterRestoring snapshots: [SessionWorkspaceSnapshot]
@@ -96,7 +143,12 @@ extension TabManager {
             case .absent, .value:
                 return
             }
+            guard let title = workspace.customTitle else { return }
+            pendingAutomaticWorkspaceTitles[workspace.stableId] = title
+            scheduleAutomaticWorkspaceTitlePersistence()
+            return
         }
+        cancelPendingAutomaticWorkspaceTitle(for: workspace.stableId)
         workspaceCustomizationStore.setCustomTitle(
             workspace.customTitle,
             for: workspace.stableId,
