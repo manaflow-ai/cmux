@@ -11,10 +11,15 @@ import Foundation
 /// logical drag session early; the controller still owns terminal cleanup from
 /// AppKit's `endedAt` callback.
 @MainActor
-final class SidebarWorkspaceDragPasteboardWriter: NSObject, @preconcurrency NSPasteboardWriting {
+final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem {
+    nonisolated static let didDeallocateNotification = Notification.Name(
+        "cmux.sidebarWorkspaceDragPasteboardWriterDidDeallocate"
+    )
+    nonisolated static let deallocationTokenKey = "token"
     private static let pasteboardType = NSPasteboard.PasteboardType(
         SidebarWorkspaceDragSession.pasteboardTypeIdentifier
     )
+    let provisionalToken = UUID()
     private var workspaceId: UUID
     private var sessionId: UUID?
 
@@ -37,20 +42,30 @@ final class SidebarWorkspaceDragPasteboardWriter: NSObject, @preconcurrency NSPa
         super.init()
     }
 
-    func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
+    deinit {
+        // The writer is AppKit's provisional ownership token. Its deallocation
+        // proves that no native session callback can still arrive for this
+        // writer, so the controller can release an abandoned teardown hold.
+        NotificationCenter.default.post(
+            name: Self.didDeallocateNotification,
+            object: nil,
+            userInfo: [Self.deallocationTokenKey: provisionalToken]
+        )
+    }
+
+    override func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
         _ = pasteboard
         return [Self.pasteboardType]
     }
 
     /// Binds the writer to the native generation AppKit created for it.
     ///
-    /// NSTableView asks for this writer before `willBeginAt`, so the initial
+    /// ``NSTableView`` asks for this writer before `willBeginAt`, so the initial
     /// representation is necessarily legacy-shaped. Updating the writer as
     /// soon as the session exists keeps a later lazy pasteboard materialization
-    /// from replacing the live token with that provisional value.
-    /// Rebinds the row identity when AppKit materializes a writer after a
-    /// representable reconstruction. The native callback's row is authoritative
-    /// even when an older provisional writer is still retained by AppKit.
+    /// from replacing the live token with that provisional value. The callback's
+    /// row identity is authoritative even when an older provisional writer is
+    /// still retained by AppKit.
     func bind(to sessionId: UUID, workspaceId: UUID? = nil) {
         self.sessionId = sessionId
         if let workspaceId {
@@ -67,7 +82,7 @@ final class SidebarWorkspaceDragPasteboardWriter: NSObject, @preconcurrency NSPa
     /// writer to an active source after a view reconstruction.
     var sourceViewForDrag: NSView { sourceView }
 
-    func pasteboardPropertyList(forType type: NSPasteboard.PasteboardType) -> Any? {
+    override func pasteboardPropertyList(forType type: NSPasteboard.PasteboardType) -> Any? {
         guard type == Self.pasteboardType else { return nil }
         return SidebarTabDragPayload(tabId: workspaceId, sessionId: sessionId).pasteboardValue
     }

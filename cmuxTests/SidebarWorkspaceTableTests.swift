@@ -87,7 +87,7 @@ struct SidebarWorkspaceTableTests {
 
     @Test
     @MainActor
-    func abandonedWorkspaceWriterReleasesProvisionalTeardownOnNextMouseDown() async throws {
+    func abandonedWorkspaceWriterReleasesProvisionalTeardownWhenWriterDeallocates() async throws {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
         let row = makeRowConfiguration()
@@ -109,17 +109,17 @@ struct SidebarWorkspaceTableTests {
         )
         controller.dismantleContainerView(container)
 
-        // A pasteboard can still retain the writer through the first pointer
-        // boundary. Keep the provisional identity until that writer releases;
-        // no native callback exists yet, so the old table must remain attached.
+        // The writer is the provisional ownership token. Until AppKit releases
+        // it, no native callback can be ruled out and the old table remains
+        // attached.
         controller.prepareForMouseDown()
         #expect(container.tableView.dataSource === controller)
         #expect(container.tableView.delegate === controller)
 
-        // Once the writer is released, the following real pointer boundary is
-        // the bounded fallback for a drag that never reached willBeginAt/endedAt.
+        // Deallocation is the deterministic terminal signal for a request that
+        // never reached willBeginAt. Cleanup must happen immediately, without
+        // waiting for a later unrelated pointer event.
         writer = nil
-        controller.prepareForMouseDown()
 
         #expect(container.tableView.activeWorkspaceDragController == nil)
         #expect(container.tableView.dataSource == nil)
@@ -209,6 +209,118 @@ struct SidebarWorkspaceTableTests {
         )
         #expect(nextValue.contains(second.workspaceId.uuidString))
         #expect(!nextValue.contains(first.workspaceId.uuidString))
+    }
+
+    @Test
+    @MainActor
+    func newerNativeBeginReclaimsALatchedWorkspaceGeneration() async throws {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let first = makeRowConfiguration()
+        let second = makeRowConfiguration()
+        var currentSessionId: UUID?
+        var finishCount = 0
+        var reclaimCount = 0
+        let lifecycle = SidebarWorkspaceTableActions.NativeWorkspaceDragLifecycle(
+            currentSessionId: { currentSessionId },
+            finish: { sessionId, _ in
+                #expect(sessionId == currentSessionId)
+                finishCount += 1
+                currentSessionId = nil
+            },
+            reclaimSupersededNativeSources: {
+                reclaimCount += 1
+            }
+        )
+        controller.apply(
+            rows: [first, second],
+            actions: makeTableActions(
+                beginWorkspaceDrag: { _ in currentSessionId = UUID() },
+                nativeWorkspaceDragLifecycle: lifecycle
+            ),
+            workspaceIds: [first.workspaceId, second.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+
+        let type = NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
+        let firstPasteboard = NSPasteboard(
+            name: NSPasteboard.Name("sidebar-latched-first-\(UUID().uuidString)")
+        )
+        let firstSession = TestDraggingSession(sequence: 1, pasteboard: firstPasteboard)
+        _ = try #require(controller.tableView(container.tableView, pasteboardWriterForRow: 0))
+        controller.tableView(
+            container.tableView,
+            draggingSession: firstSession,
+            willBeginAt: .zero,
+            forRowIndexes: IndexSet(integer: 0)
+        )
+        #expect(currentSessionId != nil)
+
+        // No endedAt arrives for the first generation. AppKit's next begin
+        // callback is nevertheless a new native boundary and must not inherit
+        // the first row's source identity.
+        let secondWriter = try #require(
+            controller.tableView(container.tableView, pasteboardWriterForRow: 1)
+        )
+        let secondPasteboard = NSPasteboard(
+            name: NSPasteboard.Name("sidebar-latched-second-\(UUID().uuidString)")
+        )
+        let secondSession = TestDraggingSession(sequence: 2, pasteboard: secondPasteboard)
+        controller.tableView(
+            container.tableView,
+            draggingSession: secondSession,
+            willBeginAt: .zero,
+            forRowIndexes: IndexSet(integer: 1)
+        )
+
+        #expect(finishCount == 1)
+        #expect(reclaimCount == 1)
+        let secondValue = try #require(
+            secondSession.draggingPasteboard.string(forType: type)
+        )
+        #expect(secondValue.contains(second.workspaceId.uuidString))
+        #expect(!secondValue.contains(first.workspaceId.uuidString))
+        _ = secondWriter
+        controller.workspaceDragSessionDidEnd(session: secondSession)
+    }
+
+    @Test
+    @MainActor
+    func nativeWorkspaceGroupDragEnumeratesPasteboardItemsForStackedPreview() async throws {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let row = makeRowConfiguration()
+        controller.apply(
+            rows: [row],
+            actions: makeTableActions(movingWorkspaceCount: { _ in 2 }),
+            workspaceIds: [row.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+
+        let writer = try #require(
+            controller.tableView(container.tableView, pasteboardWriterForRow: 0)
+        )
+        let pasteboard = NSPasteboard(
+            name: NSPasteboard.Name("sidebar-enumeration-\(UUID().uuidString)")
+        )
+        let session = TestDraggingSession(
+            sequence: 1,
+            pasteboard: pasteboard,
+            writers: [writer]
+        )
+        controller.tableView(
+            container.tableView,
+            draggingSession: session,
+            willBeginAt: .zero,
+            forRowIndexes: IndexSet(integer: 0)
+        )
+
+        #expect(session.enumeratedPasteboardItemCount == 1)
+        controller.workspaceDragSessionDidEnd(session: session)
     }
 
     @Test
@@ -1437,6 +1549,7 @@ struct SidebarWorkspaceTableTests {
     private func makeTableActions(
         updateWorkspaceDrag: @escaping (CGPoint, [SidebarWorkspaceReorderDropOverlay.Target], UUID?) -> SidebarWorkspaceTableReorderDropUpdate? = { _, _, _ in nil },
         beginWorkspaceDrag: @escaping (UUID) -> Void = { _ in },
+        movingWorkspaceCount: ((UUID) -> Int)? = { _ in 1 },
         endWorkspaceDrag: @escaping () -> Void = {},
         clearWorkspaceDropIndicator: @escaping () -> Void = {},
         nativeWorkspaceDragLifecycle: SidebarWorkspaceTableActions.NativeWorkspaceDragLifecycle? = nil
@@ -1447,7 +1560,7 @@ struct SidebarWorkspaceTableTests {
             createWorkspaceAtEnd: {},
             createEmptyWorkspaceGroup: {},
             beginWorkspaceDrag: beginWorkspaceDrag,
-            movingWorkspaceCount: { _ in 1 },
+            movingWorkspaceCount: movingWorkspaceCount,
             endWorkspaceDrag: endWorkspaceDrag,
             isValidWorkspaceDrag: { true },
             updateWorkspaceDrag: updateWorkspaceDrag,
@@ -1471,15 +1584,48 @@ struct SidebarWorkspaceTableTests {
     private final class TestDraggingSession: NSDraggingSession {
         private let sequence: Int
         private let pasteboard: NSPasteboard
+        private let writers: [any NSPasteboardWriting]
+        private(set) var enumeratedPasteboardItemCount = 0
 
-        init(sequence: Int, pasteboard: NSPasteboard) {
+        init(
+            sequence: Int,
+            pasteboard: NSPasteboard,
+            writers: [any NSPasteboardWriting] = []
+        ) {
             self.sequence = sequence
             self.pasteboard = pasteboard
+            self.writers = writers
             super.init()
         }
 
         override var draggingSequenceNumber: Int { sequence }
         override var draggingPasteboard: NSPasteboard { pasteboard }
+
+        override func enumerateDraggingItems(
+            options enumOpts: NSDraggingItemEnumerationOptions = [],
+            for view: NSView?,
+            classes classArray: [AnyClass],
+            searchOptions: [NSPasteboard.ReadingOptionKey: Any] = [:],
+            using block: (NSDraggingItem, Int, UnsafeMutablePointer<ObjCBool>) -> Void
+        ) {
+            _ = enumOpts
+            _ = view
+            _ = searchOptions
+            var stop = ObjCBool(false)
+            for (index, writer) in writers.enumerated() {
+                guard classArray.contains(where: { type in
+                    type == NSPasteboardItem.self && writer is NSPasteboardItem
+                }) else { continue }
+                let item = NSDraggingItem(pasteboardWriter: writer)
+                item.setDraggingFrame(
+                    NSRect(x: 0, y: 0, width: 120, height: 28),
+                    contents: NSImage(size: NSSize(width: 120, height: 28))
+                )
+                enumeratedPasteboardItemCount += 1
+                block(item, index, &stop)
+                if stop.boolValue { break }
+            }
+        }
     }
 #endif
 
