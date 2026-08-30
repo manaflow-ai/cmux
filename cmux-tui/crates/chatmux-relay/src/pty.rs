@@ -4382,6 +4382,45 @@ mod tests {
         assert!(!new_cancellation.is_cancelled());
     }
 
+    #[tokio::test]
+    async fn cancelled_active_open_drop_clears_its_tombstone() {
+        let h = harness(None, None);
+        let inner = Arc::clone(&h.manager.inner);
+        let mut context = h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
+        context.transport_kind = TransportKind::Tunnel;
+        h.manager.update_transport_auth(&context);
+
+        let cancellation = h.manager.new_open_cancellation().expect("open attempt token");
+        let owner = OpeningOwner {
+            owner: TransportOwner::from_context(&context),
+            attempt_id: cancellation.attempt_id(),
+        };
+        let active = ActiveOpening {
+            inner: Arc::clone(&inner),
+            id: "p1".to_owned(),
+            owner: owner.clone(),
+            active: true,
+        };
+        inner
+            .opening_state
+            .lock()
+            .unwrap()
+            .active_openings
+            .insert("p1".to_owned(), (owner.clone(), cancellation.clone()));
+
+        h.manager
+            .handle_frame(&serde_json::json!({ "type": "pty_close", "ptyId": "p1" }), &context)
+            .await;
+
+        {
+            let state = inner.opening_state.lock().unwrap();
+            assert!(!state.active_openings.contains_key("p1"));
+            assert_eq!(state.cancelled.get("p1"), Some(&owner));
+        }
+        drop(active);
+        assert!(!inner.opening_state.lock().unwrap().cancelled.contains_key("p1"));
+    }
+
     #[test]
     fn open_attempt_tokens_fail_closed_before_reuse_on_counter_wrap() {
         let h = harness(None, None);
