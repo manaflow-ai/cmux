@@ -6838,18 +6838,21 @@ struct ContentView: View {
             )
         }
 
-        let dockSurfaceTarget = commandPaletteDockSurfaceTarget()
-        if let dockSurfaceTarget {
-            // Keep a transient Dock move/close from falling through to the
-            // selected main-workspace panel. The handlers and their context
-            // snapshot must either agree on this captured Dock target or fail
-            // closed until the palette is rebuilt.
-            guard let tabId = dockSurfaceTarget.dock.surfaceId(
-                forPanelId: dockSurfaceTarget.panelId
-            ), dockSurfaceTarget.dock.bonsplitController.tab(tabId) != nil else {
-                return snapshot
+        let dockSurfaceTarget: (
+            dock: DockSplitStore,
+            panelId: UUID,
+            panel: any Panel
+        )? = {
+            guard let target = commandPaletteDockSurfaceTarget(),
+                  let tabId = target.dock.surfaceId(forPanelId: target.panelId),
+                  target.dock.bonsplitController.tab(tabId) != nil else {
+                // A transient Dock map gap must not truncate the rest of this
+                // snapshot. Treat the captured Dock as unavailable and let the
+                // normal main-workspace fallback populate unrelated commands.
+                return nil
             }
-        }
+            return target
+        }()
 
         if let dockSurface = dockSurfaceTarget,
                   let tabId = dockSurface.dock.surfaceId(

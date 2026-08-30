@@ -2974,6 +2974,7 @@ final class BrowserPanel: Panel, ObservableObject {
         browserViewportHostRestorationTask?.cancel()
         browserViewportHostRestorationTask = nil
         browserViewportHostRestorationPending = false
+        webView.findCapabilityNotificationOwner = self
         webView.browserViewportModel = viewportModel
         viewportHostView.installWebView(webView)
         webView.onBrowserViewportHierarchyChanged = { [weak self, weak webView] in

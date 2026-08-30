@@ -1248,17 +1248,10 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
                 .combineLatest(browser.$isMuted.removeDuplicates())
                 .map { _ in () }
             let browserFindCapabilityChanges = NotificationCenter.default.publisher(
-                for: .browserFindCapabilityDidChange
+                for: .browserFindCapabilityDidChange,
+                object: browser
             )
-            .receive(on: DispatchQueue.main)
-            .compactMap { [weak browser] notification -> Void? in
-                guard let browser,
-                      let webView = notification.object as? WKWebView,
-                      webView === browser.webView else {
-                    return nil
-                }
-                return ()
-            }
+            .map { _ in () }
             let browserWebViewInstanceChanges = browser.$webViewInstanceID
                 .map { _ in () }
             let cancellable = browserMetadataChanges

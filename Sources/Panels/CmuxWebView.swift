@@ -10,6 +10,18 @@ import WebKit
 /// Find shortcuts. The configured shortcut stays app-owned so cmux can choose browser
 /// find or right-sidebar file search from the current focus owner.
 final class CmuxWebView: WKWebView {
+    /// Stable owner used to scope find-capability notifications across
+    /// WKWebView replacement. BrowserPanel rebinds this weak reference whenever
+    /// it installs a new web view, so observers can stay object-filtered.
+    weak var findCapabilityNotificationOwner: AnyObject?
+
+    func postFindCapabilityDidChange() {
+        NotificationCenter.default.post(
+            name: .browserFindCapabilityDidChange,
+            object: findCapabilityNotificationOwner ?? self
+        )
+    }
+
     var browserViewportModel: BrowserViewportModel?
     var onBrowserViewportHierarchyChanged: (() -> Void)?
 
@@ -457,12 +469,7 @@ final class CmuxWebView: WKWebView {
         evaluateJavaScript(script) { [weak self] result, error in
             guard error != nil || result as? Bool != true else { return }
             self?.diffViewerDocumentState.rendererDidBecomeUnavailable()
-            if let self {
-                NotificationCenter.default.post(
-                    name: .browserFindCapabilityDidChange,
-                    object: self
-                )
-            }
+            self?.postFindCapabilityDidChange()
             fallback()
         }
     }
@@ -475,10 +482,7 @@ final class CmuxWebView: WKWebView {
         )
 #endif
         diffViewerDocumentState.update(viewer: viewer, editable: editable, rendererReady: rendererReady)
-        NotificationCenter.default.post(
-            name: .browserFindCapabilityDidChange,
-            object: self
-        )
+        postFindCapabilityDidChange()
         if !viewer || editable {
             diffViewerNavigationKeyRouter.reset()
         }
@@ -486,27 +490,18 @@ final class CmuxWebView: WKWebView {
 
     func diffViewerNavigationDidStart(_ navigation: WKNavigation?) {
         diffViewerDocumentState.navigationDidStart(id: navigation.map(ObjectIdentifier.init))
-        NotificationCenter.default.post(
-            name: .browserFindCapabilityDidChange,
-            object: self
-        )
+        postFindCapabilityDidChange()
         diffViewerNavigationKeyRouter.reset()
     }
 
     func diffViewerNavigationDidCommit(_ navigation: WKNavigation?) {
         diffViewerDocumentState.navigationDidCommit(id: navigation.map(ObjectIdentifier.init))
-        NotificationCenter.default.post(
-            name: .browserFindCapabilityDidChange,
-            object: self
-        )
+        postFindCapabilityDidChange()
     }
 
     func diffViewerNavigationDidCancel(_ navigation: WKNavigation?) {
         diffViewerDocumentState.navigationDidCancel(id: navigation.map(ObjectIdentifier.init))
-        NotificationCenter.default.post(
-            name: .browserFindCapabilityDidChange,
-            object: self
-        )
+        postFindCapabilityDidChange()
     }
 
     private func handleDiffViewerNavigationKey(_ event: NSEvent) -> Bool {
@@ -530,12 +525,7 @@ final class CmuxWebView: WKWebView {
                     self?.diffViewerDocumentState.editableFocusTransitionDidFail()
                 }
                 self?.diffViewerDocumentState.rendererDidBecomeUnavailable()
-                if let self {
-                    NotificationCenter.default.post(
-                        name: .browserFindCapabilityDidChange,
-                        object: self
-                    )
-                }
+                self?.postFindCapabilityDidChange()
             }
         })
     }
