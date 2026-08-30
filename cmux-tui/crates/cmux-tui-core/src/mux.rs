@@ -23094,6 +23094,65 @@ mod tests {
     }
 
     #[test]
+    fn malformed_roster_snapshot_restores_terminal_retirement_fence() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-roster-retirement-recovery-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let session = "roster-retirement-recovery";
+        let (terminal_id, delayed_sequence) = {
+            let mux = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
+            let surface = mux.new_workspace(None, None).unwrap();
+            let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+            let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+                "claude",
+                "UserPromptSubmit",
+                Some(&terminal_id.to_string()),
+                serde_json::json!({"session_id":"retirement-recovery"}),
+            )
+            .unwrap();
+            let validated = mux.journal_kernel.validate_ingress(&ingress).unwrap();
+            let commit = mux
+                .workspace_registry
+                .lock()
+                .unwrap()
+                .append_journal_ingress(&ingress, &validated, "test", "retirement-recovery")
+                .unwrap();
+
+            // Leave the journal row un-folded, then durably tombstone the
+            // terminal. A restart with a malformed reducer snapshot must
+            // still fence this delayed row.
+            close_terminal_runtime_for_test(&mux, &surface);
+            mux.shutdown();
+            drop(mux);
+            (terminal_id, commit.sequence)
+        };
+
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        registry
+            .put_journal_reducer_state(
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+                0,
+                "{malformed",
+            )
+            .unwrap();
+        let mut restored = restore_agent_roster(&registry).unwrap();
+        assert!(
+            restored.roster.is_retired(terminal_id.as_str()),
+            "durable terminal tombstone must restore the roster fence"
+        );
+        for record in registry.session_journal_after(0, 1024).unwrap().records {
+            restored.roster.apply(&crate::journal_reducers::RosterEvent::from_record(&record));
+        }
+        assert!(
+            restored.roster.entries.is_empty(),
+            "delayed event at sequence {delayed_sequence} must remain fenced"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn roster_restore_replays_beyond_legacy_record_cap() {
         let root = std::env::temp_dir()
             .join(format!("cmux-roster-large-replay-{}", crate::workspace_registry::new_uuid_v4()));
