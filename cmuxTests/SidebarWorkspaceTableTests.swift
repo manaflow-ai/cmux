@@ -145,6 +145,102 @@ struct SidebarWorkspaceTableTests {
         controller.workspaceDragSessionDidEnd()
         #expect(originalContainer.tableView.activeWorkspaceDragController == nil)
     }
+
+    @Test
+    @MainActor
+    func staleWorkspaceDragIsReclaimedAtTheNextMouseDown() async throws {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let first = makeRowConfiguration()
+        let second = makeRowConfiguration()
+        var currentSessionId: UUID?
+        var finishCount = 0
+        var reclaimCount = 0
+        let lifecycle = SidebarWorkspaceTableActions.NativeWorkspaceDragLifecycle(
+            currentSessionId: { currentSessionId },
+            finish: { sessionId, _ in
+                #expect(sessionId == currentSessionId)
+                finishCount += 1
+                currentSessionId = nil
+            },
+            reclaimSupersededNativeSources: {
+                reclaimCount += 1
+            }
+        )
+        controller.apply(
+            rows: [first, second],
+            actions: makeTableActions(
+                beginWorkspaceDrag: { _ in currentSessionId = UUID() },
+                nativeWorkspaceDragLifecycle: lifecycle
+            ),
+            workspaceIds: [first.workspaceId, second.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+
+        let type = NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
+        let pasteboard = NSPasteboard(
+            name: NSPasteboard.Name("sidebar-stale-session-\(UUID().uuidString)")
+        )
+        let nativeSession = TestDraggingSession(sequence: 1, pasteboard: pasteboard)
+        _ = try #require(
+            controller.tableView(container.tableView, pasteboardWriterForRow: 0)
+        )
+        controller.tableView(
+            container.tableView,
+            draggingSession: nativeSession,
+            willBeginAt: .zero,
+            forRowIndexes: IndexSet(integer: 0)
+        )
+        #expect(currentSessionId != nil)
+
+        // A real mouse-down can only arrive after AppKit has left its previous
+        // native drag loop, even if the source's endedAt callback was lost.
+        controller.prepareForMouseDown()
+
+        #expect(finishCount == 1)
+        #expect(reclaimCount == 1)
+        let nextWriter = try #require(
+            controller.tableView(container.tableView, pasteboardWriterForRow: 1)
+        )
+        let nextValue = try #require(
+            nextWriter.pasteboardPropertyList(forType: type) as? String
+        )
+        #expect(nextValue.contains(second.workspaceId.uuidString))
+        #expect(!nextValue.contains(first.workspaceId.uuidString))
+    }
+
+    @Test
+    @MainActor
+    func workspaceWriterUsesTheRequestedRowWhileAnEarlierWriterIsRetained() throws {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let first = makeRowConfiguration()
+        let second = makeRowConfiguration()
+        controller.apply(
+            rows: [first, second],
+            actions: makeTableActions(),
+            workspaceIds: [first.workspaceId, second.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+
+        let type = NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
+        let firstWriter = try #require(
+            controller.tableView(container.tableView, pasteboardWriterForRow: 0)
+        )
+        let secondWriter = try #require(
+            controller.tableView(container.tableView, pasteboardWriterForRow: 1)
+        )
+        try withExtendedLifetime(firstWriter) {
+            let value = try #require(
+                secondWriter.pasteboardPropertyList(forType: type) as? String
+            )
+            #expect(value.contains(second.workspaceId.uuidString))
+            #expect(!value.contains(first.workspaceId.uuidString))
+        }
+    }
 #endif
 
     @Test
@@ -1340,15 +1436,17 @@ struct SidebarWorkspaceTableTests {
     @MainActor
     private func makeTableActions(
         updateWorkspaceDrag: @escaping (CGPoint, [SidebarWorkspaceReorderDropOverlay.Target], UUID?) -> SidebarWorkspaceTableReorderDropUpdate? = { _, _, _ in nil },
+        beginWorkspaceDrag: @escaping (UUID) -> Void = { _ in },
         endWorkspaceDrag: @escaping () -> Void = {},
-        clearWorkspaceDropIndicator: @escaping () -> Void = {}
+        clearWorkspaceDropIndicator: @escaping () -> Void = {},
+        nativeWorkspaceDragLifecycle: SidebarWorkspaceTableActions.NativeWorkspaceDragLifecycle? = nil
     ) -> SidebarWorkspaceTableActions {
         SidebarWorkspaceTableActions(
             attachScrollView: { _ in },
             closeWorkspace: { _ in },
             createWorkspaceAtEnd: {},
             createEmptyWorkspaceGroup: {},
-            beginWorkspaceDrag: { _ in },
+            beginWorkspaceDrag: beginWorkspaceDrag,
             movingWorkspaceCount: { _ in 1 },
             endWorkspaceDrag: endWorkspaceDrag,
             isValidWorkspaceDrag: { true },
@@ -1364,8 +1462,24 @@ struct SidebarWorkspaceTableTests {
             didMoveBonsplitToWorkspace: { _ in },
             updateDragAutoscroll: {},
             setBonsplitDropTargetCollectionActive: { _ in },
-            setBonsplitDropIndicator: { _ in }
+            setBonsplitDropIndicator: { _ in },
+            nativeWorkspaceDragLifecycle: nativeWorkspaceDragLifecycle
         )
+    }
+
+    @MainActor
+    private final class TestDraggingSession: NSDraggingSession {
+        private let sequence: Int
+        private let pasteboard: NSPasteboard
+
+        init(sequence: Int, pasteboard: NSPasteboard) {
+            self.sequence = sequence
+            self.pasteboard = pasteboard
+            super.init()
+        }
+
+        override var draggingSequenceNumber: Int { sequence }
+        override var draggingPasteboard: NSPasteboard { pasteboard }
     }
 #endif
 

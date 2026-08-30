@@ -281,6 +281,61 @@ struct VaultNativeDragSourceTests {
         }
     }
 
+    @Test("A new native drag reclaims a source whose endedAt callback was lost")
+    func newNativeDragReclaimsSupersededSource() throws {
+        let registry = SessionDragRegistry()
+        let tabDragTransferRegistry = TabDragTransferRegistry()
+        var startedSources: [SessionDragSessionSource] = []
+        let coordinator = SessionDragCoordinator(
+            startDraggingSession: { _, _, _, source in
+                startedSources.append(source)
+            }
+        )
+        let sourceView = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 28))
+        let event = try Self.mouseEvent(
+            type: .leftMouseDown,
+            location: NSPoint(x: 20, y: 14),
+            windowNumber: 0
+        )
+        let firstEntry = Self.makeEntry(title: "First superseded drag", identifier: "first")
+        let secondEntry = Self.makeEntry(title: "Second drag", identifier: "second")
+        let frame = sourceView.bounds
+        let image = NSImage(size: frame.size)
+
+        #expect(coordinator.beginSessionDrag(
+            firstEntry,
+            registry: registry,
+            tabDragTransferRegistry: tabDragTransferRegistry,
+            from: sourceView,
+            event: event,
+            frame: frame,
+            image: image
+        ))
+        let firstSource = try #require(startedSources.first)
+        let firstDragID = firstSource.dragID
+        #expect(registry.entry(id: firstDragID) == firstEntry)
+
+        // The next threshold-crossing mouse gesture is proof that AppKit has
+        // left the previous native drag loop, even when it omitted endedAt.
+        #expect(coordinator.beginSessionDrag(
+            secondEntry,
+            registry: registry,
+            tabDragTransferRegistry: tabDragTransferRegistry,
+            from: sourceView,
+            event: event,
+            frame: frame,
+            image: image
+        ))
+        let secondSource = try #require(startedSources.last)
+        #expect(secondSource.dragID != firstDragID)
+        #expect(registry.entry(id: firstDragID) == nil)
+        #expect(registry.entry(id: secondSource.dragID) == secondEntry)
+
+        firstSource.finishDrag()
+        secondSource.finishDrag()
+        #expect(registry.entry(id: secondSource.dragID) == nil)
+    }
+
     private static func makeEntry(
         title: String,
         identifier: String = "duplicate"
