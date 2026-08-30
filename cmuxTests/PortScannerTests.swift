@@ -1242,7 +1242,7 @@ struct PortScannerGenerationTests {
 struct PortScannerLsofBatchingTests {
     @Test("Large PID lists are split without exceeding the argument budget")
     func largePIDListUsesBoundedCSVArguments() {
-        let pids = Array(1...2_000)
+        let pids = Array(1...20_000)
         let chunks = PortScanner.lsofPIDChunks(pids)
 
         #expect(chunks.count > 1)
