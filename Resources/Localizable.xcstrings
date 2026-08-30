@@ -1,6 +1,337 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "computerUse.cursorOverlay.accessibilityLabel": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Computer-use cursor"}},"ja":{"stringUnit":{"state":"translated","value":"コンピュータ操作カーソル"}}}},
+    "computerUse.menu.backgroundStatus": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux Computer Use — Running in Background"}},"ja":{"stringUnit":{"state":"translated","value":"cmux Computer Use — バックグラウンドで実行中"}}}},
+    "computerUse.menu.continueInBackground": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Continue in Background"}},"ja":{"stringUnit":{"state":"translated","value":"バックグラウンドで続行"}}}},
+    "computerUse.menu.focusTarget": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Focus Computer Use"}},"ja":{"stringUnit":{"state":"translated","value":"コンピュータ操作にフォーカス"}}}},
+    "computerUse.menu.focusTerminal": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Focus Calling Terminal"}},"ja":{"stringUnit":{"state":"translated","value":"呼び出し元のターミナルにフォーカス"}}}},
+    "computerUse.menu.noActivityTooltip": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No computer-use activity yet"}},"ja":{"stringUnit":{"state":"translated","value":"コンピュータ操作の履歴はまだありません"}}}},
+    "computerUse.menu.noLiveSessions": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No live agent sessions"}},"ja":{"stringUnit":{"state":"translated","value":"実行中のエージェントセッションはありません"}}}},
+    "computerUse.menu.sessionTitle": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"%1$@ · %2$@"}},"ja":{"stringUnit":{"state":"translated","value":"%1$@ · %2$@"}}}},
+    "computerUse.menu.statusWithTarget": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"%1$@ — %2$@"}},"ja":{"stringUnit":{"state":"translated","value":"%1$@ — %2$@"}}}},
+    "computerUse.menu.stopUsing": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Stop Using %@"}},"ja":{"stringUnit":{"state":"translated","value":"%@の使用を停止"}}}},
+    "computerUse.menu.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux Computer Use"}},"ja":{"stringUnit":{"state":"translated","value":"cmux Computer Use"}}}},
+    "computerUse.menu.unknownTarget": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"App"}},"ja":{"stringUnit":{"state":"translated","value":"アプリ"}}}},
+    "computerUse.menu.unknownWorkspace": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Unknown Workspace"}},"ja":{"stringUnit":{"state":"translated","value":"不明なワークスペース"}}}},
+    "computerUse.menu.viewComputerUse": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"View Computer Use"}},"ja":{"stringUnit":{"state":"translated","value":"コンピュータ操作を表示"}}}},
+    "computerUse.onboarding.accessibility.cardDetail": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Allows cmux to access app interfaces"}},"ja":{"stringUnit":{"state":"translated","value":"cmuxがアプリのインターフェースにアクセスできるようにします"}}}},
+    "computerUse.onboarding.accessibility.detail": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Accessibility lets the Computer Use helper inspect controls, click buttons, and type in apps you ask an agent to use."}},"ja":{"stringUnit":{"state":"translated","value":"アクセシビリティを許可すると、Computer Useヘルパーはエージェントに操作を依頼したアプリのコントロールを確認し、ボタンのクリックや文字入力を行えます。"}}}},
+    "computerUse.onboarding.accessibility.short": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Accessibility"}},"ja":{"stringUnit":{"state":"translated","value":"アクセシビリティ"}}}},
+    "computerUse.onboarding.accessibility.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Grant Accessibility"}},"ja":{"stringUnit":{"state":"translated","value":"アクセシビリティを許可"}}}},
+    "computerUse.onboarding.allow": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Allow"}},"ja":{"stringUnit":{"state":"translated","value":"許可"}}}},
+    "computerUse.onboarding.back": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Back"}},"ja":{"stringUnit":{"state":"translated","value":"戻る"}}}},
+    "computerUse.onboarding.companion.accessibility": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Drag %@ into Accessibility"}},"ja":{"stringUnit":{"state":"translated","value":"%@をアクセシビリティにドラッグ"}}}},
+    "computerUse.onboarding.companion.confirmCapture": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Allow screen capture in the macOS alert"}},"ja":{"stringUnit":{"state":"translated","value":"macOSのダイアログで画面収録を許可してください"}}}},
+    "computerUse.onboarding.companion.confirmCapture.detail": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The system “bypass” warning is expected here."}},"ja":{"stringUnit":{"state":"translated","value":"このシステム警告は想定どおりの動作です。"}}}},
+    "computerUse.onboarding.companion.screenRecording": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Drag %@ into Screenshots"}},"ja":{"stringUnit":{"state":"translated","value":"%@をスクリーンショットにドラッグ"}}}},
+    "computerUse.onboarding.companion.turnOn": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Then turn it on."}},"ja":{"stringUnit":{"state":"translated","value":"その後、オンにしてください。"}}}},
+    "computerUse.onboarding.completeInSystemSettings": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Complete %@ in System Settings"}},"ja":{"stringUnit":{"state":"translated","value":"システム設定で%@を完了"}}}},
+    "computerUse.onboarding.completeInSystemSettings.short": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Complete in System Settings"}},"ja":{"stringUnit":{"state":"translated","value":"システム設定で完了"}}}},
+    "computerUse.onboarding.continue": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Continue"}},"ja":{"stringUnit":{"state":"translated","value":"続ける"}}}},
+    "computerUse.onboarding.done": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Done"}},"ja":{"stringUnit":{"state":"translated","value":"完了"}}}},
+    "computerUse.onboarding.done.detailReady": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Setup is complete. You can now ask cmux to use apps on your Mac."}},"ja":{"stringUnit":{"state":"translated","value":"設定が完了しました。cmuxにこのMac上のアプリの操作を依頼できます。"}}}},
+    "computerUse.onboarding.done.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux Computer Use Is Ready"}},"ja":{"stringUnit":{"state":"translated","value":"cmux Computer Useの準備ができました"}}}},
+    "computerUse.onboarding.dragAction": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Drag"}},"ja":{"stringUnit":{"state":"translated","value":"ドラッグ"}}}},
+    "computerUse.onboarding.dragHint": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Drag this app into the list in System Settings, turn it on, then come back here."}},"ja":{"stringUnit":{"state":"translated","value":"このアプリをシステム設定のリストにドラッグしてオンにし、ここに戻ってください。"}}}},
+    "computerUse.onboarding.dragTip": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Drag the app card—not this window—into the permission list."}},"ja":{"stringUnit":{"state":"translated","value":"このウインドウではなく、アプリカードを権限リストにドラッグしてください。"}}}},
+    "computerUse.onboarding.dragTooltip": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Drag %@ into the permission list"}},"ja":{"stringUnit":{"state":"translated","value":"%@を権限リストにドラッグ"}}}},
+    "computerUse.onboarding.finishScreenshotAccess": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Finish screenshot access"}},"ja":{"stringUnit":{"state":"translated","value":"スクリーンショットへのアクセスを完了"}}}},
+    "computerUse.onboarding.hero.confirmCapture": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"macOS is asking to confirm screen capture.\nChoose Allow in the system alert to finish setup."}},"ja":{"stringUnit":{"state":"translated","value":"macOSが画面収録の確認を求めています。\nシステムの警告で「許可」を選択するとセットアップが完了します。"}}}},
+    "computerUse.onboarding.hero.detail": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux Computer Use needs these permissions to use apps on your Mac.\nThese permissions are used when you ask cmux to perform tasks."}},"ja":{"stringUnit":{"state":"translated","value":"cmux Computer UseがこのMac上のアプリを操作するには、これらの権限が必要です。\n権限は、cmuxにタスクを依頼したときに使用されます。"}}}},
+    "computerUse.onboarding.hero.helperNote": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Permissions go to the separate cmux Computer Use helper — the cmux terminal itself never receives them."}},"ja":{"stringUnit":{"state":"translated","value":"権限は独立したcmux Computer Useヘルパーに付与され、cmuxターミナル本体には付与されません。"}}}},
+    "computerUse.onboarding.hero.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Enable cmux Computer Use"}},"ja":{"stringUnit":{"state":"translated","value":"cmux Computer Useを有効にする"}}}},
+    "computerUse.onboarding.checkAgain": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Check Again"}},"ja":{"stringUnit":{"state":"translated","value":"もう一度確認"}}}},
+    "computerUse.onboarding.checking": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Checking…"}},"ja":{"stringUnit":{"state":"translated","value":"確認中…"}}}},
+    "computerUse.onboarding.notNow": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Not Now"}},"ja":{"stringUnit":{"state":"translated","value":"今はしない"}}}},
+    "computerUse.onboarding.media.detail": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Let agents work across apps you choose"}},"ja":{"stringUnit":{"state":"translated","value":"選択したアプリをエージェントが操作できます"}}}},
+    "computerUse.onboarding.media.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Computer use"}},"ja":{"stringUnit":{"state":"translated","value":"コンピュータ操作"}}}},
+    "computerUse.onboarding.openSystemSettings": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Open System Settings"}},"ja":{"stringUnit":{"state":"translated","value":"システム設定を開く"}}}},
+    "computerUse.onboarding.overview.accessibility": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Control apps you choose"}},"ja":{"stringUnit":{"state":"translated","value":"選択したアプリを操作"}}}},
+    "computerUse.onboarding.overview.detail": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"When a task needs more than the terminal, supported agents can see and drive local apps. Permissions belong to a separate helper, so granting them never requires restarting cmux."}},"ja":{"stringUnit":{"state":"translated","value":"ターミナル以外の操作が必要なとき、対応するエージェントはローカルアプリを表示して操作できます。権限は別のヘルパーに付与されるため、許可後にcmuxを再起動する必要はありません。"}}}},
+    "computerUse.onboarding.overview.local": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Runs locally with separate cmux Computer Use permissions"}},"ja":{"stringUnit":{"state":"translated","value":"独立したcmux Computer Useの権限でローカル実行"}}}},
+    "computerUse.onboarding.overview.restartHelper": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Only the Computer Use helper needs to restart after permission changes. cmux stays open."}},"ja":{"stringUnit":{"state":"translated","value":"権限の変更後に再起動が必要なのはComputer Useヘルパーだけです。cmuxは開いたままです。"}}}},
+    "computerUse.onboarding.overview.screenRecording": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"See app windows and screen content"}},"ja":{"stringUnit":{"state":"translated","value":"アプリウインドウと画面内容を表示"}}}},
+    "computerUse.onboarding.overview.short": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"How it works"}},"ja":{"stringUnit":{"state":"translated","value":"仕組み"}}}},
+    "computerUse.onboarding.overview.telemetry": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Driver telemetry and update checks are disabled"}},"ja":{"stringUnit":{"state":"translated","value":"ドライバーのテレメトリと更新確認は無効"}}}},
+    "computerUse.onboarding.overview.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Agents can work across apps on this Mac"}},"ja":{"stringUnit":{"state":"translated","value":"エージェントがこのMac上のアプリを操作できます"}}}},
+    "computerUse.onboarding.permissionReady.detail": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"You can continue to the next step."}},"ja":{"stringUnit":{"state":"translated","value":"次のステップに進めます。"}}}},
+    "computerUse.onboarding.permissionReady.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Permission granted"}},"ja":{"stringUnit":{"state":"translated","value":"権限が許可されました"}}}},
+    "computerUse.onboarding.permission.instructions": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"In System Settings, turn on %@, then return here."}},"ja":{"stringUnit":{"state":"translated","value":"システム設定で%@をオンにしてから、ここに戻ってください。"}}}},
+    "computerUse.onboarding.preparingHelper": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Preparing cmux Computer Use…"}},"ja":{"stringUnit":{"state":"translated","value":"cmux Computer Useを準備中…"}}}},
+    "computerUse.onboarding.screenRecording.cardDetail": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Allows cmux Computer Use to see app windows and screen content"}},"ja":{"stringUnit":{"state":"translated","value":"cmux Computer Useがアプリのウインドウと画面の内容を表示できるようにします"}}}},
+    "computerUse.onboarding.screenRecording.detail": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Screen Recording lets the Computer Use helper see app windows and screen content so it can act on what is visible."}},"ja":{"stringUnit":{"state":"translated","value":"画面収録を許可すると、Computer Useヘルパーはアプリウインドウや画面内容を確認し、表示されているものを操作できます。"}}}},
+    "computerUse.onboarding.screenRecording.short": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Screen Recording"}},"ja":{"stringUnit":{"state":"translated","value":"画面収録"}}}},
+    "computerUse.onboarding.screenRecording.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Grant Screen Recording"}},"ja":{"stringUnit":{"state":"translated","value":"画面収録を許可"}}}},
+    "computerUse.onboarding.screenshots.cardDetail": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux uses screenshots to know where to click"}},"ja":{"stringUnit":{"state":"translated","value":"cmuxはスクリーンショットを使ってクリック位置を判断します"}}}},
+    "computerUse.onboarding.screenshots.confirmDetail": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"macOS asks to confirm — allow screen capture"}},"ja":{"stringUnit":{"state":"translated","value":"macOSの確認で画面収録を許可してください"}}}},
+    "computerUse.onboarding.screenshots.short": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Screenshots"}},"ja":{"stringUnit":{"state":"translated","value":"スクリーンショット"}}}},
+    "computerUse.onboarding.status.granted": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Granted"}},"ja":{"stringUnit":{"state":"translated","value":"許可済み"}}}},
+    "computerUse.onboarding.status.notGranted": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Not Granted"}},"ja":{"stringUnit":{"state":"translated","value":"未許可"}}}},
+    "computerUse.onboarding.step": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Step %lld of 3"}},"ja":{"stringUnit":{"state":"translated","value":"3ステップ中%lld"}}}},
+    "computerUse.onboarding.windowTitle": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Computer Use Setup"}},"ja":{"stringUnit":{"state":"translated","value":"コンピュータ操作の設定"}}}},
+    "featureFlags.computerUseUX.description": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Shows the Computer Use menu-bar item and automatic onboarding."}},"ja":{"stringUnit":{"state":"translated","value":"「コンピュータ操作」のメニューバー項目と自動オンボーディングを表示します。"}}}},
+    "featureFlags.computerUseUX.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Computer Use UX"}},"ja":{"stringUnit":{"state":"translated","value":"コンピュータ操作UX"}}}},
+    "settings.computerUse.enabled": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Enable Computer Use"}},"ja":{"stringUnit":{"state":"translated","value":"コンピュータ操作を有効にする"}}}},
+    "settings.computerUse.enabled.note": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Computer Use runs locally in the bundled cmux Computer Use app. Its permissions and restart lifecycle are independent from cmux. Telemetry and update checks are disabled."}},"ja":{"stringUnit":{"state":"translated","value":"Computer Useは、cmuxに同梱されたcmux Computer Useアプリでローカル実行されます。権限と再起動のライフサイクルはcmuxから独立しています。テレメトリと更新確認は無効です。"}}}},
+    "settings.computerUse.enabled.subtitleOff": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"New agent launches start without the computer-use tools, including in terminals that are already open."}},"ja":{"stringUnit":{"state":"translated","value":"すでに開いているターミナルも含め、新しく起動するエージェントはコンピュータ操作ツールなしで開始されます。"}}}},
+    "settings.computerUse.enabled.subtitleOn": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Supported agent sessions can see and drive apps on this Mac."}},"ja":{"stringUnit":{"state":"translated","value":"対応するエージェントセッションがこのMac上のアプリを表示して操作できます。"}}}},
+    "settings.computerUse.permission.accessibility": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Accessibility"}},"ja":{"stringUnit":{"state":"translated","value":"アクセシビリティ"}}}},
+    "settings.computerUse.permission.accessibility.subtitle": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Lets cmux Computer Use inspect and control app interfaces."}},"ja":{"stringUnit":{"state":"translated","value":"cmux Computer Useがアプリのインターフェースを確認して操作できるようにします。"}}}},
+    "settings.computerUse.permission.grant": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Grant…"}},"ja":{"stringUnit":{"state":"translated","value":"許可…"}}}},
+    "settings.computerUse.permission.granted": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Granted"}},"ja":{"stringUnit":{"state":"translated","value":"許可済み"}}}},
+    "settings.computerUse.permission.notGranted": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Not Granted"}},"ja":{"stringUnit":{"state":"translated","value":"未許可"}}}},
+    "settings.computerUse.permission.unknown": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Unknown"}},"ja":{"stringUnit":{"state":"translated","value":"不明"}}}},
+    "settings.computerUse.permission.openSystemSettings": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Open System Settings"}},"ja":{"stringUnit":{"state":"translated","value":"システム設定を開く"}}}},
+    "settings.computerUse.permission.screenRecording": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Screen Recording"}},"ja":{"stringUnit":{"state":"translated","value":"画面収録"}}}},
+    "settings.computerUse.permission.screenRecording.subtitle": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Lets cmux Computer Use see app windows and screen content."}},"ja":{"stringUnit":{"state":"translated","value":"cmux Computer Useがアプリウインドウや画面内容を確認できるようにします。"}}}},
+    "settings.computerUse.permissions": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Permissions"}},"ja":{"stringUnit":{"state":"translated","value":"権限"}}}},
+    "settings.computerUse.showInMenuBar": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Show Computer Use in Menu Bar"}},"ja":{"stringUnit":{"state":"translated","value":"メニューバーにコンピュータ操作を表示"}}}},
+    "settings.computerUse.showInMenuBar.subtitle": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Show live agent sessions and shortcuts to their terminal and driven app."}},"ja":{"stringUnit":{"state":"translated","value":"実行中のエージェントセッションと、そのターミナルや操作対象アプリへのショートカットを表示します。"}}}},
+    "settings.search.alias.section.computerUse": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"computer use cua accessibility screen capture recording permissions cursor mcp agents menu bar onboarding"}},"ja":{"stringUnit":{"state":"translated","value":"computer use cua accessibility screen capture recording permissions cursor mcp agents menu bar onboarding コンピュータ操作 アクセシビリティ 画面収録 権限 エージェント メニューバー オンボーディング"}}}},
+    "settings.search.alias.setting.computerUse.enabled": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"computerUse.enabled enable disable computer use cua mcp agent sessions"}},"ja":{"stringUnit":{"state":"translated","value":"computerUse.enabled enable disable computer use cua mcp agent sessions コンピュータ操作 有効 無効 エージェント セッション"}}}},
+    "settings.search.alias.setting.computerUse.permissions": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"accessibility screen recording capture permissions privacy system settings grant"}},"ja":{"stringUnit":{"state":"translated","value":"accessibility screen recording capture permissions privacy system settings grant アクセシビリティ 画面収録 権限 プライバシー システム設定 許可"}}}},
+    "settings.search.alias.setting.computerUse.showInMenuBar": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"computerUse.showInMenuBar menu bar menubar status item cursor agents"}},"ja":{"stringUnit":{"state":"translated","value":"computerUse.showInMenuBar menu bar menubar status item cursor agents メニューバー ステータス項目 カーソル エージェント"}}}},
+    "settings.search.keywords.computerUse": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"computer use accessibility screen recording permissions cursor mcp agents menu bar onboarding"}},"ja":{"stringUnit":{"state":"translated","value":"computer use accessibility screen recording permissions cursor mcp agents menu bar onboarding コンピュータ操作 アクセシビリティ 画面収録 権限 カーソル エージェント メニューバー オンボーディング"}}}},
+    "settings.section.computerUse": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Computer Use"}},"ja":{"stringUnit":{"state":"translated","value":"コンピュータ操作"}}}},
+    "caffeine.error.missingEnabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pass enabled=true or enabled=false." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "enabled=true または enabled=false を指定してください。" } }
+      }
+    },
+    "caffeine.error.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Keep Mac Awake isn't available yet." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "「Macをスリープさせない」はまだ利用できません。" } }
+      }
+    },
+    "cli.help.notify.reply": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "--reply                Allow a free-text inline reply" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "--reply                自由入力のインライン返信を許可" } }
+      }
+    },
+    "debug.menu.notification.all": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Emit All" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべて送信" } }
+      }
+    },
+    "debug.menu.notification.cli": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "CLI" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "CLI" } }
+      }
+    },
+    "debug.menu.notification.cliReply": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "CLI Reply" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "CLI 返信" } }
+      }
+    },
+    "debug.menu.notification.emit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Emit Notification" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知を送信" } }
+      }
+    },
+    "debug.menu.notification.error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Error" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エラー" } }
+      }
+    },
+    "debug.menu.notification.feedExitPlan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Exit Plan" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィード終了プラン" } }
+      }
+    },
+    "debug.menu.notification.feedPermission": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Permission" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィード権限" } }
+      }
+    },
+    "debug.menu.notification.feedQuestion": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Question" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィード質問" } }
+      }
+    },
+    "debug.menu.notification.feedQuestion4": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Question (4 Options)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィード質問（4つの選択肢）" } }
+      }
+    },
+    "debug.menu.notification.feedQuestionMany": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Question (Many Options)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィード質問（多数の選択肢）" } }
+      }
+    },
+    "debug.menu.notification.feedQuestionMultiple": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Question (Multiple)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィード質問（複数質問）" } }
+      }
+    },
+    "debug.menu.notification.feedQuestionMultiSelect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Question (Multi-select)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィード質問（複数選択）" } }
+      }
+    },
+    "debug.menu.notification.hookFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Hook Failed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フック失敗" } }
+      }
+    },
+    "debug.menu.notification.idle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Idle Reminder" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アイドル通知" } }
+      }
+    },
+    "debug.menu.notification.mode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Notification Debug Mode" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知デバッグモード" } }
+      }
+    },
+    "debug.menu.notification.needsPermission": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Needs Permission" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "権限が必要" } }
+      }
+    },
+    "debug.menu.notification.osc": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "OSC" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "OSC" } }
+      }
+    },
+    "debug.menu.notification.turnComplete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Turn Complete" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターン完了" } }
+      }
+    },
+    "debug.notification.error.invalidKindOrTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unknown kind or no notification target" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明な種類、または通知対象がありません" } }
+      }
+    },
+    "debug.notification.error.missingEnabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pass enabled=true or enabled=false to turn notification debug mode on or off." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "enabled=true または enabled=false を指定して、通知デバッグモードのオン/オフを切り替えてください。" } }
+      }
+    },
+    "debug.notification.error.missingKind": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pass kind=<notification kind> to choose which debug notification to emit." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "kind=<通知の種類> を指定して、発行するデバッグ通知を選んでください。" } }
+      }
+    },
+    "debug.notification.synthetic.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Synthetic %@ notification" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "合成 %@ 通知" } }
+      }
+    },
+    "debug.notification.synthetic.option": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Option %d" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "選択肢 %d" } }
+      }
+    },
+    "debug.notification.synthetic.plan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Inspect the notification and verify the actions." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知を確認し、アクションを検証します。" } }
+      }
+    },
+    "debug.notification.synthetic.question": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Choose a notification debug answer" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知デバッグの回答を選択" } }
+      }
+    },
+    "debug.notification.synthetic.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Notification Debug" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知デバッグ" } }
+      }
+    },
+    "feed.notification.exitPlan.revise": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Revise…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "修正…" } }
+      }
+    },
+    "feed.notification.question.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Other…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "その他…" } }
+      }
+    },
+    "terminal.notification.action.reply": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reply" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "返信" } }
+      }
+    },
+    "terminal.notification.action.replyPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Message the agent…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェントにメッセージ…" } }
+      }
+    },
+    "terminal.notification.action.replySend": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Send" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "送信" } }
+      }
+    },
     "about.appName": {
       "extractionState": "manual",
       "localizations": {

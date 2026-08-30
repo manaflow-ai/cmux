@@ -78,7 +78,10 @@ struct TerminalSurfaceStartupRestorePolicyTests {
         #expect(cancellationCount == 1)
         #expect(surface.suppressConfiguredInitialInput)
         #expect(!surface.admitStartupRestoreRuntime(initialInput: "late resume\n"))
-        #expect(scheduler.scheduledSurfaceIds == [surface.id])
+        // Explicit input is an immediate runtime demand and must bypass the
+        // paced restore queue after cancelling the deferred agent command.
+        #expect(scheduler.scheduledSurfaceIds.isEmpty)
+        #expect(surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 1)
     }
 
     @Test("Cancelling deferred admission uses the transport-only command")

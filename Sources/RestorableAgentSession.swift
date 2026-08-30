@@ -1054,6 +1054,15 @@ struct RestorableAgentSessionIndex: Sendable {
     // the bound is exceeded rather than scanning the whole history on autosave.
     private static let maximumStablePanelCandidates = 4
 
+    /// Returns only an entry whose workspace and panel identities both match.
+    ///
+    /// Security-sensitive callers use this instead of the compatibility lookup
+    /// below so a stale workspace cannot adopt a same-panel entry from another
+    /// restored workspace.
+    func exactEntry(workspaceId: UUID, panelId: UUID) -> Entry? {
+        entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]
+    }
+
     func entry(workspaceId: UUID, panelId: UUID) -> Entry? {
         entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]
             ?? entry(panelId: panelId)

@@ -33,6 +33,7 @@ extension Notification.Name {
     static let mainWindowContextsDidChange = Notification.Name("cmux.mainWindowContextsDidChange")
     static let browserDownloadEventDidArrive = Notification.Name("cmux.browserDownloadEventDidArrive")
     static let reactGrabDidCopySelection = Notification.Name("cmux.reactGrabDidCopySelection")
+    static let workstreamEventReceived = Notification.Name("cmux.workstreamEventReceived")
 }
 
 private struct SocketLineProcessingResult: Sendable {
@@ -6268,6 +6269,7 @@ class TerminalController {
             )
         }
 
+        NotificationCenter.default.post(name: .workstreamEventReceived, object: event)
         return v2IngestFeedEvent(event, waitTimeout: waitTimeout)
     }
 
