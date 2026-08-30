@@ -4311,6 +4311,29 @@ mod tests {
         assert_eq!(h.spawned().len(), 1, "published authority admits the transport");
     }
 
+    #[tokio::test]
+    async fn detached_transport_cannot_start_provider_work() {
+        let gate = Arc::new(ResolveGate {
+            entered: Arc::new(Notify::new()),
+            release: Arc::new(Notify::new()),
+        });
+        let h = harness_with_control_and_gate(None, None, None, None, Some(gate));
+        let context = h.context_with_transport("supervised", h.owner.clone(), Some("relay-gone"));
+        h.manager.update_transport_auth(&context);
+        h.manager.detach_transport_kind("relay-gone", TransportKind::Relay);
+
+        let frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "late-open",
+            "session": "main",
+            "cols": 80,
+            "rows": 24,
+        });
+        h.manager.handle_frame(&frame, &context).await;
+        assert!(h.spawned().is_empty(), "a detached transport must not reach provider setup");
+    }
+
     #[test]
     fn transport_authority_registry_releases_every_disconnected_identity() {
         let h = harness(None, None);
