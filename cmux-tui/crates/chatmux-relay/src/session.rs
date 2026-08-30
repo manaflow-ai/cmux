@@ -112,14 +112,16 @@ impl OutboundFrame {
 async fn send_socket_message<S>(
     socket: &Arc<AsyncMutex<S>>,
     message: Message,
-    cancellation: &CancellationToken,
+    process_cancellation: &CancellationToken,
+    connection_cancellation: &CancellationToken,
 ) -> Result<(), ()>
 where
     S: futures_util::Sink<Message> + Unpin,
 {
     tokio::select! {
         biased;
-        _ = cancellation.cancelled() => Err(()),
+        _ = process_cancellation.cancelled() => Err(()),
+        _ = connection_cancellation.cancelled() => Err(()),
         result = async {
             socket.lock().await.send(message).await
         } => result.map_err(|_| ()),
@@ -129,12 +131,19 @@ where
 async fn send_socket_text<S>(
     socket: &Arc<AsyncMutex<S>>,
     text: String,
-    cancellation: &CancellationToken,
+    process_cancellation: &CancellationToken,
+    connection_cancellation: &CancellationToken,
 ) -> Result<(), ()>
 where
     S: futures_util::Sink<Message> + Unpin,
 {
-    send_socket_message(socket, Message::Text(text.into()), cancellation).await
+    send_socket_message(
+        socket,
+        Message::Text(text.into()),
+        process_cancellation,
+        connection_cancellation,
+    )
+    .await
 }
 
 /// One socket's bounded outbound capacity. Critical request responses wait
@@ -614,7 +623,7 @@ async fn relay_session(
     };
     let hello_text =
         serde_json::to_string(&hello).map_err(|error| RelayError::transient(error.to_string()))?;
-    if send_socket_text(&socket, hello_text, cancellation).await.is_err() {
+    if send_socket_text(&socket, hello_text, cancellation, cancellation).await.is_err() {
         return Ok(false);
     }
 
@@ -766,7 +775,10 @@ async fn relay_session(
             Wake::Heartbeat => {
                 critical_burst = 0;
                 let frame = heartbeat_frame(now_ms()).to_string();
-                if send_socket_text(&socket, frame, &connection_cancellation).await.is_err() {
+                if send_socket_text(&socket, frame, cancellation, &connection_cancellation)
+                    .await
+                    .is_err()
+                {
                     break Ok(connected);
                 }
             }
@@ -809,7 +821,8 @@ async fn relay_session(
                 }
                 let text = frame.text;
                 let size = text.len() as u64;
-                let sent = send_socket_text(&socket, text, &connection_cancellation).await;
+                let sent =
+                    send_socket_text(&socket, text, cancellation, &connection_cancellation).await;
                 pending.fetch_sub(size.min(pending.load(Ordering::SeqCst)), Ordering::SeqCst);
                 if sent.is_err() {
                     break Ok(connected);
@@ -837,6 +850,7 @@ async fn relay_session(
                         let _ = send_socket_message(
                             &socket,
                             Message::Pong(payload),
+                            cancellation,
                             &connection_cancellation,
                         )
                         .await;
@@ -921,9 +935,14 @@ async fn relay_session(
                                 || local_trust == Trust::Autonomous)
                         {
                             let frame = set_trust_frame(local_trust.as_str()).to_string();
-                            if send_socket_text(&socket, frame, &connection_cancellation)
-                                .await
-                                .is_err()
+                            if send_socket_text(
+                                &socket,
+                                frame,
+                                cancellation,
+                                &connection_cancellation,
+                            )
+                            .await
+                            .is_err()
                             {
                                 break Ok(connected);
                             }
@@ -983,7 +1002,13 @@ async fn relay_session(
                                 save(config, config_path);
                             }
                             let frame = set_trust_frame(DEFAULT_RELAY_TRUST.as_str()).to_string();
-                            let _ = send_socket_text(&socket, frame, &connection_cancellation).await;
+                            let _ = send_socket_text(
+                                &socket,
+                                frame,
+                                cancellation,
+                                &connection_cancellation,
+                            )
+                            .await;
                             workspace.set_local_observe(DEFAULT_RELAY_TRUST == Trust::Observe);
                             eprintln!(
                                 "Refused an autonomous trust acknowledgement without this \
@@ -1156,6 +1181,7 @@ async fn relay_session(
                                         let sent = send_socket_text(
                                             &socket,
                                             text,
+                                            cancellation,
                                             &connection_cancellation,
                                         )
                                         .await;
@@ -1426,19 +1452,26 @@ mod cancellation_tests {
     #[tokio::test]
     async fn cancellation_unblocks_a_send_waiting_on_the_socket() {
         let started = Arc::new(Notify::new());
-        let socket = Arc::new(AsyncMutex::new(PendingSink {
-            started: Arc::clone(&started),
-        }));
-        let cancellation = CancellationToken::new();
+        let socket = Arc::new(AsyncMutex::new(PendingSink { started: Arc::clone(&started) }));
+        let process_cancellation = CancellationToken::new();
+        let connection_cancellation = CancellationToken::new();
         let task_socket = Arc::clone(&socket);
-        let task_cancellation = cancellation.clone();
+        let task_process_cancellation = process_cancellation.clone();
+        let task_connection_cancellation = connection_cancellation.clone();
         let send = tokio::spawn(async move {
-            send_socket_text(&task_socket, "blocked".to_owned(), &task_cancellation).await
+            send_socket_text(
+                &task_socket,
+                "blocked".to_owned(),
+                &task_process_cancellation,
+                &task_connection_cancellation,
+            )
+            .await
         });
 
         started.notified().await;
-        cancellation.cancel();
+        process_cancellation.cancel();
         assert!(send.await.expect("send task joined").is_err());
+        assert!(!connection_cancellation.is_cancelled());
     }
 }
 
