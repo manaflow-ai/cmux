@@ -12,6 +12,164 @@ import Testing
 @Suite(.serialized)
 struct SharedLiveAgentIndexAgentLivenessTests {
     @Test
+    func processScopeFingerprintTracksUnscopedTTYAndGroupMembers() {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let ttyDevice: Int64 = 0x123
+        let processGroupID = 500
+        let makeProcess: (Int, Int, UUID?, UUID?, Int) -> CmuxTopProcessInfo = {
+            pid, parentPID, cmuxWorkspaceID, cmuxSurfaceID, processGroupID in
+            CmuxTopProcessInfo(
+                pid: pid,
+                parentPID: parentPID,
+                name: "test-\(pid)",
+                path: "/usr/bin/test-\(pid)",
+                ttyDevice: ttyDevice,
+                cmuxWorkspaceID: cmuxWorkspaceID,
+                cmuxSurfaceID: cmuxSurfaceID,
+                cmuxAttributionReason: cmuxWorkspaceID == nil ? nil : "cmux-test",
+                processGroupID: processGroupID,
+                terminalProcessGroupID: processGroupID,
+                cpuPercent: 0,
+                residentBytes: 0,
+                virtualBytes: 0,
+                threadCount: 1
+            )
+        }
+        let baseProcesses = [
+            makeProcess(500, 1, nil, nil, processGroupID),
+            makeProcess(501, 500, workspaceId, panelId, processGroupID),
+            makeProcess(502, 501, workspaceId, panelId, processGroupID),
+        ]
+        let base = CmuxTopProcessSnapshot(
+            processes: baseProcesses,
+            sampledAt: Date(timeIntervalSince1970: 42),
+            includesProcessDetails: true
+        )
+        let withUnscopedSibling = CmuxTopProcessSnapshot(
+            processes: baseProcesses + [makeProcess(503, 500, nil, nil, processGroupID + 1)],
+            sampledAt: Date(timeIntervalSince1970: 43),
+            includesProcessDetails: true
+        )
+
+        let baseScope = base.agentHibernationProcessScope(
+            panelProcessIDs: [501, 502],
+            agentProcessIDs: [501]
+        )
+        let changedScope = withUnscopedSibling.agentHibernationProcessScope(
+            panelProcessIDs: [501, 502],
+            agentProcessIDs: [501]
+        )
+        #expect(baseScope.containsUnrelatedProcess == false)
+        #expect(changedScope.containsUnrelatedProcess)
+        #expect(
+            SharedLiveAgentIndexLoader.processScopeFingerprint(
+                from: base,
+                hibernationProcessScopes: [
+                    RestorableAgentSessionIndex.PanelKey(
+                        workspaceId: workspaceId,
+                        panelId: panelId
+                    ): baseScope,
+                ]
+            ) !=
+                SharedLiveAgentIndexLoader.processScopeFingerprint(
+                    from: withUnscopedSibling,
+                    hibernationProcessScopes: [
+                        RestorableAgentSessionIndex.PanelKey(
+                            workspaceId: workspaceId,
+                            panelId: panelId
+                        ): changedScope,
+                    ]
+                )
+        )
+    }
+
+    @Test
+    func loaderPreservesCompleteHibernationScopeForWrappedAgentProcess() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-hibernation-scope-loader-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let agentId = "scope-aware-agent"
+        let sessionId = "scope-aware-session"
+        let shellPID = 7_600
+        let agentPID = 7_601
+        let childPID = 7_602
+        let ttyDevice: Int64 = 0x123
+        let processGroupID = shellPID
+        let executable = "/usr/local/bin/\(agentId)"
+        let registration = CmuxVaultAgentRegistration(
+            id: agentId,
+            name: "Scope Aware Agent",
+            detect: CmuxVaultAgentDetectRule(processNames: [agentId]),
+            sessionIdSource: .argvOption("--session"),
+            resumeCommand: "{{executable}} --session {{sessionId}}",
+            forkCommand: "{{executable}} --session {{sessionId}} --fork"
+        )
+        let registry = CmuxVaultAgentRegistry(registrations: [registration])
+        let processInfo: (Int, Int, String, String?) -> CmuxTopProcessInfo = {
+            pid, parentPID, name, path in
+            CmuxTopProcessInfo(
+                pid: pid,
+                parentPID: parentPID,
+                name: name,
+                path: path,
+                ttyDevice: ttyDevice,
+                cmuxWorkspaceID: workspaceId,
+                cmuxSurfaceID: panelId,
+                cmuxAttributionReason: "cmux-test",
+                processGroupID: processGroupID,
+                terminalProcessGroupID: processGroupID,
+                cpuPercent: 0,
+                residentBytes: 0,
+                virtualBytes: 0,
+                threadCount: 1
+            )
+        }
+        let processSnapshot = CmuxTopProcessSnapshot(
+            processes: [
+                processInfo(shellPID, 1, "zsh", "/bin/zsh"),
+                processInfo(agentPID, shellPID, agentId, executable),
+                processInfo(childPID, agentPID, "agent-child", "/bin/true"),
+            ],
+            sampledAt: Date(timeIntervalSince1970: 42),
+            includesProcessDetails: true
+        )
+        let identities = [
+            shellPID: AgentPIDProcessIdentity(pid: pid_t(shellPID), startSeconds: 40, startMicroseconds: 1),
+            agentPID: AgentPIDProcessIdentity(pid: pid_t(agentPID), startSeconds: 41, startMicroseconds: 2),
+            childPID: AgentPIDProcessIdentity(pid: pid_t(childPID), startSeconds: 42, startMicroseconds: 3),
+        ]
+        let result = SharedLiveAgentIndexLoader(
+            homeDirectory: root.path,
+            fileManager: fm,
+            registry: registry,
+            processSnapshotProvider: { processSnapshot },
+            capturedAtProvider: { 42 },
+            processArgumentsProvider: { pid in
+                guard pid == agentPID else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: [executable, "--session", sessionId],
+                    environment: [
+                        "PWD": root.path,
+                        "CMUX_WORKSPACE_ID": workspaceId.uuidString,
+                        "CMUX_SURFACE_ID": panelId.uuidString,
+                    ]
+                )
+            },
+            processIdentityProvider: { identities[$0] }
+        ).loadResultSynchronously()
+
+        let entry = result.index.entry(workspaceId: workspaceId, panelId: panelId)
+        #expect(entry?.processIDs == Set([shellPID, agentPID, childPID]))
+        #expect(entry?.terminationProcessIDs == Set([shellPID, agentPID, childPID]))
+        #expect(entry?.containsUnrelatedProcess == false)
+    }
+
+    @Test
     func forkAvailabilityIgnoresDeadUnrelatedPanelChildProcess() async throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory

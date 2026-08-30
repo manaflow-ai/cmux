@@ -6516,12 +6516,17 @@ extension TabManager {
         return (filtered, remappedSelection)
     }
 
+    /// Restores all workspaces, panels, groups, and Dock state from a session snapshot.
+    ///
+    /// - Parameter deferBrowserPanels: Keeps restored browser tabs lightweight until
+    ///   their panes are visible, avoiding a launch-time WebKit construction burst.
     @discardableResult
     func restoreSessionSnapshot(
         _ snapshot: SessionTabManagerSnapshot,
         remapClosedPanelHistory: Bool = true,
         excludingStableIdentities: Set<UUID> = [],
         excludingWorkspaceIds: Set<UUID> = [],
+        deferBrowserPanels: Bool = false,
         workspaceCreateIdempotencyCache: TerminalController.WorkspaceCreateIdempotencyCache? = nil
     ) -> [[UUID: UUID]] {
         guard !isFinalizedForWindowClose else { return [] }
@@ -6595,7 +6600,8 @@ extension TabManager {
             let restoredPanelIds = workspace.restoreSessionSnapshot(
                 workspaceSnapshot,
                 excludingStableIdentities: excludingStableIdentities,
-                startupRestoreCommitOwner: .tabManagerTopology
+                startupRestoreCommitOwner: .tabManagerTopology,
+                deferBrowserPanels: deferBrowserPanels
             )
             reconcileWorkspaceCustomization(
                 afterRestoring: workspaceSnapshot,
@@ -6645,7 +6651,11 @@ extension TabManager {
         for workspace in newTabs {
             workspace.terminalStartupRestoreCoordinator.commitPendingRestores()
         }
-        restoreWorkspaceDockSessionSnapshots(from: snapshot, excludingStableIdentities: excludingStableIdentities)
+        restoreWorkspaceDockSessionSnapshots(
+            from: snapshot,
+            excludingStableIdentities: excludingStableIdentities,
+            deferBrowserPanels: deferBrowserPanels
+        )
         let restoredGroups: [WorkspaceGroup] = {
             guard let groupSnapshots = snapshot.workspaceGroups else { return [] }
             let workspaceIdsByGroupId: [UUID: [UUID]] = {
