@@ -67,13 +67,24 @@ public actor IrxRelayCredentialAutopilot {
     }
 
     /// Foreground/resume kick: restart the loop so a suspension can never
-    /// leave a stale sleep deadline in charge of renewal. Pass `immediately`
-    /// only when the caller has a known pending rotation that must run now;
-    /// ordinary foregrounding re-evaluates credential freshness first.
-    public func kick(immediately: Bool = false) {
+    /// leave a stale sleep deadline in charge of renewal. Credential freshness
+    /// is re-evaluated before minting, so foregrounding does not churn tokens.
+    public func kick() {
         loop?.cancel()
-        loop = Task { await self.run(bypassRefreshDeadlineOnce: immediately) }
+        loop = Task { await self.run() }
         journal.record("credential-autopilot", "kicked")
+    }
+
+    /// Retries a known pending hint registration without minting a new relay
+    /// credential. Used by a host immediately after deferred activation.
+    public func kickHintRefresh() {
+        loop?.cancel()
+        loop = Task {
+            guard await self.refreshHint(initialFailureCount: 0) else { return }
+            guard !Task.isCancelled else { return }
+            await self.run()
+        }
+        journal.record("credential-autopilot", "hint-refresh-kicked")
     }
 
     private func run(bypassRefreshDeadlineOnce: Bool = false) async {

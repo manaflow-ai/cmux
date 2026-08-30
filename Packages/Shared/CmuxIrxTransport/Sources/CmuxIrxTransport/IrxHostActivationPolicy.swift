@@ -23,6 +23,8 @@ public enum IrxHostActivationState: String, Codable, Equatable, Sendable {
 /// owns the injected ``CmxIrohRelayClock`` and performs the cancellable wait;
 /// this type only derives a bounded delay from the classified broker result.
 public struct IrxHostActivationPolicy: Equatable, Sendable {
+    private static let maximumPostRecoveryUnauthorizedFailures = 2
+
     /// The first and maximum retry bounds used by an irx host.
     public let retrySchedule: CmxIrohRetrySchedule
 
@@ -54,6 +56,14 @@ public struct IrxHostActivationPolicy: Equatable, Sendable {
     ) -> Decision {
         let failure = error as? IrxBrokerFailure
             ?? IrxBrokerFailure(operation: .register, error: error)
+        // A final 401 after the shared one-refresh recovery can be a short
+        // propagation race, so allow a small bounded retry window. It must
+        // still escalate rather than rebuilding the endpoint forever when the
+        // broker persistently rejects the rotated pair.
+        if failure.statusCode == 401,
+           failureCount >= Self.maximumPostRecoveryUnauthorizedFailures {
+            return .reauthenticationRequired
+        }
         if failure.requiresReauthentication {
             return .reauthenticationRequired
         }

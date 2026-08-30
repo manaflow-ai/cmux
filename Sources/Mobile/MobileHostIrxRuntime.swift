@@ -54,6 +54,7 @@ final class MobileHostIrxRuntime {
     private weak var auth: AuthCoordinator?
     private var authObservationTask: Task<Void, Never>?
     var activeAccountID: String?
+    var activeSessionGeneration: UInt64?
     var activationTask: Task<Void, Never>?
     var activationState: IrxHostActivationState = .inactive
     var lastBrokerFailure: IrxBrokerFailure?
@@ -84,17 +85,21 @@ final class MobileHostIrxRuntime {
             await auth.awaitBootstrapped()
             for await identity in auth.authenticatedSessionIdentities() {
                 guard !Task.isCancelled else { return }
-                await self?.transition(to: identity?.accountID)
+                await self?.transition(to: identity)
             }
         }
     }
 
-    private func transition(to accountID: String?) async {
-        guard accountID != activeAccountID else { return }
+    private func transition(to identity: AuthenticatedSessionIdentity?) async {
+        let accountID = identity?.accountID
+        let sessionGeneration = identity?.generation
+        guard accountID != activeAccountID
+                || sessionGeneration != activeSessionGeneration else { return }
         let preserveReauthentication = accountID == nil
             && activationState == .reauthenticationRequired
         await deactivate(preserveReauthentication: preserveReauthentication)
         activeAccountID = accountID
+        activeSessionGeneration = sessionGeneration
         guard let accountID else { return }
         activationRetryFailureCount = 0
         lastBrokerFailure = nil
@@ -290,7 +295,7 @@ final class MobileHostIrxRuntime {
                 setActivationState(.active)
             }
             if deferredHintFailure != nil {
-                await pilot.kick(immediately: true)
+                await pilot.kickHintRefresh()
             }
         } catch is CancellationError {
             return

@@ -51,6 +51,13 @@ struct IrxHostActivationPolicyTests {
                 jitterUnitInterval: 0
             ) == .retry(delay: 1, retryAfterSeconds: nil)
         )
+        #expect(
+            policy.decision(
+                for: failure,
+                failureCount: 2,
+                jitterUnitInterval: 0
+            ) == .reauthenticationRequired
+        )
     }
 
     @Test("transient broker failures use a bounded exponential ladder")
