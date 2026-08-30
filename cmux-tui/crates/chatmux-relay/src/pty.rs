@@ -443,6 +443,10 @@ struct OpeningOwner {
 #[derive(Default)]
 struct OpeningState {
     reservations: HashMap<String, OpeningOwner>,
+    /// Cancellation capability for each live reservation. The owner key
+    /// keeps a late timeout from cancelling a replacement that reused the
+    /// same pty id.
+    cancellations: HashMap<OpeningOwner, OpenCancellation>,
     /// The owner is part of the cancellation key. A late drop from an old
     /// reservation cannot clear a marker for a newer reservation of the same
     /// pty id.
@@ -513,6 +517,7 @@ impl Drop for OpeningReservation {
             if state.reservations.get(&self.id) == Some(&self.owner) {
                 state.reservations.remove(&self.id);
             }
+            state.cancellations.remove(&self.owner);
             if state.cancelled.get(&self.id) == Some(&self.owner) {
                 state.cancelled.remove(&self.id);
             }
@@ -837,6 +842,7 @@ impl PtyManager {
         let mut opening = self.inner.opening_state.lock().expect("opening state lock");
         if opening.reservations.get(pty_id) == Some(&owner) {
             opening.reservations.remove(pty_id);
+            opening.cancellations.remove(&owner);
             opening.cancelled.insert(pty_id.to_owned(), owner);
         }
     }
@@ -862,6 +868,9 @@ impl PtyManager {
                 .collect();
             for (id, owner) in cancelled {
                 opening.reservations.remove(&id);
+                if let Some(cancellation) = opening.cancellations.remove(&owner) {
+                    cancellation.cancel();
+                }
                 opening.cancelled.insert(id, owner);
             }
 
@@ -1025,6 +1034,7 @@ impl Inner {
                 ))
             } else {
                 opening.reservations.insert(pty_id.clone(), reservation_owner.clone());
+                opening.cancellations.insert(reservation_owner.clone(), cancellation.clone());
                 Ok(())
             }
         };
@@ -1209,6 +1219,7 @@ impl Inner {
                 if reservation_owned {
                     opening.reservations.remove(&pty_id);
                 }
+                opening.cancellations.remove(&reservation_owner);
                 if opening.cancelled.get(&pty_id) == Some(&reservation_owner) {
                     opening.cancelled.remove(&pty_id);
                 }
@@ -1233,6 +1244,7 @@ impl Inner {
                 },
             );
             opening.reservations.remove(&pty_id);
+            opening.cancellations.remove(&reservation_owner);
             opening.cancelled.remove(&pty_id);
             reservation.active = false;
             (surface, start, previous)
