@@ -11,6 +11,15 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct WorkspaceRecoveryTests {
+    @MainActor
+    private final class SnapshotRaceTabManager: TabManager {
+        var afterWorkspaceSnapshots: (() -> Void)?
+
+        override func didCaptureWorkspaceSessionSnapshots() {
+            afterWorkspaceSnapshots?()
+        }
+    }
+
     private func makeCustomizationStore() throws -> (
         store: WorkspaceCustomizationStore,
         defaults: UserDefaults,
@@ -573,6 +582,56 @@ struct WorkspaceRecoveryTests {
         let restoredWorkspace = try #require(restoredManager.selectedWorkspace)
         #expect(restoredWorkspace.customTitle == "Newer Session Title")
         #expect(restoredWorkspace.effectiveCustomTitleSource == .auto)
+    }
+
+    @Test
+    func snapshotFenceRemainsOlderThanAConcurrentClear() throws {
+        let fixture = try makeCustomizationStore()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+
+        let sourceManager = SnapshotRaceTabManager(
+            initialWorkingDirectory: "/tmp/snapshot-fence-race",
+            autoWelcomeIfNeeded: false,
+            workspaceCustomizationStore: fixture.store
+        )
+        let sourceWorkspace = try #require(sourceManager.selectedWorkspace)
+        #expect(sourceManager.setCustomTitle(tabId: sourceWorkspace.id, title: "User Name"))
+        sourceManager.clearCustomTitle(tabId: sourceWorkspace.id)
+        #expect(sourceManager.setCustomTitle(
+            tabId: sourceWorkspace.id,
+            title: "Before Clear",
+            source: .auto
+        ))
+        sourceManager.flushPendingWorkspaceCustomizationWrites()
+
+        let clearingManager = TabManager(
+            autoWelcomeIfNeeded: false,
+            workspaceCustomizationStore: fixture.store
+        )
+        clearingManager.restoreSessionSnapshot(SessionTabManagerSnapshot(
+            selectedWorkspaceIndex: 0,
+            workspaces: [sourceWorkspace.sessionSnapshot(includeScrollback: false)]
+        ))
+        let clearingWorkspace = try #require(clearingManager.selectedWorkspace)
+        sourceManager.afterWorkspaceSnapshots = {
+            clearingManager.clearCustomTitle(tabId: clearingWorkspace.id)
+        }
+
+        let snapshot = sourceManager.sessionSnapshot(includeScrollback: false)
+        let snapshotWorkspace = try #require(snapshot.workspaces.first)
+        let currentRevision = try #require(
+            fixture.store.customizationAndTitleMutationRevision(for: sourceWorkspace.stableId)
+        ).titleMutationRevision
+        #expect(snapshotWorkspace.customTitleMutationRevision ?? 0 < currentRevision)
+
+        let restoredManager = TabManager(
+            autoWelcomeIfNeeded: false,
+            workspaceCustomizationStore: fixture.store
+        )
+        restoredManager.restoreSessionSnapshot(snapshot)
+        let restoredWorkspace = try #require(restoredManager.selectedWorkspace)
+        #expect(restoredWorkspace.customTitle == nil)
+        #expect(restoredWorkspace.effectiveCustomTitleSource == nil)
     }
 
     @Test

@@ -2420,13 +2420,14 @@ class TabManager: ObservableObject {
             // RestorableAgentSessionIndex.load() (sysctl-per-record + disk) so closing a
             // workspace does not freeze the main thread; fall back to a fresh load only
             // while the cache has not loaded yet. See closedPanelHistoryEntry.
+            let titleMutationRevision = workspaceCustomizationStore
+                .customizationTitleMutationRevision(for: workspace.stableId)
             var snapshot = workspace.sessionSnapshot(
                 includeScrollback: true,
                 restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
                     ?? RestorableAgentSessionIndex.load()
             )
-            snapshot.customTitleMutationRevision = workspaceCustomizationStore
-                .customizationTitleMutationRevision(for: workspace.stableId)
+            snapshot.customTitleMutationRevision = titleMutationRevision
             ClosedItemHistoryStore.shared.push(.workspace(ClosedWorkspaceHistoryEntry(
                 workspaceId: workspace.id,
                 windowId: AppDelegate.shared?.windowId(for: self),
@@ -6448,6 +6449,12 @@ extension TabManager {
         let restorableTabs = tabs
             .filter(\.isRestorableInSessionSnapshot)
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
+        // Capture journal fences before projecting workspace state. A
+        // concurrent clear after this read must remain newer than the snapshot
+        // rather than being stamped onto its older title projection.
+        let titleMutationRevisions = workspaceCustomizationStore.titleMutationRevisions(
+            for: restorableTabs.compactMap(\.stableId)
+        )
         var workspaceSnapshots = restorableTabs
             .map {
                 $0.sessionSnapshot(
@@ -6456,9 +6463,7 @@ extension TabManager {
                     surfaceResumeBindingIndex: surfaceResumeBindingIndex
                 )
             }
-        let titleMutationRevisions = workspaceCustomizationStore.titleMutationRevisions(
-            for: workspaceSnapshots.compactMap(\.stableId)
-        )
+        didCaptureWorkspaceSessionSnapshots()
         for index in workspaceSnapshots.indices {
             guard let stableId = workspaceSnapshots[index].stableId else { continue }
             workspaceSnapshots[index].customTitleMutationRevision = titleMutationRevisions[stableId]
@@ -6509,6 +6514,9 @@ extension TabManager {
             workspaceGroups: groupSnapshots
         )
     }
+
+    /// Test seam for mutating persisted workspace state after live snapshots are captured.
+    func didCaptureWorkspaceSessionSnapshots() {}
 
     func sessionSnapshotWorkspaceIds() -> [UUID] {
         Array(
