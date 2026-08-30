@@ -4,7 +4,7 @@ extension SettingsWindowRoot {
     @ViewBuilder
     var sidebar: some View {
         List(selection: sidebarSelectionBinding) {
-            let matches = sidebarEntries(matching: searchText)
+            let matches = sidebarEntries(matching: searchText).filter(isEntryVisible)
             if matches.isEmpty {
                 Text(String(localized: "settings.search.noResults", defaultValue: "No Results"))
                     .foregroundStyle(chromePalette.textSecondary.swiftUIColor)

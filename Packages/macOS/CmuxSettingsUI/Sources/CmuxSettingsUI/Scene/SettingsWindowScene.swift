@@ -171,7 +171,7 @@ public struct SettingsWindowRoot: View {
     /// The Cloud section stays out of the sidebar (and search) until the
     /// remote rollout flag or the Beta Features opt-in makes its surfaces
     /// real; its pane already renders nothing while unavailable.
-    private func isEntryVisible(_ entry: SettingsSearchIndex.Entry) -> Bool {
+    func isEntryVisible(_ entry: SettingsSearchIndex.Entry) -> Bool {
         let cloudAvailable = hostActions.isCloudMachinesAvailable || cloudMachinesBetaEnabled
         guard !cloudAvailable else { return true }
         switch entry.kind {
@@ -180,30 +180,6 @@ public struct SettingsWindowRoot: View {
         case .setting(let parent):
             return parent != .cloudMachines
         }
-    }
-
-    @ViewBuilder
-    private var sidebar: some View {
-        List(selection: sidebarSelectionBinding) {
-            let matches = sidebarEntries(matching: searchText).filter(isEntryVisible)
-            if matches.isEmpty {
-                Text(String(localized: "settings.search.noResults", defaultValue: "No Results"))
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(matches) { entry in
-                    SettingsSidebarEntryRow(
-                        title: entry.title,
-                        symbolName: entry.symbolName,
-                        subtitle: subtitle(for: entry)
-                    )
-                    .tag(entry.id)
-                }
-            }
-        }
-        .listStyle(.sidebar)
-        .navigationTitle(String(localized: "settings.title", defaultValue: "Settings"))
-        .searchable(text: $searchText, placement: .sidebar, prompt: Text(String(localized: "settings.search.prompt", defaultValue: "Search")))
-        .navigationSplitViewColumnWidth(210)
     }
 
     func sidebarEntries(matching query: String) -> [SettingsSearchIndex.Entry] { searchIndex.match(query) }
