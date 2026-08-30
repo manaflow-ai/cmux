@@ -326,6 +326,7 @@ struct AppDelegateRenameShortcutContextTests {
             )
             dock.bonsplitController.focusPane(pane)
             dock.bonsplitController.selectTab(selectedTabId)
+            dock.focusPanelFromDockInteraction(selectedPanelId, window: window)
             dock.bonsplitController.updateTab(selectedTabId, title: "Custom Dock Tab", hasCustomTitle: true)
             dock.bonsplitController.requestTabContextAction(
                 .clearName,

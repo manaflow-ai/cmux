@@ -256,15 +256,22 @@ extension AppDelegate {
         kind: DockSurfaceKind,
         direction: SplitDirection,
         action: KeyboardShortcutSettings.Action,
-        preferredWindow: NSWindow?
+        preferredWindow: NSWindow?,
+        preferredDock: DockSplitStore? = nil
     ) -> Bool {
         if kind == .browser, !BrowserAvailabilitySettings.isEnabled() {
             return false
         }
-        guard let store = focusedDockStoreForShortcut(
-            action: action,
-            preferredWindow: preferredWindow
-        ) else {
+        let store: DockSplitStore?
+        if let preferredDock {
+            store = preferredDock.isRetired ? nil : preferredDock
+        } else {
+            store = focusedDockStoreForShortcut(
+                action: action,
+                preferredWindow: preferredWindow
+            )
+        }
+        guard let store else {
             return false
         }
         let sourcePanelId = store.focusedPanelId

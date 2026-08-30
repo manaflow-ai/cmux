@@ -27,7 +27,7 @@ extension DockSplitStore {
         // before dispatching the action so subsequent menu/shortcut commands do
         // not fall through to the main workspace.
         let presentingWindow = dockContextMenuWindow
-        focusPanelFromDockInteraction(panelId, window: presentingWindow)
+        focusPanelFromDockInteraction(panelId, window: nil)
 
         switch action {
         case .rename:
@@ -208,20 +208,19 @@ extension DockSplitStore {
     }
 
     private var dockContextMenuWindow: NSWindow? {
+        if let app = AppDelegate.shared,
+           let ownerWindow = app.dockReferenceTabManager(for: self)
+               .flatMap({ app.windowId(for: $0) })
+               .flatMap({ app.mainWindow(for: $0) }) {
+            return ownerWindow
+        }
+        // A live event window is useful only as a last-resort presenter for a
+        // recovered Dock whose owning context is temporarily unregistered. Do
+        // not let it decide focus ownership; ``focusPanelFromDockInteraction``
+        // resolves that from this store.
         if let eventWindow = NSApp.currentEvent?.window,
            AppDelegate.shared?.contextForMainWindow(eventWindow) != nil {
             return eventWindow
-        }
-        if let app = AppDelegate.shared,
-           scope == .global,
-           let ownerWindow = app.mainWindow(for: workspaceId) {
-            return ownerWindow
-        }
-        if let app = AppDelegate.shared,
-           let manager = app.dockReferenceTabManager(for: self),
-           let windowId = app.windowId(for: manager),
-           let ownerWindow = app.mainWindow(for: windowId) {
-            return ownerWindow
         }
         return NSApp.currentEvent?.window ?? NSApp.keyWindow ?? NSApp.mainWindow
     }

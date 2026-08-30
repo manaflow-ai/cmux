@@ -6903,16 +6903,23 @@ struct ContentView: View {
                   let tab = dockSurface.dock.bonsplitController.tab(tabId) {
             let isTerminal = dockSurface.panel.panelType == .terminal
             let isBrowser = dockSurface.panel.panelType == .browser
+            let isSimulator = dockSurface.panel.panelType == .simulator
+            let isMarkdown = (dockSurface.panel as? MarkdownPanel)?.displayMode == .preview
+            let isFilePreviewTextEditor =
+                (dockSurface.panel as? FilePreviewPanel)?.previewMode == .text
             snapshot.setBool(CommandPaletteContextKeys.hasFocusedPanel, true)
             snapshot.setString(CommandPaletteContextKeys.panelName, tab.title)
             snapshot.setBool(CommandPaletteContextKeys.panelIsTerminal, isTerminal)
             snapshot.setBool(CommandPaletteContextKeys.panelIsBrowser, isBrowser)
-            snapshot.setBool(CommandPaletteContextKeys.panelIsSimulator, false)
-            snapshot.setBool(CommandPaletteContextKeys.panelIsMarkdown, false)
-            snapshot.setBool(CommandPaletteContextKeys.panelIsFilePreviewTextEditor, false)
+            snapshot.setBool(CommandPaletteContextKeys.panelIsSimulator, isSimulator)
+            snapshot.setBool(CommandPaletteContextKeys.panelIsMarkdown, isMarkdown)
+            snapshot.setBool(
+                CommandPaletteContextKeys.panelIsFilePreviewTextEditor,
+                isFilePreviewTextEditor
+            )
             snapshot.setBool(
                 CommandPaletteContextKeys.panelBrowserOmnibarVisible,
-                (dockSurface.panel as? BrowserPanel)?.isOmnibarVisible ?? false
+                (dockSurface.panel as? BrowserPanel)?.isOmnibarVisible ?? true
             )
             snapshot.setBool(
                 CommandPaletteContextKeys.panelBrowserFocusModeActive,
@@ -6922,8 +6929,19 @@ struct ContentView: View {
                 CommandPaletteContextKeys.panelHasPane,
                 dockSurface.dock.paneId(forPanelId: dockSurface.panelId) != nil
             )
+            // Dock links are intentionally session-scoped: the Dock host has no
+            // restart-stable workspace/pane route, and the identifier handlers
+            // fail closed for link commands. Keep the capability explicit while
+            // deriving all panel-kind flags from the resolved panel above.
             snapshot.setBool(CommandPaletteContextKeys.panelSupportsDeepLinks, false)
-            snapshot.setBool(CommandPaletteContextKeys.panelHasForkableAgent, false)
+            // Dock context menus do not expose fork-conversation actions because
+            // a Dock has no Workspace fork provider. Keep this capability false
+            // until a Dock-owned fork dispatcher exists rather than presenting a
+            // command whose handler would fall back to the main workspace.
+            snapshot.setBool(
+                CommandPaletteContextKeys.panelHasForkableAgent,
+                false
+            )
             snapshot.setBool(CommandPaletteContextKeys.panelHasCustomName, tab.hasCustomTitle)
             snapshot.setBool(CommandPaletteContextKeys.panelShouldPin, !tab.isPinned)
             snapshot.setBool(
@@ -9072,13 +9090,17 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.terminalSplitRight") {
             if let dockSurfaceStore, let dockSurfacePanelId {
-                guard dockSurfaceStore.newSplit(
+                dockSurfaceStore.focusPanelFromDockInteraction(
+                    dockSurfacePanelId,
+                    window: observedWindow
+                )
+                guard AppDelegate.shared?.routeSplitToFocusedDock(
                     kind: .terminal,
-                    orientation: .horizontal,
-                    insertFirst: false,
-                    sourcePanelId: dockSurfacePanelId,
-                    focus: true
-                ) != nil else {
+                    direction: .right,
+                    action: .splitRight,
+                    preferredWindow: observedWindow,
+                    preferredDock: dockSurfaceStore
+                ) == true else {
                     NSSound.beep()
                     return
                 }
@@ -9108,13 +9130,17 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.terminalSplitDown") {
             if let dockSurfaceStore, let dockSurfacePanelId {
-                guard dockSurfaceStore.newSplit(
+                dockSurfaceStore.focusPanelFromDockInteraction(
+                    dockSurfacePanelId,
+                    window: observedWindow
+                )
+                guard AppDelegate.shared?.routeSplitToFocusedDock(
                     kind: .terminal,
-                    orientation: .vertical,
-                    insertFirst: false,
-                    sourcePanelId: dockSurfacePanelId,
-                    focus: true
-                ) != nil else {
+                    direction: .down,
+                    action: .splitDown,
+                    preferredWindow: observedWindow,
+                    preferredDock: dockSurfaceStore
+                ) == true else {
                     NSSound.beep()
                     return
                 }
@@ -9126,13 +9152,17 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.terminalSplitBrowserRight") {
             if let dockSurfaceStore, let dockSurfacePanelId {
-                guard dockSurfaceStore.newSplit(
+                dockSurfaceStore.focusPanelFromDockInteraction(
+                    dockSurfacePanelId,
+                    window: observedWindow
+                )
+                guard AppDelegate.shared?.routeSplitToFocusedDock(
                     kind: .browser,
-                    orientation: .horizontal,
-                    insertFirst: false,
-                    sourcePanelId: dockSurfacePanelId,
-                    focus: true
-                ) != nil else {
+                    direction: .right,
+                    action: .splitBrowserRight,
+                    preferredWindow: observedWindow,
+                    preferredDock: dockSurfaceStore
+                ) else {
                     NSSound.beep()
                     return
                 }
@@ -9142,13 +9172,17 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.terminalSplitBrowserDown") {
             if let dockSurfaceStore, let dockSurfacePanelId {
-                guard dockSurfaceStore.newSplit(
+                dockSurfaceStore.focusPanelFromDockInteraction(
+                    dockSurfacePanelId,
+                    window: observedWindow
+                )
+                guard AppDelegate.shared?.routeSplitToFocusedDock(
                     kind: .browser,
-                    orientation: .vertical,
-                    insertFirst: false,
-                    sourcePanelId: dockSurfacePanelId,
-                    focus: true
-                ) != nil else {
+                    direction: .down,
+                    action: .splitBrowserDown,
+                    preferredWindow: observedWindow,
+                    preferredDock: dockSurfaceStore
+                ) else {
                     NSSound.beep()
                     return
                 }

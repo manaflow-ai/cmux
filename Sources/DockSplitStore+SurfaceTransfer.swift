@@ -673,7 +673,7 @@ extension DockSplitStore {
         let panelId = panel.id
         focusPanelFromDockInteraction(
             panelId,
-            window: NSApp.currentEvent?.window
+            window: nil
         )
         if destinationId == Self.dockMoveNewWorkspaceDestinationId {
             _ = app.moveDockSurfaceToNewWorkspace(sourceDock: self, panelId: panelId, focus: true, focusWindow: false)

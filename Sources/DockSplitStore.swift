@@ -367,7 +367,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             }
             self.focusPanelFromDockInteraction(
                 panelId,
-                window: NSApp.currentEvent?.window
+                window: nil
             )
             return self.toggleDockPaneZoom(inPane: paneId)
         }
@@ -378,7 +378,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             }
             self.focusPanelFromDockInteraction(
                 panelId,
-                window: NSApp.currentEvent?.window
+                window: nil
             )
             guard let paneId = self.paneId(forPanelId: panelId) else {
                 return false
