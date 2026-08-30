@@ -2,6 +2,39 @@ import CmuxAuthRuntime
 import CmuxIrxTransport
 
 extension MobileIrxRuntimeComposition {
+    /// Converts a definitive broker/auth rejection during initial provisioning
+    /// into the same explicit state used by the credential autopilot. Returning
+    /// `true` tells the launch poller to stop; a new authenticated session
+    /// generation is the only implicit recovery trigger.
+    @discardableResult
+    func handleProvisioningFailure(_ error: any Error) -> Bool {
+        let failure: IrxBrokerFailure?
+        if let classified = error as? IrxBrokerFailure,
+           classified.requiresReauthentication {
+            failure = classified
+        } else if let recovery = error as? CmxIrohBrokerTokenRecoveryError,
+                  recovery == .authenticationRequired {
+            failure = IrxBrokerFailure(operation: .register, error: recovery)
+        } else if let authError = error as? AuthError,
+                  authError == .unauthorized {
+            failure = IrxBrokerFailure(
+                operation: .register,
+                error: CmxIrohBrokerTokenRecoveryError.authenticationRequired
+            )
+        } else {
+            failure = nil
+        }
+        guard let failure else { return false }
+        cancelAutopilotRecovery()
+        reauthenticationRequired = true
+        publishAuthenticationState()
+        var attributes = failure.journalAttributes
+        attributes["state"] = "reauthentication_required"
+        Self.journal.record(
+            "client-runtime", "reauthentication-required", attributes)
+        return true
+    }
+
     /// Returns the credential-free state consumed by the iOS Settings row.
     public func irxAuthenticationState() async -> CmxIrxAuthenticationState {
         reauthenticationRequired ? .reauthenticationRequired : .ready

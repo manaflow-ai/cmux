@@ -233,6 +233,12 @@ public actor MobileIrxRuntimeComposition {
             Self.journal.record("client-runtime", "provisioned")
             return true
         } catch {
+            if handleProvisioningFailure(error) {
+                // A definitive broker/auth rejection must stop the launch
+                // poll. The account/session observer owns the only implicit
+                // restart after a new sign-in generation.
+                return true
+            }
             Self.journal.record(
                 "client-runtime", "provisioning-retry",
                 ["error": String(describing: error)]
