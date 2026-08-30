@@ -491,6 +491,27 @@ def check_guard_semantics(name: str, shell_argv: list[str], integration: Path, e
         )
 
 
+def check_cached_identity_provider(
+    name: str, shell_argv: list[str], integration: Path, env: dict[str, str]
+) -> None:
+    """A cached diagnostic token must be replaced by a kernel identity."""
+    script = (
+        f'source "$1"; {kernel_stub()} '
+        '_CMUX_SHELL_START_PID=$$; '
+        '_CMUX_SHELL_START_TIME=p1700000000000000; '
+        '_cmux_capture_shell_start_time; capture_status="$?"; '
+        'if [[ "$_CMUX_SHELL_START_PID" == "$$" ]]; then pid_match=1; else pid_match=0; fi; '
+        'printf "CACHE:%s:%s:%s\\n" "$capture_status" "$pid_match" "$_CMUX_SHELL_START_TIME"'
+    )
+    proc = run_shell(shell_argv, script, [str(integration)], env)
+    expected = f"CACHE:0:1:{SYNTHETIC_KERNEL_TOKEN}"
+    if expected not in proc.stdout:
+        fail(
+            f"[{name}] cached diagnostic identity was not reacquired from the kernel "
+            f"(expected {expected!r}, stdout={proc.stdout!r} stderr={proc.stderr[-500:]!r})"
+        )
+
+
 def check_tiered_cadence(name: str, shell_argv: list[str], integration: Path, env: dict[str, str]) -> None:
     """The guard tick must run the kernel identity comparison only every Nth call.
 
@@ -762,6 +783,7 @@ def main() -> int:
         for name, argv, integration in shells:
             env = base_env(tmp)
             check_identity_provider_contract(name, argv, integration, env)
+            check_cached_identity_provider(name, argv, integration, env)
             check_guard_semantics(name, argv, integration, env)
             check_tiered_cadence(name, argv, integration, env)
             check_injected_watcher_loop(name, argv, integration, env)
