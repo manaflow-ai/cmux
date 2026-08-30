@@ -9761,9 +9761,18 @@ impl Mux {
         if !commit.replayed {
             records.insert(terminal_id.clone(), record.clone());
         }
+        let echo_fold_sequence = echo_ingress
+            .filter(|_| !commit.replayed)
+            .and_then(|_| registry.agent_hook_apply_cursor().ok());
         drop(records);
         drop(state);
         drop(registry);
+        if let (Some((ingress, _)), Some(sequence)) = (echo_ingress, echo_fold_sequence) {
+            self.fold_agent_roster(
+                ingress,
+                &crate::JournalAppendCommit { sequence, event_id: String::new(), replayed: false },
+            );
+        }
         let agent = AgentRecord {
             surface,
             terminal_id,
