@@ -959,6 +959,44 @@ struct RemoteResumeBindingTests {
         let staleAgentLaunch = try #require(staleAgentRecord["launch_command"] as? [String: Any])
         #expect(staleAgentLaunch["working_directory"] as? String == nil)
 
+        // A pre-policy persistent-SSH hook binding can arrive directly from
+        // an older persisted snapshot.  Without an explicit trust selection,
+        // control restore must not revive its captured local cwd or command.
+        let unscopedRemoteBinding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "cd '\(capturedDirectory)' && codex resume \(sessionID)",
+            cwd: capturedDirectory,
+            checkpointId: sessionID,
+            source: "agent-hook",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/usr/local/bin/codex",
+                arguments: ["/usr/local/bin/codex", "resume", sessionID],
+                workingDirectory: capturedDirectory
+            ),
+            autoResume: true,
+            launchFlavor: .persistentSSH(SurfaceResumeRemoteContext(
+                workspaceID: workspace.id,
+                surfaceID: surfaceID,
+                persistentPTYSessionID: Workspace.defaultSSHPTYSessionID(
+                    workspaceId: workspace.id,
+                    panelId: surfaceID
+                )
+            ))
+        )
+        workspace.surfaceResumeBindingsByPanelId[surfaceID] = unscopedRemoteBinding
+        workspace.restoredAgentSnapshotsByPanelId.removeValue(forKey: surfaceID)
+        let unscopedResult = try v2Result(request: [
+            "id": "unscoped-remote-agent-hook-resume-get",
+            "method": "surface.resume.get",
+            "params": [
+                "window_id": windowID.uuidString,
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": surfaceID.uuidString,
+            ],
+        ])
+        #expect(unscopedResult["restore_record"] as? [String: Any] == nil)
+
         let directBinding = SurfaceResumeBindingSnapshot(
             kind: "command",
             command: "printf direct-cli-restore",
