@@ -4033,8 +4033,9 @@ struct CMUXCLI {
         let (colorOpt, rem3) = parseOption(rem2, name: "--color")
         let (descriptionOpt, rem4) = parseOption(rem3, name: "--description")
         let (instanceIndexOpt, rem5) = parseOption(rem4, name: "--instance-index")
+        let (agentOpt, rem6) = parseOption(rem5, name: "--agent")
 
-        var positional = rem5
+        var positional = rem6
         let actionRaw: String
         if let actionOpt {
             actionRaw = actionOpt
@@ -4086,12 +4087,23 @@ struct CMUXCLI {
             instanceIndex = parsed
         }
 
+        var agent: String?
+        if let agentOpt {
+            guard action == "duplicate" else {
+                throw CLIError(message: "workspace-action: --agent is only valid with --action duplicate")
+            }
+            agent = agentOpt.trimmingCharacters(in: .whitespaces)
+        }
+
         var params: [String: Any] = ["action": action]
         if let workspaceId {
             params["workspace_id"] = workspaceId
         }
         if let instanceIndex {
             params["instance_index"] = instanceIndex
+        }
+        if let agent, !agent.isEmpty {
+            params["agent"] = agent
         }
         if let title, !title.isEmpty {
             params["title"] = title
@@ -7418,6 +7430,7 @@ struct CMUXCLI {
               --color <name|#hex>          Color for set-color (name or #RRGGBB hex)
               --description <text>         Description for set-description
               --instance-index <n>         Instance index for duplicate (>= 2, must be free)
+              --agent <claude|codex>       Agent the duplicate's agent pane runs (default: the template's)
 
             Named colors:
               Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua,
