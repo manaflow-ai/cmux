@@ -352,6 +352,18 @@ struct AppDelegateDisplayConfigRestoreTests {
     }
 
     @Test
+    func restoredMainWindowsRestoreAppKitKeyViewLoopAfterTopologyAssembly() {
+        let appDelegate = testAppDelegate()
+        let windowId = appDelegate.createMainWindow(
+            sessionWindowSnapshot: emptyWindowSnapshot(),
+            shouldActivate: false
+        )
+        defer { closeCreatedWindow(appDelegate, windowId: windowId) }
+
+        #expect(appDelegate.mainWindow(for: windowId)?.autorecalculatesKeyViewLoop == true)
+    }
+
+    @Test
     func reconcileSkippedDuringSessionRestoreKeepsCaptureFirewallArmed() {
         let appDelegate = testAppDelegate()
         appDelegate.isScreenChangeCaptureSuppressed = true
