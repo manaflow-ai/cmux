@@ -260,53 +260,23 @@ public actor IrxRelayCredentialAutopilot {
         let isPostRecoveryUnauthorized = failure.statusCode == 401
             && !failure.requiresReauthentication
         let isMissingAuthentication = failure.errorCode == "missing_authentication"
-        let decision: IrxHostActivationPolicy.Decision
-        if (isPostRecoveryUnauthorized || isMissingAuthentication)
-            && !escalateUnauthorized {
-            // The host callback owns the shared 401 escalation decision. The
-            // autopilot's bounded hint burst must not independently terminate
-            // credential renewal, but it still supplies its local counter so
-            // repeated auxiliary failures follow the same backoff ladder.
-            decision = retryPolicy.decision(
-                for: failure,
-                failureCount: isPostRecoveryUnauthorized
-                    ? unauthorizedFailureCount
-                    : missingAuthenticationFailureCount,
-                jitterUnitInterval: Double.random(in: 0 ... 1),
-                escalateUnauthorized: false
-            )
-        } else if isPostRecoveryUnauthorized {
-            decision = retryPolicy.decision(
-                for: failure,
-                failureCount: unauthorizedFailureCount,
-                jitterUnitInterval: Double.random(in: 0 ... 1)
-            )
-        } else if isMissingAuthentication {
-            decision = retryPolicy.decision(
-                for: failure,
-                failureCount: missingAuthenticationFailureCount,
-                jitterUnitInterval: Double.random(in: 0 ... 1)
-            )
-        } else {
-            decision = retryPolicy.decision(
-                for: failure,
-                failureCount: failureCount,
-                jitterUnitInterval: Double.random(in: 0 ... 1)
-            )
-        }
-        let decisionFailureCount: Int
-        if (isPostRecoveryUnauthorized || isMissingAuthentication)
-            && !escalateUnauthorized {
-            decisionFailureCount = isPostRecoveryUnauthorized
-                ? unauthorizedFailureCount
-                : missingAuthenticationFailureCount
-        } else if isPostRecoveryUnauthorized {
-            decisionFailureCount = unauthorizedFailureCount
-        } else if isMissingAuthentication {
-            decisionFailureCount = missingAuthenticationFailureCount
-        } else {
-            decisionFailureCount = failureCount
-        }
+        // Select one cause-specific count and feed it to both the policy and
+        // the bounded-delay/journal path. Auxiliary hint retries suppress only
+        // terminal auth escalation; they still use their local count.
+        let decisionFailureCount = isPostRecoveryUnauthorized
+            ? unauthorizedFailureCount
+            : (isMissingAuthentication
+                ? missingAuthenticationFailureCount
+                : failureCount)
+        let suppressAuthEscalation =
+            (isPostRecoveryUnauthorized || isMissingAuthentication)
+                && !escalateUnauthorized
+        let decision = retryPolicy.decision(
+            for: failure,
+            failureCount: decisionFailureCount,
+            jitterUnitInterval: Double.random(in: 0 ... 1),
+            escalateUnauthorized: !suppressAuthEscalation
+        )
         let event = failure.operation == .hintRefresh
             ? "hint-refresh-failed" : "mint-failed"
         switch decision {
