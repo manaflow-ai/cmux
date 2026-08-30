@@ -138,6 +138,10 @@ extension TabManager {
             break
         case let .value(color):
             workspace.setCustomColor(color)
+        case .autoValue:
+            // Automatic provenance is valid only for titles. Ignore malformed
+            // color records rather than treating them as a user color.
+            break
         case .cleared:
             workspace.setCustomColor(nil)
         }
