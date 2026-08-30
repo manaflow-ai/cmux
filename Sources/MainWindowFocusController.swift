@@ -297,8 +297,21 @@ final class MainWindowFocusController {
         // this window. Do not let that stranded responder claim sidebar focus
         // (issue #5269); the live window/responder pair is authoritative.
         if let responderView = responder as? NSView,
-           responderView.window === window,
-           let mode = rightSidebarModeOwning(responder) {
+           responderView.window === window {
+            let mode: RightSidebarMode?
+            if let owningMode = rightSidebarModeOwning(responder) {
+                mode = owningMode
+            } else if let host = rightSidebarHost, responder === host {
+                // The host can briefly be first responder before its mode is
+                // published. Preserve sidebar ownership with a safe sentinel
+                // rather than allowing main-panel shortcuts to win.
+                mode = activeMode ?? rememberedRightSidebarMode ?? .files
+            } else {
+                mode = nil
+            }
+            guard let mode else {
+                return nil
+            }
             let isFallbackSidebarHost = rightSidebarHost.map { responder === $0 } ?? false
             if canAcceptRightSidebarResponderFocus(
                 mode: mode,
