@@ -87,6 +87,9 @@ public actor MobileIrxRuntimeComposition {
     var autopilotRecoveryID: UUID?
     var autopilotRecoveryCount = 0
     var reauthenticationRequired = false
+    var authenticationStatusContinuations: [
+        UUID: AsyncStream<CmxIrxAuthenticationState>.Continuation
+    ] = [:]
     let autopilotRecoveryPolicy = IrxHostActivationPolicy(
         retrySchedule: .foregroundClient
     )
@@ -581,3 +584,4 @@ struct IrxArtifactLane: MobileArtifactLaneConnection {
 }
 
 extension MobileIrxRuntimeComposition: CmxIrohDeferredTransportProviding {}
+extension MobileIrxRuntimeComposition: CmxIrxAuthenticationStatusProviding {}

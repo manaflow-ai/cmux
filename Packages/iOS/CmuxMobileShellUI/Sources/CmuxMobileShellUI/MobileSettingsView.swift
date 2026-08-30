@@ -26,6 +26,8 @@ struct MobileSettingsView: View {
         MobileConnectionMethodStore?
     @Environment(ToastCenter.self) private var toasts
     @Environment(\.irohSettingsController) private var irohSettingsController
+    @Environment(\.irxAuthenticationStatusProvider)
+    private var irxAuthenticationStatusProvider
     @Environment(\.mobileDiagnosticLog) private var diagnosticLog
     let connectedHostName: String
     let startPairingScanner: (() -> Void)?
@@ -53,6 +55,7 @@ struct MobileSettingsView: View {
     @State private var showingSetupHelp = false
     @State private var caffeineStatusLoadFailed = false
     @State private var caffeineStatusRetryID = 0
+    @State private var irxAuthenticationState: CmxIrxAuthenticationState = .ready
     #if DEBUG
     @State private var showingToastGallery = false
     /// Seconds between tapping "Run Toast Demo" and the first toast, so you
@@ -65,6 +68,35 @@ struct MobileSettingsView: View {
         return NavigationStack {
             Form {
                 MobileSettingsAccountSection(signOut: signOut)
+
+                if irxAuthenticationState == .reauthenticationRequired {
+                    Section {
+                        Label {
+                            Text(L10n.string(
+                                "mobile.settings.iroh.reauth.message",
+                                defaultValue: "Sign in again to reconnect this device."
+                            ))
+                        } icon: {
+                            Image(systemName: "person.crop.circle.badge.exclamationmark")
+                                .foregroundStyle(.orange)
+                        }
+                        if let signOut {
+                            Button(L10n.string(
+                                "mobile.settings.iroh.reauth.action",
+                                defaultValue: "Sign Out and Sign In Again"
+                            )) {
+                                signOut()
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
+                    } header: {
+                        Text(L10n.string(
+                            "mobile.settings.iroh.reauth.title",
+                            defaultValue: "Networking Needs Sign-In"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsIrohReauthentication")
+                }
 
                 // Directly under the account card so release notices stay
                 // discoverable after their one-time launch sheet is
@@ -483,6 +515,14 @@ struct MobileSettingsView: View {
             .task {
                 notificationsEnabled = pushCoordinator.isEnabled
                 await pushCoordinator.refreshReadiness()
+            }
+            .task {
+                guard let provider = irxAuthenticationStatusProvider else { return }
+                irxAuthenticationState = await provider.irxAuthenticationState()
+                for await state in provider.irxAuthenticationStateUpdates() {
+                    guard !Task.isCancelled else { return }
+                    irxAuthenticationState = state
+                }
             }
             .onChange(of: pushCoordinator.isEnabled) { _, enabled in
                 notificationsEnabled = enabled

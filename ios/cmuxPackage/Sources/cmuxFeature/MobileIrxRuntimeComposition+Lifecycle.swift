@@ -2,6 +2,41 @@ import CmuxAuthRuntime
 import CmuxIrxTransport
 
 extension MobileIrxRuntimeComposition {
+    /// Returns the credential-free state consumed by the iOS Settings row.
+    public func irxAuthenticationState() async -> CmxIrxAuthenticationState {
+        reauthenticationRequired ? .reauthenticationRequired : .ready
+    }
+
+    /// Publishes irx authentication transitions without exposing credentials.
+    public func irxAuthenticationStateUpdates()
+        -> AsyncStream<CmxIrxAuthenticationState>
+    {
+        let id = UUID()
+        let current = reauthenticationRequired
+            ? CmxIrxAuthenticationState.reauthenticationRequired
+            : .ready
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            authenticationStatusContinuations[id] = continuation
+            continuation.yield(current)
+            continuation.onTermination = { @Sendable [weak self] _ in
+                Task { await self?.removeAuthenticationStatusContinuation(id) }
+            }
+        }
+    }
+
+    private func removeAuthenticationStatusContinuation(_ id: UUID) {
+        authenticationStatusContinuations[id] = nil
+    }
+
+    func publishAuthenticationState() {
+        let state = reauthenticationRequired
+            ? CmxIrxAuthenticationState.reauthenticationRequired
+            : CmxIrxAuthenticationState.ready
+        for continuation in authenticationStatusContinuations.values {
+            continuation.yield(state)
+        }
+    }
+
     /// Reconciles account/session transitions without relying on a foreground
     /// event. A new generation is the only implicit recovery trigger after a
     /// rejected refresh; the old session is never retried in place.
@@ -76,6 +111,8 @@ extension MobileIrxRuntimeComposition {
         ) else { return }
         autopilotRecoveryCount = 0
         cancelAutopilotRecovery()
+        reauthenticationRequired = false
+        publishAuthenticationState()
     }
 
     /// Detects the explicit sign-in transition that follows a rejected
@@ -115,6 +152,7 @@ extension MobileIrxRuntimeComposition {
             await autopilot?.stop()
             cancelAutopilotRecovery()
             reauthenticationRequired = true
+            publishAuthenticationState()
             var attributes = failure.journalAttributes
             attributes["state"] = "reauthentication_required"
             Self.journal.record(
@@ -254,6 +292,7 @@ extension MobileIrxRuntimeComposition {
         cancelAutopilotRecovery()
         autopilotRecoveryCount = 0
         reauthenticationRequired = false
+        publishAuthenticationState()
 
         if let autopilot {
             await autopilot.stop()

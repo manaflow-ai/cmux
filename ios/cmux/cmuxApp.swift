@@ -211,6 +211,7 @@ struct cmuxApp: App {
             #endif
         }
         .environment(\.irohSettingsController, Self.root.iroh)
+        .environment(\.irxAuthenticationStatusProvider, Self.root.irx)
         .environment(\.mobileKeyboardFrameTracker, Self.root.keyboardFrameTracker)
         .environment(
             \.dogfoodAttachPreparation,

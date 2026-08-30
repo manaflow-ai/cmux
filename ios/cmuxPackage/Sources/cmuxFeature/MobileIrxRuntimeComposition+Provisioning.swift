@@ -81,6 +81,7 @@ extension MobileIrxRuntimeComposition {
             throw CancellationError()
         }
         reauthenticationRequired = false
+        publishAuthenticationState()
         autopilotRecoveryCount = 0
         cancelAutopilotRecovery()
         self.identity = identity
