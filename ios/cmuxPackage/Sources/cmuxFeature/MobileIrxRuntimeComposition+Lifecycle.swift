@@ -7,7 +7,7 @@ extension MobileIrxRuntimeComposition {
     /// `true` tells the launch poller to stop; a new authenticated session
     /// generation is the only implicit recovery trigger.
     @discardableResult
-    func handleProvisioningFailure(_ error: any Error) -> Bool {
+    func handleProvisioningFailure(_ error: any Error) async -> Bool {
         let failure: IrxBrokerFailure?
         if let classified = error as? IrxBrokerFailure,
            classified.requiresReauthentication {
@@ -26,6 +26,7 @@ extension MobileIrxRuntimeComposition {
         }
         guard let failure else { return false }
         cancelAutopilotRecovery()
+        await autopilot?.stop()
         reauthenticationRequired = true
         publishAuthenticationState()
         var attributes = failure.journalAttributes

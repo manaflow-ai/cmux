@@ -297,10 +297,14 @@ final class MobileHostIrxRuntime {
                 guard let broker, let supervisor else {
                     throw CancellationError()
                 }
+                // Credential rotation establishes a healthy endpoint before
+                // the optional relay hint write. Report that success first so
+                // a hint-only outage cannot strand the host in "Retrying".
+                await self?.handleAutopilotSuccess(
+                    accountID: accountID, token: token)
                 let relay = await supervisor.homeRelayURL()
                 try await broker.registerHintIfNeeded(
                     pairingEnabled: true, relayURLHint: relay)
-                await self?.handleAutopilotSuccess(accountID: accountID, token: token)
             }
             await pilot.setOnFailure { [weak self] failure, disposition in
                 guard let self else { return }
