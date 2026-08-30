@@ -1226,15 +1226,21 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     func prepareForMouseDown() {
         guard !isWorkspaceDragSourceActive else { return }
         if pendingWorkspaceDragWriter == nil,
-           pendingWorkspaceDragWorkspaceId != nil {
+           activeWorkspaceDragContainerView != nil,
+           !workspaceDragSourceCompletionReceived {
             // AppKit can request a writer and then abandon the gesture before
             // creating a native session. The weak marker tells us that no
             // callback can arrive for that writer; release the provisional
             // teardown hold at the next real pointer boundary.
             discardAbandonedProvisionalWorkspaceDrag()
         }
-        pendingWorkspaceDragSessionId = nil
-        pendingWorkspaceDragWorkspaceId = nil
+        // Keep the provisional identity while AppKit still owns the writer.
+        // Its release may happen after this first mouse-down; clearing the
+        // identity here would make a later bounded recovery impossible.
+        if pendingWorkspaceDragWriter == nil {
+            pendingWorkspaceDragSessionId = nil
+            pendingWorkspaceDragWorkspaceId = nil
+        }
     }
 
     /// Releases a provisional writer hold when AppKit never starts a session.
@@ -1246,7 +1252,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// which we can safely discard it without racing a live session.
     private func discardAbandonedProvisionalWorkspaceDrag() {
         guard !isWorkspaceDragSourceActive,
-              pendingWorkspaceDragWriter == nil else { return }
+              pendingWorkspaceDragWriter == nil,
+              activeWorkspaceDragContainerView != nil,
+              !workspaceDragSourceCompletionReceived else { return }
 
         clearWorkspaceDragPresentation()
         activeWorkspaceDragSessionId = nil

@@ -108,10 +108,17 @@ struct SidebarWorkspaceTableTests {
             pasteboardWriterForRow: 0
         )
         controller.dismantleContainerView(container)
-        writer = nil
 
-        // The next real pointer boundary is the bounded fallback for a writer
-        // that never reached willBeginAt/endedAt.
+        // A pasteboard can still retain the writer through the first pointer
+        // boundary. Keep the provisional identity until that writer releases;
+        // no native callback exists yet, so the old table must remain attached.
+        controller.prepareForMouseDown()
+        #expect(container.tableView.dataSource === controller)
+        #expect(container.tableView.delegate === controller)
+
+        // Once the writer is released, the following real pointer boundary is
+        // the bounded fallback for a drag that never reached willBeginAt/endedAt.
+        writer = nil
         controller.prepareForMouseDown()
 
         #expect(container.tableView.activeWorkspaceDragController == nil)
