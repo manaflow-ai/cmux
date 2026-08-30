@@ -6838,27 +6838,8 @@ struct ContentView: View {
             )
         }
 
-        let dockSurfaceTarget: (
-            dock: DockSplitStore,
-            panelId: UUID,
-            panel: any Panel
-        )? = {
-            guard let target = commandPaletteDockSurfaceTarget(),
-                  let tabId = target.dock.surfaceId(forPanelId: target.panelId),
-                  target.dock.bonsplitController.tab(tabId) != nil else {
-                // A transient Dock map gap must not truncate the rest of this
-                // snapshot. Treat the captured Dock as unavailable and let the
-                // normal main-workspace fallback populate unrelated commands.
-                return nil
-            }
-            return target
-        }()
-
-        if let dockSurface = dockSurfaceTarget,
-                  let tabId = dockSurface.dock.surfaceId(
-                      forPanelId: dockSurface.panelId
-                  ),
-                  let tab = dockSurface.dock.bonsplitController.tab(tabId) {
+        if let dockSurface = commandPaletteDockSurfaceTarget() {
+            let tab = dockSurface.tab
             let isTerminal = dockSurface.panel.panelType == .terminal
             let isBrowser = dockSurface.panel.panelType == .browser
             let isSimulator = dockSurface.panel.panelType == .simulator
@@ -9293,11 +9274,14 @@ struct ContentView: View {
     /// in a Dock. The restore target is retained while the palette owns the
     /// first responder, so terminal and browser commands do not fall back to
     /// the selected main-workspace panel.
-    private func commandPaletteDockSurfaceTarget() -> (
-        dock: DockSplitStore,
-        panelId: UUID,
-        panel: any Panel
-    )? {
+    private struct CommandPaletteDockSurfaceTarget {
+        let dock: DockSplitStore
+        let panelId: UUID
+        let panel: any Panel
+        let tab: Bonsplit.Tab
+    }
+
+    private func commandPaletteDockSurfaceTarget() -> CommandPaletteDockSurfaceTarget? {
         guard let target = commandPaletteRestoreFocusTarget else {
             return nil
         }
@@ -9316,10 +9300,15 @@ struct ContentView: View {
               ),
               let panel = dock.panels[target.panelId],
               let tabId = dock.surfaceId(forPanelId: target.panelId),
-              dock.bonsplitController.tab(tabId) != nil else {
+              let tab = dock.bonsplitController.tab(tabId) else {
             return nil
         }
-        return (dock, target.panelId, panel)
+        return CommandPaletteDockSurfaceTarget(
+            dock: dock,
+            panelId: target.panelId,
+            panel: panel,
+            tab: tab
+        )
     }
 
     private static func commandPaletteWorkspaceDisplayName(_ workspace: Workspace) -> String {
@@ -10488,17 +10477,14 @@ struct ContentView: View {
     }
 
     private func beginRenameTabFlow() {
-        if let dockSurface = commandPaletteDockSurfaceTarget(),
-           let tabId = dockSurface.dock.surfaceId(
-               forPanelId: dockSurface.panelId
-           ), let tab = dockSurface.dock.bonsplitController.tab(tabId) {
+        if let dockSurface = commandPaletteDockSurfaceTarget() {
             startRenameFlow(
                 CommandPaletteRenameTarget(
                     kind: .tab(
                         workspaceId: dockSurface.dock.workspaceId,
                         panelId: dockSurface.panelId
                     ),
-                    currentName: tab.title
+                    currentName: dockSurface.tab.title
                 )
             )
             return
