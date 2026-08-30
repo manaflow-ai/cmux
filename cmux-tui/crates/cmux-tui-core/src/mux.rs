@@ -23161,6 +23161,12 @@ mod tests {
         let target = target.expect("target commit");
 
         mux.fold_agent_roster(&event, &target);
+        let first_pass_cursor = mux.agent_roster.lock().unwrap().cursor;
+        assert!(
+            first_pass_cursor < target.sequence,
+            "a report must process only a bounded journal prefix"
+        );
+        mux.fold_agent_roster(&event, &target);
         let host = mux.agent_roster.lock().unwrap();
         assert_eq!(host.cursor, target.sequence);
         assert!(host.roster.entries.contains_key(terminal_id.as_str()));
