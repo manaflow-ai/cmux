@@ -98,7 +98,6 @@ private final class DockPointerInteractionHostView: NSView {
     var store: DockSplitStore?
     private var eventMonitor: Any?
     private var globalMouseUpMonitor: Any?
-    private var globalDragMonitor: Any?
     private var windowResignKeyObserver: NSObjectProtocol?
     private var applicationResignActiveObserver: NSObjectProtocol?
     private var deferredInteractionClearTask: Task<Void, Never>?
@@ -162,12 +161,6 @@ private final class DockPointerInteractionHostView: NSView {
             self?.cancelInteractionClear()
             self?.store?.endUserDockInteraction()
         }
-        globalDragMonitor = NSEvent.addGlobalMonitorForEvents(
-            matching: [.leftMouseDragged, .rightMouseDragged, .otherMouseDragged]
-        ) { [weak self] _ in
-            self?.cancelInteractionClear()
-            self?.store?.endUserDockInteraction()
-        }
         if windowResignKeyObserver == nil, let window {
             windowResignKeyObserver = NotificationCenter.default.addObserver(
                 forName: NSWindow.didResignKeyNotification,
@@ -200,10 +193,6 @@ private final class DockPointerInteractionHostView: NSView {
         if let globalMouseUpMonitor {
             NSEvent.removeMonitor(globalMouseUpMonitor)
             self.globalMouseUpMonitor = nil
-        }
-        if let globalDragMonitor {
-            NSEvent.removeMonitor(globalDragMonitor)
-            self.globalDragMonitor = nil
         }
         if let windowResignKeyObserver {
             NotificationCenter.default.removeObserver(windowResignKeyObserver)

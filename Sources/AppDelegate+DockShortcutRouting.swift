@@ -183,7 +183,7 @@ extension AppDelegate {
         if context.keyboardFocusCoordinator.activeRightSidebarMode == .dock {
             return context.fileExplorerState?.isVisible != false
         }
-        return existingFocusedDockStoreForShortcut(context: context) != nil
+        return false
     }
 
     private func existingFocusedDockStoreForShortcut(
@@ -195,12 +195,10 @@ extension AppDelegate {
         }
         guard let dock = existingWindowDock(forWindowId: context.windowId),
               !dock.isRetired,
-              dock.isVisibleInUI else { return nil }
-        if context.keyboardFocusCoordinator.activeRightSidebarMode == .dock {
-            return dock
+              dock.isVisibleInUI,
+              context.keyboardFocusCoordinator.activeRightSidebarMode == .dock else {
+            return nil
         }
-        guard let window = context.window ?? mainWindow(for: context.windowId),
-              dockOwnsFocusedResponder(dock, in: window) else { return nil }
         return dock
     }
 
@@ -349,27 +347,6 @@ extension AppDelegate {
         }
         if !store.performShortcutCommand(command) { NSSound.beep() }
         return true
-    }
-
-    private func dockOwnsFocusedResponder(
-        _ dock: DockSplitStore,
-        in window: NSWindow
-    ) -> Bool {
-        guard let responder = window.firstResponder else { return false }
-        if let terminalSurface = responder.cmuxTerminalFocusOwningGhosttyView()?.terminalSurface {
-            guard terminalSurface.focusPlacement == .rightSidebarDock else {
-                return false
-            }
-            return dock.panelIsSelectedInVisibleDockPane(terminalSurface.id)
-        }
-        guard let focusedPanelId = dock.focusedPanelId,
-              let focusedBrowser = dock.browserPanel(for: focusedPanelId) else {
-            return false
-        }
-        guard focusedBrowser.ownedFocusIntent(for: responder, in: window) != nil else {
-            return false
-        }
-        return dock.panelIsSelectedInVisibleDockPane(focusedBrowser.id)
     }
 
     func matchesLegacyNextSurfaceShortcut(event: NSEvent) -> Bool {
