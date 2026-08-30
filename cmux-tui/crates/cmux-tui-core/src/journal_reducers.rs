@@ -150,7 +150,9 @@ impl RosterEntry {
     }
 
     pub(crate) fn agent_source(&self) -> AgentSource {
-        agent_source_from_str(&self.source).unwrap_or(AgentSource::Hook)
+        // Unknown persisted values are untrusted. Treat them as detected
+        // state so they never gain hook authority over a socket report.
+        agent_source_from_str(&self.source).unwrap_or(AgentSource::Detected)
     }
 }
 
@@ -609,6 +611,32 @@ mod tests {
         };
         assert!(roster.apply(&foreign).is_empty());
         assert!(!roster.entries.is_empty());
+    }
+
+    #[test]
+    fn unknown_snapshot_source_fails_closed_without_hook_authority() {
+        let entry = RosterEntry {
+            state: "working".into(),
+            source: "future-source".into(),
+            session: Some("future-session".into()),
+            agent: Some("future-agent".into()),
+            updated_at_ms: 1,
+        };
+        assert_eq!(entry.agent_source(), AgentSource::Detected);
+
+        let subjects = terminal_subject("term_a");
+        let socket_payload = json!({
+            "adapter": {"id": SOCKET_REPORT_ADAPTER, "version": 1},
+            "normalized": {"state": "idle", "source_session": "socket"}
+        });
+        let mut roster = AgentRoster {
+            entries: HashMap::from([(String::from("term_a"), entry)]),
+            ..AgentRoster::default()
+        };
+        let deltas =
+            roster.apply(&hook_event(2, "agent.state.changed", &subjects, &socket_payload));
+        assert_eq!(deltas.len(), 1, "socket state must be allowed to replace an unknown source");
+        assert_eq!(roster.entries["term_a"].source, "socket");
     }
 
     #[test]

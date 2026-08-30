@@ -902,8 +902,14 @@ impl WorkspaceRegistry {
             )
             .optional()?;
         let Some(raw) = raw else { return Ok(None) };
-        let value: Value = serde_json::from_str(&raw)
-            .with_context(|| format!("journal reducer state for {reducer_id} is not JSON"))?;
+        let value: Value = match serde_json::from_str(&raw) {
+            Ok(value) => value,
+            Err(_) => {
+                // Reducer metadata is a rebuildable cache. Ignore a corrupt
+                // wrapper and let the caller replay the retained journal.
+                return Ok(None);
+            }
+        };
         let version = value.get("version").and_then(Value::as_u64).unwrap_or(0) as u32;
         let cursor = value
             .get("cursor")
@@ -1898,6 +1904,21 @@ pub(crate) fn unix_epoch_ms() -> anyhow::Result<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn malformed_reducer_metadata_is_treated_as_absent() {
+        let mut registry = WorkspaceRegistry::in_memory("reducer-metadata").unwrap();
+        registry
+            .connection
+            .execute(
+                "INSERT INTO meta(key, value) VALUES(?1, ?2)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                params!["journal_reducer.test", "{malformed"],
+            )
+            .unwrap();
+
+        assert_eq!(registry.journal_reducer_state("test").unwrap(), None);
+    }
 
     #[test]
     fn resource_record_is_typed_scoped_and_append_only() {
