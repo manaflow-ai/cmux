@@ -847,7 +847,8 @@ final class FilePreviewDragPasteboardWriter: NSPasteboardItem {
 
     override func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
         _ = nativeDragOwnership()
-        materializeRegisteredPayload(to: pasteboard)
+        materializeRegisteredItem()
+        _ = pasteboard
         var types: [NSPasteboard.PasteboardType] = [
             DragOverlayRoutingPolicy.filePreviewTransferType,
             .fileURL

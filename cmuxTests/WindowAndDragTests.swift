@@ -2895,6 +2895,7 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
 
         XCTAssertNil(FilePreviewDragPasteboardWriter.dragID(from: dragPasteboard))
         let writableTypes = writer.writableTypes(for: dragPasteboard)
+        XCTAssertTrue(dragPasteboard.writeObjects([writer]))
         XCTAssertTrue(writableTypes.contains(.fileURL))
         let preparedDragID = try XCTUnwrap(
             FilePreviewDragPasteboardWriter.dragID(
