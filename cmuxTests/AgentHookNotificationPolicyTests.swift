@@ -91,9 +91,8 @@ struct AgentHookNotificationPolicyTests {
         ))
     }
 
-    @Test func genericStopRejectsHistoricalFailureProse() throws {
-        let cli = CMUXCLI(args: [])
-        let definition = try #require(CMUXCLI.agentDef(named: "grok"))
+    @Test func genericStopRejectsHistoricalFailureProse() {
+        let classifier = AgentHookAbnormalStopClassifier()
         let messages = [
             "No error was reported; the task completed successfully.",
             "The previous attempt failed, but this retry succeeded.",
@@ -101,14 +100,12 @@ struct AgentHookNotificationPolicyTests {
         ]
 
         for message in messages {
-            let input = cli.parseClaudeHookInput(
-                #"{"hook_event_name":"Stop","message":"\#(message)"}"#
-            )
             #expect(
-                cli.summarizeGenericAbnormalStop(
-                    def: definition,
-                    input: input,
-                    lastMessage: nil
+                classifier.summary(
+                    displayName: "Grok",
+                    signal: "Stop",
+                    message: message,
+                    isFallback: false
                 ) == nil,
                 "Historical or negated failure prose must not become a generic provider error: \(message)"
             )
@@ -208,20 +205,30 @@ struct AgentHookNotificationPolicyTests {
         #expect(localThrottleProse.notifyCategory != .other)
     }
 
-    @Test func codexBannerCandidateRejectsSiblingUserInterrupt() {
-        let cli = CMUXCLI(args: [])
-        let candidate = cli.codexAbnormalStopBannerCandidate(
-            from: [
-                "last_assistant_message": "Selected model is at capacity. Please try a different model.",
-                "payload": [
-                    "message": "Interrupted by user (Ctrl+C)",
-                ],
-            ]
-        )
+    @Test func codexBannerClassifierRejectsSiblingUserInterrupt() {
+        let classifier = AgentHookAbnormalStopClassifier()
+        let providerBanner = "Selected model is at capacity. Please try a different model."
+        let siblingInterrupt = "Interrupted by user (Ctrl+C)"
 
         #expect(
-            candidate == nil,
+            classifier.abnormalStopClass(signal: "Stop", message: providerBanner) == .capacity,
+            "The provider banner remains recognizable on its own"
+        )
+        #expect(
+            classifier.isUserInitiatedStop(
+                signal: "Stop",
+                message: "\(providerBanner) \(siblingInterrupt)"
+            ),
             "A user interrupt in a sibling payload field must suppress a stale Codex provider banner"
+        )
+        #expect(
+            classifier.summary(
+                displayName: "Codex",
+                signal: "Stop",
+                message: "\(providerBanner) \(siblingInterrupt)",
+                isFallback: false
+            ) == nil,
+            "The aggregate stop classifier must fail closed when any sibling field records a user abort"
         )
     }
 
