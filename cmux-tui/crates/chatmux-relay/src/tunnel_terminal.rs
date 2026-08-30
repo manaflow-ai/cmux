@@ -729,10 +729,13 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
     // A queue-overflow close must deliver pty_flow(true) before the
     // attachment is released. The timeout prevents a broken manager from
     // holding the connection task forever.
+    // `timeout` consumes the join result when it completes. Await the handle
+    // only after a timeout-triggered abort, otherwise polling a completed
+    // JoinHandle panics and skips the owed attachment detach below.
     if tokio::time::timeout(FLOW_DRAIN_TIMEOUT, &mut flow).await.is_err() {
         flow.abort();
+        let _ = flow.await;
     }
-    let _ = flow.await;
     // Detach, never kill: the owed close releases only this connection's
     // attachment (transport-fenced), and the session lives on.
     if connection.open_sent.load(Ordering::SeqCst) {
