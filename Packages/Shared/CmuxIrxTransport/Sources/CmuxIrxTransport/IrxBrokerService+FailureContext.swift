@@ -18,10 +18,37 @@ extension IrxBrokerService {
             throw failure.with(operation: operation)
         } catch {
             onError?(error)
+            if let urlError = error as? URLError {
+                if urlError.code == .cancelled {
+                    throw CancellationError()
+                }
+                // URLSession exposes a few transport failures directly. They
+                // are retryable unless the URL or certificate is itself
+                // invalid; those terminal inputs must not become a retry loop.
+                let fallbackKind: IrxBrokerFailureKind = switch urlError.code {
+                case .badURL,
+                     .unsupportedURL,
+                     .serverCertificateHasBadDate,
+                     .serverCertificateUntrusted,
+                     .serverCertificateHasUnknownRoot,
+                     .serverCertificateNotYetValid,
+                     .clientCertificateRejected,
+                     .clientCertificateRequired,
+                     .appTransportSecurityRequiresSecureConnection:
+                    .invalid
+                default:
+                    .transient
+                }
+                throw IrxBrokerFailure(
+                    operation: operation,
+                    error: error,
+                    fallbackKind: fallbackKind
+                )
+            }
             // Every transport error that can be retried has a typed boundary
             // above (connectivity, rate limiting, or an HTTP response). An
-            // unknown error is therefore a local/protocol failure and must
-            // fail closed instead of creating an endless renewal loop.
+            // unknown non-URL error is therefore a local/protocol failure and
+            // must fail closed instead of creating an endless renewal loop.
             throw IrxBrokerFailure(
                 operation: operation,
                 error: error,

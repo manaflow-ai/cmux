@@ -29,7 +29,8 @@ public actor IrxRelayCredentialAutopilot {
         /// A non-fatal auxiliary operation failed; the endpoint remains live.
         case advisory
         /// The autopilot has stopped and requires lifecycle-owner action.
-        case terminal
+        /// The reason is carried so every platform applies the same outcome.
+        case terminal(requiresReauthentication: Bool)
     }
 
     private let broker: IrxBrokerService
@@ -212,7 +213,7 @@ public actor IrxRelayCredentialAutopilot {
                     )
                 if !failure.isRetryable {
                     if failure.requiresReauthentication {
-                        await onFailure?(failure, .terminal)
+                        await onFailure?(failure, .terminal(requiresReauthentication: true))
                         return .stopped
                     }
                     await onFailure?(failure, .advisory)
@@ -282,11 +283,11 @@ public actor IrxRelayCredentialAutopilot {
         switch decision {
         case .reauthenticationRequired:
             journal.record("credential-autopilot", event, failure.journalAttributes)
-            await onFailure?(failure, .terminal)
+            await onFailure?(failure, .terminal(requiresReauthentication: true))
             return nil
         case .stopped:
             journal.record("credential-autopilot", "mint-stopped", failure.journalAttributes)
-            await onFailure?(failure, .terminal)
+            await onFailure?(failure, .terminal(requiresReauthentication: false))
             return nil
         case let .retry(policyDelay, retryAfterSeconds):
             let delaySeconds = IrxRelayCredentialPolicy.boundedRetryDelay(

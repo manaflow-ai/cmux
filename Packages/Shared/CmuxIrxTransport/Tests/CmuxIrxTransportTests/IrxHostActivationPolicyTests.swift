@@ -133,7 +133,7 @@ struct IrxHostActivationPolicyTests {
                 for: failure,
                 failureCount: 0,
                 jitterUnitInterval: 0
-        ) == .stopped
+            ) == .stopped
         )
     }
 
@@ -151,8 +151,26 @@ struct IrxHostActivationPolicyTests {
                 for: failure,
                 failureCount: 0,
                 jitterUnitInterval: 0
-            ) == .stopped
+        ) == .stopped
         )
+    }
+
+    @Test("unmapped URL session failures remain transient")
+    func unmappedURLFailureRemainsRetryable() async throws {
+        let service = try IrxBrokerArmingSupport.makeService(
+            identity: IrxBrokerArmingSupport.identity(),
+            cacheDirectory: IrxBrokerArmingSupport.temporaryDirectory()
+        )
+
+        do {
+            _ = try await service.withBrokerOperation(.discover) { () -> Void in
+                throw URLError(.secureConnectionFailed)
+            }
+            Issue.record("Expected the URL session failure to be classified")
+        } catch let failure as IrxBrokerFailure {
+            #expect(failure.kind == .transient)
+            #expect(failure.operation == .discover)
+        }
     }
 
     @Test("a stale binding proof is retryable after the cache is invalidated")

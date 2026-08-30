@@ -26,7 +26,27 @@ extension MobileIrxRuntimeComposition {
                 endpoint: endpoint
             )
         }
+        await pilot.setOnRotation { [weak self, broker, endpoint] in
+            await self?.handleAutopilotRotation(
+                session: session,
+                broker: broker,
+                endpoint: endpoint
+            )
+        }
         return pilot
+    }
+
+    /// Clears a pending terminal-failure kick after a successful rotation.
+    func handleAutopilotRotation(
+        session: AuthenticatedSessionSnapshot,
+        broker: IrxBrokerService,
+        endpoint: IrxEndpointSupervisor
+    ) async {
+        guard await isCurrentProvisioning(
+            session: session, broker: broker, endpoint: endpoint
+        ) else { return }
+        autopilotRecoveryCount = 0
+        cancelAutopilotRecovery()
     }
 
     /// Handles a terminal credential-refresh failure without leaving a
@@ -41,8 +61,8 @@ extension MobileIrxRuntimeComposition {
     ) async {
         Self.journal.record(
             "client-runtime", "autopilot-failed", failure.journalAttributes)
-        guard case .terminal = disposition else { return }
-        if failure.requiresReauthentication {
+        guard case let .terminal(requiresReauthentication) = disposition else { return }
+        if requiresReauthentication {
             guard await isCurrentProvisioning(
                 session: session,
                 broker: broker,
@@ -59,18 +79,83 @@ extension MobileIrxRuntimeComposition {
             })
             return
         }
-        // Keep the current endpoint intact and pause renewal. The existing
-        // foreground lifecycle calls ``kick()`` again, so this terminal path
-        // cannot rebuild/register in a tight loop while the user is offline or
-        // resolving an account/policy issue.
+        // Keep the current endpoint intact and schedule a few bounded kicks.
+        // A frontmost app cannot rely on another foreground transition to
+        // restart renewal, so the lifecycle owns this short recovery ladder.
         guard await isCurrentProvisioning(
             session: session,
             broker: broker,
             endpoint: endpoint
         ) else { return }
         await autopilot?.stop()
+        scheduleAutopilotRecovery(
+            failure: failure,
+            session: session,
+            broker: broker,
+            endpoint: endpoint
+        )
         Self.journal.record(
             "client-runtime", "autopilot-paused-until-foreground")
+    }
+
+    /// Schedules cancellable foreground-rate kicks after a terminal,
+    /// non-auth renewal failure. Successful rotation resets the ladder.
+    private func scheduleAutopilotRecovery(
+        failure: IrxBrokerFailure,
+        session: AuthenticatedSessionSnapshot,
+        broker: IrxBrokerService,
+        endpoint: IrxEndpointSupervisor
+    ) {
+        guard autopilotRecoveryTask == nil else { return }
+        guard autopilotRecoveryCount < 3 else {
+            Self.journal.record(
+                "client-runtime", "autopilot-recovery-exhausted",
+                failure.journalAttributes
+            )
+            return
+        }
+        let delay = autopilotRecoveryPolicy.retrySchedule.delay(
+            failureCount: autopilotRecoveryCount,
+            retryAfterSeconds: nil,
+            jitterUnitInterval: 0
+        )
+        autopilotRecoveryCount += 1
+        let clock = autopilotRecoveryClock
+        let deadline = clock.now().addingTimeInterval(delay)
+        let recoveryID = UUID()
+        autopilotRecoveryID = recoveryID
+        Self.journal.record(
+            "client-runtime", "autopilot-retry-scheduled",
+            failure.journalAttributes.merging(
+                ["delay_s": String(Int(delay.rounded()))],
+                uniquingKeysWith: { _, latest in latest }
+            )
+        )
+        autopilotRecoveryTask = Task { [weak self] in
+            defer {
+                guard let self, self.autopilotRecoveryID == recoveryID else { return }
+                self.autopilotRecoveryTask = nil
+                self.autopilotRecoveryID = nil
+            }
+            do {
+                try await clock.sleep(until: deadline)
+            } catch {
+                return
+            }
+            guard let self,
+                  !Task.isCancelled,
+                  await self.isCurrentProvisioning(
+                      session: session, broker: broker, endpoint: endpoint
+                  ) else { return }
+            await self.autopilot?.kick()
+        }
+    }
+
+    /// Cancels a pending self-recovery kick without affecting the autopilot.
+    func cancelAutopilotRecovery() {
+        autopilotRecoveryTask?.cancel()
+        autopilotRecoveryTask = nil
+        autopilotRecoveryID = nil
     }
 
     /// Fences provisioning to one authenticated account at a time.
@@ -123,6 +208,8 @@ extension MobileIrxRuntimeComposition {
 
         backgroundProvisioningTask?.cancel()
         backgroundProvisioningTask = nil
+        cancelAutopilotRecovery()
+        autopilotRecoveryCount = 0
 
         if let autopilot {
             await autopilot.stop()

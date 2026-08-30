@@ -81,6 +81,13 @@ public actor MobileIrxRuntimeComposition {
     var provisioningTask: Task<Void, Never>?
     var provisionInFlight: Task<IrxBrokerService, any Error>?
     var backgroundProvisioningTask: Task<Void, Never>?
+    var autopilotRecoveryTask: Task<Void, Never>?
+    var autopilotRecoveryID: UUID?
+    var autopilotRecoveryCount = 0
+    let autopilotRecoveryPolicy = IrxHostActivationPolicy(
+        retrySchedule: .foregroundClient
+    )
+    var autopilotRecoveryClock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
     /// One reconnect owner per Mac endpoint (contract: the single dialer).
     var enginesByPeer: [String: IrxPeerEngine] = [:]
     /// Route material per peer, refreshed on every transport request.
@@ -186,6 +193,8 @@ public actor MobileIrxRuntimeComposition {
     /// Foreground kick: re-check credential freshness immediately (iOS
     /// suspension pauses the autopilot's sleep).
     public func didBecomeActive() async {
+        cancelAutopilotRecovery()
+        autopilotRecoveryCount = 0
         await autopilot?.kick()
         for engine in enginesByPeer.values {
             await engine.warmUp(trigger: "foreground")

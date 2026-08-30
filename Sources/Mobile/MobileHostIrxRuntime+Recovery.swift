@@ -262,9 +262,7 @@ extension MobileHostIrxRuntime {
             } else {
                 setActivationState(.retrying, failure: failure)
             }
-        case .terminal:
-            let requiresReauthentication = failure.requiresReauthentication
-                || failure.statusCode == 401
+        case let .terminal(requiresReauthentication):
             if requiresReauthentication {
                 cancelActivationRetry()
                 cancelAutopilotRecovery()
