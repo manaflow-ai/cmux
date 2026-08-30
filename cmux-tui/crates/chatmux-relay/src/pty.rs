@@ -3518,6 +3518,7 @@ mod tests {
             context.transport_id = transport_id.map(str::to_owned);
             context.transport_kind =
                 transport_id.map_or(TransportKind::Legacy, |_| TransportKind::Relay);
+            context.auth_generation = transport_id.map(|_| 0);
             context
         }
 
@@ -4319,6 +4320,27 @@ mod tests {
             );
             assert!(h.manager.inner.transport_auth.lock().unwrap().is_empty());
         }
+    }
+
+    #[tokio::test]
+    async fn tunnel_authority_without_a_generation_is_rejected_after_revoke() {
+        let h = harness(None, None);
+        let mut context = h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-old"));
+        context.transport_kind = TransportKind::Tunnel;
+        context.auth_generation = None;
+        h.manager.update_transport_auth(&context);
+        h.manager.set_tunnel_authority_generation(1);
+
+        let frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "revoked",
+            "session": "main",
+            "cols": 80,
+            "rows": 24,
+        });
+        h.manager.handle_frame(&frame, &context).await;
+        assert!(h.spawned().is_empty(), "a tunnel without a generation cannot survive revoke");
     }
 
     #[test]
