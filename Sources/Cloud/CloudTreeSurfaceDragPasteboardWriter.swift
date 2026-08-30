@@ -37,8 +37,8 @@ final class CloudTreeSurfaceDragPasteboardWriter: NSPasteboardItem {
 
     @available(*, unavailable)
     required init(
-        pasteboardPropertyList propertyList: Any,
-        ofType type: NSPasteboard.PasteboardType
+        pasteboardPropertyList _: Any,
+        ofType _: NSPasteboard.PasteboardType
     ) {
         fatalError("init(pasteboardPropertyList:ofType:) is not supported")
     }
