@@ -100,7 +100,7 @@ public struct WorkspaceCustomizationStore {
         source: WorkspaceCustomizationTitleSource = .user
     ) {
         let field = normalizedTitleField(title, source: source)
-        updateCustomization(for: stableId) { current in
+        updateTitleCustomization(for: stableId) { current in
             WorkspaceCustomization(
                 customTitle: field,
                 customColor: current?.customColor ?? .absent
@@ -189,6 +189,19 @@ public struct WorkspaceCustomizationStore {
         updateCustomizations(forKeys: [stableId.uuidString]) { current in
             result = transform(current)
             return result
+        }
+        return result
+    }
+
+    @discardableResult
+    private func updateTitleCustomization(
+        for stableId: UUID,
+        _ transform: (WorkspaceCustomization?) -> WorkspaceCustomization
+    ) -> WorkspaceCustomization {
+        var result = WorkspaceCustomization()
+        synchronousWriter.updateSnapshot { snapshot in
+            result = transform(snapshot.entries[stableId.uuidString]?.customization)
+            snapshot.setTitle(result, for: stableId.uuidString)
         }
         return result
     }

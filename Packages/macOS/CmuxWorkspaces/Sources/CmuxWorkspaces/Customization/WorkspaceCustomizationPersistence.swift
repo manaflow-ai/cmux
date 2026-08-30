@@ -55,16 +55,19 @@ struct WorkspaceCustomizationPersistenceSnapshot: Codable, Sendable {
     mutating func set(_ customization: WorkspaceCustomization, for key: String) {
         nextRevision &+= 1
         let previous = entries[key]
-        let titleMutationRevision: UInt64
-        if previous?.customization.customTitle != customization.customTitle {
-            titleMutationRevision = nextRevision
-        } else {
-            titleMutationRevision = previous?.titleMutationRevision ?? 0
-        }
         entries[key] = WorkspaceCustomizationPersistenceEntry(
             customization: customization,
             revision: nextRevision,
-            titleMutationRevision: titleMutationRevision
+            titleMutationRevision: previous?.titleMutationRevision ?? 0
+        )
+    }
+
+    mutating func setTitle(_ customization: WorkspaceCustomization, for key: String) {
+        nextRevision &+= 1
+        entries[key] = WorkspaceCustomizationPersistenceEntry(
+            customization: customization,
+            revision: nextRevision,
+            titleMutationRevision: nextRevision
         )
     }
 
