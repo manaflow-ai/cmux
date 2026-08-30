@@ -137,45 +137,43 @@ final class RenderNodeContextMenuView: NSView {
             ancestorPath: contextMenuPath
         )
     }
-}
 
-/// Depth-first search for another ``RenderNodeContextMenuView`` under `root`
-/// whose strict render-path descendant bounds contain `point` (expressed in
-/// `space`'s coordinates) and whose menu IR is non-empty.
-@MainActor
-private func subtreeContainsClaimingOverlay(
-    _ root: NSView,
-    excluding excluded: NSView,
-    point: NSPoint,
-    space: NSView,
-    ancestorPath: [Int]
-) -> Bool {
-    for subview in root.subviews {
-        if subview === excluded || subview.isHidden { continue }
-        if let overlay = subview as? RenderNodeContextMenuView {
-            let local = overlay.convert(point, from: space)
-            let isStrictDescendant = overlay.contextMenuPath.count > ancestorPath.count
-                && overlay.contextMenuPath.starts(with: ancestorPath)
-            if isStrictDescendant,
-               overlay.bounds.contains(local),
-               overlay.isMenuEnabled,
-               overlay.hasPresentableMenuItems() {
+    /// Depth-first search for a strict render-path descendant overlay whose
+    /// bounds contain `point` in `space`'s coordinate system.
+    private func subtreeContainsClaimingOverlay(
+        _ root: NSView,
+        excluding excluded: NSView,
+        point: NSPoint,
+        space: NSView,
+        ancestorPath: [Int]
+    ) -> Bool {
+        for subview in root.subviews {
+            if subview === excluded || subview.isHidden { continue }
+            if let overlay = subview as? RenderNodeContextMenuView {
+                let local = overlay.convert(point, from: space)
+                let isStrictDescendant = overlay.contextMenuPath.count > ancestorPath.count
+                    && overlay.contextMenuPath.starts(with: ancestorPath)
+                if isStrictDescendant,
+                   overlay.bounds.contains(local),
+                   overlay.isMenuEnabled,
+                   overlay.hasPresentableMenuItems() {
+                    return true
+                }
+                // An unrelated overlay can itself contain platform descendants;
+                // do not cross that ownership boundary while looking for this
+                // row's nested menu.
+                continue
+            }
+            if subtreeContainsClaimingOverlay(
+                subview,
+                excluding: excluded,
+                point: point,
+                space: space,
+                ancestorPath: ancestorPath
+            ) {
                 return true
             }
-            // An unrelated overlay can itself contain platform descendants;
-            // do not cross that ownership boundary while looking for this
-            // row's nested menu.
-            continue
         }
-        if subtreeContainsClaimingOverlay(
-            subview,
-            excluding: excluded,
-            point: point,
-            space: space,
-            ancestorPath: ancestorPath
-        ) {
-            return true
-        }
+        return false
     }
-    return false
 }

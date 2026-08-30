@@ -61,6 +61,9 @@ struct RenderNodeContextMenuBuilder {
 
     private func hasPresentableItems(in nodes: [RenderNode]) -> Bool {
         for node in nodes {
+            if node.action != nil {
+                return true
+            }
             switch node.kind {
             case .divider:
                 // Separators alone do not make a menu useful.
@@ -101,8 +104,13 @@ struct RenderNodeContextMenuBuilder {
             let disabled = inheritedDisabled || isRenderNodeDisabled(node)
             switch node.kind {
             case .divider:
-                menu.addItem(.separator())
+                if node.action != nil {
+                    emitted = appendActionItem(for: node, to: menu, disabled: disabled) || emitted
+                } else {
+                    menu.addItem(.separator())
+                }
             case .menu:
+                emitted = appendActionItem(for: node, to: menu, disabled: disabled) || emitted
                 if let item = submenuItem(for: node, disabled: disabled) {
                     menu.addItem(item)
                     emitted = true
@@ -118,9 +126,12 @@ struct RenderNodeContextMenuBuilder {
             case .vstack, .hstack, .zstack, .lazyVStack, .lazyHStack, .group,
                  .list, .hscroll, .grid, .gridRow, .lazyVGrid, .lazyHGrid,
                  .viewThatFits, .hsplit, .reorderable:
+                emitted = appendActionItem(for: node, to: menu, disabled: disabled) || emitted
                 emitted = append(node.children, to: menu, inheritedDisabled: disabled) || emitted
             case .section:
-                if let header = node.text, !header.isEmpty {
+                if node.action != nil {
+                    emitted = appendActionItem(for: node, to: menu, disabled: disabled) || emitted
+                } else if let header = node.text, !header.isEmpty {
                     let item = NSMenuItem(title: header, action: nil, keyEquivalent: "")
                     item.isEnabled = false
                     menu.addItem(item)
@@ -176,84 +187,98 @@ struct RenderNodeContextMenuBuilder {
         }
         return item
     }
-}
 
-/// Mirrors `RenderNodeView`'s `.disabled` semantics: disabled only when
-/// the argument explicitly resolves to `true`.
-private func isRenderNodeDisabled(_ node: RenderNode) -> Bool {
-    node.modifiers.contains { $0.name == "disabled" && cleanRenderToken($0.firstValue) == "true" }
-}
-
-private func cleanRenderToken(_ token: String?) -> String? {
-    token?.trimmingCharacters(in: CharacterSet(charactersIn: ".\" "))
-}
-
-/// Maps a `.keyboardShortcut` modifier to the item's key-equivalent hint.
-@MainActor
-private func applyRenderNodeKeyEquivalent(from node: RenderNode, to item: NSMenuItem) {
-    guard let modifier = node.modifiers.first(where: { $0.name == "keyboardShortcut" }),
-          let key = renderNodeNSKeyEquivalent(modifier.firstValue) else { return }
-    item.keyEquivalent = key
-    item.keyEquivalentModifierMask = renderNodeNSModifierFlags(modifier.value("modifiers"))
-}
-
-/// Resolves a key token (`.return`/`.escape`/arrows/single character) to
-/// an `NSMenuItem.keyEquivalent` string.
-private func renderNodeNSKeyEquivalent(_ token: String?) -> String? {
-    guard var raw = token?.trimmingCharacters(in: .whitespacesAndNewlines),
-          !raw.isEmpty else { return nil }
-    if raw.first == "\"", raw.last == "\"", raw.count >= 2 {
-        raw.removeFirst()
-        raw.removeLast()
-    } else if raw.first == "." {
-        raw.removeFirst()
+    /// Preserves `.onTapGesture` actions attached to containers while still
+    /// flattening their children into the native menu.
+    private func appendActionItem(
+        for node: RenderNode,
+        to menu: NSMenu,
+        disabled: Bool
+    ) -> Bool {
+        guard node.action != nil else { return false }
+        menu.addItem(actionItem(for: node, disabled: disabled))
+        return true
     }
-    guard !raw.isEmpty else { return nil }
-    switch raw.lowercased() {
-    case "return": return "\r"
-    case "escape": return "\u{1B}"
-    case "space": return " "
-    case "tab": return "\t"
-    case "delete": return String(UnicodeScalar(NSBackspaceCharacter)!)
-    case "uparrow": return String(UnicodeScalar(NSUpArrowFunctionKey)!)
-    case "downarrow": return String(UnicodeScalar(NSDownArrowFunctionKey)!)
-    case "leftarrow": return String(UnicodeScalar(NSLeftArrowFunctionKey)!)
-    case "rightarrow": return String(UnicodeScalar(NSRightArrowFunctionKey)!)
-    case "deleteforward", "home", "end", "pageup", "pagedown", "clear": return nil
-    default: return raw.count == 1 ? raw.lowercased() : nil
+
+    /// Mirrors `RenderNodeView`'s `.disabled` semantics: disabled only when
+    /// the argument explicitly resolves to `true`.
+    private func isRenderNodeDisabled(_ node: RenderNode) -> Bool {
+        node.modifiers.contains {
+            $0.name == "disabled" && cleanRenderToken($0.firstValue) == "true"
+        }
     }
-}
 
-/// Resolves a `[.command, .shift]`-style token to AppKit modifier flags.
-/// SwiftUI's `.keyboardShortcut` defaults to command when unspecified.
-private func renderNodeNSModifierFlags(_ source: String?) -> NSEvent.ModifierFlags {
-    guard let source = source?.lowercased() else { return [.command] }
-    var flags: NSEvent.ModifierFlags = []
-    if source.contains("command") { flags.insert(.command) }
-    if source.contains("shift") { flags.insert(.shift) }
-    if source.contains("option") { flags.insert(.option) }
-    if source.contains("control") { flags.insert(.control) }
-    return flags
-}
-
-/// Concatenated visible text of a subtree, for rich-label buttons and
-/// text-only fallbacks.
-private func renderNodePlainText(of nodes: [RenderNode]) -> String {
-    nodes.map { renderNodePlainText(of: $0) }.filter { !$0.isEmpty }.joined(separator: " ")
-}
-
-private func renderNodePlainText(of node: RenderNode) -> String {
-    var parts: [String] = []
-    if let text = node.text, !text.isEmpty { parts.append(text) }
-    parts.append(contentsOf: node.children.map { renderNodePlainText(of: $0) }.filter { !$0.isEmpty })
-    return parts.joined(separator: " ")
-}
-
-/// First SF Symbol in the subtree (`Label`'s icon or a leading `Image`).
-private func renderNodeFirstSystemImage(of node: RenderNode) -> String? {
-    if let name = node.systemName, !name.isEmpty { return name }
-    for child in node.children {
-        if let name = renderNodeFirstSystemImage(of: child) { return name }
+    private func cleanRenderToken(_ token: String?) -> String? {
+        token?.trimmingCharacters(in: CharacterSet(charactersIn: ".\" "))
     }
-    return nil
+
+    /// Maps a `.keyboardShortcut` modifier to the item's key-equivalent hint.
+    @MainActor
+    private func applyRenderNodeKeyEquivalent(from node: RenderNode, to item: NSMenuItem) {
+        guard let modifier = node.modifiers.first(where: { $0.name == "keyboardShortcut" }),
+              let key = renderNodeNSKeyEquivalent(modifier.firstValue) else { return }
+        item.keyEquivalent = key
+        item.keyEquivalentModifierMask = renderNodeNSModifierFlags(modifier.value("modifiers"))
+    }
+
+    /// Resolves a key token (`.return`/`.escape`/arrows/single character) to
+    /// an `NSMenuItem.keyEquivalent` string.
+    private func renderNodeNSKeyEquivalent(_ token: String?) -> String? {
+        guard var raw = token?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else { return nil }
+        if raw.first == "\"", raw.last == "\"", raw.count >= 2 {
+            raw.removeFirst()
+            raw.removeLast()
+        } else if raw.first == "." {
+            raw.removeFirst()
+        }
+        guard !raw.isEmpty else { return nil }
+        switch raw.lowercased() {
+        case "return": return "\r"
+        case "escape": return "\u{1B}"
+        case "space": return " "
+        case "tab": return "\t"
+        case "delete": return String(UnicodeScalar(NSBackspaceCharacter)!)
+        case "uparrow": return String(UnicodeScalar(NSUpArrowFunctionKey)!)
+        case "downarrow": return String(UnicodeScalar(NSDownArrowFunctionKey)!)
+        case "leftarrow": return String(UnicodeScalar(NSLeftArrowFunctionKey)!)
+        case "rightarrow": return String(UnicodeScalar(NSRightArrowFunctionKey)!)
+        case "deleteforward", "home", "end", "pageup", "pagedown", "clear": return nil
+        default: return raw.count == 1 ? raw.lowercased() : nil
+        }
+    }
+
+    /// Resolves a `[.command, .shift]`-style token to AppKit modifier flags.
+    /// SwiftUI's `.keyboardShortcut` defaults to command when unspecified.
+    private func renderNodeNSModifierFlags(_ source: String?) -> NSEvent.ModifierFlags {
+        guard let source = source?.lowercased() else { return [.command] }
+        var flags: NSEvent.ModifierFlags = []
+        if source.contains("command") { flags.insert(.command) }
+        if source.contains("shift") { flags.insert(.shift) }
+        if source.contains("option") { flags.insert(.option) }
+        if source.contains("control") { flags.insert(.control) }
+        return flags
+    }
+
+    /// Concatenated visible text of a subtree, for rich-label buttons and
+    /// text-only fallbacks.
+    private func renderNodePlainText(of nodes: [RenderNode]) -> String {
+        nodes.map { renderNodePlainText(of: $0) }.filter { !$0.isEmpty }.joined(separator: " ")
+    }
+
+    private func renderNodePlainText(of node: RenderNode) -> String {
+        var parts: [String] = []
+        if let text = node.text, !text.isEmpty { parts.append(text) }
+        parts.append(contentsOf: node.children.map { renderNodePlainText(of: $0) }.filter { !$0.isEmpty })
+        return parts.joined(separator: " ")
+    }
+
+    /// First SF Symbol in the subtree (`Label`'s icon or a leading `Image`).
+    private func renderNodeFirstSystemImage(of node: RenderNode) -> String? {
+        if let name = node.systemName, !name.isEmpty { return name }
+        for child in node.children {
+            if let name = renderNodeFirstSystemImage(of: child) { return name }
+        }
+        return nil
+    }
 }
