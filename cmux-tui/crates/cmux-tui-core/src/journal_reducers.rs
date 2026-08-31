@@ -360,6 +360,64 @@ mod tests {
     }
 
     #[test]
+    fn companion_adapter_hooks_cannot_clobber_the_live_owner() {
+        let subjects = terminal_subject("term_a");
+        let claude = json!({"adapter": {"id": "claude", "version": 1}});
+        let codex = json!({"adapter": {"id": "codex", "version": 1}});
+        let mut roster = AgentRoster::default();
+
+        // claude owns the terminal and is blocked at a permission prompt.
+        roster.apply(&hook_event(1, "agent.session.started", &subjects, &claude));
+        roster.apply(&hook_event(2, "agent.approval.requested", &subjects, &claude));
+        assert_eq!(roster.entries["term_a"].state, "blocked");
+
+        // A short-lived companion codex (spawned inside the same PTY) runs
+        // a turn and ends its session. None of it may touch claude's entry.
+        for kind in
+            ["agent.session.started", "agent.turn.started", "agent.turn.completed"]
+        {
+            let deltas = roster.apply(&hook_event(3, kind, &subjects, &codex));
+            assert!(deltas.is_empty(), "{kind} must not overwrite the live owner");
+        }
+        let deltas = roster.apply(&hook_event(4, "agent.session.ended", &subjects, &codex));
+        assert!(deltas.is_empty(), "a companion done must not remove the live owner");
+        assert_eq!(roster.entries["term_a"].state, "blocked");
+        assert_eq!(roster.entries["term_a"].agent.as_deref(), Some("claude"));
+
+        // The owner's own end still removes the entry, and the next agent
+        // then claims the empty slot normally.
+        roster.apply(&hook_event(5, "agent.session.ended", &subjects, &claude));
+        assert!(roster.entries.is_empty());
+        roster.apply(&hook_event(6, "agent.session.started", &subjects, &codex));
+        assert_eq!(roster.entries["term_a"].agent.as_deref(), Some("codex"));
+    }
+
+    #[test]
+    fn a_different_adapter_claims_a_terminal_whose_owner_went_stale() {
+        let subjects = terminal_subject("term_a");
+        let claude = json!({"adapter": {"id": "claude", "version": 1}});
+        let codex = json!({"adapter": {"id": "codex", "version": 1}});
+        let mut roster = AgentRoster::default();
+
+        roster.apply(&stamped_event(1_000, "agent.turn.started", &subjects, &claude));
+
+        // Fresh owner: a different adapter cannot claim the slot.
+        let deltas =
+            roster.apply(&stamped_event(1_000 + STALE_HOOK_MS - 1, "agent.turn.started", &subjects, &codex));
+        assert!(deltas.is_empty());
+        assert_eq!(roster.entries["term_a"].agent.as_deref(), Some("claude"));
+
+        // Stale owner (died without SessionEnd): a live takeover applies,
+        // but a done still never removes someone else's entry.
+        let deltas = roster
+            .apply(&stamped_event(1_000 + STALE_HOOK_MS, "agent.session.ended", &subjects, &codex));
+        assert!(deltas.is_empty(), "cross-adapter done never removes the entry");
+        roster.apply(&stamped_event(1_000 + STALE_HOOK_MS, "agent.turn.started", &subjects, &codex));
+        assert_eq!(roster.entries["term_a"].agent.as_deref(), Some("codex"));
+        assert_eq!(roster.entries["term_a"].state, "working");
+    }
+
+    #[test]
     fn folds_are_idempotent_per_state_and_deterministic_across_replays() {
         let subjects = terminal_subject("term_a");
         let payload = json!({});
