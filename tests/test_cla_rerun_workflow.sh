@@ -43,6 +43,8 @@ export ISSUE_NUMBER=123
 export PR_NUMBER=123
 export COMMENT_BODY=recheck
 export COMMENT_CREATED_AT=2026-08-31T08:00:00Z
+export COMMENT_AUTHOR_LOGIN=contributor
+export COMMENT_AUTHOR_ASSOCIATION=NONE
 export WORKFLOW_PATH=.github/workflows/cla.yml
 export WORKFLOW_SHA=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 export TARGET_EVENT=pull_request_target
@@ -52,7 +54,18 @@ export TARGET_BASE_REF=main
 # fork-only commit has no result from /commits/:sha/pulls, while the workflow
 # run still carries head_repository identity.
 gh() {
-  local endpoint="${*: -1}"
+  local endpoint=""
+  local arg
+  for arg in "$@"; do
+    if [[ "$arg" == repos/* ]]; then
+      endpoint="$arg"
+      break
+    fi
+  done
+  [[ -n "$endpoint" ]] || {
+    echo "missing API endpoint" >&2
+    return 1
+  }
   local live_state=open
   local live_base=main
   local run_head_repo=contributor/cmux
@@ -77,10 +90,20 @@ gh() {
       ;;
     repos/manaflow-ai/cmux/pulls/123)
       jq -nc --arg state "$live_state" --arg base "$live_base" \
-        '{number:123,state:$state,base:{ref:$base,repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",repo:{id:200,full_name:"contributor/cmux"}}}'
+        '{number:123,state:$state,user:{login:"contributor"},base:{ref:$base,repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",repo:{id:200,full_name:"contributor/cmux"}}}'
       ;;
     repos/manaflow-ai/cmux/commits/*/pulls)
       printf '[]\n'
+      ;;
+    repos/manaflow-ai/cmux/pulls)
+      if [[ "${FAKE_MODE}" == ambiguous-association ]]; then
+        jq -nc '[[
+          {number:123,state:"open",base:{ref:"main",repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",repo:{id:200,full_name:"contributor/cmux"}}},
+          {number:124,state:"open",base:{ref:"main",repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",repo:{id:200,full_name:"contributor/cmux"}}}
+        ]]'
+      else
+        jq -nc '[[{number:123,state:"open",base:{ref:"main",repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",repo:{id:200,full_name:"contributor/cmux"}}}]]'
+      fi
       ;;
     repos/manaflow-ai/cmux/actions/workflows\?per_page=100)
       printf '[{"workflows":[{"id":300,"path":".github/workflows/cla.yml","state":"active"}]}]\n'
@@ -114,10 +137,19 @@ run_case() {
   local expected_status="$2"
   local expected_text="$3"
   local expected_posts="$4"
-  local output status posts
+  local output status posts comment_author=contributor comment_association=NONE
+  if [[ "$mode" == wrong-commenter ]]; then
+    comment_author=untrusted-user
+  fi
   : >"$work/posts-$mode"
   set +e
-  output="$(FAKE_MODE="$mode" FAKE_POST_FILE="$work/posts-$mode" bash "$rerun_script" 2>&1)"
+  output="$(
+    FAKE_MODE="$mode" \
+    FAKE_POST_FILE="$work/posts-$mode" \
+    COMMENT_AUTHOR_LOGIN="$comment_author" \
+    COMMENT_AUTHOR_ASSOCIATION="$comment_association" \
+    bash "$rerun_script" 2>&1
+  )"
   status=$?
   set -e
   if [[ "$status" != "$expected_status" ]]; then
@@ -143,3 +175,5 @@ run_case stale-marker 1 "does not have exactly one failed CLA job" 0
 run_case wrong-head-repo 0 "No failed CLA run exists for this pull request head" 0
 run_case closed-pr 1 "The issue is not an open pull request" 0
 run_case retargeted-pr 1 "The live pull request is not valid" 0
+run_case ambiguous-association 1 "Expected exactly one open pull request for this head" 0
+run_case wrong-commenter 1 "Only the pull request author or a trusted repository participant" 0

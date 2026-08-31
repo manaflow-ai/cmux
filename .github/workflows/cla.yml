@@ -174,6 +174,8 @@ jobs:
           PR_NUMBER: ${{ github.event.issue.number }}
           COMMENT_BODY: ${{ github.event.comment.body }}
           COMMENT_CREATED_AT: ${{ github.event.comment.created_at }}
+          COMMENT_AUTHOR_LOGIN: ${{ github.event.comment.user.login }}
+          COMMENT_AUTHOR_ASSOCIATION: ${{ github.event.comment.author_association }}
           WORKFLOW_PATH: '.github/workflows/cla.yml'
           WORKFLOW_SHA: ${{ github.workflow_sha }}
           TARGET_EVENT: 'pull_request_target'
@@ -194,6 +196,11 @@ jobs:
           [[ "${PR_NUMBER}" == "${ISSUE_NUMBER}" ]] || fail "Issue and pull request numbers differ"
           [[ "${COMMENT_BODY}" == "recheck" || "${COMMENT_BODY}" == "I have read the CLA Document and I hereby sign the CLA" ]] || fail "Comment is not an accepted CLA trigger"
           [[ "${COMMENT_CREATED_AT}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || fail "Invalid comment timestamp"
+          [[ -n "${COMMENT_AUTHOR_LOGIN}" ]] || fail "Comment author is missing"
+          case "${COMMENT_AUTHOR_ASSOCIATION}" in
+            OWNER|MEMBER|COLLABORATOR|CONTRIBUTOR|FIRST_TIME_CONTRIBUTOR|FIRST_TIMER|NONE) ;;
+            *) fail "Comment author association is invalid" ;;
+          esac
           [[ "${WORKFLOW_SHA}" =~ ^[0-9a-f]{40}$ ]] || fail "Invalid workflow generation SHA"
 
           issue_json="$(gh api "repos/${GH_REPO}/issues/${PR_NUMBER}" 2>/dev/null)" || fail "Could not query the issue"
@@ -212,16 +219,28 @@ jobs:
             (.head.sha | type == "string") and
             (.head.sha | test("^[0-9a-f]{40}$")) and
             (.head.repo.id | type == "number") and
-            (.head.repo.full_name | type == "string")
+            (.head.repo.full_name | type == "string") and
+            (.user.login | type == "string")
           ' <<<"${pr_json}" >/dev/null || fail "The live pull request is not valid"
           head_sha="$(jq -r '.head.sha' <<<"${pr_json}")"
           head_ref="$(jq -r '.head.ref // empty' <<<"${pr_json}")"
           head_repo="$(jq -r '.head.repo.full_name // empty' <<<"${pr_json}")"
           head_repo_id="$(jq -r '.head.repo.id // empty' <<<"${pr_json}")"
           repo_id="$(jq -r '.base.repo.id // empty' <<<"${pr_json}")"
+          pr_author_login="$(jq -r '.user.login // empty' <<<"${pr_json}")"
           [[ "${head_ref}" != "" && "${head_repo}" != "" ]] || fail "The pull request head repository is missing"
           [[ "${head_repo_id}" =~ ^[1-9][0-9]*$ ]] || fail "The pull request head repository ID is missing"
           [[ "${repo_id}" =~ ^[1-9][0-9]*$ ]] || fail "The pull request base repository ID is missing"
+          [[ "${pr_author_login}" != "" ]] || fail "The pull request author is missing"
+          # A contributor may recheck their own pull request. A different
+          # commenter must be a trusted repository participant, which limits
+          # unauthenticated users to the harmless no-op path.
+          if [[ "${COMMENT_AUTHOR_LOGIN}" != "${pr_author_login}" ]]; then
+            case "${COMMENT_AUTHOR_ASSOCIATION}" in
+              OWNER|MEMBER|COLLABORATOR) ;;
+              *) fail "Only the pull request author or a trusted repository participant may request a CLA rerun" ;;
+            esac
+          fi
 
           # The workflow-run list can omit pull_requests for
           # pull_request_target runs. Resolve the commit through GitHub's PR
@@ -256,6 +275,60 @@ jobs:
           elif [[ "${head_repo}" == "${GH_REPO}" ]]; then
             fail "The base-repository head has no pull request association"
           fi
+
+          # A fork-only commit can be absent from the commit association API.
+          # Resolve it through the live open-PR list instead. The head filter
+          # is owner:ref, so the result must contain exactly one PR with the
+          # exact number, SHA, head repository, and base repository. This
+          # rejects duplicate or cross-PR matches before any run is selected.
+          case "${head_repo}" in
+            ""|*/*/*) fail "The pull request head repository name is invalid" ;;
+          esac
+          head_owner="${head_repo%%/*}"
+          [[ -n "${head_owner}" ]] || fail "The pull request head owner is missing"
+          open_prs_json="$(gh api \
+            --method GET \
+            --paginate \
+            --slurp \
+            --header 'Accept: application/vnd.github+json' \
+            --raw-field state=open \
+            --raw-field base="${TARGET_BASE_REF}" \
+            --raw-field head="${head_owner}:${head_ref}" \
+            --raw-field per_page=100 \
+            "repos/${GH_REPO}/pulls" 2>/dev/null)" || fail "Could not query live open pull requests for this head"
+          jq -e 'type == "array" and all(.[]; type == "array")' <<<"${open_prs_json}" >/dev/null || fail "Could not validate live open pull requests"
+          if ! matching_open_prs_json="$(jq -c \
+              --arg repo "${GH_REPO}" \
+              --arg pr "${PR_NUMBER}" \
+              --arg sha "${head_sha}" \
+              --arg base "${TARGET_BASE_REF}" \
+              --arg head_ref "${head_ref}" \
+              --arg head_repo "${head_repo}" \
+              --argjson head_repo_id "${head_repo_id}" \
+              --argjson repo_id "${repo_id}" '
+                [ .[] | .[]?
+                  | select(
+                      (.number | type == "number") and
+                      .state == "open" and
+                      .base.ref == $base and
+                      .base.repo.full_name == $repo and
+                      (.base.repo.id | type == "number") and
+                      .base.repo.id == $repo_id and
+                      .head.ref == $head_ref and
+                      .head.sha == $sha and
+                      .head.repo.full_name == $head_repo and
+                      (.head.repo.id | type == "number") and
+                      .head.repo.id == $head_repo_id
+                    )
+                ]
+                | sort_by(.number)
+              ' <<<"${open_prs_json}")"; then
+            fail "Could not validate live open pull request data"
+          fi
+          open_association_count="$(jq -r 'length' <<<"${matching_open_prs_json}")"
+          [[ "${open_association_count}" =~ ^[0-9]+$ ]] || fail "Could not count live open pull request associations"
+          [[ "${open_association_count}" == "1" ]] || fail "Expected exactly one open pull request for this head"
+          jq -e --argjson number "${PR_NUMBER}" '.[0].number == $number' <<<"${matching_open_prs_json}" >/dev/null || fail "The live head is associated with a different pull request"
 
           workflow_json="$(gh api --paginate --slurp "repos/${GH_REPO}/actions/workflows?per_page=100" 2>/dev/null)" || fail "Could not query repository workflows"
           workflow_id="$(jq -r --arg path "${WORKFLOW_PATH}" '[.[] | .workflows[]? | select(.path == $path and .state == "active") | .id] | if length == 1 then .[0] else empty end' <<<"${workflow_json}")"
