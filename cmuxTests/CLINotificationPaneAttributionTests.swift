@@ -19,7 +19,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let workspaceId = "11111111-1111-1111-1111-111111111111"
         let staleSurfaceId = "22222222-2222-2222-2222-222222222222"
         let focusedSurfaceId = "33333333-3333-3333-3333-333333333333"
-        let probePath = root.appendingPathComponent("target-resolution-error.txt", isDirectory: false)
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer {
@@ -73,6 +72,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceId])
             case "feed.push":
                 return self.v2Response(id: id, ok: true, result: [:])
+            case "agent_journal_append":
+                return "OK 1"
             default:
                 return self.v2Response(
                     id: id,
@@ -88,7 +89,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_SURFACE_ID"] = staleSurfaceId
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLI_SENTRY_CAPTURE_PROBE_PATH"] = probePath.path
         environment["CODEX_HOME"] = root.appendingPathComponent("codex-home", isDirectory: true).path
         environment.removeValue(forKey: "CMUX_CODEX_PID")
 
@@ -109,8 +109,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "A stale surface with no live proof must not mutate the focused pane, saw \(state.commands)"
         )
         XCTAssertTrue(
-            FileManager.default.fileExists(atPath: probePath.path),
-            "Fail-closed target resolution must leave a diagnostic"
+            AgentJournalAppendCapture.captures(in: state.commands).contains {
+                $0.unattributedReason == "target-unresolved" && $0.surfaceId == nil
+            },
+            "Fail-closed target resolution must leave an unattributed journal diagnostic, saw \(state.commands)"
         )
     }
 
@@ -129,7 +131,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let sessionIds = ["codex-stale-subagent-start", "codex-stale-subagent-stop"]
         let settledSessionId = sessionIds[1]
         let settledTurnId = "turn-1"
-        let probePath = root.appendingPathComponent("target-resolution-error.txt", isDirectory: false)
         let ledgerPath = root.appendingPathComponent("codex-turn-ledger.json")
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -211,6 +212,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 )
             case "workspace.current", "feed.push":
                 return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceId])
+            case "agent_journal_append":
+                return "OK 1"
             default:
                 return self.v2Response(
                     id: id,
@@ -226,7 +229,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_SURFACE_ID"] = staleSurfaceId
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLI_SENTRY_CAPTURE_PROBE_PATH"] = probePath.path
         environment["CODEX_HOME"] = root.appendingPathComponent("codex-home", isDirectory: true).path
         environment["CMUX_CODEX_TURN_LEDGER_PATH"] = ledgerPath.path
         environment.removeValue(forKey: "CMUX_CODEX_PID")
@@ -273,6 +275,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             (settledRecord["settledTurnIDs"] as? [String])?.contains(settledTurnId) == true,
             "An unresolved SubagentStop must still settle the pending turn by session identity"
         )
-        XCTAssertTrue(FileManager.default.fileExists(atPath: probePath.path))
+        XCTAssertTrue(
+            AgentJournalAppendCapture.captures(in: state.commands).contains {
+                $0.unattributedReason == "target-unresolved" && $0.surfaceId == nil
+            },
+            "Fail-closed child lifecycle must leave an unattributed journal diagnostic, saw \(state.commands)"
+        )
     }
 }
