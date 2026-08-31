@@ -134,10 +134,7 @@ mod tests {
     #[test]
     fn agent_resume_planner_maps_supported_agents_to_exact_argv() {
         let id = AgentSessionRef::id("session-1").unwrap();
-        assert_eq!(
-            plan("claude", &id).unwrap().argv,
-            vec!["claude", "--resume", "session-1"]
-        );
+        assert_eq!(plan("claude", &id).unwrap().argv, vec!["claude", "--resume", "session-1"]);
         assert_eq!(plan("codex", &id).unwrap().argv, vec!["codex", "resume", "session-1"]);
         assert_eq!(plan("copilot", &id).unwrap().argv, vec!["copilot", "--resume=session-1"]);
         assert_eq!(plan("agy", &id).unwrap().argv, vec!["agy", "--conversation", "session-1"]);
@@ -173,10 +170,7 @@ mod tests {
     #[test]
     fn agent_resume_paths_resume_only_path_capable_agents() {
         let path = AgentSessionRef::path("/tmp/session.jsonl").unwrap();
-        assert_eq!(
-            plan("pi", &path).unwrap().argv,
-            vec!["pi", "--session", "/tmp/session.jsonl"]
-        );
+        assert_eq!(plan("pi", &path).unwrap().argv, vec!["pi", "--session", "/tmp/session.jsonl"]);
         assert!(plan("claude", &path).is_none(), "claude resumes by id only");
         assert!(plan("codex", &path).is_none());
     }

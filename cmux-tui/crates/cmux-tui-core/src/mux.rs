@@ -5163,7 +5163,10 @@ impl Mux {
                 for record in &page.records {
                     sequence = sequence.max(record.sequence);
                     let payload = &record.payload;
-                    if payload.get("adapter").and_then(|adapter| adapter.get("id")).and_then(Value::as_str)
+                    if payload
+                        .get("adapter")
+                        .and_then(|adapter| adapter.get("id"))
+                        .and_then(Value::as_str)
                         != Some(agent.as_str())
                     {
                         continue;
@@ -5184,8 +5187,7 @@ impl Mux {
                 }
                 sequence = sequence.max(page.scanned_through);
             }
-            let Some(reference) =
-                session_id.and_then(crate::agent_resume::AgentSessionRef::id)
+            let Some(reference) = session_id.and_then(crate::agent_resume::AgentSessionRef::id)
             else {
                 continue;
             };
@@ -5204,8 +5206,10 @@ impl Mux {
                     }
                     let pid = surface.process_id()?;
                     let name = crate::platform::foreground_process_name(pid)?;
-                    Some(manifests.identify(&name).map(|manifest| manifest.id())
-                        == Some(agent.as_str()))
+                    Some(
+                        manifests.identify(&name).map(|manifest| manifest.id())
+                            == Some(agent.as_str()),
+                    )
                 })
                 .unwrap_or(false);
             plans.push(serde_json::json!({
@@ -23927,9 +23931,7 @@ mod tests {
         let terminal_id = snapshot["terminal_id"].as_str().unwrap().to_string();
         let terminal_id = crate::resource::TerminalPublicId::parse(terminal_id).unwrap();
         assert!(
-            mux.agent_wait_snapshot(&session_id, Some(&terminal_id), &states)
-                .unwrap()
-                .is_some(),
+            mux.agent_wait_snapshot(&session_id, Some(&terminal_id), &states).unwrap().is_some(),
             "the terminal filter matches its own agent"
         );
         assert!(

@@ -109,9 +109,9 @@ fn wait_agent(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, 
     let deadline = timeout.map(|timeout| std::time::Instant::now() + timeout);
     loop {
         let subscription = mux.subscribe_agent_changes();
-        if let Some(agent) =
-            mux.agent_wait_snapshot(&session_id, terminal.as_ref(), &states)
-                .map_err(resource_operation_error)?
+        if let Some(agent) = mux
+            .agent_wait_snapshot(&session_id, terminal.as_ref(), &states)
+            .map_err(resource_operation_error)?
         {
             return Ok(json!({"matched": true, "agent": agent}));
         }

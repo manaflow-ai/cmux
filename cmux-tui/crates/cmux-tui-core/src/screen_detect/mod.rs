@@ -138,12 +138,9 @@ impl ScreenDetectTracker {
     /// overrides hooks (arbitration is unchanged) and never downgrades a
     /// blocked screen; it only upgrades an otherwise idle read.
     pub(crate) fn output_active(&self, terminal_id: &str, now: Instant) -> bool {
-        self.terminals
-            .get(terminal_id)
-            .and_then(|entry| entry.last_output_at)
-            .is_some_and(|at| {
-                now.duration_since(at).as_millis() as u64 <= WORKING_ACTIVITY_WINDOW_MS
-            })
+        self.terminals.get(terminal_id).and_then(|entry| entry.last_output_at).is_some_and(|at| {
+            now.duration_since(at).as_millis() as u64 <= WORKING_ACTIVITY_WINDOW_MS
+        })
     }
 
     /// True when this terminal previously journaled a screen-derived state

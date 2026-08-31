@@ -78,8 +78,7 @@ pub(crate) fn show_notification(title: &str, body: Option<&str>) -> io::Result<b
     let Some(backend) = backend() else {
         return Ok(false);
     };
-    let sequence =
-        encode_notification(backend, std::env::var_os("TMUX").is_some(), title, body);
+    let sequence = encode_notification(backend, std::env::var_os("TMUX").is_some(), title, body);
     let mut stdout = io::stdout();
     stdout.write_all(&sequence)?;
     stdout.flush()?;
@@ -141,10 +140,7 @@ mod tests {
             "claude blocked",
             Some("ws · needs input"),
         );
-        assert_eq!(
-            sequence,
-            "\x1b]9;claude blocked: ws \u{b7} needs input\x1b\\\x07".as_bytes()
-        );
+        assert_eq!(sequence, "\x1b]9;claude blocked: ws \u{b7} needs input\x1b\\\x07".as_bytes());
     }
 
     #[test]
@@ -174,8 +170,7 @@ mod tests {
 
     #[test]
     fn agent_alert_tmux_passthrough_wraps_and_escapes_but_not_the_bel() {
-        let sequence =
-            encode_notification(TerminalNotificationBackend::Ghostty, true, "hi", None);
+        let sequence = encode_notification(TerminalNotificationBackend::Ghostty, true, "hi", None);
         assert_eq!(sequence, b"\x1bPtmux;\x1b\x1b]9;hi\x1b\x1b\\\x1b\\\x07");
     }
 }

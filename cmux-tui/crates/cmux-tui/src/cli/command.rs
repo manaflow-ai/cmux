@@ -1379,13 +1379,9 @@ fn parse_agent(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usage
             }
             let states: Vec<String> = match (flags.take("state"), flags.take("any-of")) {
                 (Some(state), None) => vec![state],
-                (None, Some(list)) => {
-                    list.split(',').map(str::trim).map(str::to_string).collect()
-                }
+                (None, Some(list)) => list.split(',').map(str::trim).map(str::to_string).collect(),
                 (Some(_), Some(_)) => {
-                    return Err(UsageError::new(
-                        "agent wait takes --state or --any-of, not both",
-                    ));
+                    return Err(UsageError::new("agent wait takes --state or --any-of, not both"));
                 }
                 (None, None) => {
                     return Err(UsageError::new(
