@@ -141,6 +141,11 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     @ObservationIgnored var reactGrabTaskPanelId: UUID?
     @ObservationIgnored var terminalViewReattachCoalescingDepth = 0
     @ObservationIgnored var pendingTerminalViewReattachPanelIds: Set<UUID> = []
+    /// Prevents synchronous Bonsplit selection callbacks from materializing
+    /// deferred browser panels while a restore tree is still being assembled.
+    @ObservationIgnored var sessionRestoreDepth = 0
+    /// Browser panel IDs requested by a host while the restore transaction was active.
+    @ObservationIgnored var pendingDeferredBrowserMaterializationPanelIds: Set<UUID> = []
     @ObservationIgnored let focusHistoryNavigation: any FocusHistoryNavigating
     @ObservationIgnored let terminalWorkingDirectoryResolver: TerminalWorkingDirectoryResolver
     private let settings: any SettingsReading
@@ -404,6 +409,37 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
 
     func browserPanel(for panelId: UUID) -> BrowserPanel? {
         panels[panelId] as? BrowserPanel
+    }
+
+    /// Resolves the mute state for a live or deferred browser tab.
+    func resolvedAudioMuted(for panel: any Panel) -> Bool {
+        (panel as? BrowserPanel)?.isMuted
+            ?? (panel as? DeferredBrowserPanel)?.sessionPanelSnapshot.browser?.isMuted
+            ?? false
+    }
+
+    /// Requests a deferred browser transition from the Dock owner.
+    @discardableResult
+    func requestDeferredBrowserMaterialization(
+        panelId: UUID,
+        isVisibleInUI: Bool,
+        reason: String = "browser.deferred.request"
+    ) -> Bool {
+        guard let deferredPanel = panels[panelId] as? DeferredBrowserPanel else {
+            return panels[panelId] is BrowserPanel
+        }
+        guard isVisibleInUI else { return false }
+        guard sessionRestoreDepth == 0 else {
+            pendingDeferredBrowserMaterializationPanelIds.insert(panelId)
+            return false
+        }
+#if DEBUG
+        cmuxDebugLog(
+            "session.restore.dockBrowser.materialize.request dock=\(workspaceId.uuidString.prefix(8)) " +
+                "panel=\(panelId.uuidString.prefix(8)) reason=\(reason)"
+        )
+#endif
+        return materializeDeferredBrowserPanel(deferredPanel) != nil
     }
 
     /// Binds a Dock tab to its panel and makes that tab the authoritative reverse lookup.

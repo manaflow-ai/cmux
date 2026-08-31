@@ -249,6 +249,7 @@ pub(crate) struct ShortcutMessages {
 pub(crate) struct BrowserMessages {
     failed_prefix: &'static str,
     control_failed: &'static str,
+    control_unavailable: &'static str,
     not_responding: &'static str,
     resize_recovery: &'static str,
     new_page_verification_prefix: &'static str,
@@ -267,6 +268,10 @@ pub(crate) struct BrowserMessages {
 impl BrowserMessages {
     pub(crate) fn control_failed(&self, error: &str) -> String {
         self.control_failed.replace("{error}", error)
+    }
+
+    pub(crate) fn control_unavailable(&self) -> String {
+        self.control_failed.replace("{error}", self.control_unavailable)
     }
 
     pub(crate) fn loading(&self, url: &str) -> String {
@@ -700,6 +705,7 @@ pub(crate) struct ConfigMessages {
     invalid_section: &'static str,
     unknown_field: &'static str,
     invalid_root: &'static str,
+    write_durability_warning: &'static str,
 }
 
 impl ConfigMessages {
@@ -714,6 +720,9 @@ impl ConfigMessages {
     }
     pub(crate) fn invalid_root(&self) -> &'static str {
         self.invalid_root
+    }
+    pub(crate) fn write_durability_warning(&self, error: &str) -> String {
+        self.write_durability_warning.replace("{error}", error)
     }
 }
 
@@ -1333,6 +1342,7 @@ edits shell files. Authenticate with the configured host before retrying.
     browser: BrowserMessages {
         failed_prefix: "browser failed: ",
         control_failed: "browser command failed: {error}",
+        control_unavailable: "browser connection unavailable; retry the command",
         not_responding: "browser failed: browser is not responding",
         resize_recovery: "browser failed: browser resize recovery failed; reload to retry",
         new_page_verification_prefix: "browser failed: could not verify new page pixels: ",
@@ -1615,6 +1625,7 @@ OPTIONS:
         invalid_section: "cmux-tui: ignoring invalid config section {section}",
         unknown_field: "cmux-tui: ignoring unknown config field {field}",
         invalid_root: "cmux-tui: ignoring config because the root value is not an object",
+        write_durability_warning: "cmux-tui: config write committed, but parent directory durability is unconfirmed: {error}",
     },
     attach: AttachMessages {
         filtered_subscription_unavailable: "single-terminal attach requires a newer cmux-tui server; restart the session",
@@ -1978,6 +1989,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
     browser: BrowserMessages {
         failed_prefix: "ブラウザでエラーが発生しました: ",
         control_failed: "ブラウザ操作に失敗しました: {error}",
+        control_unavailable: "ブラウザ接続を利用できません。コマンドを再試行してください",
         not_responding: "ブラウザが応答していません",
         resize_recovery: "ブラウザのサイズ変更を復旧できませんでした。再読み込みして再試行してください",
         new_page_verification_prefix: "新しいページの表示を確認できませんでした: ",
@@ -2257,6 +2269,7 @@ ID とセッション:
         invalid_section: "cmux-tui: 無効な設定セクション {section} を無視します",
         unknown_field: "cmux-tui: 不明な設定フィールド {field} を無視します",
         invalid_root: "cmux-tui: ルート値がオブジェクトではないため設定を無視します",
+        write_durability_warning: "cmux-tui: 設定の書き込みは完了しましたが、親ディレクトリの永続性を確認できません: {error}",
     },
     attach: AttachMessages {
         filtered_subscription_unavailable: "単一ターミナルへの接続には新しい cmux-tui サーバーが必要です。セッションを再起動してください",

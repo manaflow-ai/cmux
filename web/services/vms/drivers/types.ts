@@ -50,6 +50,14 @@ export type CreateOptions = {
    * this way). Providers without sizing ignore it.
    */
   memoryMb?: number;
+  /**
+   * Machine-level environment injected at create time (e.g. the coderouter
+   * model-plane env: OPENAI_BASE_URL + a per-machine route token). Values may
+   * be secrets: drivers must pass them to the provider's create call only and
+   * never echo them into VMHandle.providerMetadata, which is persisted.
+   * Providers without machine-level env support ignore it.
+   */
+  envs?: Readonly<Record<string, string>>;
 };
 
 export type SSHEndpoint = {

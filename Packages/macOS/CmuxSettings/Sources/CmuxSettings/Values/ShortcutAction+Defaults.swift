@@ -57,6 +57,7 @@ extension ShortcutAction {
         case .jumpToUnread: return ShortcutStroke(key: "u", command: true, shift: true)
         case .toggleUnread: return ShortcutStroke(key: "u", command: true, option: true)
         case .markOldestUnreadAndJumpNext: return ShortcutStroke(key: "u", command: true, control: true)
+        case .markAllNotificationsRead, .clearAllNotifications: return nil
         case .focusRightSidebar: return ShortcutStroke(key: "e", command: true, shift: true)
         case .switchRightSidebarToFiles: return ShortcutStroke(key: "1", control: true)
         case .switchRightSidebarToFind: return ShortcutStroke(key: "2", control: true)
