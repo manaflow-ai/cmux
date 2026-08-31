@@ -15,8 +15,9 @@ if rg -n 'changes\.base' "$WORKFLOW" >/dev/null; then
 fi
 
 # The protected ruleset must be migrated to the versioned check context before
-# enforcement. Exact admission must run before any replace-one queue, so a
-# case-variant comment cannot replace a valid pending comment.
+# enforcement. The admission queue is bounded per pull request. Its known
+# case-insensitive replacement behavior is an availability residual; the
+# exact shell check still prevents an invalid comment from reaching signing.
 grep -Fq 'name: "CLA Assistant v2"' "$WORKFLOW"
 grep -Fq 'name: "CLA Assistant"' "$WORKFLOW"
 grep -Fq 'github.event.comment.body == '\''recheck'\''' "$WORKFLOW"
@@ -32,8 +33,10 @@ for job in CLACommentGate CLAAssistant CLACompatibility RerunFailedCLA LockMerge
   fi
 done
 gate_group_block="$(awk '/^  CLACommentGate:/ { in_job=1; next } in_job && /^  [A-Za-z0-9_]+:/ { exit } in_job { print }' "$WORKFLOW")"
-if [[ "$gate_group_block" == *$'\n    concurrency:'* ]]; then
-  echo 'FAIL: exact CLA admission gate must not use a replace-one concurrency queue' >&2
+if [[ "$gate_group_block" != *$'\n    concurrency:'* ||
+      "$gate_group_block" != *"group: cla-admission-\${{ github.repository }}-\${{ github.event.pull_request.number || github.event.issue.number }}"* ||
+      "$gate_group_block" != *$'cancel-in-progress: false'* ]]; then
+  echo 'FAIL: CLA admission gate must use a bounded per-PR non-canceling queue' >&2
   exit 1
 fi
 if rg -n -- '--paginate|--slurp' "$WORKFLOW" >/dev/null; then

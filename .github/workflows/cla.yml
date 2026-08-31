@@ -47,11 +47,15 @@ jobs:
       )
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # Do not put this exact-byte gate behind a replace-one concurrency queue.
-    # GitHub expression equality is case-insensitive, so a rejected case
-    # variant could otherwise replace a valid pending comment before the shell
-    # has a chance to inspect it. The signer job applies the per-PR queue only
-    # after this gate succeeds.
+    # Bound issue-comment fanout to one running and one pending admission per
+    # pull request. GitHub expression equality is case-insensitive, so a
+    # rejected case variant can replace a valid pending comment in this queue;
+    # the shell remains the exact-byte authority and the signer queue runs only
+    # after this gate succeeds. This is an availability tradeoff, not an
+    # authorization bypass.
+    concurrency:
+      group: cla-admission-${{ github.repository }}-${{ github.event.pull_request.number || github.event.issue.number }}
+      cancel-in-progress: false
     permissions: {}
     steps:
       - name: "Validate exact CLA trigger"
