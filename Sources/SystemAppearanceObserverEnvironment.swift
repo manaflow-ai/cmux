@@ -27,7 +27,10 @@ extension SystemAppearanceObserver {
                         object: nil,
                         queue: .main
                     ) { _ in
-                        Task { @MainActor in
+                        // NotificationCenter delivers this observer on the
+                        // main queue above, so invoke the main-actor seam
+                        // directly instead of creating one task per event.
+                        MainActor.assumeIsolated {
                             handler()
                         }
                     }

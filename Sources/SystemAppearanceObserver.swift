@@ -46,6 +46,8 @@ final class SystemAppearanceObserver {
     private let environment: Environment
     private var observation: EffectiveAppearanceObservation?
     private var systemColorsObservation: SystemColorsObservation?
+    private var systemColorsRefreshTask: Task<Void, Never>?
+    private var hasPendingSystemColorsRefresh = false
     private var lastResolvedPrefersDark: Bool?
 
     init() {
@@ -70,6 +72,9 @@ final class SystemAppearanceObserver {
 
     // The concrete `NSKeyValueObservation` self-invalidates at deallocation.
     func stopObserving() {
+        systemColorsRefreshTask?.cancel()
+        systemColorsRefreshTask = nil
+        hasPendingSystemColorsRefresh = false
         observation?.invalidate()
         observation = nil
         systemColorsObservation?.invalidate()
@@ -81,9 +86,23 @@ final class SystemAppearanceObserver {
         // signal for semantic colors such as `controlAccentColor`. It applies
         // in explicit light/dark modes as well as system mode, and does not
         // reload terminal themes because the color-scheme preference did not
-        // change.
+        // change. AppKit can emit several notifications for one settings
+        // change, so hold one deferred refresh open until the current main
+        // actor turn drains.
         guard observation != nil, systemColorsObservation != nil else { return }
-        environment.postSystemAppearanceDidChange()
+        guard !hasPendingSystemColorsRefresh else { return }
+        hasPendingSystemColorsRefresh = true
+        systemColorsRefreshTask = Task { @MainActor [weak self] in
+            // Yield once so a burst of same-turn system-color notifications
+            // shares one sidebar projection. This is a cooperative scheduling
+            // boundary, not a timing delay or polling loop.
+            await Task.yield()
+            guard let self, !Task.isCancelled else { return }
+            self.hasPendingSystemColorsRefresh = false
+            self.systemColorsRefreshTask = nil
+            guard self.observation != nil, self.systemColorsObservation != nil else { return }
+            self.environment.postSystemAppearanceDidChange()
+        }
     }
 
     private func handleEffectiveAppearanceChange() {
