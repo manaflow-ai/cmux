@@ -130,6 +130,12 @@ struct WorkspaceDetailView: View {
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
             .navigationTitle(systemNavigationTitle)
             .mobileTerminalNavigationChrome(theme: store.activeTerminalTheme)
+            // Paint the navigation container, including the status-bar safe
+            // area, with the same theme as the terminal surface below it.
+            .containerBackground(
+                store.activeTerminalTheme.terminalBackgroundColor,
+                for: .navigation
+            )
             .toolbar { workspaceDetailToolbar }
             .task(id: chatRefreshKey) { await refreshChatSessions() }
             .task(id: workspace.rpcWorkspaceID.rawValue) {

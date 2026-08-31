@@ -381,6 +381,12 @@ struct WorkspaceListView: View {
             machineSnapshots: displayedMachineSnapshots,
             filterMachines: displayedFilterMachines
         )
+        #if os(iOS)
+        // Keep the sidebar's navigation container opaque through the status
+        // bar. A plain view background only paints the list's content bounds,
+        // leaving the top safe area to the split view's default system color.
+        .containerBackground(Color(uiColor: .systemGroupedBackground), for: .navigation)
+        #endif
         .accessibilityIdentifier("MobileWorkspaceList")
         .onDisappear {
             invalidateDeferredWorkspaceSelection()

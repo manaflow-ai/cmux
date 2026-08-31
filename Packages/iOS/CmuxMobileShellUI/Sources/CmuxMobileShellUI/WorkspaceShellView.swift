@@ -148,6 +148,39 @@ private struct WorkspaceShellRenderPresentation {
     let toolbarMachineSnapshots: WorkspaceMachineSnapshots
     let canCreateWorkspaceForSelection: Bool
 }
+
+private struct WorkspaceSplitSidebarWidthKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        let next = nextValue()
+        guard next > 0 else { return }
+        value = next
+    }
+}
+
+/// Paints the split view's background behind the status-bar safe area. The
+/// navigation columns own their content backgrounds, but NavigationSplitView
+/// leaves the root safe area to the hosting view, which otherwise shows the
+/// window's default background across both columns.
+private struct WorkspaceSplitChromeBackground: View {
+    let sidebarColor: Color
+    let detailColor: Color
+    let sidebarWidth: CGFloat
+
+    var body: some View {
+        GeometryReader { geometry in
+            HStack(spacing: 0) {
+                sidebarColor
+                    .frame(width: min(max(sidebarWidth, 0), geometry.size.width))
+                detailColor
+                    .frame(maxWidth: .infinity)
+            }
+            .allowsHitTesting(false)
+        }
+        .ignoresSafeArea(.container, edges: [.horizontal, .top, .bottom])
+    }
+}
 #endif
 
 struct WorkspaceShellView: View {
@@ -177,6 +210,7 @@ struct WorkspaceShellView: View {
     @State private var rootToolbarPendingSelection: WorkspaceMacSelection?
     @State private var rootToolbarSelectionTask: Task<Void, Never>?
     @State private var rootToolbarSelectionGeneration: UInt64 = 0
+    @State private var splitSidebarWidth: CGFloat = 0
     #endif
     @State private var primarySearchCoordinator = MobilePrimarySearchCoordinator()
     @State private var workspaceListFilterState = WorkspaceListFilterState()
@@ -272,6 +306,18 @@ struct WorkspaceShellView: View {
                 notificationSearchTabContent(presentation: presentation)
             }
             .background {
+                if !usesCompactStack {
+                    WorkspaceSplitChromeBackground(
+                        sidebarColor: Color(uiColor: .systemGroupedBackground),
+                        detailColor: store.activeTerminalTheme.terminalBackgroundColor,
+                        sidebarWidth: splitSidebarWidth > 0
+                            ? splitSidebarWidth
+                            : geometry.size.width * 0.35
+                    )
+                }
+            }
+            .ignoresSafeArea(.container, edges: .top)
+            .background {
                 NotificationFeedSearchProjectionSync(
                     searchCoordinator: primarySearchCoordinator,
                     projection: notificationFeedProjection
@@ -279,6 +325,10 @@ struct WorkspaceShellView: View {
             }
             .environment(\.workspaceRootToolbarContentWidth, geometry.size.width)
             .environment(\.workspaceRootToolbarRenderContext, toolbarRenderContext)
+            .onPreferenceChange(WorkspaceSplitSidebarWidthKey.self) { width in
+                guard width > 0 else { return }
+                splitSidebarWidth = width
+            }
             .onChange(of: primarySearchCoordinator.isPresented) { _, isPresented in
                 guard !isPresented else { return }
                 consumePendingPrimarySearchNavigation(for: selectedPrimaryTab)
@@ -328,6 +378,16 @@ struct WorkspaceShellView: View {
                 )
             }
         }
+        .background {
+            if !usesCompactStack {
+                WorkspaceSplitChromeBackground(
+                    sidebarColor: Color(uiColor: .systemGroupedBackground),
+                    detailColor: store.activeTerminalTheme.terminalBackgroundColor,
+                    sidebarWidth: splitSidebarWidth
+                )
+            }
+        }
+        .ignoresSafeArea(.container, edges: .top)
         #else
         workspaceTabContent(canCreateWorkspaceForSelection: canCreateWorkspaceForMacSelection)
         .onAppear {
@@ -547,6 +607,15 @@ struct WorkspaceShellView: View {
                     canCreateWorkspaceForSelection: canCreateWorkspaceForSelection
                 )
             }
+            .background {
+                GeometryReader { geometry in
+                    Color.clear
+                        .preference(
+                            key: WorkspaceSplitSidebarWidthKey.self,
+                            value: geometry.size.width
+                        )
+                }
+            }
             .toolbar {
                 rootToolbarContent
             }
@@ -563,6 +632,15 @@ struct WorkspaceShellView: View {
             #endif
         }
         .navigationSplitViewStyle(.balanced)
+        #if os(iOS)
+        .containerBackground(for: .navigationSplitView) {
+            WorkspaceSplitChromeBackground(
+                sidebarColor: Color(uiColor: .systemGroupedBackground),
+                detailColor: store.activeTerminalTheme.terminalBackgroundColor,
+                sidebarWidth: splitSidebarWidth
+            )
+        }
+        #endif
         .onAppear {
             hasPresentedSplitDetail = true
         }

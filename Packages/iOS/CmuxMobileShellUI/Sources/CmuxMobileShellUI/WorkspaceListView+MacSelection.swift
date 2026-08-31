@@ -247,6 +247,7 @@ struct WorkspaceMacTitlePicker: View, Equatable {
                 title: value.title,
                 isLoading: value.isLoading,
                 width: value.labelWidth,
+                truncationMode: value.selection == .machine ? .middle : .tail,
                 statusLine: value.statusLine
             )
         }
@@ -274,6 +275,7 @@ private struct WorkspaceMacTitlePickerLabel: View {
     let title: String
     let isLoading: Bool
     let width: CGFloat
+    let truncationMode: Text.TruncationMode
     var statusLine: WorkspaceConnectionStatusLine?
 
     var body: some View {
@@ -283,9 +285,8 @@ private struct WorkspaceMacTitlePickerLabel: View {
                 Text(title)
                     .font(.headline.weight(.bold))
                     .lineLimit(1)
-                    .truncationMode(.tail)
-                    .allowsTightening(true)
-                    .minimumScaleFactor(0.75)
+                    .truncationMode(truncationMode)
+                    .allowsTightening(false)
                     .layoutPriority(1)
                 ZStack {
                     Image(systemName: "chevron.down")
