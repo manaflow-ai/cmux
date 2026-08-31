@@ -1148,20 +1148,20 @@ describe("recordCheckoutCompletion", () => {
       update,
     };
     const sentCheckoutSessions = new Set<string>();
+    let deliveryCalls = 0;
     const magicLinkDelivery = {
-      deliverOnce: mock(
-        async (
-          input: { checkoutSessionId: string },
-          deliver: () => Promise<void>,
-        ) => {
-          if (sentCheckoutSessions.has(input.checkoutSessionId)) {
-            return "already_sent" as const;
-          }
-          await deliver();
-          sentCheckoutSessions.add(input.checkoutSessionId);
-          return "sent" as const;
-        },
-      ),
+      deliverOnce: async (
+        input: { checkoutSessionId: string },
+        deliver: () => Promise<void>,
+      ) => {
+        deliveryCalls += 1;
+        if (sentCheckoutSessions.has(input.checkoutSessionId)) {
+          return "already_sent" as const;
+        }
+        await deliver();
+        sentCheckoutSessions.add(input.checkoutSessionId);
+        return "sent" as const;
+      },
     };
     const input = checkoutInput();
     const dependencies = {
@@ -1173,7 +1173,7 @@ describe("recordCheckoutCompletion", () => {
     await recordCheckoutCompletion(input as never, dependencies);
     await recordCheckoutCompletion(input as never, dependencies);
 
-    expect(magicLinkDelivery.deliverOnce).toHaveBeenCalledTimes(2);
+    expect(deliveryCalls).toBe(2);
     expect(sendMagicLinkEmail).toHaveBeenCalledTimes(1);
   });
 

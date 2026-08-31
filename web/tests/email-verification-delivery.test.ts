@@ -65,7 +65,10 @@ mock.module("../db/client", () => ({
   cloudDb: () => (useStubDb ? stubDb : realCloudDb()),
 }));
 
-const { makePurchaseMagicLinkDeliveryStore } = await import(
+const {
+  makePurchaseMagicLinkDeliveryStore,
+  PurchaseMagicLinkProviderRejectedError,
+} = await import(
   "../services/billing/emailVerificationDelivery"
 );
 
@@ -116,9 +119,32 @@ describe("purchase magic-link delivery", () => {
     await expect(store.deliverOnce(input, send)).rejects.toThrow(
       "connection reset after request write",
     );
+    if (!deliveryRow) throw new Error("delivery claim was not recorded");
+    deliveryRow.attemptLeaseExpiresAt = new Date(Date.now() - 1);
     await expect(store.deliverOnce(input, send)).resolves.toBe(
       "delivery_in_progress",
     );
     expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  test("releases the claim after a definitive provider rejection", async () => {
+    let attempts = 0;
+    const send = mock(async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        throw new PurchaseMagicLinkProviderRejectedError("rejected");
+      }
+    });
+    const store = makePurchaseMagicLinkDeliveryStore(stubDb as never);
+    const input = {
+      checkoutSessionId: "cs_magic_link_rejected",
+      stackUserId: "user_magic_link",
+      email: "buyer@example.com",
+    };
+
+    await expect(store.deliverOnce(input, send)).rejects.toThrow("rejected");
+    await expect(store.deliverOnce(input, send)).resolves.toBe("sent");
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(deliveryRow?.sentAt).toBeInstanceOf(Date);
   });
 });

@@ -11,7 +11,6 @@ import { getStackServerApp } from "../app/lib/stack";
 import {
   canonicalizeEmailForMatching,
   findBillingUserByEmail,
-  findOrCreateBillingUser,
   recordFoundersCheckoutCompletion,
   remapBillingOwnershipForRecovery,
   type BillingPurchaseDependencies,
@@ -116,19 +115,14 @@ export async function runFoundersLockoutBackfill(
 
     const requestedEmail = target.realEmail ?? target.email;
     let user = await findBillingUserByEmail(dependencies.stackApp, requestedEmail);
-    if (!user && !options.dryRun) {
-      user = await findOrCreateBillingUser(
-        dependencies.stackApp,
-        requestedEmail,
-      );
-    }
     if (!user) {
       const summary = {
         email: target.email,
         status: "skipped" as const,
-        reason: options.dryRun
-          ? "dry_run_would_create_target_user"
-          : "target_stack_user_not_found",
+        // This operator repair never creates a Stack account. Creating one
+        // after a deleted account is absent from the lookup can resurrect a
+        // tombstoned mailbox and grant the old paid entitlement to a new id.
+        reason: "target_stack_user_not_found",
       };
       summaries.push(summary);
       dependencies.log?.(summary);

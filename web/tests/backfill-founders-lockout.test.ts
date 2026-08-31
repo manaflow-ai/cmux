@@ -128,6 +128,32 @@ describe("Founder's lockout backfill", () => {
     });
   });
 
+  test("does not create a replacement account when the target mailbox is absent", async () => {
+    const provider = stripeClient();
+    const createUser = mock(async () => {
+      throw new Error("backfill must not create accounts");
+    });
+    const stack = {
+      listUsers: mock(async () => []),
+      getUser: mock(async () => null),
+      createUser,
+    } as never;
+
+    const result = await runFoundersLockoutBackfill(
+      {
+        dryRun: false,
+        cases: [{ email: "billingfixture@gmail.com" }],
+      },
+      { stackApp: stack, stripeClient: provider.value },
+    );
+
+    expect(result.customers[0]).toMatchObject({
+      status: "skipped",
+      reason: "target_stack_user_not_found",
+    });
+    expect(createUser).not.toHaveBeenCalled();
+  });
+
   test("rejects a payment-intent customer whose email differs from the case", async () => {
     const stack = stackApp();
     const paymentCustomer = {

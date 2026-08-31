@@ -29,6 +29,14 @@ export type PurchaseMagicLinkDeliveryStore = {
   ): Promise<PurchaseMagicLinkDeliveryResult>;
 };
 
+/** A provider response that proves no message was accepted. */
+export class PurchaseMagicLinkProviderRejectedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PurchaseMagicLinkProviderRejectedError";
+  }
+}
+
 type DeliveryDb = Pick<ReturnType<typeof cloudDb>, "transaction">;
 
 /** Build the production store. The database is the cross-instance idempotency authority. */
@@ -42,8 +50,19 @@ export function makePurchaseMagicLinkDeliveryStore(
       if (claim !== "claimed") return claim;
 
       // The provider call intentionally runs after the claim transaction has
-      // committed. The lease prevents a concurrent webhook from sending twice.
-      await deliver();
+      // committed. An unresolved started-at marker also fences retries after
+      // the short lease expires, because Stack has no idempotency-key API.
+      try {
+        await deliver();
+      } catch (error) {
+        // Only a response that proves rejection is safe to retry. A timeout,
+        // connection reset, or process crash may have happened after Stack
+        // accepted the request, so its marker stays until the provider window.
+        if (error instanceof PurchaseMagicLinkProviderRejectedError) {
+          await releaseDeliveryAttempt(db, input, new Date());
+        }
+        throw error;
+      }
       await markDeliverySent(db, input, new Date());
       return "sent";
     },
@@ -84,12 +103,18 @@ async function claimDelivery(
     ) {
       throw new Error("Purchase magic-link ownership changed before delivery");
     }
-    if (
-      existing?.deliveryStartedAt &&
-      claimedAt.getTime() - existing.deliveryStartedAt.getTime() >=
+    if (existing?.deliveryStartedAt) {
+      // Do not reclaim an ambiguous request merely because the two-minute
+      // attempt lease expired. The provider call may still be in flight, and
+      // Stack does not accept a delivery idempotency key. The 23-hour window
+      // matches Stack's practical magic-link delivery lifetime.
+      if (
+        claimedAt.getTime() - existing.deliveryStartedAt.getTime() >=
         AMBIGUOUS_RETRY_WINDOW_MS
-    ) {
-      return "delivery_abandoned";
+      ) {
+        return "delivery_abandoned";
+      }
+      return "delivery_in_progress";
     }
     if (
       existing?.attemptLeaseExpiresAt &&
@@ -144,6 +169,31 @@ async function markDeliverySent(
         sentAt,
         attemptLeaseExpiresAt: null,
         updatedAt: sentAt,
+      })
+      .where(
+        eq(
+          billingEmailVerificationDeliveries.checkoutSessionId,
+          input.checkoutSessionId,
+        ),
+      );
+  });
+}
+
+async function releaseDeliveryAttempt(
+  db: DeliveryDb,
+  input: PurchaseMagicLinkDeliveryInput,
+  releasedAt: Date,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${deliveryLockKey(input.checkoutSessionId)}, 0))`,
+    );
+    await tx
+      .update(billingEmailVerificationDeliveries)
+      .set({
+        deliveryStartedAt: null,
+        attemptLeaseExpiresAt: null,
+        updatedAt: releasedAt,
       })
       .where(
         eq(

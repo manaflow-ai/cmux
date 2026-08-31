@@ -50,6 +50,7 @@ import {
 } from "./stackVerification";
 import {
   makePurchaseMagicLinkDeliveryStore,
+  PurchaseMagicLinkProviderRejectedError,
   type PurchaseMagicLinkDeliveryStore,
 } from "./emailVerificationDelivery";
 
@@ -2678,7 +2679,9 @@ async function requestPurchaseMagicLink(
           callbackUrl: PURCHASE_MAGIC_LINK_CALLBACK,
         });
         if (isFailedStackResult(result)) {
-          throw new Error("Stack sign-in link request failed");
+          throw new PurchaseMagicLinkProviderRejectedError(
+            "Stack sign-in link request failed",
+          );
         }
       },
     );

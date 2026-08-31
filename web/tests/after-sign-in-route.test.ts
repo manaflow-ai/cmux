@@ -22,12 +22,15 @@ let handoffCookie: string | undefined;
 let rawRefreshCookie: string;
 let rawAccessCookie: string;
 let getUserResponses: Array<TestStackAuthUser | null> = [];
+let promotionShouldFail = false;
 const getUser = mock(async (): Promise<TestStackAuthUser | null> => getUserResponses.shift() ?? null);
 const signOut = mock((options?: unknown) => {
   void options;
   return Promise.resolve();
 });
-const promoteVerifiedAnonymousUser = mock(async () => undefined);
+const promoteVerifiedAnonymousUser = mock(async () => {
+  if (promotionShouldFail) throw new Error("Stack promotion unavailable");
+});
 
 const { makeAfterSignInHandler } = await import("../app/handler/after-sign-in/handler");
 const { appPricingNativeReturnURL } = await import("../app/lib/billing");
@@ -88,6 +91,7 @@ describe("after sign-in native handoff", () => {
     rawRefreshCookie = "refresh-token";
     rawAccessCookie = "access-token";
     getUserResponses = [];
+    promotionShouldFail = false;
     getUser.mockClear();
     signOut.mockClear();
     promoteVerifiedAnonymousUser.mockClear();
@@ -294,6 +298,38 @@ describe("after sign-in native handoff", () => {
     expect(response.status).toBe(200);
     const callbackURL = new URL(returnHref(await response.text()));
     expect(callbackURL.searchParams.get("stack_refresh")).toBe("promoted-refresh");
+  });
+
+  test("does not mint a session when anonymous promotion fails", async () => {
+    rawRefreshCookie = "";
+    rawAccessCookie = "";
+    const createSession = mock(async () => ({
+      getTokens: async () => ({
+        refreshToken: "must-not-be-issued",
+        accessToken: "must-not-be-issued",
+      }),
+    }));
+    const user = {
+      id: "anonymous-promotion-failed",
+      primaryEmail: "buyer@example.com",
+      primaryEmailVerified: true,
+      isAnonymous: true,
+      createSession,
+    };
+    getUserResponses = [null, user];
+    promotionShouldFail = true;
+
+    const response = await GET(
+      signInRequest("cmux://auth-callback", "unused"),
+    );
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("retry-after")).toBe("0");
+    expect(createSession).not.toHaveBeenCalled();
+    expect(await response.text()).toContain(
+      "If we found an account, check your email for next steps",
+    );
   });
 
   test("accepts only signed tagged purchase callbacks on the deployed host", async () => {

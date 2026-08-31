@@ -24,9 +24,14 @@ type AfterSignInMessages = {
   switchAccountButton: string;
 };
 
+type BillingRecoveryMessages = {
+  message?: unknown;
+};
+
 type LocalizedAfterSignInMessages = {
   locale: Locale;
   messages: AfterSignInMessages;
+  recoveryMessage: string;
 };
 
 type CookieStore = {
@@ -180,6 +185,7 @@ async function afterSignInMessages(request: NextRequest): Promise<LocalizedAfter
   const locale = preferredLocale(request);
   const messages = (await import(`../../../messages/${locale}.json`)).default as {
     afterSignIn?: AfterSignInMessages;
+    billingRecovery?: BillingRecoveryMessages;
   };
   if (!messages.afterSignIn) {
     throw new Error(`Missing afterSignIn messages for locale ${locale}`);
@@ -187,6 +193,10 @@ async function afterSignInMessages(request: NextRequest): Promise<LocalizedAfter
   return {
     locale,
     messages: messages.afterSignIn,
+    recoveryMessage:
+      typeof messages.billingRecovery?.message === "string"
+        ? messages.billingRecovery.message
+        : messages.afterSignIn.body,
   };
 }
 
@@ -286,6 +296,36 @@ function nativeRedirectResponse(request: NextRequest, href: string): NextRespons
   return response;
 }
 
+function anonymousPromotionFailureResponse(
+  request: NextRequest,
+  localized: LocalizedAfterSignInMessages,
+  retryHref: string | null,
+): NextResponse {
+  const href = retryHref ?? new URL("/handler/sign-in", request.url).toString();
+  const response = new NextResponse(
+    `<!doctype html>
+<html lang="${escapeHtml(localized.locale)}">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(localized.messages.title)}</title></head>
+<body>
+  <main>
+    <h1>${escapeHtml(localized.messages.title)}</h1>
+    <p>${escapeHtml(localized.recoveryMessage)}</p>
+    <a href="${escapeHtml(href)}">${escapeHtml(localized.messages.switchAccountButton)}</a>
+  </main>
+</body>
+</html>`,
+    {
+      status: 503,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store",
+        "Retry-After": "0",
+      },
+    },
+  );
+  return response;
+}
+
 function currentAfterSignInPath(request: NextRequest): string {
   const afterSignIn = new URL(request.nextUrl.pathname, request.nextUrl.origin);
   const nativeReturnTo = request.nextUrl.searchParams.get("native_app_return_to");
@@ -347,11 +387,17 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
               user.primaryEmail,
             );
           } catch {
-            // Keep the sign-in handoff usable. A later callback or billing
-            // recovery can retry the idempotent promotion.
             console.error("auth.after_sign_in.anonymous_promotion_failed", {
               failure: "provider_unavailable",
             });
+            // Stack has consumed the one-time link, so do not mint a session
+            // that still carries the anonymous restriction. Return a
+            // retryable recovery state instead.
+            return anonymousPromotionFailureResponse(
+              request,
+              localizedMessages,
+              switchAccountHref(request),
+            );
           }
         }
         const session = await user.createSession({ expiresInMillis: 30 * 24 * 60 * 60 * 1000 });
