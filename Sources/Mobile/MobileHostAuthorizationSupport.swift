@@ -158,6 +158,47 @@ actor MobileHostStackAuthVerifier {
     private var jwksLastAttemptAt: Date = .distantPast
     private static let jwksTTLSeconds: TimeInterval = 24 * 60 * 60
     private static let jwksRefetchCooldownSeconds: TimeInterval = 60
+    private static let jwksDefaultsKey = "mobile.stackJwks.v1"
+
+    /// The persisted JWKS snapshot: the raw fetched key-set JSON plus its
+    /// fetch time and source URL. Public signing keys only — tokens and
+    /// verification verdicts are never persisted. Persisting the set lets the
+    /// first admission after app launch verify locally instead of paying the
+    /// ~110ms key fetch; the 24h TTL still applies from the persisted fetch
+    /// time, and the URL check drops the snapshot when the configured Stack
+    /// base URL or project changes.
+    private struct PersistedJWKS: Codable {
+        let url: String
+        let fetchedAtEpochSeconds: Double
+        let keySetJSON: Data
+    }
+
+    init() {
+        guard let data = UserDefaults.standard.data(forKey: Self.jwksDefaultsKey),
+              let persisted = try? JSONDecoder().decode(PersistedJWKS.self, from: data),
+              persisted.url == Self.jwksURL().absoluteString,
+              let decoded = try? JSONDecoder().decode(StackAccessTokenJWT.JWKS.self, from: persisted.keySetJSON),
+              !decoded.keys.isEmpty else {
+            return
+        }
+        jwksKeys = decoded.keys
+        jwksFetchedAt = Date(timeIntervalSince1970: persisted.fetchedAtEpochSeconds)
+    }
+
+    private static func jwksURL() -> URL {
+        AuthEnvironment.stackBaseURL
+            .appendingPathComponent("api/v1/projects/\(AuthEnvironment.stackProjectID)/.well-known/jwks.json")
+    }
+
+    private static func persistJWKS(keySetJSON: Data, fetchedAt: Date, url: URL) {
+        let persisted = PersistedJWKS(
+            url: url.absoluteString,
+            fetchedAtEpochSeconds: fetchedAt.timeIntervalSince1970,
+            keySetJSON: keySetJSON
+        )
+        guard let data = try? JSONEncoder().encode(persisted) else { return }
+        UserDefaults.standard.set(data, forKey: jwksDefaultsKey)
+    }
 
     /// The token's verified user id via the local JWKS path, `nil` when this
     /// token cannot be verified locally (opaque format, or no key set is
@@ -166,12 +207,20 @@ actor MobileHostStackAuthVerifier {
     private func verifyLocallyIfPossible(accessToken: String) async throws -> String? {
         var keys = await loadJWKSIfNeeded(force: false)
         guard !keys.isEmpty else { return nil }
+        let projectID = AuthEnvironment.stackProjectID
+        // Issuer allow-set derived from the configured Stack base URL (plus
+        // its rebrand alias host); an iss mismatch is a definitive reject.
+        let allowedIssuers = StackAccessTokenJWT.allowedIssuers(
+            stackAPIBaseURL: AuthEnvironment.stackBaseURL,
+            projectID: projectID
+        )
         for attempt in 0..<2 {
             do {
                 return try StackAccessTokenJWT.verifiedUserID(
                     token: accessToken,
                     keys: keys,
-                    projectID: AuthEnvironment.stackProjectID
+                    projectID: projectID,
+                    allowedIssuers: allowedIssuers
                 )
             } catch StackAccessTokenJWT.VerificationError.notAJWT {
                 return nil
@@ -198,8 +247,7 @@ actor MobileHostStackAuthVerifier {
             return jwksKeys
         }
         jwksLastAttemptAt = now
-        let url = AuthEnvironment.stackBaseURL
-            .appendingPathComponent("api/v1/projects/\(AuthEnvironment.stackProjectID)/.well-known/jwks.json")
+        let url = Self.jwksURL()
         var request = URLRequest(url: url)
         request.timeoutInterval = 10
         guard let (data, response) = try? await URLSession.shared.data(for: request),
@@ -210,6 +258,7 @@ actor MobileHostStackAuthVerifier {
         }
         jwksKeys = decoded.keys
         jwksFetchedAt = now
+        Self.persistJWKS(keySetJSON: data, fetchedAt: now, url: url)
         return jwksKeys
     }
 

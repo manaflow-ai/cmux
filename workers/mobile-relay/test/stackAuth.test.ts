@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { MAX_ACCESS_TOKEN_CHARS } from "../src/protocol";
-import { clearStackVerdictCacheForTesting, verifyStackAccessToken } from "../src/stackAuth";
+import {
+  clearStackVerdictCacheForTesting,
+  computeAllowedIssuers,
+  verifyStackAccessToken,
+} from "../src/stackAuth";
 
 const ENV = {
   STACK_PROJECT_ID: "project-1",
@@ -107,12 +111,18 @@ describe("verifyStackAccessToken (local JWKS path)", () => {
   async function signToken(
     privateKey: CryptoKey,
     kid: string,
-    { aud = "project-1", sub = "user-jwt", expiresIn = 600 }: { aud?: string; sub?: string; expiresIn?: number } = {},
+    {
+      aud = "project-1",
+      sub = "user-jwt",
+      expiresIn = 600,
+      // Real-token issuer shape: `<base>/api/v1/projects/<projectId>`.
+      iss = "https://api.stack-auth.com/api/v1/projects/project-1",
+    }: { aud?: string; sub?: string; expiresIn?: number; iss?: string } = {},
   ): Promise<string> {
     return await new jose.SignJWT({ sub })
       .setProtectedHeader({ alg: "ES256", kid })
       .setAudience(aud)
-      .setIssuer("https://api.stack-auth.com/api/v1/projects/proj-1")
+      .setIssuer(iss)
       .setIssuedAt()
       .setExpirationTime(Math.floor(Date.now() / 1000) + expiresIn)
       .sign(privateKey);
@@ -161,6 +171,58 @@ describe("verifyStackAccessToken (local JWKS path)", () => {
     const token = await signToken(rogue.privateKey, rogue.kid, {});
     expect(await verifyStackAccessToken(ENV, token, Date.now(), fetch))
       .toEqual({ ok: false, error: "invalid_token" });
+  });
+
+  test("rejects issuers not derivable from the configured Stack API base", async () => {
+    const { privateKey, kid, jwks } = await makeSigner();
+    const { fetch } = jwksAndUsersFetch(jwks);
+    for (const iss of [
+      "https://evil.example.com/api/v1/projects/project-1", // wrong host
+      "https://api.stack-auth.com/api/v1/projects/other-project", // wrong project
+      "https://api.stack-auth.com/api/v1/projects-anonymous-users/project-1", // wrong user type
+      "https://api.dev.stack-auth.com/api/v1/projects/project-1", // wrong environment
+    ]) {
+      const token = await signToken(privateKey, kid, { iss });
+      expect(await verifyStackAccessToken(ENV, token, Date.now(), fetch))
+        .toEqual({ ok: false, error: "invalid_token" });
+    }
+  });
+
+  test("accepts the rebrand alias host issuer", async () => {
+    const { privateKey, kid, jwks } = await makeSigner();
+    const { fetch } = jwksAndUsersFetch(jwks);
+    const token = await signToken(privateKey, kid, {
+      iss: "https://api.hexclave.com/api/v1/projects/project-1",
+    });
+    expect(await verifyStackAccessToken(ENV, token, Date.now(), fetch))
+      .toEqual({ ok: true, userId: "user-jwt" });
+  });
+
+  test("pins the issuer to a configured non-default STACK_API_URL", async () => {
+    const { privateKey, kid, jwks } = await makeSigner();
+    const { fetch } = jwksAndUsersFetch(jwks);
+    const env = { ...ENV, STACK_API_URL: "http://localhost:8102" };
+    const good = await signToken(privateKey, kid, {
+      iss: "http://localhost:8102/api/v1/projects/project-1",
+    });
+    expect(await verifyStackAccessToken(env, good, Date.now(), fetch))
+      .toEqual({ ok: true, userId: "user-jwt" });
+    clearStackVerdictCacheForTesting();
+    const bad = await signToken(privateKey, kid, {
+      iss: "https://api.stack-auth.com/api/v1/projects/project-1",
+    });
+    expect(await verifyStackAccessToken(env, bad, Date.now(), fetch))
+      .toEqual({ ok: false, error: "invalid_token" });
+  });
+
+  test("computeAllowedIssuers derives from base URL plus alias host", () => {
+    expect(computeAllowedIssuers("https://api.stack-auth.com", "p-1")).toEqual([
+      "https://api.stack-auth.com/api/v1/projects/p-1",
+      "https://api.hexclave.com/api/v1/projects/p-1",
+    ]);
+    expect(computeAllowedIssuers("http://localhost:8102", "p-1")).toEqual([
+      "http://localhost:8102/api/v1/projects/p-1",
+    ]);
   });
 
   test("non-JWT tokens fall back to /users/me", async () => {

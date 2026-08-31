@@ -12,7 +12,11 @@
 // Claim contract (mirrors the backend's signer): `sub` is the user id and
 // `aud` is the project id — an `:anon` or `:restricted` audience suffix
 // marks a user class that must never reach a relay host, so only the exact
-// project id is accepted.
+// project id is accepted. `iss` is pinned to the issuer the backend derives
+// from its API base URL (`<base>/api/v1/projects/<projectId>`, verified
+// against a real token 2026-08); the allow-set is computed from the
+// configured STACK_API_URL, plus its stack-auth ↔ hexclave rebrand alias
+// host (the backend's validator accepts both during the domain transition).
 
 import { createLocalJWKSet, decodeProtectedHeader, jwtVerify } from "jose";
 import { MAX_ACCESS_TOKEN_CHARS } from "./protocol";
@@ -116,6 +120,49 @@ async function loadJwks(
   }
 }
 
+// The stack-auth ↔ hexclave rebrand host pairs, mirroring the backend's
+// `CLOUD_HOST_PAIRS` (`packages/shared/src/utils/cloud-hosts.tsx` in the
+// Stack source): tokens minted under one brand host must validate under the
+// other. A Map (not a plain object) avoids prototype-key collisions on a
+// host string that ultimately comes from configuration.
+const issuerHostAliases = new Map<string, string>(
+  (
+    [
+      ["api.stack-auth.com", "api.hexclave.com"],
+      ["api.dev.stack-auth.com", "api.dev.hexclave.com"],
+      ["api.staging.stack-auth.com", "api.staging.hexclave.com"],
+    ] as const
+  ).flatMap(([stackAuthHost, hexclaveHost]) => [
+    [stackAuthHost, hexclaveHost] as const,
+    [hexclaveHost, stackAuthHost] as const,
+  ]),
+);
+
+/**
+ * Issuers a token for `projectId` may carry, derived from the configured
+ * Stack API base URL exactly the way the backend's `getIssuer` builds the
+ * claim for normal users: `new URL('/api/v1/projects/<id>', base)`. Anonymous
+ * and restricted user types issue under `/projects-anonymous-users/` and
+ * `/projects-restricted-users/`; those users are already rejected by the
+ * audience check, so only the normal-user issuer is allowed.
+ */
+export function computeAllowedIssuers(base: string, projectId: string): string[] {
+  let issuerUrl: URL;
+  try {
+    issuerUrl = new URL(`/api/v1/projects/${projectId}`, base);
+  } catch {
+    return [`${base.replace(/\/$/, "")}/api/v1/projects/${projectId}`];
+  }
+  const issuers = [issuerUrl.toString()];
+  const aliasHost = issuerHostAliases.get(issuerUrl.host);
+  if (aliasHost) {
+    const aliased = new URL(issuerUrl.toString());
+    aliased.host = aliasHost;
+    issuers.push(aliased.toString());
+  }
+  return issuers;
+}
+
 function looksLikeJwt(token: string): boolean {
   return token.startsWith("ey") && token.split(".").length === 3;
 }
@@ -150,6 +197,9 @@ async function verifyJwtLocally(
       // Exact project id only: `<id>:anon` / `<id>:restricted` audiences are
       // user classes a relay host must reject.
       audience: projectId,
+      // Issuer pinned to the configured Stack API base (plus its rebrand
+      // alias host); a mismatch is a definitive invalid_token.
+      issuer: computeAllowedIssuers(base, projectId),
     });
     const userId = payload.sub;
     if (typeof userId !== "string" || userId.length === 0) {
