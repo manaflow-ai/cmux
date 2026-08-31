@@ -68,7 +68,7 @@ describe("localized browser auth error page", () => {
   test("renders safe unverified-email guidance without upstream details", async () => {
     acceptLanguage = "en-US,en;q=0.9";
     const element = await AuthErrorPage({
-      searchParams: Promise.resolve({ code: "email-unverified" }),
+      searchParams: Promise.resolve({ code: "email-conflict" }),
     });
     const html = renderToStaticMarkup(element);
 
@@ -96,7 +96,7 @@ describe("localized browser auth error page", () => {
     acceptLanguage = "en";
     const element = await AuthErrorPage({
       searchParams: Promise.resolve({
-        code: "email-unverified",
+        code: "email-conflict",
         after_auth_return_to: "/handler/after-sign-in?nonce=opaque",
         ignored: "not-forwarded",
       }),
@@ -113,7 +113,7 @@ describe("localized browser auth error page", () => {
     acceptLanguage = "en";
     await expect(
       generateMetadata({
-        searchParams: Promise.resolve({ code: "email-unverified" }),
+        searchParams: Promise.resolve({ code: "email-conflict" }),
       }),
     ).resolves.toMatchObject({
       title: "Verify your email to continue",

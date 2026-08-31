@@ -28,6 +28,7 @@ afterEach(() => {
   }
 });
 
+/** Captures the sanitized alert emitted for a non-recoverable async failure. */
 async function captureAlert(error: Error): Promise<string> {
   let resolveAlert: (message: string) => void = () => {};
   const alertPromise = new Promise<string>((resolve) => {
@@ -39,6 +40,7 @@ async function captureAlert(error: Error): Promise<string> {
   return await alertPromise;
 }
 
+/** Captures the same-origin recovery redirect without opening a browser. */
 async function captureRedirect(
   error: Error,
   href = "https://cmux.com/handler/sign-in",
@@ -66,7 +68,7 @@ async function captureRedirect(
 }
 
 describe("Stack Auth async error alerts", () => {
-  test("redirects an unverified email error to localized recovery guidance", async () => {
+  test("redirects an email conflict to localized recovery guidance", async () => {
     Reflect.deleteProperty(mutableProcessEnv, "NODE_ENV");
     const error = new KnownErrors.UserWithEmailAlreadyExists(
       "buyer@example.com",
@@ -79,7 +81,7 @@ describe("Stack Auth async error alerts", () => {
     );
     const redirect = new URL(result.url);
     expect(redirect.pathname).toBe("/handler/auth-error");
-    expect(redirect.searchParams.get("code")).toBe("email-unverified");
+    expect(redirect.searchParams.get("code")).toBe("email-conflict");
     expect(redirect.searchParams.get("after_auth_return_to")).toBe(
       "/handler/after-sign-in?nonce=opaque",
     );
@@ -89,16 +91,16 @@ describe("Stack Auth async error alerts", () => {
     expect(result.alertCalled).toBe(false);
   });
 
-  test("does not turn a verified duplicate-email conflict into recovery", async () => {
+  test("uses the same recovery path for a verified duplicate-email conflict", async () => {
     Reflect.deleteProperty(mutableProcessEnv, "NODE_ENV");
     const error = new KnownErrors.UserWithEmailAlreadyExists(
       "buyer@example.com",
       false,
     );
 
-    const message = await captureAlert(error);
-    expect(message).toContain("An unhandled error occurred.");
-    expect(message).not.toContain(error.message);
+    const result = await captureRedirect(error);
+    expect(new URL(result.url).searchParams.get("code")).toBe("email-conflict");
+    expect(result.alertCalled).toBe(false);
   });
 
   test("keeps development diagnostics for typed errors", async () => {

@@ -1,8 +1,8 @@
 diff --git a/dist/esm/utils/promises.js b/dist/esm/utils/promises.js
-index dd4213217eebd069805c9a6c8f5258e9b68795ef..3b06bab1c02986514ccf49b5062e2522137228f9 100644
+index dd4213217eebd069805c9a6c8f5258e9b68795ef..ffda54dc9fef4acd737b5793ac1ca91a6a691f89 100644
 --- a/dist/esm/utils/promises.js
 +++ b/dist/esm/utils/promises.js
-@@ -220,8 +220,25 @@ function runAsynchronouslyWithAlert(...args) {
+@@ -220,8 +220,24 @@ function runAsynchronouslyWithAlert(...args) {
  		...args[1],
  		onError: (error) => {
  			const nodeEnv = getProcessEnv("NODE_ENV");
@@ -13,12 +13,11 @@ index dd4213217eebd069805c9a6c8f5258e9b68795ef..3b06bab1c02986514ccf49b5062e2522
 +				KnownError.isKnownError(error) &&
 +				productionLike &&
 +				error.errorCode === "USER_EMAIL_ALREADY_EXISTS" &&
-+				error.details?.would_work_if_email_was_verified === true &&
 +				typeof window !== "undefined"
 +			) {
 +				const currentUrl = new URL(window.location.href);
 +				const url = new URL("/handler/auth-error", currentUrl);
-+				url.searchParams.set("code", "email-unverified");
++				url.searchParams.set("code", "email-conflict");
 +				for (const name of ["after_auth_return_to", "web_return_to", "native_app_return_to"]) {
 +					const value = currentUrl.searchParams.get(name);
 +					if (value) url.searchParams.set(name, value);
@@ -31,10 +30,10 @@ index dd4213217eebd069805c9a6c8f5258e9b68795ef..3b06bab1c02986514ccf49b5062e2522
  		}
  	}, ...args.slice(2));
 diff --git a/dist/utils/promises.js b/dist/utils/promises.js
-index c0092a18c833071ca870ff54571eed0d39b217ca..d8aca5d16ecd5625ad7acc1f41d0996373f5e19f 100644
+index c0092a18c833071ca870ff54571eed0d39b217ca..423ad6a5d242618d8871508354d291097ee129ca 100644
 --- a/dist/utils/promises.js
 +++ b/dist/utils/promises.js
-@@ -222,8 +222,25 @@ function runAsynchronouslyWithAlert(...args) {
+@@ -222,8 +222,24 @@ function runAsynchronouslyWithAlert(...args) {
  		...args[1],
  		onError: (error) => {
  			const nodeEnv = (0, __env_js.getProcessEnv)("NODE_ENV");
@@ -45,12 +44,11 @@ index c0092a18c833071ca870ff54571eed0d39b217ca..d8aca5d16ecd5625ad7acc1f41d09963
 +				___index_js.KnownError.isKnownError(error) &&
 +				productionLike &&
 +				error.errorCode === "USER_EMAIL_ALREADY_EXISTS" &&
-+				error.details?.would_work_if_email_was_verified === true &&
 +				typeof window !== "undefined"
 +			) {
 +				const currentUrl = new URL(window.location.href);
 +				const url = new URL("/handler/auth-error", currentUrl);
-+				url.searchParams.set("code", "email-unverified");
++				url.searchParams.set("code", "email-conflict");
 +				for (const name of ["after_auth_return_to", "web_return_to", "native_app_return_to"]) {
 +					const value = currentUrl.searchParams.get(name);
 +					if (value) url.searchParams.set(name, value);

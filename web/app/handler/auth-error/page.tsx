@@ -78,7 +78,9 @@ export default async function AuthErrorPage({
 
 /** Maps an external query token onto the closed set of product-owned states. */
 function authErrorMessageKey(code: string | null): AuthErrorMessageKey {
-  return code === "email-unverified" ? "emailUnverified" : "generic";
+  return code === "email-conflict" || code === "email-unverified"
+    ? "emailUnverified"
+    : "generic";
 }
 
 /** Loads the complete locale-specific auth error catalog for this request. */
