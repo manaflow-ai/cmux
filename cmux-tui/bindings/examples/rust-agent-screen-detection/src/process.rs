@@ -1298,6 +1298,33 @@ mod tests {
     }
 
     #[test]
+    fn command_line_fallback_only_uses_the_executable_token() {
+        let arbitrary_argument = ForegroundJob {
+            process_group_id: 31,
+            processes: vec![ForegroundProcess {
+                pid: 31,
+                name: "wrapper".into(),
+                argv0: None,
+                argv: Vec::new(),
+                cmdline: Some("wrapper --message codex".into()),
+            }],
+        };
+        assert!(identify_job(ManifestSet::bundled(), &arbitrary_argument).is_none());
+
+        let missing_argv = ForegroundJob {
+            process_group_id: 32,
+            processes: vec![ForegroundProcess {
+                pid: 32,
+                name: "wrapper".into(),
+                argv0: None,
+                argv: Vec::new(),
+                cmdline: Some("/opt/bin/codex --message hello".into()),
+            }],
+        };
+        assert_eq!(identify_job(ManifestSet::bundled(), &missing_argv).unwrap().0.id(), "codex");
+    }
+
+    #[test]
     fn tmux_is_transport_and_does_not_scan_its_arguments() {
         let job = ForegroundJob {
             process_group_id: 7,
