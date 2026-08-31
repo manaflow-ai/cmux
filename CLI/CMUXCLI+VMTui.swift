@@ -770,7 +770,13 @@ extension CMUXCLI {
                                                               --here: into the current (or --workspace) local workspace instead — one pane
                                                               at the destination, the rest as tabs in it ("Open All Here"); --tabs: all as
                                                               tabs of the focused (or --pane) pane ("Open All in New Tabs").
-          cmux vm workspace close <machine> <workspace-id>    Close a machine workspace and every terminal in it.
+          cmux vm workspace rename <machine> <workspace-id> <name>
+                                                              Rename a machine workspace.
+          cmux vm workspace close <machine> <workspace-id>    Close a machine workspace; its terminals keep
+                                                              running and detach into the Terminals pool.
+          cmux vm workspace rm <machine> <workspace-id>       Delete a machine workspace AND kill every
+                                                              terminal in it (the sidebar's "Delete Workspace
+                                                              and Terminals…"). Permanent.
 
         Workspace ids come from `cmux vm tree`. Add --json for the raw result.
         """
@@ -782,8 +788,9 @@ extension CMUXCLI {
         Terminal ids come from `cmux vm tree`. Add --json for the raw result.
         """
 
-    /// `cmux vm workspace new|open|close`: the sidebar's workspace verbs over the same socket
-    /// methods (`vm.workspace_new|open|close`), so a row and an agent cannot disagree.
+    /// `cmux vm workspace new|open|rename|close|rm`: the sidebar's workspace verbs over the
+    /// same socket methods (`vm.workspace_new|open|rename|close|delete`), so a row and an
+    /// agent cannot disagree.
     func runVMWorkspaceCommand(rest: [String], client: SocketClient, jsonOutput: Bool) throws {
         if rest.contains("--help") || rest.contains("-h") || rest.isEmpty {
             print(Self.vmWorkspaceUsage)
@@ -836,7 +843,22 @@ extension CMUXCLI {
             guard positional.count >= 2 else { throw CLIError(message: Self.vmWorkspaceUsage) }
             let response = try client.sendV2(method: "vm.workspace_close", params: ["id": machine, "workspace_id": positional[1]], responseTimeout: 120)
             if jsonOutput { print(jsonString(response)); return }
-            print("OK closed workspace \(positional[1]) on \(machine)")
+            print("OK closed workspace \(positional[1]) on \(machine) (terminals kept; see Terminals pool)")
+        case "rename":
+            guard positional.count >= 3 else { throw CLIError(message: Self.vmWorkspaceUsage) }
+            let response = try client.sendV2(
+                method: "vm.workspace_rename",
+                params: ["id": machine, "workspace_id": positional[1], "name": positional[2]],
+                responseTimeout: 120
+            )
+            if jsonOutput { print(jsonString(response)); return }
+            print("OK renamed workspace \(positional[1]) to \"\(positional[2])\" on \(machine)")
+        case "rm", "delete":
+            guard positional.count >= 2 else { throw CLIError(message: Self.vmWorkspaceUsage) }
+            let response = try client.sendV2(method: "vm.workspace_delete", params: ["id": machine, "workspace_id": positional[1]], responseTimeout: 240)
+            if jsonOutput { print(jsonString(response)); return }
+            let killed = (response["terminals_closed"] as? Int) ?? 0
+            print("OK deleted workspace \(positional[1]) on \(machine) (\(killed) terminal\(killed == 1 ? "" : "s") closed)")
         default:
             throw CLIError(message: "vm workspace: unknown verb '\(verb)'\n\n\(Self.vmWorkspaceUsage)")
         }
