@@ -3,14 +3,21 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 const workflowsModule = await import("../services/vms/workflows");
 const realRunVmWorkflow = workflowsModule.runVmWorkflow;
 const realReconcileVmProviderStatuses = workflowsModule.reconcileVmProviderStatuses;
-const runVmWorkflow = mock(async () => ({
-  checked: 2,
-  updated: 1,
-  destroyed: 0,
-  skipped: 1,
-  skippedNoGetStatus: false,
-}));
+const realSweepExpiredVms = workflowsModule.sweepExpiredVms;
+const runVmWorkflow = mock(async (program: unknown) => {
+  if ((program as { workflow?: string }).workflow === "vm-expired-sweep") {
+    return { workflow: "vm-expired-sweep" };
+  }
+  return {
+    checked: 2,
+    updated: 1,
+    destroyed: 0,
+    skipped: 1,
+    skippedNoGetStatus: false,
+  };
+});
 const reconcileVmProviderStatuses = mock(() => ({ workflow: "vm-reconcile" }));
+const sweepExpiredVms = mock(() => ({ workflow: "vm-expired-sweep" }));
 let useWorkflowStubs = false;
 
 function callMock(fn: unknown, args: unknown[]) {
@@ -23,6 +30,10 @@ mock.module("../services/vms/workflows", () => ({
     useWorkflowStubs
       ? callMock(reconcileVmProviderStatuses, args)
       : realReconcileVmProviderStatuses(...args)) as typeof realReconcileVmProviderStatuses,
+  sweepExpiredVms: ((...args: Parameters<typeof realSweepExpiredVms>) =>
+    useWorkflowStubs
+      ? callMock(sweepExpiredVms, args)
+      : realSweepExpiredVms(...args)) as typeof realSweepExpiredVms,
   runVmWorkflow: ((...args: Parameters<typeof realRunVmWorkflow>) =>
     useWorkflowStubs
       ? callMock(runVmWorkflow, args)
@@ -38,6 +49,7 @@ beforeEach(() => {
   process.env.CRON_SECRET = "cron-secret";
   runVmWorkflow.mockClear();
   reconcileVmProviderStatuses.mockClear();
+  sweepExpiredVms.mockClear();
 });
 
 afterEach(() => {
@@ -92,8 +104,11 @@ describe("VM reconcile cron route", () => {
       destroyed: 0,
       skipped: 1,
       skippedNoGetStatus: false,
+      expired: { workflow: "vm-expired-sweep" },
     });
     expect(reconcileVmProviderStatuses).toHaveBeenCalledWith();
+    expect(sweepExpiredVms).toHaveBeenCalledWith();
     expect(runVmWorkflow).toHaveBeenCalledWith({ workflow: "vm-reconcile" });
+    expect(runVmWorkflow).toHaveBeenCalledWith({ workflow: "vm-expired-sweep" });
   });
 });
