@@ -587,53 +587,57 @@ import Testing
         )
     }
 
-    /// A self-reconnecting transport that is alive but no longer answering has to be recovered,
-    /// not waited on. There is no EOF coming — that is the whole point of such a transport — so
-    /// before this the connection stayed `.connected` and the mirror froze permanently.
+    /// cmux does not second-guess a transport that owns its reconnection.
     ///
-    /// `.enter` is delivered through the real message path rather than a test-only setter, so the
-    /// transition under test is the one production takes.
-    @MainActor @Test func aStalledSelfReconnectingTransportIsRecoveredRatherThanLeftConnected() {
+    /// It used to: a 30-second probe, and a respawn when one went unanswered. An et client
+    /// riding out a network change is quiet for longer than that, so the probe killed the
+    /// process that was about to recover on its own, and the replacement had to bootstrap a
+    /// new session — which on a host with a second factor cannot happen unattended. What was
+    /// left was a dead mirror and orphaned clients.
+    ///
+    /// et exchanges keepalives every few seconds and exits when they stop, so its own exit is
+    /// both the earlier and the better-informed signal, and it already arrives as end of stream.
+    @MainActor @Test func aQuietSelfReconnectingTransportIsLeftAlone() {
         let connection = RemoteTmuxControlConnection(
             host: RemoteTmuxHost(destination: "user@host", transport: .et, transportPort: 2039),
             sessionName: "work"
         )
+        // A real stream to write into, so the probe is genuinely SENT and then genuinely goes
+        // unanswered — the shape of an et client mid-reconnect. Without a writer the probe
+        // merely fails to enqueue, which proves nothing about the policy under test.
+        let pipe = Pipe()
+        let writer = RemoteTmuxControlPipeWriter(
+            handle: pipe.fileHandleForWriting,
+            label: "et-quiet-stream-test",
+            maxPendingBytes: 1 << 16,
+            onFailure: {}
+        )
+        defer { writer.close(); try? pipe.fileHandleForReading.close() }
+        connection.installStdinWriterForTesting(writer)
         connection.handle(.enter)
+        #expect(connection.connectionState == .connected)
+
+        var reported: Bool?
+        connection.probeLivenessOnce { reported = $0 }
+        #expect(reported == nil, "a probe that was sent stays outstanding until tmux answers")
+        // A second ask on top of an unanswered one is precisely what the deleted detector
+        // treated as a stall: probe N had to be answered before probe N+1 was due, and missing
+        // that deadline respawned the stream. Asking twice here is what makes this test fail if
+        // that policy ever comes back.
+        connection.probeLivenessOnce { reported = $0 }
+        #expect(connection.connectionState == .connected, "a quiet client must not be recovered")
         #expect(!connection.snapshot().recentEvents.contains("liveness-stalled"))
-
-        // Nothing is attached to carry the probe, which is what a wedged transport looks like
-        // from here: alive as far as anyone can see, unable to answer.
-        var reported: Bool?
-        connection.checkLivenessAndRecoverIfStalled { reported = $0 }
-        #expect(reported == false, "a stream that cannot answer must be reported as stalled")
-        #expect(connection.snapshot().recentEvents.contains("liveness-stalled"))
+        #expect(!connection.snapshot().recentEvents.contains("reconnecting"))
     }
 
-    /// A probe that is written but never answered is the stall this monitor exists for: ET can
-    /// accept stdin while producing no control output. Before the deadline, probes accumulated and
-    /// the connection stayed `.connected` forever — the monitor could not detect the very case it
-    /// was added for.
-    @MainActor @Test func anUnansweredProbeIsTreatedAsAStall() {
-        let connection = RemoteTmuxControlConnection(
-            host: RemoteTmuxHost(destination: "user@host", transport: .et, transportPort: 2039),
-            sessionName: "work"
+    /// The replacement signal, and the only one: the client exits, which arrives as end of
+    /// stream and reconnects exactly as it does for ssh.
+    @Test func aSelfReconnectingTransportRecoversWhenItsClientExits() {
+        #expect(
+            RemoteTmuxStreamEndDisposition.forStreamEnd(hasReachedControlMode: true) == .reconnect
         )
-        connection.handle(.enter)
-        // Stand in for a probe that was written and never came back.
-        connection.livenessProbeOutstanding = true
-
-        var reported: Bool?
-        connection.checkLivenessAndRecoverIfStalled { reported = $0 }
-        #expect(reported == false)
-        #expect(connection.snapshot().recentEvents.contains("liveness-unanswered"))
-        #expect(connection.snapshot().recentEvents.contains("liveness-stalled"))
     }
 
-    /// A stream that never reached control mode is a failed start, not a lost session.
-    ///
-    /// Reconnecting there is what made a real error — "tmux control stream ended before attach" —
-    /// surface as an opaque 60-second attach timeout, which cost most of a debugging session.
-    /// Reconnecting is right only once a stream has actually worked.
     @Test func endOfStreamBeforeControlModeIsTerminalRatherThanRetried() {
         #expect(
             RemoteTmuxStreamEndDisposition.forStreamEnd(hasReachedControlMode: false) == .sessionOver,
@@ -645,18 +649,22 @@ import Testing
         )
     }
 
-    /// ssh must be untouched by all of this: it gets an EOF, `handleStreamEnd` already recovers,
-    /// and probing an idle ssh stream would add traffic and a new way to fail.
-    @MainActor @Test func anSSHTransportIsNeverProbedForStalls() {
-        let connection = RemoteTmuxControlConnection(
-            host: RemoteTmuxHost(destination: "user@host"),
-            sessionName: "work"
-        )
-        connection.handle(.enter)
-        var reported: Bool?
-        connection.checkLivenessAndRecoverIfStalled { reported = $0 }
-        #expect(reported == true, "ssh is out of scope for the stall check")
-        #expect(!connection.snapshot().recentEvents.contains("liveness-stalled"))
+    /// Teardown has to reach the whole transport, not just the process cmux launched. A pty
+    /// allocator execs a broker that execs the client, and `/usr/bin/script` puts that payload
+    /// in a process group of its own — so signalling the allocator, or its group, leaves the
+    /// client running and still attached to the remote server.
+    @Test func teardownWalksTheWholeTransportTree() {
+        // allocator 100 -> broker 200 -> client 300, with an unrelated 999 that must be left alone.
+        let children: [pid_t: [pid_t]] = [100: [200], 200: [300], 999: [1000]]
+        let tree = RemoteTmuxControlConnection.processTree(root: 100) { children[$0] ?? [] }
+        #expect(tree == [100, 200, 300])
+        #expect(!tree.contains(999) && !tree.contains(1000))
+    }
+
+    /// A cycle or a runaway tree must not make teardown unbounded.
+    @Test func theTreeWalkIsBounded() {
+        let tree = RemoteTmuxControlConnection.processTree(root: 1) { [$0 + 1] }
+        #expect(tree.count <= 5, "the walk stops at its depth bound, got \(tree.count)")
     }
 
     /// The client binary is resolved, not assumed. A literal `/usr/local/bin/et` is a claim about
@@ -1613,7 +1621,6 @@ private struct SplitMix64 {
         var rng = SplitMix64(seed: seed)
         let peer = FuzzPeer(seed: seed, label: "attach", shape: .persistentRemote, rng: &rng)
         let context = peer.context()
-        #expect(peer.probeIntervalIsUntouched, "\(context) another test lowered the liveness probe interval")
 
         // A waiter registered before the first byte, so the release is the product's doing.
         let waiter = Task { await peer.connection.waitUntilInitialTopology() }
@@ -2465,12 +2472,6 @@ private final class FuzzPeer {
 
     func context() -> String {
         "seed=\(String(seed, radix: 16)) arm=\(label) windows=\(windows.map(\.id)) chunk=\(chunkSize)"
-    }
-
-    /// A stray foreign change to the probe interval would turn these cases into probe-driven
-    /// reconnects, so it is read rather than assumed. Nothing here mutates it: it is process-global.
-    var probeIntervalIsUntouched: Bool {
-        RemoteTmuxControlConnection.livenessProbeIntervalSeconds >= 5
     }
 
     // MARK: Stream lifecycle
