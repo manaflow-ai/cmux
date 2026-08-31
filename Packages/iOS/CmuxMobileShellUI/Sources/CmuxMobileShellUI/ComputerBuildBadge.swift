@@ -48,6 +48,9 @@ struct ComputerUpdateRequiredBadge: View {
         .labelStyle(.titleAndIcon)
         .imageScale(.small)
         .lineLimit(1)
+        // The warning must never compress into a meaningless fragment when
+        // the title row is crowded; the computer name truncates instead.
+        .fixedSize()
         .padding(.horizontal, 6)
         .padding(.vertical, 2)
         .background(Color.orange.opacity(0.18), in: Capsule())
