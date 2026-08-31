@@ -1409,14 +1409,35 @@ export function destroyVm(input: {
         return Effect.fail(err);
       }),
     );
-    yield* Effect.sync(() => {
+    const destroyedProviderVmId = vm.providerVmId ?? input.providerVmId;
+    // This callback is advisory progress reporting. A failure must not skip
+    // the mandatory volume cleanup or DB finalization now that the provider
+    // machine is gone. Keep the failure observable in the usage ledger, but
+    // leave destroy successful because those mandatory operations are the
+    // authoritative outcome.
+    try {
       input.afterProviderDestroy?.();
-    });
+    } catch (err) {
+      const message = errorMessage(err);
+      console.error(
+        `[vm] afterProviderDestroy hook failed for ${destroyedProviderVmId}`,
+        message,
+      );
+      yield* repo.recordUsageEvent({
+        userId: input.userId,
+        billingTeamId: vm.billingTeamId,
+        billingPlanId: vm.billingPlanId,
+        vmId: vm.id,
+        eventType: "vm.destroy.after_provider_destroy_failed",
+        provider: vm.provider,
+        imageId: vm.imageId,
+        metadata: { message },
+      }).pipe(Effect.catchAll(() => Effect.void));
+    }
     // The sandbox is gone; a per-machine home volume must go with it or its
     // storage bills forever. The volume delete never fails the destroy — the
     // machine is already unrecoverable — but a failed delete is recorded as a
     // usage event so the leaked volume is findable instead of silent.
-    const destroyedProviderVmId = vm.providerVmId ?? input.providerVmId;
     const homeVolume = machineOwnedHomeVolume(vm, destroyedProviderVmId);
     let homeVolumeDeleted = false;
     if (homeVolume && providers.deleteHomeVolume) {
