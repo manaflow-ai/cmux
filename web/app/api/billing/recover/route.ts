@@ -181,7 +181,12 @@ async function enforceRateLimit(
   request: Request,
   dependencies: BillingRecoveryRouteDependencies,
 ): Promise<Response | null> {
-  if (!dependencies.isVercel()) return null;
+  // The Vercel Firewall client is the only limiter wired to this public route.
+  // A non-Vercel runtime therefore has no usable throttle and must fail closed
+  // before it can send authentication mail.
+  if (!dependencies.isVercel()) {
+    return json({ error: "recovery_unavailable" }, 503);
+  }
   const ruleID = dependencies.rateLimitRuleID()?.trim();
   // Recovery sends authentication mail and must fail closed when its rule is
   // absent; unlike feedback, an unthrottled endpoint is not acceptable.
