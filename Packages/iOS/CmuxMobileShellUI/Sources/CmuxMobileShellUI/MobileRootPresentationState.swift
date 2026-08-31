@@ -153,7 +153,12 @@ struct MobileRootPresentationState: Equatable {
             return .none
 
         case .presentComputers:
-            guard presentation == nil else { return .none }
+            // Settings may hand its sheet over to Computers in place (its
+            // Connection section links there), mirroring how pairing swaps
+            // content within the one root sheet host.
+            guard presentation == nil || presentation == .settings else {
+                return .none
+            }
             presentation = .computers
             return .none
 

@@ -666,12 +666,26 @@ struct WorkspaceListView: View {
         }
         .sheet(isPresented: settingsPresentation.isPresented, onDismiss: {
             settingsPresentation.didDismiss()
-            settingsPairingScannerHandoff.settingsDidDismiss(startScanner: showPairingScanner)
+            settingsPairingScannerHandoff.settingsDidDismiss(
+                startScanner: showPairingScanner,
+                showComputers: {
+                    if let showComputers {
+                        showComputers()
+                    } else {
+                        deviceTreePresentation.present()
+                    }
+                }
+            )
         }) {
             MobileSettingsView(
                 connectedHostName: host,
                 startPairingScanner: {
                     settingsPairingScannerHandoff.requestScannerAfterDismiss(
+                        isSettingsPresented: settingsPresentation.isPresented
+                    )
+                },
+                showComputers: {
+                    settingsPairingScannerHandoff.requestComputersAfterDismiss(
                         isSettingsPresented: settingsPresentation.isPresented
                     )
                 },

@@ -1106,6 +1106,74 @@
         }
       }
     },
+    "mobile.settings.allComputers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All Computers"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのコンピュータ"
+          }
+        }
+      }
+    },
+    "mobile.settings.connection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続"
+          }
+        }
+      }
+    },
+    "mobile.settings.connectionFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select a computer to focus it. Each computer connects using its own method, shown on the right."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータを選択するとフォーカスが切り替わります。各コンピュータは右側に表示される、それぞれの方式で接続します。"
+          }
+        }
+      }
+    },
+    "mobile.settings.showMissingFilesCaption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In a workspace's Files list, keep files that were deleted or moved instead of hiding them."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの「ファイル」リストで、削除または移動されたファイルを非表示にせず表示し続けます。"
+          }
+        }
+      }
+    },
     "mobile.simulatorStream.appSwitcher": {
       "extractionState": "manual",
       "localizations": {
@@ -8076,23 +8144,6 @@
         }
       }
     },
-    "mobile.settings.connectionReady": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ready"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "待機中"
-          }
-        }
-      }
-    },
     "mobile.settings.notSignedIn": {
       "extractionState": "manual",
       "localizations": {
@@ -8660,7 +8711,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show missing files"
+            "value": "Show Missing Files"
           }
         },
         "ja": {

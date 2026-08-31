@@ -135,6 +135,27 @@ struct MobileRootPresentationStateTests {
         #expect(state.isRootSheetPresented)
     }
 
+    @Test func settingsCanHandItsSheetToComputersInPlace() {
+        var state = MobileRootPresentationState()
+        state.apply(.presentSettings)
+
+        #expect(state.apply(.presentComputers) == .none)
+        #expect(state.presentation == .computers)
+        #expect(state.isRootSheetPresented)
+
+        #expect(state.apply(.dismissComputers) == .retryAutoConnectMigration)
+        #expect(state.isIdle)
+    }
+
+    @Test func computersNeverReplacesANonSettingsPresentation() {
+        var state = MobileRootPresentationState()
+        let pairing = PairingPresentation.manual
+        state.apply(.presentPairing(pairing))
+
+        #expect(state.apply(.presentComputers) == .none)
+        #expect(state.presentation == .pairing(pairing))
+    }
+
     @Test func computersDismissalClearsRootSlot() {
         var state = MobileRootPresentationState()
         state.apply(.presentComputers)

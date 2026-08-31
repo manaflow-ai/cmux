@@ -29,6 +29,9 @@ struct MobileSettingsView: View {
     @Environment(\.mobileDiagnosticLog) private var diagnosticLog
     let connectedHostName: String
     let startPairingScanner: (() -> Void)?
+    /// Opens the Computers screen (the host dismisses or swaps this sheet
+    /// first). `nil` hides the Connection section's All Computers row.
+    var showComputers: (() -> Void)? = nil
     let signOut: (() -> Void)?
     /// The shell store, used for the live connection rows and the onboarding
     /// replay's connection state. `nil` in previews.
@@ -51,6 +54,12 @@ struct MobileSettingsView: View {
 #endif
     @State private var showingOnboarding = false
     @State private var showingSetupHelp = false
+    /// The connection row a focus switch is in flight for, so that row shows a
+    /// spinner and other rows refuse a competing switch until it resolves.
+    @State private var switchingConnectionID: String?
+    /// The display name a focus switch just failed for; non-nil presents the
+    /// failure alert.
+    @State private var switchFailedComputerName: String?
     #if DEBUG
     @State private var showingToastGallery = false
     /// Seconds between tapping "Run Toast Demo" and the first toast, so you
@@ -113,47 +122,56 @@ struct MobileSettingsView: View {
 
                 // Hidden when there is no live connection row to show, so the
                 // no-devices screen's reuse of this sheet does not render an
-                // empty header. Switching Macs lives in the workspace list's
-                // computer picker.
+                // empty header. One row per connected Mac: transport is per
+                // computer (each dials its own configured method), so the old
+                // single "Active Transport" row became a per-row trailing
+                // label, and selecting a row switches focus to that computer.
                 if hasConnectionRows {
-                    Section(L10n.string("mobile.settings.connection", defaultValue: "Connection")) {
+                    Section {
                         if let connections = store?.liveMacConnections,
                            !connections.isEmpty {
                             ForEach(connections) { connection in
-                                LabeledContent(
-                                    connection.displayName,
-                                    value: connection.role == .focused
-                                        ? L10n.string(
-                                            "mobile.settings.connectionFocused",
-                                            defaultValue: "Focused"
-                                        )
-                                        : L10n.string(
-                                            "mobile.settings.connectionReady",
-                                            defaultValue: "Ready"
-                                        )
-                                )
-                                .accessibilityIdentifier(
-                                    "MobileSettingsMacConnection-\(connection.macDeviceID)"
-                                )
+                                connectionRow(connection)
                             }
                         } else if !connectedHostName.isEmpty {
                             LabeledContent(
                                 L10n.string("mobile.settings.mac", defaultValue: "Connection"),
                                 value: connectedHostName
                             )
+                            if let store,
+                               store.connectionState == .connected,
+                               let routeKind = store.activeRoute?.kind {
+                                LabeledContent(
+                                    L10n.string(
+                                        "mobile.settings.activeTransport",
+                                        defaultValue: "Active Transport"
+                                    ),
+                                    value: transportName(routeKind)
+                                )
+                                .accessibilityIdentifier("MobileSettingsActiveTransport")
+                            }
                         }
-                        if let store,
-                           store.connectionState == .connected,
-                           let routeKind = store.activeRoute?.kind {
-                            LabeledContent(
-                                L10n.string(
-                                    "mobile.settings.activeTransport",
-                                    defaultValue: "Active Transport"
-                                ),
-                                value: activeTransportName(routeKind)
-                            )
-                            .accessibilityIdentifier("MobileSettingsActiveTransport")
+                        if showComputers != nil {
+                            Button {
+                                showComputers?()
+                            } label: {
+                                Label(
+                                    L10n.string(
+                                        "mobile.settings.allComputers",
+                                        defaultValue: "All Computers"
+                                    ),
+                                    systemImage: "desktopcomputer"
+                                )
+                            }
+                            .accessibilityIdentifier("MobileSettingsAllComputers")
                         }
+                    } header: {
+                        Text(L10n.string("mobile.settings.connection", defaultValue: "Connection"))
+                    } footer: {
+                        Text(L10n.string(
+                            "mobile.settings.connectionFooter",
+                            defaultValue: "Select a computer to focus it. Each computer connects using its own method, shown on the right."
+                        ))
                     }
                 }
                 if hasConnectionSection {
@@ -344,10 +362,18 @@ struct MobileSettingsView: View {
 
                 Section(L10n.string("mobile.settings.display", defaultValue: "Display")) {
                     Toggle(isOn: $displaySettings.showMissingFiles) {
-                        Text(L10n.string(
-                            "mobile.settings.showMissingFiles",
-                            defaultValue: "Show missing files"
-                        ))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(L10n.string(
+                                "mobile.settings.showMissingFiles",
+                                defaultValue: "Show Missing Files"
+                            ))
+                            Text(L10n.string(
+                                "mobile.settings.showMissingFilesCaption",
+                                defaultValue: "In a workspace's Files list, keep files that were deleted or moved instead of hiding them."
+                            ))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        }
                     }
                     .accessibilityIdentifier("MobileSettingsShowMissingFiles")
 
@@ -477,6 +503,17 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsVersionRow")
                 }
             }
+            .alert(
+                connectionSwitchFailedTitle,
+                isPresented: connectionSwitchFailedIsPresented
+            ) {
+                Button(
+                    L10n.string("mobile.common.ok", defaultValue: "OK"),
+                    role: .cancel
+                ) {}
+            } message: {
+                Text(connectionSwitchFailedMessage)
+            }
             .task {
                 notificationsEnabled = pushCoordinator.isEnabled
                 await pushCoordinator.refreshReadiness()
@@ -579,7 +616,7 @@ struct MobileSettingsView: View {
         }
     }
 
-    private func activeTransportName(_ kind: CmxAttachTransportKind) -> String {
+    private func transportName(_ kind: CmxAttachTransportKind) -> String {
         switch kind {
         case .tailscale:
             L10n.string(
@@ -602,6 +639,113 @@ struct MobileSettingsView: View {
                 defaultValue: "Simulator"
             )
         }
+    }
+
+    /// One connected Mac: a selection row (checkmark = focused computer) whose
+    /// trailing text is the transport that connection actually dialed. Tapping
+    /// a non-focused row switches focus to that Mac.
+    private func connectionRow(
+        _ connection: MobileMacConnectionSnapshot
+    ) -> some View {
+        Button {
+            selectConnection(connection)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "checkmark")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.tint)
+                    .opacity(connection.role == .focused ? 1 : 0)
+                    .accessibilityHidden(true)
+                Text(connection.displayName)
+                    .foregroundStyle(.primary)
+                Spacer()
+                if switchingConnectionID == connection.id {
+                    ProgressView()
+                } else if let routeKind = connection.routeKind {
+                    Text(transportName(routeKind))
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .disabled(switchingConnectionID != nil)
+        .accessibilityIdentifier(
+            "MobileSettingsMacConnection-\(connection.macDeviceID)"
+        )
+        .accessibilityLabel(connectionRowAccessibilityLabel(connection))
+        .accessibilityAddTraits(
+            connection.role == .focused ? .isSelected : []
+        )
+    }
+
+    private func connectionRowAccessibilityLabel(
+        _ connection: MobileMacConnectionSnapshot
+    ) -> String {
+        var parts = [connection.displayName]
+        if connection.role == .focused {
+            parts.append(L10n.string(
+                "mobile.settings.connectionFocused",
+                defaultValue: "Focused"
+            ))
+        }
+        if let routeKind = connection.routeKind {
+            parts.append(transportName(routeKind))
+        }
+        return parts.joined(separator: ", ")
+    }
+
+    /// Switch focus to the tapped connection. `switchToMac` promotes the live
+    /// control connection (or re-dials) and only persists the new active row on
+    /// success, so a failed switch leaves the current session intact.
+    private func selectConnection(_ connection: MobileMacConnectionSnapshot) {
+        guard connection.role != .focused,
+              switchingConnectionID == nil,
+              let store else { return }
+        switchingConnectionID = connection.id
+        let name = connection.displayName
+        Task {
+            let connected = await store.switchToMac(
+                macDeviceID: connection.macDeviceID,
+                instanceTag: connection.instanceTag
+            )
+            switchingConnectionID = nil
+            // A `false` while another switch is in flight means this attempt
+            // was superseded, not that the computer is unreachable; stay quiet.
+            if !connected, !store.isMacSwitchInFlight {
+                switchFailedComputerName = name
+            }
+        }
+    }
+
+    private var connectionSwitchFailedTitle: String {
+        String(
+            format: L10n.string(
+                "mobile.disconnected.connectFailedTitleFormat",
+                defaultValue: "Couldn't connect to %@"
+            ),
+            switchFailedComputerName ?? ""
+        )
+    }
+
+    /// The switch attempt owns the store's latest classified failure. Show it
+    /// with its guidance, falling back only when no specific reason exists.
+    private var connectionSwitchFailedMessage: String {
+        if let failure = MobileDisconnectedFailureCopy(
+            error: store?.connectionError,
+            guidance: store?.connectionErrorGuidance
+        ).combined {
+            return failure
+        }
+        return L10n.string(
+            "mobile.disconnected.connectFailedMessage",
+            defaultValue: "Make sure the computer is awake and online, then try again."
+        )
+    }
+
+    private var connectionSwitchFailedIsPresented: Binding<Bool> {
+        Binding(
+            get: { switchFailedComputerName != nil },
+            set: { if !$0 { switchFailedComputerName = nil } }
+        )
     }
 
     @MainActor
