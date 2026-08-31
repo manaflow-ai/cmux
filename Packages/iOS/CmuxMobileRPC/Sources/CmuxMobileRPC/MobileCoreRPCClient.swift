@@ -91,8 +91,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         self.runtime = runtime
         self.route = route
         self.ticket = ticket
-        self.clientID = Self.normalizedMetadata(clientID)
-        self.clientBundleIdentifier = Self.normalizedMetadata(clientBundleIdentifier)
+        self.clientID = normalizedClientMetadata(clientID)
+        self.clientBundleIdentifier = normalizedClientMetadata(clientBundleIdentifier)
         let authorizationMode: CmxTransportAuthorizationMode
         if route.kind == .iroh {
             authorizationMode = .transportAdmission
@@ -556,7 +556,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             // Callers cannot smuggle an identity through a manually entered
             // status probe. We add our immutable install identity again only
             // after this request has an authenticated transport below.
-            Self.removeClientIdentityMetadata(from: &request)
+            removeClientIdentityMetadata(from: &request)
         }
         if transportRequest.authorizationMode == .transportAdmission {
             // Iroh admission already authenticated the peer before the RPC
@@ -807,20 +807,6 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         return method != "mobile.host.status"
     }
 
-    private static func normalizedMetadata(_ value: String?) -> String? {
-        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed?.isEmpty == false ? trimmed : nil
-    }
-
-    private static func removeClientIdentityMetadata(from request: inout [String: Any]) {
-        var params = request["params"] as? [String: Any] ?? [:]
-        params.removeValue(forKey: "client_id")
-        params.removeValue(forKey: "ios_bundle_identifier")
-        params.removeValue(forKey: "ios_bundle_id")
-        params.removeValue(forKey: "iosBundleIdentifier")
-        request["params"] = params
-    }
-
     private func addClientIdentityMetadata(to request: inout [String: Any]) {
         guard let clientID,
               let clientBundleIdentifier else {
@@ -830,30 +816,6 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         params["client_id"] = clientID
         params["ios_bundle_identifier"] = clientBundleIdentifier
         request["params"] = params
-    }
-
-    private static func stringParamSelection(
-        _ params: [String: Any],
-        keys: [String]
-    ) -> StringParamSelection {
-        var selected: String?
-        for key in keys {
-            if let value = params[key] as? String {
-                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty {
-                    if let selected, selected != trimmed {
-                        return StringParamSelection(value: selected, hasConflict: true)
-                    }
-                    selected = selected ?? trimmed
-                }
-            }
-        }
-        return StringParamSelection(value: selected, hasConflict: false)
-    }
-
-    private struct StringParamSelection {
-        let value: String?
-        let hasConflict: Bool
     }
 
     private struct AuthenticatedRequestPayload {
@@ -866,6 +828,44 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         let stackAccessToken: String?
     }
 
+}
+
+private struct StringParamSelection {
+    let value: String?
+    let hasConflict: Bool
+}
+
+private func stringParamSelection(
+    _ params: [String: Any],
+    keys: [String]
+) -> StringParamSelection {
+    var selected: String?
+    for key in keys {
+        if let value = params[key] as? String {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                if let selected, selected != trimmed {
+                    return StringParamSelection(value: selected, hasConflict: true)
+                }
+                selected = selected ?? trimmed
+            }
+        }
+    }
+    return StringParamSelection(value: selected, hasConflict: false)
+}
+
+private func normalizedClientMetadata(_ value: String?) -> String? {
+    let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed?.isEmpty == false ? trimmed : nil
+}
+
+private func removeClientIdentityMetadata(from request: inout [String: Any]) {
+    var params = request["params"] as? [String: Any] ?? [:]
+    params.removeValue(forKey: "client_id")
+    params.removeValue(forKey: "ios_bundle_identifier")
+    params.removeValue(forKey: "ios_bundle_id")
+    params.removeValue(forKey: "iosBundleIdentifier")
+    request["params"] = params
 }
 
 private extension MobileCoreRPCClient {
