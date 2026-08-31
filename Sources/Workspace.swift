@@ -1862,6 +1862,10 @@ extension Workspace {
                     ? retainedRestorableAgent
                     : nil
             let restoredBindingLaunch = unresolvedBindingLaunch
+            // Check the pure command builder before taking the dedup claim. A
+            // retained snapshot may be present but non-renderable (for example
+            // an unavailable custom restore recipe).
+            let canRenderRestoredAgentResume = retainedRestorableAgent?.resumeCommand != nil
             let restorableTmuxStartCommand = !restoreStartupBlocked &&
                 !stablePanelHasLiveProcess &&
                 restorableAgent == nil && restoredBindingLaunch == nil
@@ -1887,6 +1891,7 @@ extension Workspace {
                 guard canAttemptAgentResumeLaunch,
                       shouldAutoResumeAgent,
                       restorableAgentCanAutoResume,
+                      canRenderRestoredAgentResume,
                       restoredHibernation == nil,
                       restoredBindingLaunch == nil,
                       let retainedRestorableAgent else {
@@ -1931,24 +1936,35 @@ extension Workspace {
                     sessionId: retainedRestorableAgent.sessionId
                 )
             }()
-            let restoredAgentResumeLaunch: SurfaceResumeStartupLaunch? =
-                if canAttemptAgentResumeLaunch &&
-                    shouldAutoResumeAgent &&
-                    restorableAgentCanAutoResume &&
-                    restoredHibernation == nil &&
-                    restoredBindingLaunch == nil &&
-                    !agentSessionAlreadyActive {
-                    if restoresRemoteWorkspaceTerminalSnapshot {
-                        retainedRestorableAgent?.resumeStartupInput(useLocalRestoreVerb: false)
-                            .map(SurfaceResumeStartupLaunch.input)
-                    } else {
-                        retainedRestorableAgent?.resumeStartupInput(
-                            restoringWorkingDirectory: resumeSessionWorkingDirectory
-                        ).map(SurfaceResumeStartupLaunch.input)
-                    }
-                } else {
-                    nil
+            let restoredAgentResumeLaunch: SurfaceResumeStartupLaunch? = {
+                guard canAttemptAgentResumeLaunch,
+                      shouldAutoResumeAgent,
+                      restorableAgentCanAutoResume,
+                      restoredHibernation == nil,
+                      restoredBindingLaunch == nil,
+                      !agentSessionAlreadyActive,
+                      let retainedRestorableAgent else {
+                    return nil
                 }
+                let startupInput = restoresRemoteWorkspaceTerminalSnapshot
+                    ? retainedRestorableAgent.resumeStartupInput(useLocalRestoreVerb: false)
+                    : retainedRestorableAgent.resumeStartupInput(
+                        restoringWorkingDirectory: resumeSessionWorkingDirectory
+                    )
+                guard let startupInput,
+                      !startupInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    // The claim is only useful when a launch was actually
+                    // rendered. Release it immediately on command/script
+                    // construction failure so a later restore is not blocked
+                    // for the claim TTL.
+                    AgentResumeLaunchGuard.shared.releaseResumeLaunch(
+                        kind: retainedRestorableAgent.kind.rawValue,
+                        sessionId: retainedRestorableAgent.sessionId
+                    )
+                    return nil
+                }
+                return .input(startupInput)
+            }()
             // Build the candidate before arming the gate. A binding that is
             // disabled, unapproved, or cannot render a command must start as an
             // ordinary shell instead of waiting behind deferred admission.
@@ -6182,6 +6198,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             // authenticated report must replace stale same-session policy.
             binding
         } else if binding.isAgentHookBinding,
+                  // A retained snapshot may carry a remote-only cwd policy.
+                  // Apply it to a refresh only while the binding stays in the
+                  // same execution location; a local hook refresh starts a new
+                  // restore scope and must not inherit remote state.
+                  previousBinding?.launchFlavor == binding.launchFlavor,
                   let restoredAgent =
             restoredAgentSnapshotsByPanelId[panelId],
            let selection = restoredAgent.restoreWorkingDirectorySelection,
@@ -6194,7 +6215,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 from: restoredAgent
             )
         } else if let previousBinding,
-                  previousBinding.isSameManagedSession(as: binding) {
+                  previousBinding.isSameManagedSession(as: binding),
+                  previousBinding.launchFlavor == binding.launchFlavor {
             binding.inheritingRestoreWorkingDirectorySelection(from: previousBinding)
         } else {
             binding
