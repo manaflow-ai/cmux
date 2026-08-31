@@ -320,7 +320,15 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     /// Plain-click counterpart: clears active and multi-selected header paint
     /// while the authoritative single selection is applied.
     func showOptimisticDeselection() {
-        guard let model, model.isAnchorActive || model.isMultiSelected else { return }
+        guard let model else { return }
+        // A previous preview can have painted this header anchor-active while
+        // its stored model is still inactive. The replacement-click peel must
+        // restore that stored model; otherwise the old highlight survives
+        // until the authoritative apply or bailout.
+        guard model.isAnchorActive || model.isMultiSelected else {
+            clearOptimisticAnchorActive()
+            return
+        }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         backgroundView.layer?.cornerRadius = 4
