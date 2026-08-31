@@ -348,8 +348,7 @@ struct AgentHibernationTerminationFailureTests {
             containsUnrelatedProcess: false,
             panelProcessIDs: [],
             processIDs: [],
-            processIdentities: [:],
-            processLiveness: .unknown
+            processIdentities: [:]
         )
 
         #expect(record.hasPressureSafeProcessEvidence == false)
@@ -539,8 +538,7 @@ struct AgentHibernationTerminationFailureTests {
             containsUnrelatedProcess: false,
             panelProcessIDs: processIDs,
             processIDs: processIDs,
-            processIdentities: processIdentities,
-            processLiveness: .unknown
+            processIdentities: processIdentities
         )
 
         #expect(record.hasPressureSafeProcessEvidence == false)
@@ -576,8 +574,7 @@ struct AgentHibernationTerminationFailureTests {
             containsUnrelatedProcess: false,
             panelProcessIDs: processIDs,
             processIDs: processIDs,
-            processIdentities: mismatchedIdentities,
-            processLiveness: .unknown
+            processIdentities: mismatchedIdentities
         )
         let entry = RestorableAgentSessionIndex.Entry(
             snapshot: record.agent,
