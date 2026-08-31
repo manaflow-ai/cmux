@@ -11629,6 +11629,13 @@ struct CMUXCLI {
         process.standardInput = FileHandle.standardInput
         process.standardOutput = FileHandle.standardOutput
         process.standardError = FileHandle.standardError
+        // Mark this ssh as cmux's interactive login. It pins cmux's own ControlPath, so a
+        // site's ssh_config hooks (Match exec ProxyCommand/2FA helpers) that would normally
+        // skip work when the user's own shared master is live can see that this connection
+        // cannot ride that master and still needs a full authentication.
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_REMOTE_TMUX_AUTH"] = "1"
+        process.environment = environment
 
         // Foundation spawns the child in its OWN process group, so ssh starts as a
         // BACKGROUND job of the terminal. ssh's password / host-key / MFA prompt
