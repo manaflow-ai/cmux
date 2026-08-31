@@ -72,6 +72,8 @@ struct DeviceTreeView: View {
                                 visibleComputers: section.computers,
                                 hiddenComputers: [],
                                 mutatingComputerIDs: store.computerVisibilityMutationIDs,
+                                setCaffeine: setCaffeine,
+                                caffeineMutatingComputerIDs: store.caffeineMutatingPairingIDs,
                                 hide: hideComputer,
                                 unhide: unhideComputer,
                             )
@@ -209,6 +211,18 @@ struct DeviceTreeView: View {
             representativeID: computer.id,
             aliasIDs: computer.aliasIDs
         )
+    }
+
+    /// Leading-swipe keep-awake toggle: targets exactly the swiped Computer's
+    /// own connection, never whichever Mac happens to be active.
+    private func setCaffeine(_ computer: MacComputerSnapshot, _ enabled: Bool) {
+        Task {
+            await store.setCaffeineEnabled(
+                enabled,
+                macDeviceID: computer.deviceId,
+                instanceTag: computer.instanceTag
+            )
+        }
     }
 
     private func unhideComputer(_ computer: MobileHiddenComputer) {

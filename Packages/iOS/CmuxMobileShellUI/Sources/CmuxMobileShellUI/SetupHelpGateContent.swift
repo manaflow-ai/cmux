@@ -37,17 +37,17 @@ struct SetupHelpGateContent {
             // steps are below that floor and are gone with it.
             return SetupHelpGateContent(
                 systemImage: "desktopcomputer",
-                title: L10n.string("mobile.setupHelp.macAppTitle", defaultValue: "Run cmux on your computer"),
-                body: String(
+                title: L10n.string("mobile.setupHelp.macAppTitle", defaultValue: "Run cmux on y                body: String(
                     format: L10n.string(
                         "mobile.setupHelp.macAppBodyFormat",
                         defaultValue: """
                         Install cmux on your computer, sign in to the same account, and leave it \
                         running. The computer then appears on this phone automatically. \
                         This iPhone app needs %@ on the Mac. \
-                        To pair through Tailscale instead, install Tailscale on both devices, \
+                        To pair through Tailscale instead, install Tailscale on both devices and \
                         connect them to the same Tailscale network, then open Tailscale Pairing \
-                        on the Mac and scan its code here.
+                        on the Mac and scan its QR here, or enter the Mac's numeric Tailscale \
+                        IP and port.
                         """
                     ),
                     MobileMacPairingFloor.requiredMacVersionLabel

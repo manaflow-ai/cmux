@@ -217,16 +217,13 @@ struct MobilePairingScannerSheet: View {
 #endif
 
 extension MobilePairingScannerSheet {
-    /// The localized Tailscale setup sequence shared by every pairing
-    /// entrypoint. Version-free on purpose: the per-0.64.17 steps described a
-    /// Mac below the pairing floor (MobileMacPairingFloor), which this build
-    /// no longer dials.
+    /// The localized Tailscale setup sequence shared by every pairing entrypoint.
     static var guidanceText: String {
         L10n.string(
             "mobile.tailscalePairing.instructions",
             defaultValue: """
-            Install Tailscale on both devices and use the same Tailscale network, then open \
-            Tailscale Pairing on the Mac and scan its code here.
+            Install Tailscale on both devices and use the same Tailscale network. Open Tailscale \
+            Pairing on the Mac and scan its QR here, or enter the Mac's numeric Tailscale IP and port.
             """
         )
     }
@@ -236,9 +233,9 @@ extension MobilePairingScannerSheet {
         L10n.string(
             "mobile.tailscalePairing.emptyDescription",
             defaultValue: """
-            Install Tailscale on both devices and use the same Tailscale network, then open \
-            Tailscale Pairing on the Mac and scan its code here. To use Auto-Connect instead, \
-            open Settings, tap Connection Method, and choose Auto-Connect.
+            Install Tailscale on both devices and use the same Tailscale network. Open Tailscale \
+            Pairing on the Mac and scan its QR here, or enter the Mac's numeric Tailscale IP and port. \
+            To use Auto-Connect instead, open Settings, tap Connection Method, and choose Auto-Connect.
             """
         )
     }

@@ -1382,8 +1382,66 @@ fn is_cli_invocation(args: &[String]) -> bool {
 }
 
 fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), String> {
-    if raw_args.first().map(String::as_str) != Some("remote") {
+    let mut index = 0;
+    let mut leading = Vec::new();
+    while index < raw_args.len() {
+        match raw_args[index].as_str() {
+            "--socket" | "--session" | "--machine" => {
+                leading.extend(raw_args[index..].iter().take(2).cloned());
+                index += 2;
+            }
+            value
+                if value.starts_with("--socket=")
+                    || value.starts_with("--session=")
+                    || value.starts_with("--machine=") =>
+            {
+                leading.push(raw_args[index].clone());
+                index += 1;
+            }
+            "--json" | "--jsonl" | "--quiet" => {
+                leading.push(raw_args[index].clone());
+                index += 1;
+            }
+            _ => break,
+        }
+    }
+    let Some(command) = raw_args.get(index).cloned() else {
         return Ok(());
+    };
+    if !crate::cli::is_remote_invocation(raw_args) {
+        return Ok(());
+    }
+    let rest = raw_args[index + 1..].to_vec();
+    *raw_args = std::iter::once(command.clone()).chain(leading).chain(rest).collect();
+    if command != "remote" {
+        return Ok(());
+    }
+    if command == "remote" {
+        let mut action_index = 1;
+        while action_index < raw_args.len() {
+            match raw_args[action_index].as_str() {
+                "--socket" | "--session" | "--machine" => action_index += 2,
+                "--json" | "--jsonl" | "--quiet" => action_index += 1,
+                value
+                    if value.starts_with("--socket=")
+                        || value.starts_with("--session=")
+                        || value.starts_with("--machine=") =>
+                {
+                    action_index += 1
+                }
+                _ => break,
+            }
+        }
+        if let Some(action) = raw_args.get(action_index).cloned() {
+            raw_args.remove(action_index);
+            if let Some(command) = crate::cli::remote_action_command(&action) {
+                raw_args.remove(0);
+                raw_args.insert(0, command.to_string());
+                return Ok(());
+            } else {
+                raw_args.insert(1, action);
+            }
+        }
     }
     match raw_args.get(1).map(String::as_str) {
         Some("stop") => {
@@ -1905,6 +1963,7 @@ fn run_server(
 
     let mut surface_options = SurfaceOptions::default();
     config::apply_browser_to_surface_options(&config, &mut surface_options);
+    surface_options.scrollback = config.scrollback_limit_bytes();
     if let Some(term) = args.term {
         surface_options.term = term;
     }
@@ -2859,6 +2918,42 @@ mod tests {
             |values: &[&str]| values.iter().map(|value| (*value).to_string()).collect::<Vec<_>>();
         assert!(is_cli_invocation(&strings(&["--relay-slot", "server", "workspace", "list",])));
         assert!(!is_cli_invocation(&strings(&["--relay-slot", "routing-key", "--headless",])));
+    }
+
+    #[test]
+    fn remote_normalization_preserves_leading_globals_for_direct_commands() {
+        let mut json_connect = ["--json", "connect"].map(str::to_string).to_vec();
+        normalize_remote_resource_args(&mut json_connect).unwrap();
+        assert_eq!(json_connect, ["connect", "--json"]);
+
+        let mut session_stop = ["--session", "dev", "remote-stop"].map(str::to_string).to_vec();
+        normalize_remote_resource_args(&mut session_stop).unwrap();
+        assert_eq!(session_stop, ["remote-stop", "--session", "dev"]);
+    }
+
+    #[test]
+    fn remote_normalization_handles_inline_globals_and_unknown_actions() {
+        let mut inline_nested = ["--session=dev", "remote", "connect"].map(str::to_string).to_vec();
+        normalize_remote_resource_args(&mut inline_nested).unwrap();
+        assert_eq!(inline_nested, ["connect", "--session=dev"]);
+
+        let mut unknown = ["--json", "remote", "frobnicate"].map(str::to_string).to_vec();
+        let error = normalize_remote_resource_args(&mut unknown).unwrap_err();
+        assert_eq!(
+            error,
+            localization::catalog().remote_client.unknown_action("remote", "frobnicate")
+        );
+    }
+
+    #[test]
+    fn remote_normalization_leaves_missing_global_values_and_terminator_untouched() {
+        let mut missing = ["--session"].map(str::to_string).to_vec();
+        normalize_remote_resource_args(&mut missing).unwrap();
+        assert_eq!(missing, ["--session"]);
+
+        let mut terminated = ["--", "remote", "connect"].map(str::to_string).to_vec();
+        normalize_remote_resource_args(&mut terminated).unwrap();
+        assert_eq!(terminated, ["--", "remote", "connect"]);
     }
 
     #[test]
