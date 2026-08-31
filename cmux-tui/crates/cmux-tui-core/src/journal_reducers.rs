@@ -806,6 +806,24 @@ mod tests {
     }
 
     #[test]
+    fn newer_hook_session_start_can_reopen_when_provider_reuses_session_id() {
+        let subjects = terminal_subject("term_a");
+        let payload = json!({
+            "adapter": {"id": "claude", "version": 1},
+            "normalized": {"agent_session_id": "reused-session"}
+        });
+        let mut roster = AgentRoster::default();
+
+        roster.apply(&hook_event(1, "agent.session.started", &subjects, &payload));
+        roster.apply(&hook_event(2, "agent.session.ended", &subjects, &payload));
+        let deltas = roster.apply(&hook_event(3, "agent.session.started", &subjects, &payload));
+
+        assert_eq!(deltas.len(), 1, "a newer start reopens a reused provider session id");
+        assert_eq!(roster.entries["term_a"].state, "idle");
+        assert!(!roster.has_ended_hook_fence("term_a"));
+    }
+
+    #[test]
     fn folds_are_idempotent_per_state_and_deterministic_across_replays() {
         let subjects = terminal_subject("term_a");
         let payload = json!({});
