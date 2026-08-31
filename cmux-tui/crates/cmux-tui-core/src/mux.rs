@@ -1085,6 +1085,16 @@ impl AgentSource {
             AgentSource::Hook => "hook",
         }
     }
+
+    /// Higher values have stronger authority when two projections describe
+    /// the same terminal lifecycle.
+    pub(crate) const fn authority_rank(self) -> u8 {
+        match self {
+            AgentSource::Detected => 0,
+            AgentSource::Socket => 1,
+            AgentSource::Hook => 2,
+        }
+    }
 }
 
 /// The journal-derived agent roster and the last journal sequence folded into
@@ -1125,6 +1135,10 @@ const AGENT_ROSTER_FOLD_WORKER_BATCH_WAIT: Duration = Duration::from_millis(10);
 /// reducer worker after one bounded retry budget when that counter cannot
 /// release the row, and let a later availability signal or restart retry it.
 const AGENT_ROSTER_FOLD_WORKER_PROJECTION_RETRY_LIMIT: u32 = 8;
+/// Do not keep a detached reducer worker alive forever when the journal
+/// remains unavailable. A later journal event or startup can schedule a new
+/// worker after this bounded recovery state is reported.
+const AGENT_ROSTER_FOLD_WORKER_JOURNAL_RETRY_LIMIT: u32 = 8;
 
 fn agent_roster_projection_retry_delay(attempt: u32) -> Duration {
     let shift = attempt.saturating_sub(1).min(5);
@@ -6120,6 +6134,7 @@ impl Mux {
 
     fn run_agent_roster_fold_worker(mux: Weak<Self>) {
         let mut projection_retry_attempts = 0u32;
+        let mut journal_retry_attempts = 0u32;
         loop {
             let Some(mux) = mux.upgrade() else { return };
             if mux.shutting_down.load(Ordering::Acquire) {
@@ -6133,13 +6148,27 @@ impl Mux {
                 .unwrap()
                 .session_journal_after(0, 1)
             {
-                Ok(page) => page.head_sequence,
+                Ok(page) => {
+                    journal_retry_attempts = 0;
+                    page.head_sequence
+                }
                 Err(error) => {
                     eprintln!(
                         "cmux-tui: reading the agent roster journal head in the worker failed: {error}"
                     );
+                    journal_retry_attempts = journal_retry_attempts.saturating_add(1);
+                    if journal_retry_attempts >= AGENT_ROSTER_FOLD_WORKER_JOURNAL_RETRY_LIMIT {
+                        mux.report_internal_diagnostic(
+                            "agent roster replay paused after bounded journal read retries; a later journal event or restart will retry the pending events",
+                        );
+                        mux.mark_agent_roster_fold_worker_stopped();
+                        return;
+                    }
                     let epoch = mux.journal_event_epoch();
-                    mux.wait_for_journal_event(epoch, AGENT_ROSTER_FOLD_WORKER_WAIT);
+                    mux.wait_for_journal_event(
+                        epoch,
+                        agent_roster_projection_retry_delay(journal_retry_attempts),
+                    );
                     continue;
                 }
             };
@@ -6362,17 +6391,19 @@ impl Mux {
         match delta {
             RosterDelta::Upsert { terminal_id, entry } => {
                 let Ok(terminal_id) = TerminalPublicId::parse(terminal_id) else { return };
-                if records
-                    .get(&terminal_id)
-                    .is_some_and(|existing| existing.updated_at_ms > entry.updated_at_ms)
-                {
+                let source = entry.agent_source();
+                if records.get(&terminal_id).is_some_and(|existing| {
+                    existing.source.authority_rank() > source.authority_rank()
+                        || (existing.source == source
+                            && existing.updated_at_ms > entry.updated_at_ms)
+                }) {
                     return;
                 }
                 records.insert(
                     terminal_id,
                     TerminalAgentRecord {
                         state: entry.agent_state(),
-                        source: entry.agent_source(),
+                        source,
                         session: entry.session,
                         agent: entry.agent,
                         updated_at_ms: entry.updated_at_ms,
@@ -10800,7 +10831,7 @@ impl Mux {
             eprintln!("cmux-tui: journal hook workers did not stop before the shutdown deadline");
         }
         self.finalize_terminal_journal("shutdown");
-        if let Err(error) = self.persist_agent_roster_snapshot() {
+        if let Err(error) = self.persist_agent_roster_snapshot_until(hook_deadline) {
             eprintln!(
                 "cmux-tui: persisting the agent roster snapshot during shutdown failed: {error}"
             );
@@ -10813,22 +10844,36 @@ impl Mux {
 
     /// Flush a coalesced roster cursor before the daemon exits. The journal is
     /// already closed by the caller, so this write observes the final fold.
-    fn persist_agent_roster_snapshot(&self) -> anyhow::Result<()> {
-        let _fold = self.agent_roster_fold.lock().unwrap();
+    fn persist_agent_roster_snapshot_until(&self, deadline: Instant) -> anyhow::Result<()> {
+        // Shutdown must never block on a worker that missed its deadline.
+        // `agent_roster_fold` is a plain mutex, so use its non-blocking path;
+        // the registry mutex has a deadline-aware lock implementation.
+        let _fold = self
+            .agent_roster_fold
+            .try_lock()
+            .map_err(|_| anyhow::anyhow!("agent roster fold lock unavailable at shutdown"))?;
         let (cursor, snapshot) = {
-            let host = self.agent_roster.lock().unwrap();
+            let host = self
+                .agent_roster
+                .try_lock()
+                .map_err(|_| anyhow::anyhow!("agent roster state lock unavailable at shutdown"))?;
             if host.cursor == host.persisted_cursor {
                 return Ok(());
             }
             (host.cursor, host.roster.snapshot().to_string())
         };
-        self.workspace_registry.lock().unwrap().put_journal_reducer_state(
+        self.workspace_registry.lock_until(deadline)?.put_journal_reducer_state(
             crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
             crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
             cursor,
             &snapshot,
         )?;
-        self.agent_roster.lock().unwrap().persisted_cursor = cursor;
+        let mut host = self.agent_roster.try_lock().map_err(|_| {
+            anyhow::anyhow!("agent roster state lock unavailable after shutdown persist")
+        })?;
+        if host.cursor == cursor {
+            host.persisted_cursor = cursor;
+        }
         Ok(())
     }
 
