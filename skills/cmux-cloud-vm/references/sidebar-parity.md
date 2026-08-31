@@ -6,6 +6,8 @@ Sidebar (human) | CLI (agent) | Socket method | Verified
 --- | --- | --- | ---
 **Machines panel ＋ / palette "New Cloud Machine…"** (name, Desktop/Base, size) | `cmux vm new [--desktop\|--base] [--size 8g] [--name <label>] [--detach] [--json]` | `vm.create` | ✅
 **Open Base / Set Up Base** | `cmux vm base open [--desktop\|--base]` | `vm.base_open` | ✅
+Control bar › **Open Cloud Agent** (Claude/Codex/OpenCode/Pi) | `cmux vm prompt --open <agent>` | `vm.cloud_agent_open` | ✅ installs the bundled cmux-cloud skill file (`~/.config/cmux/skills/cmux-cloud.md`), opens a local agent terminal with the kickoff prompt
+Control bar › **Copy Cloud Prompt** | `cmux vm prompt` | `vm.cloud_prompt` | ✅ prints the same prompt (skill path on stderr) — bootstraps ANY agent/harness
 Machine row › **Open Shell** / click | `cmux surface new-terminal --machine <m>` (into the current workspace, like the row) · `cmux vm open <m> [--workspace <ref>]` (a shell, its own workspace by default) | `vm.terminal_new` / `workspace.cloud_vm_terminal_ready` | ✅
 Machine row › **New Workspace**, Workspaces ＋ | `cmux vm workspace new <m> [--name n]` | `vm.workspace_new` | ✅
 Machine row › **Open Desktop**, Displays › Open Desktop, Desktop row click | `cmux vm open <m>:desktop` / `cmux surface open <m>/display/display:1` | `vm.desktop_open` / `surface.project` | ✅
@@ -23,7 +25,9 @@ Workspace row › **Open Workspace** (not open yet), double-click, Return | `cmu
 (no menu verb — drop onto the current pane) | `cmux vm workspace open <m> <ws> --here [--workspace <local>]` | `vm.workspace_open {here}` | ✅
 (no menu verb — CLI placement only) | `cmux vm workspace open <m> <ws> --tabs [--pane <p>]` | `vm.workspace_open {here, placement: tab}` | ✅
 Drag a workspace row onto a pane edge | `cmux vm workspace open <m> <ws> --pane <p> --left\|--right\|--up\|--down` | `vm.workspace_open {here, pane_id, direction}` | ✅
-Workspace row › **Close Workspace**, hover × | `cmux vm workspace close <m> <ws>` | `vm.workspace_close` | ✅ ends the terminals that live only there (no orphans) and closes their local panes
+Workspace row › **Close Workspace (Keep Terminals)**, hover × | `cmux vm workspace close <m> <ws>` | `vm.workspace_close` | ✅ terminals keep running and detach into the Terminals pool (only `terminal close` kills)
+Workspace row › **Delete Workspace and Terminals…** (confirms) | `cmux vm workspace rm <m> <ws>` | `vm.workspace_delete` | ✅ same `CloudTreeNodeActions.deleteWorkspaceAndTerminals`: kills every terminal viewed there, then closes it
+Workspace row › **Rename…** | `cmux vm workspace rename <m> <ws> <name>` | `vm.workspace_rename` | ✅ same `provider.renameRemoteWorkspace`
 Workspace row › **Copy Workspace ID** | `cmux vm tree --json` (`remote_workspace.id`) | `vm.tree` | ✅
 Terminal / browser / display row click, **Open** | `cmux surface open <resource>` (reuses an open pane) / `cmux vm open <m>/<ws>/<term>` | `surface.project` | ✅
 Row › **Open in New Tab** | `cmux surface open <resource> --pane <p> --tab` | `surface.project {placement: tab}` | ✅

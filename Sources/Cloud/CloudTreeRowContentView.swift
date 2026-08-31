@@ -35,7 +35,7 @@ enum CloudTreeIconPalette {
 
 /// Display-only SwiftUI content for one Cloud outline row, rendered in the
 /// given ``CloudTreeStyle``. The hosting cell passes every pointer event
-/// through to the outline (selection, drag, double-click, context menu), so
+/// through to the outline (selection, drag, clicks, context menu), so
 /// nothing here is interactive.
 struct CloudTreeRowContentView: View {
     let kind: CloudTreeNode.Kind
@@ -522,7 +522,7 @@ struct CloudTreeMachineBand<Content: View>: View {
 
 /// The machine row's display content: activity dot, name, and — in the two-line
 /// layout — subtitle plus optional stats. Hover buttons and menus live in the
-/// outline cell, and double-click in the outline.
+/// outline cell, and click handling in the outline.
 struct CloudTreeMachineRowContent: View {
     let machine: MachineSnapshot
     var style: CloudTreeStyle = CloudTreeStyleStore.current
@@ -543,11 +543,11 @@ struct CloudTreeMachineRowContent: View {
                             .foregroundStyle(.secondary)
                             .frame(width: CloudTreeRowGrid.dotSlot, alignment: .center)
                     } else {
-                        // This row is another computer: a dim cloud in the old dot
-                        // slot says so without competing with the name.
-                        Image(systemName: "cloud.fill")
-                            .font(.system(size: 8, weight: .semibold))
-                            .foregroundStyle(.tertiary)
+                        // This row is another computer: the same outline cloud as the
+                        // titlebar Cloud button, dimmed so it doesn't compete with the name.
+                        Image(systemName: "cloud")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(.secondary)
                             .frame(width: CloudTreeRowGrid.dotSlot, alignment: .center)
                     }
                     Text(machine.displayName)
@@ -578,9 +578,9 @@ struct CloudTreeMachineRowContent: View {
                         .foregroundStyle(.secondary)
                         .frame(width: CloudTreeRowGrid.dotSlot, height: style.machineNameLineHeight, alignment: .center)
                 } else {
-                    Image(systemName: "cloud.fill")
-                        .font(.system(size: 8, weight: .semibold))
-                        .foregroundStyle(.tertiary)
+                    Image(systemName: "cloud")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(.secondary)
                         .frame(width: CloudTreeRowGrid.dotSlot, height: style.machineNameLineHeight, alignment: .center)
                 }
                 VStack(alignment: .leading, spacing: CloudTreeRowGrid.machineLineSpacing) {
