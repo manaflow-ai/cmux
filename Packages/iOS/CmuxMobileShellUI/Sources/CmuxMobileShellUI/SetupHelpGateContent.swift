@@ -37,7 +37,8 @@ struct SetupHelpGateContent {
             // steps are below that floor and are gone with it.
             return SetupHelpGateContent(
                 systemImage: "desktopcomputer",
-                title: L10n.string("mobile.setupHelp.macAppTitle", defaultValue: "Run cmux on y                body: String(
+                title: L10n.string("mobile.setupHelp.macAppTitle", defaultValue: "Run cmux on your computer"),
+                body: String(
                     format: L10n.string(
                         "mobile.setupHelp.macAppBodyFormat",
                         defaultValue: """
