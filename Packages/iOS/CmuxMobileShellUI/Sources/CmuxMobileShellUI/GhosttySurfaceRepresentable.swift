@@ -320,11 +320,13 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// kill. The render side already suspends on these notifications
         /// (`GhosttySurfaceView`); the consumer must do the same.
         ///
-        /// Seeded from the live application state rather than `false`: adding
-        /// the observers does not replay the notifications that already fired,
-        /// so a coordinator built while the app is inactive would otherwise
-        /// start its consumer straight back into the watchdog path.
-        private var applicationIsBackgrounded = UIApplication.shared.applicationState != .active
+        /// Seeded from the live application state rather than `false`, and
+        /// folded into the effective flag before `init` returns: adding the
+        /// observers does not replay the notifications that already fired, so
+        /// a coordinator built while the app is inactive would otherwise
+        /// attach and start its consumer straight back into the watchdog path.
+        /// Injected so that seed is testable without driving `UIApplication`.
+        private var applicationIsBackgrounded: Bool
 
         init(
             workspaceID: String,
@@ -343,7 +345,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             onArtifactGalleryRefreshSignal: @escaping @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void,
             artifactChipHideClock: any Clock<Duration> = ContinuousClock(),
             outputConsumerRestartClock: any Clock<Duration> = ContinuousClock(),
-            outputConsumerRecoveryClock: any Clock<Duration> = ContinuousClock()
+            outputConsumerRecoveryClock: any Clock<Duration> = ContinuousClock(),
+            applicationIsBackgrounded: Bool = UIApplication.shared.applicationState != .active
         ) {
             self.workspaceID = workspaceID
             self.surfaceID = surfaceID
@@ -367,8 +370,14 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             self.artifactChipHideClock = artifactChipHideClock
             self.outputConsumerRestartClock = outputConsumerRestartClock
             self.outputConsumerRecoveryClock = outputConsumerRecoveryClock
+            self.applicationIsBackgrounded = applicationIsBackgrounded
             super.init()
             observeApplicationLifecycle()
+            // Fold the seed in now. `attach(surfaceView:)` guards on the
+            // effective flag, so leaving it stale until the first notification
+            // or scene update would let a coordinator built in the background
+            // mount a consumer immediately.
+            applyPresentationState()
         }
 
         /// Suspend the output consumer on `willResignActive` (which fires

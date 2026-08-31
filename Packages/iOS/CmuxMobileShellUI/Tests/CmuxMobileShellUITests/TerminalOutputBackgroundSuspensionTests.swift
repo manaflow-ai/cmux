@@ -179,6 +179,84 @@ struct TerminalOutputBackgroundSuspensionTests {
     }
 
     @MainActor
+    @Test("a coordinator built while backgrounded never starts a consumer on attach")
+    func coordinatorBuiltWhileBackgroundedDoesNotStartConsumerOnAttach() async throws {
+        let store = MobileShellComposite.preview()
+        let workspace = try #require(store.workspaces.first { !$0.terminals.isEmpty })
+        let terminal = try #require(workspace.terminals.first)
+        let surfaceID = terminal.id.rawValue
+        // Registering the observers does not replay notifications that already
+        // fired, so the seed is the only thing standing between a background
+        // launch and a main-actor consumer nobody asked for.
+        let coordinator = GhosttySurfaceRepresentable.Coordinator(
+            workspaceID: workspace.id.rawValue,
+            surfaceID: surfaceID,
+            store: store,
+            artifactFilesEnabled: false,
+            terminalFolderTapEnabled: false,
+            terminalFilesChipEnabled: false,
+            sessionArtifactCountEnabled: false,
+            visibleArtifactCount: 0,
+            onArtifactFilesRequested: { _ in },
+            onArtifactPathTapped: { _ in },
+            onVisibleArtifactCountChanged: { _ in },
+            onArtifactGalleryRefreshSignal: { _ in },
+            applicationIsBackgrounded: true
+        )
+        let surfaceView = GhosttySurfaceView(
+            runtime: try GhosttyRuntime.shared(),
+            delegate: coordinator
+        )
+        let host = UIViewController()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        coordinator.attach(surfaceView: surfaceView)
+        defer {
+            surfaceView.removeFromSuperview()
+            coordinator.detach()
+            surfaceView.prepareForDismantle()
+            window.isHidden = true
+        }
+
+        surfaceView.frame = host.view.bounds
+        host.view.addSubview(surfaceView)
+        coordinator.ghosttySurfaceView(
+            surfaceView,
+            didResize: TerminalGridSize(
+                columns: 72,
+                rows: 61,
+                pixelWidth: 1_296,
+                pixelHeight: 2_135
+            ),
+            reportID: 1
+        )
+        for _ in 0..<40 {
+            await Task.yield()
+        }
+        #expect(store.terminalOutputStreamTokensBySurfaceID[surfaceID] == nil)
+
+        // The same coordinator must still come up once the app is active.
+        NotificationCenter.default.post(
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
+        coordinator.ghosttySurfaceView(
+            surfaceView,
+            didResize: TerminalGridSize(
+                columns: 72,
+                rows: 61,
+                pixelWidth: 1_296,
+                pixelHeight: 2_135
+            ),
+            reportID: 2
+        )
+        #expect(await waitUntil {
+            store.terminalOutputStreamTokensBySurfaceID[surfaceID] != nil
+        })
+    }
+
+    @MainActor
     private func waitUntil(
         attempts: Int = 100,
         _ predicate: () -> Bool
