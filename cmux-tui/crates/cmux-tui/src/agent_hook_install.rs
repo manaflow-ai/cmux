@@ -1542,39 +1542,53 @@ fn resolve_codex_config_path(config_path: PathBuf) -> anyhow::Result<PathBuf> {
 
 /// Size gate shared by every config.toml consumer, checked against metadata
 /// before any read so an oversized file is rejected without loading it.
-fn codex_config_within_size_limit(config_path: &Path) -> anyhow::Result<bool> {
+/// Gate shared by every config.toml consumer, checked from metadata (of the
+/// symlink-resolved target) before any open: the file must be a regular file
+/// within the size limit, so a FIFO or other special file can never block a
+/// read and an oversized file is rejected without being loaded.
+fn check_codex_config_readable(config_path: &Path) -> anyhow::Result<()> {
     match fs::metadata(config_path) {
-        Ok(metadata) => Ok(metadata.len() <= MAX_CONFIG_BYTES),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(true),
+        Ok(metadata) => {
+            anyhow::ensure!(
+                metadata.is_file(),
+                "{} is not a regular file; refusing to read it",
+                config_path.display()
+            );
+            anyhow::ensure!(
+                metadata.len() <= MAX_CONFIG_BYTES,
+                "{} exceeds 16 MiB",
+                config_path.display()
+            );
+            Ok(())
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error).with_context(|| format!("inspect {}", config_path.display())),
     }
 }
 
-fn read_codex_config_document(
-    config_path: &Path,
-) -> anyhow::Result<(Option<String>, toml_edit::DocumentMut)> {
-    anyhow::ensure!(
-        codex_config_within_size_limit(config_path)?,
-        "{} exceeds 16 MiB",
-        config_path.display()
-    );
-    let original = match fs::read(config_path) {
+fn read_codex_config_text(config_path: &Path) -> anyhow::Result<Option<String>> {
+    check_codex_config_readable(config_path)?;
+    match fs::read(config_path) {
         Ok(bytes) => {
             anyhow::ensure!(
                 bytes.len() as u64 <= MAX_CONFIG_BYTES,
                 "{} exceeds 16 MiB",
                 config_path.display()
             );
-            Some(
+            Ok(Some(
                 String::from_utf8(bytes)
                     .with_context(|| format!("{} is not valid UTF-8", config_path.display()))?,
-            )
+            ))
         }
-        Err(error) if error.kind() == io::ErrorKind::NotFound => None,
-        Err(error) => {
-            return Err(error).with_context(|| format!("read {}", config_path.display()));
-        }
-    };
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error).with_context(|| format!("read {}", config_path.display())),
+    }
+}
+
+fn read_codex_config_document(
+    config_path: &Path,
+) -> anyhow::Result<(Option<String>, toml_edit::DocumentMut)> {
+    let original = read_codex_config_text(config_path)?;
     let document = original
         .as_deref()
         .unwrap_or_default()
@@ -1636,60 +1650,55 @@ fn codex_state_table_mut<'a>(
     ))
 }
 
+/// The validated inputs of one trust-state edit, kept alongside the rendered
+/// document so the commit can re-render against fresh file content when
+/// config.toml changed between the preflight and the commit.
+struct CodexTrustEdit {
+    config_path: PathBuf,
+    key_prefix: String,
+    desired: BTreeMap<String, String>,
+    owned_hashes: BTreeSet<String>,
+    install: bool,
+}
+
 /// A fully validated, pre-rendered config.toml trust-state write. Producing
 /// one performs every step that can fail for content reasons (read, parse,
 /// shape validation, rendering, target-directory writability), so the caller
 /// can sequence it BEFORE mutating hooks.json and commit it afterwards.
 struct PreparedCodexTrustWrite {
-    config_path: PathBuf,
+    edit: CodexTrustEdit,
+    original: Option<String>,
     updated: String,
     mode: u32,
 }
 
-/// Preflights the cmux-owned `hooks.state` trust-entry edit of the codex user
-/// config next to `hooks_path`, preserving unrelated keys, comments, and
-/// formatting. Returns `None` when the config already matches.
-fn prepare_codex_trust_state(
-    hooks_path: &Path,
-    from_env_override: bool,
-    root: &Map<String, Value>,
-    install: bool,
-) -> anyhow::Result<Option<PreparedCodexTrustWrite>> {
-    let parent = hooks_path.parent().context("codex hooks path has no parent")?;
-    // Resolve a symlinked config.toml to its target so the later atomic
-    // rename edits the real file instead of detaching the link.
-    let config_path = resolve_codex_config_path(parent.join(CODEX_CONFIG_FILE))?;
-    let key_hooks_path = codex_state_key_hooks_path(hooks_path, from_env_override);
-    let desired = if install {
-        codex_expected_trust_entries(&key_hooks_path, root)?
-    } else {
-        BTreeMap::new()
-    };
-    if !install && !config_path.exists() {
-        return Ok(None);
-    }
-    let (original, mut document) = read_codex_config_document(&config_path)?;
-    let owned_hashes = codex_owned_trust_hashes()?;
-    let key_prefix = format!("{}:", key_hooks_path.display());
+/// Reads the config and renders the trust edit against its current content,
+/// preserving unrelated keys, comments, and formatting. Returns the file's
+/// current text plus the rendered replacement, or `None` when the current
+/// content already satisfies the edit.
+fn render_codex_trust_document(
+    edit: &CodexTrustEdit,
+) -> anyhow::Result<(Option<String>, Option<String>)> {
+    let (original, mut document) = read_codex_config_document(&edit.config_path)?;
 
-    if let Some(state) = codex_state_table_mut(&mut document, &config_path, install)? {
+    if let Some(state) = codex_state_table_mut(&mut document, &edit.config_path, edit.install)? {
         let stale: Vec<String> = state
             .iter()
             .filter(|(key, entry)| {
-                key.starts_with(&key_prefix)
-                    && !desired.contains_key(*key)
+                key.starts_with(&edit.key_prefix)
+                    && !edit.desired.contains_key(*key)
                     && entry
                         .as_table_like()
                         .and_then(|entry| entry.get("trusted_hash"))
                         .and_then(toml_edit::Item::as_str)
-                        .is_some_and(|hash| owned_hashes.contains(hash))
+                        .is_some_and(|hash| edit.owned_hashes.contains(hash))
             })
             .map(|(key, _)| key.to_string())
             .collect();
         for key in stale {
             state.remove(&key);
         }
-        for (key, hash) in &desired {
+        for (key, hash) in &edit.desired {
             match state.get_mut(key).and_then(toml_edit::Item::as_table_like_mut) {
                 Some(entry) => {
                     entry.insert("trusted_hash", toml_edit::value(hash.clone()));
@@ -1717,22 +1726,75 @@ fn prepare_codex_trust_state(
 
     let updated = document.to_string();
     if Some(updated.as_str()) == original.as_deref() || (original.is_none() && updated.is_empty()) {
+        return Ok((original, None));
+    }
+    Ok((original, Some(updated)))
+}
+
+/// Preflights the cmux-owned `hooks.state` trust-entry edit of the codex user
+/// config next to `hooks_path`. Returns `None` when the config already
+/// matches.
+fn prepare_codex_trust_state(
+    hooks_path: &Path,
+    from_env_override: bool,
+    root: &Map<String, Value>,
+    install: bool,
+) -> anyhow::Result<Option<PreparedCodexTrustWrite>> {
+    let parent = hooks_path.parent().context("codex hooks path has no parent")?;
+    // Resolve a symlinked config.toml to its target so the later atomic
+    // rename edits the real file instead of detaching the link.
+    let config_path = resolve_codex_config_path(parent.join(CODEX_CONFIG_FILE))?;
+    let key_hooks_path = codex_state_key_hooks_path(hooks_path, from_env_override);
+    let desired = if install {
+        codex_expected_trust_entries(&key_hooks_path, root)?
+    } else {
+        BTreeMap::new()
+    };
+    if !install && !config_path.exists() {
         return Ok(None);
     }
+    let edit = CodexTrustEdit {
+        key_prefix: format!("{}:", key_hooks_path.display()),
+        owned_hashes: codex_owned_trust_hashes()?,
+        config_path,
+        desired,
+        install,
+    };
+    let (original, updated) = render_codex_trust_document(&edit)?;
+    let Some(updated) = updated else {
+        return Ok(None);
+    };
     // Probe where the rename will actually land: the resolved target's
     // directory, not necessarily the codex home.
     let target_parent =
-        config_path.parent().context("codex config path has no parent")?.to_path_buf();
+        edit.config_path.parent().context("codex config path has no parent")?.to_path_buf();
     ensure_writable_directory(&target_parent)?;
     Ok(Some(PreparedCodexTrustWrite {
-        mode: existing_file_mode(&config_path).unwrap_or(0o600),
-        config_path,
+        mode: existing_file_mode(&edit.config_path).unwrap_or(0o600),
+        edit,
+        original,
         updated,
     }))
 }
 
 fn commit_codex_trust_state(write: &PreparedCodexTrustWrite) -> anyhow::Result<()> {
-    atomic_write(&write.config_path, write.updated.as_bytes(), Some(write.mode))
+    // Close the preflight-to-commit window: if config.toml changed in between
+    // (codex's own trust review or a user edit), re-render against the fresh
+    // content instead of clobbering the concurrent edit with the stale
+    // preflight document. A re-render failure propagates, so the caller's
+    // rollback restores hooks.json.
+    let current = read_codex_config_text(&write.edit.config_path)?;
+    if current == write.original {
+        return atomic_write(&write.edit.config_path, write.updated.as_bytes(), Some(write.mode));
+    }
+    match render_codex_trust_document(&write.edit)? {
+        (_, Some(updated)) => {
+            let mode = existing_file_mode(&write.edit.config_path).unwrap_or(0o600);
+            atomic_write(&write.edit.config_path, updated.as_bytes(), Some(mode))
+        }
+        // The concurrent edit already satisfies the trust entries.
+        (_, None) => Ok(()),
+    }
 }
 
 /// Captures a file's rollback snapshot (bytes and mode) before mutation.
@@ -1832,9 +1894,10 @@ fn codex_trust_state_verified(
         return false;
     };
     let config_path = parent.join(CODEX_CONFIG_FILE);
-    // Same size gate as install/uninstall, checked against metadata before the
-    // read so an oversized config (or a symlink to one) cannot stall status.
-    if !matches!(codex_config_within_size_limit(&config_path), Ok(true)) {
+    // Same gate as install/uninstall, checked against metadata before the
+    // read: an oversized config cannot stall status, and a FIFO or other
+    // special file is never opened (an open alone would block forever).
+    if check_codex_config_readable(&config_path).is_err() {
         return false;
     }
     let Ok(text) = fs::read_to_string(&config_path) else {
@@ -2165,6 +2228,106 @@ mod tests {
         let file = root.path().join("present.json");
         atomic_write(&file, b"{}", Some(0o600)).unwrap();
         assert_eq!(snapshot_file(&file).unwrap().unwrap().0, b"{}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn codex_operations_fail_closed_on_a_fifo_config_toml() {
+        use std::ffi::CString;
+        use std::os::unix::ffi::OsStrExt as _;
+
+        let root = tempfile::tempdir().unwrap();
+        let worker_context = context(root.path());
+        let context = context(root.path());
+        let install = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        assert!(!run_with_context(&install, &context).failed);
+        let hooks_path = context.home.join(".codex/hooks.json");
+        let installed = fs::read(&hooks_path).unwrap();
+        let config_path = context.home.join(".codex/config.toml");
+        fs::remove_file(&config_path).unwrap();
+        let fifo = CString::new(config_path.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+
+        // The FIFO has no writer, so merely opening it would block forever;
+        // every operation must gate on metadata instead. Run them on a worker
+        // thread with a bounded wait so a regression fails fast as a timeout
+        // panic instead of hanging the suite.
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let status = Plan { action: Action::Status, providers: vec!["codex".into()] };
+            let install = Plan { action: Action::Install, providers: vec!["codex".into()] };
+            let uninstall = Plan { action: Action::Uninstall, providers: vec!["codex".into()] };
+            let _ = sender.send((
+                run_with_context(&status, &worker_context),
+                run_with_context(&install, &worker_context),
+                run_with_context(&uninstall, &worker_context),
+            ));
+        });
+        let (status_result, install_result, uninstall_result) = receiver
+            .recv_timeout(Duration::from_secs(60))
+            .expect("codex operations must fail closed on a FIFO config instead of blocking");
+
+        assert_eq!(
+            status_result.value["providers"][0]["state"], "partial",
+            "{}",
+            status_result.value
+        );
+        assert!(install_result.failed, "{}", install_result.value);
+        assert!(
+            install_result.value["errors"][0].as_str().unwrap().contains("not a regular file"),
+            "{}",
+            install_result.value
+        );
+        assert!(uninstall_result.failed, "{}", uninstall_result.value);
+        // Both mutating operations failed in preflight: hooks.json untouched.
+        assert_eq!(fs::read(&hooks_path).unwrap(), installed);
+    }
+
+    #[test]
+    fn codex_trust_commit_re_renders_after_a_concurrent_config_edit() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let install = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        assert!(!run_with_context(&install, &context).failed);
+        let hooks_path = context.home.join(".codex/hooks.json");
+        let config_path = context.home.join(".codex/config.toml");
+
+        // Reset the trust state so a fresh edit is pending, then preflight it.
+        atomic_write(&config_path, b"model = \"gpt-5.6\"\n", Some(0o600)).unwrap();
+        let hooks_root = read_json_object(&hooks_path).unwrap();
+        let prepared = prepare_codex_trust_state(&hooks_path, false, &hooks_root, true)
+            .unwrap()
+            .expect("trust entries are missing, so an edit must be pending");
+
+        // A concurrent writer (codex's own trust review or the user) edits
+        // config.toml between the preflight and the commit; the commit must
+        // fold that edit in rather than clobber it with the stale render.
+        atomic_write(&config_path, b"model = \"gpt-5.6\"\nconcurrent = \"edit\"\n", Some(0o600))
+            .unwrap();
+        commit_codex_trust_state(&prepared).unwrap();
+        let text = fs::read_to_string(&config_path).unwrap();
+        assert!(text.contains("concurrent = \"edit\""), "{text}");
+        assert!(text.contains("model = \"gpt-5.6\""), "{text}");
+        assert_eq!(codex_state_table(&context).len(), CODEX_EVENTS.len());
+
+        // If the fresh content no longer validates, the commit must fail and
+        // the rollback path must restore hooks.json.
+        atomic_write(&config_path, b"model = \"gpt-5.6\"\n", Some(0o600)).unwrap();
+        let hooks_root = read_json_object(&hooks_path).unwrap();
+        let prepared =
+            prepare_codex_trust_state(&hooks_path, false, &hooks_root, true).unwrap().unwrap();
+        let installed_hooks = fs::read(&hooks_path).unwrap();
+        atomic_write(&config_path, b"hooks = true\n", Some(0o600)).unwrap();
+        atomic_write(&hooks_path, b"{}\n", Some(0o600)).unwrap();
+        let error = commit_codex_trust_state_or_rollback(
+            &prepared,
+            &hooks_path,
+            Some(Some((installed_hooks.clone(), 0o600))),
+        )
+        .unwrap_err();
+        assert!(format!("{error:#}").contains("hooks key"), "{error:#}");
+        assert_eq!(fs::read(&hooks_path).unwrap(), installed_hooks);
+        assert_eq!(fs::read_to_string(&config_path).unwrap(), "hooks = true\n");
     }
 
     #[test]
