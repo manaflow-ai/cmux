@@ -3,7 +3,8 @@
  * addresses to Stack accounts.
  *
  * Gmail treats dots in the local part as presentation-only, while plus tags
- * remain meaningful mailbox aliases. Other providers are compared only after
+ * remain meaningful mailbox aliases. Gmail's legacy googlemail.com domain is
+ * also the same mailbox namespace. Other providers are compared only after
  * trimming and lowercasing; their local-part spelling is preserved.
  */
 export function canonicalizeEmailForMatching(value: string): string {
@@ -20,5 +21,34 @@ export function canonicalizeEmailForMatching(value: string): string {
   const mailbox = plusIndex < 0
     ? local.replaceAll(".", "")
     : `${local.slice(0, plusIndex).replaceAll(".", "")}${local.slice(plusIndex)}`;
-  return `${mailbox}@${domain}`;
+  return `${mailbox}@gmail.com`;
+}
+
+/**
+ * Return the spellings that provider lookups may use for one mailbox.
+ * Canonical comparison still happens after the lookup, but querying both
+ * Gmail domains is required because provider email filters are literal.
+ */
+export function emailVariantsForMatching(value: string): readonly string[] {
+  const normalized = value.trim().toLowerCase();
+  const canonical = canonicalizeEmailForMatching(normalized);
+  const variants = new Set<string>([canonical, normalized]);
+  const at = normalized.lastIndexOf("@");
+  const canonicalAt = canonical.lastIndexOf("@");
+  if (
+    at > 0 &&
+    canonicalAt > 0 &&
+    (normalized.slice(at + 1) === "gmail.com" ||
+      normalized.slice(at + 1) === "googlemail.com")
+  ) {
+    const localParts = new Set([
+      normalized.slice(0, at),
+      canonical.slice(0, canonicalAt),
+    ]);
+    for (const local of localParts) {
+      variants.add(`${local}@gmail.com`);
+      variants.add(`${local}@googlemail.com`);
+    }
+  }
+  return [...variants].filter(Boolean);
 }

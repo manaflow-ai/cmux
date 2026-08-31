@@ -40,6 +40,7 @@ import {
 import { captureAscError } from "../errors";
 import {
   canonicalizeEmailForMatching,
+  emailVariantsForMatching,
 } from "./emailMatching";
 import {
   markPurchaseEmailVerified,
@@ -791,8 +792,9 @@ async function resolveBillingEmailClaimsForCustomer(
       and(
         basePredicate,
         or(
-          eq(billingEmailClaims.email, matchingEmail),
-          eq(billingEmailClaims.email, literalEmail),
+          ...emailVariantsForMatching(literalEmail).map((variant) =>
+            eq(billingEmailClaims.email, variant),
+          ),
           sql`btrim(lower(${billingEmailClaims.email})) = ${literalEmail}`,
         ),
       ),
@@ -878,9 +880,7 @@ export async function findBillingUserByEmail(
   }
   const matchingEmail = canonicalizeEmailForMatching(email);
   const literalEmail = email.trim().toLowerCase();
-  const queries = literalEmail === matchingEmail
-    ? [matchingEmail]
-    : [matchingEmail, literalEmail];
+  const queries = emailVariantsForMatching(literalEmail);
   const candidateByID = new Map<string, StackBillingUserLookup>();
   for (const query of queries) {
     const users = await stackApp.listUsers({
@@ -1075,8 +1075,9 @@ function makeBillingOwnershipRepository(
             eq(billingEmailClaims.plan, PRO_PLAN_ID),
             isNull(billingEmailClaims.claimedByUserId),
             or(
-              eq(billingEmailClaims.email, matchingEmail),
-              eq(billingEmailClaims.email, literalEmail),
+              ...emailVariantsForMatching(literalEmail).map((variant) =>
+                eq(billingEmailClaims.email, variant),
+              ),
               sql`btrim(lower(${billingEmailClaims.email})) = ${literalEmail}`,
             ),
           ),
@@ -2346,9 +2347,7 @@ export async function findUserIdByEmail(
   }
   const normalizedEmail = canonicalizeEmailForMatching(email);
   const literalEmail = email.trim().toLowerCase();
-  const queries = literalEmail === normalizedEmail
-    ? [normalizedEmail]
-    : [normalizedEmail, literalEmail];
+  const queries = emailVariantsForMatching(literalEmail);
   const ownersByID = new Map<string, StackBillingUserLookup>();
   for (const query of queries) {
     const users = await stackApp.listUsers({

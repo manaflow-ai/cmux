@@ -9,6 +9,7 @@ import {
 } from "../../db/schema";
 import {
   canonicalizeEmailForMatching,
+  emailVariantsForMatching,
 } from "./emailMatching";
 import {
   recordFoundersCheckoutCompletion,
@@ -26,30 +27,97 @@ export type PaidBillingPurchase = {
   readonly input: CheckoutCompletionInput;
 };
 
+// Recovery is reachable without an authenticated session. Keep every Stripe
+// read bounded so a customer with a long history cannot hold the request open
+// or cause an unbounded provider scan.
+const MAX_RECOVERY_STRIPE_PAGES = 20;
+const MAX_RECOVERY_STRIPE_RESULTS = 500;
+const RECOVERY_STRIPE_DEADLINE_MS = 8_000;
+
+type RecoveryStripeRequestOptions = {
+  readonly maxNetworkRetries?: number;
+  readonly timeout?: number;
+};
+
+class RecoveryBudgetExceeded extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RecoveryBudgetExceeded";
+  }
+}
+
+class RecoveryReadBudget {
+  private readonly deadlineAt = Date.now() + RECOVERY_STRIPE_DEADLINE_MS;
+  private pagesRead = 0;
+  private resultsRead = 0;
+
+  async read<T extends { readonly data: readonly unknown[] }>(
+    operation: (
+      options: RecoveryStripeRequestOptions,
+    ) => Promise<T>,
+  ): Promise<T> {
+    if (this.pagesRead >= MAX_RECOVERY_STRIPE_PAGES) {
+      throw new RecoveryBudgetExceeded("Stripe recovery page budget exceeded");
+    }
+    const remainingMs = this.deadlineAt - Date.now();
+    if (remainingMs <= 0) {
+      throw new RecoveryBudgetExceeded("Stripe recovery deadline exceeded");
+    }
+    this.pagesRead += 1;
+
+    let timeoutID: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_, reject) => {
+      timeoutID = setTimeout(() => {
+        reject(new RecoveryBudgetExceeded("Stripe recovery deadline exceeded"));
+      }, remainingMs);
+    });
+    try {
+      const response = await Promise.race([
+        operation({
+          maxNetworkRetries: 0,
+          timeout: remainingMs,
+        }),
+        deadline,
+      ]);
+      this.resultsRead += response.data.length;
+      if (this.resultsRead > MAX_RECOVERY_STRIPE_RESULTS) {
+        throw new RecoveryBudgetExceeded("Stripe recovery result budget exceeded");
+      }
+      return response;
+    } finally {
+      if (timeoutID !== undefined) clearTimeout(timeoutID);
+    }
+  }
+}
+
 type RecoveryDb = ReturnType<typeof cloudDb>;
+type RecoveryStripeListResult<T> = {
+  data: readonly T[];
+  has_more?: boolean;
+};
 type RecoveryStripeClient = {
   readonly customers: {
-    list?(options?: Record<string, unknown>): Promise<{
-      data: readonly Stripe.Customer[];
-      has_more?: boolean;
-    }>;
-    search?(options?: Record<string, unknown>): Promise<{
-      data: readonly Stripe.Customer[];
-      has_more?: boolean;
-    }>;
+    list?(
+      options?: Record<string, unknown>,
+      requestOptions?: RecoveryStripeRequestOptions,
+    ): Promise<RecoveryStripeListResult<Stripe.Customer>>;
+    search?(
+      options?: Record<string, unknown>,
+      requestOptions?: RecoveryStripeRequestOptions,
+    ): Promise<RecoveryStripeListResult<Stripe.Customer>>;
   };
   readonly subscriptions: {
-    list(options?: Record<string, unknown>): Promise<{
-      data: readonly Stripe.Subscription[];
-      has_more?: boolean;
-    }>;
+    list(
+      options?: Record<string, unknown>,
+      requestOptions?: RecoveryStripeRequestOptions,
+    ): Promise<RecoveryStripeListResult<Stripe.Subscription>>;
   };
   readonly checkout: {
     sessions: {
-      list(options?: Record<string, unknown>): Promise<{
-        data: readonly Stripe.Checkout.Session[];
-        has_more?: boolean;
-      }>;
+      list(
+        options?: Record<string, unknown>,
+        requestOptions?: RecoveryStripeRequestOptions,
+      ): Promise<RecoveryStripeListResult<Stripe.Checkout.Session>>;
     };
   };
 };
@@ -81,6 +149,7 @@ export async function findPaidBillingPurchaseByEmail(
 ): Promise<PaidBillingPurchase | null> {
   const matchingEmail = canonicalizeEmailForMatching(email);
   const literalEmail = email.trim().toLowerCase();
+  const budget = new RecoveryReadBudget();
   try {
     const local = await findLocalPurchase(
       matchingEmail,
@@ -96,7 +165,7 @@ export async function findPaidBillingPurchaseByEmail(
     const client = dependencies.stripeClient
       ? dependencies.stripeClient()
       : (stripe() as unknown as RecoveryStripeClient);
-    const customers = await listStripeCustomersByEmail(client, email);
+    const customers = await listStripeCustomersByEmail(client, email, budget);
     for (const customer of customers) {
       if (
         !customer.email ||
@@ -104,13 +173,15 @@ export async function findPaidBillingPurchaseByEmail(
       ) {
         continue;
       }
-      const purchase = await purchaseFromStripeCustomer(client, customer);
+      const purchase = await purchaseFromStripeCustomer(client, customer, budget);
       if (purchase) return purchase;
     }
     // Payment-link checkouts can omit a persisted Stripe customer. Inspect a
     // bounded recent session page as a final fallback so a paid Founder's
     // session remains recoverable by email.
-    const sessions = await client.checkout.sessions.list({ limit: 100 });
+    const sessions = await budget.read((requestOptions) =>
+      client.checkout.sessions.list({ limit: 100 }, requestOptions),
+    );
     const session = sessions.data.find((candidate) => {
       const sessionEmail = candidate.customer_details?.email;
       if (
@@ -142,6 +213,7 @@ export async function findPaidBillingPurchaseByEmail(
       };
     }
   } catch (error) {
+    if (error instanceof RecoveryBudgetExceeded) return null;
     if (
       error instanceof Error &&
       error.message === "Stripe billing is not configured"
@@ -374,7 +446,13 @@ function billingEmailPredicate(
   matchingEmail: string,
   literalEmail: string,
 ) {
-  const variants = [...new Set([matchingEmail, literalEmail])].filter(Boolean);
+  const variants = [
+    ...new Set([
+      ...emailVariantsForMatching(literalEmail),
+      matchingEmail,
+      literalEmail,
+    ]),
+  ].filter(Boolean);
   const exact = variants.map((value) => eq(column, value));
   return or(...exact, sql`btrim(lower(${column})) = ${literalEmail}`) ??
     eq(column, matchingEmail);
@@ -383,14 +461,17 @@ function billingEmailPredicate(
 async function purchaseFromStripeCustomer(
   client: RecoveryStripeClient,
   customer: Stripe.Customer,
+  budget: RecoveryReadBudget,
 ): Promise<PaidBillingPurchase | null> {
   const subscriptions = await listStripeSubscriptionsForCustomer(
     client,
     customer.id,
+    budget,
   );
   const sessions = await listStripeCheckoutSessionsForCustomer(
     client,
     customer.id,
+    budget,
   );
   for (const subscription of subscriptions) {
     const metadata = subscription.metadata ?? {};
@@ -488,16 +569,22 @@ function isSettledFounderCheckoutSession(
 async function listStripeSubscriptionsForCustomer(
   client: RecoveryStripeClient,
   customerId: string,
+  budget: RecoveryReadBudget,
 ): Promise<readonly Stripe.Subscription[]> {
   const subscriptions: Stripe.Subscription[] = [];
   let startingAfter: string | undefined;
   for (;;) {
-    const response = await client.subscriptions.list({
-      customer: customerId,
-      status: "all",
-      limit: 100,
-      ...(startingAfter ? { starting_after: startingAfter } : {}),
-    });
+    const response = await budget.read((requestOptions) =>
+      client.subscriptions.list(
+        {
+          customer: customerId,
+          status: "all",
+          limit: 100,
+          ...(startingAfter ? { starting_after: startingAfter } : {}),
+        },
+        requestOptions,
+      ),
+    );
     subscriptions.push(...response.data);
     const lastID = response.data.at(-1)?.id;
     if (!response.has_more || !lastID || lastID === startingAfter) break;
@@ -510,15 +597,21 @@ async function listStripeSubscriptionsForCustomer(
 async function listStripeCheckoutSessionsForCustomer(
   client: RecoveryStripeClient,
   customerId: string,
+  budget: RecoveryReadBudget,
 ): Promise<readonly Stripe.Checkout.Session[]> {
   const sessions: Stripe.Checkout.Session[] = [];
   let startingAfter: string | undefined;
   for (;;) {
-    const response = await client.checkout.sessions.list({
-      customer: customerId,
-      limit: 100,
-      ...(startingAfter ? { starting_after: startingAfter } : {}),
-    });
+    const response = await budget.read((requestOptions) =>
+      client.checkout.sessions.list(
+        {
+          customer: customerId,
+          limit: 100,
+          ...(startingAfter ? { starting_after: startingAfter } : {}),
+        },
+        requestOptions,
+      ),
+    );
     sessions.push(...response.data);
     const lastID = response.data.at(-1)?.id;
     if (!response.has_more || !lastID || lastID === startingAfter) break;
@@ -569,21 +662,23 @@ function isRecognizedRecoveryMetadata(
 async function listStripeCustomersByEmail(
   client: RecoveryStripeClient,
   email: string,
+  budget: RecoveryReadBudget,
 ): Promise<readonly Stripe.Customer[]> {
   const trimmed = email.trim();
-  const lower = trimmed.toLowerCase();
-  const canonical = canonicalizeEmailForMatching(trimmed);
-  const variants = [...new Set([trimmed, lower, canonical])].filter(Boolean);
+  const variants = emailVariantsForMatching(trimmed);
   const customers: Stripe.Customer[] = [];
   for (const variant of variants) {
     if (client.customers.search && isEmailSearchSafe(variant)) {
       try {
-        const response = await client.customers.search({
-          query: `email:'${escapeStripeSearchValue(variant)}'`,
-          limit: 100,
-        });
+        const response = await budget.read((requestOptions) =>
+          client.customers.search!({
+            query: `email:'${escapeStripeSearchValue(variant)}'`,
+            limit: 100,
+          }, requestOptions),
+        );
         customers.push(...response.data);
-      } catch {
+      } catch (error) {
+        if (error instanceof RecoveryBudgetExceeded) throw error;
         // Fall through to the exact-email list endpoint when search is
         // unavailable or rejects the provider query syntax.
       }
@@ -593,12 +688,15 @@ async function listStripeCustomersByEmail(
     for (;;) {
       let response: Awaited<ReturnType<NonNullable<RecoveryStripeClient["customers"]["list"]>>>;
       try {
-        response = await client.customers.list({
-          email: variant,
-          limit: 100,
-          ...(startingAfter ? { starting_after: startingAfter } : {}),
-        });
-      } catch {
+        response = await budget.read((requestOptions) =>
+          client.customers.list!({
+            email: variant,
+            limit: 100,
+            ...(startingAfter ? { starting_after: startingAfter } : {}),
+          }, requestOptions),
+        );
+      } catch (error) {
+        if (error instanceof RecoveryBudgetExceeded) throw error;
         // Some Stripe API versions do not expose the email filter. Keep the
         // recovery path fail-closed rather than issuing an unbounded scan.
         break;
