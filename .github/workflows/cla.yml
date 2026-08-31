@@ -140,11 +140,12 @@ jobs:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     # Filter before concurrency admission. Untrusted recheck comments cannot
-    # consume the signature queue or invoke the write-capable action. Every
-    # non-closed pull-request event, including edited, reaches the same
-    # preflight and signer validation.
+    # consume the signature queue or invoke the write-capable action. Keep
+    # `always()` here so a gate failure produces a visible failed signer check
+    # instead of a skipped result; the first shell step enforces the gate
+    # result before any privileged step can run.
     if: >-
-      needs.CLACommentGate.result == 'success' &&
+      always() &&
       (
         (
           github.event_name == 'pull_request_target' &&
@@ -196,14 +197,26 @@ jobs:
       # issues:write. Keep write until that live behavior changes.
       pull-requests: write
     steps:
+      - name: "Require CLA admission"
+        if: always()
+        env:
+          GATE_RESULT: ${{ needs.CLACommentGate.result }}
+        run: |
+          set -euo pipefail
+          if [[ "${GATE_RESULT}" != "success" ]]; then
+            echo "::error::CLA trigger admission did not pass (gate: ${GATE_RESULT})"
+            exit 1
+          fi
+
       # Stable generation marker. It changes only when the policy or action
       # pin changes, unlike github.workflow_sha, which follows every main
       # commit.
       - name: "CLA generation ${{ env.CLA_GENERATION }}"
+        if: success()
         run: echo "CLA generation ${{ env.CLA_GENERATION }}"
 
       - name: "Validate CLA comment declaration"
-        if: github.event_name == 'issue_comment'
+        if: success() && github.event_name == 'issue_comment'
         env:
           EVENT_COMMENT_BODY: ${{ github.event.comment.body }}
         run: |
@@ -220,6 +233,7 @@ jobs:
 
       - name: "Validate CLA pull request"
         id: cla-preflight
+        if: success()
         # The maintained action bounds its commit-identity pagination at 1,000
         # commits. Keep the same fail-closed limit here so the preflight and
         # action operate on the same contribution envelope.
@@ -274,6 +288,7 @@ jobs:
 
       - name: "CLA Assistant v2"
         id: cla_action
+        if: success()
         # Use the reviewed in-organization action fork. Pin the runtime commit
         # so a branch move cannot change the code executed by this workflow.
         # The fork's default branch must be protected before this check is made

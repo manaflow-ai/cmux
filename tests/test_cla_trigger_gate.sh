@@ -33,6 +33,19 @@ for job in CLACommentGate CLAAssistant CLACompatibility RerunFailedCLA LockMerge
     exit 1
   fi
 done
+assistant_block="$(awk '/^  CLAAssistant:/ { in_job=1; next } in_job && /^  [A-Za-z0-9_]+:/ { exit } in_job { print }' "$WORKFLOW")"
+if [[ "$assistant_block" != *$'    if: >-\n      always() &&'* ||
+      "$assistant_block" != *'      - name: "Require CLA admission"'* ||
+      "$assistant_block" != *'        if: always()'* ]]; then
+  echo 'FAIL: CLA assistant must expose a failed check when admission fails' >&2
+  exit 1
+fi
+success_guard_count="$(grep -Fc '        if: success()' <<<"$assistant_block")"
+if [[ "$success_guard_count" -lt 4 ]]; then
+  echo 'FAIL: privileged CLA steps must require successful admission' >&2
+  exit 1
+fi
+echo "PASS: signer admission failure is visible and privileged steps are guarded"
 gate_group_block="$(awk '/^  CLACommentGate:/ { in_job=1; next } in_job && /^  [A-Za-z0-9_]+:/ { exit } in_job { print }' "$WORKFLOW")"
 if [[ "$gate_group_block" != *$'\n    concurrency:'* ||
       "$gate_group_block" != *"group: cla-admission-\${{ github.repository }}-\${{ github.event_name }}-\${{ github.event.issue.number || github.event.pull_request.number }}"* ||
@@ -58,6 +71,29 @@ awk '
   in_run { sub(/^          /, ""); print }
 ' "$WORKFLOW" >"$gate_script"
 bash -n "$gate_script"
+
+admission_script="$work/admission.sh"
+awk '
+  /^      - name: "Require CLA admission"/ { found=1; next }
+  found && /^        run: \|$/ { in_run=1; next }
+  found && in_run && /^      - name:/ { exit }
+  in_run { sub(/^          /, ""); print }
+' "$WORKFLOW" >"$admission_script"
+bash -n "$admission_script"
+for gate_result in success failure skipped; do
+  set +e
+  output="$(GATE_RESULT="$gate_result" bash "$admission_script" 2>&1)"
+  status=$?
+  set -e
+  if [[ "$gate_result" == success && "$status" -ne 0 ]]; then
+    echo "FAIL: admission guard rejected successful gate result" >&2
+    exit 1
+  elif [[ "$gate_result" != success && "$status" -eq 0 ]]; then
+    echo "FAIL: admission guard accepted gate result '$gate_result'" >&2
+    exit 1
+  fi
+done
+echo "PASS: admission result guard"
 
 run_case() {
   local mode="$1"
