@@ -88,10 +88,8 @@
       "Assume produtos e recursos de ponta a ponta, incluindo os ciclos de feedback dos usuários.",
       "Usa, testa e verifica o cmux constantemente; usa o cmux para construir o cmux."
     ],
-    "whoWereLookingFor": "Quem estamos procurando",
-    "whoIntro": "Não há requisitos rígidos. Estamos felizes em conhecer pessoas talentosas de qualquer origem.",
     "excitedLead": "Ficamos especialmente animados se você:",
-    "whoWereLookingForItems": [
+    "excitedItems": [
       "Usa mais de 10B tokens por dia.",
       "É generalista e resolve problemas de forma criativa.",
       "Tem ótimo gosto para design e atenção ao acabamento.",
@@ -126,10 +124,8 @@
         "Assume o visual, a sensação e o modelo de interação de ponta a ponta, incluindo os ciclos de feedback.",
         "Usa o cmux, cria protótipos e entrega continuamente."
       ],
-      "whoWereLookingFor": "Quem estamos procurando",
-      "whoIntro": "Não há requisitos rígidos. Queremos designers talentosos de qualquer origem.",
       "excitedLead": "Ficamos especialmente animados se você:",
-      "whoWereLookingForItems": [
+      "excitedItems": [
         "É uma enciclopédia viva de componentes de design de todos os tipos de apps.",
         "As pessoas sempre pedem referências de design a você.",
         "Tem gosto apurado por apps nativos do macOS e ferramentas para desenvolvedores.",

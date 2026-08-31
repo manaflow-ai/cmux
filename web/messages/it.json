@@ -88,10 +88,8 @@
       "Possiedi prodotti e funzionalità end-to-end, inclusi i cicli di feedback degli utenti.",
       "Usi, testi e verifichi continuamente cmux; usi cmux per costruire cmux."
     ],
-    "whoWereLookingFor": "Chi cerchiamo",
-    "whoIntro": "Nessun requisito rigido. Siamo felici di conoscere builder di talento con qualsiasi percorso.",
     "excitedLead": "Ci entusiasma in particolare se:",
-    "whoWereLookingForItems": [
+    "excitedItems": [
       "Usi più di 10B token al giorno.",
       "Sei una persona completa e risolvi i problemi in modo creativo.",
       "Hai grande gusto per il design e cura per il mestiere.",
@@ -126,10 +124,8 @@
         "Possiedi look, feel e modello di interazione end-to-end, inclusi i cicli di feedback degli utenti.",
         "Usi cmux, crei prototipi e rilasci continuamente."
       ],
-      "whoWereLookingFor": "Chi cerchiamo",
-      "whoIntro": "Nessun requisito rigido. Vogliamo designer di talento da qualsiasi percorso.",
       "excitedLead": "Ci entusiasma in particolare se:",
-      "whoWereLookingForItems": [
+      "excitedItems": [
         "Sei un’enciclopedia vivente dei componenti di design di ogni tipo di app.",
         "Le persone ti chiedono continuamente riferimenti di design.",
         "Hai un gusto ossessivo per le app macOS native e gli strumenti per sviluppatori.",

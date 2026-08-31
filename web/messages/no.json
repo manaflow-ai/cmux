@@ -88,10 +88,8 @@
       "Eier produkter og funksjoner fra start til slutt, inkludert tilbakemeldinger fra brukere.",
       "Bruker, tester og verifiserer cmux hele tiden; bruker cmux til å bygge cmux."
     ],
-    "whoWereLookingFor": "Hvem vi ser etter",
-    "whoIntro": "Ingen faste krav. Vi ønsker talentfulle byggere fra alle bakgrunner.",
     "excitedLead": "Vi blir ekstra begeistret hvis du:",
-    "whoWereLookingForItems": [
+    "excitedItems": [
       "Bruker over 10B tokens hver dag.",
       "Er allsidig og løser problemer kreativt.",
       "Har god designsans og bryr deg om håndverket.",
@@ -126,10 +124,8 @@
         "Eier uttrykk, følelse og interaksjonsmodell fra start til slutt, inkludert tilbakemeldinger fra brukere.",
         "Bruker cmux, lager prototyper og leverer hele tiden."
       ],
-      "whoWereLookingFor": "Hvem vi ser etter",
-      "whoIntro": "Ingen faste krav. Vi ønsker talentfulle designere fra alle bakgrunner.",
       "excitedLead": "Vi blir ekstra begeistret hvis du:",
-      "whoWereLookingForItems": [
+      "excitedItems": [
         "Er en levende encyklopedi over designkomponenter fra alle slags apper.",
         "Folk spør deg stadig om designreferanser.",
         "Har en lidenskapelig smak for native macOS-apper og utviklerverktøy.",

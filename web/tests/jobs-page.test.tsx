@@ -94,6 +94,7 @@ describe("jobs page", () => {
     expect(html).toContain("Build frontier devtools across the stack");
     expect(html).toContain("Design frontier devtools across the stack");
     expect(html).toContain("Using 10B+ tokens a day.");
+    expect(html).toContain("Things that make us extra excited:");
     expect(html).toContain(
       "You are a walking encyclopedia of design components from all sorts of apps.",
     );
@@ -115,6 +116,8 @@ describe("jobs page", () => {
     );
     expect(html).not.toContain("About cmux");
     expect(html).not.toContain("Open roles");
+    expect(html).not.toContain("Who we're looking for");
+    expect(html).not.toContain("No hard requirements.");
     expect(html).not.toContain("Interested?");
     expect(html).not.toContain("Come build with us.");
     expect(html).not.toContain("border-t");
@@ -136,6 +139,7 @@ describe("jobs page", () => {
     expect(html).toContain("$130k〜$170k + 株式 0.5%〜1.5%");
     expect(html).toContain("Founding Designer");
     expect(html).toContain("デザインコンポーネントを知り尽くしている");
+    expect(html).toContain("次のような経験や姿勢があると、特にうれしいです：");
     expect(html.match(/>メールする</g)).toHaveLength(2);
     expect(html).not.toContain("founders@cmux.com にメールする");
     expect(html).toContain(
@@ -149,6 +153,8 @@ describe("jobs page", () => {
     expect(html).not.toContain("cmux について");
     expect(html).not.toContain("募集中のポジション");
     expect(html).not.toContain("興味がありますか？");
+    expect(html).not.toContain("求める人物像");
+    expect(html).not.toContain("必須条件はありません");
     expect(html).not.toMatch(/<p[^>]*>採用情報<\/p>/);
     expect(html.match(/<aside aria-label="詳細"/g)).toHaveLength(2);
     expect(html).not.toContain("What you'll do");
@@ -199,8 +205,14 @@ describe("jobs page", () => {
       expect(catalog.footer.jobs).toBeTruthy();
       expect(catalog.jobs.whatYoullDoItems).toHaveLength(4);
       expect(catalog.jobs.foundingDesigner.whatYoullDoItems).toHaveLength(4);
-      expect(catalog.jobs.whoWereLookingForItems).toHaveLength(6);
-      expect(catalog.jobs.foundingDesigner.whoWereLookingForItems).toHaveLength(5);
+      expect(catalog.jobs.excitedItems).toHaveLength(6);
+      expect(catalog.jobs.foundingDesigner.excitedItems).toHaveLength(5);
+      expect(catalog.jobs).not.toHaveProperty("whoWereLookingFor");
+      expect(catalog.jobs).not.toHaveProperty("whoIntro");
+      expect(catalog.jobs).not.toHaveProperty("whoWereLookingForItems");
+      expect(catalog.jobs.foundingDesigner).not.toHaveProperty("whoWereLookingFor");
+      expect(catalog.jobs.foundingDesigner).not.toHaveProperty("whoIntro");
+      expect(catalog.jobs.foundingDesigner).not.toHaveProperty("whoWereLookingForItems");
 
       activeLocale = locale;
       const html = renderToStaticMarkup(<JobsPage />);
@@ -208,6 +220,7 @@ describe("jobs page", () => {
       expect(html).toContain(catalog.jobs.title);
       expect(html).toContain(catalog.jobs.foundingDesigner.title);
       expect(html).toContain(catalog.jobs.applyCta);
+      expect(html).toContain(catalog.jobs.excitedLead);
       expect(html).not.toMatch(
         new RegExp(`<p[^>]*>${escapeRegExp(catalog.jobs.section)}<\\/p>`),
       );

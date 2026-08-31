@@ -88,10 +88,8 @@
       "Preuzimate proizvode i funkcije od početka do kraja, uključujući povratne informacije korisnika.",
       "Stalno koristite, testirate i provjeravate cmux; koristite cmux da izgradite cmux."
     ],
-    "whoWereLookingFor": "Koga tražimo",
-    "whoIntro": "Nema strogih uslova. Rado upoznajemo talentovane graditelje iz bilo kojeg okruženja.",
     "excitedLead": "Posebno nas raduje ako:",
-    "whoWereLookingForItems": [
+    "excitedItems": [
       "Koristite više od 10B tokena dnevno.",
       "Svestrani ste i kreativno rješavate probleme.",
       "Imate odličan osjećaj za dizajn i brinete o zanatu.",
@@ -126,10 +124,8 @@
         "Preuzimate izgled, osjećaj i model interakcije od početka do kraja, uključujući povratne informacije.",
         "Stalno koristite cmux, pravite prototipe i isporučujete."
       ],
-      "whoWereLookingFor": "Koga tražimo",
-      "whoIntro": "Nema strogih uslova. Želimo talentovane dizajnere iz bilo kojeg okruženja.",
       "excitedLead": "Posebno nas raduje ako:",
-      "whoWereLookingForItems": [
+      "excitedItems": [
         "Živa ste enciklopedija dizajnerskih komponenti iz svih vrsta aplikacija.",
         "Ljudi vas stalno pitaju za dizajnerske reference.",
         "Opsesivno volite nativne macOS aplikacije i alate za programere.",

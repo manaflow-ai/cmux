@@ -88,10 +88,8 @@
       "Ejer produkter og funktioner fra ende til anden, inklusive brugerfeedback.",
       "Dogfooder, tester og verificerer hele tiden; bruger cmux til at bygge cmux."
     ],
-    "whoWereLookingFor": "Vi leder efter",
-    "whoIntro": "Ingen faste krav. Vi er glade for talentfulde builders fra alle baggrunde.",
     "excitedLead": "Vi bliver ekstra begejstrede, hvis du:",
-    "whoWereLookingForItems": [
+    "excitedItems": [
       "Bruger over 10B tokens om dagen.",
       "Er alsidig og løser problemer kreativt.",
       "Har god designsmag og går op i håndværket.",
@@ -126,10 +124,8 @@
         "Ejer look, feel og interaktionsmodel fra ende til anden, inklusive brugerfeedback.",
         "Dogfooder, prototyper og shipper hele tiden."
       ],
-      "whoWereLookingFor": "Vi leder efter",
-      "whoIntro": "Ingen faste krav. Vi vil gerne have dygtige designere fra alle baggrunde.",
       "excitedLead": "Vi bliver ekstra begejstrede, hvis du:",
-      "whoWereLookingForItems": [
+      "excitedItems": [
         "Er en levende encyklopædi over designkomponenter fra alle slags apps.",
         "Bliver spurgt om designreferencer hele tiden.",
         "Har en stærk smag for native macOS-apps og udviklerværktøjer.",

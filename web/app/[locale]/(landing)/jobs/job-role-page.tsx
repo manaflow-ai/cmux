@@ -141,7 +141,7 @@ function JobRoleSection({
 }) {
   const t = useTranslations(namespace);
   const whatYoullDo = t.raw("whatYoullDoItems") as string[];
-  const whoWereLookingFor = t.raw("whoWereLookingForItems") as string[];
+  const excitedItems = t.raw("excitedItems") as string[];
   const applyHref = `mailto:${applicationEmail}?subject=${encodeURIComponent(
     t("applyEmailSubject"),
   )}`;
@@ -177,20 +177,14 @@ function JobRoleSection({
               <JobList items={whatYoullDo} />
             </section>
 
-            <section aria-labelledby={`${roleId}-who-were-looking-for-title`}>
+            <section aria-labelledby={`${roleId}-excited-title`}>
               <h3
-                id={`${roleId}-who-were-looking-for-title`}
+                id={`${roleId}-excited-title`}
                 className="text-xl font-medium tracking-tight"
               >
-                {t("whoWereLookingFor")}
-              </h3>
-              <p className="mt-5 text-[15px] leading-7 text-muted">
-                {t("whoIntro")}
-              </p>
-              <p className="mt-6 text-[15px] font-medium leading-7">
                 {t("excitedLead")}
-              </p>
-              <JobList items={whoWereLookingFor} compact />
+              </h3>
+              <JobList items={excitedItems} />
             </section>
           </div>
         </div>

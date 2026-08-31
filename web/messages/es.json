@@ -88,10 +88,8 @@
       "Ser responsable de productos y funciones de principio a fin, incluidos los ciclos de comentarios de usuarios.",
       "Usar, probar y verificar cmux constantemente; usar cmux para construir cmux."
     ],
-    "whoWereLookingFor": "Qué buscamos",
-    "whoIntro": "No hay requisitos estrictos. Nos encantará conocer a personas talentosas de cualquier trayectoria.",
     "excitedLead": "Nos entusiasma especialmente que:",
-    "whoWereLookingForItems": [
+    "excitedItems": [
       "Usas más de 10B tokens al día.",
       "Eres una persona versátil y resuelves problemas de forma creativa.",
       "Tienes gran sensibilidad para el diseño y cuidas los detalles.",
@@ -126,10 +124,8 @@
         "Ser responsable del aspecto, la sensación y el modelo de interacción de principio a fin, incluidos los ciclos de comentarios.",
         "Usar cmux, crear prototipos y lanzar continuamente."
       ],
-      "whoWereLookingFor": "Qué buscamos",
-      "whoIntro": "No hay requisitos estrictos. Queremos diseñadores talentosos de cualquier trayectoria.",
       "excitedLead": "Nos entusiasma especialmente que:",
-      "whoWereLookingForItems": [
+      "excitedItems": [
         "Eres una enciclopedia viviente de componentes de diseño de todo tipo de aplicaciones.",
         "La gente te pide referencias de diseño constantemente.",
         "Tienes un gusto obsesivo por las apps nativas de macOS y las herramientas para desarrolladores.",

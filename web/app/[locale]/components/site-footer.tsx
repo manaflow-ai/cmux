@@ -46,6 +46,11 @@ export async function SiteFooter() {
         { label: t("community"), href: "/community" },
         { label: t("nightly"), href: "/nightly" },
         { label: t("assets"), href: "/assets" },
+        {
+          label: t("jobs"),
+          href: "/jobs",
+          contentLocales: jobsContentLocales,
+        },
       ] satisfies FooterLink[],
     },
     {
@@ -56,11 +61,6 @@ export async function SiteFooter() {
         { label: t("compare"), href: "/compare" },
         { label: t("changelog"), href: "/docs/changelog" },
         { label: t("support"), href: "/support" },
-        {
-          label: t("jobs"),
-          href: "/jobs",
-          contentLocales: jobsContentLocales,
-        },
       ] satisfies FooterLink[],
     },
     {

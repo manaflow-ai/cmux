@@ -446,10 +446,8 @@
       "Own products and features end to end, including user feedback loops.",
       "Dogfood, test, and verify constantly; use cmux to build cmux."
     ],
-    "whoWereLookingFor": "Who we're looking for",
-    "whoIntro": "No hard requirements. We're happy to try out talented builders from any background.",
     "excitedLead": "Things that make us extra excited:",
-    "whoWereLookingForItems": [
+    "excitedItems": [
       "Using 10B+ tokens a day.",
       "All-rounders and creative problem solvers.",
       "Great design taste and care for the craft.",
@@ -484,10 +482,8 @@
         "Own the look, feel, and interaction model end to end, including user feedback loops.",
         "Dogfood, prototype, and ship constantly."
       ],
-      "whoWereLookingFor": "Who we're looking for",
-      "whoIntro": "No hard requirements. We want talented designers from any background.",
       "excitedLead": "Things that make us extra excited:",
-      "whoWereLookingForItems": [
+      "excitedItems": [
         "You are a walking encyclopedia of design components from all sorts of apps.",
         "People come to you for design references all of the time.",
         "Obsessive taste for native macOS apps and developer tools.",

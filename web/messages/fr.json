@@ -88,10 +88,8 @@
       "Prenez en charge produits et fonctionnalités de bout en bout, y compris les boucles de retours utilisateurs.",
       "Utilisez, testez et vérifiez cmux en permanence ; utilisez cmux pour construire cmux."
     ],
-    "whoWereLookingFor": "Profil recherché",
-    "whoIntro": "Aucun prérequis strict. Nous accueillons les builders talentueux, quel que soit leur parcours.",
     "excitedLead": "Nous sommes particulièrement enthousiastes si vous :",
-    "whoWereLookingForItems": [
+    "excitedItems": [
       "Vous utilisez plus de 10B tokens par jour.",
       "Vous êtes polyvalent·e et créatif·ve dans la résolution de problèmes.",
       "Vous avez un excellent goût du design et le souci du travail bien fait.",
@@ -126,10 +124,8 @@
         "Prenez en charge le look, la sensation et le modèle d’interaction de bout en bout, y compris les retours utilisateurs.",
         "Utilisez cmux, prototypez et livrez sans cesse."
       ],
-      "whoWereLookingFor": "Profil recherché",
-      "whoIntro": "Aucun prérequis strict. Nous voulons des designers talentueux, quel que soit leur parcours.",
       "excitedLead": "Nous sommes particulièrement enthousiastes si vous :",
-      "whoWereLookingForItems": [
+      "excitedItems": [
         "Vous êtes une encyclopédie vivante des composants de design de toutes sortes d’apps.",
         "On vous demande sans cesse des références de design.",
         "Vous avez un goût obsessionnel pour les apps macOS natives et les outils développeur.",

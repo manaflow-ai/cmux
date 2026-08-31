@@ -88,10 +88,8 @@
       "Kullanıcı geri bildirim döngüleri dahil ürün ve özelliklerin uçtan uca sorumluluğunu almak.",
       "cmux’ı sürekli kullanmak, test etmek ve doğrulamak; cmux ile cmux inşa etmek."
     ],
-    "whoWereLookingFor": "Aradığımız kişi",
-    "whoIntro": "Kesin şartlarımız yok. Her geçmişten yetenekli üreticilerle tanışmak isteriz.",
     "excitedLead": "Şunlar varsa özellikle heyecanlanırız:",
-    "whoWereLookingForItems": [
+    "excitedItems": [
       "Günde 10B’den fazla token kullanıyorsunuz.",
       "Çok yönlüsünüz ve sorunları yaratıcı biçimde çözüyorsunuz.",
       "Güçlü bir tasarım zevkiniz var ve işçiliğe önem veriyorsunuz.",
@@ -126,10 +124,8 @@
         "Kullanıcı geri bildirim döngüleri dahil görünüm, his ve etkileşim modelinin uçtan uca sorumluluğunu almak.",
         "cmux’ı sürekli kullanmak, prototip oluşturmak ve yayınlamak."
       ],
-      "whoWereLookingFor": "Aradığımız kişi",
-      "whoIntro": "Kesin şartlarımız yok. Her geçmişten yetenekli tasarımcılar istiyoruz.",
       "excitedLead": "Şunlar varsa özellikle heyecanlanırız:",
-      "whoWereLookingForItems": [
+      "excitedItems": [
         "Her tür uygulamanın tasarım bileşenleri konusunda yürüyen bir ansiklopedisiniz.",
         "İnsanlar sizden sürekli tasarım referansları istiyor.",
         "Yerel macOS uygulamalarına ve geliştirici araçlarına karşı takıntılı bir zevkiniz var.",

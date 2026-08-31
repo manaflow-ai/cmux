@@ -88,10 +88,8 @@
       "Prowadzisz produkty i funkcje od początku do końca, w tym pętle informacji zwrotnej od użytkowników.",
       "Stale używasz, testujesz i weryfikujesz cmux; używasz cmux do budowania cmux."
     ],
-    "whoWereLookingFor": "Kogo szukamy",
-    "whoIntro": "Brak sztywnych wymagań. Chętnie poznamy utalentowanych twórców z każdego środowiska.",
     "excitedLead": "Szczególnie ucieszy nas, jeśli:",
-    "whoWereLookingForItems": [
+    "excitedItems": [
       "Używasz ponad 10B tokenów dziennie.",
       "Jesteś wszechstronny i kreatywnie rozwiązujesz problemy.",
       "Masz świetne wyczucie designu i dbasz o jakość wykonania.",
@@ -126,10 +124,8 @@
         "Prowadzisz wygląd, charakter i model interakcji od początku do końca, w tym pętle informacji zwrotnej.",
         "Stale używasz cmux, tworzysz prototypy i dostarczasz kolejne wersje."
       ],
-      "whoWereLookingFor": "Kogo szukamy",
-      "whoIntro": "Brak sztywnych wymagań. Chcemy utalentowanych projektantów z każdego środowiska.",
       "excitedLead": "Szczególnie ucieszy nas, jeśli:",
-      "whoWereLookingForItems": [
+      "excitedItems": [
         "Jesteś chodzącą encyklopedią komponentów projektowych z różnych aplikacji.",
         "Ludzie często proszą Cię o referencje projektowe.",
         "Masz obsesyjnie dobry gust w natywnych aplikacjach macOS i narzędziach deweloperskich.",
