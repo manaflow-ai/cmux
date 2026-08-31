@@ -30,8 +30,12 @@ struct FilePreviewLineIndex: Equatable, Sendable {
     /// Line starts at or before `location` are untouched, starts inside the
     /// replaced range are dropped and re-derived from `replacement`, and every
     /// start after the replaced range shifts by the edit's net length delta.
-    /// A whole-document replace degenerates to the full `init(string:)` scan,
-    /// which is the only remaining O(n) path (initial load / wholesale set).
+    /// The splice happens in place — the untouched prefix is never revisited
+    /// and no replacement array is allocated — so typing at the end of a
+    /// document costs O(edit), not O(lines). A whole-document replace
+    /// degenerates to shifting the entire (single-line-start) tail, and the
+    /// full `init(string:)` scan remains the only O(buffer) path (initial
+    /// load / wholesale set).
     ///
     /// - Parameters:
     ///   - location: post-edit UTF-16 offset where the replacement begins.
@@ -42,28 +46,51 @@ struct FilePreviewLineIndex: Equatable, Sendable {
         replacingUTF16Length oldLength: Int,
         replacement: String
     ) {
-        let replacementUnits = replacement.utf16
-        let replacementLength = replacementUnits.count
+        let replacementLength = replacement.utf16.count
         let delta = replacementLength - oldLength
         let upperBound = location + oldLength
 
-        var result: [Int] = []
-        result.reserveCapacity(lineStartOffsets.count)
-        for start in lineStartOffsets where start <= location {
-            result.append(start)
+        // Offsets are strictly increasing, so both boundaries are binary
+        // searches: starts in [0, lowerBound) survive untouched; starts in
+        // [lowerBound, upperStart) came from the replaced text and are
+        // dropped; starts in [upperStart, ...) shift by the delta in place.
+        let lowerBound = Self.firstIndex(afterOffset: location, in: lineStartOffsets)
+        let upperStart = Self.firstIndex(afterOffset: upperBound, in: lineStartOffsets)
+
+        if delta != 0 {
+            for index in upperStart..<lineStartOffsets.count {
+                lineStartOffsets[index] += delta
+            }
         }
+        lineStartOffsets.removeSubrange(lowerBound..<upperStart)
+
+        var insertedStarts: [Int] = []
         var index = 0
-        for unit in replacementUnits {
+        for unit in replacement.utf16 {
             if unit == 10 {
-                result.append(location + index + 1)
+                insertedStarts.append(location + index + 1)
             }
             index += 1
         }
-        for start in lineStartOffsets where start > upperBound {
-            result.append(start + delta)
+        if !insertedStarts.isEmpty {
+            lineStartOffsets.insert(contentsOf: insertedStarts, at: lowerBound)
         }
-        lineStartOffsets = result
         loadedUTF16Length += delta
+    }
+
+    /// Index of the first offset strictly greater than `offset`.
+    private static func firstIndex(afterOffset offset: Int, in offsets: [Int]) -> Int {
+        var lower = 0
+        var upper = offsets.count
+        while lower < upper {
+            let midpoint = (lower + upper) / 2
+            if offsets[midpoint] <= offset {
+                lower = midpoint + 1
+            } else {
+                upper = midpoint
+            }
+        }
+        return lower
     }
 
     func offset(forLine requestedLine: Int) -> Int {

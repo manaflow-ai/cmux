@@ -136,6 +136,13 @@ struct FilePreviewCodeViewTests {
         expectMirrored()
         edit(3, 4, "beta\nbeta\nbeta") // splice newlines in via replacement
         expectMirrored()
+        // Boundary shapes for the in-place splice: an edit range that starts
+        // exactly on a line start, and one that ends exactly on a line start.
+        let lineStart = (mirror as NSString).range(of: "beta\nbeta").location + 4
+        edit(lineStart, 2, "\n")
+        expectMirrored()
+        edit(lineStart - 1, 1, "gg")
+        expectMirrored()
         #expect(index.lineNumber(containingUTF16Offset: 2) == 1)
     }
 
