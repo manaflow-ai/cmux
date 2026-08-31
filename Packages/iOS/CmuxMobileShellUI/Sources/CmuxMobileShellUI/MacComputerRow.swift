@@ -94,11 +94,13 @@ struct MacComputerRow: View {
                         .font(.headline)
                         .foregroundStyle(.primary)
                         .lineLimit(1)
-                    if let buildLabel = computer.buildLabel {
-                        ComputerBuildBadge(label: buildLabel)
-                    }
+                    // One chip only: a Mac that needs the update leads with
+                    // that fact instead of its build channel, so the fixed
+                    // badge and the name never fight for the same line.
                     if computer.needsMacUpdate {
                         ComputerUpdateRequiredBadge()
+                    } else if let buildLabel = computer.buildLabel {
+                        ComputerBuildBadge(label: buildLabel)
                     }
                 }
                 Text(connectionLine)
