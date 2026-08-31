@@ -131,6 +131,29 @@ private final class CMUXCLISentryTelemetryBundleToken {}
         #expect(FileManager.default.fileExists(atPath: actionableProbe))
     }
 
+    @Test func localPiSurfaceUnavailableSentinelDoesNotCaptureSentryTelemetry() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cli-sentry-pi-unavailable-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let surfaceID = "33333333-3333-3333-3333-333333333333"
+        let probePath = root.appendingPathComponent("pi-unavailable-probe.txt").path
+        let result = try runPiSurfaceUnavailableProbe(
+            surfaceID: surfaceID,
+            probePath: probePath,
+            root: root
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 69, Comment(rawValue: result.stdout))
+        #expect(result.stdout.lowercased().contains("surface not found"), Comment(rawValue: result.stdout))
+        #expect(
+            !FileManager.default.fileExists(atPath: probePath),
+            Comment(rawValue: "Pi's local surface-unavailable sentinel must not create Sentry telemetry. Output: \(result.stdout)")
+        )
+    }
+
     @Test func agentHookLifecycleClassificationKeepsActionableFailures() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-cli-sentry-agent-hook-\(UUID().uuidString)", isDirectory: true)
@@ -289,6 +312,55 @@ private final class CMUXCLISentryTelemetryBundleToken {}
                     "code": code,
                     "message": "TabManager not available"
                 ]
+            ]
+            return try? String(
+                data: JSONSerialization.data(withJSONObject: response),
+                encoding: .utf8
+            )
+        }
+    }
+
+    private func runPiSurfaceUnavailableProbe(
+        surfaceID: String,
+        probePath: String,
+        root: URL
+    ) throws -> ProcessRunResult {
+        let inputData = try JSONSerialization.data(withJSONObject: [
+            "session_id": "pi-sentry-\(UUID().uuidString)",
+            "hook_event_name": "PostToolUse",
+            "cwd": root.path,
+        ])
+        var environmentOverrides = [
+            "CMUX_SURFACE_ID": surfaceID,
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_CLI_SENTRY_DISABLED": "0",
+        ]
+        environmentOverrides["CMUX_CLI_SENTRY_CAPTURE_PROBE_PATH"] = probePath
+
+        return try runMockSocketProcess(
+            arguments: [
+                "hooks", "pi", "post-tool-use",
+                "--surface", surfaceID,
+            ],
+            probePath: probePath,
+            root: root,
+            stdinText: String(decoding: inputData, as: UTF8.self),
+            environmentOverrides: environmentOverrides
+        ) { line in
+            guard let request = try? JSONSerialization.jsonObject(
+                with: Data(line.utf8),
+                options: []
+            ) as? [String: Any],
+                  let id = request["id"] as? String else {
+                return nil
+            }
+            let response: [String: Any] = [
+                "id": id,
+                "ok": false,
+                "error": [
+                    "code": "not_found",
+                    "message": "No live delivery target",
+                ],
             ]
             return try? String(
                 data: JSONSerialization.data(withJSONObject: response),
