@@ -36,14 +36,9 @@ public protocol MobileSyncRuntime: Sendable {
     /// skips background subscribe/poll so scripted-transport tests do not
     /// consume responses intended for foreground methods.
     var supportsServerPushEvents: Bool { get }
-    /// Optional Iroh-only source for independently framed server events.
-    /// A nil provider preserves control-stream delivery for every route.
-    var independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider? { get }
     /// Optional source for one independent, sequence-aware terminal lane per
     /// mounted surface. A nil provider preserves control/event delivery.
     var terminalLaneProvider: MobileTerminalLaneProvider? { get }
-    /// Optional source for low-priority raw artifact bytes on an admitted Iroh peer.
-    var artifactLaneProvider: MobileArtifactLaneProvider? { get }
     /// Optional source for one dedicated simulator-stream v2 video lane per
     /// Mac simulator panel. A nil provider keeps phones on the v1 event stream.
     var simulatorStreamLaneProvider: MobileSimulatorStreamLaneProvider? { get }
@@ -56,20 +51,17 @@ public protocol MobileSyncRuntime: Sendable {
     var livenessProbeTimeoutNanoseconds: UInt64 { get }
 
     /// Hard ceiling on one automatic reconnect attempt (stored-Mac redial)
-    /// end to end. An Iroh dial can hang far past any per-transport connect
-    /// timeout (relay DNS churn, hole-punch stalls), and an unbounded attempt
-    /// wedges the recovery owner: no failure is ever recorded, no backoff
-    /// retry is ever scheduled, and every other trigger defers to the
-    /// "in-flight" attempt forever. At the deadline the attempt is abandoned
-    /// and settled as timed out so the automatic backoff retry loop keeps
-    /// running.
+    /// end to end. A dial can hang past any per-transport connect timeout
+    /// (DNS churn, a wedged TLS handshake), and an unbounded attempt wedges
+    /// the recovery owner: no failure is ever recorded, no backoff retry is
+    /// ever scheduled, and every other trigger defers to the "in-flight"
+    /// attempt forever. At the deadline the attempt is abandoned and settled
+    /// as timed out so the automatic backoff retry loop keeps running.
     var reconnectAttemptDeadlineNanoseconds: UInt64 { get }
 }
 
 public extension MobileSyncRuntime {
-    var independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider? { nil }
     var terminalLaneProvider: MobileTerminalLaneProvider? { nil }
-    var artifactLaneProvider: MobileArtifactLaneProvider? { nil }
     var simulatorStreamLaneProvider: MobileSimulatorStreamLaneProvider? { nil }
 
     /// Returns a cached Stack access token for best-effort status probes.

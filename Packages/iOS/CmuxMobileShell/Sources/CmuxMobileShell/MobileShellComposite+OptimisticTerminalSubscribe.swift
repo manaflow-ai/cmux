@@ -107,7 +107,6 @@ extension MobileShellComposite {
         timeoutNanoseconds: UInt64
     ) async {
         guard runtime?.supportsServerPushEvents ?? false,
-              client.supportsPipelinedInitialEventSubscribe,
               let plan = Self.optimisticTerminalEventSubscriptionPlan(
                   learnedCapabilities: learnedCapabilities
               ) else {
