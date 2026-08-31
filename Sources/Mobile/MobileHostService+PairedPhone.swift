@@ -35,14 +35,13 @@ extension MobileHostService {
             return
         }
         let previousTarget = pairedPhoneStore.targetBundleIdentifier(accountID: accountID)
-        let hasClientIDField = request.params["client_id"] != nil
         let hasBundleIdentifierField = request.params.keys.contains {
             $0 == "ios_bundle_identifier"
                 || $0 == "ios_bundle_id"
                 || $0 == "iosBundleIdentifier"
         }
         let didRecord: Bool
-        if hasClientIDField || hasBundleIdentifierField {
+        if hasBundleIdentifierField {
             // A modern client must provide both halves of its immutable app
             // identity. A partial claim is rejected rather than silently
             // downgrading to the legacy target.

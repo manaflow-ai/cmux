@@ -101,6 +101,10 @@ final class MobilePairedPhoneStore {
         handshakeIdentity: String?,
         pairedAt: Date = .now
     ) -> Bool {
+        // A long-lived host singleton can outlive an older settings domain
+        // being loaded; retry the one-time import at the authenticated
+        // compatibility boundary, never from target lookup itself.
+        migrateLegacyPickerSelection()
         guard let normalizedAccountID = Self.normalized(accountID),
               let normalizedHandshakeIdentity = Self.normalized(handshakeIdentity),
               normalizedHandshakeIdentity.utf8.count <= Self.maximumHandshakeIdentityLength,
