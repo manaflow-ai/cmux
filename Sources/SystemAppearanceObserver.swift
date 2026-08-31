@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 
 extension Notification.Name {
-    /// Posted by SystemAppearanceObserver when NSApp.effectiveAppearance changes (#6385).
+    /// Posted by SystemAppearanceObserver when system appearance or colors change.
     static let systemAppearanceDidChange = Notification.Name("cmux.systemAppearanceDidChange")
 }
 
@@ -24,6 +24,9 @@ extension NSAppearance {
 /// actual change — posts `.systemAppearanceDidChange` so interested views
 /// (see `AppearanceColorSchemeModifier`) can re-resolve their color scheme
 /// directly from `NSApp.effectiveAppearance` and force a body recomputation.
+/// It also observes `NSColor.systemColorsDidChangeNotification` so concrete
+/// semantic colors (including the system accent used by sidebar badges) are
+/// re-projected when macOS changes them without changing light/dark mode.
 ///
 /// It is intentionally separate from `AppIconAppearanceObserver`, which observes
 /// the same key path but is torn down whenever the app icon isn't in automatic
@@ -42,6 +45,7 @@ extension NSAppearance {
 final class SystemAppearanceObserver {
     private let environment: Environment
     private var observation: EffectiveAppearanceObservation?
+    private var systemColorsObservation: SystemColorsObservation?
     private var lastResolvedPrefersDark: Bool?
 
     init() {
@@ -58,12 +62,28 @@ final class SystemAppearanceObserver {
         observation = environment.startEffectiveAppearanceObservation { [weak self] in
             self?.handleEffectiveAppearanceChange()
         }
+        guard observation != nil else { return }
+        systemColorsObservation = environment.startSystemColorsObservation { [weak self] in
+            self?.handleSystemColorsChange()
+        }
     }
 
     // The concrete `NSKeyValueObservation` self-invalidates at deallocation.
     func stopObserving() {
         observation?.invalidate()
         observation = nil
+        systemColorsObservation?.invalidate()
+        systemColorsObservation = nil
+    }
+
+    private func handleSystemColorsChange() {
+        // The system-color notification is the authoritative invalidation
+        // signal for semantic colors such as `controlAccentColor`. It applies
+        // in explicit light/dark modes as well as system mode, and does not
+        // reload terminal themes because the color-scheme preference did not
+        // change.
+        guard observation != nil, systemColorsObservation != nil else { return }
+        environment.postSystemAppearanceDidChange()
     }
 
     private func handleEffectiveAppearanceChange() {

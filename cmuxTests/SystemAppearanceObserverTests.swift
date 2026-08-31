@@ -137,16 +137,24 @@ struct SystemAppearanceObserverTests {
         var prefersDark = false
         var startObservationReturnsNil = false
         var startObservationCallCount = 0
+        var startSystemColorsObservationCallCount = 0
         var events: [String] = []
         var onPostSystemAppearanceDidChange: (() -> Void)?
         private(set) var appearanceChangedHandler: (@MainActor () -> Void)?
+        private(set) var systemColorsChangedHandler: (@MainActor () -> Void)?
         let observation = ObservationToken()
+        let systemColorsObservation = SystemColorsToken()
 
         lazy var environment = SystemAppearanceObserver.Environment(
             startEffectiveAppearanceObservation: { [unowned self] handler in
                 self.startObservationCallCount += 1
                 self.appearanceChangedHandler = handler
                 return self.startObservationReturnsNil ? nil : self.observation
+            },
+            startSystemColorsObservation: { [unowned self] handler in
+                self.startSystemColorsObservationCallCount += 1
+                self.systemColorsChangedHandler = handler
+                return self.startObservationReturnsNil ? nil : self.systemColorsObservation
             },
             currentAppearanceModeRawValue: { [unowned self] in
                 self.modeRawValue
@@ -168,6 +176,20 @@ struct SystemAppearanceObserverTests {
         func fireEffectiveAppearanceChanged() {
             appearanceChangedHandler?()
         }
+
+        @MainActor
+        func fireSystemColorsChanged() {
+            systemColorsChangedHandler?()
+        }
+    }
+
+    @MainActor
+    private final class SystemColorsToken: SystemColorsObservation {
+        private(set) var invalidateCallCount = 0
+
+        func invalidate() {
+            invalidateCallCount += 1
+        }
     }
 
     // (a) System-mode appearance flip posts the notification exactly once.
@@ -178,6 +200,7 @@ struct SystemAppearanceObserverTests {
 
         observer.startObserving()
         #expect(harness.startObservationCallCount == 1)
+        #expect(harness.startSystemColorsObservationCallCount == 1)
         #expect(harness.events == ["effectivePrefersDark(false)"])
 
         harness.prefersDark = true
@@ -190,6 +213,35 @@ struct SystemAppearanceObserverTests {
             "postSystemAppearanceDidChange",
         ])
         #expect(harness.events.filter { $0 == "postSystemAppearanceDidChange" }.count == 1)
+    }
+
+    @Test
+    func systemColorsChangePostsAppearanceNotificationWithoutThemeSync() {
+        let harness = Harness()
+        let observer = SystemAppearanceObserver(environment: harness.environment)
+
+        observer.startObserving()
+        harness.fireSystemColorsChanged()
+
+        #expect(harness.events == [
+            "effectivePrefersDark(false)",
+            "postSystemAppearanceDidChange",
+        ])
+    }
+
+    @Test
+    func systemColorsChangeAlsoInvalidatesExplicitAppearanceMode() {
+        let harness = Harness()
+        harness.modeRawValue = AppearanceMode.dark.rawValue
+        let observer = SystemAppearanceObserver(environment: harness.environment)
+
+        observer.startObserving()
+        harness.fireSystemColorsChanged()
+
+        #expect(harness.events == [
+            "effectivePrefersDark(false)",
+            "postSystemAppearanceDidChange",
+        ])
     }
 
     // (b) Explicit (non-system) mode: a KVO fire produces no notification and
@@ -306,6 +358,7 @@ struct SystemAppearanceObserverTests {
 
         harness.prefersDark = true
         harness.fireEffectiveAppearanceChanged()
+        harness.fireSystemColorsChanged()
 
         #expect(harness.events == eventsAfterStop)
     }
@@ -323,10 +376,12 @@ struct SystemAppearanceObserverTests {
         observer.stopObserving()
 
         #expect(harness.observation.invalidateCallCount == 1)
+        #expect(harness.systemColorsObservation.invalidateCallCount == 1)
 
         observer.startObserving()
 
         #expect(harness.startObservationCallCount == 2)
+        #expect(harness.startSystemColorsObservationCallCount == 2)
     }
 
     @Test

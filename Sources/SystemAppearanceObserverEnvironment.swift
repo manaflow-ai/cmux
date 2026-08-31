@@ -4,6 +4,7 @@ import Foundation
 extension SystemAppearanceObserver {
     struct Environment {
         let startEffectiveAppearanceObservation: @MainActor (@escaping @MainActor () -> Void) -> EffectiveAppearanceObservation?
+        let startSystemColorsObservation: @MainActor (@escaping @MainActor () -> Void) -> SystemColorsObservation?
         let currentAppearanceModeRawValue: @MainActor () -> String?
         let effectivePrefersDark: @MainActor () -> Bool
         let synchronizeTerminalTheme: @MainActor () -> Void
@@ -19,6 +20,18 @@ extension SystemAppearanceObserver {
                             handler()
                         }
                     }
+                },
+                startSystemColorsObservation: { handler in
+                    let token = NotificationCenter.default.addObserver(
+                        forName: NSColor.systemColorsDidChangeNotification,
+                        object: nil,
+                        queue: .main
+                    ) { _ in
+                        Task { @MainActor in
+                            handler()
+                        }
+                    }
+                    return NotificationCenterSystemColorsObservation(token: token)
                 },
                 currentAppearanceModeRawValue: {
                     UserDefaults.standard.string(forKey: AppearanceSettings.appearanceModeKey)
@@ -37,5 +50,18 @@ extension SystemAppearanceObserver {
                 }
             )
         }
+    }
+}
+
+@MainActor
+private final class NotificationCenterSystemColorsObservation: SystemColorsObservation {
+    private let token: NSObjectProtocol
+
+    init(token: NSObjectProtocol) {
+        self.token = token
+    }
+
+    func invalidate() {
+        NotificationCenter.default.removeObserver(token)
     }
 }
