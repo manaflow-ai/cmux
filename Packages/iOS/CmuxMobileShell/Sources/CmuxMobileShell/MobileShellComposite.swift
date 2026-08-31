@@ -156,19 +156,54 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let phonePushTestCapability = "phone_push.test.v1"
     static let caffeineControlCapability = "caffeine.control.v1"
     nonisolated private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
-    /// How long the render-grid stream may stay silent (no event of any topic)
-    /// before the liveness watchdog suspects the push subscription is dead and
-    /// runs a bounded host probe; only repeated failed probes force the
-    /// re-subscribe + replay (silence alone is the normal state of an idle
-    /// terminal). Picked at the low end of the acceptable 8-12s window so a
-    /// wedged stream recovers in a few seconds instead of the transport's ~85s
-    /// timeout, while staying well above any normal inter-event gap on a busy
-    /// shell.
+    /// IDLE-mode silence budget: how long the render-grid stream may stay
+    /// silent (no event of any topic) before the liveness watchdog suspects
+    /// the push subscription is dead and runs a bounded host probe; only
+    /// repeated failed probes force the re-subscribe + replay (silence alone
+    /// is the normal state of an idle terminal). Picked at the low end of the
+    /// acceptable 8-12s window so a wedged stream recovers in a few seconds
+    /// instead of the transport's ~85s timeout, while staying well above any
+    /// normal inter-event gap on a busy shell.
+    ///
+    /// The watchdog is two-mode: this constant governs only the idle mode.
+    /// While the user has sent terminal input within
+    /// ``renderGridLivenessActiveInputWindow`` the tighter
+    /// ``renderGridLivenessActiveSilenceThreshold`` /
+    /// ``renderGridLivenessActiveFailuresBeforeRecovery`` pair applies,
+    /// because a keystroke guarantees the healthy host would have pushed an
+    /// echo event (silence is no longer ambiguous) and the user is staring at
+    /// a frozen terminal.
     static let renderGridLivenessSilenceThreshold: TimeInterval = 9
-    /// A single timed-out probe is ambiguous during Iroh path migration, app
-    /// resume, or a short Mac stall. Require independent confirmation before
-    /// replacing a session that may still be healthy.
+    /// IDLE-mode probe-failure budget: a single timed-out probe is ambiguous
+    /// during app resume or a short Mac stall. Require independent
+    /// confirmation before replacing a session that may still be healthy.
+    /// Active mode (see ``renderGridLivenessActiveFailuresBeforeRecovery``)
+    /// deliberately does not wait for confirmation.
     static let renderGridLivenessFailuresBeforeRecovery = 2
+    /// The active/idle mode split for the liveness watchdog: terminal input
+    /// sent within this window of `now` marks the connection ACTIVE. Sized to
+    /// comfortably outlast one dead-path detection cycle (active silence
+    /// threshold + probe timeout + one watchdog tick ~= 8.5s) so the mode
+    /// cannot lapse back to idle mid-detection while the user's keystrokes
+    /// are being eaten by a stuck send pipeline; kept short enough that a
+    /// terminal left alone after typing returns to churn-free idle rules
+    /// within seconds.
+    static let renderGridLivenessActiveInputWindow: TimeInterval = 10
+    /// ACTIVE-mode silence budget. A keystroke makes the healthy host echo a
+    /// render-grid event almost immediately, so 3s of post-input silence is
+    /// already strong evidence of a dead path, versus the 9s idle budget
+    /// where silence is the normal state. Stays above any plausible healthy
+    /// echo round-trip (relay RTT + Mac render + event push, well under 1s)
+    /// plus a short Mac stall.
+    static let renderGridLivenessActiveSilenceThreshold: TimeInterval = 3
+    /// ACTIVE-mode probe-failure budget: one failed probe suffices. The
+    /// combination of unanswered input echoes AND a failed bounded probe is
+    /// no longer ambiguous, and while the user is typing every extra
+    /// confirmation round is time spent staring at a frozen terminal. The
+    /// cost of a rare false positive (one re-subscribe + replay of mounted
+    /// surfaces) is acceptable in exchange for ~3-8s detection instead of
+    /// today's 15-19s worst case.
+    static let renderGridLivenessActiveFailuresBeforeRecovery = 1
     /// Cadence of the liveness watchdog tick. It only reads a timestamp and
     /// compares against the threshold, so a short interval is cheap; it does not
     /// reschedule per received event (an actively-streaming connection just keeps
@@ -1133,6 +1168,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var renderGridLivenessProbeID: UUID?
     private var renderGridLivenessConsecutiveProbeFailures = 0
     var lastTerminalEventAt: Date?
+    /// When the user last sent terminal input (keystrokes through the raw
+    /// input funnel, composer pastes). Read only by the liveness watchdog to
+    /// pick its active/idle mode; stamped BEFORE the network send so a
+    /// silently dead path still counts the keystrokes it is eating. Not a
+    /// parallel liveness clock: `lastTerminalEventAt` stays the single record
+    /// the silence check compares against.
+    @ObservationIgnored var lastTerminalInputSentAt: Date?
     @ObservationIgnored var terminalInputAckResubscribeRetryTask: Task<Void, Never>?
     @ObservationIgnored var terminalInputAckResubscribeRetryTaskID: UUID?
     @ObservationIgnored var terminalInputAckResubscribeRetrySurfaceID: String?
@@ -8890,6 +8932,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             #endif
             return
         }
+        recordTerminalInputActivityForLiveness()
         let sendStatusOperationID = prepareTerminalSendStatusForRawInput(
             text,
             terminalID: terminalID.rawValue
@@ -8916,6 +8959,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         guard let workspaceID = workspaceID(forTerminalID: surfaceID) else { return }
+        recordTerminalInputActivityForLiveness()
         let sendStatusOperationID = prepareTerminalSendStatusForRawInput(
             text,
             terminalID: surfaceID
@@ -9014,6 +9058,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) async {
         guard !text.isEmpty else { return }
         guard remoteClient != nil else { return }
+        recordTerminalInputActivityForLiveness()
         switch rawTerminalInputBuffer.enqueue(
             text,
             workspaceID: workspaceID,
@@ -10632,6 +10677,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         cancelTerminalInputAckResubscribeRetry()
         stopRenderGridLivenessWatchdog(listenerID: nil)
         lastTerminalEventAt = nil
+        // A fresh connection context must start in idle mode: input typed
+        // into the previous connection says nothing about the new stream.
+        lastTerminalInputSentAt = nil
     }
 
     /// The one shared entry every pairing flow funnels through, so it is also the
@@ -11772,6 +11820,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             #endif
             return false
         }
+        recordTerminalInputActivityForLiveness()
         let generation = connectionGeneration
         do {
             #if DEBUG
@@ -12775,6 +12824,41 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         renderGridLivenessConsecutiveProbeFailures = 0
     }
 
+    /// Stamp of the user's terminal input activity for the watchdog's
+    /// active/idle mode split. Called from the raw-input enqueue funnel (per
+    /// keystroke, before the drain loop's network send, so a stuck send
+    /// pipeline on a dead path cannot stop the stamps) and from the composer
+    /// paste path.
+    func recordTerminalInputActivityForLiveness() {
+        lastTerminalInputSentAt = runtime?.now() ?? Date()
+    }
+
+    /// Whether the watchdog is in ACTIVE mode at `now`: the user sent
+    /// terminal input within ``renderGridLivenessActiveInputWindow``. Active
+    /// mode tightens the silence threshold and drops the probe-failure budget
+    /// to one, because post-keystroke silence is unambiguous (a healthy host
+    /// would have echoed) and the user is watching a frozen terminal. Idle
+    /// mode keeps the churn-safe 9s/2-failure behavior exactly.
+    private func renderGridLivenessInputIsActive(now: Date) -> Bool {
+        guard let lastTerminalInputSentAt else { return false }
+        return now.timeIntervalSince(lastTerminalInputSentAt)
+            <= Self.renderGridLivenessActiveInputWindow
+    }
+
+    /// Mode-resolved silence budget at `now` (see the two threshold constants).
+    private func renderGridLivenessSilenceThreshold(now: Date) -> TimeInterval {
+        renderGridLivenessInputIsActive(now: now)
+            ? Self.renderGridLivenessActiveSilenceThreshold
+            : Self.renderGridLivenessSilenceThreshold
+    }
+
+    /// Mode-resolved probe-failure budget at `now` (see the two constants).
+    private func renderGridLivenessFailuresBeforeRecovery(now: Date) -> Int {
+        renderGridLivenessInputIsActive(now: now)
+            ? Self.renderGridLivenessActiveFailuresBeforeRecovery
+            : Self.renderGridLivenessFailuresBeforeRecovery
+    }
+
     #if DEBUG
     /// Test-only: run one liveness evaluation for the currently armed watchdog
     /// generation, exactly as a `DispatchSourceTimer` tick would. Lets package
@@ -12788,9 +12872,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// One watchdog tick on the main actor: if the subscription generation still
     /// matches, the store is connected, and the stream has been silent past the
-    /// threshold, verify the silence with a bounded host probe and only tear
-    /// down + re-subscribe + replay (via the existing resync path) after two
-    /// consecutive probe failures with no intervening evidence of liveness.
+    /// mode-resolved threshold (active 3s / idle 9s, see
+    /// ``renderGridLivenessInputIsActive(now:)``), verify the silence with a
+    /// bounded host probe and only tear down + re-subscribe + replay (via the
+    /// existing resync path) after the mode-resolved number of consecutive
+    /// probe failures (active 1 / idle 2) with no intervening evidence of
+    /// liveness.
     ///
     /// The probe step exists because silence is ambiguous: a healthy idle
     /// terminal emits nothing (the Mac dedupes unchanged render-grid frames by
@@ -12817,7 +12904,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let now = runtime?.now() ?? Date()
         let last = lastTerminalEventAt ?? now
         let silent = now.timeIntervalSince(last)
-        guard silent >= Self.renderGridLivenessSilenceThreshold else { return }
+        // Mode is resolved per evaluation, so recent typing mid-silence
+        // tightens the budget on the very next tick and a lapsed input window
+        // relaxes it back without any state machine.
+        guard silent >= renderGridLivenessSilenceThreshold(now: now) else { return }
         guard renderGridLivenessProbeTask == nil else { return }
         let probeTimeoutNanoseconds = runtime?.livenessProbeTimeoutNanoseconds
             ?? 3_000_000_000
@@ -12871,15 +12961,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             // Events may have resumed while the probe was in flight; a fresh
             // stamp means the stream already proved itself, so no recovery.
+            // The mode is re-resolved at recheck time: a user who stopped
+            // typing mid-probe falls back to the conservative idle budgets
+            // before this failure may count toward recovery.
             let recheckNow = self.runtime?.now() ?? Date()
             let recheckLast = self.lastTerminalEventAt ?? recheckNow
-            guard recheckNow.timeIntervalSince(recheckLast) >= Self.renderGridLivenessSilenceThreshold else {
+            guard recheckNow.timeIntervalSince(recheckLast)
+                    >= self.renderGridLivenessSilenceThreshold(now: recheckNow) else {
                 return
             }
             let silentMs = Int(recheckNow.timeIntervalSince(recheckLast) * 1000)
             self.renderGridLivenessConsecutiveProbeFailures += 1
             let probeFailures = self.renderGridLivenessConsecutiveProbeFailures
-            guard probeFailures >= Self.renderGridLivenessFailuresBeforeRecovery else {
+            guard probeFailures
+                    >= self.renderGridLivenessFailuresBeforeRecovery(now: recheckNow) else {
                 MobileDebugLog.anchormux(
                     "sync.liveness probe_failed awaiting_confirmation failures=\(probeFailures) silentMs=\(silentMs)"
                 )

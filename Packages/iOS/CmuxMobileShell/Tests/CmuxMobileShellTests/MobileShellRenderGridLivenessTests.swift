@@ -752,3 +752,264 @@ import Testing
     )
     #expect(store.connectionRecoveryFailed)
 }
+
+// MARK: - Adaptive (active/idle) liveness cadence
+
+/// ACTIVE mode fast detection: terminal input within the last few seconds
+/// tightens the silence threshold to 3s and lets ONE failed probe trigger
+/// recovery, so a silently dead path under a typing user is detected in
+/// ~3-8s instead of the idle path's 15-19s worst case (9s silence + two
+/// probe rounds).
+@MainActor
+@Test func activeTypingTightensSilenceThresholdAndRecoversOnOneFailedProbe() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
+
+    let sawSubscribe = try await pollUntil { await router.count(of: "mobile.events.subscribe") >= 1 }
+    #expect(sawSubscribe, "listener must establish the push subscription")
+    let hostStatusCountBeforeFailure = await router.count(of: "mobile.host.status")
+
+    // The user types; the path then goes silently dead (the probe below is
+    // held forever). 4s of silence is BELOW the 9s idle threshold, so only
+    // the active mode may probe here.
+    await store.submitTerminalRawInput(Data("k".utf8), surfaceID: "live-terminal")
+    #expect(await router.waitForCount(of: "terminal.input", atLeast: 1))
+    await router.holdProbeRequest(number: 1)
+    clock.advance(by: 4)
+    store.debugRunRenderGridLivenessCheckForTesting()
+    #expect(
+        await router.waitForCount(of: "mobile.events.probe", atLeast: 1),
+        "4s of post-input silence must already trigger the liveness probe in active mode"
+    )
+
+    // One failed probe suffices in active mode: recovery restarts the
+    // listener, which re-resolves capabilities (mobile.host.status).
+    let restarted = try await pollUntil(attempts: 600) {
+        await router.count(of: "mobile.host.status") > hostStatusCountBeforeFailure
+    }
+    #expect(
+        restarted,
+        "in active mode a single failed probe must recover the dead connection without waiting for a confirmation round"
+    )
+    await router.releaseAllHeld()
+}
+
+/// IDLE mode is unchanged by the active-mode addition: without recent input,
+/// silence below the 9s idle threshold must not even start a probe. (The
+/// 9s/2-failure idle behavior itself is covered by the watchdog tests above.)
+@MainActor
+@Test func subThresholdIdleSilenceDoesNotProbeWithoutRecentInput() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let sawSubscribe = try await pollUntil { await router.count(of: "mobile.events.subscribe") >= 1 }
+    #expect(sawSubscribe, "listener must establish the push subscription")
+
+    // The same 4s of silence that probes in active mode must stay quiet idle.
+    clock.advance(by: 4)
+    store.debugRunRenderGridLivenessCheckForTesting()
+    let probed = await router.waitForCount(
+        of: "mobile.events.probe",
+        atLeast: 1,
+        timeoutNanoseconds: 300_000_000,
+        recordIssueOnTimeout: false
+    )
+    #expect(
+        !probed,
+        "without recent terminal input the idle 9s threshold applies; 4s of silence must not probe"
+    )
+}
+
+/// Mode transition mid-silence: a silence window that started under idle
+/// rules tightens the moment the user types. The same elapsed silence that
+/// was below the idle threshold immediately qualifies under the active
+/// threshold on the next evaluation, and a healthy host answering the probe
+/// keeps the session untouched.
+@MainActor
+@Test func typingMidSilenceTightensThresholdOnNextEvaluation() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let sawSubscribe = try await pollUntil { await router.count(of: "mobile.events.subscribe") >= 1 }
+    #expect(sawSubscribe, "listener must establish the push subscription")
+    let hostStatusCountBefore = await router.count(of: "mobile.host.status")
+
+    // 5s of idle silence: below the 9s idle threshold, no probe.
+    clock.advance(by: 5)
+    store.debugRunRenderGridLivenessCheckForTesting()
+    let probedWhileIdle = await router.waitForCount(
+        of: "mobile.events.probe",
+        atLeast: 1,
+        timeoutNanoseconds: 300_000_000,
+        recordIssueOnTimeout: false
+    )
+    #expect(!probedWhileIdle, "5s of silence is healthy for an idle terminal")
+
+    // The user types mid-silence. The SAME 5s of stream silence now exceeds
+    // the 3s active threshold, so the next evaluation must probe.
+    await store.submitTerminalRawInput(Data("k".utf8), surfaceID: "live-terminal")
+    #expect(await router.waitForCount(of: "terminal.input", atLeast: 1))
+    store.debugRunRenderGridLivenessCheckForTesting()
+    #expect(
+        await router.waitForCount(of: "mobile.events.probe", atLeast: 1),
+        "input mid-silence must tighten the threshold without waiting for a new silence window"
+    )
+
+    // The host is healthy (it answers the probe), so the tightened cadence
+    // must not churn the session: no re-subscribe, no listener restart.
+    let restarted = try await pollUntil(attempts: 60) {
+        await router.count(of: "mobile.host.status") > hostStatusCountBefore
+    }
+    #expect(restarted == false, "a healthy probe answer in active mode must not tear anything down")
+    #expect(
+        await router.count(of: "mobile.events.subscribe") == 1,
+        "a healthy active-mode probe must not replace the subscription"
+    )
+}
+
+/// The active window lapses: input older than the ~10s activity window puts
+/// the watchdog back under idle rules, so a mid-length silence that would
+/// probe in active mode stays quiet again. Idle terminals are never churned
+/// by input the user typed a while ago.
+@MainActor
+@Test func activeInputWindowLapsesBackToIdleRules() async throws {
+    let clock = TestClock()
+    let retryClock = InputAckRetryClock()
+    let router = LivenessHostRouter()
+    // Render-grid-only transport keeps the input-ACK path on the pending-seq
+    // branch (no hybrid raw-bytes resync), and the manual retry clock keeps
+    // its deferred follow-up inert, so the only cadence under test is the
+    // watchdog's.
+    await router.setCapabilities(["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"])
+    await router.enqueueTerminalInputSequences([100])
+    let box = TransportBox()
+    let store = try await makeConnectedStore(
+        router: router,
+        box: box,
+        clock: clock,
+        inputAckRetryClock: retryClock
+    )
+
+    let sawSubscribe = try await pollUntil { await router.count(of: "mobile.events.subscribe") >= 1 }
+    #expect(sawSubscribe, "listener must establish the push subscription")
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let sawMountReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawMountReplay, "mounting a sink arms exactly one cold-attach replay")
+    try await waitForReplayResponsesServed(
+        1,
+        router: router,
+        "the cold replay response must settle before testing the activity window lapse"
+    )
+
+    // Input at t=0; the healthy echo arrives at t=7 and restarts the silence
+    // window. At t=14 the input is outside the 10s activity window while the
+    // stream has been silent for 7s: idle rules (9s) apply, so no probe. A
+    // watchdog stuck in active mode would probe here (7s >= 3s).
+    await store.submitTerminalRawInput(Data("k".utf8), surfaceID: "live-terminal")
+    #expect(await router.waitForCount(of: "terminal.input", atLeast: 1))
+    clock.advance(by: 7)
+    let transport = try #require(box.get())
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 100,
+        text: "echo"
+    ))
+    let echoDelivered = try await pollUntil { collector.lines.contains { $0.contains("echo") } }
+    #expect(echoDelivered, "the echo event must restart the silence window")
+
+    clock.advance(by: 7)
+    store.debugRunRenderGridLivenessCheckForTesting()
+    let probed = await router.waitForCount(
+        of: "mobile.events.probe",
+        atLeast: 1,
+        timeoutNanoseconds: 300_000_000,
+        recordIssueOnTimeout: false
+    )
+    #expect(
+        !probed,
+        "input outside the activity window must not keep the tightened threshold alive; idle terminals are never churned"
+    )
+    collector.unmount()
+}
+
+/// A healthy actively-used stream never even reaches the probe: each echo
+/// event restarts the silence window before the 3s active threshold, so
+/// continuous typing over a live path produces zero probes, zero
+/// re-subscribes, and zero replays beyond the mount's cold attach.
+@MainActor
+@Test func healthyActiveStreamIsNeverProbedOrRecovered() async throws {
+    let clock = TestClock()
+    let retryClock = InputAckRetryClock()
+    let router = LivenessHostRouter()
+    // Same isolation as above: render-grid-only transport plus an inert
+    // manual ACK retry clock, so any probe or replay observed below could
+    // only have come from the liveness watchdog.
+    await router.setCapabilities(["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"])
+    await router.enqueueTerminalInputSequences([100, 101])
+    let box = TransportBox()
+    let store = try await makeConnectedStore(
+        router: router,
+        box: box,
+        clock: clock,
+        inputAckRetryClock: retryClock
+    )
+
+    let sawSubscribe = try await pollUntil { await router.count(of: "mobile.events.subscribe") >= 1 }
+    #expect(sawSubscribe, "listener must establish the push subscription")
+    let hostStatusCountBefore = await router.count(of: "mobile.host.status")
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let sawMountReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawMountReplay, "mounting a sink arms exactly one cold-attach replay")
+    try await waitForReplayResponsesServed(
+        1,
+        router: router,
+        "the cold replay response must settle before testing the healthy typing loop"
+    )
+    let transport = try #require(box.get())
+
+    // Two type-then-echo rounds with sub-threshold gaps: watchdog ticks stay
+    // no-ops throughout because the echoes keep the silence window fresh.
+    await store.submitTerminalRawInput(Data("a".utf8), surfaceID: "live-terminal")
+    #expect(await router.waitForCount(of: "terminal.input", atLeast: 1))
+    await transport.deliver(try renderGridEventFrame(surfaceID: "live-terminal", seq: 100, text: "echo-a"))
+    let firstEcho = try await pollUntil { collector.lines.contains { $0.contains("echo-a") } }
+    #expect(firstEcho)
+    clock.advance(by: 2)
+    store.debugRunRenderGridLivenessCheckForTesting()
+
+    await store.submitTerminalRawInput(Data("b".utf8), surfaceID: "live-terminal")
+    #expect(await router.waitForCount(of: "terminal.input", atLeast: 2))
+    await transport.deliver(try renderGridEventFrame(surfaceID: "live-terminal", seq: 101, text: "echo-b"))
+    let secondEcho = try await pollUntil { collector.lines.contains { $0.contains("echo-b") } }
+    #expect(secondEcho)
+    clock.advance(by: 2)
+    store.debugRunRenderGridLivenessCheckForTesting()
+
+    let probed = await router.waitForCount(
+        of: "mobile.events.probe",
+        atLeast: 1,
+        timeoutNanoseconds: 300_000_000,
+        recordIssueOnTimeout: false
+    )
+    #expect(!probed, "a healthy actively-typed stream must never be probed")
+    #expect(
+        await router.count(of: "mobile.host.status") == hostStatusCountBefore,
+        "no recovery may run on a healthy active stream"
+    )
+    let replayCount = await router.count(of: "mobile.terminal.replay")
+    #expect(replayCount == 1, "no replay traffic beyond the mount's cold attach")
+    collector.unmount()
+}
