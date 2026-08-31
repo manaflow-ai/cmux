@@ -77,6 +77,29 @@ enum WorkspaceAgent: String, CaseIterable, Sendable {
         }
     }
 
+    /// Prefix the wrapper puts on its tmux session name, so a Claude pane and a
+    /// Codex pane on the same directory never collide. `claude-remote` uses the
+    /// bare slug; `codex-remote` prefixes `cx-` (as `copilot-remote` uses `cp-`).
+    var sessionPrefix: String {
+        switch self {
+        case .claude: return ""
+        case .codex: return "cx-"
+        }
+    }
+
+    /// Which agent owns a live tmux session, read off its name's prefix.
+    /// Unprefixed names are Claude's, which is also the safe default: it is what
+    /// every workspace-set template names today.
+    init(sessionName: String) {
+        let lowered = sessionName.lowercased()
+        for agent in WorkspaceAgent.allCases
+        where !agent.sessionPrefix.isEmpty && lowered.hasPrefix(agent.sessionPrefix) {
+            self = agent
+            return
+        }
+        self = .claude
+    }
+
     /// Parse a CLI/socket argument (`claude`, `Codex`, `codex-remote`).
     init?(argument: String) {
         let normalized = argument.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -379,7 +402,7 @@ enum WorkspaceSetImporter {
     }
 
     /// True for a shell env prefix like `CLAUDE_REMOTE_HOST=win-desktop`.
-    nonisolated private static func isEnvAssignment(_ token: String) -> Bool {
+    nonisolated static func isEnvAssignment(_ token: String) -> Bool {
         guard let equals = token.firstIndex(of: "="), equals != token.startIndex else { return false }
         let name = token[token.startIndex..<equals]
         guard let first = name.first, first.isLetter || first == "_" else { return false }

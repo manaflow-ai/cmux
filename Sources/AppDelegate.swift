@@ -4132,11 +4132,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     /// Rebuild the focused workspace's layout from the template in
     /// workspace-set.json. Closes all existing panels and recreates them.
-    func rebuildCurrentWorkspaceFromTemplate() {
+    func rebuildCurrentWorkspaceFromTemplate(agent: WorkspaceAgent? = nil) {
         guard let tabManager = mainWindowContexts.values.first?.tabManager,
               let tabId = tabManager.selectedTabId,
               let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else { return }
-        if let count = WorkspaceSetImporter.rebuildWorkspaceFromTemplate(workspace) {
+        if let count = WorkspaceSetImporter.rebuildWorkspaceFromTemplate(workspace, agent: agent) {
             NSLog("[WorkspaceSetImporter] rebuild: recreated %d panels in '%@'",
                   count, workspace.title)
             // Force every terminal surface (in any workspace) to re-apply the
@@ -5246,11 +5246,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var derived: Set<String> = []
         for context in mainWindowContexts.values {
             for workspace in context.tabManager.tabs {
-                let name = TmuxSessionReaper.sessionName(
-                    directory: workspace.currentDirectory,
-                    instanceIndex: workspace.instanceIndex
-                )
-                if !name.isEmpty { derived.insert(name) }
+                // Every agent's spelling: a Codex lane's `cx-` session is as much this
+                // workspace's as the bare Claude one, and omitting it would offer a live
+                // Codex conversation up to the orphan reaper.
+                for agent in WorkspaceAgent.allCases {
+                    let name = TmuxSessionReaper.sessionName(
+                        directory: workspace.currentDirectory,
+                        instanceIndex: workspace.instanceIndex,
+                        agent: agent
+                    )
+                    if !name.isEmpty { derived.insert(name) }
+                }
             }
         }
         return derived
@@ -5271,29 +5277,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// the safety property: rebuilding a workspace re-runs its panel command, so doing
     /// this to a workspace with no live session would spawn a *new* agent rather than
     /// reattach an old one.
-    func workspacesAwaitingTmuxReattach() -> [(workspace: Workspace, session: String)] {
+    func workspacesAwaitingTmuxReattach() -> [(workspace: Workspace, session: String, agent: WorkspaceAgent)] {
         let live = Set(TmuxSessionReaper.liveSessions())
         guard !live.isEmpty else { return [] }
-        var matches: [(workspace: Workspace, session: String)] = []
+        var matches: [(workspace: Workspace, session: String, agent: WorkspaceAgent)] = []
         var claimed: Set<String> = []
         for context in mainWindowContexts.values {
             for workspace in context.tabManager.tabs {
-                let name = TmuxSessionReaper.sessionName(
-                    directory: workspace.currentDirectory,
-                    instanceIndex: workspace.instanceIndex
-                )
-                // A workspace that already registered this session attached during this
-                // launch, so it needs nothing — registration is cleared on restart, which
-                // is exactly what makes it a usable "not yet reattached" signal. Skipping
-                // these keeps the command idempotent and safe to invoke at any time, not
-                // only after a crash.
-                if workspace.ownedTmuxSession == name { continue }
-                // One workspace per session: two workspaces on the same directory and
-                // instance would otherwise both rebuild onto the same session, and the
-                // second would steal the pane from the first.
-                guard live.contains(name), !claimed.contains(name) else { continue }
-                claimed.insert(name)
-                matches.append((workspace, name))
+                // Agents in declaration order, Claude first: a workspace has one agent
+                // pane, so if both a Claude and a Codex session are live on this
+                // directory only one can be rebuilt onto, and the template's default wins.
+                for agent in WorkspaceAgent.allCases {
+                    let name = TmuxSessionReaper.sessionName(
+                        directory: workspace.currentDirectory,
+                        instanceIndex: workspace.instanceIndex,
+                        agent: agent
+                    )
+                    // A workspace that already registered this session attached during this
+                    // launch, so it needs nothing — registration is cleared on restart, which
+                    // is exactly what makes it a usable "not yet reattached" signal. Skipping
+                    // these keeps the command idempotent and safe to invoke at any time, not
+                    // only after a crash.
+                    if workspace.ownedTmuxSession == name { break }
+                    // One workspace per session: two workspaces on the same directory and
+                    // instance would otherwise both rebuild onto the same session, and the
+                    // second would steal the pane from the first.
+                    guard live.contains(name), !claimed.contains(name) else { continue }
+                    claimed.insert(name)
+                    matches.append((workspace, name, agent))
+                    break
+                }
             }
         }
         return matches
@@ -5311,8 +5324,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let targets = workspacesAwaitingTmuxReattach()
         guard !targets.isEmpty else { return [] }
         var recovered: [String] = []
-        for (workspace, session) in targets {
-            guard WorkspaceSetImporter.rebuildWorkspaceFromTemplate(workspace) != nil else {
+        for (workspace, session, agent) in targets {
+            guard WorkspaceSetImporter.rebuildWorkspaceFromTemplate(workspace, agent: agent) != nil else {
                 NSLog("[TmuxRecover] no template for '%@' — skipped", workspace.title)
                 continue
             }
@@ -5426,7 +5439,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !targets.isEmpty else { return [] }
         var restored: [String] = []
         for (workspace, lane) in targets {
-            guard WorkspaceSetImporter.rebuildWorkspaceFromTemplate(workspace) != nil else {
+            // The recorded session name says which agent was running: `cx-` is Codex's,
+            // anything else Claude's. Rebuilding with the template's agent instead would
+            // start a second, wrong agent beside the conversation being restored.
+            let agent = WorkspaceAgent(sessionName: lane.session)
+            guard WorkspaceSetImporter.rebuildWorkspaceFromTemplate(workspace, agent: agent) != nil else {
                 NSLog("[LaneRestore] no template for '%@' — skipped", workspace.title)
                 continue
             }

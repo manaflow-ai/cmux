@@ -372,8 +372,12 @@ struct cmuxApp: App {
                 Button(String(localized: "menu.app.reloadWindowSet", defaultValue: "Reload Window Set")) {
                     AppDelegate.shared?.reloadWindowSet()
                 }
-                Button(String(localized: "menu.app.rebuildWorkspaceLayout", defaultValue: "Rebuild Workspace Layout")) {
-                    AppDelegate.shared?.rebuildCurrentWorkspaceFromTemplate()
+                Menu(String(localized: "menu.app.rebuildWorkspaceLayout", defaultValue: "Rebuild Workspace Layout")) {
+                    ForEach(WorkspaceAgent.allCases, id: \.self) { agent in
+                        Button(agent.panelTitle) {
+                            AppDelegate.shared?.rebuildCurrentWorkspaceFromTemplate(agent: agent)
+                        }
+                    }
                 }
                 Button(
                     String(
