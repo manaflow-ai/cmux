@@ -762,7 +762,32 @@ fn process_name(pid: u32) -> Option<String> {
 
 #[cfg(target_os = "macos")]
 fn process_name(pid: u32) -> Option<String> {
+    // The kernel's process name (how `ps` shows it) beats the executable
+    // path basename: launchers install version-named binaries (claude's is
+    // `.../versions/2.1.251`), and the exec image name still reads as the
+    // agent. Fall back to the path for names the 32-byte field truncates.
     let pid = libc::c_int::try_from(pid).ok()?;
+    let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::zeroed();
+    let size = libc::c_int::try_from(size_of::<libc::proc_bsdinfo>()).ok()?;
+    // SAFETY: proc_pidinfo writes at most `size` bytes into `info` and
+    // returns the initialized byte count.
+    let written = unsafe {
+        libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, info.as_mut_ptr().cast(), size)
+    };
+    if written == size {
+        // SAFETY: proc_pidinfo initialized the full structure; pbi_name and
+        // pbi_comm are fixed NUL-padded byte buffers.
+        let info = unsafe { info.assume_init() };
+        for field in [&info.pbi_name[..], &info.pbi_comm[..]] {
+            let bytes: Vec<u8> = field.iter().take_while(|&&byte| byte != 0).map(|&byte| byte as u8).collect();
+            if let Ok(name) = std::str::from_utf8(&bytes)
+                && !name.is_empty()
+                && name.len() + 1 < field.len()
+            {
+                return Some(name.to_string());
+            }
+        }
+    }
     let mut path = [0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
     // SAFETY: proc_pidpath writes at most `path.len()` bytes and returns
     // the written byte count (0 on failure).
