@@ -15,11 +15,12 @@ extension CMUXCLI {
         environment: [String: String],
         telemetry: CLISocketSentryTelemetry
     ) {
-        let retryCount = Int(environment["CMUX_CODEX_SETTLED_STOP_RETRY_COUNT"] ?? "0") ?? 0
+        let retryCount = max(0, Int(environment["CMUX_CODEX_SETTLED_STOP_RETRY_COUNT"] ?? "0") ?? 0)
         guard retryCount < Self.codexSettledStopMaximumRetries else {
             telemetry.breadcrumb("codex-hook.settled-stop.retry-limit-reached")
             return
         }
+        let retryDelay = [0.25, 0.5, 1.0][min(retryCount, 2)]
         let selfPath: String = {
             if let first = ProcessInfo.processInfo.arguments.first,
                first.hasPrefix("/"),
@@ -50,9 +51,10 @@ extension CMUXCLI {
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = [
             "-c",
-            "nohup /bin/sh -c '\"$0\" hooks codex stop < \"$1\" >/dev/null 2>&1; rm -f \"$1\"' \"$0\" \"$1\" >/dev/null 2>&1 &",
+            "nohup /bin/sh -c 'sleep \"$2\"; \"$0\" hooks codex stop < \"$1\" >/dev/null 2>&1; rm -f \"$1\"' \"$0\" \"$1\" \"$2\" >/dev/null 2>&1 &",
             selfPath,
             payloadURL.path,
+            String(retryDelay),
         ]
         var childEnvironment = environment
         childEnvironment["CMUX_CODEX_SETTLED_CHILD_STOP"] = "1"

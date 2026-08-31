@@ -2439,6 +2439,13 @@ final class ClaudeHookSessionStore {
         _ body: (inout ClaudeHookSessionStoreFile) throws -> T
     ) throws -> T {
         let lockPath = statePath + ".lock"
+        // The lock file is opened before the state is ever saved, so the first
+        // store access on a fresh HOME must create the state directory itself.
+        try fileManager.createDirectory(
+            at: URL(fileURLWithPath: lockPath).deletingLastPathComponent(),
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: NSNumber(value: Int16(0o700))]
+        )
         let fd = open(lockPath, O_CREAT | O_RDWR, mode_t(S_IRUSR | S_IWUSR))
         if fd < 0 {
             throw CLIError(message: "Failed to open Claude hook state lock: \(lockPath)")
@@ -38638,6 +38645,7 @@ export default CMUXSessionRestore;
         guard !source.isEmpty else {
             throw CLIError(message: "cmux hooks feed requires --source <agent-name>")
         }
+        let lifecycleProbeDeadline = Date.now.addingTimeInterval(0.75)
         var lifecycleProbeClient: SocketClient?
         defer { lifecycleProbeClient?.close() }
 
@@ -38767,7 +38775,9 @@ export default CMUXSessionRestore;
                       let activeClient = client ?? makeLifecycleProbeClient(),
                       let listed = try? activeClient.sendV2(
                           method: "surface.list",
-                          params: ["workspace_id": workspaceId]
+                          params: ["workspace_id": workspaceId],
+                          responseTimeout: max(0.01, lifecycleProbeDeadline.timeIntervalSinceNow),
+                          deadline: lifecycleProbeDeadline
                       ),
                       let surfaces = listed["surfaces"] as? [[String: Any]],
                       let surface = surfaces.first(where: {
@@ -38804,6 +38814,13 @@ export default CMUXSessionRestore;
                     environment: env,
                     telemetry: telemetry
                 )
+            }
+            // A rejected lifecycle identity is intentionally diagnostic-only.
+            // Do not let the generic feed frame below reuse stale ambient
+            // workspace/surface metadata after this decision.
+            guard feedLifecycleTarget != nil else {
+                print("{}")
+                return
             }
         }
 
