@@ -174,4 +174,4 @@ Run `cmux hooks <agent> install --yes` to reinstall one integration. Run `cmux h
 
 If Feed shows nothing, confirm the terminal has `CMUX_SURFACE_ID` and the hook file contains a `cmux hooks feed --source <agent>` command, generated extension bridge, or OpenCode feed plugin. Pi reports non-blocking tool execution telemetry through its generated extension. OMP, Campfire, and Rovo Dev currently provide lifecycle and restore hooks only, so they do not create Feed approval cards. Amp's bundled plugin reports live tab-status updates (idle / thinking / running / reading / done / error / interrupted) and lifecycle restore but does not create Feed approval cards.
 
-If relaunch does not resume an agent, check `~/.cmuxterm/<agent>-hook-sessions.json` for the saved session and verify the agent's resume command still works outside cmux.
+If relaunch does not resume an agent, first run `cmux sessions --agent <name> --json` to inspect the saved session without a running cmux socket. If needed, check `~/.cmuxterm/<agent>-hook-sessions.json` and verify the agent's resume command still works outside cmux.

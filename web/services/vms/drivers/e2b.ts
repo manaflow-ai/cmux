@@ -184,7 +184,7 @@ export class E2BProvider implements VMProvider {
         throw new ProviderError(
           "e2b",
           "E2B sandboxes don't support interactive attach (no raw TCP egress). " +
-            "Use `cmux vm new` without `--provider e2b` (Freestyle is the default), " +
+            "Use `cmux vm new` without `--provider e2b` (Blaxel is the default), " +
             "or `cmux vm new --provider e2b --detach` to create without attach, " +
             "then `cmux vm exec <id> -- <cmd>`.",
         );

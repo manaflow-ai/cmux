@@ -7107,6 +7107,164 @@ extension SessionPersistenceTests {
         XCTAssertEqual(binding.command, "'/opt/homebrew/bin/tmux' '-L' 'dev' 'attach' '-t' 'work'")
     }
 
+    func testPlainSSHProcessDetectedResumeBindingRerunsInteractiveCommand() throws {
+        let binding = try XCTUnwrap(
+            TerminalSSHSessionDetector.resumeBinding(
+                processName: "ssh",
+                processPath: "/usr/bin/ssh",
+                arguments: [
+                    "/usr/bin/ssh",
+                    "-p", "2222",
+                    "-i", "/Users/test/.ssh/id_ed25519",
+                    "tinybox",
+                ],
+                environment: ["PWD": "/Users/test/project"]
+            )
+        )
+
+        XCTAssertEqual(binding.kind, "ssh")
+        XCTAssertEqual(binding.source, "process-detected")
+        XCTAssertTrue(binding.allowsAutomaticResume)
+        XCTAssertEqual(binding.cwd, "/Users/test/project")
+        XCTAssertEqual(
+            binding.command,
+            "'/usr/bin/ssh' '-p' '2222' '-i' '/Users/test/.ssh/id_ed25519' 'tinybox'"
+        )
+        XCTAssertEqual(binding.startupInput, binding.command + "\n")
+    }
+
+    func testPlainSSHProcessDetectedResumeBindingUsesResolvedExecutablePath() throws {
+        let binding = try XCTUnwrap(
+            TerminalSSHSessionDetector.resumeBinding(
+                processName: "ssh",
+                processPath: "/opt/company/bin/ssh",
+                arguments: ["ssh", "tinybox"],
+                environment: [:]
+            )
+        )
+
+        XCTAssertEqual(binding.command, "'/opt/company/bin/ssh' 'tinybox'")
+        XCTAssertEqual(binding.launchCommand?.executablePath, "/opt/company/bin/ssh")
+        XCTAssertEqual(binding.launchCommand?.arguments, ["/opt/company/bin/ssh", "tinybox"])
+    }
+
+    func testPlainSSHProcessDetectedResumeBindingRejectsRemoteCommand() {
+        let binding = TerminalSSHSessionDetector.resumeBinding(
+            processName: "ssh",
+            processPath: "/usr/bin/ssh",
+            arguments: ["ssh", "tinybox", "uname", "-a"],
+            environment: [:]
+        )
+
+        XCTAssertNil(binding)
+    }
+
+    func testPlainSSHProcessDetectedResumeBindingDoesNotReplaceManagedPTYBinding() {
+        let binding = TerminalSSHSessionDetector.resumeBinding(
+            processName: "ssh",
+            processPath: "/usr/bin/ssh",
+            arguments: ["ssh", "tinybox"],
+            environment: ["CMUX_SSH_PTY_SESSION_ID": "ssh-managed"]
+        )
+
+        XCTAssertNil(binding)
+    }
+
+    func testPlainSSHProcessDetectedResumeBindingRejectsRemoteCommandOption() {
+        let binding = TerminalSSHSessionDetector.resumeBinding(
+            processName: "ssh",
+            processPath: "/usr/bin/ssh",
+            arguments: ["ssh", "-o", "RemoteCommand=uname -a", "tinybox"],
+            environment: [:]
+        )
+
+        XCTAssertNil(binding)
+    }
+
+    func testPlainSSHProcessDetectedResumeBindingRejectsNonInteractiveSSHFlags() {
+        let invocations = [
+            ["ssh", "-n", "tinybox"],
+            ["ssh", "-T", "tinybox"],
+            ["ssh", "-G", "tinybox"],
+            ["ssh", "-V"],
+            ["ssh", "-o", "RequestTTY=no", "tinybox"],
+            ["ssh", "-o", "StdinNull=yes", "tinybox"],
+        ]
+
+        for arguments in invocations {
+            XCTAssertNil(
+                TerminalSSHSessionDetector.resumeBinding(
+                    processName: "ssh",
+                    processPath: "/usr/bin/ssh",
+                    arguments: arguments,
+                    environment: [:]
+                ),
+                "Expected non-interactive invocation to be rejected: \(arguments)"
+            )
+        }
+    }
+
+    func testPlainSSHProcessDetectedResumeBindingAllowsRemoteCommandNone() throws {
+        let binding = try XCTUnwrap(
+            TerminalSSHSessionDetector.resumeBinding(
+                processName: "ssh",
+                processPath: "/usr/bin/ssh",
+                arguments: ["ssh", "-o", "RemoteCommand=none", "tinybox"],
+                environment: [:]
+            )
+        )
+
+        XCTAssertEqual(binding.kind, "ssh")
+        XCTAssertEqual(binding.command, "'/usr/bin/ssh' '-o' 'RemoteCommand=none' 'tinybox'")
+    }
+
+    func testPlainSSHProcessDetectedBindingFallsBackToPaneTTYWhenScopeIsMissing() throws {
+        let workspaceID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+        let panelID = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
+        let process = CmuxTopProcessInfo(
+            pid: 4242,
+            parentPID: 1,
+            name: "ssh",
+            path: "/usr/bin/ssh",
+            ttyDevice: 9876,
+            cmuxWorkspaceID: nil,
+            cmuxSurfaceID: nil,
+            cmuxAttributionReason: nil,
+            processGroupID: 4242,
+            terminalProcessGroupID: 4242,
+            cpuPercent: 0,
+            residentBytes: 1,
+            virtualBytes: 1,
+            threadCount: 1
+        )
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [process],
+            sampledAt: Date(timeIntervalSince1970: 1_777_777_777),
+            includesProcessDetails: true
+        )
+        let key = SurfaceResumeBindingIndex.PanelKey(
+            workspaceId: workspaceID,
+            panelId: panelID
+        )
+        let detected = SurfaceResumeBindingIndex.processDetectedTmuxBindings(
+            fileManager: .default,
+            processSnapshot: snapshot,
+            capturedAt: 1_777_777_777,
+            ttyDeviceBindings: [key: 9876],
+            processArgumentsProvider: { _ in
+                CmuxTopProcessArguments(
+                    arguments: ["/usr/bin/ssh", "tinybox"],
+                    environment: [:]
+                )
+            }
+        )
+
+        let binding = try XCTUnwrap(detected[key]?.binding)
+        XCTAssertEqual(binding.kind, "ssh")
+        XCTAssertEqual(binding.source, "process-detected")
+        XCTAssertEqual(binding.command, "'/usr/bin/ssh' 'tinybox'")
+    }
+
     func testTmuxProcessDetectedResumeBindingPreservesTmuxTmpdir() throws {
         let binding = try XCTUnwrap(
             SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(

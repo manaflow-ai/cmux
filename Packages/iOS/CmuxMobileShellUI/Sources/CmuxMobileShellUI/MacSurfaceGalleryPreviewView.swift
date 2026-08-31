@@ -77,8 +77,7 @@ public struct MacSurfaceGalleryPreviewView: View {
                         selectedID: nil,
                         selectedMacSurfaceID: Self.todoSurface.id,
                         canCreateWorkspace: true,
-                        hasActiveBrowser: false,
-                        isChatMode: false
+                        hasActiveBrowser: false
                     ),
                     actions: TerminalPickerMenuActions(
                         selectTerminal: { _ in },

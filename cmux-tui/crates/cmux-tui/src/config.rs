@@ -1621,6 +1621,7 @@ pub enum Action {
     ToggleSidebarCompact,
     ToggleSidebarView,
     FocusSidebar,
+    ProviderMenu,
     NewPaneRight,
     UndoLayout,
     FocusLeft,
@@ -1677,6 +1678,7 @@ pub(crate) enum ActionExecution {
     ToggleSidebarCompact,
     ToggleSidebarView,
     FocusSidebar,
+    ProviderMenu,
     NewPaneRight,
     UndoLayout,
     FocusLeft,
@@ -1901,6 +1903,7 @@ define_named_action_definitions! {
     TOGGLE_SIDEBAR_COMPACT_DEFINITION => (Action::ToggleSidebarCompact, "toggle-sidebar-compact", "Compact or expand sidebar", "サイドバーの幅を切り替え");
     TOGGLE_SIDEBAR_VIEW_DEFINITION => (Action::ToggleSidebarView, "toggle-sidebar-view", "Switch sidebar view", "サイドバー表示を切り替え");
     FOCUS_SIDEBAR_DEFINITION => (Action::FocusSidebar, "focus-sidebar", "Focus sidebar", "サイドバーにフォーカス");
+    PROVIDER_MENU_DEFINITION => (Action::ProviderMenu, "provider-menu", "Machine provider menu", "マシンプロバイダーメニュー");
     NEW_PANE_RIGHT_DEFINITION => (Action::NewPaneRight, "new-pane-right", "New column to the right", "右に新しい列");
     UNDO_LAYOUT_DEFINITION => (Action::UndoLayout, "undo-layout", "Undo layout", "レイアウトを元に戻す");
     FOCUS_LEFT_DEFINITION => (Action::FocusLeft, "focus-left", "Focus left", "左へフォーカス");
@@ -2053,7 +2056,7 @@ static SELECT_SCREEN_DEFINITIONS: [ActionDefinition; 10] = [
 /// The canonical action catalog. Presentation surfaces derive their labels
 /// and ordering from these named definitions instead of positional offsets.
 pub fn action_definitions() -> &'static [&'static ActionDefinition] {
-    static DEFINITIONS: [&ActionDefinition; 66] = [
+    static DEFINITIONS: [&ActionDefinition; 67] = [
         &SEND_PREFIX_DEFINITION,
         &NEW_TAB_DEFINITION,
         &NEW_BROWSER_TAB_DEFINITION,
@@ -2099,6 +2102,7 @@ pub fn action_definitions() -> &'static [&'static ActionDefinition] {
         &TOGGLE_SIDEBAR_COMPACT_DEFINITION,
         &TOGGLE_SIDEBAR_VIEW_DEFINITION,
         &FOCUS_SIDEBAR_DEFINITION,
+        &PROVIDER_MENU_DEFINITION,
         &NEW_PANE_RIGHT_DEFINITION,
         &UNDO_LAYOUT_DEFINITION,
         &FOCUS_LEFT_DEFINITION,
@@ -2310,6 +2314,12 @@ impl Action {
                 "frontend action adapter",
                 ActionExecution::FocusSidebar,
             ),
+            Action::ProviderMenu => ActionMetadata::new(
+                "provider-menu",
+                ActionClassification::PresentationOnly,
+                "frontend machine provider menu",
+                ActionExecution::ProviderMenu,
+            ),
             Action::NewPaneRight => ActionMetadata::new(
                 "new-pane-right",
                 ActionClassification::Direct,
@@ -2476,6 +2486,7 @@ impl Action {
             Action::ToggleSidebarCompact => &TOGGLE_SIDEBAR_COMPACT_DEFINITION,
             Action::ToggleSidebarView => &TOGGLE_SIDEBAR_VIEW_DEFINITION,
             Action::FocusSidebar => &FOCUS_SIDEBAR_DEFINITION,
+            Action::ProviderMenu => &PROVIDER_MENU_DEFINITION,
             Action::NewPaneRight => &NEW_PANE_RIGHT_DEFINITION,
             Action::UndoLayout => &UNDO_LAYOUT_DEFINITION,
             Action::FocusLeft => &FOCUS_LEFT_DEFINITION,
@@ -2640,6 +2651,7 @@ pub struct Keys {
     /// macOS Option mode instead of guessing from each event.
     pub macos_option_as_alt: bool,
     bindings: Vec<(Chord, Action)>,
+    pub(crate) provider_menu_overridden: bool,
 }
 
 impl Default for Keys {
@@ -2727,6 +2739,7 @@ impl Default for Keys {
                 bind(KeyCode::Char('?'), Action::ShowShortcuts),
                 bind(KeyCode::Char('d'), Action::Detach),
             ],
+            provider_menu_overridden: false,
         }
     }
 }
@@ -2896,8 +2909,14 @@ impl Keys {
             }) {
                 Some(definition) => {
                     self.bindings.retain(|(_, action)| *action != definition.action);
+                    let mut provider_menu_override_valid = definition.action
+                        == Action::ProviderMenu
+                        && matches!(value, Value::Array(values) if values.is_empty());
                     for raw_chord in key_values(value) {
                         if raw_chord.eq_ignore_ascii_case("none") {
+                            if definition.action == Action::ProviderMenu {
+                                provider_menu_override_valid = true;
+                            }
                             continue;
                         }
                         let Some(chord) = parse_chord(raw_chord) else {
@@ -2914,8 +2933,14 @@ impl Keys {
                             );
                             continue;
                         }
+                        if definition.action == Action::ProviderMenu {
+                            provider_menu_override_valid = true;
+                        }
                         self.bindings.retain(|(existing, _)| existing != &chord);
                         self.bindings.push((chord, definition.action));
+                    }
+                    if definition.action == Action::ProviderMenu {
+                        self.provider_menu_overridden = provider_menu_override_valid;
                     }
                 }
                 None => crate::client_log::stderr_log!(
@@ -3896,19 +3921,93 @@ fn agent_in_title(tabs: &Tabs, title: &str) -> Option<String> {
 fn load_raw_config() -> RawConfig {
     let Some(path) = platform::config_path() else { return RawConfig::default() };
     let Ok(text) = std::fs::read_to_string(&path) else { return RawConfig::default() };
-    match serde_json::from_str(&text) {
-        Ok(config) => config,
+    let value: Value = match serde_json::from_str(&text) {
+        Ok(value) => value,
         Err(e) => {
-            // A broken config should not take the TUI down; complain on
-            // stderr (visible pre-alternate-screen and in logs).
             crate::client_log::stderr_log!(
                 "config",
-                "cmux-tui: ignoring invalid config {}: {e}",
-                path.display()
+                "{} ({})",
+                config_diagnostic(&e),
+                path.display(),
             );
-            RawConfig::default()
+            return RawConfig::default();
         }
+    };
+    let Some(object) = value.as_object() else {
+        crate::client_log::stderr_log!(
+            "config",
+            "cmux-tui: ignoring invalid config {}: root must be an object",
+            path.display()
+        );
+        return RawConfig::default();
+    };
+    const KNOWN: &[&str] = &[
+        "theme",
+        "tabs",
+        "sidebar",
+        "machine_sidebar",
+        "machine_provider",
+        "machines",
+        "commands",
+        "browser",
+        "scrollbar",
+        "pane",
+        "status_bar",
+        "viewport",
+        "server",
+        "keys",
+    ];
+    if let Some(unknown) = object.keys().find(|key| !KNOWN.contains(&key.as_str())) {
+        crate::client_log::stderr_log!(
+            "config",
+            "cmux-tui: ignoring invalid config {}: unknown top-level field `{unknown}`",
+            path.display()
+        );
+        return RawConfig::default();
     }
+    let mut raw = RawConfig::default();
+    macro_rules! section {
+        ($field:ident, $name:literal) => {
+            if let Some(value) = object.get($name) {
+                match serde_json::from_value(value.clone()) {
+                    Ok(parsed) => raw.$field = parsed,
+                    Err(error) => crate::client_log::stderr_log!(
+                        "config",
+                        "cmux-tui: ignoring invalid `{}` section in {}: {}",
+                        $name,
+                        path.display(),
+                        error
+                    ),
+                }
+            }
+        };
+    }
+    section!(theme, "theme");
+    section!(tabs, "tabs");
+    section!(sidebar, "sidebar");
+    section!(machine_sidebar, "machine_sidebar");
+    section!(machine_provider, "machine_provider");
+    section!(machines, "machines");
+    section!(commands, "commands");
+    section!(browser, "browser");
+    section!(scrollbar, "scrollbar");
+    section!(pane, "pane");
+    section!(status_bar, "status_bar");
+    section!(viewport, "viewport");
+    section!(server, "server");
+    section!(keys, "keys");
+    raw
+}
+
+fn config_diagnostic(error: &serde_json::Error) -> String {
+    let text = error.to_string();
+    if text.contains("unknown field") {
+        return catalog().config.unknown_field("(see config file)");
+    }
+    if text.contains("invalid type") && text.contains("map") {
+        return catalog().config.invalid_root().to_string();
+    }
+    catalog().config.invalid_section("(see config file)")
 }
 
 pub fn config_path() -> anyhow::Result<PathBuf> {
@@ -5254,12 +5353,47 @@ fn overlay_ghostty_defaults(defaults: &mut DefaultColors, overrides: DefaultColo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn config_diagnostics_do_not_echo_parser_details() {
+        let error = serde_json::from_str::<RawConfig>(r#"{"typo":true}"#).unwrap_err();
+        let diagnostic = config_diagnostic(&error);
+        assert!(diagnostic.contains("unknown config field"));
+        assert!(!diagnostic.contains("typo"));
+    }
     use std::ffi::OsString;
     use std::sync::Mutex;
+    use std::sync::atomic::{AtomicU64, Ordering};
 
     /// Config env vars are process-global state; tests that set them must not
     /// run concurrently with each other.
     static CONFIG_ENV_LOCK: Mutex<()> = Mutex::new(());
+    static NEXT_TEST_DIRECTORY: AtomicU64 = AtomicU64::new(0);
+
+    struct TestDirectory {
+        path: PathBuf,
+    }
+
+    impl TestDirectory {
+        fn new(label: &str) -> Self {
+            loop {
+                let sequence = NEXT_TEST_DIRECTORY.fetch_add(1, Ordering::Relaxed);
+                let path = std::env::temp_dir()
+                    .join(format!("cmux-tui-config-{label}-{}-{sequence}", std::process::id()));
+                match std::fs::create_dir(&path) {
+                    Ok(()) => return Self { path },
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(error) => panic!("create config test directory failed: {error}"),
+                }
+            }
+        }
+    }
+
+    impl Drop for TestDirectory {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
 
     fn restore_env_var(key: &str, value: Option<OsString>) {
         match value {
@@ -7667,6 +7801,37 @@ mod tests {
     }
 
     #[test]
+    fn invalid_section_does_not_discard_valid_sections() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir = TestDirectory::new("section-recovery");
+        let path = dir.path.join("cmux-tui.json");
+        std::fs::write(&path, r##"{"theme":{"sidebar_rail":42},"browser":{"mode":"stealth"}}"##)
+            .unwrap();
+        let old = std::env::var_os("CMUX_TUI_CONFIG");
+        unsafe { std::env::set_var("CMUX_TUI_CONFIG", &path) };
+        let config = load();
+        restore_env_var("CMUX_TUI_CONFIG", old);
+        assert_eq!(config.theme.sidebar_rail, Color::Indexed(42));
+        assert_eq!(config.browser.mode, BrowserMode::Headful);
+    }
+
+    #[test]
+    fn unknown_top_level_field_keeps_strict_rejection() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir =
+            std::env::temp_dir().join(format!("cmux-tui-top-level-strict-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cmux-tui.json");
+        std::fs::write(&path, r##"{"theme":{"sidebar_rail":42},"future":true}"##).unwrap();
+        let old = std::env::var_os("CMUX_TUI_CONFIG");
+        unsafe { std::env::set_var("CMUX_TUI_CONFIG", &path) };
+        let config = load();
+        restore_env_var("CMUX_TUI_CONFIG", old);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(config.theme.sidebar_rail, Theme::default().sidebar_rail);
+    }
+
+    #[test]
     fn viewport_animation_defaults_on_and_can_be_disabled() {
         let raw: RawConfig = serde_json::from_str(r#"{}"#).unwrap();
         assert!(raw.viewport.animation.is_none());
@@ -7967,6 +8132,7 @@ mod tests {
             ("swap-pane-next", Action::SwapPaneNext),
             ("scroll-up", Action::ScrollUp),
             ("toggle-sidebar-compact", Action::ToggleSidebarCompact),
+            ("provider-menu", Action::ProviderMenu),
             ("toggle-sidebar-view", Action::ToggleSidebarView),
             ("new-pane-right", Action::NewPaneRight),
             ("undo-layout", Action::UndoLayout),
@@ -7985,6 +8151,23 @@ mod tests {
                 Some(action),
                 "{name} did not parse"
             );
+        }
+    }
+
+    #[test]
+    fn provider_menu_override_requires_a_valid_chord_or_none() {
+        let cases = [
+            (Value::String("not a chord".to_string()), false),
+            (Value::String("ctrl+b".to_string()), false),
+            (Value::String("none".to_string()), true),
+            (Value::Array(vec![]), true),
+            (Value::String("x".to_string()), true),
+            (Value::Bool(true), false),
+        ];
+        for (value, expected) in cases {
+            let mut keys = Keys::default();
+            keys.apply(&HashMap::from([("provider-menu".to_string(), value)]));
+            assert_eq!(keys.provider_menu_overridden, expected);
         }
     }
 

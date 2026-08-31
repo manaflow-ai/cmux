@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobileShell
+import CmuxMobileSupport
 import CmuxMobileTransport
 import Foundation
 import OSLog
@@ -31,11 +32,12 @@ struct cmuxApp: App {
             reachability: reachability,
             diagnosticLog: diagnosticLog
         )
+        // Per-tag isolation by default: this build pairs only with its own
+        // Mac tag plus the runtime grant set its anchor Mac advertises
+        // (`cmux mobile compatible-tags`), persisted across launches.
         let buildCompatibilityPolicy = MobileMacBuildCompatibilityPolicy.current(
             buildScope: MobileIOSBuildScope.current(),
-            compatibleMacTags: Bundle.main.object(
-                forInfoDictionaryKey: "CMUXCompatibleMacTags"
-            ) as? String
+            additionalInstanceTags: MobileMacTagAllowlist.persisted()
         )
         let iroh = MobileIrohRuntimeComposition(
             apiBaseURL: auth.config.apiBaseURL,
@@ -111,6 +113,15 @@ struct cmuxApp: App {
                     resourceID: resourceID,
                     offset: offset
                 )
+            },
+            simulatorStreamLaneProvider: { request, panelID in
+                guard let panelUUID = UUID(uuidString: panelID) else {
+                    throw MobileIrohSimulatorStreamLaneError.invalidPanelID
+                }
+                return try await iroh.openSimulatorStreamLane(
+                    for: request,
+                    panelID: panelUUID
+                )
             }
         )
 
@@ -157,6 +168,7 @@ struct cmuxApp: App {
             #endif
         }
         .environment(\.irohSettingsController, Self.root.iroh)
+        .environment(\.mobileKeyboardFrameTracker, Self.root.keyboardFrameTracker)
         .environment(
             \.dogfoodAttachPreparation,
             DogfoodAttachPreparation {

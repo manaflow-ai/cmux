@@ -710,6 +710,12 @@
       "route": "frontend action adapter"
     },
     {
+      "variant": "ProviderMenu",
+      "key": "provider-menu",
+      "classification": "presentation-only",
+      "route": "frontend machine provider menu"
+    },
+    {
       "variant": "ToggleSidebarView",
       "key": "toggle-sidebar-view",
       "classification": "presentation-only",
@@ -1419,12 +1425,5 @@
       "spec": "programmability.md"
     }
   ],
-  "pending_heads": [
-    {
-      "name": "terminal-shortcuts",
-      "url": "https://github.com/manaflow-ai/cmux/pull/8698",
-      "status": "pending",
-      "note": "Adds clear-history and structured key work. It is not part of the main protocol inventory."
-    }
-  ]
+  "pending_heads": []
 }

@@ -43,6 +43,8 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         public let kind: String
         /// User-facing surface title.
         public let title: String
+        /// Whether the surface currently holds focus on the owning Mac.
+        public let isFocused: Bool
         /// Backing file path for file-based surfaces, when reported.
         public let filePath: String?
         /// Bounded checklist/status payload for todo surfaces.
@@ -54,19 +56,32 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
             kind: String,
             title: String,
             filePath: String?,
-            todo: MobileTodoSnapshot? = nil
+            todo: MobileTodoSnapshot? = nil,
+            isFocused: Bool = false
         ) {
             self.surfaceID = surfaceID
             self.kind = kind
             self.title = title
+            self.isFocused = isFocused
             self.filePath = filePath
             self.todo = todo
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            surfaceID = try container.decode(String.self, forKey: .surfaceID)
+            kind = try container.decode(String.self, forKey: .kind)
+            title = try container.decode(String.self, forKey: .title)
+            isFocused = try container.decodeIfPresent(Bool.self, forKey: .isFocused) ?? false
+            filePath = try container.decodeIfPresent(String.self, forKey: .filePath)
+            todo = try container.decodeIfPresent(MobileTodoSnapshot.self, forKey: .todo)
         }
 
         private enum CodingKeys: String, CodingKey {
             case surfaceID = "surface_id"
             case kind
             case title
+            case isFocused = "is_focused"
             case filePath = "file_path"
             case todo
         }
@@ -193,6 +208,7 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         self.simulators = simulators
     }
 
+    /// Decodes a workspace record, accepting frames from before optional fields were added.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
@@ -258,8 +274,12 @@ public struct GroupSyncRecord: MobileSyncRecord {
     public let isPinned: Bool
     /// SF Symbol rendered by the corresponding group row on the Mac.
     public let iconSymbol: String?
-    /// The anchor workspace that owns this group.
-    public let anchorWorkspaceID: String
+    /// The live anchor workspace that owns this group, or `nil` for a
+    /// header-only group. Empty groups never publish a placeholder workspace
+    /// identifier.
+    public let anchorWorkspaceID: String?
+    /// Whether this group currently has no live workspace anchor.
+    public let isEmpty: Bool
     /// Position in the Mac's presented section order.
     public let sortIndex: Int
 
@@ -275,8 +295,9 @@ public struct GroupSyncRecord: MobileSyncRecord {
         isCollapsed: Bool,
         isPinned: Bool,
         iconSymbol: String? = nil,
-        anchorWorkspaceID: String,
-        sortIndex: Int
+        anchorWorkspaceID: String?,
+        sortIndex: Int,
+        isEmpty: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -284,7 +305,40 @@ public struct GroupSyncRecord: MobileSyncRecord {
         self.isPinned = isPinned
         self.iconSymbol = iconSymbol
         self.anchorWorkspaceID = anchorWorkspaceID
+        self.isEmpty = isEmpty || anchorWorkspaceID == nil
         self.sortIndex = sortIndex
+    }
+
+    /// Decodes a group record, accepting frames from before empty-group support.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        isCollapsed = try container.decode(Bool.self, forKey: .isCollapsed)
+        isPinned = try container.decode(Bool.self, forKey: .isPinned)
+        iconSymbol = try container.decodeIfPresent(String.self, forKey: .iconSymbol)
+        anchorWorkspaceID = try container.decodeIfPresent(String.self, forKey: .anchorWorkspaceID)
+        let decodedIsEmpty = try container.decodeIfPresent(Bool.self, forKey: .isEmpty) ?? false
+        // A null anchor is authoritative even when an older or malformed
+        // sender omits the bit or reports `false`.
+        isEmpty = decodedIsEmpty || anchorWorkspaceID == nil
+        sortIndex = try container.decode(Int.self, forKey: .sortIndex)
+    }
+
+    /// Encodes a group record while retaining the established anchor wire key.
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(isCollapsed, forKey: .isCollapsed)
+        try container.encode(isPinned, forKey: .isPinned)
+        try container.encodeIfPresent(iconSymbol, forKey: .iconSymbol)
+        // Keep the established non-null wire shape for older phones. The
+        // explicit `is_empty` bit makes this stable group identity incapable
+        // of being mistaken for a live workspace by new clients.
+        try container.encode(anchorWorkspaceID ?? id, forKey: .anchorWorkspaceID)
+        try container.encode(isEmpty, forKey: .isEmpty)
+        try container.encode(sortIndex, forKey: .sortIndex)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -294,6 +348,7 @@ public struct GroupSyncRecord: MobileSyncRecord {
         case isPinned = "is_pinned"
         case iconSymbol = "icon_symbol"
         case anchorWorkspaceID = "anchor_workspace_id"
+        case isEmpty = "is_empty"
         case sortIndex = "sort_index"
     }
 }

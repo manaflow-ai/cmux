@@ -798,6 +798,15 @@ impl ProviderMachineRuntime {
                 let machine_id = self.machine_id(machine)?;
                 let deletes_open_session =
                     self.open.as_ref().is_some_and(|open| open.machine_id == machine_id);
+                // The deleted machine's list slot, so the replacement can be
+                // the machine that takes its place (or the new last one).
+                let deleted_slot = self
+                    .snapshot
+                    .machines
+                    .iter()
+                    .position(|descriptor| descriptor.id == machine_id)
+                    .unwrap_or_default();
+                let deleted_id = machine_id.clone();
                 let result = self.client.delete_machine(protocol::MachineMutationParams {
                     scope_id: self.snapshot.selected_scope_id.clone(),
                     machine_id,
@@ -810,11 +819,81 @@ impl ProviderMachineRuntime {
                         retire_open_on_failure: deletes_open_session,
                         ..AcceptedProviderEffects::default()
                     },
-                    |runtime| {
+                    move |runtime| {
                         runtime.refresh()?;
+                        // The refreshed catalog no longer lists the deleted
+                        // machine, but the selection may still point at it -
+                        // reopening it would wake the machine the user just
+                        // deleted (or hang behind its teardown). Reselect the
+                        // next available machine before opening.
+                        // Usable = listed and not a Recoverable leftover:
+                        // recovery-capable providers may keep soft-deleted
+                        // machines in the catalog, and reopening one would
+                        // resurrect what the user just deleted.
+                        let recoverable = |id: &protocol::OpaqueId| {
+                            runtime.machine_lifecycle_snapshot.machines.iter().any(
+                                |descriptor| {
+                                    &descriptor.id == id
+                                        && descriptor.status
+                                            == protocol::MachineLifecycleStatus::Recoverable
+                                },
+                            )
+                        };
+                        let selection_stale = runtime
+                            .snapshot
+                            .selected_machine_id
+                            .as_ref()
+                            .is_none_or(|selected| {
+                                *selected == deleted_id
+                                    || recoverable(selected)
+                                    || !runtime
+                                        .snapshot
+                                        .machines
+                                        .iter()
+                                        .any(|descriptor| &descriptor.id == selected)
+                            });
+                        // Refresh may replace the deleted desired selection
+                        // with an arbitrary valid provider fallback. The
+                        // open machine was still deleted, so slot-based
+                        // failover must win even when the refreshed selection
+                        // is no longer technically stale.
+                        if deletes_open_session {
+                            let usable: Vec<protocol::OpaqueId> = runtime
+                                .snapshot
+                                .machines
+                                .iter()
+                                .filter(|descriptor| {
+                                    descriptor.id != deleted_id
+                                        && descriptor.connectable
+                                        && !recoverable(&descriptor.id)
+                                })
+                                .map(|descriptor| descriptor.id.clone())
+                                .collect();
+                            runtime.snapshot.selected_machine_id =
+                                usable.get(deleted_slot.min(usable.len().saturating_sub(1))).cloned();
+                            runtime.workspace_snapshot = load_workspace_snapshot(
+                                &runtime.client,
+                                &runtime.snapshot,
+                            )?;
+                        }
+                        crate::client_log::info(
+                            "machine",
+                            &format!(
+                                "delete replacement: stale={selection_stale} machines={} selected={:?}",
+                                runtime.snapshot.machines.len(),
+                                runtime.snapshot.selected_machine_id.as_ref().map(|id| id.as_str().to_string()),
+                            ),
+                        );
                         if deletes_open_session {
                             let (session, label, open, reused) =
                                 runtime.open_selected_candidate()?;
+                            crate::client_log::info(
+                                "machine",
+                                &format!(
+                                    "delete replacement opened: label={label} open={} reused={reused}",
+                                    open.is_some(),
+                                ),
+                            );
                             let session_available = open.is_some();
                             runtime.stage_mandatory_replacement(open);
                             let mut ui = runtime.ui_state(session_available);

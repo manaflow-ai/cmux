@@ -137,6 +137,11 @@ jobs:
       name: pypi-tui
       url: https://pypi.org/p/cmux
     steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.validate-version.outputs.release_sha }}
+
       - name: Download PyPI wheels
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -144,6 +149,12 @@ jobs:
           path: dist
           run-id: ${{ inputs.artifact_run_id }}
           github-token: ${{ github.token }}
+
+      - name: Revalidate PyPI wheel contract
+        run: |
+          python3 cmux-tui/dist/scripts/validate_package_contract.py \
+            --pypi-wheels dist \
+            --version "${{ inputs.version }}"
 
       - name: Trusted publisher setup note
         run: |

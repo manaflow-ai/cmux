@@ -329,7 +329,8 @@ extension MobileHostIrohRuntime {
                     session: session,
                     artifactHandler: MobileHostIrohArtifactLaneHandler(
                         registry: artifactTransfers
-                    )
+                    ),
+                    simulatorStreamHandler: MobileHostIrohSimulatorStreamLaneHandler()
                 )
                 let connectionSupervisor = CmxIrohAdmittedConnectionSupervisor(
                     runControl: {

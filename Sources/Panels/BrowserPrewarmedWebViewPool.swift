@@ -215,6 +215,12 @@ extension BrowserPrewarmedWebViewPool: WKNavigationDelegate {
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
+        let decisionHandler = BrowserNavigationActionDecisionHandler(
+            decisionHandler,
+            fallbackPolicy: WKNavigationActionPolicy.cancel,
+            label: "BrowserPrewarmedWebViewPool.navigationAction"
+        ).closure
+
         if let url = navigationAction.request.url,
            !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
             decisionHandler(.cancel)
@@ -229,6 +235,12 @@ extension BrowserPrewarmedWebViewPool: WKNavigationDelegate {
         decidePolicyFor navigationResponse: WKNavigationResponse,
         decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
     ) {
+        let decisionHandler = BrowserNavigationResponseDecisionHandler(
+            decisionHandler,
+            fallbackPolicy: WKNavigationResponsePolicy.cancel,
+            label: "BrowserPrewarmedWebViewPool.navigationResponse"
+        ).closure
+
         if let url = navigationResponse.response.url,
            !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
             decisionHandler(.cancel)

@@ -35,6 +35,9 @@
          location = "group:CmuxSentryTelemetry">
       </FileRef>
       <FileRef
+         location = "group:CmuxSimulatorStreamKit">
+      </FileRef>
+      <FileRef
          location = "group:CmuxSyncStore">
       </FileRef>
    </Group>
@@ -82,6 +85,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxMobileShellUI">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileSimulatorStream">
       </FileRef>
       <FileRef
          location = "group:CmuxMobileSupport">

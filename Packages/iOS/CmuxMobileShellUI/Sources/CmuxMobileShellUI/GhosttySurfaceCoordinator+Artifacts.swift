@@ -423,6 +423,12 @@ extension GhosttySurfaceRepresentable.Coordinator {
             }
         }
 
+        func ghosttySurfaceViewOwnsLocalPrimaryScreenScroll(_ surfaceView: GhosttySurfaceView) -> Bool {
+            // The exact confirmed-primary condition that suppresses the Mac
+            // scroll RPC in `scrollTerminal`.
+            store?.ownsLocalPrimaryScreenScroll(surfaceID: surfaceID) ?? false
+        }
+
         func ghosttySurfaceView(
             _ surfaceView: GhosttySurfaceView,
             inputPolicyForTapAtCol col: Int,

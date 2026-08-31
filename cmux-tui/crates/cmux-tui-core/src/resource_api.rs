@@ -1019,6 +1019,16 @@ mod tests {
         assert_eq!(terminal["cols"], 80);
         assert_eq!(terminal["rows"], 24);
         assert_eq!(terminal["lifecycle"], "running");
+
+        // The daemon owns terminal lifecycle. A renderer snapshot must expose
+        // each durable terminal exactly once even when its runtime is absent.
+        let terminal_ids = snapshot["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|terminal| terminal["id"].as_str().expect("terminal id"))
+            .collect::<HashSet<_>>();
+        assert_eq!(terminal_ids.len(), snapshot["terminals"].as_array().unwrap().len());
     }
 
     #[test]

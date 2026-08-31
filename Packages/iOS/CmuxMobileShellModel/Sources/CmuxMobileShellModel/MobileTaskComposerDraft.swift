@@ -30,6 +30,9 @@ public struct MobileTaskComposerDraft: Codable, Equatable, Sendable {
     /// Accepted identity awaiting an explicit refresh before this draft may be
     /// started with a fresh operation ID.
     public var completedOperationID: UUID?
+    /// Attachments preserved with this draft. Missing keys decode as empty so
+    /// drafts written by older builds remain valid.
+    public var attachments: [MobileTaskComposerDraftAttachment]
 
     /// Creates a restorable composer draft.
     public init(
@@ -44,7 +47,8 @@ public struct MobileTaskComposerDraft: Codable, Equatable, Sendable {
         workspaceName: String? = nil,
         workspaceGroupID: MobileWorkspaceGroupPreview.ID? = nil,
         operationID: UUID? = nil,
-        completedOperationID: UUID? = nil
+        completedOperationID: UUID? = nil,
+        attachments: [MobileTaskComposerDraftAttachment] = []
     ) {
         let identity: CmxMacAppInstanceIdentity?
         if let macDeviceID {
@@ -67,6 +71,30 @@ public struct MobileTaskComposerDraft: Codable, Equatable, Sendable {
         self.workspaceGroupID = workspaceGroupID
         self.operationID = operationID
         self.completedOperationID = completedOperationID
+        self.attachments = attachments
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        prompt = try container.decode(String.self, forKey: .prompt)
+        modelID = try container.decodeIfPresent(String.self, forKey: .modelID)
+        effortID = try container.decodeIfPresent(String.self, forKey: .effortID)
+        templateID = try container.decodeIfPresent(MobileTaskTemplate.ID.self, forKey: .templateID)
+        macDeviceID = try container.decodeIfPresent(String.self, forKey: .macDeviceID)
+        macInstanceTag = try container.decodeIfPresent(String.self, forKey: .macInstanceTag)
+        directory = try container.decode(String.self, forKey: .directory)
+        didEditDirectory = try container.decode(Bool.self, forKey: .didEditDirectory)
+        workspaceName = try container.decodeIfPresent(String.self, forKey: .workspaceName)
+        workspaceGroupID = try container.decodeIfPresent(
+            MobileWorkspaceGroupPreview.ID.self,
+            forKey: .workspaceGroupID
+        )
+        operationID = try container.decodeIfPresent(UUID.self, forKey: .operationID)
+        completedOperationID = try container.decodeIfPresent(UUID.self, forKey: .completedOperationID)
+        attachments = try container.decodeIfPresent(
+            [MobileTaskComposerDraftAttachment].self,
+            forKey: .attachments
+        ) ?? []
     }
 
     /// Selects a template and adopts its suggested directory until the user

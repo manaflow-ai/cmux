@@ -12,6 +12,7 @@ struct OnboardingFlowView: View {
     let connectionPhase: OnboardingConnectionPhase
     let connectionMethod: MobileConnectionMethod
     let onSelectConnectionMethod: (MobileConnectionMethod) -> Void
+    let onEnablePush: () async -> Bool
     let onReachedConnection: () -> Void
     let onSkip: () -> Void
     let onRetryConnection: () -> Void
@@ -21,6 +22,7 @@ struct OnboardingFlowView: View {
     @State private var stage: OnboardingStage
     @State private var didReachConnection = false
     @State private var didRecordStart = false
+    @State private var isPushEnableInFlight = false
     @Environment(\.analytics) private var analytics
     @Environment(\.mobileDiagnosticLog) private var diagnosticLog
 
@@ -31,6 +33,7 @@ struct OnboardingFlowView: View {
         connectionPhase: OnboardingConnectionPhase,
         connectionMethod: MobileConnectionMethod = .automatic,
         onSelectConnectionMethod: @escaping (MobileConnectionMethod) -> Void = { _ in },
+        onEnablePush: @escaping () async -> Bool,
         onReachedConnection: @escaping () -> Void,
         onSkip: @escaping () -> Void,
         onRetryConnection: @escaping () -> Void,
@@ -42,6 +45,7 @@ struct OnboardingFlowView: View {
         self.connectionPhase = connectionPhase
         self.connectionMethod = connectionMethod
         self.onSelectConnectionMethod = onSelectConnectionMethod
+        self.onEnablePush = onEnablePush
         self.onReachedConnection = onReachedConnection
         self.onSkip = onSkip
         self.onRetryConnection = onRetryConnection
@@ -103,6 +107,8 @@ struct OnboardingFlowView: View {
             OnboardingAgentsView()
         case .notifications:
             OnboardingNotificationsView()
+        case .push:
+            OnboardingPushView()
         case .connect:
             OnboardingConnectionView(
                 phase: connectionPhase,
@@ -118,8 +124,10 @@ struct OnboardingFlowView: View {
             break
         case .notifications:
             showAgents()
-        case .connect:
+        case .push:
             showNotifications()
+        case .connect:
+            showPush()
         }
     }
 
@@ -128,7 +136,9 @@ struct OnboardingFlowView: View {
         case .agents:
             showNotifications()
         case .notifications:
-            showConnection()
+            showPush()
+        case .push:
+            enablePush()
         case .connect:
             if isAuthenticated {
                 finishOrRetry()
@@ -146,8 +156,35 @@ struct OnboardingFlowView: View {
         navigate(to: .notifications)
     }
 
+    private func showPush() {
+        navigate(to: .push)
+    }
+
     private func showConnection() {
         navigate(to: .connect)
+    }
+
+    /// The one place the app first asks the OS for notification permission.
+    /// Advances to Connect after the system alert resolves either way; the
+    /// grant/deny outcome is recorded by the push coordinator.
+    private func enablePush() {
+        guard !isPushEnableInFlight else { return }
+        isPushEnableInFlight = true
+        analytics.capture("ios_onboarding_push_enable_tapped", eventProperties)
+        // The enable must outlive a page change: the coordinator finishes
+        // registration regardless, and re-tapping is barred by the flag.
+        Task { @MainActor in
+            _ = await onEnablePush()
+            isPushEnableInFlight = false
+            if stage == .push {
+                showConnection()
+            }
+        }
+    }
+
+    private func declinePush() {
+        analytics.capture("ios_onboarding_push_declined", eventProperties)
+        showConnection()
     }
 
     private func reachConnectionIfNeeded() {
@@ -193,9 +230,17 @@ struct OnboardingFlowView: View {
         }
     }
 
-    /// Tailscale's secondary action retries discovery. Auto-Connect has no
-    /// secondary manual-pairing action.
+    /// Push's secondary action declines the opt-in without touching the OS.
+    /// Once Enable is in flight the pending system alert owns the decision, so
+    /// a racing Not Now tap is ignored rather than recorded as a contradictory
+    /// intent. On Connect, Tailscale's secondary action retries discovery;
+    /// Auto-Connect has no secondary manual-pairing action.
     private func handleSecondary() {
+        if stage == .push {
+            guard !isPushEnableInFlight else { return }
+            declinePush()
+            return
+        }
         guard connectionMethod == .tailscale, connectionPhase == .fallback else { return }
         diagnosticLog?.recordAppEvent(.onboardingConnectionRetried)
         analytics.capture("ios_onboarding_connection_retried", eventProperties)

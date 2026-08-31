@@ -11,4 +11,9 @@ public enum CmxIrohLane: Equatable, Sendable {
 
     /// A low-priority artifact stream resumed at an exact byte offset.
     case artifact(resourceID: CmxIrohResourceID, offset: UInt64)
+
+    /// One simulator panel's video stream plus its return input channel.
+    /// Not resumable: every attach restarts with a fresh keyframe, so the
+    /// lane carries no cursor.
+    case simulatorStream(resourceID: CmxIrohResourceID)
 }

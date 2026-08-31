@@ -25,7 +25,7 @@ private struct WorkspaceRootToolbarRenderContext: Equatable {
     var statusLine: WorkspaceConnectionStatusLine?
 
     static let fallback = WorkspaceRootToolbarRenderContext(
-        title: L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Computer"),
+        title: L10n.string("mobile.workspaces.macPicker.connectionLabel", defaultValue: "Computer"),
         visibleSelection: .all,
         machines: []
     )
@@ -75,7 +75,6 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
     let machines: [WorkspaceFilterMachine]
     let showAddDevice: (() -> Void)?
     var statusLine: WorkspaceConnectionStatusLine?
-    var reconnect: (() -> Void)?
 
     var body: some ToolbarContent {
         ToolbarItem(id: "workspace-list-settings", placement: .topBarLeading) {
@@ -98,8 +97,7 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
                 ),
                 actions: WorkspaceMacTitlePickerActions(
                     select: select,
-                    addDevice: showAddDevice,
-                    reconnect: reconnect
+                    addDevice: showAddDevice
                 )
             )
             .equatable()
@@ -108,7 +106,7 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
             Button(action: openDevices) {
                 Image(systemName: "desktopcomputer")
             }
-            .accessibilityLabel(L10n.string("mobile.computers.title", defaultValue: "Computers"))
+            .accessibilityLabel(L10n.string("mobile.connections.title", defaultValue: "Computers"))
             .accessibilityIdentifier("MobileWorkspaceDevicesButton")
         }
     }
@@ -122,7 +120,6 @@ private struct WorkspaceRootToolbarLiveContent: ToolbarContent {
     let pendingSelection: WorkspaceMacSelection?
     let select: (WorkspaceMacSelection) -> Void
     let showAddDevice: (() -> Void)?
-    var reconnect: (() -> Void)?
 
     var body: some ToolbarContent {
         WorkspaceRootToolbarContent(
@@ -134,8 +131,7 @@ private struct WorkspaceRootToolbarLiveContent: ToolbarContent {
             select: select,
             machines: renderContext.machines,
             showAddDevice: showAddDevice,
-            statusLine: renderContext.statusLine,
-            reconnect: reconnect
+            statusLine: renderContext.statusLine
         )
     }
 }
@@ -172,6 +168,12 @@ struct WorkspaceShellView: View {
     @State var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
     #if os(iOS)
     @State private var selectedPrimaryTab: MobilePrimaryTab = .workspaces
+    /// One-time What's New notice: the unseen-page snapshot captured when the
+    /// sheet presents, so remote list changes mid-presentation cannot mutate
+    /// an open sheet.
+    @Environment(MobileWhatsNewCenter.self) private var whatsNewCenter: MobileWhatsNewCenter?
+    @State private var whatsNewSheetPages: [MobileWhatsNewPage] = []
+    @State private var showsWhatsNewSheet = false
     @State private var notificationNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var notificationSearchNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var workspaceSearchNavigationPath: [MobileWorkspacePreview.ID] = []
@@ -480,15 +482,80 @@ struct WorkspaceShellView: View {
         .taskComposerPresentation(
             isPresented: taskComposerPresentation.isPresented,
             onDismiss: taskComposerPresentation.didDismiss
-        ) {
+        ) { launch, switchDraft in
             TaskComposerSheet(
                 store: store,
+                launchIntent: launch.intent,
+                onSwitchDraft: switchDraft,
                 submitTaskComposer: submitTaskComposerFromShell
             )
+        }
+        // One-time What's New notice. Only users who already HAVE Computers
+        // see it (fresh installs learn the same things in onboarding). The
+        // gate first answers from the cached remote list, then refreshes the
+        // list and re-checks. The shell can restore straight into cached
+        // workspaces without ever loading the paired-Mac list (it normally
+        // loads on the Computers sheet or a reconnect pass), so load it here
+        // and re-check, otherwise the has-Computers gate never answers.
+        .onAppear {
+            presentWhatsNewIfNeeded()
+        }
+        // `.task` (not an unstructured Task in onAppear) so the refresh and
+        // paired-Mac load are owned by the view: cancelled on disappear and
+        // never running concurrently across repeated shell appearances. The
+        // explicit cancellation checks matter because `refresh()` absorbs a
+        // cancelled load into its cache-wins error handling instead of
+        // rethrowing, which would otherwise let this task keep working for a
+        // view that is already gone.
+        .task {
+            await whatsNewCenter?.refresh()
+            guard !Task.isCancelled else { return }
+            await store.loadPairedMacs()
+            guard !Task.isCancelled else { return }
+            presentWhatsNewIfNeeded()
+        }
+        .onChange(of: store.pairedMacs.isEmpty) { _, _ in
+            presentWhatsNewIfNeeded()
+        }
+        .sheet(isPresented: $showsWhatsNewSheet) {
+            MobileWhatsNewSheet(
+                pages: whatsNewSheetPages,
+                allowedWebHosts: whatsNewCenter?.allowedWebHosts ?? [],
+                dismiss: { showsWhatsNewSheet = false }
+            )
+            .presentationDetents([.large])
+            // Acknowledge on the sheet's ACTUAL appearance, not at gate time:
+            // a competing presentation (e.g. a state-restored Settings sheet)
+            // can swallow this presentation entirely, and gate-time
+            // acknowledgement would burn the marker for pages nobody saw.
+            // First appearance still acknowledges everything shown, so a kill
+            // mid-presentation cannot re-show the sheet forever.
+            .onAppear {
+                whatsNewCenter?.acknowledge(whatsNewSheetPages)
+            }
         }
         #endif
         .accessibilityIdentifier("MobileWorkspaceShell")
     }
+
+    #if os(iOS)
+    /// Presents the one-time What's New sheet when there are unseen pages
+    /// and the device already has Computers. Acknowledgement happens in the
+    /// sheet content's `onAppear` (first actual presentation, not on
+    /// dismiss): early enough that a kill mid-presentation cannot re-show
+    /// the sheet forever, late enough that a swallowed presentation (a
+    /// state-restored sheet already occupying the presenter) never marks
+    /// pages as seen.
+    private func presentWhatsNewIfNeeded() {
+        guard let whatsNewCenter,
+              !store.pairedMacs.isEmpty,
+              !showsWhatsNewSheet else { return }
+        let pages = whatsNewCenter.unseenPages
+        guard !pages.isEmpty else { return }
+        whatsNewSheetPages = pages
+        showsWhatsNewSheet = true
+    }
+    #endif
 
     private func stackLayout(canCreateWorkspaceForSelection: Bool) -> some View {
         NavigationStack(path: $compactNavigationPath) {
@@ -717,8 +784,7 @@ struct WorkspaceShellView: View {
             openDevices: showComputers,
             pendingSelection: rootToolbarPendingSelection,
             select: handleRootToolbarSelection,
-            showAddDevice: showAddDevice,
-            reconnect: tailscalePairingRequired ? showPairingScanner : reconnectClosure
+            showAddDevice: showAddDevice
         )
     }
 
@@ -735,7 +801,8 @@ struct WorkspaceShellView: View {
             connectionStatus: listConnectionStatus,
             tailscalePairingRequired: tailscalePairingRequired,
             isInitialConnectionLoading: isInitialConnectionLoading,
-            initialConnectionTimedOut: initialConnectionTimedOut
+            initialConnectionTimedOut: initialConnectionTimedOut,
+            hasLiveTransportPath: store.workspaceListHasLiveTransportPath
         ).statusLine
     }
 
@@ -785,7 +852,7 @@ struct WorkspaceShellView: View {
             macPickerMachineIDs: scope.machineIDs,
             namesByID: names,
             buildLabelsByID: buildLabelsByID,
-            fallbackName: L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Computer")
+            fallbackName: L10n.string("mobile.workspaces.macPicker.connectionLabel", defaultValue: "Computer")
         )
         return WorkspaceShellRenderPresentation(
             selectionScope: scope,
@@ -809,11 +876,11 @@ struct WorkspaceShellView: View {
         let title: String
         switch visibleSelection {
         case .all, .automatic:
-            title = L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Computers")
+            title = L10n.string("mobile.workspaces.macPicker.allConnections", defaultValue: "All Computers")
         case .machine(let id):
             title = machineSnapshots.macPickerTitle(
                 for: id,
-                fallback: L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Computer")
+                fallback: L10n.string("mobile.workspaces.macPicker.connectionLabel", defaultValue: "Computer")
             )
         }
         return WorkspaceRootToolbarRenderContext(

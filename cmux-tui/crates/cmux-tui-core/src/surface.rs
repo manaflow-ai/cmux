@@ -2284,10 +2284,7 @@ impl Surface {
         for (k, v) in &opts.extra_env {
             cmd.env(k, v);
         }
-        let cwd = opts
-            .cwd
-            .clone()
-            .or_else(|| platform::home_dir().map(|path| path.to_string_lossy().into_owned()));
+        let cwd = opts.cwd.clone().or_else(platform::default_terminal_cwd);
         if let Some(cwd) = cwd.as_deref() {
             cmd.cwd(cwd);
         }

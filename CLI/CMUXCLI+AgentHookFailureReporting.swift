@@ -26,12 +26,14 @@ extension CMUXCLI {
         event: String,
         error: Error? = nil,
         store: ClaudeHookSessionStore,
-        telemetry: CLISocketSentryTelemetry
+        telemetry: CLISocketSentryTelemetry,
+        deadline: Date? = nil
     ) {
         guard (try? store.claimAgentHookFailureReport(
             agentName: agentName,
             stage: stage.rawValue,
-            sessionId: sessionId
+            sessionId: sessionId,
+            deadline: deadline
         )) == true else {
             return
         }
@@ -53,6 +55,15 @@ extension CMUXCLI {
                 String(
                     localized: "cli.agentHook.error.notificationDelivery",
                     defaultValue: "Agent hook notification delivery failed for %@ %@."
+                ),
+                agentName,
+                event
+            )
+        case .journalAppend:
+            failureDescription = String.localizedStringWithFormat(
+                String(
+                    localized: "cli.agentHook.error.journalAppend",
+                    defaultValue: "Agent hook journal append failed for %@ %@."
                 ),
                 agentName,
                 event

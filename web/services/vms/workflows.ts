@@ -41,6 +41,7 @@ import {
   type BeginBaseCreateResult,
   type CloudVmBaseGenerationRow,
   type CloudVmBaseRow,
+  type CloudVmAccessLeaseRow,
   type CloudVmSessionRow,
   type CloudVmStatus,
   type CloudVmLeaseKind,
@@ -56,6 +57,7 @@ export type VmEntry = {
   readonly imageVersion: string | null;
   readonly status: CloudVmStatus;
   readonly createdAt: number;
+  readonly displayName: string | null;
 };
 
 export type BaseVmEntry = VmEntry & {
@@ -75,6 +77,7 @@ const IDENTITY_REVOKE_PROVIDER_TIMEOUT = "5 seconds";
 const ACTIVE_IDENTITY_REVOKE_HOT_PATH_LIMIT = 8;
 const ACCOUNT_DELETION_IDENTITY_REVOKE_BATCH = 8;
 const VM_STATUS_RECONCILE_BATCH_LIMIT = 200;
+const PREVIEW_ENDPOINT_LEASE_TTL_MS = 12 * 60 * 60 * 1000;
 
 type ExistingVmAccessInput = {
   readonly userId: string;
@@ -131,16 +134,35 @@ export function getVm(input: {
           : Effect.fail(err),
       ),
     );
-    if (providerStatus !== "creating" && providerStatus !== vm.status) {
-      const dbStatus = dbStatusFromProviderStatus(providerStatus);
-      const didUpdate = yield* repo.markProviderObservedStatus({
-        id: vm.id,
-        providerVmId,
-        status: dbStatus,
-      });
-      if (didUpdate) return vmEntryFromRow({ ...vm, status: dbStatus, updatedAt: new Date() });
+    if (providerStatus !== "creating") {
+      const dbStatus = observedDbStatus(vm, providerStatus);
+      if (dbStatus !== vm.status) {
+        const didUpdate = yield* repo.markProviderObservedStatus({
+          id: vm.id,
+          providerVmId,
+          status: dbStatus,
+        });
+        if (didUpdate) return vmEntryFromRow({ ...vm, status: dbStatus, updatedAt: new Date() });
+      }
     }
     return vmEntryFromRow(vm);
+  });
+}
+
+/** Sets or clears the user-facing label on a machine the caller owns. The
+ * provider VM id stays the machine's address; this is display-only. */
+export function renameVm(input: {
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly teamIds?: readonly string[];
+  readonly providerVmId: string;
+  readonly displayName: string | null;
+}) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const vm = yield* requireUserVm(input);
+    yield* repo.setDisplayName({ id: vm.id, displayName: input.displayName });
+    return vmEntryFromRow({ ...vm, displayName: input.displayName, updatedAt: new Date() });
   });
 }
 
@@ -187,6 +209,21 @@ export function reconcileVmProviderStatuses(input: {
   });
 }
 
+/** Stable per-user home volume name; the volume, not the sandbox, is the durable machine. */
+export function homeVolumeNameForUser(userId: string): string {
+  const digest = createHash("sha256").update(userId).digest("hex").slice(0, 12);
+  return `cmux-home-${digest}`;
+}
+
+/**
+ * Per-machine home volume template. The driver substitutes the generated
+ * machine name for `{machine}` once the name is final, so every fresh machine
+ * gets its own durable home instead of contending for the single user volume.
+ */
+export function homeVolumeTemplateForUser(userId: string): string {
+  return `${homeVolumeNameForUser(userId)}-{machine}`;
+}
+
 export function createVm(input: {
   readonly userId: string;
   readonly billingCustomerType: BillingCustomerType;
@@ -198,6 +235,20 @@ export function createVm(input: {
   readonly imageVersion?: string | null;
   readonly idempotencyKey?: string;
   readonly bakedFreestyleSignedAdmin?: boolean;
+  /**
+   * "Your computer" semantics: mount a per-user persistent volume as the machine's home so
+   * the sandbox is disposable compute around durable data. The volume name is derived from
+   * the user id, so recreating the machine (TTL expiry, provider loss) finds the same home.
+   */
+  readonly persistentHome?: boolean;
+  /**
+   * Fresh-machine semantics: instead of the single shared user volume, mount a
+   * volume derived from the machine's own generated name, so any number of
+   * machines (up to the plan limit) each keep their own durable home.
+   */
+  readonly perMachineHome?: boolean;
+  /** Runtime memory requested by the caller, in MB. Providers may ignore it. */
+  readonly memoryMb?: number;
   readonly timing?: VmTimingSink;
 }): Effect.Effect<VmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
@@ -235,6 +286,12 @@ export function createVm(input: {
         image: input.image,
         providerMetadata: create.vm.providerMetadata,
         bakedFreestyleSignedAdmin: input.bakedFreestyleSignedAdmin,
+        homeVolume: input.perMachineHome
+          ? homeVolumeTemplateForUser(input.userId)
+          : input.persistentHome
+            ? homeVolumeNameForUser(input.userId)
+            : undefined,
+        memoryMb: input.memoryMb,
       }),
     ).pipe(
       Effect.tapError((err) =>
@@ -880,6 +937,20 @@ function dbStatusFromProviderStatus(status: "running" | "paused" | "destroyed"):
   return status;
 }
 
+// A provider 404 on a machine with a persistent home volume means the compute is gone but
+// the machine is still resurrectable on the next attach — it is asleep, not destroyed.
+// Only machines without a durable home actually die with their sandbox.
+function observedDbStatus(
+  vm: Pick<CloudVmRow, "providerMetadata">,
+  providerStatus: "running" | "paused" | "destroyed",
+): CloudVmStatus {
+  if (providerStatus === "destroyed") {
+    const homeVolume = vm.providerMetadata?.["homeVolume"];
+    if (typeof homeVolume === "string" && homeVolume.length > 0) return "paused";
+  }
+  return dbStatusFromProviderStatus(providerStatus);
+}
+
 type ProviderStatusReconcileOutcome = "updated" | "destroyed" | "unchanged" | "skipped";
 
 function reconcileObservedProviderStatus(
@@ -899,7 +970,7 @@ function reconcileObservedProviderStatus(
       ),
     );
     if (!providerStatus || providerStatus === "creating") return "skipped" as const;
-    const dbStatus = dbStatusFromProviderStatus(providerStatus);
+    const dbStatus = observedDbStatus(vm, providerStatus);
     if (dbStatus === vm.status) return "unchanged" as const;
     const didUpdate = yield* repo.markProviderObservedStatus({
       id: vm.id,
@@ -932,7 +1003,7 @@ function boundedVmStatusReconcileLimit(limit: number | undefined): number {
 const RESUME_STATUS_PROBE_TIMEOUT = "5 seconds";
 const RESUME_SETTLE_ATTEMPTS = 10;
 const RESUME_SETTLE_INTERVAL = "1 second";
-type VmResumeSource = "exec" | "attach" | "ssh" | "fork";
+type VmResumeSource = "exec" | "attach" | "ssh" | "fork" | "open_port";
 
 // resume() can legitimately return a not-yet-running handle (Freestyle maps a
 // post-start "starting" state to "creating"), so poll briefly until the VM is
@@ -1415,6 +1486,142 @@ export function execVm(input: {
       metadata: { commandLength: input.command.length, exitCode: result.exitCode },
     }).pipe(Effect.catchAll(() => Effect.void));
     return result satisfies ExecResult;
+  });
+}
+
+export function getVmStats(input: {
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly teamIds?: readonly string[];
+  readonly providerVmId: string;
+}) {
+  return Effect.gen(function* () {
+    const providers = yield* VmProviderGateway;
+    const vm = yield* requireUserVm(input);
+    // No resume preflight on purpose: a reading must never wake a sleeping machine.
+    if (!providers.getStats) {
+      return yield* Effect.fail(
+        new VmProviderOperationError({
+          provider: vm.provider,
+          operation: "getStats",
+          cause: new Error("machine stats are not supported by this deployment"),
+        }),
+      );
+    }
+    return yield* providers.getStats(vm.provider, input.providerVmId);
+  });
+}
+
+export function openVmPort(input: {
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly teamIds?: readonly string[];
+  readonly providerVmId: string;
+  readonly port: number;
+}) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const vm = yield* requireUserVm(input);
+    yield* preflightResumeIfSuspended(
+      repo,
+      providers,
+      vm,
+      input.providerVmId,
+      "open_port",
+    );
+    if (!providers.openPort) {
+      return yield* Effect.fail(
+        new VmProviderOperationError({
+          provider: vm.provider,
+          operation: "openPort",
+          cause: new Error("open-port is not supported by this deployment"),
+        }),
+      );
+    }
+    const endpoint = yield* providers.openPort(vm.provider, input.providerVmId, input.port);
+    // Keep the preview token in the same revocation ledger as terminal/RPC
+    // endpoints. The raw token is never persisted; only its hash is needed to
+    // identify and invalidate this account's lease during sign-out.
+    yield* repo.recordLease({
+      vmId: vm.id,
+      userId: input.userId,
+      kind: "preview",
+      tokenHash: hashToken(endpoint.token),
+      expiresAt: new Date(Date.now() + PREVIEW_ENDPOINT_LEASE_TTL_MS),
+      transport: "https",
+      metadata: { port: input.port },
+    }).pipe(
+      Effect.catchAll((err) => {
+        const cleanup = providers.revokeEndpointLeases
+          ? providers.revokeEndpointLeases(vm.provider, input.providerVmId).pipe(Effect.catchAll(() => Effect.void))
+          : Effect.void;
+        return cleanup.pipe(Effect.andThen(Effect.fail(err)));
+      }),
+    );
+    yield* repo.recordUsageEvent({
+      userId: input.userId,
+      billingTeamId: vm.billingTeamId,
+      billingPlanId: vm.billingPlanId,
+      vmId: vm.id,
+      eventType: "vm.open_port",
+      provider: vm.provider,
+      imageId: vm.imageId,
+      metadata: { port: input.port },
+    }).pipe(Effect.catchAll(() => Effect.void));
+    return endpoint;
+  });
+}
+
+export type VmAccessRevocationResult = {
+  readonly revoked: number;
+  readonly cleanupFailures: number;
+};
+
+/**
+ * Invalidates endpoint credentials issued to one signed-in account.
+ *
+ * Lease rows are account-scoped even when the VM itself is team-owned. This
+ * keeps signing out one team member from revoking another member's session,
+ * while the provider hook closes the concrete daemon/preview credentials that
+ * were already handed to this client.
+ */
+export function revokeUserVmAccess(input: { readonly userId: string }) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const loadLeases = repo.activeAccessLeasesForUser;
+    if (!loadLeases) return { revoked: 0, cleanupFailures: 0 } satisfies VmAccessRevocationResult;
+
+    const leases = yield* loadLeases(input.userId);
+    const byVm = new Map<string, CloudVmAccessLeaseRow[]>();
+    for (const lease of leases) {
+      const existing = byVm.get(lease.vmId) ?? [];
+      existing.push(lease);
+      byVm.set(lease.vmId, existing);
+    }
+
+    let cleanupFailures = 0;
+    if (providers.revokeEndpointLeases) {
+      for (const vmLeases of byVm.values()) {
+        const first = vmLeases[0];
+        if (!first) continue;
+        yield* providers.revokeEndpointLeases(first.provider, first.providerVmId).pipe(
+          Effect.catchAll(() =>
+            Effect.sync(() => {
+              cleanupFailures += 1;
+            })
+          ),
+        );
+      }
+    }
+
+    const leaseIDs = leases.map((lease) => lease.id);
+    yield* repo.markLeasesRevoked(leaseIDs);
+    return {
+      revoked: leaseIDs.length,
+      cleanupFailures,
+    } satisfies VmAccessRevocationResult;
   });
 }
 
@@ -2046,6 +2253,7 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     imageVersion: row.imageVersion,
     status: row.status,
     createdAt: row.createdAt.getTime(),
+    displayName: row.displayName ?? null,
   };
 }
 

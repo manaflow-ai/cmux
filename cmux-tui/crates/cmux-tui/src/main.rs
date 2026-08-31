@@ -36,23 +36,8 @@ mod pty_input;
 mod remote_cli;
 #[cfg(not(unix))]
 mod remote_cli {
-    const REMOTE_COMMANDS: &[&str] = &[
-        "remote",
-        "connect",
-        "ssh",
-        "forward",
-        "rpc",
-        "enroll",
-        "known-daemons",
-        "remote-probe",
-        "remote-link",
-        "remote-sidecar",
-        "remote-stop",
-        "install-self",
-    ];
-
     pub fn is_remote_invocation(args: &[String]) -> bool {
-        args.first().is_some_and(|argument| REMOTE_COMMANDS.contains(&argument.as_str()))
+        crate::cli::is_remote_invocation(args)
     }
 
     pub fn run(_: &[String], _: &str) -> i32 {
@@ -550,12 +535,18 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         agent_browser_provider: false,
     };
     let mut args = args.into_iter().peekable();
-    if let Some("attach") = args.peek().map(|s| s.as_str()) {
-        out.attach = true;
-        args.next();
-    }
     while let Some(arg) = args.next() {
         match arg.as_str() {
+            // Accept the attach verb wherever startup options are accepted.
+            // This matches the usual CLI convention that global options may
+            // precede a subcommand, while preserving the existing
+            // `cmux attach ...` spelling.
+            "attach" => {
+                if out.attach {
+                    return Err(localization::catalog().startup.duplicate_attach.to_string());
+                }
+                out.attach = true;
+            }
             "--session" => {
                 out.session = args.next().ok_or_else(|| "--session needs a value".to_string())?;
             }
@@ -1384,6 +1375,9 @@ fn main() {
 }
 
 fn run_main() {
+    // Pin the launch directory before any subsystem can move the process:
+    // new terminals default to it (not $HOME) for the daemon's lifetime.
+    cmux_tui_core::platform::capture_launch_cwd();
     let mut raw_args = std::env::args().skip(1).collect::<Vec<_>>();
     #[cfg(unix)]
     if raw_args.first().map(String::as_str) == Some("__agent-browser-provider") {
@@ -1536,8 +1530,10 @@ fn run_terminal_host_process(args: &[String]) -> anyhow::Result<()> {
 }
 
 fn run_attach(args: Args) -> anyhow::Result<()> {
-    let socket_path =
-        args.socket.unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
+    let socket_path = match args.socket {
+        Some(path) => path,
+        None => cmux_tui_core::server::try_default_socket_path(&args.session)?,
+    };
     let config = config::load();
     let messages = &localization::catalog().attach;
     let terminal = args
@@ -1627,8 +1623,10 @@ fn run_relay(args: Args) -> anyhow::Result<()> {
     if args.provider_cli_requested() {
         anyhow::bail!("relay cannot also select a machine provider");
     }
-    let socket_path =
-        args.socket.unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
+    let socket_path = match args.socket {
+        Some(path) => path,
+        None => cmux_tui_core::server::try_default_socket_path(&args.session)?,
+    };
     let stream = cmux_tui_core::platform::transport::connect(&socket_path).map_err(|error| {
         anyhow::anyhow!("cannot connect relay to session socket {}: {error}", socket_path.display())
     })?;
@@ -1809,10 +1807,10 @@ fn run_server(
     let ws_token = args.ws_token.clone().or(config.server.ws_token.clone());
     // Compute the socket path up front so a normal interactive launch can
     // reuse an existing local session and surface children inherit it.
-    let socket_path = args
-        .socket
-        .clone()
-        .unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
+    let socket_path = match args.socket.clone() {
+        Some(path) => path,
+        None => cmux_tui_core::server::try_default_socket_path(&args.session)?,
+    };
     if args.should_attach_existing(&ws_addr, &ws_token)
         && socket_path.exists()
         && let Ok(remote) = RemoteSession::connect(&socket_path)
@@ -1937,14 +1935,14 @@ fn run_server(
                 start_local_owner_event_loop(&mux)
             }
         });
-    let pending_server =
-        match cmux_tui_core::server::serve_paused(mux.clone(), Some(socket_path.clone())) {
-            Ok(server) => server,
-            Err(error) => {
-                mux.shutdown();
-                return Err(error);
-            }
-        };
+    let pending_server = match cmux_tui_core::server::serve_paused(mux.clone(), args.socket.clone())
+    {
+        Ok(server) => server,
+        Err(error) => {
+            mux.shutdown();
+            return Err(error);
+        }
+    };
 
     #[cfg(unix)]
     let remote_runtime = if args.remote {
@@ -3463,6 +3461,13 @@ mod tests {
         assert_eq!(parsed.terminal.as_deref(), Some(terminal));
         assert!(parse_args_result(["--terminal".into(), terminal.into()]).is_err());
         assert!(parse_args_result(["attach".into(), "--terminal".into()]).is_err());
+    }
+
+    #[test]
+    fn attach_verb_can_follow_global_startup_options() {
+        let parsed = args(&["--session", "agents", "attach"]);
+        assert!(parsed.attach);
+        assert_eq!(parsed.session, "agents");
     }
 
     #[test]
