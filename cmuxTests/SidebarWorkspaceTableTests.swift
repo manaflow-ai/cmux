@@ -437,8 +437,12 @@ struct SidebarWorkspaceTableTests {
         let nextWriter = try #require(
             controller.tableView(container.tableView, pasteboardWriterForRow: 1)
         )
+        let nextPasteboard = NSPasteboard(
+            name: NSPasteboard.Name("sidebar-stale-session-next-\(UUID().uuidString)")
+        )
+        #expect(nextPasteboard.writeObjects([nextWriter]))
         let nextValue = try #require(
-                nextWriter.string(forType: type)
+            nextPasteboard.string(forType: type)
         )
         #expect(nextValue.contains(second.workspaceId.uuidString))
         #expect(!nextValue.contains(first.workspaceId.uuidString))
@@ -579,8 +583,12 @@ struct SidebarWorkspaceTableTests {
             controller.tableView(container.tableView, pasteboardWriterForRow: 1)
         )
         try withExtendedLifetime(firstWriter) {
+            let pasteboard = NSPasteboard(
+                name: NSPasteboard.Name("sidebar-requested-row-\(UUID().uuidString)")
+            )
+            #expect(pasteboard.writeObjects([secondWriter]))
             let value = try #require(
-                secondWriter.string(forType: type)
+                pasteboard.string(forType: type)
             )
             #expect(value.contains(second.workspaceId.uuidString))
             #expect(!value.contains(first.workspaceId.uuidString))
