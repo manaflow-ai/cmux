@@ -90,6 +90,7 @@ gh() {
     stale-marker) marker="CLA generation v2.2-action-0000000000000000000000000000000000000000" ;;
     unrelated-main-commit) marker="CLA generation ${CLA_GENERATION}" ;;
     wrong-head-repo) run_head_repo=attacker/cmux; run_head_repo_id=201; run_prs='[]' ;;
+    association-overflow) run_prs='[]' ;;
     fork-current|empty-run-association) run_prs='[]'; run_sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ;;
     empty-different-execution-associated) run_prs='[]' ;;
     same-repo-empty)
@@ -125,7 +126,9 @@ gh() {
         '{number:123,state:$state,user:{id:300,login:"contributor"},base:{ref:$base,repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",repo:{id:$head_repo_id,full_name:$head_repo}}}'
       ;;
     repos/manaflow-ai/cmux/commits/*/pulls)
-      if [[ "${FAKE_MODE}" == same-repo-empty ]]; then
+      if [[ "${FAKE_MODE}" == association-overflow ]]; then
+        jq -nc '[range(0; 100) | {number:(1000 + .),base:{ref:"main",repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",repo:{id:200,full_name:"contributor/cmux"}}}]'
+      elif [[ "${FAKE_MODE}" == same-repo-empty ]]; then
         jq -nc '[{number:123,base:{ref:"main",repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",repo:{id:100,full_name:"manaflow-ai/cmux"}}}]'
       elif [[ "${FAKE_MODE}" == empty-different-execution-associated && "$endpoint" == *bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb* ]]; then
         jq -nc '[{number:123,base:{ref:"main",repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",repo:{id:200,full_name:"contributor/cmux"}}}]'
@@ -271,6 +274,7 @@ run_case minimal-run-association 0 "Requested rerun for CLA job 500 in workflow 
 run_case fork-current 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case empty-run-association 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case same-repo-empty 0 "Requested rerun for CLA job 500 in workflow run 400" 1
+run_case association-overflow 1 "Too many pull request associations" 0
 run_case empty-different-execution-associated 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case stale-empty-execution 1 "not associated with the current pull request" 0
 run_case wrong-run-association 0 "No failed CLA run exists for this pull request head" 0

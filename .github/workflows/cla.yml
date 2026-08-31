@@ -425,10 +425,13 @@ jobs:
           # association proof in that case.
           commit_prs_json="$(gh api \
             --header 'Accept: application/vnd.github+json' \
+            --raw-field per_page=100 \
+            --raw-field page=1 \
             "repos/${GH_REPO}/commits/${head_sha}/pulls" 2>/dev/null)" || fail "Could not query pull request associations"
           jq -e 'type == "array"' <<<"${commit_prs_json}" >/dev/null || fail "Could not validate pull request associations"
           association_count="$(jq -r 'length' <<<"${commit_prs_json}")"
           [[ "${association_count}" =~ ^[0-9]+$ ]] || fail "Could not count pull request associations"
+          (( association_count < 100 )) || fail "Too many pull request associations for this head; ask an administrator to resolve the association before requesting a rerun"
           if (( association_count > 0 )); then
             jq -e \
               --arg repo "${GH_REPO}" \
@@ -725,7 +728,7 @@ jobs:
           validate_run_source_binding() {
             local run_payload="$1"
             local execution_sha pull_requests_type pull_request_count
-            local execution_prs_json
+            local execution_prs_json execution_association_count
             execution_sha="$(jq -r '.head_sha // empty' <<<"${run_payload}")"
             [[ "${execution_sha}" =~ ^[0-9a-f]{40}$ ]] || fail "The workflow run execution SHA is invalid"
             pull_requests_type="$(jq -r 'if .pull_requests == null then "null" else (.pull_requests | type) end' <<<"${run_payload}")"
@@ -740,7 +743,12 @@ jobs:
 
             execution_prs_json="$(gh api \
               --header 'Accept: application/vnd.github+json' \
+              --raw-field per_page=100 \
+              --raw-field page=1 \
               "repos/${GH_REPO}/commits/${execution_sha}/pulls" 2>/dev/null)" || fail "Could not query workflow execution pull request associations"
+            execution_association_count="$(jq -r 'if type == "array" then length else -1 end' <<<"${execution_prs_json}")"
+            [[ "${execution_association_count}" =~ ^[0-9]+$ ]] || fail "Could not validate workflow execution pull request associations"
+            (( execution_association_count < 100 )) || fail "Too many pull request associations for the workflow execution head; ask an administrator to resolve the association before requesting a rerun"
             jq -e \
               --arg repo "${GH_REPO}" \
               --arg pr "${PR_NUMBER}" \
