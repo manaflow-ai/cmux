@@ -21,6 +21,7 @@ jobs:
       ) ||
       (
         github.event_name == 'issue_comment' &&
+        github.event.issue.state == 'open' &&
         github.event.issue.pull_request &&
         (
           github.event.comment.body == 'recheck' ||
@@ -53,10 +54,11 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
         run: |
           set -euo pipefail
-          if ! commit_count="$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}" --jq '.commits' 2>/dev/null)"; then
+          if ! pr_data="$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}" --jq '{commits: .commits, opener: .user.login, opener_type: .user.type}' 2>/dev/null)"; then
             echo "::error::Could not query the pull request commit count"
             exit 1
           fi
+          commit_count="$(jq -r '.commits' <<<"${pr_data}")"
           if ! [[ "${commit_count}" =~ ^[0-9]+$ ]]; then
             echo "::error::Could not determine the pull request commit count"
             exit 1
@@ -66,20 +68,25 @@ jobs:
             exit 1
           fi
 
-          # The archived action matches its allowlist by raw Git commit name.
-          # Enable the cmux integration's raw commit identities only when the
-          # authenticated PR opener is the expected GitHub App bot.
-          bot_allowlist=''
-          if opener="$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}" --jq '[.user.login, .user.type] | @tsv' 2>/dev/null)" &&
-             [[ "${opener}" == $'chatmux-connections[bot]\tBot' ]]; then
-            bot_allowlist='Pi,chatmux-connections[bot]'
+          # The integration owns its automated PRs. Skip the archived action
+          # for that authenticated App identity instead of trusting raw commit
+          # names through its spoofable allowlist.
+          bot_exempt='false'
+          if [[ "$(jq -r '.opener' <<<"${pr_data}")" == 'chatmux-connections[bot]' ]] &&
+             [[ "$(jq -r '.opener_type' <<<"${pr_data}")" == 'Bot' ]]; then
+            bot_exempt='true'
           fi
-          printf 'allowlist=%s\n' "${bot_allowlist}" >> "${GITHUB_OUTPUT}"
+          printf 'bot_exempt=%s\n' "${bot_exempt}" >> "${GITHUB_OUTPUT}"
+
+      - name: "Accept trusted automation contribution"
+        if: steps.cla-preflight.outputs.bot_exempt == 'true'
+        run: echo "CLA check exempted for the authenticated Manaflow automation PR"
 
       - name: "CLA Assistant"
         # The action handles signing and status updates. Merged pull requests
         # use the explicit lock step below because the archived action sends
         # an invalid lock request.
+        if: steps.cla-preflight.outputs.bot_exempt != 'true'
         uses: contributor-assistant/github-action@ca4a40a7d1004f18d9960b404b97e5f30a505a08 # v2.6.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -92,10 +99,7 @@ jobs:
           lock-pullrequest-aftermerge: 'false'
           # signatures live on the unprotected cla-signatures branch so required checks on main don't block the bot's signature commits
           branch: 'cla-signatures'
-          # Require the exact phrase below. Do not use the action's name-based
-          # allowlist for human PRs, which can be spoofed by an unlinked commit
-          # identity. The preflight limits this exception to one GitHub App.
-          allowlist: ${{ steps.cla-preflight.outputs.allowlist }}
+          # Require the exact phrase below. No raw-name allowlist is used.
           custom-pr-sign-comment: 'I have read the CLA Document and I hereby sign the CLA'
 
   LockMergedPullRequest:
@@ -105,11 +109,11 @@ jobs:
       github.event.action == 'closed' &&
       github.event.pull_request.merged == true
     runs-on: ubuntu-latest
-    # A merged PR must not lock while a signature update for this repository
-    # is still writing or updating its CLA comment.
+    # Use a per-PR group so user comments cannot fill or replace the one-shot
+    # merge-lock run. The open-PR guard above prevents new signing runs after
+    # closure.
     concurrency:
-      group: cla-signatures
-      queue: max
+      group: cla-lock-${{ github.event.pull_request.number }}
       cancel-in-progress: false
     permissions:
       issues: write
@@ -123,13 +127,27 @@ jobs:
           set -euo pipefail
           issue_endpoint="repos/${GH_REPO}/issues/${PR_NUMBER}"
           lock_endpoint="${issue_endpoint}/lock"
-          if [[ "$(gh api "${issue_endpoint}" --jq '.locked')" == "true" ]]; then
+          if ! locked="$(gh api "${issue_endpoint}" --jq '.locked' 2>/dev/null)"; then
+            echo "::error::Could not query the pull request lock state"
+            exit 1
+          fi
+          if [[ "${locked}" == "true" ]]; then
             echo "Pull request ${PR_NUMBER} is already locked"
             exit 0
           fi
-          gh api --method PUT \
+          if ! gh api --method PUT \
             --header 'Accept: application/vnd.github+json' \
             --header 'X-GitHub-Api-Version: 2022-11-28' \
             "${lock_endpoint}" \
-            --field lock_reason=resolved
-          [[ "$(gh api "${issue_endpoint}" --jq '.locked')" == "true" ]]
+            --field lock_reason=resolved >/dev/null 2>&1; then
+            echo "::error::Could not lock the merged pull request"
+            exit 1
+          fi
+          if ! locked="$(gh api "${issue_endpoint}" --jq '.locked' 2>/dev/null)"; then
+            echo "::error::Could not verify the pull request lock state"
+            exit 1
+          fi
+          if [[ "${locked}" != "true" ]]; then
+            echo "::error::The merged pull request is not locked"
+            exit 1
+          fi
