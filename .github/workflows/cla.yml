@@ -4,7 +4,10 @@ on:
     types: [created]
   pull_request_target:
     branches: [main]
-    types: [opened,closed,reopened,synchronize]
+    # Re-run full CLA validation for every non-closed edit. Do not narrow
+    # edited events to a base-change payload, because title/body edits also
+    # need to refresh required check contexts.
+    types: [opened,closed,edited,reopened,synchronize]
 
 # Jobs declare only the permissions they need.
 permissions: {}
@@ -28,6 +31,7 @@ jobs:
         github.event_name == 'pull_request_target' &&
         (
           github.event.action == 'opened' ||
+          github.event.action == 'edited' ||
           github.event.action == 'reopened' ||
           github.event.action == 'synchronize'
         )
@@ -44,9 +48,10 @@ jobs:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     # Public issue comments use one bounded admission group. Pull-request
-    # lifecycle events retain one group per PR so a new merge or synchronize
-    # event cannot replace another PR's required work. The expression uses
-    # only the event name and the trusted PR number, never comment text.
+    # lifecycle events, including every edited event, retain one group per PR
+    # so a new merge or synchronize event cannot replace another PR's required
+    # work. The expression uses only the event name and trusted PR number,
+    # never comment text.
     # GitHub's default `single` queue permits one running and one pending run.
     # A trusted webhook classifier is required if exact-byte admission without
     # case-variant starvation is needed.
@@ -71,7 +76,7 @@ jobs:
             fi
           elif [[ "${EVENT_NAME}" == "pull_request_target" ]]; then
             case "${EVENT_ACTION}" in
-              opened|reopened|synchronize) ;;
+              opened|edited|reopened|synchronize) ;;
               *)
                 echo "::error::The pull request event is not an accepted CLA trigger"
                 exit 1
@@ -97,7 +102,9 @@ jobs:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     # Filter before concurrency admission. Otherwise arbitrary issue comments
-    # can consume the signature queue without running the action.
+    # can consume the signature queue without running the action. Every
+    # non-closed pull-request event, including edited, reaches the same
+    # preflight and signer validation.
     if: >-
       needs.CLACommentGate.result == 'success' &&
       (
@@ -105,6 +112,7 @@ jobs:
           github.event_name == 'pull_request_target' &&
           (
             github.event.action == 'opened' ||
+            github.event.action == 'edited' ||
             github.event.action == 'reopened' ||
             github.event.action == 'synchronize'
           )
@@ -248,9 +256,10 @@ jobs:
 
   # Compatibility check for the current ruleset. It mirrors the v2 action
   # result under the old context while administrators migrate the required
-  # check to "CLA Assistant v2". It runs only for pull-request lifecycle
-  # events because issue_comment checks attach to the default branch SHA, not
-  # the pull request head, and cannot safely refresh the old required context.
+  # check to "CLA Assistant v2". It runs for every non-closed pull-request
+  # lifecycle event, including edited events, because issue_comment checks
+  # attach to the default branch SHA, not the pull request head, and cannot
+  # safely refresh the old required context.
   # `always()` is required so a failed v2 action cannot turn this old required
   # context into a skipped-success check.
   CLACompatibility:
@@ -263,6 +272,7 @@ jobs:
       github.event_name == 'pull_request_target' &&
       (
         github.event.action == 'opened' ||
+        github.event.action == 'edited' ||
         github.event.action == 'reopened' ||
         github.event.action == 'synchronize'
       )

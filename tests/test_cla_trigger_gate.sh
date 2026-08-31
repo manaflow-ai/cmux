@@ -8,6 +8,12 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKFLOW="$ROOT_DIR/.github/workflows/cla.yml"
 test -f "$WORKFLOW"
 
+grep -Fq 'types: [opened,closed,edited,reopened,synchronize]' "$WORKFLOW"
+if rg -n 'changes\.base' "$WORKFLOW" >/dev/null; then
+  echo 'FAIL: edited pull-request events must not require a base-change payload' >&2
+  exit 1
+fi
+
 # The protected ruleset must be migrated to the versioned check context before
 # enforcement. Keep admission non-canceling and bounded by event type so a
 # public comment cannot consume an unbounded number of runners.
@@ -67,6 +73,7 @@ run_case() {
     padded-sign) comment_body=' I have read the CLA Document v2.2 and I hereby sign the CLA ' ;;
     wrapped-sign) comment_body='Please sign: I have read the CLA Document v2.2 and I hereby sign the CLA' ;;
     pull-opened) event_name=pull_request_target; event_action=opened; comment_body='' ;;
+    pull-edited) event_name=pull_request_target; event_action=edited; comment_body='' ;;
     pull-reopened) event_name=pull_request_target; event_action=reopened; comment_body='' ;;
     pull-synchronize) event_name=pull_request_target; event_action=synchronize; comment_body='' ;;
     pull-closed) event_name=pull_request_target; event_action=closed; comment_body='' ;;
@@ -101,6 +108,7 @@ run_case uppercase-recheck 1 "exact CLA declaration"
 run_case padded-sign 1 "exact CLA declaration"
 run_case wrapped-sign 1 "exact CLA declaration"
 run_case pull-opened 0 ""
+run_case pull-edited 0 ""
 run_case pull-reopened 0 ""
 run_case pull-synchronize 0 ""
 run_case pull-closed 1 "accepted CLA trigger"
@@ -140,3 +148,15 @@ if [[ "$compat_block" == *"github.event_name == 'issue_comment'"* ]]; then
   exit 1
 fi
 echo "PASS: compatibility event scope"
+
+# Edited events must reach the signer and compatibility jobs as well as the
+# admission shell. This prevents a skipped old required context after a title
+# or body edit. Keep the assertion narrow to the event clauses, not comments.
+for job in CLAAssistant CLACompatibility; do
+  job_block="$(awk -v job="$job" '$0 == "  " job ":" { in_job=1; next } in_job && /^  [A-Za-z0-9_]+:/ { exit } in_job { print }' "$WORKFLOW")"
+  if [[ "$job_block" != *"github.event.action == 'edited'"* ]]; then
+    echo "FAIL: $job does not run for edited pull-request events" >&2
+    exit 1
+  fi
+done
+echo "PASS: edited event job routing"
