@@ -2668,10 +2668,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // An absolute `set_font_size:<target>` keeps libghostty in lockstep
         // with `liveFontSize`, which we keep inside [minimumSize, maximumSize].
         let action = "set_font_size:\(target)"
-        outputQueue.async {
+        let workQueue = outputQueue
+        workQueue.async {
             action.withCString { pointer in
                 _ = ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
             }
+            // A font change reflows the grid without a `set_size`; record the
+            // new grid so render-grid applies fence on the reflow.
+            let measured = ghostty_surface_size(surface)
+            workQueue.noteObservedGrid(
+                columns: Int(measured.columns),
+                rows: Int(measured.rows)
+            )
         }
         // Render the new font (the grid reflows inside the current surface) but
         // do NOT resize the surface this frame. Resizing the render target on
@@ -3061,6 +3069,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     func processOutput(
         _ data: Data,
         terminalConfigTheme outputConfigTheme: TerminalTheme? = nil,
+        renderGridContract: RenderGridApplyContract? = nil,
         pushesLocalScrollbackRows: Int = 0,
         completion: (@MainActor @Sendable (Bool) -> Void)?
     ) {
@@ -3100,6 +3109,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let preparedConfigBits = configThemeToApply
             .flatMap { runtime?.makeThemeConfig($0) }
             .map { Int(bitPattern: $0) }
+        // Optimistic: rolled back on a fence failure below, or the surface
+        // would permanently skip re-applying this theme after the replay.
+        let previousAppliedTerminalConfigTheme = appliedTerminalConfigTheme
         if let outputConfigTheme, preparedConfigBits != nil {
             appliedTerminalConfigTheme = outputConfigTheme
         }
@@ -3112,6 +3124,53 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let workQueue = outputQueue
         let pushedRowsCounter = localScrollbackRowsPushed
         workQueue.async { [weak self] in
+            // Render-grid frames paint absolute rows of the producer's grid.
+            // Verify the local grid matches HERE, on the same serial queue as
+            // every `set_size`, so no resize can interleave between the check
+            // and the paint. A mismatched full, or a delta after any local
+            // resize/reflow since the previous applied frame, must not paint:
+            // fail the apply so the caller resets its queue and replays.
+            if let renderGridContract {
+                let measuredGrid = ghostty_surface_size(surface)
+                let gridGeneration = workQueue.noteObservedGrid(
+                    columns: Int(measuredGrid.columns),
+                    rows: Int(measuredGrid.rows)
+                )
+                let dimsMatch = Int(measuredGrid.columns) == renderGridContract.columns
+                    && Int(measuredGrid.rows) == renderGridContract.rows
+                let deltaBaseIntact = !renderGridContract.isDelta
+                    || workQueue.gridGenerationAtLastRenderGridApply == gridGeneration
+                if !dimsMatch || !deltaBaseIntact {
+                    let appliedGeneration = workQueue.gridGenerationAtLastRenderGridApply
+                        .map(String.init) ?? "nil"
+                    MobileDebugLog.anchormux(
+                        "render_grid.apply_fence local=\(measuredGrid.columns)x\(measuredGrid.rows) " +
+                            "frame=\(renderGridContract.columns)x\(renderGridContract.rows) " +
+                            "delta=\(renderGridContract.isDelta) gen=\(gridGeneration) " +
+                            "applied=\(appliedGeneration)"
+                    )
+                    // The prepared theme config never reached the surface:
+                    // free it and roll back the optimistic applied-theme mark,
+                    // or the replay carrying the same theme would skip the
+                    // configuration update and render with stale defaults.
+                    if let preparedConfigBits,
+                       let preparedConfig = ghostty_config_t(bitPattern: preparedConfigBits) {
+                        ghostty_config_free(preparedConfig)
+                    }
+                    DispatchQueue.main.async {
+                        if let self,
+                           !self.isDismantled,
+                           self.surfaceGeneration == generation,
+                           let outputConfigTheme,
+                           preparedConfigBits != nil,
+                           self.appliedTerminalConfigTheme == outputConfigTheme {
+                            self.appliedTerminalConfigTheme = previousAppliedTerminalConfigTheme
+                        }
+                        completion?(false)
+                    }
+                    return
+                }
+            }
             if let preparedConfigBits,
                let preparedConfig = ghostty_config_t(bitPattern: preparedConfigBits) {
                 ghostty_surface_update_theme_config(surface, preparedConfig)
@@ -3124,6 +3183,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 guard let baseAddress = buffer.baseAddress else { return }
                 let pointer = baseAddress.assumingMemoryBound(to: CChar.self)
                 ghostty_surface_process_output(surface, pointer, UInt(buffer.count))
+            }
+            if renderGridContract != nil {
+                workQueue.gridGenerationAtLastRenderGridApply = workQueue.observedGridGeneration
             }
             // Account for this chunk's scroll-prologue pushes at the exact
             // queue position they landed, so an anchor capture or pixel batch
@@ -4817,8 +4879,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let pushContentScale = abs(lastAppliedContentScale - scale) > 0.001
         if pushContentScale { lastAppliedContentScale = scale }
         let generation = surfaceGeneration
+        let workQueue = outputQueue
 
-        outputQueue.async { [weak self] in
+        workQueue.async { [weak self] in
             if pushContentScale {
                 ghostty_surface_set_content_scale(surface, scale, scale)
             }
@@ -4855,6 +4918,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 }
             }
 
+            // Record the pass's FINAL grid (the letterbox fit above may have
+            // resized again) so render-grid applies can fence on any grid
+            // change this pass caused.
+            let finalMeasured = pinnedSize == nil ? measured : ghostty_surface_size(surface)
+            workQueue.noteObservedGrid(
+                columns: Int(finalMeasured.columns),
+                rows: Int(finalMeasured.rows)
+            )
             let natural = TerminalGridSize(
                 columns: Int(measured.columns),
                 rows: Int(measured.rows),
