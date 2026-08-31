@@ -52,8 +52,8 @@ extension TerminalNotificationSocketActionTests {
             )
         )
         let ambiguousTTY = "/dev/ttys777"
-        fixture.workspace.surfaceTTYNames[focusedSurfaceId] = ambiguousTTY
-        fixture.workspace.surfaceTTYNames[siblingPanel.id] = ambiguousTTY
+        fixture.workspace.registerReportedSurfaceTTYName(ambiguousTTY, panelId: focusedSurfaceId)
+        fixture.workspace.registerReportedSurfaceTTYName(ambiguousTTY, panelId: siblingPanel.id)
 
         let response = try await sendV2RequestAsync(
             method: "notification.create_for_caller",

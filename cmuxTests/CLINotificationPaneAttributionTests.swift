@@ -140,7 +140,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             try? FileManager.default.removeItem(at: root)
         }
 
-        let now = Date().timeIntervalSince1970
+        // These values are fixture metadata only; keep them independent of the
+        // host clock because this test does not exercise freshness boundaries.
+        let now: TimeInterval = 4_000_000_000
         let storedSessions = Dictionary(uniqueKeysWithValues: sessionIds.map { sessionId in
             (
                 sessionId,
