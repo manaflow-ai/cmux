@@ -132,6 +132,7 @@ struct SystemAppearanceObserverTests {
         }
     }
 
+    @MainActor
     private final class Harness {
         var modeRawValue: String? = AppearanceMode.system.rawValue
         var prefersDark = false
