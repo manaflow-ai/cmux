@@ -7405,7 +7405,10 @@ struct CMUXCLI {
                     if let workspaceArg, isUUID(workspaceArg) || explicitWorkspaceArg != nil {
                         params["preferred_workspace_id"] = isUUID(workspaceArg) ? workspaceArg : try resolveWorkspaceId(workspaceArg, client: client)
                     }
-                    if windowRaw == nil, let surfaceId = env["CMUX_SURFACE_ID"], isUUID(surfaceId) { params["preferred_surface_id"] = surfaceId }
+                    if windowRaw == nil, explicitWorkspaceArg == nil,
+                       let surfaceId = env["CMUX_SURFACE_ID"], isUUID(surfaceId) {
+                        params["preferred_surface_id"] = surfaceId
+                    }
                     if let callerTTY = resolveCallerTTYName() { params["caller_tty"] = callerTTY }
                 }
             }
