@@ -29,6 +29,12 @@ struct SimulatorStreamV2Pane: View {
     @State private var devices: [MobileSimulatorDeviceDescriptor] = []
     @State private var deviceFetchTask: Task<Void, Never>?
     @State private var refreshTask: Task<Void, Never>?
+    /// Pane-level stall timer: the connecting/reconnecting overlays swap
+    /// every retry cycle, so a per-overlay timer would reset on each flip
+    /// and the refresh escape hatch would never appear. Tracked here, it
+    /// survives phase churn and reveals once the wait has genuinely stalled.
+    @State private var stallRevealTask: Task<Void, Never>?
+    @State private var stallRevealed = false
     @AppStorage("cmux.simulatorStream.quality")
     private var qualityRaw = SimStreamQualityPreset.default.rawValue
     @FocusState private var textFocused: Bool
@@ -76,6 +82,25 @@ struct SimulatorStreamV2Pane: View {
             deviceFetchTask = nil
             refreshTask?.cancel()
             refreshTask = nil
+            stallRevealTask?.cancel()
+            stallRevealTask = nil
+        }
+        .onChange(of: isStalled, initial: true) { _, stalled in
+            if stalled {
+                guard stallRevealTask == nil else { return }
+                stallRevealTask = Task {
+                    // Intentional bounded progressive-disclosure delay past
+                    // the lifecycle's 4s backoff ceiling; cancellation is
+                    // wired to leaving the stalled state and to disappear.
+                    try? await Task.sleep(for: .seconds(5))
+                    guard !Task.isCancelled else { return }
+                    stallRevealed = true
+                }
+            } else {
+                stallRevealTask?.cancel()
+                stallRevealTask = nil
+                stallRevealed = false
+            }
         }
         .onChange(of: qualityRaw) { _, _ in
             store?.setQuality(maximumLongSidePixels: quality.maximumLongSidePixels)
@@ -146,6 +171,18 @@ struct SimulatorStreamV2Pane: View {
     /// frame needs a host-side recover, not another lane retry.
     private func hostNeedsRecovery(_ status: SimStreamHostStatus?) -> Bool {
         status == .workerCrashed || status == .failed || status == .deviceUnavailable
+    }
+
+    /// Whether the viewer is waiting on frames with no terminal verdict:
+    /// the states whose overlays earn the delayed refresh escape hatch.
+    private var isStalled: Bool {
+        guard let store, !hostNeedsRecovery(store.hostStatus) else { return false }
+        switch store.phase {
+        case .idle, .connecting, .reconnecting:
+            return true
+        case .streaming, .unavailable, .stopped:
+            return false
+        }
     }
 
     /// One shared refresh path for every entrypoint (menu item, overlay
@@ -244,8 +281,9 @@ struct SimulatorStreamV2Pane: View {
         case hidden
         /// Refresh is available right away (terminal states).
         case immediate
-        /// Refresh appears only once the wait has clearly stalled, so the
-        /// routine sub-second connect never flashes a button.
+        /// Refresh appears only once the wait has clearly stalled (the
+        /// pane-level `stallRevealed` timer), so the routine sub-second
+        /// connect never flashes a button.
         case afterStall
     }
 
@@ -264,7 +302,7 @@ struct SimulatorStreamV2Pane: View {
                 case .immediate:
                     overlayRefreshButton
                 case .afterStall:
-                    StalledRefreshReveal {
+                    if stallRevealed {
                         overlayRefreshButton
                     }
                 }
@@ -504,31 +542,6 @@ struct SimulatorStreamV2Pane: View {
         let text = pendingText
         pendingText = ""
         store?.sendText(text)
-    }
-}
-
-/// Reveals its content after the stream has visibly stalled. The delay is an
-/// intentional bounded progressive-disclosure timer whose cancellation is
-/// wired to the view lifecycle via `.task`; it sits past the lifecycle's
-/// backoff ceiling (4s), so an overlay that outlives it is genuinely stuck,
-/// not mid-retry.
-private struct StalledRefreshReveal<Content: View>: View {
-    @ViewBuilder let content: () -> Content
-    @State private var revealed = false
-
-    private static var stallDelay: Duration { .seconds(5) }
-
-    var body: some View {
-        ZStack {
-            if revealed {
-                content()
-            }
-        }
-        .task {
-            try? await Task.sleep(for: Self.stallDelay)
-            guard !Task.isCancelled else { return }
-            revealed = true
-        }
     }
 }
 
