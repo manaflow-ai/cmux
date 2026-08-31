@@ -614,7 +614,12 @@ extension Workspace {
                                 rhs: bindingSessionId
                             )
                     } == true
-                    guard matchesEffectiveRestorableAgent || matchingObservation != nil else {
+                    // A panel-only index entry for another session is
+                    // contradictory evidence even when a retained snapshot
+                    // still matches this binding. Do not let remote shell
+                    // activity bridge that identity gap.
+                    guard (matchesEffectiveRestorableAgent || matchingObservation != nil),
+                          restorableAgentObservation == nil || matchingObservation != nil else {
                         return false
                     }
                     // Remote hook reports are authoritative for the host-side
