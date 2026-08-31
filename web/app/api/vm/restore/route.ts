@@ -117,7 +117,7 @@ export async function POST(request: Request): Promise<Response> {
         const response = vmCreateLikeErrorResponse(err, {
           operation: "restore",
           planId: entitlements.planId,
-          retryAction: "Run `cmux vm ls`, then stop or delete an active VM with `cmux vm rm <id>` before restoring another.",
+          retryAction: "Run `cmux vm ls`, then delete an active VM with `cmux vm rm <id>` before restoring another.",
         });
         if (response) return response;
         throw err;

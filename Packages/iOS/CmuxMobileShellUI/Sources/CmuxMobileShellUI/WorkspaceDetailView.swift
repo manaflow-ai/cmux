@@ -195,6 +195,10 @@ struct WorkspaceDetailView: View {
                 await store.refreshMobileBrowserPanels(workspaceID: workspace.rpcWorkspaceID.rawValue)
                 syncSimulatorStreamPanels()
                 store.refreshWorkspaceSelection()
+                restoreLocalBrowserTabIfRequested()
+            }
+            .onChange(of: store.pendingLocalBrowserTabRestoreWorkspaceID) { _, _ in
+                restoreLocalBrowserTabIfRequested()
             }
             .onChange(of: browserStreamStore.panelDiscoveryRevision(in: workspace.rpcWorkspaceID.rawValue)) { _, _ in
                 store.refreshWorkspaceSelection()
@@ -1082,6 +1086,7 @@ struct WorkspaceDetailView: View {
         store.recordAppEvent(.browserCreateStarted, correlationID: workspaceID)
         _ = browserStore.openBrowser(for: workspaceID)
         store.recordAppEvent(.browserCreateSucceeded, correlationID: workspaceID)
+        store.recordLastOpenedLocalBrowserTab(in: workspace.id)
         stopActiveBrowserStream()
         stopActiveSimulatorStream()
         store.selectedMacSurfaceID = nil
@@ -1099,6 +1104,7 @@ struct WorkspaceDetailView: View {
             Task { await store.stopMobileBrowserStream(panelID: previous.id) }
         }
         _ = browserStreamStore.activate(panelID: panelID, in: workspace.rpcWorkspaceID.rawValue)
+        store.recordLastOpenedBrowserStreamTab(panelID: panelID, in: workspace.id)
         Task { await store.startMobileBrowserStream(panelID: panelID) }
     }
 
@@ -1118,6 +1124,7 @@ struct WorkspaceDetailView: View {
             simulatorStreamStore.deactivate(panelID: previousPanelID, in: workspaceID)
         }
         _ = simulatorStreamStore.activate(panelID: panelID, in: workspaceID)
+        store.recordLastOpenedSimulatorStreamTab(panelID: panelID, in: workspace.id)
         // One task, stop awaited before start: two independent tasks have no
         // ordering guarantee, and the reversed order would tear down the new
         // stream (or churn host sessions) right after it started.
@@ -1133,6 +1140,15 @@ struct WorkspaceDetailView: View {
                 workspaceID: workspaceID
             )
         }
+    }
+
+    /// Reopens the phone-local browser pane when the store's last-opened-tab
+    /// restore asked for it. The local browser lives in this view layer's
+    /// `BrowserSurfaceStore`, so the composite hands the reopen here as a
+    /// one-shot intent; opening is idempotent for an already-open pane.
+    private func restoreLocalBrowserTabIfRequested() {
+        guard store.consumeLocalBrowserTabRestore(for: workspace.id) else { return }
+        _ = browserStore.openBrowser(for: workspace.id.rawValue)
     }
 
     private func stopActiveBrowserStream() {
