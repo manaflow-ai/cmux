@@ -35,19 +35,37 @@ extension View {
         #if canImport(UIKit)
         #if compiler(>=6.4)
         if #available(iOS 27.0, *) {
-            background(PinnedNavigationBarApplier(scrolledUnderContent: scrolledUnderContent))
+            mobilePinnedNavigationBarProbe(scrolledUnderContent: scrolledUnderContent)
                 .toolbarMinimizeBehavior(.never, for: .navigationBar)
         } else {
-            background(PinnedNavigationBarApplier(scrolledUnderContent: scrolledUnderContent))
+            mobilePinnedNavigationBarProbe(scrolledUnderContent: scrolledUnderContent)
         }
         #else
-        background(PinnedNavigationBarApplier(scrolledUnderContent: scrolledUnderContent))
+        mobilePinnedNavigationBarProbe(scrolledUnderContent: scrolledUnderContent)
         #endif
         #else
         self
         #endif
     }
 }
+
+#if canImport(UIKit)
+private extension View {
+    /// The probe rides ON TOP of the content and underlaps the bar: the
+    /// scroll edge effect renders inside the tracked scroll view's own
+    /// hierarchy as a backdrop treatment, so it must sit in front of the
+    /// content it blurs (a background-hosted stand-in blurs only what's
+    /// behind the content) and must geometrically overlap the bar region.
+    /// The probe is empty, transparent, and hit-test-inert either way.
+    func mobilePinnedNavigationBarProbe(scrolledUnderContent: Bool) -> some View {
+        overlay {
+            PinnedNavigationBarApplier(scrolledUnderContent: scrolledUnderContent)
+                .ignoresSafeArea(.container, edges: .top)
+                .allowsHitTesting(false)
+        }
+    }
+}
+#endif
 
 #if canImport(UIKit)
 private struct PinnedNavigationBarApplier: UIViewRepresentable {
