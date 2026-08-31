@@ -9239,11 +9239,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return connection
             }
         // Capability snapshot for the TARGETED Mac, taken before the previous
-        // client is released (which clears the live store value). It shapes
-        // the connect-time pipelined subscribe: a known Mac gets the exact
-        // request the post-adoption path would send; an unknown target gets
-        // the safe superset guess. A stale or wrong snapshot only costs the
-        // ordinary corrective re-subscribe.
+        // client is released (which clears the live store value). It gates
+        // and shapes the connect-time pipelined subscribe: a known Mac gets
+        // the exact request the post-adoption path would send; an unknown
+        // target (empty snapshot) is never guessed at and keeps the
+        // sequential post-adoption subscribe. A stale snapshot (the Mac
+        // changed between connects) only costs the ordinary corrective
+        // re-subscribe.
         let learnedCapabilitiesForOptimisticSubscribe: Set<String> = {
             guard let requestedMacDeviceID else { return [] }
             // Device-level read on purpose: any instance tag's snapshot is a
