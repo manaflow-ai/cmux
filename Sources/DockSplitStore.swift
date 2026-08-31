@@ -378,27 +378,16 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             self?.tabCloseButtonCloseDockTabIds.insert(tabId)
         }
         self.bonsplitController.onTabZoomToggleRequest = { [weak self] tabId, paneId in
-            guard let self,
-                  let panelId = self.surfaceIdToPanelId[tabId] else {
-                return false
+            guard let self else { return false }
+            if let panelId = self.surfaceIdToPanelId[tabId] {
+                self.focusPanelFromDockInteraction(panelId, window: nil)
             }
-            self.focusPanelFromDockInteraction(
-                panelId,
-                window: nil
-            )
             return self.toggleDockPaneZoom(inPane: paneId)
         }
-        self.bonsplitController.onTabFullWidthToggleRequest = { [weak self] tabId, _ in
-            guard let self,
-                  let panelId = self.surfaceIdToPanelId[tabId] else {
-                return false
-            }
-            self.focusPanelFromDockInteraction(
-                panelId,
-                window: nil
-            )
-            guard let paneId = self.paneId(forPanelId: panelId) else {
-                return false
+        self.bonsplitController.onTabFullWidthToggleRequest = { [weak self] tabId, paneId in
+            guard let self else { return false }
+            if let panelId = self.surfaceIdToPanelId[tabId] {
+                self.focusPanelFromDockInteraction(panelId, window: nil)
             }
             let nextMode = !self.bonsplitController.isFullWidthTabMode(inPane: paneId)
             guard self.bonsplitController.setFullWidthTabMode(

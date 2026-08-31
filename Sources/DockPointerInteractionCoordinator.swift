@@ -115,11 +115,14 @@ final class DockPointerInteractionEventRouter {
 
     private func route(_ event: NSEvent) {
         guard let window = event.window else { return }
-        pruneDeadHosts()
         guard let host = hostsByWindow[ObjectIdentifier(window)]?
             .reversed()
             .compactMap(\.host)
             .first else {
+            // Dead weak entries are pruned lazily only when a lookup finds no
+            // live host. The normal click path therefore performs no
+            // collection rebuild or allocation.
+            pruneDeadHosts()
             return
         }
         host.handlePointerEvent(event)

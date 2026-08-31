@@ -456,16 +456,12 @@ extension DockSplitStore {
     }
 
     private func closeOtherDockTabsInFocusedPane() -> Bool {
-        guard let paneId =
-                bonsplitController.focusedPaneId
-                ?? bonsplitController.allPaneIds.first else {
-            return true
+        guard let paneId = bonsplitController.focusedPaneId else {
+            return false
         }
         let tabs = bonsplitController.tabs(inPane: paneId)
-        guard let selectedTabId =
-                bonsplitController.selectedTab(inPane: paneId)?.id
-                ?? tabs.first?.id else {
-            return true
+        guard let selectedTabId = bonsplitController.selectedTab(inPane: paneId)?.id else {
+            return false
         }
         return closeDockTabs(
             tabs.lazy
