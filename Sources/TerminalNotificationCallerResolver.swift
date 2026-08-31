@@ -158,11 +158,18 @@ extension TerminalController {
         let preferredSurfaceTarget = preferredSurfaceId.flatMap {
             targetForSurface($0, tabManagers: managers)
         }
-        let ttyTarget = callerTTY.flatMap { liveTargetForTTY($0, tabManagers: managers) }
+        var didResolveTTY = false
+        var cachedTTYTarget: TerminalCallerTarget?
+        func resolveTTYTarget() -> TerminalCallerTarget? {
+            guard !didResolveTTY else { return cachedTTYTarget }
+            didResolveTTY = true
+            cachedTTYTarget = callerTTY.flatMap { liveTargetForTTY($0, tabManagers: managers) }
+            return cachedTTYTarget
+        }
         // `prefer_tty` is an explicit caller contract used by tmux/PTY
         // wrappers. Honor it when the caller TTY is proven; otherwise fall
         // through to the stable preferred surface identity.
-        if preferTTY, let ttyTarget { return ttyTarget }
+        if preferTTY, let ttyTarget = resolveTTYTarget() { return ttyTarget }
         // A stable surface UUID is stronger than an ordinary (non-preferred)
         // TTY claim. The workspace claim can be stale after a pane move, so
         // resolve the surface globally before the non-preferred TTY fallback.
@@ -170,6 +177,7 @@ extension TerminalController {
 
         if let preferredWorkspaceId,
            let workspace = workspace(id: preferredWorkspaceId, tabManagers: managers) {
+            let ttyTarget = resolveTTYTarget()
             if let ttyTarget, ttyTarget.workspace.id == workspace.id { return ttyTarget }
             // The workspace itself is still a valid delivery scope, but no
             // pane has been proven. Keep the notification workspace-level
@@ -177,6 +185,7 @@ extension TerminalController {
             return TerminalCallerTarget(workspace: workspace, surfaceId: nil)
         }
 
+        let ttyTarget = resolveTTYTarget()
         if let ttyTarget { return ttyTarget }
 
         // A supplied caller TTY or surface that did not resolve is an
