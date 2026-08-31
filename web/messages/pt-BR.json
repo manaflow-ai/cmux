@@ -1670,7 +1670,7 @@
       "prereq1": "Um Mac executando o cmux {version} ou mais recente, com sessão iniciada.",
       "prereq2": "Um iPhone ou iPad com o app cmux BETA instalado pelo TestFlight.",
       "prereq3": "Um caminho de rede do seu celular até o seu Mac (consulte Rede própria abaixo).",
-      "requirementsNote": "O app para iOS só pareia com um Mac executando o cmux {version} ou mais recente. Uma atualização do app para iPhone pode elevar esse mínimo; quando isso acontece, a tela Computadores marca os Macs que precisam atualizar o cmux.",
+      "requirementsNote": "O app para iOS só pareia com um Mac executando o cmux {version} ou mais recente. Uma atualização do app para iOS pode elevar esse mínimo; quando isso acontece, a tela Computadores marca os Macs que precisam atualizar o cmux.",
       "networkingTitle": "Rede própria",
       "networkingDesc": "O cmux não fornece rede pronta para uso. O fluxo do terminal vai diretamente entre o seu celular e o seu Mac, então o celular precisa conseguir alcançar o Mac na rede. A forma mais simples é uma rede de sobreposição privada.",
       "tailscaleTitle": "Tailscale (recomendado)",

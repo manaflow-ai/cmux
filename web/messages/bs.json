@@ -1670,7 +1670,7 @@
       "prereq1": "Mac na kojem je pokrenut cmux {version} ili noviji, s prijavljenim nalogom.",
       "prereq2": "iPhone ili iPad s instaliranom cmux BETA aplikacijom putem TestFlight-a.",
       "prereq3": "Mrežni put od vašeg telefona do vašeg Mac-a (pogledajte Vlastito umrežavanje ispod).",
-      "requirementsNote": "iOS aplikacija se uparuje samo s Mac računarom na kojem je pokrenut cmux {version} ili noviji. Ažuriranje iPhone aplikacije može podići ovaj minimum; u tom slučaju ekran Računari označava svaki Mac kojem je potrebno ažuriranje cmux-a.",
+      "requirementsNote": "iOS aplikacija se uparuje samo s Mac računarom na kojem je pokrenut cmux {version} ili noviji. Ažuriranje iOS aplikacije može podići ovaj minimum; u tom slučaju ekran Računari označava svaki Mac kojem je potrebno ažuriranje cmux-a.",
       "networkingTitle": "Vlastito umrežavanje",
       "networkingDesc": "cmux ne pruža umrežavanje odmah po instalaciji. Terminalski tok teče direktno između vašeg telefona i vašeg Mac-a, pa vaš telefon mora moći doseći vaš Mac na mreži. Najjednostavniji način je privatna overlay mreža.",
       "tailscaleTitle": "Tailscale (preporučeno)",

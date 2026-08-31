@@ -1,4 +1,3 @@
-#if os(iOS)
 import CmuxMobileShell
 import CmuxMobileSupport
 
@@ -42,4 +41,3 @@ enum MobileConnectionGuidanceText {
         )
     }
 }
-#endif

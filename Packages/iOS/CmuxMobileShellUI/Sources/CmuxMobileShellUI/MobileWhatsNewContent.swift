@@ -89,8 +89,11 @@ enum MobileWhatsNewPageLayout {
 }
 
 /// Picks the densest What's New layout that shows the whole page with no
-/// scrolling; the scroll view exists only as the accessibility-type fallback
-/// (matching the Auto-Connect migration sheet's fit contract).
+/// scrolling. The scroll tier is the last-resort fallback: accessibility
+/// type sizes and geometries where even compact cannot fit (short
+/// landscape); clipping content is never acceptable, so the fallback is not
+/// gated by type size. Portrait iPhones at standard type fit the compact
+/// tier (verified down to the 375x667 iPhone SE).
 struct MobileWhatsNewFittingPage: View {
     let page: MobileWhatsNewPage
 

@@ -2718,7 +2718,7 @@
       "prereq1": "cmux {version}以降を実行し、サインイン済みのMac。",
       "prereq2": "TestFlightからcmux BETAアプリをインストールしたiPhoneまたはiPad。",
       "prereq3": "スマートフォンからMacへのネットワーク経路（下記の「持ち込みネットワーク」を参照）。",
-      "requirementsNote": "iOSアプリは、cmux {version}以降を実行しているMacとのみペアリングできます。iPhoneアプリのアップデートによってこの最低バージョンが上がることがあります。その場合、「コンピュータ」画面にcmuxのアップデートが必要なMacが表示されます。",
+      "requirementsNote": "iOSアプリは、cmux {version}以降を実行しているMacとのみペアリングできます。iOSアプリのアップデートによってこの最低バージョンが上がることがあります。その場合、「コンピュータ」画面にcmuxのアップデートが必要なMacが表示されます。",
       "networkingTitle": "持ち込みネットワーク",
       "networkingDesc": "cmuxはネットワーク機能を標準では提供しません。ターミナルのストリームはスマートフォンとMacの間を直接流れるため、スマートフォンがネットワーク上でMacに到達できる必要があります。最も簡単なのはプライベートなオーバーレイネットワークです。",
       "tailscaleTitle": "Tailscale（推奨）",

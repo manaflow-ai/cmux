@@ -1667,7 +1667,7 @@
       "prereq1": "En Mac som kjører cmux {version} eller nyere, og som er logget inn.",
       "prereq2": "En iPhone eller iPad med cmux BETA-appen installert fra TestFlight.",
       "prereq3": "En nettverkssti fra telefonen din til Mac-en din (se Ta med ditt eget nettverk nedenfor).",
-      "requirementsNote": "iOS-appen parres bare med en Mac som kjører cmux {version} eller nyere. En oppdatering av iPhone-appen kan heve dette minimumet; når det skjer, markerer Datamaskiner-skjermen alle Mac-er som trenger en cmux-oppdatering.",
+      "requirementsNote": "iOS-appen pares bare med en Mac som kjører cmux {version} eller nyere. En oppdatering av iOS-appen kan heve dette minimumet; når det skjer, markerer Datamaskiner-skjermen alle Mac-er som trenger en cmux-oppdatering.",
       "networkingTitle": "Ta med ditt eget nettverk",
       "networkingDesc": "cmux leverer ikke nettverk ut av boksen. Terminalstrømmen går direkte mellom telefonen og Mac-en din, så telefonen må kunne nå Mac-en din på nettverket. Den enkleste måten er et privat overlay-nettverk.",
       "tailscaleTitle": "Tailscale (anbefalt)",
