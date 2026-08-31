@@ -1,6 +1,40 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "mobile.signIn.billingRecovery" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Already paid? Recover your account"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "お支払い済みですか？アカウントを復旧する"
+          }
+        }
+      }
+    },
+    "mobile.signIn.billingRecoverySent" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Check your email for a sign-in code."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サインインコードが届いているかメールを確認してください。"
+          }
+        }
+      }
+    },
     "mobile.terminal.outputRecovery.dismiss" : {
       "extractionState" : "manual",
       "localizations" : {

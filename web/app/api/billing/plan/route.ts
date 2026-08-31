@@ -13,6 +13,7 @@ import {
   resolveBillingTeam,
   type BillingTeamUserLike,
 } from "../../../../services/billing/teamResolution";
+import { claimPendingProBilling } from "../../../../services/billing/purchase";
 import { authProviderErrorResponse } from "../../../../services/vms/authErrors";
 
 
@@ -64,6 +65,22 @@ export async function GET(request: NextRequest) {
       teamBillingManagement: "none",
       user: null,
     });
+  }
+
+  // A verified account can finish an anonymous checkout that was parked as a
+  // billing-email claim. The resolver is idempotent and fails open so a
+  // transient provider/DB outage never changes the plan response shape.
+  if (
+    user.isAnonymous !== true &&
+    user.isRestricted !== true &&
+    user.primaryEmailVerified === true &&
+    user.primaryEmail
+  ) {
+    try {
+      await claimPendingProBilling(user);
+    } catch {
+      // The next billing read retries the claim.
+    }
   }
 
   const status = await resolveProPlanStatus(user);

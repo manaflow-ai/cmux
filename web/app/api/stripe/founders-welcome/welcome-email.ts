@@ -11,6 +11,7 @@ export const DEFAULT_FROM_EMAIL = "austin@manaflow.ai";
 export const FOUNDER_CC = ["austin@manaflow.ai", "lawrence@manaflow.ai"];
 export const REPLY_TO = "austin@manaflow.ai";
 export const EMAIL_SUBJECT = "cmux Founder's Edition";
+export const PRO_EMAIL_SUBJECT = "Welcome to cmux Pro!";
 
 // Custom header that defeats Gmail's subject-based conversation grouping.
 // Gmail collapses messages that share a normalized subject among the same
@@ -74,23 +75,36 @@ export type FoundersWelcomeEmail = {
   headers: Record<string, string>;
 };
 
-// Build the Resend payload for a founder welcome. The customer-facing subject
-// stays clean and constant across subscriptions; per-subscription threading is
-// carried entirely by the X-Entity-Ref-ID header so the recipient sees no
-// thread-key noise in the subject line.
+// Build the personal Resend payload. Founder's Edition keeps its historical
+// subject; Pro may provide its own subject while every other field remains
+// identical. Per-subscription threading is carried by X-Entity-Ref-ID.
 export function buildFoundersWelcomeEmail(params: {
   from: string;
   to: string;
   customerName: string | null | undefined;
   sessionRef: string;
+  subject?: string;
 }): FoundersWelcomeEmail {
   return {
     from: params.from,
     to: [params.to],
     cc: FOUNDER_CC,
     replyTo: REPLY_TO,
-    subject: EMAIL_SUBJECT,
+    subject: params.subject ?? EMAIL_SUBJECT,
     text: buildBody(firstName(params.customerName)),
     headers: { [THREAD_REF_HEADER]: foundersThreadRef(params.sessionRef) },
   };
+}
+
+/** Build the same personal payload for a Pro checkout with its Pro subject. */
+export function buildProWelcomeEmail(params: {
+  from: string;
+  to: string;
+  customerName: string | null | undefined;
+  sessionRef: string;
+}): FoundersWelcomeEmail {
+  return buildFoundersWelcomeEmail({
+    ...params,
+    subject: PRO_EMAIL_SUBJECT,
+  });
 }

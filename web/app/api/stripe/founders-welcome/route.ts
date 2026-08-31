@@ -13,6 +13,7 @@ import {
 import {
   DEFAULT_FROM_EMAIL,
   buildFoundersWelcomeEmail,
+  buildProWelcomeEmail,
 } from "./welcome-email";
 import { welcomeTriggerForMetadata } from "./welcome-trigger";
 
@@ -121,25 +122,28 @@ export async function POST(request: Request) {
 
       setSpanAttributes(span, { "cmux.stripe.event_type": event.type ?? "" });
 
-      // Pro purchases have their own transactional welcome and TestFlight
-      // fulfillment in /api/stripe/webhook. Acknowledge them here without
-      // sending the personal Founder's Edition email as well. Explicit
+      // This endpoint owns the personal welcome for Founder's Edition and Pro.
+      // Team and unrecognized checkouts are acknowledged without mail. Explicit
       // Founder's Edition metadata wins in welcomeTriggerForMetadata, so its
-      // behavior remains unchanged even if extra metadata is present.
-      if (event.type !== "checkout.session.completed") {
+      // existing behavior remains byte-identical even if extra metadata is
+      // present.
+      if (
+        event.type !== "checkout.session.completed" &&
+        event.type !== "checkout.session.async_payment_succeeded"
+      ) {
         return NextResponse.json({ ok: true, skipped: "event_type" });
       }
       const session = event.data?.object;
       const trigger = welcomeTriggerForMetadata(session?.metadata);
-      if (trigger === "pro_plan") {
-        return NextResponse.json({ ok: true, skipped: "pro_plan" });
-      }
       const customerEmail = session?.customer_details?.email ?? null;
       setSpanAttributes(span, {
         "cmux.stripe.is_founders": trigger === "founders_edition",
         "cmux.stripe.welcome_trigger": trigger,
         "cmux.stripe.has_customer_email": Boolean(customerEmail),
       });
+      if (trigger !== "founders_edition" && trigger !== "pro_plan") {
+        return NextResponse.json({ ok: true, skipped: "not_welcome_eligible" });
+      }
       if (!customerEmail) {
         // A completed session that arrives without a customer email is
         // diagnosable in telemetry rather than a silent miss.
@@ -164,13 +168,21 @@ export async function POST(request: Request) {
           ? `Austin Wang <${config.fromEmail}>`
           : config.fromEmail;
       const resend = new Resend(config.resendApiKey);
+      const emailPayload = trigger === "pro_plan"
+        ? buildProWelcomeEmail({
+            from: fromAddress,
+            to: customerEmail,
+            customerName: session?.customer_details?.name,
+            sessionRef,
+          })
+        : buildFoundersWelcomeEmail({
+            from: fromAddress,
+            to: customerEmail,
+            customerName: session?.customer_details?.name,
+            sessionRef,
+          });
       const { error } = await resend.emails.send(
-        buildFoundersWelcomeEmail({
-          from: fromAddress,
-          to: customerEmail,
-          customerName: session?.customer_details?.name,
-          sessionRef,
-        }),
+        emailPayload,
         { idempotencyKey },
       );
 

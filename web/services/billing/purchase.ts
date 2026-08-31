@@ -1,7 +1,7 @@
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type Stripe from "stripe";
 
-import { stackServerApp } from "../../app/lib/stack";
+import { getStackServerApp } from "../../app/lib/stack";
 import { cloudDb } from "../../db/client";
 import {
   accountDeletionTombstones,
@@ -30,10 +30,21 @@ import { stripe } from "./stripe";
 import { isAscConfigured } from "../asc/client";
 import {
   removeProTesterAccess,
+  enrollTester,
   removeTester,
   type RemoveTesterOptions,
 } from "../asc/testflight";
 import { captureAscError } from "../errors";
+import {
+  canonicalizeEmailForMatching,
+} from "./emailMatching";
+import {
+  markPurchaseEmailVerified,
+  isUnsupportedVerificationFieldError,
+  type StackPurchaseUser,
+} from "./stackVerification";
+
+export { canonicalizeEmailForMatching } from "./emailMatching";
 
 export const ACTIVE_STRIPE_SUBSCRIPTION_STATUSES = new Set([
   "active",
@@ -49,6 +60,42 @@ type BillingDbTransaction = BillingDbClient & {
 };
 type StripeBillingClient = Pick<ReturnType<typeof stripe>, "customers" | "subscriptions">;
 
+/** A Stack account that may own a paid billing record. */
+export type ProBillingClaimUser = StackPurchaseUser & {
+  readonly isAnonymous?: boolean;
+  readonly isRestricted?: boolean;
+  readonly clientReadOnlyMetadata?: unknown;
+};
+
+export type BillingOwnershipClaim = {
+  readonly id: string;
+  readonly email: string;
+  readonly stripeCustomerId: string;
+  readonly stackUserId: string;
+  readonly claimedByUserId: string | null;
+};
+
+export type BillingOwnershipTransfer = {
+  readonly kind: "claimed";
+  readonly claimId: string;
+  readonly email: string;
+  readonly customerId: string;
+  readonly subscriptionIds: readonly string[];
+  readonly sourceStackUserId: string;
+  readonly targetStackUserId: string;
+};
+
+export type BillingOwnershipRepository = {
+  findClaims: (
+    email: string,
+    targetStackUserId: string,
+  ) => Promise<readonly BillingOwnershipClaim[]>;
+  transferClaim: (
+    claim: BillingOwnershipClaim,
+    targetStackUserId: string,
+  ) => Promise<BillingOwnershipTransfer | null>;
+};
+
 type StripeSubscriptionValuesInput = {
   subscription: Stripe.Subscription;
   customerId: string;
@@ -57,13 +104,12 @@ type StripeSubscriptionValuesInput = {
   scope: "user" | "team";
 };
 
-type StackBillingUser = {
+export type StackBillingUser = ProBillingClaimUser & {
   readonly id: string;
-  readonly primaryEmail?: string | null;
-  readonly clientReadOnlyMetadata?: unknown;
   update(options: {
     primaryEmail?: string | null;
     primaryEmailAuthEnabled?: boolean;
+    primaryEmailVerified?: boolean;
     clientReadOnlyMetadata?: unknown;
   }): Promise<unknown>;
 };
@@ -71,6 +117,11 @@ type StackBillingUser = {
 type StackBillingUserLookup = {
   readonly id: string;
   readonly primaryEmail?: string | null;
+  readonly primaryEmailVerified?: boolean;
+  readonly isAnonymous?: boolean;
+  readonly isRestricted?: boolean;
+  readonly update?: StackBillingUser["update"];
+  readonly setPrimaryEmail?: StackBillingUser["setPrimaryEmail"];
 };
 
 type StackBillingTeam = {
@@ -81,7 +132,7 @@ type StackBillingTeam = {
   }): Promise<unknown>;
 };
 
-type StackBillingApp = {
+export type StackBillingApp = {
   getUser(id: string): Promise<StackBillingUser | null>;
   listUsers?(options?: {
     query?: string;
@@ -89,15 +140,29 @@ type StackBillingApp = {
     includeAnonymous?: boolean;
     includeRestricted?: boolean;
   }): Promise<readonly StackBillingUserLookup[]>;
+  createUser?(options: {
+    primaryEmail?: string | null;
+    primaryEmailAuthEnabled?: boolean;
+    primaryEmailVerified?: boolean;
+    displayName?: string;
+    clientReadOnlyMetadata?: unknown;
+  }): Promise<StackBillingUser>;
+  sendMagicLinkEmail?(email: string, options?: { callbackUrl?: string }): Promise<unknown>;
   getTeam?(id: string): Promise<StackBillingTeam | null>;
 };
 
-type BillingPurchaseDependencies = {
+export type BillingPurchaseDependencies = {
   db?: BillingDb;
   stackApp?: StackBillingApp | null;
   stripeClient?: () => StripeBillingClient;
+  ownershipRepository?: BillingOwnershipRepository;
   testflight?: {
     isAscConfigured?: () => boolean;
+    enrollTester?: (
+      email: string,
+      firstName?: string,
+      lastName?: string,
+    ) => Promise<void>;
     removeTester?: (
       email: string,
       options?: RemoveTesterOptions,
@@ -113,12 +178,21 @@ export type CheckoutCompletionInput = {
   session: Stripe.Checkout.Session;
   subscription?: Stripe.Subscription | null;
   customer?: Stripe.Customer | Stripe.DeletedCustomer | null;
+  /** Optional literal address used for TestFlight enrollment during recovery. */
+  enrollmentEmail?: string | null;
+  /** Internal recovery seam allowing a verified email owner to remap parked rows. */
+  allowCanonicalOwnershipRecovery?: boolean;
 };
 
-type CheckoutCompletionResult =
+export type CheckoutCompletionResult =
   | { scope: "user"; stackUserId: string; subscriptionId: string }
   | { scope: "team"; stackTeamId: string; subscriptionId: string }
   | { skipped: "account_deletion_in_progress"; stackUserId: string; subscriptionId: string };
+
+export type FoundersCheckoutCompletionResult =
+  | { scope: "user"; stackUserId: string; subscriptionId: string }
+  | { skipped: "account_deletion_in_progress"; stackUserId: string; subscriptionId: string }
+  | { skipped: "no_customer_email"; subscriptionId: string };
 
 type UserCheckoutPostCommitSync = {
   user: StackBillingUser;
@@ -163,13 +237,119 @@ export async function recordCheckoutCompletion(
     });
   }
 
-  const stackUserId = stackUserIdFromSession(input.session, subscription);
-  if (!stackUserId) {
+  const requestedStackUserId = stackUserIdFromSession(input.session, subscription);
+  if (!requestedStackUserId) {
     throw new Error("Stripe checkout session is missing stackUserId");
   }
 
   const db = dependencies.db ?? cloudDb();
-  const user = await loadOptionalStackUser(stackUserId, dependencies.stackApp);
+  const checkoutStackApp = dependencies.stackApp ?? getStackServerApp();
+  let stackUserId = requestedStackUserId;
+  let user = await loadOptionalStackUser(stackUserId, checkoutStackApp);
+  let resolvedFromAnonymousAlias = false;
+  let remappedSourceStackUserId: string | null = null;
+  const checkoutEmailValue = checkoutEmail(input.session, input.customer);
+  // A checkout can be replayed after an earlier recovery moved its Stripe
+  // customer to the verified destination account. Fence that stale
+  // client_reference_id before any upsert can move ownership back. This read
+  // also rejects a Team-scoped customer accidentally presented as a personal
+  // checkout.
+  const shouldFenceMappedOwnership =
+    input.allowCanonicalOwnershipRecovery ||
+    user?.isAnonymous === true ||
+    !user;
+  const mappedCustomerBeforeLookup = shouldFenceMappedOwnership
+    ? await stripeCustomerRowForId(db, customerId)
+    : null;
+  if (mappedCustomerBeforeLookup?.stackTeamId != null) {
+    throw new Error("Stripe checkout customer belongs to a Team");
+  }
+  if (
+    mappedCustomerBeforeLookup?.stackUserId &&
+    mappedCustomerBeforeLookup.stackUserId !== requestedStackUserId
+  ) {
+    const mappedOwner = await loadOptionalStackUser(
+      mappedCustomerBeforeLookup.stackUserId,
+      checkoutStackApp,
+    );
+    const canonicalEmailMatches = Boolean(
+      checkoutEmailValue &&
+        mappedOwner &&
+        mappedOwner.primaryEmail &&
+        canonicalizeEmailForMatching(mappedOwner.primaryEmail ?? "") ===
+          canonicalizeEmailForMatching(checkoutEmailValue),
+    );
+    const parkedAnonymousSource = Boolean(
+      mappedOwner?.isAnonymous === true && !mappedOwner.primaryEmail,
+    );
+    const recoveryTargetIsVerified = Boolean(
+      input.allowCanonicalOwnershipRecovery &&
+        user &&
+        user.isAnonymous !== true &&
+        user.isRestricted !== true &&
+        (canonicalEmailMatches || parkedAnonymousSource) &&
+        canonicalizeEmailForMatching(user.primaryEmail ?? "") ===
+          canonicalizeEmailForMatching(checkoutEmailValue ?? ""),
+    );
+    const staleReplayOwnerIsVerified = Boolean(
+      mappedOwner &&
+        mappedOwner.isAnonymous !== true &&
+        mappedOwner.isRestricted !== true &&
+        !isAccountDeletionInProgress(mappedOwner) &&
+        mappedOwner.primaryEmailVerified === true &&
+        canonicalEmailMatches,
+    );
+    if (!recoveryTargetIsVerified && !staleReplayOwnerIsVerified) {
+      throw new Error("Stripe checkout customer ownership conflict");
+    }
+    if (!mappedOwner || await hasCheckoutBlockingAccountDeletionTombstone(mappedOwner.id, db)) {
+      throw new Error("Stripe checkout customer ownership conflict");
+    }
+    if (recoveryTargetIsVerified) {
+      resolvedFromAnonymousAlias = true;
+      remappedSourceStackUserId = mappedCustomerBeforeLookup.stackUserId;
+    } else {
+      return {
+        scope: "user",
+        stackUserId: mappedCustomerBeforeLookup.stackUserId,
+        subscriptionId: subscription.id,
+      };
+    }
+  }
+  // Stripe's anonymous checkout user is only a temporary holder. If the
+  // purchased mailbox already belongs to a canonical Stack account (including
+  // a dotted Gmail alias), write the purchase directly to that account instead
+  // of creating a permanent unresolved claim.
+  if (user?.isAnonymous === true && checkoutEmailValue) {
+    try {
+      const ownerId = await findUserIdByEmail(
+        checkoutStackApp,
+        checkoutEmailValue,
+      );
+      if (ownerId && ownerId !== stackUserId) {
+        const owner = await loadOptionalStackUser(ownerId, checkoutStackApp);
+        if (owner) {
+          stackUserId = ownerId;
+          user = owner;
+          resolvedFromAnonymousAlias = true;
+        }
+      }
+    } catch {
+      // A temporary Stack lookup outage falls back to the normal claim path;
+      // the next recovery/sign-in can resolve that claim safely.
+    }
+  }
+  const effectiveSubscription = resolvedFromAnonymousAlias
+    ? ({
+        ...subscription,
+        metadata: {
+          ...subscription.metadata,
+          app: "cmux",
+          plan: PRO_PLAN_ID,
+          stackUserId,
+        },
+      } as Stripe.Subscription)
+    : subscription;
   const lockedResult = await withAccountDeletionUserLock(
     db,
     stackUserId,
@@ -190,13 +370,46 @@ export async function recordCheckoutCompletion(
       if (!user) throw new Error(`Stack user not found for checkout completion: ${stackUserId}`);
 
       const email = checkoutEmail(input.session, input.customer);
+      if (resolvedFromAnonymousAlias) {
+        const mappedCustomer = await stripeCustomerRowForId(tx, customerId);
+        if (mappedCustomer && mappedCustomer.stackUserId !== stackUserId) {
+          if (mappedCustomer.stackTeamId != null) {
+            throw new Error("Stripe checkout customer ownership conflict");
+          }
+          if (
+            (!input.allowCanonicalOwnershipRecovery &&
+              mappedCustomer.stackUserId !== requestedStackUserId) ||
+            (input.allowCanonicalOwnershipRecovery &&
+              mappedCustomer.stackUserId !== remappedSourceStackUserId)
+          ) {
+            throw new Error("Stripe checkout customer ownership conflict");
+          }
+          // The anonymous holder may already have been written by an earlier
+          // webhook delivery. Move that exact customer/subscription pair to
+          // the canonical mailbox account under the same transaction.
+          await tx
+            .update(stripeCustomers)
+            .set({ stackUserId, updatedAt: sql`now()` })
+            .where(eq(stripeCustomers.id, customerId));
+          await tx
+            .update(stripeSubscriptions)
+            .set({ stackUserId, updatedAt: sql`now()` })
+            .where(
+              and(
+                eq(stripeSubscriptions.customerId, customerId),
+                eq(stripeSubscriptions.scope, "user"),
+                isNull(stripeSubscriptions.stackTeamId),
+              ),
+            );
+        }
+      }
       await upsertStripeCustomer(tx, {
         customerId,
         stackUserId,
-        email,
+        email: checkoutLiteralEmail(input.session, input.customer),
       });
       await upsertStripeSubscription(tx, {
-        subscription,
+        subscription: effectiveSubscription,
         customerId,
         stackUserId,
         scope: "user",
@@ -208,7 +421,7 @@ export async function recordCheckoutCompletion(
           email,
           stripeCustomerId: customerId,
           stackUserId,
-          stackApp: dependencies.stackApp ?? stackServerApp,
+          stackApp: checkoutStackApp,
         },
         result: { scope: "user", stackUserId, subscriptionId: subscription.id },
       };
@@ -226,8 +439,925 @@ export async function recordCheckoutCompletion(
   if (lockedResult.postCommitUserSync) {
     await syncUserCheckoutAfterCommit(db, lockedResult.postCommitUserSync);
   }
+  if (resolvedFromAnonymousAlias) {
+    const sourceToClear = remappedSourceStackUserId ?? requestedStackUserId;
+    try {
+      await syncStackUserMetadataWithAccountDeletionGuard({
+        db,
+        stackUserId: sourceToClear,
+        stackApp: checkoutStackApp,
+        sync: async (source, mutationLease) => {
+          if (source.id !== sourceToClear) return;
+          if (await hasActiveUserProSubscription(db, source.id)) return;
+          await syncProPlanMetadata(source, false, mutationLease);
+        },
+      });
+    } catch {
+      // The ownership move is durable; anonymous-source cleanup can retry on
+      // the next billing read without moving the customer back.
+    }
+    await syncResolvedStripeOwnership(
+      customerId,
+      effectiveSubscription.id,
+      stackUserId,
+      dependencies,
+    );
+    await resolveBillingEmailClaimsForCustomer(
+      db,
+      customerId,
+      stackUserId,
+      checkoutEmailValue,
+    );
+  }
 
   return lockedResult.result;
+}
+
+/**
+ * Provision a Founder's Edition checkout that has no Stack user id in Stripe
+ * metadata. The buyer email is the lookup key; all durable billing writes and
+ * metadata changes remain idempotent on the Stripe customer/subscription ids.
+ */
+export async function recordFoundersCheckoutCompletion(
+  input: CheckoutCompletionInput,
+  dependencies: BillingPurchaseDependencies = {},
+): Promise<FoundersCheckoutCompletionResult> {
+  const providerSubscription = input.subscription ?? expandedSubscription(input.session);
+  const email = checkoutEmail(input.session, input.customer);
+  if (!email) {
+    return {
+      skipped: "no_customer_email",
+      subscriptionId:
+        providerSubscription?.id ??
+        stringId(input.session.subscription) ??
+        stringId(input.session.payment_intent) ??
+        `founders_${input.session.id}`,
+    };
+  }
+
+  const customerId = customerIdFromSession(input.session, input.customer);
+  if (!customerId) {
+    throw new Error("Stripe Founder's Edition checkout is missing a customer id");
+  }
+  const subscription = normalizeFounderSubscription(
+    providerSubscription ?? syntheticFounderSubscription(input.session, customerId),
+  );
+
+  const stackApp = dependencies.stackApp ?? getStackServerApp();
+  if (!stackApp) throw new Error("Stack Auth is not configured");
+  const user = await findOrCreateBillingUser(
+    stackApp,
+    email,
+  );
+  if (!user) throw new Error("Stack Auth did not return a billing user");
+
+  const db = dependencies.db ?? cloudDb();
+  // Resolve the only potentially external owner lookup before taking the
+  // database advisory lock. The locked transaction re-checks the row and
+  // fails closed if ownership changed while the Stack request was in flight.
+  const mappedCustomerBeforeLock = await stripeCustomerRowForId(db, customerId);
+  let mappedOwnerBeforeLock: StackBillingUser | null = null;
+  if (mappedCustomerBeforeLock && mappedCustomerBeforeLock.stackUserId !== user.id) {
+    if (mappedCustomerBeforeLock.stackTeamId != null) {
+      throw new Error("Stripe Founder's Edition customer ownership conflict");
+    }
+    mappedOwnerBeforeLock = await loadOptionalStackUser(
+      mappedCustomerBeforeLock.stackUserId,
+      stackApp,
+    );
+    if (
+      !mappedOwnerBeforeLock ||
+      isAccountDeletionInProgress(mappedOwnerBeforeLock) ||
+      !isCompatibleFounderOwner(mappedOwnerBeforeLock, email)
+    ) {
+      throw new Error("Stripe Founder's Edition customer ownership conflict");
+    }
+  }
+  const lockedResult = await withAccountDeletionUserLock(
+    db,
+    user.id,
+    async (tx): Promise<
+      | {
+          result: FoundersCheckoutCompletionResult;
+          postCommit: boolean;
+          remappedSourceStackUserId?: string;
+        }
+    > => {
+      if (
+        await hasCheckoutBlockingAccountDeletionTombstone(user.id, tx) ||
+        isAccountDeletionInProgress(user)
+      ) {
+        return {
+          result: {
+            skipped: "account_deletion_in_progress",
+            stackUserId: user.id,
+            subscriptionId: subscription.id,
+          },
+          postCommit: false,
+        };
+      }
+
+      const mappedCustomer = await stripeCustomerRowForId(tx, customerId);
+      let remappedSourceStackUserId: string | undefined;
+      if (mappedCustomer && mappedCustomer.stackUserId !== user.id) {
+        if (mappedCustomer.stackTeamId != null) {
+          throw new Error("Stripe Founder's Edition customer ownership conflict");
+        }
+        if (
+          !mappedCustomerBeforeLock ||
+          mappedCustomerBeforeLock.stackUserId !== mappedCustomer.stackUserId ||
+          (mappedCustomerBeforeLock.stackTeamId ?? null) !==
+            (mappedCustomer.stackTeamId ?? null) ||
+          mappedOwnerBeforeLock?.id !== mappedCustomer.stackUserId
+        ) {
+          throw new Error("Stripe Founder's Edition customer ownership conflict");
+        }
+        if (
+          await hasCheckoutBlockingAccountDeletionTombstone(
+            mappedCustomer.stackUserId,
+            tx,
+          )
+        ) {
+          throw new Error("Stripe Founder's Edition customer ownership conflict");
+        }
+        // The two Stack accounts represent the same canonical mailbox (most
+        // commonly a dotted Gmail duplicate). Move only the local billing rows;
+        // account merge/deletion remains an operator follow-up.
+        await tx
+          .update(stripeCustomers)
+          .set({ stackUserId: user.id, updatedAt: sql`now()` })
+          .where(eq(stripeCustomers.id, customerId));
+        await tx
+          .update(stripeSubscriptions)
+          .set({ stackUserId: user.id, updatedAt: sql`now()` })
+          .where(
+            and(
+              eq(stripeSubscriptions.customerId, customerId),
+              eq(stripeSubscriptions.scope, "user"),
+              isNull(stripeSubscriptions.stackTeamId),
+            ),
+          );
+        remappedSourceStackUserId = mappedCustomer.stackUserId;
+      }
+
+      await upsertStripeCustomer(tx, {
+        customerId,
+        stackUserId: user.id,
+        // Keep the exact Stripe spelling for audit; account matching uses the
+        // canonical form separately.
+        email: checkoutLiteralEmail(input.session, input.customer),
+      });
+      await upsertStripeSubscription(tx, {
+        subscription,
+        customerId,
+        stackUserId: user.id,
+        scope: "user",
+      });
+      return {
+        result: {
+          scope: "user",
+          stackUserId: user.id,
+          subscriptionId: subscription.id,
+        },
+        postCommit: true,
+        ...(remappedSourceStackUserId
+          ? { remappedSourceStackUserId }
+          : {}),
+      };
+    },
+  );
+
+  if (!lockedResult.postCommit || !("scope" in lockedResult.result)) {
+    return lockedResult.result;
+  }
+
+  await syncStackUserMetadataWithAccountDeletionGuard({
+    db,
+    stackUserId: user.id,
+    stackApp,
+    sync: async (freshUser, mutationLease) => {
+      // A newly-created user already has an email, while an older account may
+      // still need the literal Stripe address attached. Both paths verify it.
+      await attachPurchaseEmailOrRecordClaim(
+        db,
+        {
+          user: freshUser,
+          email,
+          stripeCustomerId: customerId,
+          stackUserId: user.id,
+          stackApp,
+        },
+        mutationLease,
+      );
+      await syncProPlanMetadata(freshUser, true, mutationLease);
+    },
+  });
+
+  if (lockedResult.remappedSourceStackUserId) {
+    try {
+      await syncStackUserMetadataWithAccountDeletionGuard({
+        db,
+        stackUserId: lockedResult.remappedSourceStackUserId,
+        stackApp,
+        sync: async (source, mutationLease) => {
+          if (await hasActiveUserProSubscription(db, source.id)) return;
+          await syncProPlanMetadata(source, false, mutationLease);
+        },
+      });
+    } catch {
+      // The ownership move is durable; stale source metadata can be repaired
+      // on the next billing read or by the manual duplicate-account cleanup.
+    }
+    await syncResolvedStripeOwnership(
+      customerId,
+      subscription.id,
+      user.id,
+      dependencies,
+    );
+  }
+
+  await enrollFounderTester(
+    input.enrollmentEmail?.trim() || email,
+    checkoutCustomerName(input.session, input.customer),
+    dependencies,
+  );
+  await resolveBillingEmailClaimsForCustomer(
+    db,
+    customerId,
+    user.id,
+    email,
+  );
+  return lockedResult.result;
+}
+
+/**
+ * Provision a paid Pro checkout when its original anonymous Stack id is no
+ * longer usable. Recovery and the lockout backfill call this same boundary so
+ * they cannot diverge from webhook behavior.
+ */
+export async function recordProCheckoutCompletionByEmail(
+  input: CheckoutCompletionInput,
+  dependencies: BillingPurchaseDependencies = {},
+): Promise<CheckoutCompletionResult | FoundersCheckoutCompletionResult> {
+  const session = input.session;
+  if (session.metadata?.founders_edition === "true") {
+    return recordFoundersCheckoutCompletion(input, dependencies);
+  }
+
+  const email = checkoutEmail(session, input.customer);
+  if (!email) {
+    const subscription = input.subscription ?? expandedSubscription(session);
+    if (!subscription) throw new Error("Stripe Pro checkout is missing a subscription");
+    return { skipped: "no_customer_email", subscriptionId: subscription.id };
+  }
+  const customerId = customerIdFromSession(session, input.customer);
+  if (!customerId) throw new Error("Stripe Pro checkout is missing a customer id");
+  const subscription = input.subscription ?? expandedSubscription(session);
+  if (!subscription) throw new Error("Stripe Pro checkout is missing a subscription");
+  const stackApp = dependencies.stackApp ?? getStackServerApp();
+  if (!stackApp) throw new Error("Stack Auth is not configured");
+  const existingUser = await findOrCreateBillingUser(
+    stackApp,
+    email,
+  );
+  if (!existingUser) throw new Error("Stack Auth did not return a billing user");
+
+  const rewrittenSession = {
+    ...session,
+    client_reference_id: existingUser.id,
+    metadata: {
+      ...(session.metadata ?? {}),
+      app: "cmux",
+      plan: "pro",
+      stackUserId: existingUser.id,
+    },
+  } as Stripe.Checkout.Session;
+  // Keep the original session object for audit and email callers; only the
+  // shared recorder needs the resolved Stack reference.
+  const result = await recordCheckoutCompletion(
+    {
+      session: rewrittenSession,
+      subscription: {
+        ...subscription,
+        metadata: {
+          ...subscription.metadata,
+          app: "cmux",
+          plan: "pro",
+          stackUserId: existingUser.id,
+        },
+      },
+      customer: input.customer,
+      allowCanonicalOwnershipRecovery: true,
+    },
+    dependencies,
+  );
+  if (!("skipped" in result)) {
+    await resolveBillingEmailClaimsForCustomer(
+      dependencies.db ?? cloudDb(),
+      customerId,
+      existingUser.id,
+      email,
+    );
+    await syncResolvedStripeOwnership(
+      customerId,
+      subscription.id,
+      existingUser.id,
+      dependencies,
+    );
+  }
+  return result;
+}
+
+async function resolveBillingEmailClaimsForCustomer(
+  db: BillingDb,
+  customerId: string,
+  targetStackUserId: string,
+  email?: string | null,
+): Promise<void> {
+  const basePredicate = and(
+    eq(billingEmailClaims.stripeCustomerId, customerId),
+    eq(billingEmailClaims.plan, PRO_PLAN_ID),
+    isNull(billingEmailClaims.claimedByUserId),
+  );
+  if (!email) {
+    await db
+      .update(billingEmailClaims)
+      .set({ claimedByUserId: targetStackUserId, claimedAt: new Date() })
+      .where(basePredicate);
+    return;
+  }
+
+  // Claims written by older deployments may retain dotted Gmail spelling.
+  // Read the bounded customer set and compare canonically before claiming so
+  // a recovery for one mailbox cannot consume an unrelated claim on a shared
+  // Stripe customer.
+  const rows = await db
+    .select({ id: billingEmailClaims.id, email: billingEmailClaims.email })
+    .from(billingEmailClaims)
+    .where(basePredicate)
+    .limit(100);
+  const matchingEmail = canonicalizeEmailForMatching(email);
+  for (const row of rows) {
+    if (canonicalizeEmailForMatching(row.email) !== matchingEmail) continue;
+    await db
+      .update(billingEmailClaims)
+      .set({ claimedByUserId: targetStackUserId, claimedAt: new Date() })
+      .where(
+        and(
+          eq(billingEmailClaims.id, row.id),
+          isNull(billingEmailClaims.claimedByUserId),
+        ),
+      );
+  }
+}
+
+/** Find an existing account by canonical billing email, or create one. */
+export async function findOrCreateBillingUser(
+  stackApp: StackBillingApp,
+  email: string,
+): Promise<StackBillingUser> {
+  const existing = await findBillingUserByEmail(stackApp, email);
+  if (existing) return existing;
+  if (!stackApp.createUser) {
+    throw new Error("Stack Auth server SDK cannot create users");
+  }
+
+  const trimmedEmail = email.trim();
+  try {
+    let created: StackBillingUser;
+    try {
+      created = await stackApp.createUser({
+        primaryEmail: trimmedEmail,
+        primaryEmailAuthEnabled: true,
+        primaryEmailVerified: true,
+      });
+    } catch (error) {
+      // Older Stack SDKs reject the verified create field. Create the account
+      // with auth enabled, then use the shared verifier (SDK or REST fallback)
+      // so the purchase never gets stranded behind an unverified channel.
+      if (!isUnsupportedVerificationFieldError(error)) throw error;
+      created = await stackApp.createUser({
+        primaryEmail: trimmedEmail,
+        primaryEmailAuthEnabled: true,
+      });
+    }
+    // Older SDKs may accept the create option but return a stale user object;
+    // the shared verifier makes the persisted state explicit and remains a
+    // no-op for current SDKs that report `primaryEmailVerified: true`.
+    await markPurchaseEmailVerified(created, trimmedEmail);
+    return created;
+  } catch (error) {
+    // Another webhook can win the canonical-email race. Re-read before
+    // surfacing the create failure so retries remain idempotent.
+    if (!isEmailAlreadyUsedError(error)) throw error;
+    const raced = await findBillingUserByEmail(stackApp, email);
+    if (raced) return raced;
+    throw error;
+  }
+}
+
+/** Find a mutable Stack user using Gmail-aware canonical matching. */
+export async function findBillingUserByEmail(
+  stackApp: StackBillingApp,
+  email: string,
+): Promise<StackBillingUser | null> {
+  if (!stackApp.listUsers) {
+    throw new Error("Stack Auth server SDK cannot list users");
+  }
+  const matchingEmail = canonicalizeEmailForMatching(email);
+  const literalEmail = email.trim().toLowerCase();
+  const queries = literalEmail === matchingEmail
+    ? [matchingEmail]
+    : [matchingEmail, literalEmail];
+  const candidateByID = new Map<string, StackBillingUserLookup>();
+  for (const query of queries) {
+    const users = await stackApp.listUsers({
+      query,
+      limit: 20,
+      includeAnonymous: true,
+      includeRestricted: true,
+    });
+    for (const candidate of users) {
+      if (
+        candidate.primaryEmail &&
+        canonicalizeEmailForMatching(candidate.primaryEmail) === matchingEmail
+      ) {
+        candidateByID.set(candidate.id, candidate);
+      }
+    }
+  }
+  const candidates = [...candidateByID.values()].sort(compareStackUserLookup);
+  for (const candidate of candidates) {
+    if (typeof candidate.update === "function") {
+      return candidate as StackBillingUser;
+    }
+    const user = await stackApp.getUser(candidate.id);
+    if (user) return user;
+  }
+  return null;
+}
+
+/**
+ * Resolve pending billing-email claims for a verified Stack account.
+ *
+ * Claims are only created when an anonymous checkout could not attach its
+ * email. A verified destination account can consume them later; an email
+ * string by itself is never treated as ownership proof.
+ */
+export async function claimPendingProBilling(
+  user: ProBillingClaimUser,
+  dependencies: BillingPurchaseDependencies = {},
+): Promise<{ readonly claimed: number }> {
+  const email = verifiedClaimEmail(user);
+  if (!email) return { claimed: 0 };
+  let stackApp: StackBillingApp | null = dependencies.stackApp ?? null;
+  if (!stackApp) {
+    try {
+      stackApp = getStackServerApp();
+    } catch {
+      return { claimed: 0 };
+    }
+  }
+  if (!stackApp) return { claimed: 0 };
+  const db = dependencies.db ?? cloudDb();
+  const repository =
+    dependencies.ownershipRepository ?? makeBillingOwnershipRepository(db);
+  const claims = await repository.findClaims(email, user.id);
+  let claimed = 0;
+
+  for (const claim of claims) {
+    if (claim.claimedByUserId) continue;
+    const source = await stackApp.getUser(claim.stackUserId);
+    if (!source || source.id === user.id || source.isAnonymous !== true) continue;
+    const transfer = await repository.transferClaim(claim, user.id);
+    if (!transfer) continue;
+    claimed += 1;
+    await clearTransferredSourceProMetadata(transfer, db, stackApp);
+    await syncTransferredStripeOwnership(transfer, dependencies.stripeClient ?? stripe);
+  }
+  return { claimed };
+}
+
+/**
+ * Move a known Stripe customer's local ownership to an explicitly selected
+ * Stack account. This is reserved for audited recovery/backfill cases (such
+ * as the Gmail dotted-address duplicate) and never deletes or merges Stack
+ * accounts.
+ */
+export async function remapBillingOwnershipForRecovery(
+  input: {
+    readonly customerId: string;
+    readonly subscriptionIds: readonly string[];
+    readonly targetStackUserId: string;
+    readonly email?: string | null;
+  },
+  dependencies: BillingPurchaseDependencies = {},
+): Promise<void> {
+  const db = dependencies.db ?? cloudDb();
+  await withAccountDeletionUserLock(db, input.targetStackUserId, async (tx) => {
+    const [targetCustomer] = await tx
+      .select({ id: stripeCustomers.id })
+      .from(stripeCustomers)
+      .where(
+        and(
+          eq(stripeCustomers.stackUserId, input.targetStackUserId),
+          isNull(stripeCustomers.stackTeamId),
+        ),
+      )
+      .limit(1);
+    if (targetCustomer && targetCustomer.id !== input.customerId) {
+      throw new Error("Recovery target already owns a different Stripe customer");
+    }
+
+    const [sourceCustomer] = await tx
+      .select({
+        id: stripeCustomers.id,
+        stackTeamId: stripeCustomers.stackTeamId,
+      })
+      .from(stripeCustomers)
+      .where(eq(stripeCustomers.id, input.customerId))
+      .limit(1);
+    if (sourceCustomer && sourceCustomer.stackTeamId != null) {
+      throw new Error("Recovery cannot remap a Team Stripe customer");
+    }
+
+    await tx
+      .update(stripeCustomers)
+      .set({
+        stackUserId: input.targetStackUserId,
+        ...(input.email === undefined ? {} : { email: input.email }),
+        updatedAt: sql`now()`,
+      })
+      .where(eq(stripeCustomers.id, input.customerId));
+    if (input.subscriptionIds.length > 0) {
+      await tx
+        .update(stripeSubscriptions)
+        .set({ stackUserId: input.targetStackUserId, updatedAt: sql`now()` })
+        .where(
+          and(
+            inArray(stripeSubscriptions.id, [...input.subscriptionIds]),
+            eq(stripeSubscriptions.customerId, input.customerId),
+            eq(stripeSubscriptions.scope, "user"),
+            isNull(stripeSubscriptions.stackTeamId),
+          ),
+        );
+    }
+  });
+}
+
+function verifiedClaimEmail(user: ProBillingClaimUser): string | null {
+  if (
+    user.isAnonymous === true ||
+    user.isRestricted === true ||
+    user.primaryEmailVerified !== true
+  ) {
+    return null;
+  }
+  const email = user.primaryEmail?.trim();
+  return email && email.includes("@")
+    ? canonicalizeEmailForMatching(email)
+    : null;
+}
+
+function makeBillingOwnershipRepository(
+  db: BillingDb,
+): BillingOwnershipRepository {
+  return {
+    findClaims: async (email) => {
+      const rows = await db
+        .select({
+          id: billingEmailClaims.id,
+          email: billingEmailClaims.email,
+          stripeCustomerId: billingEmailClaims.stripeCustomerId,
+          stackUserId: billingEmailClaims.stackUserId,
+          claimedByUserId: billingEmailClaims.claimedByUserId,
+        })
+        .from(billingEmailClaims)
+        .where(
+          and(
+            eq(billingEmailClaims.plan, PRO_PLAN_ID),
+            isNull(billingEmailClaims.claimedByUserId),
+          ),
+        )
+        .limit(100);
+      const matchingEmail = canonicalizeEmailForMatching(email);
+      return rows.filter(
+        (row) => canonicalizeEmailForMatching(row.email) === matchingEmail,
+      );
+    },
+    transferClaim: (claim, targetStackUserId) =>
+      transferBillingOwnershipClaim(db, claim, targetStackUserId),
+  };
+}
+
+async function transferBillingOwnershipClaim(
+  db: BillingDb,
+  claim: BillingOwnershipClaim,
+  targetStackUserId: string,
+): Promise<BillingOwnershipTransfer | null> {
+  const sourceStackUserId = claim.stackUserId;
+  const lockIDs = [...new Set([sourceStackUserId, targetStackUserId])].sort();
+  return db.transaction(async (tx) => {
+    const accountTx = tx as BillingDbTransaction;
+    for (const lockID of lockIDs) {
+      await accountTx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(lockID)}, 0))`,
+      );
+    }
+
+    const [freshClaim] = await accountTx
+      .select({
+        id: billingEmailClaims.id,
+        email: billingEmailClaims.email,
+        stripeCustomerId: billingEmailClaims.stripeCustomerId,
+        stackUserId: billingEmailClaims.stackUserId,
+        claimedByUserId: billingEmailClaims.claimedByUserId,
+      })
+      .from(billingEmailClaims)
+      .where(eq(billingEmailClaims.id, claim.id))
+      .limit(1);
+    if (!freshClaim || freshClaim.claimedByUserId) return null;
+
+    if (
+      await hasCheckoutBlockingAccountDeletionTombstone(sourceStackUserId, accountTx) ||
+      await hasCheckoutBlockingAccountDeletionTombstone(targetStackUserId, accountTx)
+    ) {
+      return null;
+    }
+
+    const [targetCustomer] = await accountTx
+      .select({ id: stripeCustomers.id })
+      .from(stripeCustomers)
+      .where(
+        and(
+          eq(stripeCustomers.stackUserId, targetStackUserId),
+          isNull(stripeCustomers.stackTeamId),
+        ),
+      )
+      .limit(1);
+    if (targetCustomer && targetCustomer.id !== freshClaim.stripeCustomerId) {
+      return null;
+    }
+
+    const sourceCustomer = await accountTx
+      .select({ id: stripeCustomers.id })
+      .from(stripeCustomers)
+      .where(
+        and(
+          eq(stripeCustomers.id, freshClaim.stripeCustomerId),
+          eq(stripeCustomers.stackUserId, sourceStackUserId),
+          isNull(stripeCustomers.stackTeamId),
+        ),
+      )
+      .limit(1);
+    const sourceSubscriptions = await accountTx
+      .select({ id: stripeSubscriptions.id, status: stripeSubscriptions.status })
+      .from(stripeSubscriptions)
+      .where(
+        and(
+          eq(stripeSubscriptions.customerId, freshClaim.stripeCustomerId),
+          eq(stripeSubscriptions.stackUserId, sourceStackUserId),
+          eq(stripeSubscriptions.scope, "user"),
+          eq(stripeSubscriptions.plan, PRO_PLAN_ID),
+          isNull(stripeSubscriptions.stackTeamId),
+        ),
+      )
+      .limit(100);
+    if (
+      sourceCustomer.length === 0 ||
+      !sourceSubscriptions.some((row) =>
+        isActiveStripeSubscriptionStatus(row.status),
+      )
+    ) {
+      return null;
+    }
+
+    const targetSubscriptions = await accountTx
+      .select({ id: stripeSubscriptions.id, status: stripeSubscriptions.status })
+      .from(stripeSubscriptions)
+      .where(
+        and(
+          eq(stripeSubscriptions.stackUserId, targetStackUserId),
+          eq(stripeSubscriptions.scope, "user"),
+          eq(stripeSubscriptions.plan, PRO_PLAN_ID),
+          isNull(stripeSubscriptions.stackTeamId),
+        ),
+      )
+      .limit(100);
+    const sourceSubscriptionIDs = sourceSubscriptions.map((row) => row.id);
+    if (
+      targetSubscriptions.some(
+        (row) =>
+          isActiveStripeSubscriptionStatus(row.status) &&
+          !sourceSubscriptionIDs.includes(row.id),
+      )
+    ) {
+      return null;
+    }
+
+    const now = new Date();
+    await accountTx
+      .update(stripeCustomers)
+      .set({ stackUserId: targetStackUserId, updatedAt: now })
+      .where(
+        and(
+          eq(stripeCustomers.id, freshClaim.stripeCustomerId),
+          eq(stripeCustomers.stackUserId, sourceStackUserId),
+          isNull(stripeCustomers.stackTeamId),
+        ),
+      );
+    await accountTx
+      .update(stripeSubscriptions)
+      .set({ stackUserId: targetStackUserId, updatedAt: now })
+      .where(
+        and(
+          eq(stripeSubscriptions.customerId, freshClaim.stripeCustomerId),
+          eq(stripeSubscriptions.stackUserId, sourceStackUserId),
+          eq(stripeSubscriptions.scope, "user"),
+          eq(stripeSubscriptions.plan, PRO_PLAN_ID),
+          isNull(stripeSubscriptions.stackTeamId),
+        ),
+      );
+    await accountTx
+      .update(billingEmailClaims)
+      .set({ claimedByUserId: targetStackUserId, claimedAt: now })
+      .where(eq(billingEmailClaims.id, freshClaim.id));
+
+    return {
+      kind: "claimed" as const,
+      claimId: freshClaim.id,
+      email: freshClaim.email,
+      customerId: freshClaim.stripeCustomerId,
+      subscriptionIds: sourceSubscriptionIDs,
+      sourceStackUserId,
+      targetStackUserId,
+    };
+  });
+}
+
+async function clearTransferredSourceProMetadata(
+  transfer: BillingOwnershipTransfer,
+  db: BillingDb,
+  stackApp: StackBillingApp,
+): Promise<void> {
+  if (transfer.sourceStackUserId === transfer.targetStackUserId) return;
+  try {
+    await syncStackUserMetadataWithAccountDeletionGuard({
+      db,
+      stackUserId: transfer.sourceStackUserId,
+      stackApp,
+      sync: async (source, lease) => {
+        if (await hasActiveUserProSubscription(db, source.id)) return;
+        await syncProPlanMetadata(source, false, lease);
+      },
+    });
+  } catch {
+    // The durable transfer already succeeded; source cleanup is retryable.
+  }
+}
+
+async function syncTransferredStripeOwnership(
+  transfer: BillingOwnershipTransfer,
+  clientFactory: () => StripeBillingClient,
+): Promise<void> {
+  try {
+    const client = clientFactory();
+    const customer = await client.customers.retrieve(transfer.customerId);
+    if (customer.deleted) return;
+    await client.customers.update(transfer.customerId, {
+      metadata: {
+        ...customer.metadata,
+        app: "cmux",
+        plan: PRO_PLAN_ID,
+        stackUserId: transfer.targetStackUserId,
+      },
+    });
+    for (const subscriptionId of transfer.subscriptionIds) {
+      const subscription = await client.subscriptions.retrieve(subscriptionId);
+      if (stringId(subscription.customer) !== transfer.customerId) continue;
+      await client.subscriptions.update(subscriptionId, {
+        metadata: {
+          ...subscription.metadata,
+          app: "cmux",
+          plan: PRO_PLAN_ID,
+          stackUserId: transfer.targetStackUserId,
+        },
+      });
+    }
+  } catch {
+    // Local ownership is authoritative; Stripe metadata can be repaired on a
+    // later reconciliation without blocking sign-in.
+  }
+}
+
+async function syncResolvedStripeOwnership(
+  customerId: string,
+  subscriptionId: string,
+  stackUserId: string,
+  dependencies: BillingPurchaseDependencies,
+): Promise<void> {
+  // Local rows are authoritative for the current request. Repair provider
+  // metadata best-effort so later out-of-order subscription events map to the
+  // canonical account instead of the temporary anonymous checkout id.
+  try {
+    const client = (dependencies.stripeClient ?? stripe)();
+    const customer = await client.customers.retrieve(customerId);
+    if (!customer.deleted) {
+      await client.customers.update(customerId, {
+        metadata: {
+          ...customer.metadata,
+          app: "cmux",
+          plan: PRO_PLAN_ID,
+          stackUserId,
+        },
+      });
+    }
+    const subscription = await client.subscriptions.retrieve(subscriptionId);
+    if (stringId(subscription.customer) !== customerId) return;
+    await client.subscriptions.update(subscriptionId, {
+      metadata: {
+        ...subscription.metadata,
+        app: "cmux",
+        plan: PRO_PLAN_ID,
+        stackUserId,
+      },
+    });
+  } catch {
+    // A later webhook/reconciliation can repair provider metadata safely.
+  }
+}
+
+async function enrollFounderTester(
+  email: string,
+  customerName: string | null | undefined,
+  dependencies: BillingPurchaseDependencies,
+): Promise<void> {
+  const nameParts = (customerName ?? "").trim().split(/\s+/).filter(Boolean);
+  const firstName = nameParts[0];
+  const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : undefined;
+  const injected = dependencies.testflight?.enrollTester;
+  if (injected) {
+    try {
+      await injected(email, firstName, lastName);
+    } catch (error) {
+      if (!isTesterAlreadyExistsError(error)) throw error;
+    }
+    return;
+  }
+  const configured = dependencies.testflight?.isAscConfigured ?? isAscConfigured;
+  if (!configured()) return;
+  await enrollTester(email, firstName, lastName);
+}
+
+function isTesterAlreadyExistsError(error: unknown): boolean {
+  const status =
+    error && typeof error === "object" && "status" in error
+      ? (error as { status?: unknown }).status
+      : undefined;
+  if (status === 409 || status === "409") return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return /already\s+(exists|added|enrolled)|duplicate/i.test(message);
+}
+
+function syntheticFounderSubscription(
+  session: Stripe.Checkout.Session,
+  customerId: string,
+): Stripe.Subscription {
+  const id =
+    stringId(session.subscription) ??
+    stringId(session.payment_intent) ??
+    `founders_${session.id}`;
+  return {
+    id,
+    object: "subscription",
+    customer: customerId,
+    status: "active",
+    metadata: {
+      ...(session.metadata ?? {}),
+      founders_edition: "true",
+    },
+    cancel_at_period_end: false,
+    items: { object: "list", data: [], has_more: false, url: "" },
+  } as unknown as Stripe.Subscription;
+}
+
+function normalizeFounderSubscription(
+  subscription: Stripe.Subscription,
+): Stripe.Subscription {
+  // Founder's Edition is a paid entitlement, not a renewable service. Stripe
+  // may expose a cancelled (or otherwise non-active) duplicate subscription
+  // in its history; the caller has already required a paid checkout, so
+  // recording that completed purchase as active keeps the local Pro
+  // entitlement durable while preserving the provider object in `raw` for
+  // audit.
+  return {
+    ...subscription,
+    status: "active",
+    metadata: {
+      ...(subscription.metadata ?? {}),
+      founders_edition: "true",
+    },
+  } as Stripe.Subscription;
 }
 
 async function syncUserCheckoutAfterCommit(
@@ -290,6 +1420,10 @@ export async function applySubscriptionUpdate(
   | { scope: "team"; stackTeamId: string; isActive: boolean }
   | { skipped: true }
 > {
+  // Founder's Edition is a one-time purchase. Its payment-link checkout may
+  // have produced a provider subscription that was later cancelled; never let
+  // that provider lifecycle revoke the durable paid Founder entitlement.
+  if (subscription.metadata?.founders_edition === "true") return { skipped: true };
   if (subscription.metadata?.app !== "cmux") return { skipped: true };
 
   const db = dependencies.db ?? cloudDb();
@@ -437,7 +1571,7 @@ export async function applySubscriptionUpdate(
   await syncStackUserMetadataWithAccountDeletionGuard({
     db,
     stackUserId: lockedResult.stackUserId,
-    stackApp: dependencies.stackApp ?? stackServerApp,
+    stackApp: dependencies.stackApp ?? getStackServerApp(),
     sync: async (freshUser, mutationLease) => {
       const currentMetadata = await syncProPlanMetadata(
         freshUser,
@@ -506,7 +1640,7 @@ async function syncStackUserMetadataWithAccountDeletionGuard(input: {
     mutationLease: AccountDeletionUserMutationLease,
   ) => Promise<void>;
 }): Promise<boolean> {
-  const stackApp = input.stackApp ?? stackServerApp;
+  const stackApp = input.stackApp ?? getStackServerApp();
   if (!stackApp) throw new Error("Stack Auth is not configured");
   const loader: AccountMetadataUserLoader<StackBillingUser> = {
     getUser: (requestedUserId) => stackApp.getUser(requestedUserId),
@@ -516,7 +1650,11 @@ async function syncStackUserMetadataWithAccountDeletionGuard(input: {
     userId: input.stackUserId,
     loader,
     operation: async (freshUser, mutationLease) => {
-      if (!freshUser || isAccountDeletionInProgress(freshUser)) return false;
+      if (
+        !freshUser ||
+        freshUser.id !== input.stackUserId ||
+        isAccountDeletionInProgress(freshUser)
+      ) return false;
       await input.sync(freshUser, mutationLease);
       return true;
     },
@@ -538,11 +1676,34 @@ export async function latestStripeSubscriptionForSession(
 ) {
   const subscription = expandedSubscription(session);
   const subscriptionId = subscription?.id ?? stringId(session.subscription);
-  if (!subscriptionId) return null;
+  if (subscriptionId) {
+    const rows = await db
+      .select()
+      .from(stripeSubscriptions)
+      .where(eq(stripeSubscriptions.id, subscriptionId))
+      .limit(1);
+    if (rows[0]) return rows[0];
+  }
+
+  // Founder's Edition payment-link sessions are one-time payments and often
+  // have no Stripe subscription id. The completion recorder stores a synthetic
+  // active row keyed by the Stripe customer; use that exact customer as the
+  // success-page read-back key so a paid Founder is not sent to the pending
+  // screen.
+  const customerId = customerIdFromSession(session, expandedCustomerForLookup(session));
+  if (!customerId) return null;
   const rows = await db
     .select()
     .from(stripeSubscriptions)
-    .where(eq(stripeSubscriptions.id, subscriptionId))
+    .where(
+      and(
+        eq(stripeSubscriptions.customerId, customerId),
+        eq(stripeSubscriptions.plan, PRO_PLAN_ID),
+        eq(stripeSubscriptions.scope, "user"),
+        isNull(stripeSubscriptions.stackTeamId),
+      ),
+    )
+    .orderBy(desc(stripeSubscriptions.updatedAt))
     .limit(1);
   return rows[0] ?? null;
 }
@@ -584,6 +1745,7 @@ function isStripeCustomerAlreadyDeletedError(error: unknown): boolean {
 export function isCmuxCheckoutSession(
   session: Pick<Stripe.Checkout.Session, "client_reference_id" | "metadata">,
 ): boolean {
+  if (session.metadata?.founders_edition === "true") return true;
   if (session.metadata?.app === "cmux") return true;
   if (session.metadata?.app) return false;
   return Boolean(session.client_reference_id && session.metadata?.plan === "pro");
@@ -593,7 +1755,7 @@ async function loadOptionalStackUser(
   stackUserId: string,
   stackApp: StackBillingApp | null | undefined,
 ): Promise<StackBillingUser | null> {
-  const app = stackApp ?? stackServerApp;
+  const app = stackApp ?? getStackServerApp();
   if (!app) throw new Error("Stack Auth is not configured");
   return app.getUser(stackUserId);
 }
@@ -602,7 +1764,7 @@ async function loadStackTeam(
   stackTeamId: string,
   stackApp: StackBillingApp | null | undefined,
 ): Promise<StackBillingTeam> {
-  const app = stackApp ?? stackServerApp;
+  const app = stackApp ?? getStackServerApp();
   if (!app) throw new Error("Stack Auth is not configured");
   if (typeof app.getTeam !== "function") {
     throw new Error("Stack Auth server SDK cannot load teams");
@@ -948,7 +2110,7 @@ function stripeSubscriptionValues(input: StripeSubscriptionValuesInput) {
     seats: input.scope === "team" ? subscriptionSeats(subscription) : null,
     scope: input.scope,
     currentPeriodEnd: subscriptionCurrentPeriodEnd(subscription),
-    cancelAtPeriodEnd: subscription.cancel_at_period_end,
+    cancelAtPeriodEnd: Boolean(subscription.cancel_at_period_end),
     raw: JSON.parse(JSON.stringify(subscription)) as Record<string, unknown>,
   };
 }
@@ -989,6 +2151,26 @@ async function userStripeSubscriptionExists(
   return Boolean(row);
 }
 
+async function hasActiveUserProSubscription(
+  db: BillingDbClient,
+  stackUserId: string,
+): Promise<boolean> {
+  const rows = await db
+    .select({ id: stripeSubscriptions.id })
+    .from(stripeSubscriptions)
+    .where(
+      and(
+        eq(stripeSubscriptions.stackUserId, stackUserId),
+        eq(stripeSubscriptions.scope, "user"),
+        eq(stripeSubscriptions.plan, PRO_PLAN_ID),
+        inArray(stripeSubscriptions.status, [...ACTIVE_STRIPE_SUBSCRIPTION_STATUSES]),
+        isNull(stripeSubscriptions.stackTeamId),
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
+}
+
 async function attachPurchaseEmailOrRecordClaim(
   db: BillingDb,
   input: {
@@ -1000,7 +2182,33 @@ async function attachPurchaseEmailOrRecordClaim(
   },
   mutationLease: AccountDeletionUserMutationLease,
 ): Promise<void> {
-  if (input.user.primaryEmail) return;
+  const purchaseEmail = canonicalizeEmailForMatching(input.email);
+  if (input.user.primaryEmail) {
+    // A purchase can be the first authoritative verification for an existing
+    // but unverified Stack account. Keep the account's original spelling and
+    // only verify when the two addresses are the same canonical mailbox.
+    if (
+      canonicalizeEmailForMatching(input.user.primaryEmail) === purchaseEmail
+    ) {
+      if (
+        input.user.primaryEmailVerified !== true ||
+        (input.user.primaryEmailAuthEnabled !== true &&
+          input.user.emailAuthEnabled !== true)
+      ) {
+        await mutationLease.refresh();
+        await input.user.update({ primaryEmailAuthEnabled: true });
+        await mutationLease.refresh();
+        await markPurchaseEmailVerified(input.user, input.email);
+      }
+    } else if (input.user.isAnonymous === true) {
+      // An older anonymous checkout may already carry a different mailbox.
+      // Park the paid ownership claim instead of silently losing it; a later
+      // verified recovery can transfer the exact Stripe rows safely.
+      await mutationLease.refresh();
+      await recordBillingEmailClaim(db, input);
+    }
+    return;
+  }
   await mutationLease.refresh();
   let ownerId: string | null = null;
   try {
@@ -1019,6 +2227,8 @@ async function attachPurchaseEmailOrRecordClaim(
       primaryEmail: input.email,
       primaryEmailAuthEnabled: true,
     });
+    await mutationLease.refresh();
+    await markPurchaseEmailVerified(input.user, input.email);
   } catch (error) {
     if (!isEmailAlreadyUsedError(error)) throw error;
     await mutationLease.refresh();
@@ -1026,24 +2236,87 @@ async function attachPurchaseEmailOrRecordClaim(
   }
 }
 
-async function findUserIdByEmail(
+export async function findUserIdByEmail(
   stackApp: StackBillingApp | null | undefined,
   email: string,
 ): Promise<string | null> {
   if (!stackApp?.listUsers) {
     throw new Error("Stack Auth server SDK cannot list users");
   }
-  const normalizedEmail = email.trim().toLowerCase();
-  const users = await stackApp.listUsers({
-    query: normalizedEmail,
-    limit: 20,
-    includeAnonymous: true,
-    includeRestricted: true,
-  });
-  const owner = users.find(
-    (user) => user.primaryEmail?.trim().toLowerCase() === normalizedEmail,
-  );
-  return owner?.id ?? null;
+  const normalizedEmail = canonicalizeEmailForMatching(email);
+  const literalEmail = email.trim().toLowerCase();
+  const queries = literalEmail === normalizedEmail
+    ? [normalizedEmail]
+    : [normalizedEmail, literalEmail];
+  const ownersByID = new Map<string, StackBillingUserLookup>();
+  for (const query of queries) {
+    const users = await stackApp.listUsers({
+      query,
+      limit: 20,
+      includeAnonymous: true,
+      includeRestricted: true,
+    });
+    for (const user of users) {
+      if (
+        user.primaryEmail &&
+        canonicalizeEmailForMatching(user.primaryEmail) === normalizedEmail
+      ) {
+        ownersByID.set(user.id, user);
+      }
+    }
+  }
+  return [...ownersByID.values()].sort(compareStackUserLookup)[0]?.id ?? null;
+}
+
+function compareStackUserLookup(
+  left: StackBillingUserLookup,
+  right: StackBillingUserLookup,
+): number {
+  const leftEmail = left.primaryEmail ?? "";
+  const rightEmail = right.primaryEmail ?? "";
+  const leftCanonical = canonicalizeEmailForMatching(leftEmail);
+  const rightCanonical = canonicalizeEmailForMatching(rightEmail);
+  const leftDotCount = gmailLocalDotCount(leftEmail);
+  const rightDotCount = gmailLocalDotCount(rightEmail);
+  // Alias spelling is the strongest signal for duplicate Gmail accounts: the
+  // undotted literal is the canonical account even if it still needs email
+  // verification. This prevents a verified dotted duplicate from winning a
+  // canonical Gmail recovery.
+  if (leftDotCount !== rightDotCount) return leftDotCount - rightDotCount;
+  const leftIsVerified = left.primaryEmailVerified === true ? 0 : 1;
+  const rightIsVerified = right.primaryEmailVerified === true ? 0 : 1;
+  if (leftIsVerified !== rightIsVerified) return leftIsVerified - rightIsVerified;
+  const leftIsOrdinary = left.isAnonymous === true || left.isRestricted === true ? 1 : 0;
+  const rightIsOrdinary = right.isAnonymous === true || right.isRestricted === true ? 1 : 0;
+  if (leftIsOrdinary !== rightIsOrdinary) return leftIsOrdinary - rightIsOrdinary;
+  if (leftEmail.toLowerCase() === leftCanonical && rightEmail.toLowerCase() !== rightCanonical) return -1;
+  if (rightEmail.toLowerCase() === rightCanonical && leftEmail.toLowerCase() !== leftCanonical) return 1;
+  return left.id.localeCompare(right.id);
+}
+
+function isCompatibleFounderOwner(
+  user: StackBillingUser,
+  purchaseEmail: string,
+): boolean {
+  if (user.primaryEmail) {
+    return (
+      canonicalizeEmailForMatching(user.primaryEmail) ===
+      canonicalizeEmailForMatching(purchaseEmail)
+    );
+  }
+  return user.isAnonymous === true;
+}
+
+function gmailLocalDotCount(email: string): number {
+  const normalized = email.trim().toLowerCase();
+  const at = normalized.lastIndexOf("@");
+  if (at <= 0) return 0;
+  const domain = normalized.slice(at + 1);
+  if (domain !== "gmail.com" && domain !== "googlemail.com") return 0;
+  const local = normalized.slice(0, at);
+  const plusIndex = local.indexOf("+");
+  const mailbox = plusIndex < 0 ? local : local.slice(0, plusIndex);
+  return [...mailbox].filter((character) => character === ".").length;
 }
 
 async function recordBillingEmailClaim(
@@ -1054,21 +2327,31 @@ async function recordBillingEmailClaim(
     stackUserId: string;
   },
 ): Promise<void> {
+  const matchingEmail = canonicalizeEmailForMatching(input.email);
   const existing = await db
-    .select({ id: billingEmailClaims.id })
+    .select({
+      id: billingEmailClaims.id,
+      email: billingEmailClaims.email,
+    })
     .from(billingEmailClaims)
     .where(
       and(
-        eq(billingEmailClaims.email, input.email),
         eq(billingEmailClaims.stripeCustomerId, input.stripeCustomerId),
         eq(billingEmailClaims.stackUserId, input.stackUserId),
         eq(billingEmailClaims.plan, PRO_PLAN_ID),
+        isNull(billingEmailClaims.claimedByUserId),
       ),
     )
-    .limit(1);
-  if (existing.length > 0) return;
+    .limit(20);
+  if (
+    existing.some(
+      (claim) =>
+        !claim.email ||
+        canonicalizeEmailForMatching(claim.email) === matchingEmail,
+    )
+  ) return;
   await db.insert(billingEmailClaims).values({
-    email: input.email,
+    email: matchingEmail,
     stripeCustomerId: input.stripeCustomerId,
     stackUserId: input.stackUserId,
     plan: PRO_PLAN_ID,
@@ -1086,6 +2369,21 @@ async function stackUserIdForStripeCustomer(
     .orderBy(desc(stripeCustomers.updatedAt))
     .limit(1);
   return rows[0]?.stackUserId ?? null;
+}
+
+async function stripeCustomerRowForId(
+  db: BillingDbClient,
+  customerId: string,
+): Promise<{ stackUserId: string; stackTeamId: string | null } | null> {
+  const rows = await db
+    .select({
+      stackUserId: stripeCustomers.stackUserId,
+      stackTeamId: stripeCustomers.stackTeamId,
+    })
+    .from(stripeCustomers)
+    .where(eq(stripeCustomers.id, customerId))
+    .limit(1);
+  return rows[0] ?? null;
 }
 
 async function stackUserIdForTeamStripeCustomer(
@@ -1129,6 +2427,14 @@ function expandedSubscription(
 ): Stripe.Subscription | null {
   return typeof session.subscription === "object" && session.subscription !== null
     ? session.subscription
+    : null;
+}
+
+function expandedCustomerForLookup(
+  session: Stripe.Checkout.Session,
+): Stripe.Customer | Stripe.DeletedCustomer | null {
+  return typeof session.customer === "object" && session.customer !== null
+    ? session.customer
     : null;
 }
 
@@ -1178,9 +2484,13 @@ function customerIdFromSession(
   session: Stripe.Checkout.Session,
   customer: Stripe.Customer | Stripe.DeletedCustomer | null | undefined,
 ): string | null {
-  return customer && !customer.deleted
-    ? customer.id
-    : stringId(session.customer);
+  if (customer && !customer.deleted) return customer.id;
+  const sessionCustomerID = stringId(session.customer);
+  if (sessionCustomerID) return sessionCustomerID;
+  const paymentIntent = session.payment_intent;
+  return typeof paymentIntent === "object" && paymentIntent !== null
+    ? stringId(paymentIntent.customer)
+    : null;
 }
 
 function customerIdFromSubscription(subscription: Stripe.Subscription): string | null {
@@ -1195,17 +2505,37 @@ function checkoutEmail(
   return email ? email.trim().toLowerCase() : null;
 }
 
+function checkoutLiteralEmail(
+  session: Stripe.Checkout.Session,
+  customer: Stripe.Customer | Stripe.DeletedCustomer | null | undefined,
+): string | null {
+  const email = session.customer_details?.email ?? (customer && !customer.deleted ? customer.email : null);
+  const trimmed = email?.trim();
+  return trimmed || null;
+}
+
+function checkoutCustomerName(
+  session: Stripe.Checkout.Session,
+  customer: Stripe.Customer | Stripe.DeletedCustomer | null | undefined,
+): string | null {
+  const name =
+    session.customer_details?.name ??
+    (customer && !customer.deleted ? customer.name : null);
+  const trimmed = name?.trim();
+  return trimmed || null;
+}
+
 function subscriptionPriceId(subscription: Stripe.Subscription): string | null {
-  return subscription.items.data[0]?.price.id ?? null;
+  return subscription.items?.data?.[0]?.price?.id ?? null;
 }
 
 function subscriptionSeats(subscription: Stripe.Subscription): number | null {
-  const quantity = subscription.items.data[0]?.quantity;
+  const quantity = subscription.items?.data?.[0]?.quantity;
   return typeof quantity === "number" && Number.isFinite(quantity) ? quantity : null;
 }
 
 function subscriptionCurrentPeriodEnd(subscription: Stripe.Subscription): Date | null {
-  const timestamp = subscription.items.data[0]?.current_period_end;
+  const timestamp = subscription.items?.data?.[0]?.current_period_end;
   return typeof timestamp === "number" ? new Date(timestamp * 1000) : null;
 }
 
@@ -1215,8 +2545,22 @@ function stringId(value: string | { id: string } | null | undefined): string | n
 }
 
 function isEmailAlreadyUsedError(error: unknown): boolean {
+  const code =
+    error && typeof error === "object" && "code" in error
+      ? String((error as { code?: unknown }).code)
+      : "";
+  if (/USER_EMAIL_ALREADY_EXISTS|EMAIL_ALREADY_EXISTS|CONTACT_CHANNEL_ALREADY_USED/i.test(code)) {
+    return true;
+  }
+  const nestedCode =
+    error && typeof error === "object" && "cause" in error
+      ? String((error as { cause?: { code?: unknown } }).cause?.code ?? "")
+      : "";
+  if (/USER_EMAIL_ALREADY_EXISTS|EMAIL_ALREADY_EXISTS|CONTACT_CHANNEL_ALREADY_USED/i.test(nestedCode)) {
+    return true;
+  }
   const text = error instanceof Error ? `${error.name} ${error.message}` : String(error);
-  return /already.{0,40}(used|taken)|CONTACT_CHANNEL_ALREADY_USED_FOR_AUTH_BY_SOMEONE_ELSE/i.test(text);
+  return /already.{0,40}(used|taken|exists)|CONTACT_CHANNEL_ALREADY_USED_FOR_AUTH_BY_SOMEONE_ELSE/i.test(text);
 }
 
 function isStackUserUniqueConflict(error: unknown): boolean {

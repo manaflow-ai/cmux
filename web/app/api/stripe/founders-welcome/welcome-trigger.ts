@@ -1,7 +1,7 @@
 // Classifies a completed Stripe checkout session for the welcome-email
-// telemetry. cmux Pro is handled by the billing webhook, while explicit
-// Founder's Edition sessions and the existing catch-all purchase shapes retain
-// this endpoint's personal founder welcome.
+// telemetry. cmux Pro and Founder's Edition sessions are handled by this
+// endpoint's personal welcome; Team and unrelated checkout shapes remain
+// excluded from delivery.
 //
 // - "founders_edition": sessions created from the cmux Founder's Edition
 //   payment link, which copies `founders_edition=true` onto each session.

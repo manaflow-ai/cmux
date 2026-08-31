@@ -17,6 +17,7 @@ import {
   isCmuxCheckoutSession,
   isActiveStripeSubscriptionStatus,
   recordCheckoutCompletion as recordCheckoutCompletionDefault,
+  recordFoundersCheckoutCompletion as recordFoundersCheckoutCompletionDefault,
 } from "../../../../services/billing/purchase";
 import { sendProSignupWelcome as sendProSignupWelcomeDefault } from "../../../../services/billing/proFulfillment";
 import {
@@ -37,8 +38,10 @@ type StripeWebhookDependencies = {
   stripe: typeof stripe;
   db: typeof cloudDb;
   recordCheckoutCompletion: typeof recordCheckoutCompletionDefault;
+  recordFoundersCheckoutCompletion?: typeof recordFoundersCheckoutCompletionDefault;
   applySubscriptionUpdate: typeof applySubscriptionUpdateDefault;
   sendProSignupWelcome: typeof sendProSignupWelcomeDefault;
+  isPersonalWelcomeConfigured?: () => boolean;
   revokeCoderouterRouteTokens: typeof revokeRouteTokensForUserDefault;
   revokeCoderouterTeamRouteTokens: typeof revokeRouteTokensForTeamDefault;
   captureStripeBillingEvent: typeof captureStripeBillingEventDefault;
@@ -51,8 +54,10 @@ const defaultDependencies: StripeWebhookDependencies = {
   stripe,
   db: cloudDb,
   recordCheckoutCompletion: recordCheckoutCompletionDefault,
+  recordFoundersCheckoutCompletion: recordFoundersCheckoutCompletionDefault,
   applySubscriptionUpdate: applySubscriptionUpdateDefault,
   sendProSignupWelcome: sendProSignupWelcomeDefault,
+  isPersonalWelcomeConfigured,
   revokeCoderouterRouteTokens: revokeRouteTokensForUserDefault,
   revokeCoderouterTeamRouteTokens: revokeRouteTokensForTeamDefault,
   captureStripeBillingEvent: captureStripeBillingEventDefault,
@@ -159,23 +164,40 @@ async function processStripeEvent(
       if (!checkoutPaymentSettled(expanded)) {
         return { skipped: "checkout_payment_pending" };
       }
-      const result = await dependencies.recordCheckoutCompletion({
-        session: expanded,
-        subscription: expandedSubscription(expanded),
-        customer: expandedCustomer(expanded),
-      });
+      const isFounderCheckout =
+        session.metadata?.founders_edition === "true" ||
+        expanded.metadata?.founders_edition === "true";
+      const result = isFounderCheckout
+        ? await (dependencies.recordFoundersCheckoutCompletion ?? recordFoundersCheckoutCompletionDefault)({
+            session: expanded,
+            subscription: expandedSubscription(expanded),
+            customer: expandedCustomer(expanded),
+          })
+        : await dependencies.recordCheckoutCompletion({
+            session: expanded,
+            subscription: expandedSubscription(expanded),
+            customer: expandedCustomer(expanded),
+          });
       if (result && "skipped" in result) return { skipped: result.skipped };
-      if (result.scope === "user" && isPersonalProCheckout(expanded)) {
-        // Keep the Stripe event retryable until Resend accepts the message.
-        // The checkout-session id is also the provider idempotency key, so a
-        // redelivery retries the same email operation without duplicating it.
+      // Personal Pro checkouts use the founders-welcome endpoint's canonical
+      // Austin/Lawrence message. Keep the older templated pro@cmux.com sender
+      // only as a fallback for deployments that have not configured the
+      // personal endpoint; when both endpoints are configured this gate avoids
+      // double-sending the customer.
+      if (
+        result.scope === "user" &&
+        isPersonalProCheckout(expanded) &&
+        !(dependencies.isPersonalWelcomeConfigured ?? isPersonalWelcomeConfigured)()
+      ) {
         await dependencies.sendProSignupWelcome({
           session: expanded,
           stackUserId: result.stackUserId,
         });
       }
       const subscription = expandedSubscription(expanded);
-      const subscriptionStatus = subscription?.status ?? "unknown";
+      const subscriptionStatus = isFounderCheckout
+        ? "active"
+        : subscription?.status ?? "unknown";
       const subject = analyticsSubject(
         result,
         isActiveStripeSubscriptionStatus(subscriptionStatus),
@@ -294,6 +316,14 @@ async function applySubscriptionEntitlementUpdate(
 
 function isPersonalProCheckout(session: Stripe.Checkout.Session): boolean {
   return session.metadata?.app === "cmux" && session.metadata?.plan === "pro";
+}
+
+function isPersonalWelcomeConfigured(): boolean {
+  // The dedicated Stripe endpoint and this billing webhook are separate
+  // deliveries. Only suppress the legacy templated sender when the personal
+  // endpoint has both credentials it needs; otherwise retain it as a safe
+  // compatibility fallback for an older deployment.
+  return Boolean(env.RESEND_API_KEY && env.STRIPE_FOUNDERS_WEBHOOK_SECRET);
 }
 
 function checkoutPaymentSettled(session: Stripe.Checkout.Session): boolean {

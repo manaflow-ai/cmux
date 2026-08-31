@@ -1,6 +1,8 @@
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 
+import { canonicalizeEmailForMatching } from "../billing/emailMatching";
+
 type RecoveryContactChannel = {
   readonly value: string;
   readonly isVerified: boolean;
@@ -47,7 +49,7 @@ export function requestEmailVerificationRecovery(
   EmailVerificationRecoveryResult,
   EmailVerificationRecoveryUnavailable
 > {
-  const normalizedEmail = normalizeEmail(input.email);
+  const normalizedEmail = canonicalizeEmailForMatching(input.email);
   return Effect.tryPromise({
     try: async () => {
       const users = await dependencies.stackApp.listUsers({
@@ -57,11 +59,14 @@ export function requestEmailVerificationRecovery(
         includeRestricted: true,
       });
       for (const user of users) {
-        if (normalizeEmail(user.primaryEmail ?? "") !== normalizedEmail) continue;
+        if (
+          canonicalizeEmailForMatching(user.primaryEmail ?? "") !==
+          normalizedEmail
+        ) continue;
         const channels = await user.listContactChannels();
         const channel = channels.find(
           (candidate) =>
-            normalizeEmail(candidate.value) === normalizedEmail &&
+            canonicalizeEmailForMatching(candidate.value) === normalizedEmail &&
             candidate.usedForAuth &&
             !candidate.isVerified,
         );
@@ -73,8 +78,4 @@ export function requestEmailVerificationRecovery(
     },
     catch: () => new EmailVerificationRecoveryUnavailable({}),
   });
-}
-
-function normalizeEmail(value: string): string {
-  return value.trim().toLowerCase();
 }
