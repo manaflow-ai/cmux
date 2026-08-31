@@ -50,6 +50,14 @@ export type CreateOptions = {
    * this way). Providers without sizing ignore it.
    */
   memoryMb?: number;
+  /**
+   * Machine-level environment injected at create time (e.g. the coderouter
+   * model-plane env: OPENAI_BASE_URL + a per-machine route token). Values may
+   * be secrets: drivers must pass them to the provider's create call only and
+   * never echo them into VMHandle.providerMetadata, which is persisted.
+   * Providers without machine-level env support ignore it.
+   */
+  envs?: Readonly<Record<string, string>>;
 };
 
 export type SSHEndpoint = {
@@ -198,6 +206,15 @@ export interface VMProvider {
 
   create(options: CreateOptions): Promise<VMHandle>;
   destroy(vmId: string): Promise<void>;
+
+  /**
+   * Optional: delete a persistent home volume by name. Implementations must treat
+   * an already-missing volume as success and absorb the provider's brief
+   * volume-still-attached window after the owning sandbox is deleted (bounded
+   * retry). Ownership is the caller's judgment: only a volume owned solely by a
+   * destroyed machine may be passed here.
+   */
+  deleteHomeVolume?(volumeName: string): Promise<void>;
 
   getStatus?(vmId: string): Promise<VMStatus>;
   /// Live CPU/memory/disk for the Cloud panel's activity view. Must not wake a

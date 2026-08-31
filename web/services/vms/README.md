@@ -1,6 +1,6 @@
 # Cloud VMs service
 
-Backend for `cmux vm new/ls/rm/exec/attach` and the sidebar Cloud VM surface. Stack Auth gates every public route. Provider API keys stay server-side. Freestyle and E2B prefer `cmuxd-remote` WebSocket PTY with short-lived leases; older Freestyle VMs can fall back to its SSH gateway.
+Backend for `cmux vm new/ls/rm/exec/attach` and the sidebar Cloud VM surface. Stack Auth gates every public route. Provider API keys stay server-side. Blaxel, E2B, and Daytona machines attach through the cmux-tui remote daemon (transport `cmux-remote`); Freestyle still serves the legacy `cmuxd-remote` WebSocket PTY with short-lived leases, and older Freestyle VMs can fall back to its SSH gateway.
 
 ## Layout
 
@@ -112,33 +112,16 @@ Rollback is an env-only operation:
 
 ## Baked tools and VM-local cmux CLI
 
-`web/scripts/build-cloud-vm-images.ts` installs the shared Cloud VM base layer for both E2B and
-Freestyle:
-
-- Node.js from the configured major line, default `22`.
-- Bun.
-- Claude Code from `@anthropic-ai/claude-code@2.1.137`.
-- OpenCode from `opencode-ai@1.14.41`.
-- Codex CLI from `@openai/codex@0.130.0`.
-- Pi from `@earendil-works/pi-coding-agent@0.74.0`.
-- zsh, zsh autosuggestions, tmux, gh, htop, and btop for the default shell.
-- `cmuxd-remote` as `/usr/local/bin/cmuxd-remote`.
-- `/usr/local/bin/cmux` symlinked to `cmuxd-remote` so the Linux relay CLI is on `PATH`.
-
-The image smoke checks run `node --version`, `npm --version`, `bun --version`, `claude --version`,
-`opencode --version`, `codex --version`, `pi --version`, `gh --version`, `htop --version`,
-`btop --version`, `tmux -V`, `zsh --version`, `cmux --help`, and `cmuxd-remote version`. They
-also keep the existing Python/OpenSSL checks for provider browser proxy support.
-
-Agent package override env vars:
-
-- `CMUX_CLOUD_IMAGE_CLAUDE_CODE_NPM_SPEC`
-- `CMUX_CLOUD_IMAGE_OPENCODE_NPM_SPEC`
-- `CMUX_CLOUD_IMAGE_CODEX_NPM_SPEC`
-- `CMUX_CLOUD_IMAGE_PI_NPM_SPEC`
-
-Set an override to a package spec such as `@openai/codex@0.130.0`. Set it to `none` only for local
-image experiments that intentionally skip a tool.
+The E2B, Daytona, and Freestyle devbox images are defined in
+`web/services/vms/images/devbox/` and baked with `web/scripts/build-devbox-e2b.ts`,
+`build-devbox-daytona.ts`, and `build-devbox-freestyle.ts` (chatmux/Blaxel devbox
+parity: devtools, mise node/python/bun, uv, gh, Chrome + cua-driver, pinned coding
+agents, ble.sh devshell, agent-config generator). The session daemon is cmux-tui,
+installed at create time from the pinned files.cmux.com artifacts manifest by
+`services/vms/drivers/cmuxTuiDaemon.ts`; no daemon binary is baked. See the devbox
+README for the bake + verify + manifest flow. The legacy cmuxd-remote image builder
+(`build-cloud-vm-images.ts`) has been deleted; images it produced remain in the
+manifest for reference but cannot serve the cmux-remote transport.
 
 ## Browser automation from Cloud VM SSH
 
@@ -224,8 +207,8 @@ Set these Vercel environment variables per production/staging environment:
 - `CMUX_VM_CREATE_CREDIT_COST_E2B`, optional provider-specific override.
 - `CMUX_VM_CREATE_CREDIT_COST_FREESTYLE`, optional provider-specific override.
 - `CMUX_VM_CREATE_CREDIT_COST_DAYTONA`, optional provider-specific override.
-- `CMUX_VM_FREE_MAX_ACTIVE_VMS`, default `5`.
-- `CMUX_VM_PAID_MAX_ACTIVE_VMS`, default `10`.
+- `CMUX_VM_FREE_MAX_ACTIVE_VMS`, default `0`.
+- `CMUX_VM_PAID_MAX_ACTIVE_VMS`, default `5`.
 - Stack Auth environment variables.
 - Axiom/OpenTelemetry exporter variables.
 
@@ -384,7 +367,16 @@ Blaxel machines with `details.supportedTransports: ["cmux-remote"]`. `cmux vm sh
 See docs/cloud-cmux-tui-daemon.md for the design. Live driver E2E:
 `bun scripts/test-blaxel-vm-poc.ts`.
 
-E2B and Daytona interactive paths require a cmuxd WebSocket PTY image. The backend writes only a hash of attach tokens to Postgres; raw tokens are returned once to the Mac client. Daytona attach dials the sandbox preview URL for port 7777 with the `x-daytona-preview-token` header; preview tokens reset on sandbox restart, so the backend mints a fresh preview link per attach. cmux does not use Daytona's SSH gateway.
+E2B and Daytona machines run the same cmux-tui daemon and only the `cmux-remote`
+transport. The E2B route is the sandbox's public port host
+(`wss://1337-<id>.e2b.app/v1/link`; the proxy's only request auth is a header the
+dialer cannot send, so sandboxes are created with public port traffic and the
+daemon's Noise enrollment gates sessions). The Daytona route is the preview proxy
+with its token as the `DAYTONA_SANDBOX_AUTH_KEY` query parameter; preview tokens
+reset on sandbox restart, so the backend mints a fresh link per attach. cmux does
+not use Daytona's SSH gateway. The backend writes only a hash of attach tokens to
+Postgres; raw tokens are returned once to the Mac client. Machines created by the
+old cmuxd-remote drivers cannot serve this transport and need recreation.
 
 Operational note: Blaxel is the intended default. Before rollout or rollback, verify the deployed
 `CMUX_VM_DEFAULT_PROVIDER`, `CMUX_VM_BLAXEL_ENABLED`, `BL_API_KEY`, and `BL_WORKSPACE` env values
@@ -396,12 +388,12 @@ Keep Freestyle/E2B enabled only when deliberately selecting them as rollback pro
 
 The usage ledger is in Postgres. VM create pricing gates can use Stack Auth payment items, but free-plan create credits are opt-in. Configure `CMUX_VM_PLAN_FREE_CREATE_CREDIT_ITEM_ID` only when the free plan should consume a prepaid create-credit bucket. When enabled, the create workflow records a one-time local grant row, seeds the configured Stack Auth item credits once per billing team, reserves one create credit only for a newly inserted row, calls the provider, and refunds the credit if provisioning fails before a usable VM exists.
 
-Plan limits are team-based. Stack Auth personal teams should stay enabled for both dev/staging and production projects (`createTeamOnSignUp` / `teams.createPersonalTeamOnSignUp`). New VM rows store `billing_team_id` and `billing_plan_id`; the free plan allows three active VMs at a time by default (`CMUX_VM_FREE_MAX_ACTIVE_VMS`). Paused and destroyed VMs do not count against the active limit. Paid plan activation should write a readable plan id such as `pro` into Stack Auth team read-only metadata (`cmuxVmPlan`) or equivalent billing sync metadata, then configure the matching `CMUX_VM_PLAN_<PLAN>_MAX_ACTIVE_VMS` env var. Paid plans only consume Stack Auth create credits when `CMUX_VM_PLAN_<PLAN>_CREATE_CREDIT_ITEM_ID` or the global `CMUX_VM_CREATE_CREDIT_ITEM_ID` is configured.
+Plan limits are team-based. Stack Auth personal teams should stay enabled for both dev/staging and production projects (`createTeamOnSignUp` / `teams.createPersonalTeamOnSignUp`). New VM rows store `billing_team_id` and `billing_plan_id`; the free plan allows zero active VMs by default (`CMUX_VM_FREE_MAX_ACTIVE_VMS`); paid plans default to five (`CMUX_VM_PAID_MAX_ACTIVE_VMS`). Destroyed VMs do not count against the active limit; pausing does not free quota on the production provider. Paid plan activation should write a readable plan id such as `pro` into Stack Auth team read-only metadata (`cmuxVmPlan`) or equivalent billing sync metadata, then configure the matching `CMUX_VM_PLAN_<PLAN>_MAX_ACTIVE_VMS` env var. Paid plans only consume Stack Auth create credits when `CMUX_VM_PLAN_<PLAN>_CREATE_CREDIT_ITEM_ID` or the global `CMUX_VM_CREATE_CREDIT_ITEM_ID` is configured.
 
 ### The free limit is the paywall moment
 
-`vmActiveLimitExceededResponse` (routeHelpers) renders every provisioning verb's over-limit error. On unpaid plans the message sells the upgrade — "The free plan includes 3 Cloud VMs" with `upgradeRequired: true` and `upgradeUrl` pointing at `/pricing` — so clients can show a real upgrade prompt (checkout flow per `skills/cmux-billing`) instead of a dead error. Paid plans keep operational "stop or delete one" guidance; their cap is a safety rail, not a paywall.
+`vmActiveLimitExceededResponse` (routeHelpers) renders every provisioning verb's over-limit error. On unpaid plans the message sells the upgrade — with the default zero allowance it is the subscribe gate ("Cloud VMs require a cmux Pro subscription") with `upgradeRequired: true` and `upgradeUrl` pointing at `/pricing` — so clients can show a real upgrade prompt (checkout flow per `skills/cmux-billing`) instead of a dead error. Paid plans keep operational "delete one" guidance; their cap is a safety rail, not a paywall.
 
-### Usage-based billing after Pro (design, not yet wired)
+### Pricing is flat
 
-Pro subscribers should pay by usage on top of the subscription. The meter is **GB-RAM-awake-seconds**, which matches the provider cost model exactly on Blaxel (standby is free; smart sleep drops idle sandboxes to standby, so users only accrue usage while something is actually running or attached). Pipeline: the `vm-reconcile` cron already polls provider statuses — record `vm.state.running` / `vm.state.standby` transitions as `cloud_vm_usage_events`; a billing cron aggregates the transition intervals × memory into per-team usage and posts Stripe usage records against a metered price on the Pro subscription (provisioned alongside `cmux-pro-monthly`, see `skills/cmux-billing`). Postgres stays the ledger of record; Stripe receives idempotent per-period rollups, never raw events.
+Paid plans include up to 5 active VMs (`CMUX_VM_PAID_MAX_ACTIVE_VMS`) for a flat subscription price. There is no usage metering, no overages, and no per-hour VM size pricing; an earlier GB-RAM-awake-seconds metering design was considered and dropped to keep pricing simple. The active-VM cap is the only quota.
