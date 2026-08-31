@@ -48,14 +48,19 @@ extension EnvironmentValues {
 }
 
 private enum WorkspaceRootToolbarSizing {
-    static let minimumPickerWidth: CGFloat = 98
+    /// Low enough that the picker survives the narrowest sidebar instead of
+    /// being culled by the bar: the label truncates, the item stays.
+    static let minimumPickerWidth: CGFloat = 44
     static let maximumPickerWidth: CGFloat = 124
+    /// Horizontal air between the picker and its neighboring toolbar items,
+    /// applied outside the pill so the picker never sits flush against them.
+    static let pickerBreathingRoom: CGFloat = 8
     private static let nonPickerWidth: CGFloat = 277
 
     static func pickerWidth(for contentWidth: CGFloat) -> CGFloat {
         min(
             maximumPickerWidth,
-            max(minimumPickerWidth, contentWidth - nonPickerWidth)
+            max(minimumPickerWidth, contentWidth - nonPickerWidth - 2 * pickerBreathingRoom)
         )
     }
 }
@@ -101,6 +106,7 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
                 )
             )
             .equatable()
+            .padding(.horizontal, WorkspaceRootToolbarSizing.pickerBreathingRoom)
         }
         ToolbarItem(id: "workspace-list-devices", placement: .topBarLeading) {
             Button(action: openDevices) {
@@ -653,19 +659,17 @@ struct WorkspaceShellView: View {
         return openTaskComposer
     }
 
-    /// The scaffold's screen-corner compose button serves the compact stack
-    /// (list root only) and the collapsed-sidebar split. With the sidebar
-    /// visible, compose belongs to the sidebar column (`splitLayout`), where
-    /// the pre-iOS-26 list host also anchored it, instead of floating over
-    /// the terminal.
+    /// The scaffold's screen-corner compose button serves only the compact
+    /// stack (list root, where it floats over the workspace list). In the
+    /// split layout compose belongs exclusively to the sidebar column
+    /// (`splitLayout`), where the pre-iOS-26 list host also anchored it: it
+    /// must never float over the terminal, so a collapsed sidebar means no
+    /// compose button rather than a screen-corner one.
     private var scaffoldTaskComposerAction: (() -> Void)? {
         if usesCompactStack {
             return compactNavigationPath.isEmpty ? taskComposerAction : nil
         }
-        if #available(iOS 26.0, *) {
-            return splitColumnVisibility == .detailOnly ? taskComposerAction : nil
-        }
-        return taskComposerAction
+        return nil
     }
 
     private func splitLayout(canCreateWorkspaceForSelection: Bool) -> some View {
