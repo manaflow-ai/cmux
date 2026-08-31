@@ -163,7 +163,7 @@ describe("Founder's lockout backfill", () => {
           list: mock(async () => ({ data: [] })),
         },
       },
-    } as never;
+    };
 
     const result = await runFoundersLockoutBackfill(
       {
@@ -175,7 +175,7 @@ describe("Founder's lockout backfill", () => {
       },
       {
         stackApp: stack.value,
-        stripeClient: provider,
+        stripeClient: provider as never,
       },
     );
 

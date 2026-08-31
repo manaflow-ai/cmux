@@ -308,9 +308,16 @@ async function resolveStripeCase(
         (client.customers.retrieve
           ? await client.customers.retrieve(paymentCustomerId)
           : null);
-      if (
+      const paymentCustomerEmailMatches = Boolean(
         resolvedPaymentCustomer &&
         !("deleted" in resolvedPaymentCustomer && resolvedPaymentCustomer.deleted) &&
+        resolvedPaymentCustomer.email &&
+        canonicalizeEmailForMatching(resolvedPaymentCustomer.email) ===
+          canonicalizeEmailForMatching(purchaseEmail),
+      );
+      if (
+        paymentCustomerEmailMatches &&
+        resolvedPaymentCustomer &&
         !matching.some((customer) => customer.id === resolvedPaymentCustomer.id)
       ) {
         matching = [resolvedPaymentCustomer as Stripe.Customer, ...matching];

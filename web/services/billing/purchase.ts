@@ -128,7 +128,7 @@ type StackBillingUserLookup = {
   readonly isAnonymous?: boolean;
   readonly isRestricted?: boolean;
   readonly update?: StackBillingUser["update"];
-  readonly setPrimaryEmail?: StackBillingUser["setPrimaryEmail"];
+  readonly setPrimaryEmail?: StackPurchaseUser["setPrimaryEmail"];
 };
 
 type StackBillingTeam = {
@@ -1658,10 +1658,12 @@ export async function applySubscriptionUpdate(
       | { skipped: true }
       | { user: StackBillingUser; stackUserId: string; isActive: boolean }
     > => {
-      const hasUserSubscription = await userStripeSubscriptionExists(tx, {
+      const userSubscription = await userStripeSubscriptionState(tx, {
         subscriptionId: subscription.id,
         stackUserId,
       });
+      if (userSubscription.isFounder) return { skipped: true };
+      const hasUserSubscription = userSubscription.exists;
       const isMetadataOnlyUserSubscription = !hasUserSubscription &&
         !mappedStackUserId &&
         metadataStackUserId === stackUserId;
@@ -2303,12 +2305,12 @@ function mutableStripeSubscriptionValues(input: StripeSubscriptionValuesInput) {
   };
 }
 
-async function userStripeSubscriptionExists(
+async function userStripeSubscriptionState(
   db: BillingDbClient,
   input: { subscriptionId: string; stackUserId: string },
-): Promise<boolean> {
+): Promise<{ readonly exists: boolean; readonly isFounder: boolean }> {
   const [row] = await db
-    .select({ id: stripeSubscriptions.id })
+    .select({ id: stripeSubscriptions.id, raw: stripeSubscriptions.raw })
     .from(stripeSubscriptions)
     .where(
       and(
@@ -2319,7 +2321,21 @@ async function userStripeSubscriptionExists(
       ),
     )
     .limit(1);
-  return Boolean(row);
+  return {
+    exists: Boolean(row),
+    isFounder: Boolean(row && isFounderSubscriptionRaw(row.raw)),
+  };
+}
+
+function isFounderSubscriptionRaw(raw: unknown): boolean {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return false;
+  const metadata = (raw as Record<string, unknown>).metadata;
+  return Boolean(
+    metadata &&
+      typeof metadata === "object" &&
+      !Array.isArray(metadata) &&
+      (metadata as Record<string, unknown>).founders_edition === "true",
+  );
 }
 
 async function hasActiveUserProSubscription(
