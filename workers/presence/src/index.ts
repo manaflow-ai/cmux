@@ -8,6 +8,8 @@
 //                                         snapshot first, then online/offline/seen
 //   GET  /v1/connectivity/subscribe       quiet account route-revision stream
 //   POST /v1/connectivity/invalidate      publish one account route revision
+//   GET  /v1/control/socket               account control-plane WebSocket:
+//                                         revisioned directory/hint/pass facts
 //   POST /v1/replies                      park one phone inline-notification reply
 //   GET  /v1/replies?macDeviceId=…        pending replies for one Mac
 //   POST /v1/replies/ack                  remove processed replies
@@ -29,6 +31,7 @@ import {
   type AuthEnv,
 } from "./auth";
 import { MAX_SUBSCRIBE_AGE_MS, TeamPresence } from "./do";
+import { AccountControlPlane, type ControlPlaneEnv } from "./controlPlaneDo";
 import {
   isConnectivityPublisherAuthorized,
   parseConnectivityInvalidation,
@@ -43,10 +46,11 @@ import {
   parsePhoneReplyAck,
 } from "./replies";
 
-export { TeamPresence };
+export { TeamPresence, AccountControlPlane };
 
-export interface Env extends AuthEnv {
+export interface Env extends AuthEnv, ControlPlaneEnv {
   TEAM_PRESENCE: DurableObjectNamespace<TeamPresence>;
+  ACCOUNT_CONTROL_PLANE: DurableObjectNamespace<AccountControlPlane>;
   CONNECTIVITY_INVALIDATION_SECRET?: string;
 }
 
@@ -105,6 +109,39 @@ export default {
       headers.set("x-connectivity-account-id", user.id);
       headers.set("x-presence-expires-at", String(Math.floor(expiresAt)));
       const stub = connectivityStub(env, user.id);
+      return stub.fetch(new Request(request.url, { method: "GET", headers }));
+    }
+
+    if (url.pathname === "/v1/control/socket") {
+      // Account control plane: one WebSocket carrying revisioned facts
+      // (directory, hint updates, relay passes). Auth follows the
+      // connectivity-subscribe pattern: verify the Stack bearer here, derive
+      // the DO from the VERIFIED user id, and forward a stream deadline
+      // (token expiry capped at MAX_SUBSCRIBE_AGE_MS). The DO additionally
+      // keeps the connection's own bearer (already on the forwarded headers)
+      // for its upstream broker proxy calls — never its own credentials.
+      if (request.method !== "GET") return json({ error: "method_not_allowed" }, 405);
+      if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+        return json({ error: "websocket_required" }, 400);
+      }
+      const namespace = request.headers.get("x-cmux-app-namespace")?.trim();
+      if (namespace && !/^[A-Za-z0-9._:-]{1,255}$/.test(namespace)) {
+        return json({ error: "invalid_client_namespace" }, 400);
+      }
+      const user = await verifyRequest(request, env);
+      if (!user) return unauthorized();
+      const token = bearerToken(request);
+      const expiresAt = cacheDeadline(
+        Date.now(),
+        token ? tokenExpiryMs(token) : null,
+        MAX_SUBSCRIBE_AGE_MS,
+      );
+      const headers = new Headers(request.headers);
+      headers.set("x-control-account-id", user.id);
+      headers.set("x-presence-expires-at", String(Math.floor(expiresAt)));
+      const stub = env.ACCOUNT_CONTROL_PLANE.get(
+        env.ACCOUNT_CONTROL_PLANE.idFromName(`control:user:${user.id}`),
+      );
       return stub.fetch(new Request(request.url, { method: "GET", headers }));
     }
 

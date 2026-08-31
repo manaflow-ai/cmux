@@ -74,6 +74,10 @@ public actor MobileIrxRuntimeComposition {
     private var endpointSupervisor: IrxEndpointSupervisor?
     private var autopilot: IrxRelayCredentialAutopilot?
     private var identity: IrxIdentity?
+    /// The always-on fact channel to the per-account control-plane DO.
+    /// Never on the dial path; delivers pushed passes and hint updates.
+    private var controlPlane: IrxControlPlaneClient?
+    private var controlPlaneBaseURL: URL?
     private var provisioningTask: Task<Void, Never>?
     private var provisionInFlight: Task<IrxBrokerService, any Error>?
     /// One reconnect owner per Mac endpoint (contract: the single dialer).
@@ -145,10 +149,12 @@ public actor MobileIrxRuntimeComposition {
 
     public func configure(
         auth: AuthCoordinator,
-        legacy: MobileIrohRuntimeComposition? = nil
+        legacy: MobileIrohRuntimeComposition? = nil,
+        controlPlaneBaseURL: URL? = nil
     ) {
         self.auth = auth
         legacyComposition = legacy
+        self.controlPlaneBaseURL = controlPlaneBaseURL
         Self.journal.record(
             "client-runtime", "configured",
             [
@@ -161,29 +167,140 @@ public actor MobileIrxRuntimeComposition {
         // Proactive provisioning so the user-visible connect is warm:
         // identity, binding, discovery, relay credentials all resolve in the
         // background at launch, never on the dial path.
+        //
+        // EVENT-DRIVEN on auth: setup never starts before sign-in is
+        // affirmatively complete. The identity stream's first element is the
+        // current state, so an already-signed-in launch provisions
+        // immediately, and a launch that races sign-in provisions the
+        // instant the session publishes instead of discovering it on a
+        // timer. Pre-auth attempts are not just wasted: a failed provision
+        // can burn broker registrations, and every registration write bumps
+        // the account route revision fleet-wide.
         provisioningTask?.cancel()
         provisioningTask = Task { [weak self] in
-            // Capped exponential backoff: a persistent broker-side failure
-            // must degrade to a gentle poll, never a 2s hammer (each failed
-            // attempt can hit registration, and registration writes bump the
-            // account route revision fleet-wide).
-            var delay: Duration = .seconds(2)
-            while !Task.isCancelled {
-                if await self?.provisionIfPossible() == true {
-                    return
-                }
-                try? await Task.sleep(for: delay)
-                delay = min(delay * 2, .seconds(30))
+            // Restored sessions first: bootstrap completion is the point
+            // where signed-in state is definitively known, and a session
+            // restored from the keychain may have published before this
+            // subscription existed. Checking directly here means a
+            // signed-in launch provisions immediately without depending on
+            // catching that publish.
+            await auth.awaitBootstrapped()
+            guard !Task.isCancelled else { return }
+            Self.journal.record("client-runtime", "auth-gate-bootstrapped")
+            if await self?.provisionSignedInWithRetry() == true { return }
+            // Fresh sign-ins and account transitions: provision the instant
+            // the session publishes. Still zero pre-auth attempts.
+            for await identity in await auth.authenticatedSessionIdentities() {
+                guard !Task.isCancelled else { return }
+                Self.journal.record(
+                    "client-runtime", "auth-gate-identity",
+                    ["signed_in": String(identity != nil)]
+                )
+                guard identity != nil else { continue }
+                if await self?.provisionSignedInWithRetry() == true { return }
             }
         }
     }
 
+    /// Provisions with capped backoff. Returns true on success; returns
+    /// false immediately when not signed in (the caller's auth signal owns
+    /// the next attempt, so no pre-auth retries ever run).
+    private func provisionSignedInWithRetry() async -> Bool {
+        guard let auth else { return false }
+        Self.journal.record("client-runtime", "auth-gate-snapshot-check")
+        guard (try? await auth.authenticatedSessionSnapshot()) != nil else {
+            Self.journal.record("client-runtime", "auth-gate-not-signed-in")
+            return false
+        }
+        Self.journal.record("client-runtime", "auth-gate-signed-in")
+        var delay: Duration = .seconds(1)
+        while !Task.isCancelled {
+            if await provisionIfPossible() { return true }
+            try? await Task.sleep(for: delay)
+            delay = min(delay * 2, .seconds(30))
+        }
+        return false
+    }
+
     /// Foreground kick: re-check credential freshness immediately (iOS
-    /// suspension pauses the autopilot's sleep).
+    /// suspension pauses the autopilot's sleep) and reconnect the control
+    /// socket, which resyncs facts from the persisted revision.
     public func didBecomeActive() async {
         await autopilot?.kick()
+        await controlPlane?.kick()
         for engine in enginesByPeer.values {
             await engine.warmUp(trigger: "foreground")
+        }
+    }
+
+    // MARK: - Control-plane fact ingestion
+
+    private func startControlPlane(identity: IrxIdentity) {
+        guard controlPlane == nil, let controlPlaneBaseURL, let auth else { return }
+        let client = IrxControlPlaneClient(
+            configuration: .init(
+                socketURL: controlPlaneBaseURL
+                    .appendingPathComponent("v1/control/socket"),
+                endpointIDHex: identity.endpointIDHex,
+                // Phase A: passes stay on the HTTPS autopilot (now hardened
+                // with stale-connection retry). The broker's mint endpoint
+                // requires an endpoint-signed proof for non-legacy
+                // namespaces, which the DO cannot mint bearer-only; flip
+                // this when proof pass-through ships.
+                wantPasses: false,
+                cacheDirectory: stateDirectory
+            ),
+            tokenPair: { [weak auth] in
+                guard let auth else { return nil }
+                let session = try await auth.authenticatedSessionSnapshot()
+                return (session.accessToken, session.refreshToken)
+            },
+            handlers: .init(
+                onRelayPasses: { [weak self] credentials in
+                    await self?.ingestPushedPasses(credentials)
+                },
+                onHintUpdate: { [weak self] endpointIDHex, relayURL in
+                    await self?.ingestHintUpdate(
+                        endpointIDHex: endpointIDHex, relayURL: relayURL)
+                },
+                onDirectory: { _ in },
+                onSnapshotComplete: { _ in }
+            ),
+            journal: Self.journal
+        )
+        controlPlane = client
+        Task { await client.start() }
+    }
+
+    /// Pushed passes flow through the broker's mint rules (fleet allowlist,
+    /// identity binding, monotonic freshness), then rotate make-before-break
+    /// and reset the autopilot timer so push and fallback never double-mint.
+    private func ingestPushedPasses(_ credentials: [IrxRelayCredential]) async {
+        guard let broker, let endpointSupervisor, let autopilot else { return }
+        guard let accepted = await broker.acceptPushedRelayCredentials(credentials)
+        else { return }
+        await endpointSupervisor.rotateCredentials(accepted)
+        await autopilot.kick()
+    }
+
+    /// The event-driven relay race: a pushed hint that disagrees with the
+    /// route an in-flight dial used cancels that dial and redials at the
+    /// true relay. An admitted session is never touched, and an agreeing
+    /// hint (the overwhelmingly common case) is a no-op.
+    private func ingestHintUpdate(endpointIDHex: String, relayURL: String) async {
+        let existing = routesByPeer[endpointIDHex]
+        guard existing?.relayURL != relayURL else { return }
+        routesByPeer[endpointIDHex] = (relayURL, existing?.directAddresses ?? [])
+        Self.journal.record(
+            "client-runtime", "hint-adopted",
+            [
+                "peer": String(endpointIDHex.prefix(12)),
+                "relay": relayURL,
+                "was": existing?.relayURL ?? "-",
+            ]
+        )
+        if let engine = enginesByPeer[endpointIDHex] {
+            await engine.relayHintChanged(trigger: "ctl-hint-update")
         }
     }
 
@@ -318,6 +435,7 @@ public actor MobileIrxRuntimeComposition {
         self.broker = broker
         endpointSupervisor = supervisor
         autopilot = pilot
+        startControlPlane(identity: identity)
         return broker
     }
 

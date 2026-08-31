@@ -1,0 +1,118 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CtlDirectory",
+  "type": "object",
+  "required": [
+    "v",
+    "type",
+    "rev",
+    "payload"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "type": "integer",
+      "description": "control-plane protocol version, 1"
+    },
+    "type": {
+      "const": "directory"
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "routeContractVersion",
+        "bindings",
+        "relayFleet",
+        "grantVerificationKeys"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "routeContractVersion": {
+          "type": "integer"
+        },
+        "bindings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "bindingId",
+              "endpointId",
+              "clientNamespace"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "bindingId": {
+                "type": "string"
+              },
+              "endpointId": {
+                "type": "string"
+              },
+              "deviceId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "instanceTag": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "clientNamespace": {
+                "type": "string"
+              },
+              "homeRelayUrl": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "updatedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              }
+            }
+          }
+        },
+        "relayFleet": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "grantVerificationKeys": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "keyId",
+              "alg",
+              "publicKey"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "keyId": {
+                "type": "string"
+              },
+              "alg": {
+                "type": "string"
+              },
+              "publicKey": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "rev": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "monotonic account route revision this fact reflects"
+    }
+  }
+}

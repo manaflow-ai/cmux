@@ -166,7 +166,10 @@ public actor IrxPeerEngine {
             throw denial
         } catch {
             dialTask = nil
-            guard !Task.isCancelled else { throw error }
+            // Cancellation is always owner-driven (stop(), an explicit
+            // replacement, or a hint-race redial); the canceller owns the
+            // next state, so no failure bookkeeping and no redial schedule.
+            if error is CancellationError || Task.isCancelled { throw error }
             lastDialError = error
             setState(.closed(code: "dial-failed"))
             record(
@@ -181,6 +184,28 @@ public actor IrxPeerEngine {
     /// Proactive warm-up: dial without a caller waiting (app launch, route
     /// learned). Failures follow the normal backoff.
     public func warmUp(trigger: String) {
+        Task { _ = try? await self.ensureSession(trigger: trigger) }
+    }
+
+    /// Event-driven relay race: fresh discovery just revealed a different
+    /// home relay for this peer. An admitted session passing keepalives is
+    /// never touched. An in-flight dial (aimed at the stale relay, where it
+    /// would sit out a silent black-hole timeout) is cancelled and replaced
+    /// immediately; a pending backoff redial is pulled forward. Parked
+    /// denials stay parked: authorization state is not a routing question.
+    public func relayHintChanged(trigger: String) {
+        if case .ready = state { return }
+        if parkedCode != nil { return }
+        guard dialTask != nil || redialTimer != nil || cooldownUntil != nil else {
+            return
+        }
+        record("hint-race-redial", ["trigger": trigger])
+        dialTask?.cancel()
+        dialTask = nil
+        redialTimer?.cancel()
+        redialTimer = nil
+        cooldownUntil = nil
+        backoff = config.initialBackoff
         Task { _ = try? await self.ensureSession(trigger: trigger) }
     }
 
