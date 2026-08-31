@@ -44,7 +44,7 @@ use crossterm::terminal::{
 use ghostty_vt::{
     CursorShape, KeyEncoder, KeyInput, KittyGraphicsSnapshot, Mods, MouseAction,
     MouseButton as GhosttyMouseButton, MouseInput, RenderState, Rgb, Screen, Scrollbar,
-    TerminalPointerSemanticSnapshot,
+    SelectionPoint, SelectionRange, TerminalPointerSemanticSnapshot, TrackedScreenPoint,
 };
 use ratatui::Terminal as RatatuiTerminal;
 use ratatui::backend::{Backend, CrosstermBackend};
@@ -5329,6 +5329,36 @@ pub struct Selection {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SelectionMode {
+    Cell,
+    Word,
+    Line,
+}
+
+impl Default for SelectionMode {
+    fn default() -> Self {
+        Self::Cell
+    }
+}
+
+/// State shared by the press and drag halves of one terminal selection
+/// gesture. Crossterm reports individual presses, so the TUI owns the small
+/// amount of timing and distance state needed to recognize repeats.
+struct SelectionClickSequence {
+    surface: SurfaceId,
+    screen: Option<Screen>,
+    position: (u16, u16),
+    time: Instant,
+    count: u8,
+    mode: SelectionMode,
+    anchor: (u16, u64),
+    tracked_anchor: Option<TrackedScreenPoint>,
+}
+
+const SELECTION_REPEAT_INTERVAL: Duration = Duration::from_millis(500);
+const SELECTION_REPEAT_DISTANCE_SQUARED: u32 = 1;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct VisibleInputState {
     pty_surface: Option<SurfaceId>,
     selection: Option<Selection>,
@@ -6964,6 +6994,9 @@ pub struct App {
     pub(crate) shake_frames: u8,
     pub selection: Option<Selection>,
     selection_generation: u64,
+    selection_mode: SelectionMode,
+    selection_mode_surface: Option<SurfaceId>,
+    selection_click_sequence: Option<SelectionClickSequence>,
     status_selection: Option<StatusMessageSelection>,
     rendered_status_message: Option<RenderedStatusMessage>,
     /// The last status message written to the client log, so a message that
@@ -9192,6 +9225,9 @@ fn run_with_machine_updates_inner(
         shake_frames: 0,
         selection: None,
         selection_generation: 0,
+        selection_mode: SelectionMode::Cell,
+        selection_mode_surface: None,
+        selection_click_sequence: None,
         status_selection: None,
         rendered_status_message: None,
         logged_status_message: None,
@@ -11613,6 +11649,7 @@ impl App {
         self.toast = None;
         self.shake_frames = 0;
         self.replace_selection(None);
+        self.reset_selection_click_sequence();
         self.last_browser_hover = None;
         self.deferred_input.clear();
         self.pending_pointer_motion = None;
@@ -12904,6 +12941,13 @@ impl App {
     }
 
     fn retire_surface_state(&mut self, surface: SurfaceId) {
+        if self
+            .selection_click_sequence
+            .as_ref()
+            .is_some_and(|sequence| sequence.surface == surface)
+        {
+            self.reset_selection_click_sequence();
+        }
         if matches!(&self.drag, Some(Drag::PtyMouse { surface: active, .. }) if *active == surface)
         {
             self.cancel_pty_release_reservation();
@@ -15509,6 +15553,9 @@ impl App {
         action_destination: Option<SurfaceId>,
         action_fallback_destination: Option<SurfaceId>,
     ) -> anyhow::Result<RenderAction> {
+        if !matches!(&input, TerminalInput::Mouse(_)) {
+            self.reset_selection_click_sequence();
+        }
         let semantic_result =
             if semantic_result.is_none() && self.input_creates_session_destination(&input) {
                 self.clear_finished_semantic_destinations();
@@ -15826,6 +15873,7 @@ impl App {
         self.pending_pointer_motion = None;
         self.active_pointer_buttons.clear();
         self.ignored_pty_mouse_buttons.clear();
+        self.reset_selection_click_sequence();
     }
 
     #[cfg(test)]
@@ -16689,9 +16737,212 @@ impl App {
             .unwrap_or(0)
     }
 
+    /// Whether a selection should be painted for a surface. A word or line
+    /// can legitimately contain one cell, so endpoint equality alone is not
+    /// enough to decide whether the highlight is visible.
+    pub(crate) fn selection_is_visible(&self, surface: SurfaceId) -> bool {
+        self.selection.is_some_and(|selection| {
+            selection.surface == surface
+                && (selection.anchor != selection.head
+                    || (self.selection_mode_surface == Some(surface)
+                        && self.selection_mode != SelectionMode::Cell))
+        })
+    }
+
+    fn reset_selection_click_sequence(&mut self) {
+        self.selection_click_sequence = None;
+    }
+
+    fn reset_selection_mode(&mut self) {
+        self.selection_mode = SelectionMode::Cell;
+        self.selection_mode_surface = None;
+    }
+
+    fn selection_point(cell: (u16, u64)) -> Option<SelectionPoint> {
+        Some(SelectionPoint { column: cell.0, row: u32::try_from(cell.1).ok()? })
+    }
+
+    fn selection_from_range(surface: SurfaceId, range: SelectionRange) -> Selection {
+        Selection {
+            surface,
+            anchor: (range.start.column, u64::from(range.start.row)),
+            head: (range.end.column, u64::from(range.end.row)),
+        }
+    }
+
+    fn selection_for_click(
+        &self,
+        surface: SurfaceId,
+        cell: (u16, u64),
+        mode: SelectionMode,
+    ) -> Option<Selection> {
+        if mode == SelectionMode::Cell {
+            return Some(Selection { surface, anchor: cell, head: cell });
+        }
+        let point = Self::selection_point(cell)?;
+        let handle = self.session.surface(surface)?;
+        let range = handle
+            .with_terminal(|terminal| match mode {
+                SelectionMode::Word => terminal.select_word_screen(point).ok().flatten(),
+                SelectionMode::Line => terminal.select_line_screen(point).ok().flatten(),
+                SelectionMode::Cell => None,
+            })
+            .flatten()?;
+        Some(Self::selection_from_range(surface, range))
+    }
+
+    fn terminal_active_screen(&self, surface: SurfaceId) -> Option<Screen> {
+        self.session.surface(surface).and_then(|handle| handle.with_terminal(|terminal| terminal.active_screen()))
+    }
+
+    fn selection_repeat_allowed(
+        previous: &SelectionClickSequence,
+        surface: SurfaceId,
+        screen: Option<Screen>,
+        position: (u16, u16),
+        now: Instant,
+    ) -> bool {
+        if screen.is_none() || previous.surface != surface || previous.screen != screen {
+            return false;
+        }
+        let Some(elapsed) = now.checked_duration_since(previous.time) else { return false };
+        if elapsed > SELECTION_REPEAT_INTERVAL {
+            return false;
+        }
+        let dx = u32::from(previous.position.0.abs_diff(position.0));
+        let dy = u32::from(previous.position.1.abs_diff(position.1));
+        dx.saturating_mul(dx).saturating_add(dy.saturating_mul(dy))
+            <= SELECTION_REPEAT_DISTANCE_SQUARED
+    }
+
+    fn begin_selection_click(
+        &mut self,
+        surface: SurfaceId,
+        cell: (u16, u64),
+        position: (u16, u16),
+    ) -> SelectionMode {
+        let now = Instant::now();
+        let previous = self.selection_click_sequence.take();
+        let screen = self.terminal_active_screen(surface);
+        let repeated = previous.as_ref().is_some_and(|previous| {
+            Self::selection_repeat_allowed(previous, surface, screen, position, now)
+        });
+        let (count, mut tracked_anchor) = if repeated {
+            let previous = previous.expect("repeated selection click has prior state");
+            (previous.count.saturating_add(1).min(3), previous.tracked_anchor)
+        } else {
+            (1, None)
+        };
+
+        let mode = match count {
+            2 => SelectionMode::Word,
+            3 => SelectionMode::Line,
+            _ => SelectionMode::Cell,
+        };
+        if let Some(row) = u32::try_from(cell.1).ok()
+            && let Some(handle) = self.session.surface(surface)
+        {
+            let tracked = handle.with_terminal(|terminal| {
+                if let Some(anchor) = tracked_anchor.as_mut()
+                    && terminal.set_tracked_screen_point(anchor, cell.0, row).is_ok()
+                {
+                    return (true, None);
+                }
+                (false, terminal.track_screen_point(cell.0, row).ok())
+            });
+            match tracked {
+                Some((true, _)) => {}
+                Some((false, new_anchor)) => tracked_anchor = new_anchor,
+                None => tracked_anchor = None,
+            }
+        }
+        self.selection_click_sequence = Some(SelectionClickSequence {
+            surface,
+            screen,
+            position,
+            time: now,
+            count,
+            mode,
+            anchor: cell,
+            tracked_anchor,
+        });
+        mode
+    }
+
+    fn selection_anchor_cell(&self, surface: SurfaceId) -> Option<(u16, u64)> {
+        let sequence = self.selection_click_sequence.as_ref()?;
+        if sequence.surface != surface {
+            return None;
+        }
+        let fallback = sequence.anchor;
+        let handle = self.session.surface(surface)?;
+        handle
+            .with_terminal(|terminal| {
+                sequence
+                    .tracked_anchor
+                    .as_ref()
+                    .and_then(|anchor| terminal.tracked_screen_point(anchor))
+                    .map(|(column, row)| (column, u64::from(row)))
+            })
+            .flatten()
+            .or(Some(fallback))
+    }
+
+    fn update_semantic_selection(
+        &mut self,
+        surface: SurfaceId,
+        mode: SelectionMode,
+        current: (u16, u64),
+    ) {
+        if mode == SelectionMode::Cell {
+            return;
+        }
+        let Some(anchor) = self.selection_anchor_cell(surface) else { return };
+        let Some(anchor_point) = Self::selection_point(anchor) else { return };
+        let Some(current_point) = Self::selection_point(current) else { return };
+        let Some(handle) = self.session.surface(surface) else { return };
+        let range = handle
+            .with_terminal(|terminal| match mode {
+                SelectionMode::Word => {
+                    let first = terminal
+                        .select_word_between_screen(anchor_point, current_point)
+                        .ok()
+                        .flatten()?;
+                    let second = terminal
+                        .select_word_between_screen(current_point, anchor_point)
+                        .ok()
+                        .flatten()?;
+                    let current_before_anchor = (current.1, current.0) < (anchor.1, anchor.0);
+                    Some(if current_before_anchor {
+                        SelectionRange { start: second.start, end: first.end }
+                    } else {
+                        SelectionRange { start: first.start, end: second.end }
+                    })
+                }
+                SelectionMode::Line => {
+                    let first = terminal.select_line_screen(anchor_point).ok().flatten()?;
+                    let second = terminal.select_line_screen(current_point).ok().flatten()?;
+                    let current_before_anchor = (current.1, current.0) < (anchor.1, anchor.0);
+                    Some(if current_before_anchor {
+                        SelectionRange { start: second.start, end: first.end }
+                    } else {
+                        SelectionRange { start: first.start, end: second.end }
+                    })
+                }
+                SelectionMode::Cell => None,
+            })
+            .flatten();
+        if let Some(range) = range {
+            self.replace_selection(Some(Self::selection_from_range(surface, range)));
+        }
+    }
+
     fn replace_selection(&mut self, selection: Option<Selection>) {
         self.selection_generation = self.selection_generation.wrapping_add(1);
         self.selection = selection;
+        if selection.is_none() {
+            self.reset_selection_mode();
+        }
     }
 
     fn visible_input_state(&self, destination: Option<SurfaceId>) -> VisibleInputState {
@@ -16810,18 +17061,27 @@ impl App {
         else {
             return false;
         };
-        let Some(surface_id) = self.selection.map(|sel| sel.surface) else { return false };
+        let Some(surface_id) =
+            self.selection_mode_surface.or_else(|| self.selection.map(|sel| sel.surface))
+        else {
+            return false;
+        };
         let Some(surface) = self.session.surface(surface_id) else { return false };
         let content =
             self.current_selection_geometry(surface_id).map_or(content, |(content, _)| content);
         let moved = surface.scroll_delta(dir as isize).unwrap_or(false);
         let edge_row = if dir < 0 { 0 } else { content.height.saturating_sub(1) };
         let offset = self.surface_scroll_offset(surface_id);
-        if let Some(mut selection) = self.selection {
-            selection.head = (
-                col.min(content.width.saturating_sub(1).saturating_add(source_x)),
-                offset + edge_row as u64,
-            );
+        let edge_cell = (
+            col.min(content.width.saturating_sub(1).saturating_add(source_x)),
+            offset + edge_row as u64,
+        );
+        if self.selection_mode != SelectionMode::Cell
+            && self.selection_mode_surface == Some(surface_id)
+        {
+            self.update_semantic_selection(surface_id, self.selection_mode, edge_cell);
+        } else if let Some(mut selection) = self.selection {
+            selection.head = edge_cell;
             self.replace_selection(Some(selection));
         }
         moved
@@ -20297,6 +20557,7 @@ impl App {
                 }
             }
             MouseEventKind::Down(MouseButton::Right) => {
+                self.reset_selection_click_sequence();
                 if self.prompt.is_some() {
                     self.shake_frames = 6;
                     return Ok(RenderAction::Draw);
@@ -20338,8 +20599,9 @@ impl App {
                     self.handle_right_up(mouse.column, mouse.row)
                 }
             }
-            MouseEventKind::Down(MouseButton::Middle) => Ok(
-                if self.begin_pty_mouse_drag_with_admission(
+            MouseEventKind::Down(MouseButton::Middle) => {
+                self.reset_selection_click_sequence();
+                Ok(if self.begin_pty_mouse_drag_with_admission(
                     mouse.column,
                     mouse.row,
                     MouseButton::Middle,
@@ -20350,8 +20612,8 @@ impl App {
                     RenderAction::Draw
                 } else {
                     RenderAction::None
-                },
-            ),
+                })
+            }
             MouseEventKind::Drag(MouseButton::Middle) => {
                 self.forward_pty_mouse_drag(
                     mouse.column,
@@ -20467,6 +20729,7 @@ impl App {
             self.focus_pane_after_input(area.pane);
         }
         self.leave_workspace_sidebar();
+        self.reset_selection_click_sequence();
         self.replace_selection(None);
         if !forwarded.accepted {
             return PtyMousePressResult::Consumed;
@@ -20722,6 +20985,7 @@ impl App {
     }
 
     fn cancel_pointer_interaction(&mut self) -> bool {
+        self.reset_selection_click_sequence();
         let menu_scrollbar_dragged =
             self.menu.as_mut().is_some_and(|menu| menu.finish_scrollbar_drag());
         let pointer_dragged = self.drag.is_some();
@@ -20798,11 +21062,13 @@ impl App {
     }
 
     fn finish_active_drag(&mut self) {
+        let had_drag = self.drag.is_some();
         if let Some(menu) = self.menu.as_mut() {
             menu.finish_scrollbar_drag();
         }
         if matches!(self.drag, Some(Drag::PtyMouse { .. })) {
             self.cancel_pty_mouse_drag();
+            self.reset_selection_click_sequence();
             return;
         }
         match self.drag.take() {
@@ -20836,6 +21102,9 @@ impl App {
             )
             | None => {}
             Some(Drag::PtyMouse { .. }) => unreachable!("PTY drag returned before take"),
+        }
+        if had_drag {
+            self.reset_selection_click_sequence();
         }
     }
 
@@ -21529,6 +21798,19 @@ impl App {
         self.status_selection = None;
         self.finish_active_drag();
 
+        // A repeat is valid only for presses that land directly in a PTY
+        // content cell. Any chrome, overlay, browser, or modified click ends
+        // the pending terminal click sequence.
+        let repeat_target = !modifiers.contains(KeyModifiers::SHIFT)
+            && self.hit_at(x, y).is_none()
+            && self.pane_area_at(x, y).is_some_and(|area| {
+                area.content.contains(x, y)
+                    && self.surface_kind(area.surface) == Some(SurfaceKind::Pty)
+            });
+        if !repeat_target {
+            self.reset_selection_click_sequence();
+        }
+
         if self.pairing_dialog.is_some() {
             return self.handle_pairing_click(x, y);
         }
@@ -21856,11 +22138,18 @@ impl App {
                     let source_x = area.content_source_x();
                     let col = source_x.saturating_add(x - content.x);
                     let cell = (col, offset + (y - content.y) as u64);
-                    self.replace_selection(Some(Selection {
-                        surface: area.surface,
-                        anchor: cell,
-                        head: cell,
-                    }));
+                    let mode = self.begin_selection_click(
+                        area.surface,
+                        cell,
+                        (x.saturating_sub(content.x), y.saturating_sub(content.y)),
+                    );
+                    self.selection_mode = mode;
+                    self.selection_mode_surface = Some(area.surface);
+                    if let Some(selection) =
+                        self.selection_for_click(area.surface, cell, mode)
+                    {
+                        self.replace_selection(Some(selection));
+                    }
                     self.drag = Some(Drag::Select { content, source_x, auto_scroll: None, col });
                 }
             } else if self.active_pane() != Some(area.pane) {
@@ -21910,18 +22199,33 @@ impl App {
             }
             Some(Drag::Select { content, source_x, .. }) => {
                 let fallback = (*content, *source_x);
-                let (content, source_x) = self
-                    .selection
-                    .and_then(|selection| self.current_selection_geometry(selection.surface))
+                let selection_surface =
+                    self.selection_mode_surface.or_else(|| self.selection.map(|selection| selection.surface));
+                let (content, source_x) = selection_surface
+                    .and_then(|surface| self.current_selection_geometry(surface))
                     .unwrap_or(fallback);
                 let cx = x.clamp(content.x, content.x + content.width.saturating_sub(1));
                 let cy = y.clamp(content.y, content.y + content.height.saturating_sub(1));
                 let col = source_x.saturating_add(cx - content.x);
                 let offset =
-                    self.selection.map(|sel| self.surface_scroll_offset(sel.surface)).unwrap_or(0);
-                if let Some(mut selection) = self.selection {
-                    selection.head = (col, offset + (cy - content.y) as u64);
-                    self.replace_selection(Some(selection));
+                    selection_surface.map(|surface| self.surface_scroll_offset(surface)).unwrap_or(0);
+                let current = (col, offset + (cy - content.y) as u64);
+                let mode = selection_surface
+                    .filter(|surface| self.selection_mode_surface == Some(*surface))
+                    .and_then(|surface| {
+                        self.selection_click_sequence
+                            .as_ref()
+                            .filter(|sequence| sequence.surface == *surface)
+                            .map(|sequence| sequence.mode)
+                    })
+                    .unwrap_or(SelectionMode::Cell);
+                if mode == SelectionMode::Cell {
+                    if let Some(mut selection) = self.selection {
+                        selection.head = (col, offset + (cy - content.y) as u64);
+                        self.replace_selection(Some(selection));
+                    }
+                } else if let Some(surface) = selection_surface {
+                    self.update_semantic_selection(surface, mode, current);
                 }
                 let auto_scroll = if y <= content.y {
                     Some(-1)
@@ -22136,13 +22440,16 @@ impl App {
             return Ok(RenderAction::Draw);
         }
         let was_select = matches!(self.drag, Some(Drag::Select { .. }));
+        let semantic_select = was_select
+            && self.selection_mode_surface.is_some()
+            && self.selection_mode != SelectionMode::Cell;
         let was_drag = self.drag.is_some();
         self.drag = None;
         if !was_select {
             return Ok(if was_drag { RenderAction::Draw } else { RenderAction::None });
         }
         match self.selection {
-            Some(sel) if sel.anchor != sel.head => {
+            Some(sel) if sel.anchor != sel.head || semantic_select => {
                 self.copy_selection(sel);
                 Ok(RenderAction::Draw)
             }
@@ -23100,6 +23407,7 @@ impl App {
         modifiers: KeyModifiers,
         terminal_admission: Option<TerminalPointerAdmission>,
     ) -> anyhow::Result<RenderAction> {
+        self.reset_selection_click_sequence();
         if let Some(menu) = self.menu.as_mut() {
             return Ok(if menu.scroll_at(x, y, down) {
                 RenderAction::Draw
@@ -23305,6 +23613,7 @@ impl App {
         modifiers: KeyModifiers,
         terminal_admission: Option<TerminalPointerAdmission>,
     ) -> anyhow::Result<RenderAction> {
+        self.reset_selection_click_sequence();
         if self.menu.is_some() || self.prompt.is_some() {
             return Ok(RenderAction::None);
         }
@@ -44240,6 +44549,9 @@ mod tests {
             shake_frames: 0,
             selection: None,
             selection_generation: 0,
+            selection_mode: SelectionMode::Cell,
+            selection_mode_surface: None,
+            selection_click_sequence: None,
             status_selection: None,
             rendered_status_message: None,
             logged_status_message: None,
