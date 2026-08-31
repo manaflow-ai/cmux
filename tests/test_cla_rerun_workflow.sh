@@ -37,6 +37,7 @@ grep -Fq "repository: \${{ github.repository }}" "$WORKFLOW"
 grep -Fq "ref: \${{ github.workflow_sha }}" "$WORKFLOW"
 grep -Fq 'sparse-checkout: .github/scripts/rerun-failed-cla.sh' "$WORKFLOW"
 grep -Fq 'bash .github/scripts/rerun-failed-cla.sh' "$WORKFLOW"
+grep -Fq '      - .github/scripts/rerun-failed-cla.sh' "$ROOT_DIR/.github/workflows/ci.yml"
 if grep -Fq "ref: \${{ github.event.pull_request" "$WORKFLOW"; then
   echo 'FAIL: CLA rerun checkout must never use a pull-request ref' >&2
   exit 1
