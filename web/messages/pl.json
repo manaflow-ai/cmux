@@ -1,6 +1,6 @@
 {
   "billingRecovery": {
-    "message": "Jeśli znaleźliśmy konto, wysłaliśmy na Twój adres e-mail kod logowania"
+    "message": "Jeśli znaleźliśmy konto, sprawdź e-mail, aby poznać kolejne kroki"
   },
   "cloudBillingReturn": {
     "eyebrow": "cmux Cloud",

@@ -67,7 +67,7 @@ export function makeBillingCompleteHandler(
         }
         const expandedFounderMetadata =
           expandedSubscriptionValue?.metadata?.founders_edition === "true";
-        if (!isCmuxCheckoutSession(session) && !expandedFounderMetadata) {
+        if (!isCmuxCheckoutSession(session, expandedSubscriptionValue) && !expandedFounderMetadata) {
           return NextResponse.redirect(new URL("/pricing?billing=error", request.url));
         }
         const scheme =

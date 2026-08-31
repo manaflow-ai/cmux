@@ -5,6 +5,7 @@ import { env } from "../../../env";
 import { getStackServerApp, isStackConfigured } from "../../../lib/stack";
 import { preferredLocaleFromAcceptLanguage } from "../../../../i18n/accept-language";
 import { loadMessages } from "../../../../i18n/messages";
+import englishMessages from "../../../../messages/en.json";
 import { readBoundedJsonObject } from "../../../../services/apns/routePolicy";
 import {
   requestEmailVerificationRecovery,
@@ -14,7 +15,6 @@ import {
   findPaidBillingPurchaseByEmail,
   provisionPaidBillingPurchase,
 } from "../../../../services/billing/recovery";
-import { canonicalizeEmailForMatching } from "../../../../services/billing/emailMatching";
 import { recordSpanError, withApiRouteSpan } from "../../../../services/telemetry";
 
 const MAX_REQUEST_BYTES = 4 * 1_024;
@@ -22,7 +22,8 @@ const PRODUCTION_MAGIC_LINK_CALLBACK = "https://cmux.com/handler/after-sign-in";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const BILLING_RECOVERY_RESPONSE_MESSAGE =
-  "if we found an account, we emailed you a sign-in code";
+  (englishMessages as { billingRecovery: { message: string } }).billingRecovery
+    .message;
 
 type PaidRecoveryResult =
   | false
@@ -75,9 +76,10 @@ const productionDependencies: BillingRecoveryRouteDependencies = {
       ),
     ),
   checkRateLimit: checkVercelRateLimit,
-  // Reuse the existing feedback rule; the endpoint has the same abuse profile
-  // and this avoids introducing a second deployment-only configuration knob.
-  rateLimitRuleID: () => env.CMUX_FEEDBACK_RATE_LIMIT_ID,
+  // Prefer the shared feedback rule during migration, then use the dedicated
+  // billing rule when older deployments have not configured the former.
+  rateLimitRuleID: () =>
+    env.CMUX_FEEDBACK_RATE_LIMIT_ID ?? env.CMUX_BILLING_RECOVERY_RATE_LIMIT_ID,
   isVercel: () => process.env.VERCEL === "1",
 };
 
@@ -106,9 +108,7 @@ export function makeBillingRecoveryHandler(
         const callbackURL = magicLinkCallbackURL(request);
         const verificationURL = emailVerificationCallbackURL(request);
         try {
-          const paid = await dependencies.recoverPaid(
-            canonicalizeEmailForMatching(email),
-          );
+          const paid = await dependencies.recoverPaid(email);
           if (paid) {
             const candidateDeliveryEmail =
               typeof paid === "object" ? paid.deliveryEmail : null;

@@ -1,5 +1,7 @@
 #!/usr/bin/env bun
 
+import { readFile } from "node:fs/promises";
+
 import type Stripe from "stripe";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 
@@ -26,18 +28,10 @@ export type FoundersLockoutCase = {
   readonly realEmail?: string;
 };
 
-export const FOUNDERS_LOCKOUT_CASES: readonly FoundersLockoutCase[] = [
-  { email: "bentatum@me.com" },
-  {
-    email: "zacpeterson98@gmail.com",
-    paymentIntent: "pi_3U8UT2GhInAdn3Jb0FOgt60e",
-  },
-  {
-    email: "friedrichmichel800@gmail.com",
-    purchaseEmail: "friedrich.michel800@gmail.com",
-    realEmail: "friedrichmichel800@gmail.com",
-  },
-];
+// Customer identities are supplied by the operator at run time. Keeping this
+// checked-in default empty prevents payment and email identifiers from being
+// copied into source, logs, or future deployments.
+export const FOUNDERS_LOCKOUT_CASES: readonly FoundersLockoutCase[] = [];
 
 type BackfillStripeClient = {
   readonly customers: {
@@ -50,12 +44,14 @@ type BackfillStripeClient = {
   readonly subscriptions: {
     list(options?: Record<string, unknown>): Promise<{
       data: readonly Stripe.Subscription[];
+      has_more?: boolean;
     }>;
   };
   readonly checkout: {
     sessions: {
       list(options?: Record<string, unknown>): Promise<{
         data: readonly Stripe.Checkout.Session[];
+        has_more?: boolean;
       }>;
     };
   };
@@ -90,7 +86,7 @@ export type FoundersBackfillDependencies = {
 };
 
 /**
- * Reconcile the three known Founder's Edition lockout cases.
+ * Reconcile operator-selected Founder's Edition lockout cases.
  *
  * Dry-run performs provider reads and prints the exact intended ownership
  * changes without calling any mutating helper. Apply mode uses the same
@@ -137,6 +133,34 @@ export async function runFoundersLockoutBackfill(
       summaries.push(summary);
       dependencies.log?.(summary);
       continue;
+    }
+
+    if (!options.dryRun) {
+      // Re-read immediately before any ownership or entitlement mutation. A
+      // stale list result must never allow a paid record to move to an
+      // anonymous, restricted, or unverified Stack account.
+      const freshTarget = await dependencies.stackApp.getUser(user.id);
+      if (
+        !freshTarget ||
+        freshTarget.id !== user.id ||
+        freshTarget.isAnonymous === true ||
+        freshTarget.isRestricted === true ||
+        freshTarget.primaryEmailVerified !== true ||
+        !freshTarget.primaryEmail ||
+        canonicalizeEmailForMatching(freshTarget.primaryEmail) !==
+          canonicalizeEmailForMatching(requestedEmail)
+      ) {
+        const summary = {
+          email: target.email,
+          status: "skipped" as const,
+          reason: "target_stack_user_not_verified",
+          targetUserId: user.id,
+        };
+        summaries.push(summary);
+        dependencies.log?.(backfillLogSummary(summary));
+        continue;
+      }
+      user = freshTarget;
     }
 
     const allUsers = await matchingUsers(dependencies.stackApp, requestedEmail);
@@ -294,12 +318,8 @@ async function resolveStripeCase(
     }
   }
   for (const customer of matching) {
-    const subscriptions = await client.subscriptions.list({
-      customer: customer.id,
-      status: "all",
-      limit: 100,
-    });
-    const relevant = subscriptions.data.filter((subscription) => {
+    const subscriptions = await listStripeSubscriptionsForCustomer(client, customer.id);
+    const relevant = subscriptions.filter((subscription) => {
       const metadata = subscription.metadata ?? {};
       return (
         metadata.founders_edition === "true" ||
@@ -309,25 +329,16 @@ async function resolveStripeCase(
     const founderSubscriptions = relevant.filter(
       (subscription) => subscription.metadata?.founders_edition === "true",
     );
-    // The legacy payment link can leave its subscription unclassified. A
-    // paid Founder checkout session is still authoritative; only use a
-    // classified subscription as the synthetic-session fallback, never an
-    // unrelated subscription on the same Stripe customer.
-    const remapCandidates = target.realEmail
-      ? subscriptions.data.filter((subscription) => {
-          const metadata = subscription.metadata ?? {};
-          // This audited remap case includes unclassified personal
-          // subscription history so a cancelled duplicate is moved, while
-          // leaving Team-scoped history untouched.
-          return !metadata.stackTeamId && metadata.plan !== "team";
-        })
-      : [];
-    const sessions = await client.checkout.sessions.list({
-      customer: customer.id,
-      limit: 100,
-    });
+    // The legacy payment link can leave its subscription unclassified. A paid
+    // Founder checkout session is still authoritative. Synthetic
+    // sessions and remaps use only subscriptions with an explicit cmux or
+    // Founder marker, never unrelated history on the same customer.
+    const sessions = await listStripeCheckoutSessionsForCustomer(
+      client,
+      customer.id,
+    );
     const selectedSession =
-      sessions.data.find(
+      sessions.find(
         (session) =>
           session.metadata?.founders_edition === "true" &&
           ["paid", "no_payment_required"].includes(session.payment_status) &&
@@ -341,13 +352,13 @@ async function resolveStripeCase(
     const sessionSubscriptionID = stringID(selectedSession.subscription);
     const subscriptionsToRemap = [
       ...new Map(
-        [...relevant, ...remapCandidates]
+        relevant
           .map((subscription) => [subscription.id, subscription] as const),
       ).values(),
     ];
     const selectedSubscription =
       (sessionSubscriptionID
-        ? subscriptions.data.find((subscription) => subscription.id === sessionSubscriptionID)
+        ? subscriptions.find((subscription) => subscription.id === sessionSubscriptionID)
         : null) ??
       founderSubscriptions.find((subscription) => subscription.status !== "canceled") ??
       founderSubscriptions[0] ??
@@ -391,6 +402,49 @@ async function listStripeCustomersByEmail(
     }
   }
   return [...byID.values()];
+}
+
+/** Walk every subscription page for a customer, with a repeated-cursor guard. */
+async function listStripeSubscriptionsForCustomer(
+  client: BackfillStripeClient,
+  customerId: string,
+): Promise<readonly Stripe.Subscription[]> {
+  const subscriptions: Stripe.Subscription[] = [];
+  let startingAfter: string | undefined;
+  for (;;) {
+    const response = await client.subscriptions.list({
+      customer: customerId,
+      status: "all",
+      limit: 100,
+      ...(startingAfter ? { starting_after: startingAfter } : {}),
+    });
+    subscriptions.push(...response.data);
+    const lastID = response.data.at(-1)?.id;
+    if (!response.has_more || !lastID || lastID === startingAfter) break;
+    startingAfter = lastID;
+  }
+  return subscriptions;
+}
+
+/** Walk every checkout-session page for a customer, with a cursor guard. */
+async function listStripeCheckoutSessionsForCustomer(
+  client: BackfillStripeClient,
+  customerId: string,
+): Promise<readonly Stripe.Checkout.Session[]> {
+  const sessions: Stripe.Checkout.Session[] = [];
+  let startingAfter: string | undefined;
+  for (;;) {
+    const response = await client.checkout.sessions.list({
+      customer: customerId,
+      limit: 100,
+      ...(startingAfter ? { starting_after: startingAfter } : {}),
+    });
+    sessions.push(...response.data);
+    const lastID = response.data.at(-1)?.id;
+    if (!response.has_more || !lastID || lastID === startingAfter) break;
+    startingAfter = lastID;
+  }
+  return sessions;
 }
 
 function stringID(value: string | { id: string } | null | undefined): string | null {
@@ -491,17 +545,83 @@ async function billingRowsNeedRepair(
       return rows.length === 0;
     }
     const rows = await db
-      .select({ stackUserId: stripeSubscriptions.stackUserId, stackTeamId: stripeSubscriptions.stackTeamId })
+      .select({
+        stackUserId: stripeSubscriptions.stackUserId,
+        stackTeamId: stripeSubscriptions.stackTeamId,
+        plan: stripeSubscriptions.plan,
+        scope: stripeSubscriptions.scope,
+      })
       .from(stripeSubscriptions)
       .where(inArray(stripeSubscriptions.id, requiredSubscriptionIds))
       .limit(requiredSubscriptionIds.length);
     return rows.length !== requiredSubscriptionIds.length || rows.some(
-      (row) => row.stackUserId !== targetStackUserId || row.stackTeamId != null,
+      (row) =>
+        row.stackUserId !== targetStackUserId ||
+        row.stackTeamId != null ||
+        row.plan !== PRO_PLAN_ID ||
+        row.scope !== "user",
     );
   } catch {
     // Never skip a repair when the read model is unavailable.
     return true;
   }
+}
+
+/** Load audited customer identities from an operator-only JSON file. */
+async function loadFoundersLockoutCases(): Promise<readonly FoundersLockoutCase[]> {
+  const file = process.env.CMUX_FOUNDERS_LOCKOUT_CASES_FILE?.trim();
+  if (!file) {
+    throw new Error(
+      "Set CMUX_FOUNDERS_LOCKOUT_CASES_FILE to an operator-only JSON case file.",
+    );
+  }
+  let contents: string;
+  try {
+    contents = await readFile(file, "utf8");
+  } catch {
+    throw new Error("Could not read the Founder's billing case file.");
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(contents);
+  } catch {
+    throw new Error("The Founder's billing case file is not valid JSON.");
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error("The Founder's billing case file must contain an array.");
+  }
+  const cases: FoundersLockoutCase[] = [];
+  for (const value of parsed) {
+    if (!isRecord(value) || typeof value.email !== "string" || !value.email.trim()) {
+      throw new Error("Each Founder's billing case must include an email.");
+    }
+    const optionalFields = ["purchaseEmail", "paymentIntent", "realEmail"] as const;
+    for (const field of optionalFields) {
+      if (value[field] !== undefined && typeof value[field] !== "string") {
+        throw new Error("Founder's billing case fields must be strings.");
+      }
+    }
+    cases.push({
+      email: value.email.trim(),
+      ...(typeof value.purchaseEmail === "string" && value.purchaseEmail.trim()
+        ? { purchaseEmail: value.purchaseEmail.trim() }
+        : {}),
+      ...(typeof value.paymentIntent === "string" && value.paymentIntent.trim()
+        ? { paymentIntent: value.paymentIntent.trim() }
+        : {}),
+      ...(typeof value.realEmail === "string" && value.realEmail.trim()
+        ? { realEmail: value.realEmail.trim() }
+        : {}),
+    });
+  }
+  if (cases.length === 0) {
+    throw new Error("The Founder's billing case file is empty.");
+  }
+  return cases;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
 async function main(): Promise<void> {
@@ -518,8 +638,9 @@ async function main(): Promise<void> {
     throw new Error("Choose either --apply or --dry-run, not both.");
   }
   const stackApp = getStackServerApp() as unknown as StackBillingApp;
+  const cases = await loadFoundersLockoutCases();
   const summary = await runFoundersLockoutBackfill(
-    { dryRun },
+    { dryRun, cases },
     {
       stripeClient: stripe() as unknown as BackfillStripeClient,
       stackApp,
@@ -542,10 +663,10 @@ async function main(): Promise<void> {
 if ((import.meta as ImportMeta & { main?: boolean }).main) {
   try {
     await main();
-  } catch (error) {
+  } catch {
     console.error(
       "Founder's billing backfill did not complete; review the per-customer records above before retrying.",
-      error instanceof Error ? error.name : "unknown error",
+      "operation_failed",
     );
     process.exitCode = 1;
   }

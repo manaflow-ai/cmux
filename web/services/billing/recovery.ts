@@ -1,5 +1,5 @@
 import type Stripe from "stripe";
-import { eq, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 
 import { cloudDb } from "../../db/client";
 import {
@@ -41,12 +41,14 @@ type RecoveryStripeClient = {
   readonly subscriptions: {
     list(options?: Record<string, unknown>): Promise<{
       data: readonly Stripe.Subscription[];
+      has_more?: boolean;
     }>;
   };
   readonly checkout: {
     sessions: {
       list(options?: Record<string, unknown>): Promise<{
         data: readonly Stripe.Checkout.Session[];
+        has_more?: boolean;
       }>;
     };
   };
@@ -119,23 +121,21 @@ export async function findPaidBillingPurchaseByEmail(
         return false;
       }
       if (candidate.metadata?.stackTeamId) return false;
-      return (
-        candidate.metadata?.founders_edition === "true" ||
-        (candidate.metadata?.app === "cmux" && candidate.metadata?.plan === "pro")
-      );
+      const subscription = expandedSubscription(candidate);
+      return isRecognizedRecoveryMetadata(candidate.metadata, subscription);
     });
     if (session) {
-      const isFounder = session.metadata?.founders_edition === "true";
+      const subscription = expandedSubscription(session);
+      const isFounder = isFounderRecoveryPurchase(session.metadata, subscription);
       const customerId = stringID(session.customer) ?? `recovery_${session.id}`;
       const customer = {
         id: customerId,
         deleted: false,
         email: session.customer_details?.email ?? null,
       } as unknown as Stripe.Customer;
-      const subscription =
-        typeof session.subscription === "object" && session.subscription
-          ? session.subscription
-          : null;
+      if (!isFounder && !isActiveRecoverySubscription(subscription)) {
+        return null;
+      }
       return {
         kind: isFounder ? "founders_edition" : "pro",
         input: { session, subscription, customer },
@@ -194,60 +194,84 @@ async function findLocalPurchase(
       matchingEmail,
       literalEmail,
     );
+    // Keep the ownership lookup in one bounded query. The previous customer
+    // loop issued one subscription query per customer, which made a recovery
+    // request scale linearly with the number of historical customer rows.
     const rows = await db
       .select({
         customerId: stripeCustomers.id,
         email: stripeCustomers.email,
         stackUserId: stripeCustomers.stackUserId,
         stackTeamId: stripeCustomers.stackTeamId,
+        subscriptionId: stripeSubscriptions.id,
+        subscriptionCustomerId: stripeSubscriptions.customerId,
+        subscriptionStackUserId: stripeSubscriptions.stackUserId,
+        subscriptionStackTeamId: stripeSubscriptions.stackTeamId,
+        subscriptionStatus: stripeSubscriptions.status,
+        subscriptionPlan: stripeSubscriptions.plan,
+        subscriptionScope: stripeSubscriptions.scope,
+        subscriptionCancelAtPeriodEnd: stripeSubscriptions.cancelAtPeriodEnd,
+        subscriptionRaw: stripeSubscriptions.raw,
       })
       .from(stripeCustomers)
-      .where(emailPredicate)
+      .innerJoin(
+        stripeSubscriptions,
+        eq(stripeSubscriptions.customerId, stripeCustomers.id),
+      )
+      .where(
+        and(
+          emailPredicate,
+          isNull(stripeCustomers.stackTeamId),
+          isNull(stripeSubscriptions.stackTeamId),
+          eq(stripeSubscriptions.plan, PRO_PLAN_ID),
+          or(
+            eq(stripeSubscriptions.scope, "user"),
+            isNull(stripeSubscriptions.scope),
+          ),
+          or(
+            inArray(stripeSubscriptions.status, [
+              "active",
+              "trialing",
+              "past_due",
+            ]),
+            sql`${stripeSubscriptions.raw}->'metadata'->>'founders_edition' = 'true'`,
+          ),
+        ),
+      )
       .limit(500);
     for (const row of rows) {
       if (
         !row.email ||
         row.stackTeamId != null ||
-        canonicalizeEmailForMatching(row.email) !== matchingEmail
+        canonicalizeEmailForMatching(row.email) !== matchingEmail ||
+        row.subscriptionCustomerId !== row.customerId ||
+        row.subscriptionStackUserId == null ||
+        row.subscriptionStackTeamId != null ||
+        row.subscriptionPlan !== PRO_PLAN_ID ||
+        (row.subscriptionScope != null && row.subscriptionScope !== "user")
       ) {
         continue;
       }
-      const subscriptionRows = await db
-        .select()
-        .from(stripeSubscriptions)
-        .where(eq(stripeSubscriptions.customerId, row.customerId))
-        .limit(100);
-      const candidate = subscriptionRows.find((subscription) => {
-        if (
-          subscription.customerId !== row.customerId ||
-          subscription.plan !== PRO_PLAN_ID ||
-          (subscription.scope && subscription.scope !== "user") ||
-          subscription.stackTeamId != null
-        ) {
-          return false;
-        }
-        const raw = isRecord(subscription.raw) ? subscription.raw : {};
-        const isFounder =
-          isRecord(raw.metadata) && raw.metadata.founders_edition === "true";
-        const app = isRecord(raw.metadata) ? raw.metadata.app : undefined;
-        if (app && app !== "cmux" && !isFounder) return false;
-        return isFounder || ["active", "trialing", "past_due"].includes(subscription.status);
-      });
-      if (!candidate) continue;
-      const raw = isRecord(candidate.raw) ? candidate.raw : {};
+      const raw = isRecord(row.subscriptionRaw) ? row.subscriptionRaw : {};
+      const metadata = isRecord(raw.metadata) ? raw.metadata : {};
+      const isFounder = metadata.founders_edition === "true";
+      const app = metadata.app;
+      if (app && app !== "cmux" && !isFounder) continue;
+      if (
+        !isFounder &&
+        !["active", "trialing", "past_due"].includes(row.subscriptionStatus)
+      ) {
+        continue;
+      }
       const kind: PaidBillingPurchaseKind =
-        raw.metadata &&
-        isRecord(raw.metadata) &&
-        raw.metadata.founders_edition === "true"
-          ? "founders_edition"
-          : "pro";
+        isFounder ? "founders_edition" : "pro";
       const subscription = {
         ...raw,
-        id: candidate.id,
-        customer: candidate.customerId,
-        status: candidate.status,
-        metadata: isRecord(raw.metadata) ? raw.metadata : {},
-        cancel_at_period_end: candidate.cancelAtPeriodEnd,
+        id: row.subscriptionId,
+        customer: row.subscriptionCustomerId,
+        status: row.subscriptionStatus,
+        metadata,
+        cancel_at_period_end: row.subscriptionCancelAtPeriodEnd,
         items: raw.items ?? { data: [] },
       } as unknown as Stripe.Subscription;
       const customer = {
@@ -256,11 +280,11 @@ async function findLocalPurchase(
         email: row.email,
       } as unknown as Stripe.Customer;
       const session = {
-        id: `recovery_${candidate.id}`,
+        id: `recovery_${row.subscriptionId}`,
         client_reference_id: row.stackUserId,
         customer: row.customerId,
         customer_details: { email: row.email },
-        metadata: isRecord(raw.metadata) ? raw.metadata : {},
+        metadata,
         subscription,
         payment_status: "paid",
       } as unknown as Stripe.Checkout.Session;
@@ -360,12 +384,11 @@ async function purchaseFromStripeCustomer(
   client: RecoveryStripeClient,
   customer: Stripe.Customer,
 ): Promise<PaidBillingPurchase | null> {
-  const subscriptions = await client.subscriptions.list({
-    customer: customer.id,
-    status: "all",
-    limit: 100,
-  });
-  for (const subscription of subscriptions.data) {
+  const subscriptions = await listStripeSubscriptionsForCustomer(
+    client,
+    customer.id,
+  );
+  for (const subscription of subscriptions) {
     const metadata = subscription.metadata ?? {};
     const isCmuxPro = metadata.app === "cmux" && metadata.plan === "pro";
     const isFounder = metadata.founders_edition === "true";
@@ -389,25 +412,35 @@ async function purchaseFromStripeCustomer(
     };
   }
 
-  const sessions = await client.checkout.sessions.list({
-    customer: customer.id,
-    limit: 100,
-  });
-  const session = sessions.data.find(
-    (candidate) =>
-      ["paid", "no_payment_required"].includes(candidate.payment_status) &&
-      !candidate.metadata?.stackTeamId &&
-      (candidate.metadata?.founders_edition === "true" ||
-        (candidate.metadata?.app === "cmux" && candidate.metadata?.plan === "pro")),
+  const sessions = await listStripeCheckoutSessionsForCustomer(
+    client,
+    customer.id,
+  );
+  const session = sessions.find(
+    (candidate) => {
+      const subscription = expandedSubscription(candidate);
+      return (
+        ["paid", "no_payment_required"].includes(candidate.payment_status) &&
+        !candidate.metadata?.stackTeamId &&
+        !subscription?.metadata?.stackTeamId &&
+        isRecognizedRecoveryMetadata(candidate.metadata, subscription)
+      );
+    },
   );
   if (!session) return null;
-  const isFounder = session.metadata?.founders_edition === "true";
+  const isFounder = isFounderRecoveryPurchase(
+    session.metadata,
+    expandedSubscription(session),
+  );
   const sessionSubscription =
     typeof session.subscription === "object" && session.subscription
       ? session.subscription
-      : subscriptions.data.find(
+      : subscriptions.find(
           (candidate) => candidate.id === stringID(session.subscription),
         ) ?? null;
+  if (!isFounder && !isActiveRecoverySubscription(sessionSubscription)) {
+    return null;
+  }
   return {
     kind: isFounder ? "founders_edition" : "pro",
     input: {
@@ -416,6 +449,87 @@ async function purchaseFromStripeCustomer(
       customer,
     },
   };
+}
+
+/** Walk a customer's complete subscription history without issuing unbounded reads. */
+async function listStripeSubscriptionsForCustomer(
+  client: RecoveryStripeClient,
+  customerId: string,
+): Promise<readonly Stripe.Subscription[]> {
+  const subscriptions: Stripe.Subscription[] = [];
+  let startingAfter: string | undefined;
+  for (;;) {
+    const response = await client.subscriptions.list({
+      customer: customerId,
+      status: "all",
+      limit: 100,
+      ...(startingAfter ? { starting_after: startingAfter } : {}),
+    });
+    subscriptions.push(...response.data);
+    const lastID = response.data.at(-1)?.id;
+    if (!response.has_more || !lastID || lastID === startingAfter) break;
+    startingAfter = lastID;
+  }
+  return subscriptions;
+}
+
+/** Walk all checkout-session pages for one customer, with a cursor guard. */
+async function listStripeCheckoutSessionsForCustomer(
+  client: RecoveryStripeClient,
+  customerId: string,
+): Promise<readonly Stripe.Checkout.Session[]> {
+  const sessions: Stripe.Checkout.Session[] = [];
+  let startingAfter: string | undefined;
+  for (;;) {
+    const response = await client.checkout.sessions.list({
+      customer: customerId,
+      limit: 100,
+      ...(startingAfter ? { starting_after: startingAfter } : {}),
+    });
+    sessions.push(...response.data);
+    const lastID = response.data.at(-1)?.id;
+    if (!response.has_more || !lastID || lastID === startingAfter) break;
+    startingAfter = lastID;
+  }
+  return sessions;
+}
+
+function isActiveRecoverySubscription(
+  subscription: Stripe.Subscription | null | undefined,
+): boolean {
+  return Boolean(
+    subscription &&
+      ["active", "trialing", "past_due"].includes(subscription.status),
+  );
+}
+
+function expandedSubscription(
+  session: Stripe.Checkout.Session,
+): Stripe.Subscription | null {
+  return typeof session.subscription === "object" && session.subscription
+    ? session.subscription
+    : null;
+}
+
+function isFounderRecoveryPurchase(
+  sessionMetadata: Stripe.Metadata | null | undefined,
+  subscription: Stripe.Subscription | null | undefined,
+): boolean {
+  return (
+    sessionMetadata?.founders_edition === "true" ||
+    subscription?.metadata?.founders_edition === "true"
+  );
+}
+
+function isRecognizedRecoveryMetadata(
+  sessionMetadata: Stripe.Metadata | null | undefined,
+  subscription: Stripe.Subscription | null | undefined,
+): boolean {
+  if (isFounderRecoveryPurchase(sessionMetadata, subscription)) return true;
+  if (sessionMetadata?.app) {
+    return sessionMetadata.app === "cmux" && sessionMetadata.plan === "pro";
+  }
+  return subscription?.metadata?.app === "cmux" && subscription.metadata.plan === "pro";
 }
 
 /** Query both literal/canonical spellings and paginate each Stripe result. */

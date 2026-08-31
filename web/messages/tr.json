@@ -1,6 +1,6 @@
 {
   "billingRecovery": {
-    "message": "Bir hesap bulduysak, giriş kodunu e-postayla gönderdik"
+    "message": "Bir hesap bulduysak, sonraki adımlar için e-postanı kontrol et"
   },
   "cloudBillingReturn": {
     "eyebrow": "cmux Cloud",

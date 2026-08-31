@@ -1,6 +1,6 @@
 {
   "billingRecovery": {
-    "message": "if we found an account, we emailed you a sign-in code"
+    "message": "If we found an account, check your email for next steps"
   },
   "vmDesktop": {
     "invalidTitle": "This desktop link isn't valid",

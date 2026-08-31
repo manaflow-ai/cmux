@@ -16,6 +16,7 @@ import {
   buildProWelcomeEmail,
 } from "./welcome-email";
 import { welcomeTriggerForMetadata } from "./welcome-trigger";
+import { locales, type Locale } from "../../../../i18n/routing";
 
 // to blunt replay attempts.
 const SIGNATURE_TOLERANCE_SECONDS = 5 * 60;
@@ -178,11 +179,12 @@ export async function POST(request: Request) {
           : config.fromEmail;
       const resend = new Resend(config.resendApiKey);
       const emailPayload = trigger === "pro_plan"
-        ? buildProWelcomeEmail({
+        ? await buildProWelcomeEmail({
             from: fromAddress,
             to: customerEmail,
             customerName: session?.customer_details?.name,
             sessionRef,
+            locale: localeForSession(session),
           })
         : buildFoundersWelcomeEmail({
             from: fromAddress,
@@ -229,6 +231,33 @@ type StripeEvent = {
         name?: string | null;
       } | null;
       payment_status?: string | null;
+      locale?: string | null;
     };
   };
 };
+
+type StripeSessionPayload = NonNullable<
+  NonNullable<StripeEvent["data"]>["object"]
+>;
+
+function localeForSession(session: StripeSessionPayload | undefined): Locale {
+  const value =
+    session && typeof session === "object" && "locale" in session
+      ? (session as { locale?: unknown }).locale
+      : undefined;
+  if (typeof value !== "string") return "en";
+  const normalized = value.trim().toLowerCase();
+  const aliases: Record<string, Locale> = {
+    "en-gb": "en",
+    "es-419": "es",
+    "fr-ca": "fr",
+    nb: "no",
+    pt: "pt-BR",
+    zh: "zh-CN",
+    "zh-hk": "zh-TW",
+  };
+  const aliased = aliases[normalized] ?? normalized;
+  return (locales as readonly string[]).includes(aliased)
+    ? (aliased as Locale)
+    : "en";
+}

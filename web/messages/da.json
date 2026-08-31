@@ -1,6 +1,6 @@
 {
   "billingRecovery": {
-    "message": "Hvis vi fandt en konto, har vi sendt dig en login-kode via e-mail"
+    "message": "Hvis vi fandt en konto, så tjek din e-mail for næste trin"
   },
   "cloudBillingReturn": {
     "eyebrow": "cmux Cloud",

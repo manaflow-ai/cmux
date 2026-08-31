@@ -1,6 +1,6 @@
 {
   "billingRecovery": {
-    "message": "계정을 찾았다면 로그인 코드를 이메일로 보내드렸습니다"
+    "message": "계정을 찾았다면 이메일에서 다음 단계를 확인해 주세요"
   },
   "cloudBillingReturn": {
     "eyebrow": "cmux Cloud",

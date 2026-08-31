@@ -1,6 +1,6 @@
 {
   "billingRecovery": {
-    "message": "如果我們找到帳戶，已將登入代碼寄到你的電子郵件"
+    "message": "如果我們找到帳戶，請查看你的電子郵件以了解下一步"
   },
   "cloudBillingReturn": {
     "eyebrow": "cmux Cloud",

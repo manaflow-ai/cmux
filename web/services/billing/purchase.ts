@@ -711,19 +711,21 @@ export async function recordProCheckoutCompletionByEmail(
   dependencies: BillingPurchaseDependencies = {},
 ): Promise<CheckoutCompletionResult | FoundersCheckoutCompletionResult> {
   const session = input.session;
-  if (session.metadata?.founders_edition === "true") {
+  const subscription = input.subscription ?? expandedSubscription(session);
+  if (
+    session.metadata?.founders_edition === "true" ||
+    subscription?.metadata?.founders_edition === "true"
+  ) {
     return recordFoundersCheckoutCompletion(input, dependencies);
   }
 
   const email = checkoutEmail(session, input.customer);
   if (!email) {
-    const subscription = input.subscription ?? expandedSubscription(session);
     if (!subscription) throw new Error("Stripe Pro checkout is missing a subscription");
     return { skipped: "no_customer_email", subscriptionId: subscription.id };
   }
   const customerId = customerIdFromSession(session, input.customer);
   if (!customerId) throw new Error("Stripe Pro checkout is missing a customer id");
-  const subscription = input.subscription ?? expandedSubscription(session);
   if (!subscription) throw new Error("Stripe Pro checkout is missing a subscription");
   const stackApp = dependencies.stackApp ?? getStackServerApp();
   if (!stackApp) throw new Error("Stack Auth is not configured");
@@ -841,7 +843,12 @@ export async function findOrCreateBillingUser(
     // A paid checkout is the authoritative proof for this mailbox. Verify an
     // older account before any ownership-remap decision so an unverified
     // target cannot strand the purchase or fail closed after the move.
-    await markPurchaseEmailVerified(existing, email);
+    // Anonymous accounts are promoted through the combined server mutation
+    // in attachPurchaseEmailOrRecordClaim. Calling the ordinary SDK verifier
+    // first can fail on older Stack versions and leave that promotion undone.
+    if (existing.isAnonymous !== true) {
+      await markPurchaseEmailVerified(existing, email);
+    }
     return existing;
   }
   if (!stackApp.createUser) {
@@ -1778,11 +1785,22 @@ function isStripeCustomerAlreadyDeletedError(error: unknown): boolean {
 
 export function isCmuxCheckoutSession(
   session: Pick<Stripe.Checkout.Session, "client_reference_id" | "metadata">,
+  subscription?: Pick<Stripe.Subscription, "metadata"> | null,
 ): boolean {
-  if (session.metadata?.founders_edition === "true") return true;
-  if (session.metadata?.app === "cmux") return true;
-  if (session.metadata?.app) return false;
-  return Boolean(session.client_reference_id && session.metadata?.plan === "pro");
+  const sessionMetadata = session.metadata;
+  const subscriptionMetadata = subscription?.metadata;
+  if (
+    sessionMetadata?.founders_edition === "true" ||
+    subscriptionMetadata?.founders_edition === "true"
+  ) {
+    return true;
+  }
+  // A session-level app marker is authoritative. Do not let an expanded
+  // subscription overwrite an explicit foreign checkout classification.
+  if (sessionMetadata?.app) return sessionMetadata.app === "cmux";
+  if (subscriptionMetadata?.app === "cmux") return true;
+  if (subscriptionMetadata?.app) return false;
+  return Boolean(session.client_reference_id && sessionMetadata?.plan === "pro");
 }
 
 /**
@@ -2289,12 +2307,6 @@ async function attachPurchaseEmailOrRecordClaim(
         await mutationLease.refresh();
         await markPurchaseEmailVerified(input.user, input.email);
       }
-    } else if (input.user.isAnonymous === true) {
-      // An older anonymous checkout may already carry a different mailbox.
-      // Park the paid ownership claim instead of silently losing it; a later
-      // verified recovery can transfer the exact Stripe rows safely.
-      await mutationLease.refresh();
-      await recordBillingEmailClaim(db, input);
     }
     return;
   }

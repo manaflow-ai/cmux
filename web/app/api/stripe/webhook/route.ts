@@ -158,11 +158,25 @@ async function processStripeEvent(
     case "checkout.session.completed":
     case "checkout.session.async_payment_succeeded": {
       const session = event.data.object;
-      if (!isCmuxCheckoutSession(session)) return { skipped: "foreign_checkout" };
+      // Preserve an explicit foreign marker from the signed event payload.
+      // Stripe's retrieve response is authoritative for expanded fields, but
+      // a test or a delayed provider read must not turn an explicitly foreign
+      // event into a cmux purchase.
+      if (
+        session.metadata?.app &&
+        session.metadata.app !== "cmux" &&
+        session.metadata.founders_edition !== "true"
+      ) {
+        return { skipped: "foreign_checkout" };
+      }
       const expanded = await dependencies.stripe().checkout.sessions.retrieve(session.id, {
         expand: ["subscription", "customer"],
       });
-      if (hasConflictingFounderTeamMetadata(expanded, expandedSubscription(expanded))) {
+      const subscription = expandedSubscription(expanded);
+      if (!isCmuxCheckoutSession(expanded, subscription)) {
+        return { skipped: "foreign_checkout" };
+      }
+      if (hasConflictingFounderTeamMetadata(expanded, subscription)) {
         return { skipped: "conflicting_checkout_metadata" };
       }
       if (!checkoutPaymentSettled(expanded)) {
@@ -170,16 +184,17 @@ async function processStripeEvent(
       }
       const isFounderCheckout =
         session.metadata?.founders_edition === "true" ||
-        expanded.metadata?.founders_edition === "true";
+        expanded.metadata?.founders_edition === "true" ||
+        subscription?.metadata?.founders_edition === "true";
       const result = isFounderCheckout
         ? await (dependencies.recordFoundersCheckoutCompletion ?? recordFoundersCheckoutCompletionDefault)({
             session: expanded,
-            subscription: expandedSubscription(expanded),
+            subscription,
             customer: expandedCustomer(expanded),
           })
         : await dependencies.recordCheckoutCompletion({
             session: expanded,
-            subscription: expandedSubscription(expanded),
+            subscription,
             customer: expandedCustomer(expanded),
           });
       if (result && "skipped" in result) return { skipped: result.skipped };
@@ -190,7 +205,7 @@ async function processStripeEvent(
       // double-sending the customer.
       if (
         result.scope === "user" &&
-        isPersonalProCheckout(expanded) &&
+        isPersonalProCheckout(expanded, subscription) &&
         !(dependencies.isPersonalWelcomeConfigured ?? isPersonalWelcomeConfigured)()
       ) {
         await dependencies.sendProSignupWelcome({
@@ -198,7 +213,6 @@ async function processStripeEvent(
           stackUserId: result.stackUserId,
         });
       }
-      const subscription = expandedSubscription(expanded);
       const subscriptionStatus = isFounderCheckout
         ? "active"
         : subscription?.status ?? "unknown";
@@ -318,8 +332,15 @@ async function applySubscriptionEntitlementUpdate(
   return result;
 }
 
-function isPersonalProCheckout(session: Stripe.Checkout.Session): boolean {
-  return session.metadata?.app === "cmux" && session.metadata?.plan === "pro";
+function isPersonalProCheckout(
+  session: Stripe.Checkout.Session,
+  subscription?: Stripe.Subscription | null,
+): boolean {
+  return (
+    (session.metadata?.app === "cmux" && session.metadata?.plan === "pro") ||
+    (subscription?.metadata?.app === "cmux" &&
+      subscription.metadata?.plan === "pro")
+  );
 }
 
 function isPersonalWelcomeConfigured(): boolean {
