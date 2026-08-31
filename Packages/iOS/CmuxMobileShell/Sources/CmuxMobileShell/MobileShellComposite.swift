@@ -2577,6 +2577,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             connectionState = .disconnected
             macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
+            analytics.capture("ios_pairing_failed", [
+                "method": .string("manual"),
+                "reason": .string("invalid_host"),
+                "failure_phase": .string("validation"),
+                "is_first_pair": .bool(!hasKnownPairedMac),
+            ])
             return
         }
 
@@ -2597,6 +2603,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             connectionState = .disconnected
             macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
+            analytics.capture("ios_pairing_failed", [
+                "method": .string("manual"),
+                "reason": .string("loopback_rejected"),
+                "failure_phase": .string("validation"),
+                "is_first_pair": .bool(!hasKnownPairedMac),
+            ])
             return
         }
 

@@ -322,8 +322,7 @@ extension GitMetadataService {
         )
         let cancellationSignal = WorkspaceChangesCancellationSignal(deadline: deadline)
         return await withTaskCancellationHandler {
-            await withCheckedContinuation {
-                (continuation: CheckedContinuation<GitConfigBranchTraversal.WatchPathResult, Never>) in
+            await withCheckedContinuation { continuation in
                 Self.blockingStatusQueue.async(execute: DispatchWorkItem(block: {
                     let result = cancellationSignal.withCurrentBinding {
                         traversal.watchPathResult()
@@ -345,14 +344,13 @@ extension GitMetadataService {
     ) async -> (header: GitIndexHeaderSummary?, snapshot: GitIndexSnapshot?) {
         let cancellationSignal = WorkspaceChangesCancellationSignal(deadline: deadline)
         return await withTaskCancellationHandler {
-            await withCheckedContinuation {
-                (continuation: CheckedContinuation<(header: GitIndexHeaderSummary?, snapshot: GitIndexSnapshot?), Never>) in
+            await withCheckedContinuation { continuation in
                 Self.blockingStatusQueue.async(execute: DispatchWorkItem(block: {
                     let result = cancellationSignal.withCurrentBinding {
                         guard deadline > DispatchTime.now() else {
                             return (
-                                header: Optional<GitIndexHeaderSummary>.none,
-                                snapshot: Optional<GitIndexSnapshot>.none
+                                nil as GitIndexHeaderSummary?,
+                                nil as GitIndexSnapshot?
                             )
                         }
                         let readResult = GitIndexDataReader().read(

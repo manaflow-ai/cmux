@@ -77,9 +77,7 @@ extension GitMetadataService {
                parser.signature(data: data) == cached.signature {
                 indexSnapshot = cached
             } else {
-                indexSnapshot = indexReadResult.data.flatMap {
-                    parser.parse(data: $0, deadline: deadline)
-                }
+                indexSnapshot = indexReadResult.data.flatMap { parser.parse(data: $0, deadline: deadline) }
             }
         } else {
             indexSnapshot = nil
