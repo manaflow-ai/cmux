@@ -378,6 +378,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 outputConsumerRestartBlocked = false
                 outputConsumerRestartAttempts = 0
                 outputConsumerRecoveryAlertPending = false
+                // A new consumer generation gets a fresh mismatch budget;
+                // automatic stream restarts keep the shared one so a single
+                // storm stays bounded across restarts.
+                configThemeMismatchResetPolicy = TerminalConfigThemeMismatchResetPolicy()
             }
             guard !outputConsumerRestartBlocked else { return }
             guard let store else { return }
