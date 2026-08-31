@@ -46,9 +46,13 @@ export default async function AuthErrorPage({
   const key = authErrorMessageKey(firstParam(params.code));
   const { locale, messages } = localized;
   const signInHref = signInHrefForParams(params);
+  const direction = locale === "ar" ? "rtl" : "ltr";
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#faf9f6] px-6 text-[#25231f]">
+    <main
+      className="flex min-h-screen items-center justify-center bg-[#faf9f6] px-6 text-[#25231f]"
+      dir={direction}
+    >
       <section
         className="w-full max-w-md border border-[#ded9cf] bg-white p-7 shadow-[4px_4px_0_#eee8dc]"
         data-auth-error={key}

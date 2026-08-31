@@ -92,6 +92,17 @@ describe("localized browser auth error page", () => {
     expect(html).not.toContain("unexpected");
   });
 
+  test("sets right-to-left direction for Arabic recovery copy", async () => {
+    acceptLanguage = "ar-SA,ar;q=0.9,en;q=0.8";
+    const element = await AuthErrorPage({
+      searchParams: Promise.resolve({ code: "email-conflict" }),
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain('lang="ar"');
+    expect(html).toContain('dir="rtl"');
+  });
+
   test("preserves a native handoff target on the way back to sign-in", async () => {
     acceptLanguage = "en";
     const element = await AuthErrorPage({

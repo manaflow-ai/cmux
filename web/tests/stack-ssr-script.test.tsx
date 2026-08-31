@@ -29,6 +29,7 @@ describe("Stack SSR bootstrap script", () => {
     const rendered = renderToStaticMarkup(
       createElement(SsrScript, {
         nonce: "test-nonce",
+        waitForBody: true,
         script: "window.__cmuxTheme = true;",
       }),
     );
@@ -44,8 +45,8 @@ describe("Stack SSR bootstrap script", () => {
       dangerouslySetInnerHTML: { __html: string };
     }>;
     const bodyReadyScript = firstElement.props.dangerouslySetInnerHTML.__html;
-    expect(bodyReadyScript).toContain("document.readyState===\"loading\"");
-    expect(bodyReadyScript).toContain("DOMContentLoaded");
+    expect(bodyReadyScript).toContain("!(document.body)");
+    expect(bodyReadyScript).toContain("MutationObserver");
     expect(renderToStaticMarkup(firstElement)).toContain(
       'nonce="test-nonce"',
     );
@@ -53,25 +54,75 @@ describe("Stack SSR bootstrap script", () => {
       "window.__cmuxTheme = true;",
     );
 
-    const domReadyCallbacks: Array<() => void> = [];
+    const observerCallbacks: Array<() => void> = [];
+    let observerDisconnected = false;
     const context = {
       document: {
-        readyState: "loading",
         body: null as object | null,
         documentElement: {},
-        addEventListener(_event: string, callback: () => void) {
-          domReadyCallbacks.push(callback);
-        },
+      },
+      MutationObserver: class {
+        constructor(private readonly callback: () => void) {
+          observerCallbacks.push(callback);
+        }
+
+        observe() {}
+
+        disconnect() {
+          observerDisconnected = true;
+        }
       },
       window: {} as Record<string, unknown>,
     };
     runInNewContext(bodyReadyScript, context);
-    expect(domReadyCallbacks).toHaveLength(1);
+    expect(observerCallbacks).toHaveLength(1);
     expect(context.window.__cmuxTheme).toBeUndefined();
     context.document.body = {};
-    context.document.readyState = "interactive";
-    domReadyCallbacks[0]!();
+    observerCallbacks[0]!();
     expect(context.window.__cmuxTheme).toBe(true);
+    expect(observerDisconnected).toBe(true);
     expect(second).toBeNull();
+  });
+
+  test("waits for a full-page target before running its layout script", () => {
+    insertedCallbacks.length = 0;
+    renderToStaticMarkup(
+      createElement(SsrScript, {
+        waitForElementId: "stack-full-page-container-target",
+        script: "window.__cmuxLayoutReady = true;",
+      }),
+    );
+
+    const callback = insertedCallbacks[0]!;
+    const first = callback() as ReactElement<{
+      dangerouslySetInnerHTML: { __html: string };
+    }>;
+    const script = first.props.dangerouslySetInnerHTML.__html;
+    const observerCallbacks: Array<() => void> = [];
+    let target: object | null = null;
+    const context = {
+      document: {
+        body: {},
+        documentElement: {},
+        getElementById: () => target,
+      },
+      MutationObserver: class {
+        constructor(private readonly callback: () => void) {
+          observerCallbacks.push(callback);
+        }
+
+        observe() {}
+
+        disconnect() {}
+      },
+      window: {} as Record<string, unknown>,
+    };
+
+    runInNewContext(script, context);
+    expect(observerCallbacks).toHaveLength(1);
+    expect(context.window.__cmuxLayoutReady).toBeUndefined();
+    target = {};
+    observerCallbacks[0]!();
+    expect(context.window.__cmuxLayoutReady).toBe(true);
   });
 });

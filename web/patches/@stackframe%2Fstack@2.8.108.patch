@@ -1,8 +1,8 @@
 diff --git a/dist/components/elements/ssr-layout-effect.js b/dist/components/elements/ssr-layout-effect.js
-index 99773f6ee51f305b7497b78a55eaca0a4c09d899..bd66862e3783e63f6481a7d107670274fd5360c1 100644
+index 99773f6ee51f305b7497b78a55eaca0a4c09d899..0bb57265639fe1cda189cf34615d37f84c0e8e30 100644
 --- a/dist/components/elements/ssr-layout-effect.js
 +++ b/dist/components/elements/ssr-layout-effect.js
-@@ -3,18 +3,28 @@
+@@ -3,18 +3,29 @@
  Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' });
  const require_chunk = require('../../chunk-BE-pF4vm.js');
  let react = require("react");
@@ -18,7 +18,8 @@ index 99773f6ee51f305b7497b78a55eaca0a4c09d899..bd66862e3783e63f6481a7d107670274
 +		if (insertedRef.current) return null;
 +		insertedRef.current = true;
 +		const escapedSource = props.script.replace(/<\/script/gi, "<\\/script");
-+		const bodyReadyScript = `(function(){let ran=false;const run=()=>{if(ran)return;if(document.readyState==="loading"||!document.body){document.addEventListener("DOMContentLoaded",run,{once:true});return;}ran=true;${escapedSource};};run();})()`;
++		const readiness = props.waitForElementId ? `document.getElementById(${JSON.stringify(props.waitForElementId)})` : props.waitForBody ? "document.body" : "true";
++		const bodyReadyScript = `(function(){let ran=false;let observer=null;const run=()=>{if(ran)return;if(!(${readiness})){if(!observer){observer=new MutationObserver(()=>run());observer.observe(document.documentElement,{childList:true,subtree:true});}return;}ran=true;if(observer)observer.disconnect();${escapedSource};};run();})()`;
 +		return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("script", {
 +			nonce: props.nonce,
 +			dangerouslySetInnerHTML: { __html: bodyReadyScript }
@@ -37,10 +38,10 @@ index 99773f6ee51f305b7497b78a55eaca0a4c09d899..bd66862e3783e63f6481a7d107670274
  
  //#endregion
 diff --git a/dist/esm/components/elements/ssr-layout-effect.js b/dist/esm/components/elements/ssr-layout-effect.js
-index 1233d79c915fc5b7214fbf3a56570cd9f9f04950..097e19ebd55dc31937328746169b80f4559a7463 100644
+index 1233d79c915fc5b7214fbf3a56570cd9f9f04950..5c9101796aefc06289824918128176d9f378a45c 100644
 --- a/dist/esm/components/elements/ssr-layout-effect.js
 +++ b/dist/esm/components/elements/ssr-layout-effect.js
-@@ -1,18 +1,29 @@
+@@ -1,18 +1,30 @@
  "use client";
  
 -import { useLayoutEffect } from "react";
@@ -58,7 +59,8 @@ index 1233d79c915fc5b7214fbf3a56570cd9f9f04950..097e19ebd55dc31937328746169b80f4
 +		if (insertedRef.current) return null;
 +		insertedRef.current = true;
 +		const escapedSource = props.script.replace(/<\/script/gi, "<\\/script");
-+		const bodyReadyScript = `(function(){let ran=false;const run=()=>{if(ran)return;if(document.readyState==="loading"||!document.body){document.addEventListener("DOMContentLoaded",run,{once:true});return;}ran=true;${escapedSource};};run();})()`;
++		const readiness = props.waitForElementId ? `document.getElementById(${JSON.stringify(props.waitForElementId)})` : props.waitForBody ? "document.body" : "true";
++		const bodyReadyScript = `(function(){let ran=false;let observer=null;const run=()=>{if(ran)return;if(!(${readiness})){if(!observer){observer=new MutationObserver(()=>run());observer.observe(document.documentElement,{childList:true,subtree:true});}return;}ran=true;if(observer)observer.disconnect();${escapedSource};};run();})()`;
 +		return /* @__PURE__ */ jsx("script", {
 +			nonce: props.nonce,
 +			dangerouslySetInnerHTML: { __html: bodyReadyScript }
@@ -76,6 +78,38 @@ index 1233d79c915fc5b7214fbf3a56570cd9f9f04950..097e19ebd55dc31937328746169b80f4
  }
  
  //#endregion
+diff --git a/dist/esm/utils/browser-script.js b/dist/esm/utils/browser-script.js
+index 8264460683ac497a43661f2b1b50b4b58e9936bd..2e6dfc706099134450b29595597f061a23e39012 100644
+--- a/dist/esm/utils/browser-script.js
++++ b/dist/esm/utils/browser-script.js
+@@ -96,3 +96,4 @@ function BrowserScript(props) {
+ 	return /* @__PURE__ */ jsx(SsrScript, {
+ 		nonce: props.nonce,
++		waitForBody: true,
+ 		script: `(${script.toString()})()`
+diff --git a/dist/utils/browser-script.js b/dist/utils/browser-script.js
+index 5f45244b3be991e2d62a826a4be9ea6de0652b58..cb3d5f0090882dc78631b7dc5d8457cb6a9b873d 100644
+--- a/dist/utils/browser-script.js
++++ b/dist/utils/browser-script.js
+@@ -98,3 +98,4 @@ function BrowserScript(props) {
+ 	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(___components_elements_ssr_layout_effect_js.SsrScript, {
+ 		nonce: props.nonce,
++		waitForBody: true,
+ 		script: `(${script.toString()})()`
+diff --git a/dist/esm/components/elements/maybe-full-page.js b/dist/esm/components/elements/maybe-full-page.js
+index 45f280df0843b298ff4e20308634ae143189672d..93c2474688a360ff42db4d4c5c5224355a9fd3a7 100644
+--- a/dist/esm/components/elements/maybe-full-page.js
++++ b/dist/esm/components/elements/maybe-full-page.js
+@@ -32,1 +32,1 @@
+-	}), /* @__PURE__ */ jsx(SsrScript, { script: scriptString })] });
++	}), /* @__PURE__ */ jsx(SsrScript, { waitForElementId: id, script: scriptString })] });
+diff --git a/dist/components/elements/maybe-full-page.js b/dist/components/elements/maybe-full-page.js
+index 2011b5db0ba377cee16137b0fdf3acf99f045ac4..aca76440f9c930272b7ffefde19178ec9774d2af 100644
+--- a/dist/components/elements/maybe-full-page.js
++++ b/dist/components/elements/maybe-full-page.js
+@@ -35,1 +35,1 @@
+-	}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(__ssr_layout_effect_js.SsrScript, { script: scriptString })] });
++	}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(__ssr_layout_effect_js.SsrScript, { waitForElementId: id, script: scriptString })] });
 diff --git a/dist/components/credential-sign-up.js b/dist/components/credential-sign-up.js
 index 476ae3a6306a0fa9d9d7fe8c5f702194c7e968da..41003bdd182d95ac36abe1fdcb260e8834ba209f 100644
 --- a/dist/components/credential-sign-up.js
