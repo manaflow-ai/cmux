@@ -264,17 +264,14 @@ struct MacComputerDetailView: View {
                 connectionErrorGuidance: store.connectionErrorGuidance,
                 versionWarning: store.pairingVersionWarning,
                 connectPairingCode: { await store.connectPairingInput() },
-                acceptVersionWarning: { _ = await store.acceptPairingVersionWarning() },
+                acceptVersionWarning: { await store.acceptPairingVersionWarning() },
                 connectManualHost: { name, host, port in
                     await store.connectManualHost(name: name, host: host, port: port)
                 },
                 cancelPairing: { store.cancelPairing() },
-                cancel: { showsAddTailscaleConnection = false }
+                cancel: { showsAddTailscaleConnection = false },
+                onPairingSucceeded: { showsAddTailscaleConnection = false }
             )
-        }
-        .onChange(of: computerHasUsableTailscaleAuthorization) { _, authorized in
-            // Pairing landed a grant for this Computer: the sheet's job is done.
-            if authorized { showsAddTailscaleConnection = false }
         }
     }
 
@@ -606,9 +603,9 @@ struct MacComputerDetailView: View {
             return L10n.string(
                 "mobile.settings.connectionMethod.tailscaleFooter",
                 defaultValue: """
-                Works with cmux 0.64.17 or later on your Mac. Install Tailscale on both devices, join the same \
-                network, then scan the Mac's pairing code once. cmux stays disconnected until that local \
-                authorization exists.
+                Works with cmux 0.64.17 or later on your Mac. Install Tailscale on both devices, then scan the \
+                Mac's pairing code or enter its Tailscale IP, MagicDNS name, or local-network host. cmux stays \
+                disconnected until that explicit local authorization exists.
                 """
             )
         }

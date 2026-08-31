@@ -568,25 +568,10 @@ extension MobileShellComposite {
         connectionRecoveryFailed = true
     }
 
-    static func storedMacTicket(
-        name: String,
-        routes: [CmxAttachRoute],
-        pairedMacDeviceID: String
-    ) throws -> CmxAttachTicket {
-        try CmxAttachTicket(
-            workspaceID: "stored-workspace",
-            terminalID: nil,
-            macDeviceID: pairedMacDeviceID,
-            macDisplayName: name,
-            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
-            routes: routes
-        )
-    }
-
     /// Reconnects an already-paired Mac through its full route set.
     ///
     /// This path is used only when the set contains an authenticated Iroh peer
-    /// route or an exact locally grandfathered Tailscale route. Iroh pins the
+    /// route or an exact locally authorized Tailscale route. Iroh pins the
     /// pairing and removes raw fallbacks; the Tailscale exception is bound to
     /// the previously paired device, address, and port. The synthetic ticket
     /// names the already-paired device and never creates a new pairing.
@@ -595,6 +580,7 @@ extension MobileShellComposite {
         routes: [CmxAttachRoute],
         pairedMacDeviceID: String,
         legacyTailscaleRoutes: [CmxAttachRoute] = [],
+        userAuthorizedTailscaleRoutes: [CmxAttachRoute] = [],
         ifStillCurrent: (() -> Bool)? = nil
     ) async {
         let ticket: CmxAttachTicket
@@ -607,6 +593,7 @@ extension MobileShellComposite {
             _ = try await connect(
                 ticket: ticket,
                 legacyTailscaleRoutes: legacyTailscaleRoutes,
+                userTailscalePairingAuthorizations: Self.userTailscalePairingAuthorizations(from: userAuthorizedTailscaleRoutes),
                 pairedMacDeviceID: pairedMacDeviceID,
                 ifStillCurrent: ifStillCurrent
             )
@@ -623,14 +610,15 @@ extension MobileShellComposite {
     }
 
     /// Connects an existing pairing through its strongest supported transport.
-    /// A supported Iroh identity pins the attempt to Iroh. Raw Tailscale/custom
-    /// host routes remain available only for legacy pairings without Iroh.
+    /// A supported Iroh identity pins the attempt to Iroh; exact authorized
+    /// Tailscale routes remain available for pairings without Iroh.
     @discardableResult
     func connectStoredMac(
         name: String,
         routes: [CmxAttachRoute],
         pairedMacDeviceID: String,
         legacyTailscaleRoutes: [CmxAttachRoute] = [],
+        userAuthorizedTailscaleRoutes: [CmxAttachRoute] = [],
         recordsPairingAttempt: Bool = false,
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> Bool {
@@ -640,6 +628,7 @@ extension MobileShellComposite {
             pairedMacDeviceID: pairedMacDeviceID,
             instanceTag: nil,
             legacyTailscaleRoutes: legacyTailscaleRoutes,
+            userAuthorizedTailscaleRoutes: userAuthorizedTailscaleRoutes,
             recordsPairingAttempt: recordsPairingAttempt,
             ifStillCurrent: ifStillCurrent
         )).didConnect
@@ -675,6 +664,7 @@ extension MobileShellComposite {
         pairedMacDeviceID: String,
         instanceTag: String?,
         legacyTailscaleRoutes: [CmxAttachRoute] = [],
+        userAuthorizedTailscaleRoutes: [CmxAttachRoute] = [],
         automaticReconnectAccountID: String? = nil,
         recordsPairingAttempt: Bool = false,
         ifStillCurrent: (() -> Bool)? = nil
@@ -685,6 +675,7 @@ extension MobileShellComposite {
             pairedMacDeviceID: pairedMacDeviceID,
             instanceTag: instanceTag,
             legacyTailscaleRoutes: legacyTailscaleRoutes,
+            userAuthorizedTailscaleRoutes: userAuthorizedTailscaleRoutes,
             automaticReconnectAccountID: automaticReconnectAccountID,
             recordsPairingAttempt: recordsPairingAttempt,
             ifStillCurrent: ifStillCurrent
@@ -697,6 +688,7 @@ extension MobileShellComposite {
         pairedMacDeviceID: String,
         instanceTag: String?,
         legacyTailscaleRoutes: [CmxAttachRoute] = [],
+        userAuthorizedTailscaleRoutes: [CmxAttachRoute] = [],
         automaticReconnectAccountID: String? = nil,
         recordsPairingAttempt: Bool = false,
         knownPairing: MobilePairedMac? = nil,
@@ -710,6 +702,7 @@ extension MobileShellComposite {
                 storedInstanceTag: instanceTag
             ),
             legacyTailscaleRoutes: legacyTailscaleRoutes,
+            userAuthorizedTailscaleRoutes: userAuthorizedTailscaleRoutes,
             automaticReconnectAccountID: automaticReconnectAccountID,
             recordsPairingAttempt: recordsPairingAttempt,
             knownPairing: knownPairing,
@@ -726,6 +719,7 @@ extension MobileShellComposite {
         pairedMacDeviceID: String,
         instanceTagExpectation: MobileMacInstanceTagExpectation,
         legacyTailscaleRoutes: [CmxAttachRoute] = [],
+        userAuthorizedTailscaleRoutes: [CmxAttachRoute] = [],
         automaticReconnectAccountID: String? = nil,
         recordsPairingAttempt: Bool = false,
         knownPairing: MobilePairedMac? = nil,
@@ -741,16 +735,14 @@ extension MobileShellComposite {
                 forMacDeviceID: pairedMacDeviceID,
                 instanceTag: instanceTagExpectation.expectedTag
             )
-        // Direct and Tailscale Only ride the Iroh lane below: identity-checked
-        // and encrypted, with transport admission as the single auth
-        // authority. The method's addresses (user-enabled Direct entries, or
-        // the pairing's numeric Tailscale addresses) are the COMPLETE per-dial
-        // path allowlist (no relay, no advertised or discovered paths), so
-        // resolve them from the caller's fresh row first for the same
-        // startup-restore reason as the method above, and fail closed when
-        // nothing is dialable. Raw host/port dialing cannot carry the account
-        // credential (plaintext TCP), so it stays reserved for legacy
-        // pairings without an Iroh identity (nil candidates below).
+        let resolvedUserAuthorizedTailscaleRoutes = userAuthorizedTailscaleRoutes.isEmpty
+            ? (knownPairing?.userAuthorizedTailscaleRoutes ?? [])
+            : userAuthorizedTailscaleRoutes
+        // Direct and Iroh-identified Tailscale-only pairings ride the Iroh lane
+        // below: identity-checked and encrypted, with transport admission as
+        // the single auth authority. Legacy/user-authorized raw Tailscale host
+        // routes remain available only when no Iroh identity exists; the route
+        // filter supplies an exact persisted grant for those rows.
         let methodPinnedCandidates = irohMethodPinnedDialCandidates(
             forMacDeviceID: pairedMacDeviceID,
             instanceTag: instanceTagExpectation.expectedTag,
@@ -768,7 +760,8 @@ extension MobileShellComposite {
                 && methodPinnedCandidates == nil
                 ? Self.TailscaleRouteRequirement(
                     macDeviceID: pairedMacDeviceID,
-                    grantRoutes: legacyTailscaleRoutes
+                    grantRoutes: legacyTailscaleRoutes,
+                    userGrantRoutes: resolvedUserAuthorizedTailscaleRoutes
                 )
                 : nil
         )
@@ -777,18 +770,24 @@ extension MobileShellComposite {
             // lane: the allowlist constrains the Iroh dial exclusively.
             pinnedRoutes = pinnedRoutes.filter { $0.kind == .iroh }
         }
-        guard let firstRoute = pinnedRoutes.first else { return .failed(.unsupportedRoute) }
+        guard let firstRoute = pinnedRoutes.first else {
+            return .failed(.unsupportedRoute)
+        }
 
         var outcome: StoredMacReconnectOutcome = .failed(.unknown)
 
-        let hasAuthorizedLegacyTailscaleRoute = pinnedRoutes.contains { route in
+        let hasAuthorizedTailscaleRoute = pinnedRoutes.contains { route in
             Self.legacyTailscaleAuthorizationEvidence(
                 for: route,
                 macDeviceID: pairedMacDeviceID,
                 persistedRoutes: legacyTailscaleRoutes
             ) != nil
+                || Self.userTailscalePairingAuthorization(
+                    for: route,
+                    persistedRoutes: resolvedUserAuthorizedTailscaleRoutes
+                ) != nil
         }
-        if firstRoute.kind == .iroh || hasAuthorizedLegacyTailscaleRoute {
+        if firstRoute.kind == .iroh || hasAuthorizedTailscaleRoute {
             do {
                 let ticket = try Self.storedMacTicket(
                     name: name,
@@ -798,6 +797,7 @@ extension MobileShellComposite {
                 let noThrowFailure = try await connect(
                     ticket: ticket,
                     legacyTailscaleRoutes: legacyTailscaleRoutes,
+                    userTailscalePairingAuthorizations: Self.userTailscalePairingAuthorizations(from: resolvedUserAuthorizedTailscaleRoutes),
                     directOnlyDialCandidates: methodPinnedCandidates,
                     pairedMacDeviceID: pairedMacDeviceID,
                     instanceTagExpectation: instanceTagExpectation,

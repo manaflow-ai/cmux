@@ -223,7 +223,8 @@ extension MobilePairingScannerSheet {
             "mobile.tailscalePairing.instructions",
             defaultValue: """
             Install Tailscale on both devices and use the same Tailscale network. Open Tailscale \
-            Pairing on the Mac and scan its QR here, or enter the Mac's numeric Tailscale IP and port.
+            Pairing on the Mac and scan its QR here, or enter a Tailscale IP, MagicDNS name, or \
+            local-network host and port.
             """
         )
     }
@@ -234,8 +235,9 @@ extension MobilePairingScannerSheet {
             "mobile.tailscalePairing.emptyDescription",
             defaultValue: """
             Install Tailscale on both devices and use the same Tailscale network. Open Tailscale \
-            Pairing on the Mac and scan its QR here, or enter the Mac's numeric Tailscale IP and port. \
-            To use Auto-Connect instead, open Settings, tap Connection Method, and choose Auto-Connect.
+            Pairing on the Mac and scan its QR here, or enter a Tailscale IP, MagicDNS name, or \
+            local-network host and port. To use Auto-Connect instead, open Settings, tap \
+            Connection Method, and choose Auto-Connect.
             """
         )
     }

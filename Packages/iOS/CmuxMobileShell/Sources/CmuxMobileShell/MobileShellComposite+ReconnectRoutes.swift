@@ -153,7 +153,7 @@ extension MobileShellComposite {
     ) -> Bool {
         // An Iroh-identified pairing with a numeric Tailscale address dials
         // the Iroh lane pinned to that address: admission authenticates it,
-        // so no device-local legacy grant is required.
+        // so no device-local host grant is required.
         for mac in macs where mac.routes.contains(where: { $0.kind == .iroh }) {
             if !irohTailscaleDialCandidates(for: mac).isEmpty {
                 return true
@@ -170,17 +170,18 @@ extension MobileShellComposite {
                 }
             }
         }
-        guard !authorizedEndpoints.isEmpty else { return false }
-
         for mac in macs {
             for route in mac.routes {
-                guard let endpoint = MobileTailscaleAuthorizationEndpoint(
+                if let endpoint = MobileTailscaleAuthorizationEndpoint(
                     macDeviceID: mac.macDeviceID,
                     route: route
-                ) else {
-                    continue
+                ), authorizedEndpoints.contains(endpoint) {
+                    return true
                 }
-                if authorizedEndpoints.contains(endpoint) {
+                if Self.userTailscalePairingAuthorization(
+                    for: route,
+                    persistedRoutes: mac.userAuthorizedTailscaleRoutes ?? []
+                ) != nil {
                     return true
                 }
             }
@@ -224,13 +225,6 @@ extension MobileShellComposite {
         tailscaleSetupStatus == .pairingRequired
     }
 
-    /// The strict Tailscale policy for one paired Mac: only exact grant routes
-    /// remain dialable while the user has selected Tailscale.
-    struct TailscaleRouteRequirement {
-        let macDeviceID: String
-        let grantRoutes: [CmxAttachRoute]
-    }
-
     /// Supported routes for reconnecting an already-paired Mac.
     ///
     /// Unlike the legacy host/port helper, this preserves Iroh peer routes. Once
@@ -268,6 +262,10 @@ extension MobileShellComposite {
                     macDeviceID: tailscaleRequirement.macDeviceID,
                     persistedRoutes: tailscaleRequirement.grantRoutes
                 ) != nil
+                    || userTailscalePairingAuthorization(
+                        for: route,
+                        persistedRoutes: tailscaleRequirement.userGrantRoutes
+                    ) != nil
             }
             return authorizedTailscale
         }
@@ -290,21 +288,18 @@ extension MobileShellComposite {
     ) -> [CmxAttachRoute] {
         let method = connectionMethod(for: mac)
         // Tailscale Only on an Iroh-identified pairing rides the Iroh lane
-        // pinned to the pairing's numeric Tailscale addresses; the raw
-        // grant-gated host lane remains only for legacy pairings without an
-        // Iroh identity, so admission stays the single auth authority.
+        // pinned to the pairing's numeric Tailscale addresses; the exact
+        // grant-gated host lane remains for pairings without an Iroh identity,
+        // so admission stays the single auth authority.
         let tailscaleRidesPinnedIroh = method == .tailscale
             && mac.routes.contains { $0.kind == .iroh }
         let routes = Self.storedReconnectRoutes(
             mac.routes,
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes,
-            tailscaleRequirement: method == .tailscale && !tailscaleRidesPinnedIroh
-                ? TailscaleRouteRequirement(
-                    macDeviceID: mac.macDeviceID,
-                    grantRoutes: mac.legacyTailscaleRoutes ?? []
-                )
-                : nil
+            tailscaleRequirement: tailscaleRidesPinnedIroh
+                ? nil
+                : tailscaleRouteRequirement(for: mac)
         )
         // A pinned method rides the Iroh lane EXCLUSIVELY: the transport
         // dials only the method's allowlisted addresses, and no dev-loopback
@@ -579,10 +574,9 @@ extension MobileShellComposite {
               ) else {
             return .inconclusive
         }
-        let localRoutes = Self.storedReconnectRoutes(
-            currentMac.routes,
-            supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
+        let localRoutes = orderedReconnectRoutes(
+            for: currentMac,
+            supportedKinds: supportedKinds
         )
         let requiresIroh = localRoutes.contains { $0.kind == .iroh }
             || mac.routes.contains { $0.kind == .iroh }
@@ -591,15 +585,11 @@ extension MobileShellComposite {
         // candidate and is already scoped to this account/device/instance, so use
         // it directly instead of mistaking registry equality for "no route."
         if currentMac.routes != mac.routes {
-            let reconnectRoutes = Self.storedReconnectRoutes(
-                currentMac.routes,
-                supportedKinds: supportedKinds,
-                preferNonLoopback: Self.prefersNonLoopbackRoutes
+            let reconnectRoutes = orderedReconnectRoutes(
+                for: currentMac,
+                supportedKinds: supportedKinds
             )
-            if !reconnectRoutes.isEmpty,
-               reconnectRoutes.contains(where: {
-                   $0.kind == .iroh || $0.kind == .debugLoopback
-               }) {
+            if !reconnectRoutes.isEmpty {
                 return .refreshedRoutes(reconnectRoutes)
             }
         }
@@ -621,7 +611,8 @@ extension MobileShellComposite {
         let reconnectRoutes = Self.storedReconnectRoutes(
             updatedRoutes,
             supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
+            preferNonLoopback: Self.prefersNonLoopbackRoutes,
+            tailscaleRequirement: tailscaleRouteRequirement(for: currentMac)
         )
         // Once this pairing has used Iroh, a cloud refresh that omits Iroh is
         // stale or downgraded input. Keep the local Iroh capability pin instead
@@ -629,8 +620,7 @@ extension MobileShellComposite {
         guard !requiresIroh || reconnectRoutes.contains(where: { $0.kind == .iroh }) else {
             return .inconclusive
         }
-        if !reconnectRoutes.isEmpty,
-           reconnectRoutes.contains(where: { $0.kind == .iroh || $0.kind == .debugLoopback }) {
+        if !reconnectRoutes.isEmpty {
             return .refreshedRoutes(reconnectRoutes)
         }
         return isLegacyPrivateNetworkPairing && !registryHasIroh

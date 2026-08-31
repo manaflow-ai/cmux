@@ -131,7 +131,7 @@ struct MobileRootPresentationStateTests {
 
         let pairing = PairingPresentation.manual
         #expect(state.apply(.presentPairing(pairing)) == .none)
-        #expect(state.presentation == .pairing(pairing))
+        #expect(state.presentation == .pairingFromComputers(pairing))
         #expect(state.isRootSheetPresented)
     }
 
@@ -302,6 +302,12 @@ struct MobileRootPresentationStateTests {
         // already live; the semantic success action must have identical
         // navigation semantics and cannot depend on a connection-state edge.
         state.apply(.presentPairing(.manual))
+        #expect(state.apply(.pairingSucceeded) == .finishPairing)
+        #expect(state.presentation == nil)
+
+        state.apply(.presentComputers)
+        state.apply(.presentPairing(.manual))
+        #expect(state.presentation == .pairingFromComputers(.manual))
         #expect(state.apply(.pairingSucceeded) == .finishPairing)
         #expect(state.presentation == nil)
     }

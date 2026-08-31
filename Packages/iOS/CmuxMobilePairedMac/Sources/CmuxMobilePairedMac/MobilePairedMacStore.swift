@@ -645,7 +645,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
     }
 
     /// Persist `'user'`-origin Tailscale compatibility grants for routes the
-    /// user entered as a pairing code. Upgrades an existing `'migration'` grant
+    /// user entered explicitly. Upgrades an existing `'migration'` grant
     /// for the same destination to `'user'`, so a deliberate re-scan is not
     /// silently revoked when Iroh is later persisted.
     public func authorizeUserTailscaleRoutes(
@@ -664,8 +664,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         )
         let grantRoutes = routes.filter { route in
             guard route.kind == .tailscale,
-                  case .hostPort = route.endpoint else { return false }
-            return true
+                  case let .hostPort(host, port) = route.endpoint else { return false }
+            return (try? CmxUserTailscalePairingAuthorization(host: host, port: port)) != nil
         }
         guard !grantRoutes.isEmpty else { return }
         try transaction {

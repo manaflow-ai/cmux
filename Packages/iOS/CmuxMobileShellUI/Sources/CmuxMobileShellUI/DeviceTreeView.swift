@@ -173,11 +173,10 @@ struct DeviceTreeView: View {
         .accessibilityIdentifier("MobileComputersAddRow")
     }
 
-    /// Present the add-device (pairing) flow, then dismiss this screen. Shared by
-    /// the top-left toolbar button and the end-of-list row.
+    /// Present the add-device flow through the shared root sheet. The root
+    /// coordinator restores this screen when pairing is cancelled.
     private func addComputer() {
         showAddDevice?()
-        dismissScreen()
     }
 
     private func dismissScreen() {

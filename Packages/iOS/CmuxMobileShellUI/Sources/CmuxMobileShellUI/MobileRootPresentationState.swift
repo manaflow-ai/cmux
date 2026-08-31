@@ -43,6 +43,9 @@ struct MobileRootPresentationState: Equatable {
         case settings
         case computers
         case pairing(PairingPresentation)
+        /// Pairing opened from the Computers list. A user cancellation returns
+        /// to that list, while semantic pairing success returns to the shell.
+        case pairingFromComputers(PairingPresentation)
         case child(ChildPresentation)
         case dismissingChild(
             ChildPresentation,
@@ -67,6 +70,7 @@ struct MobileRootPresentationState: Equatable {
         case migrationEligibilityChanged(isEligible: Bool)
         case sheetDidRequestDismissal
         case dismissPairing
+        case pairingSucceeded
     }
 
     /// Side effects the owning view performs after a synchronous transition.
@@ -93,7 +97,8 @@ struct MobileRootPresentationState: Equatable {
         case .autoConnectMigrationIntroduction,
              .settings,
              .computers,
-             .pairing:
+             .pairing,
+             .pairingFromComputers:
             true
         case .child, .dismissingChild, nil:
             false
@@ -164,6 +169,8 @@ struct MobileRootPresentationState: Equatable {
 
         case let .presentPairing(pairingPresentation):
             switch presentation {
+            case .computers:
+                presentation = .pairingFromComputers(pairingPresentation)
             case let .child(child), let .dismissingChild(child, _):
                 presentation = .dismissingChild(
                     child,
@@ -205,7 +212,7 @@ struct MobileRootPresentationState: Equatable {
             guard !isAuthenticated else { return .none }
             let effect: Effect
             switch presentation {
-            case .pairing, .dismissingChild(_, pendingPairing: .some):
+            case .pairing, .pairingFromComputers, .dismissingChild(_, pendingPairing: .some):
                 effect = .finishPairing
             default:
                 effect = .none
@@ -229,6 +236,9 @@ struct MobileRootPresentationState: Equatable {
             case .pairing:
                 presentation = nil
                 return .finishPairing
+            case .pairingFromComputers:
+                presentation = nil
+                return .finishPairing
             case .settings, .computers:
                 presentation = nil
                 return .none
@@ -237,7 +247,28 @@ struct MobileRootPresentationState: Equatable {
             }
 
         case .dismissPairing:
-            guard case .pairing = presentation else { return .none }
+            switch presentation {
+            case .pairing:
+                presentation = nil
+                return .finishPairing
+            case .pairingFromComputers:
+                presentation = .computers
+                return .finishPairing
+            default:
+                return .none
+            }
+
+        case .pairingSucceeded:
+            let isPairing: Bool
+            switch presentation {
+            case .pairing, .pairingFromComputers:
+                isPairing = true
+            default:
+                isPairing = false
+            }
+            guard isPairing else {
+                return .none
+            }
             presentation = nil
             return .finishPairing
         }

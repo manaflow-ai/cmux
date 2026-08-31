@@ -68,6 +68,11 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
     /// from ``CodingKeys`` so it never rides account backup to another device.
     /// `nil` = fall back to the app's default method.
     public var connectionMethodRawValue: String? = nil
+    /// Exact Tailscale/manual hosts this iPhone authorized by entering a
+    /// pairing code or explicit destination. Device-local and excluded from
+    /// ``CodingKeys``; migration grants remain in ``legacyTailscaleRoutes`` but
+    /// are not included here.
+    public var userAuthorizedTailscaleRoutes: [CmxAttachRoute]? = nil
     /// THIS iPhone's Direct-method dial candidates for this Mac app instance,
     /// stored as JSON. Device-local and excluded from ``CodingKeys`` like the
     /// connection method.
@@ -133,7 +138,8 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
         instanceTag: String? = nil,
         legacyTailscaleRoutes: [CmxAttachRoute]? = nil,
         connectionMethodRawValue: String? = nil,
-        directAddressesRawJSON: String? = nil
+        directAddressesRawJSON: String? = nil,
+        userAuthorizedTailscaleRoutes: [CmxAttachRoute]? = nil
     ) {
         self.macDeviceID = macDeviceID
         self.displayName = displayName
@@ -150,6 +156,7 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
         self.legacyTailscaleRoutes = legacyTailscaleRoutes
         self.connectionMethodRawValue = connectionMethodRawValue
         self.directAddressesRawJSON = directAddressesRawJSON
+        self.userAuthorizedTailscaleRoutes = userAuthorizedTailscaleRoutes
     }
 }
 

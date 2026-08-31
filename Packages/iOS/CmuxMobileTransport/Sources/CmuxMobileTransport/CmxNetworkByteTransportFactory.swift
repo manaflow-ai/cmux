@@ -64,6 +64,7 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
         }
         switch route.kind {
         case .tailscale:
+            let userAuthorizedPairing: CmxUserTailscalePairingAuthorization?
             switch request.authorizationMode {
             case let .legacyTailscaleBearer(evidence):
                 guard evidence.authorizes(
@@ -73,15 +74,31 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
                 ) else {
                     throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
                 }
+                userAuthorizedPairing = nil
             case let .userAuthorizedTailscalePairing(authorization):
                 // Anchored on the exact user-entered destination; any claimed
                 // device identity is self-reported and grants nothing extra.
                 guard authorization.authorizes(host: host, port: port) else {
                     throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
                 }
+                userAuthorizedPairing = authorization
             case .stackBearer, .transportAdmission:
                 // A generic Stack bearer never opts into the legacy risk.
                 throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
+            }
+            if let userAuthorizedPairing,
+               CmxTailscalePeerAddress(userAuthorizedPairing.host) == nil {
+                // MagicDNS and private-LAN names are valid only through the
+                // explicit user-entry capability. They do not expose a
+                // trustworthy numeric Tailscale peer/interface proof, so use
+                // the ordinary host transport while the RPC client continues
+                // to gate every bearer on this exact authorization.
+                return try CmxNetworkByteTransport(
+                    host: userAuthorizedPairing.host,
+                    port: port,
+                    maximumReceiveLength: maximumReceiveLength,
+                    connectTimeoutNanoseconds: connectTimeoutNanoseconds
+                )
             }
             return CmxPreparingTailscaleByteTransport(
                 request: request,

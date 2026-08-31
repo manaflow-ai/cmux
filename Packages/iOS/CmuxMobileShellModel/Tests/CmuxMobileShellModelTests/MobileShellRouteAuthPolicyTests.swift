@@ -86,6 +86,7 @@ import Testing
             priority: 0
         )
         #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "127.0.0.1") == .debugLoopback)
+        #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "[::1]") == .debugLoopback)
         #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "127.attacker.example") == .tailscale)
 
         // Loopback never leaves the device and may carry the Stack bearer token.

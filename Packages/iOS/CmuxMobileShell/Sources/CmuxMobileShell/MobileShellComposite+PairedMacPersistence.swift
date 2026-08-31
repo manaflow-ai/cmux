@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobilePairedMac
+import CmuxMobileShellModel
 import Foundation
 import os
 
@@ -185,6 +186,7 @@ extension MobileShellComposite {
                             routes: userAuthorizedTailscaleRoutes
                         )
                     } catch {
+                        accepted = false
                         pairedMacPersistenceLog.error(
                             "user tailscale grant persist failed: \(String(describing: error), privacy: .private)"
                         )
@@ -195,6 +197,34 @@ extension MobileShellComposite {
                             failure: DiagnosticFailureKind.classify(error),
                             count: userAuthorizedTailscaleRoutes.count
                         )
+                        return
+                    }
+                }
+                if !userAuthorizedTailscaleRoutes.isEmpty {
+                    // A Tailscale QR or explicit host entry is a deliberate
+                    // transport choice for this exact (device, build) row.
+                    // Persist it beside the user-origin grant so a later
+                    // launch cannot fall back to Iroh/automatic routing.
+                    do {
+                        try await pairedMacStore.setConnectionMethod(
+                            macDeviceID: ticket.macDeviceID,
+                            instanceTag: instanceTag,
+                            rawValue: MobileConnectionMethod.tailscale.rawValue,
+                            stackUserID: stackUserID,
+                            teamID: scope?.teamID
+                        )
+                    } catch {
+                        accepted = false
+                        pairedMacPersistenceLog.error(
+                            "tailscale connection method persist failed: \(String(describing: error), privacy: .private)"
+                        )
+                        self.recordAppEvent(
+                            .pairedMacStoreWriteFailed,
+                            correlationID: ticket.macDeviceID,
+                            startedAt: startedAt,
+                            failure: DiagnosticFailureKind.classify(error)
+                        )
+                        return
                     }
                 }
                 await self.clearHiddenMacDeviceID(
