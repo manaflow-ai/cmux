@@ -406,6 +406,11 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
             tmuxTitleRowPlacement = titleRowPlacement
         }
         reconcileBonsplitTree(from: previousRenderedLayout, to: renderedLayout)
+        // The pane set just changed, and one pane versus several is what decides whether the
+        // per-pane tab bars say anything. Derived here rather than at split/close call sites
+        // because tmux can change the pane count without either — a pane exiting on its own,
+        // or a `kill-pane` from another client — and every one of those arrives as a layout.
+        updatePaneTabBarVisibilityForPaneCount()
         // Pin every pane's grid to the fresh assignment HERE, not only in
         // the sizing pass: the pass is visibility-gated, so a hidden
         // window's pins would otherwise freeze at its last-visible
