@@ -14,7 +14,12 @@ import Testing
         #expect(result == .failed)
         #expect(store.connectionState == .disconnected)
         #expect(store.connectionError?.isEmpty == false)
-        #expect(store.connectionError?.contains("127.0.0.1") == true)
+        // The relay default appends the synthesized relay route after the
+        // ticket's loopback route, so the surfaced deadline failure is the
+        // relay leg's hostless timeout copy, not the loopback address.
+        #expect(store.connectionError == MobilePairingFailureCategory
+            .handshakeTimedOut(host: nil, port: nil).message)
+        #expect(store.connectionError?.contains("127.0.0.1") == false)
     }
 
     @Test func scannedOrPastedPairingInputUsesSameDeadline() async throws {
@@ -24,7 +29,9 @@ import Testing
 
         #expect(store.connectionState == .disconnected)
         #expect(store.connectionError?.isEmpty == false)
-        #expect(store.connectionError?.contains("127.0.0.1") == true)
+        #expect(store.connectionError == MobilePairingFailureCategory
+            .handshakeTimedOut(host: nil, port: nil).message)
+        #expect(store.connectionError?.contains("127.0.0.1") == false)
     }
 
     @Test func immediatePairingRetryDoesNotStartSecondStuckConnect() async throws {
@@ -34,13 +41,25 @@ import Testing
         )
         let store = makeStore(runtime: runtime)
 
-        let pairingURL = try Self.pairingURL()
+        // An anonymous ticket (no mac device id) cannot mint a relay session,
+        // so the dial set is exactly the one stuck loopback route. That keeps
+        // the connect count deterministic: a known-device ticket would also
+        // dial the synthesized relay route on its own schedule.
+        let pairingURL = try Self.pairingURL(macDeviceID: "")
         let first = await store.connectPairingURLResult(pairingURL)
+        // The first attempt settles at the deadline while its dial task is
+        // still being scheduled; the abandoned dial ignores cancellation and
+        // reaches connect() on its own. Wait for it so the gating assertion
+        // below races in neither direction.
+        let firstDialStarted = try await pollUntil(attempts: 1000) {
+            await transport.connectCount() == 1
+        }
         let second = await store.connectPairingURLResult(pairingURL)
         let connectCount = await transport.connectCount()
         await transport.releaseStuckConnects()
 
         #expect(first == .failed)
+        #expect(firstDialStarted)
         #expect(second == .failed)
         #expect(connectCount == 1)
         #expect(store.connectionState == .disconnected)
@@ -109,7 +128,7 @@ import Testing
         #expect(store.connectionState == .disconnected)
     }
 
-    private static func pairingURL() throws -> String {
+    private static func pairingURL(macDeviceID: String = "deadline-mac") throws -> String {
         let route = try CmxAttachRoute(
             id: "deadline-loopback",
             kind: .debugLoopback,
@@ -118,7 +137,7 @@ import Testing
         return try attachURL(for: CmxAttachTicket(
             workspaceID: "deadline-workspace",
             terminalID: nil,
-            macDeviceID: "deadline-mac",
+            macDeviceID: macDeviceID,
             macDisplayName: "Deadline Mac",
             macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
             routes: [route],
