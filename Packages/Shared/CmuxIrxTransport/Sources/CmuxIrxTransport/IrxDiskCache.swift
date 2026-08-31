@@ -19,9 +19,14 @@ public struct IrxDiskCache<Value: Codable & Sendable>: Sendable {
         guard let data = try? JSONEncoder().encode(value) else { return }
         try? FileManager.default.createDirectory(
             at: fileURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
         )
         try? data.write(to: fileURL, options: .atomic)
+        // Cached bindings, grants, and relay passes are for this app alone;
+        // atomic replacement writes a fresh inode, so re-apply owner-only.
+        try? FileManager.default.setAttributes(
+            [.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
     }
 
     public func clear() {

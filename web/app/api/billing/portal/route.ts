@@ -9,10 +9,7 @@ import {
   isAppStoreDistributionMode,
 } from "../../../lib/billing";
 import { captureBillingError } from "../../../../services/errors";
-import {
-  hasFounderEditionEntitlement,
-  resolveProPlanStatus,
-} from "../../../../services/billing/pro";
+import { resolveProPlanStatus } from "../../../../services/billing/pro";
 import {
   isStripeBillingConfigured,
   stripe,
@@ -54,13 +51,15 @@ export async function GET(request: NextRequest) {
     // Resolve once before looking up the customer so a verified account can
     // consume a parked anonymous Pro checkout before requesting management.
     const personalStatus = await resolveProPlanStatus(user);
-    // Founder's Edition is a one-time entitlement. It can share the normal
-    // account plan, but it must not open an empty Stripe subscription portal;
-    // allow this path only when the same account also has a real Pro row.
-    if (!team && hasFounderEditionEntitlement(user.clientReadOnlyMetadata)) {
-      if (personalStatus.billingManagement !== "stripe") {
-        return pricingRedirect(request, "unavailable");
-      }
+    // The personal portal is available only for a real Stripe-managed
+    // subscription. Permanent Founder/VM entitlements (and stale customer
+    // rows on Free accounts) must not expose subscription controls.
+    if (
+      !team &&
+      personalStatus.isPro &&
+      personalStatus.billingManagement !== "stripe"
+    ) {
+      return pricingRedirect(request, "unavailable");
     }
     const customerId = team?.id
       ? await stripeCustomerIdForStackTeam(team.id)

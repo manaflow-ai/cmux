@@ -122,7 +122,7 @@ export default async function DashboardBillingPage({
         <FreePlanUpsell t={t} pricingT={pricingT} interval={interval} />
       ) : !status.isPro ? (
         <FreePlan t={t} />
-      ) : subscription ? (
+      ) : subscription && status.billingManagement === "stripe" ? (
         <StripePlan
           t={t}
           locale={locale}

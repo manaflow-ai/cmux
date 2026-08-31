@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
 
-import { stripeSubscriptions } from "../db/schema";
+import { billingEmailClaims, stripeSubscriptions } from "../db/schema";
 import { withAccountMutationLeaseSupport } from
   "./helpers/account-mutation-db-mock";
 
@@ -13,6 +13,7 @@ let stackConfigured = true;
 let currentUser: ReturnType<typeof planUser> | null = null;
 let stripeSubscriptionRows: Array<Record<string, unknown>> = [];
 let stripeSubscriptionResults: Array<Array<Record<string, unknown>>> = [];
+let claimLookupCount = 0;
 let dbMissing = false;
 let stackAuthUnavailable = false;
 
@@ -24,6 +25,7 @@ const getUser = mock(async () => {
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
   isStackConfigured: () => stackConfigured,
+  promoteStackUserFromAnonymousViaApi: async () => undefined,
   stackServerApp: stackConfigured ? { getUser } : null,
 }));
 
@@ -37,6 +39,7 @@ mock.module("../db/client", () => ({
         from: (table: unknown) => ({
           where: () => ({
             limit: async () => {
+              if (table === billingEmailClaims) claimLookupCount += 1;
               if (table !== stripeSubscriptions) return [];
               return stripeSubscriptionResults.length > 0
                 ? stripeSubscriptionResults.shift()!
@@ -57,6 +60,7 @@ describe("billing plan route", () => {
     currentUser = planUser();
     stripeSubscriptionRows = [];
     stripeSubscriptionResults = [];
+    claimLookupCount = 0;
     dbMissing = false;
     stackAuthUnavailable = false;
     getUser.mockClear();
@@ -76,6 +80,18 @@ describe("billing plan route", () => {
     currentUser = planUser({
       clientReadOnlyMetadata: { cmuxVmPlan: "founders" },
     });
+
+    const response = await planResponse();
+
+    expect(response.planId).toBe("pro");
+    expect(response.isPro).toBe(true);
+    expect(response.billingManagement).toBe("none");
+  });
+
+  test("recognizes a durable Founder subscription without Stripe management", async () => {
+    stripeSubscriptionRows = [
+      { id: "sub_founder", raw: { metadata: { founders_edition: "true" } } },
+    ];
 
     const response = await planResponse();
 
@@ -158,6 +174,14 @@ describe("billing plan route", () => {
     expect(response.teamBillingManagement).toBe("none");
   });
 
+  test("does not transfer pending ownership during a plan read", async () => {
+    currentUser = planUser({ primaryEmailVerified: true });
+    const response = await planResponse();
+
+    expect(response.planId).toBe("free");
+    expect(claimLookupCount).toBe(0);
+  });
+
   test("reports no Team billing management without a billing team", async () => {
     currentUser = planUser();
 
@@ -190,6 +214,7 @@ function planUser(options: {
   selectedTeam?: unknown;
   listTeams?: () => Promise<readonly unknown[]>;
   stackProductGrant?: boolean;
+  primaryEmailVerified?: boolean;
   clientReadOnlyMetadata?: unknown;
 } = {}) {
   return {
@@ -197,6 +222,7 @@ function planUser(options: {
     isAnonymous: false,
     displayName: "Plan User",
     primaryEmail: "plan@example.com",
+    primaryEmailVerified: options.primaryEmailVerified ?? false,
     clientReadOnlyMetadata: options.clientReadOnlyMetadata ?? {},
     selectedTeam: options.selectedTeam ?? null,
     listTeams: options.listTeams ?? mock(async () => []),

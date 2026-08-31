@@ -1916,7 +1916,7 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn pooled_arm_wakes_are_coalesced_while_the_flusher_is_busy() {
+    async fn pooled_arm_wakes_defer_while_the_flusher_is_busy_and_coalesce_after() {
         let (root, path) = cursor_test_path("pool-arm-coalesce").await;
         let (shared, wake) = test_shared(String::from("http://127.0.0.1:9"), path);
         let generation = Some(String::from("gen_a"));
@@ -1934,9 +1934,32 @@ mod tests {
             );
         }
 
+        // While a POST is in flight, below-threshold arms never wake: the
+        // completion path re-arms the debounce from the leftover total under
+        // the same lock that clears `flushing` (the #11034 deferral rule —
+        // this pin and the pooled_threshold deferral pin share it).
+        assert!(
+            tokio::time::timeout(Duration::from_millis(10), wake.notified()).await.is_err(),
+            "arms during an in-flight POST must defer to the completion re-arm"
+        );
+
+        // After the POST settles, arm wakes flow again — and coalesce.
+        {
+            let mut pool = shared.pool.lock().expect("lock pool");
+            pool.flushing = false;
+        }
+        for sequence in 4..=6 {
+            enqueue_pending(
+                &shared,
+                "alpha",
+                "alpha",
+                &generation,
+                record("gen_a", &sequence.to_string()),
+            );
+        }
         tokio::time::timeout(Duration::from_millis(100), wake.notified())
             .await
-            .expect("arm request must wake the flusher");
+            .expect("an idle-flusher arm request must wake the flusher");
         assert!(
             tokio::time::timeout(Duration::from_millis(10), wake.notified()).await.is_err(),
             "repeated arm requests must use one pending wake"

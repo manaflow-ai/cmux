@@ -10,8 +10,8 @@ import {
   ACTIVE_STRIPE_PRO_STATUSES,
   PRO_PLAN_ID,
   TEAM_PLAN_ID,
+  isFounderSubscriptionRaw,
 } from "../../../../services/billing/pro";
-import { claimPendingProBilling } from "../../../../services/billing/purchase";
 import {
   isStripeBillingConfigured,
   stripe,
@@ -20,6 +20,7 @@ import {
   resolveBillingTeam,
   type BillingTeamUserLike,
 } from "../../../../services/billing/teamResolution";
+import { claimPendingProBilling } from "../../../../services/billing/purchase";
 import { captureBillingError } from "../../../../services/errors";
 import { browserMutationOriginAllowed } from "../../../../services/vms/routeHelpers";
 
@@ -139,7 +140,7 @@ async function verifiedBillingTeamId(user: unknown, formData: FormData): Promise
 
 async function activeStripeSubscriptionForStackUser(stackUserId: string) {
   const rows = await cloudDb()
-    .select({ id: stripeSubscriptions.id })
+    .select({ id: stripeSubscriptions.id, raw: stripeSubscriptions.raw })
     .from(stripeSubscriptions)
     .where(
       and(
@@ -150,8 +151,8 @@ async function activeStripeSubscriptionForStackUser(stackUserId: string) {
       ),
     )
     .orderBy(desc(stripeSubscriptions.currentPeriodEnd), desc(stripeSubscriptions.updatedAt))
-    .limit(1);
-  return rows[0] ?? null;
+    .limit(100);
+  return rows.find((row) => !isFounderSubscriptionRaw(row.raw)) ?? null;
 }
 
 async function activeStripeSubscriptionForStackTeam(stackTeamId: string) {

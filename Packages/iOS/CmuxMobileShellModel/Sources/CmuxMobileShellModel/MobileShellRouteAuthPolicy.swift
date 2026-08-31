@@ -53,9 +53,12 @@ public struct MobileShellRouteAuthPolicy {
         return host
     }
 
-    /// Maps a manually typed host to the transport kind that should be used.
+    /// Maps a manually typed host to the transport kind used for route checks.
     /// - Parameter host: The host to classify.
     /// - Returns: `.debugLoopback` for loopback hosts, otherwise `.tailscale`.
+    ///
+    /// Non-loopback classification is not authorization: callers must still
+    /// attach an exact numeric Tailscale pairing capability before dialing.
     public static func manualRouteKind(for host: String) -> CmxAttachTransportKind {
         let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if isLoopbackHost(normalizedHost) {
@@ -140,9 +143,11 @@ public struct MobileShellRouteAuthPolicy {
         return isLoopbackHost(host)
     }
 
-    /// Whether a manual host should warn that it cannot carry account credentials.
+    /// Whether a manual host should show the explicit non-loopback trust guidance.
     /// - Parameter host: The manually typed host.
-    /// - Returns: `true` for every valid host outside loopback.
+    /// - Returns: `true` for every valid host outside loopback, where a
+    ///   numeric Tailscale capability (or another supported secure path) is
+    ///   required before account credentials may be sent.
     public static func manualHostNeedsTrustWarning(_ host: String) -> Bool {
         guard let normalizedHost = normalizedManualNetworkHost(host) else {
             return false

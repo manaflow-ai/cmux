@@ -1,6 +1,337 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "computerUse.cursorOverlay.accessibilityLabel": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Computer-use cursor"}},"ja":{"stringUnit":{"state":"translated","value":"コンピュータ操作カーソル"}}}},
+    "computerUse.menu.backgroundStatus": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux Computer Use — Running in Background"}},"ja":{"stringUnit":{"state":"translated","value":"cmux Computer Use — バックグラウンドで実行中"}}}},
+    "computerUse.menu.continueInBackground": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Continue in Background"}},"ja":{"stringUnit":{"state":"translated","value":"バックグラウンドで続行"}}}},
+    "computerUse.menu.focusTarget": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Focus Computer Use"}},"ja":{"stringUnit":{"state":"translated","value":"コンピュータ操作にフォーカス"}}}},
+    "computerUse.menu.focusTerminal": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Focus Calling Terminal"}},"ja":{"stringUnit":{"state":"translated","value":"呼び出し元のターミナルにフォーカス"}}}},
+    "computerUse.menu.noActivityTooltip": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No computer-use activity yet"}},"ja":{"stringUnit":{"state":"translated","value":"コンピュータ操作の履歴はまだありません"}}}},
+    "computerUse.menu.noLiveSessions": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No live agent sessions"}},"ja":{"stringUnit":{"state":"translated","value":"実行中のエージェントセッションはありません"}}}},
+    "computerUse.menu.sessionTitle": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"%1$@ · %2$@"}},"ja":{"stringUnit":{"state":"translated","value":"%1$@ · %2$@"}}}},
+    "computerUse.menu.statusWithTarget": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"%1$@ — %2$@"}},"ja":{"stringUnit":{"state":"translated","value":"%1$@ — %2$@"}}}},
+    "computerUse.menu.stopUsing": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Stop Using %@"}},"ja":{"stringUnit":{"state":"translated","value":"%@の使用を停止"}}}},
+    "computerUse.menu.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux Computer Use"}},"ja":{"stringUnit":{"state":"translated","value":"cmux Computer Use"}}}},
+    "computerUse.menu.unknownTarget": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"App"}},"ja":{"stringUnit":{"state":"translated","value":"アプリ"}}}},
+    "computerUse.menu.unknownWorkspace": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Unknown Workspace"}},"ja":{"stringUnit":{"state":"translated","value":"不明なワークスペース"}}}},
+    "computerUse.menu.viewComputerUse": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"View Computer Use"}},"ja":{"stringUnit":{"state":"translated","value":"コンピュータ操作を表示"}}}},
+    "computerUse.onboarding.accessibility.cardDetail": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Allows cmux to access app interfaces"}},"ja":{"stringUnit":{"state":"translated","value":"cmuxがアプリのインターフェースにアクセスできるようにします"}}}},
+    "computerUse.onboarding.accessibility.detail": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Accessibility lets the Computer Use helper inspect controls, click buttons, and type in apps you ask an agent to use."}},"ja":{"stringUnit":{"state":"translated","value":"アクセシビリティを許可すると、Computer Useヘルパーはエージェントに操作を依頼したアプリのコントロールを確認し、ボタンのクリックや文字入力を行えます。"}}}},
+    "computerUse.onboarding.accessibility.short": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Accessibility"}},"ja":{"stringUnit":{"state":"translated","value":"アクセシビリティ"}}}},
+    "computerUse.onboarding.accessibility.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Grant Accessibility"}},"ja":{"stringUnit":{"state":"translated","value":"アクセシビリティを許可"}}}},
+    "computerUse.onboarding.allow": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Allow"}},"ja":{"stringUnit":{"state":"translated","value":"許可"}}}},
+    "computerUse.onboarding.back": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Back"}},"ja":{"stringUnit":{"state":"translated","value":"戻る"}}}},
+    "computerUse.onboarding.companion.accessibility": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Drag %@ into Accessibility"}},"ja":{"stringUnit":{"state":"translated","value":"%@をアクセシビリティにドラッグ"}}}},
+    "computerUse.onboarding.companion.confirmCapture": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Allow screen capture in the macOS alert"}},"ja":{"stringUnit":{"state":"translated","value":"macOSのダイアログで画面収録を許可してください"}}}},
+    "computerUse.onboarding.companion.confirmCapture.detail": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The system “bypass” warning is expected here."}},"ja":{"stringUnit":{"state":"translated","value":"このシステム警告は想定どおりの動作です。"}}}},
+    "computerUse.onboarding.companion.screenRecording": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Drag %@ into Screenshots"}},"ja":{"stringUnit":{"state":"translated","value":"%@をスクリーンショットにドラッグ"}}}},
+    "computerUse.onboarding.companion.turnOn": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Then turn it on."}},"ja":{"stringUnit":{"state":"translated","value":"その後、オンにしてください。"}}}},
+    "computerUse.onboarding.completeInSystemSettings": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Complete %@ in System Settings"}},"ja":{"stringUnit":{"state":"translated","value":"システム設定で%@を完了"}}}},
+    "computerUse.onboarding.completeInSystemSettings.short": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Complete in System Settings"}},"ja":{"stringUnit":{"state":"translated","value":"システム設定で完了"}}}},
+    "computerUse.onboarding.continue": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Continue"}},"ja":{"stringUnit":{"state":"translated","value":"続ける"}}}},
+    "computerUse.onboarding.done": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Done"}},"ja":{"stringUnit":{"state":"translated","value":"完了"}}}},
+    "computerUse.onboarding.done.detailReady": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Setup is complete. You can now ask cmux to use apps on your Mac."}},"ja":{"stringUnit":{"state":"translated","value":"設定が完了しました。cmuxにこのMac上のアプリの操作を依頼できます。"}}}},
+    "computerUse.onboarding.done.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux Computer Use Is Ready"}},"ja":{"stringUnit":{"state":"translated","value":"cmux Computer Useの準備ができました"}}}},
+    "computerUse.onboarding.dragAction": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Drag"}},"ja":{"stringUnit":{"state":"translated","value":"ドラッグ"}}}},
+    "computerUse.onboarding.dragHint": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Drag this app into the list in System Settings, turn it on, then come back here."}},"ja":{"stringUnit":{"state":"translated","value":"このアプリをシステム設定のリストにドラッグしてオンにし、ここに戻ってください。"}}}},
+    "computerUse.onboarding.dragTip": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Drag the app card—not this window—into the permission list."}},"ja":{"stringUnit":{"state":"translated","value":"このウインドウではなく、アプリカードを権限リストにドラッグしてください。"}}}},
+    "computerUse.onboarding.dragTooltip": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Drag %@ into the permission list"}},"ja":{"stringUnit":{"state":"translated","value":"%@を権限リストにドラッグ"}}}},
+    "computerUse.onboarding.finishScreenshotAccess": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Finish screenshot access"}},"ja":{"stringUnit":{"state":"translated","value":"スクリーンショットへのアクセスを完了"}}}},
+    "computerUse.onboarding.hero.confirmCapture": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"macOS is asking to confirm screen capture.\nChoose Allow in the system alert to finish setup."}},"ja":{"stringUnit":{"state":"translated","value":"macOSが画面収録の確認を求めています。\nシステムの警告で「許可」を選択するとセットアップが完了します。"}}}},
+    "computerUse.onboarding.hero.detail": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux Computer Use needs these permissions to use apps on your Mac.\nThese permissions are used when you ask cmux to perform tasks."}},"ja":{"stringUnit":{"state":"translated","value":"cmux Computer UseがこのMac上のアプリを操作するには、これらの権限が必要です。\n権限は、cmuxにタスクを依頼したときに使用されます。"}}}},
+    "computerUse.onboarding.hero.helperNote": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Permissions go to the separate cmux Computer Use helper — the cmux terminal itself never receives them."}},"ja":{"stringUnit":{"state":"translated","value":"権限は独立したcmux Computer Useヘルパーに付与され、cmuxターミナル本体には付与されません。"}}}},
+    "computerUse.onboarding.hero.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Enable cmux Computer Use"}},"ja":{"stringUnit":{"state":"translated","value":"cmux Computer Useを有効にする"}}}},
+    "computerUse.onboarding.checkAgain": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Check Again"}},"ja":{"stringUnit":{"state":"translated","value":"もう一度確認"}}}},
+    "computerUse.onboarding.checking": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Checking…"}},"ja":{"stringUnit":{"state":"translated","value":"確認中…"}}}},
+    "computerUse.onboarding.notNow": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Not Now"}},"ja":{"stringUnit":{"state":"translated","value":"今はしない"}}}},
+    "computerUse.onboarding.media.detail": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Let agents work across apps you choose"}},"ja":{"stringUnit":{"state":"translated","value":"選択したアプリをエージェントが操作できます"}}}},
+    "computerUse.onboarding.media.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Computer use"}},"ja":{"stringUnit":{"state":"translated","value":"コンピュータ操作"}}}},
+    "computerUse.onboarding.openSystemSettings": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Open System Settings"}},"ja":{"stringUnit":{"state":"translated","value":"システム設定を開く"}}}},
+    "computerUse.onboarding.overview.accessibility": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Control apps you choose"}},"ja":{"stringUnit":{"state":"translated","value":"選択したアプリを操作"}}}},
+    "computerUse.onboarding.overview.detail": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"When a task needs more than the terminal, supported agents can see and drive local apps. Permissions belong to a separate helper, so granting them never requires restarting cmux."}},"ja":{"stringUnit":{"state":"translated","value":"ターミナル以外の操作が必要なとき、対応するエージェントはローカルアプリを表示して操作できます。権限は別のヘルパーに付与されるため、許可後にcmuxを再起動する必要はありません。"}}}},
+    "computerUse.onboarding.overview.local": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Runs locally with separate cmux Computer Use permissions"}},"ja":{"stringUnit":{"state":"translated","value":"独立したcmux Computer Useの権限でローカル実行"}}}},
+    "computerUse.onboarding.overview.restartHelper": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Only the Computer Use helper needs to restart after permission changes. cmux stays open."}},"ja":{"stringUnit":{"state":"translated","value":"権限の変更後に再起動が必要なのはComputer Useヘルパーだけです。cmuxは開いたままです。"}}}},
+    "computerUse.onboarding.overview.screenRecording": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"See app windows and screen content"}},"ja":{"stringUnit":{"state":"translated","value":"アプリウインドウと画面内容を表示"}}}},
+    "computerUse.onboarding.overview.short": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"How it works"}},"ja":{"stringUnit":{"state":"translated","value":"仕組み"}}}},
+    "computerUse.onboarding.overview.telemetry": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Driver telemetry and update checks are disabled"}},"ja":{"stringUnit":{"state":"translated","value":"ドライバーのテレメトリと更新確認は無効"}}}},
+    "computerUse.onboarding.overview.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Agents can work across apps on this Mac"}},"ja":{"stringUnit":{"state":"translated","value":"エージェントがこのMac上のアプリを操作できます"}}}},
+    "computerUse.onboarding.permissionReady.detail": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"You can continue to the next step."}},"ja":{"stringUnit":{"state":"translated","value":"次のステップに進めます。"}}}},
+    "computerUse.onboarding.permissionReady.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Permission granted"}},"ja":{"stringUnit":{"state":"translated","value":"権限が許可されました"}}}},
+    "computerUse.onboarding.permission.instructions": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"In System Settings, turn on %@, then return here."}},"ja":{"stringUnit":{"state":"translated","value":"システム設定で%@をオンにしてから、ここに戻ってください。"}}}},
+    "computerUse.onboarding.preparingHelper": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Preparing cmux Computer Use…"}},"ja":{"stringUnit":{"state":"translated","value":"cmux Computer Useを準備中…"}}}},
+    "computerUse.onboarding.screenRecording.cardDetail": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Allows cmux Computer Use to see app windows and screen content"}},"ja":{"stringUnit":{"state":"translated","value":"cmux Computer Useがアプリのウインドウと画面の内容を表示できるようにします"}}}},
+    "computerUse.onboarding.screenRecording.detail": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Screen Recording lets the Computer Use helper see app windows and screen content so it can act on what is visible."}},"ja":{"stringUnit":{"state":"translated","value":"画面収録を許可すると、Computer Useヘルパーはアプリウインドウや画面内容を確認し、表示されているものを操作できます。"}}}},
+    "computerUse.onboarding.screenRecording.short": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Screen Recording"}},"ja":{"stringUnit":{"state":"translated","value":"画面収録"}}}},
+    "computerUse.onboarding.screenRecording.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Grant Screen Recording"}},"ja":{"stringUnit":{"state":"translated","value":"画面収録を許可"}}}},
+    "computerUse.onboarding.screenshots.cardDetail": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux uses screenshots to know where to click"}},"ja":{"stringUnit":{"state":"translated","value":"cmuxはスクリーンショットを使ってクリック位置を判断します"}}}},
+    "computerUse.onboarding.screenshots.confirmDetail": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"macOS asks to confirm — allow screen capture"}},"ja":{"stringUnit":{"state":"translated","value":"macOSの確認で画面収録を許可してください"}}}},
+    "computerUse.onboarding.screenshots.short": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Screenshots"}},"ja":{"stringUnit":{"state":"translated","value":"スクリーンショット"}}}},
+    "computerUse.onboarding.status.granted": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Granted"}},"ja":{"stringUnit":{"state":"translated","value":"許可済み"}}}},
+    "computerUse.onboarding.status.notGranted": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Not Granted"}},"ja":{"stringUnit":{"state":"translated","value":"未許可"}}}},
+    "computerUse.onboarding.step": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Step %lld of 3"}},"ja":{"stringUnit":{"state":"translated","value":"3ステップ中%lld"}}}},
+    "computerUse.onboarding.windowTitle": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Computer Use Setup"}},"ja":{"stringUnit":{"state":"translated","value":"コンピュータ操作の設定"}}}},
+    "featureFlags.computerUseUX.description": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Shows the Computer Use menu-bar item and automatic onboarding."}},"ja":{"stringUnit":{"state":"translated","value":"「コンピュータ操作」のメニューバー項目と自動オンボーディングを表示します。"}}}},
+    "featureFlags.computerUseUX.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Computer Use UX"}},"ja":{"stringUnit":{"state":"translated","value":"コンピュータ操作UX"}}}},
+    "settings.computerUse.enabled": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Enable Computer Use"}},"ja":{"stringUnit":{"state":"translated","value":"コンピュータ操作を有効にする"}}}},
+    "settings.computerUse.enabled.note": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Computer Use runs locally in the bundled cmux Computer Use app. Its permissions and restart lifecycle are independent from cmux. Telemetry and update checks are disabled."}},"ja":{"stringUnit":{"state":"translated","value":"Computer Useは、cmuxに同梱されたcmux Computer Useアプリでローカル実行されます。権限と再起動のライフサイクルはcmuxから独立しています。テレメトリと更新確認は無効です。"}}}},
+    "settings.computerUse.enabled.subtitleOff": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"New agent launches start without the computer-use tools, including in terminals that are already open."}},"ja":{"stringUnit":{"state":"translated","value":"すでに開いているターミナルも含め、新しく起動するエージェントはコンピュータ操作ツールなしで開始されます。"}}}},
+    "settings.computerUse.enabled.subtitleOn": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Supported agent sessions can see and drive apps on this Mac."}},"ja":{"stringUnit":{"state":"translated","value":"対応するエージェントセッションがこのMac上のアプリを表示して操作できます。"}}}},
+    "settings.computerUse.permission.accessibility": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Accessibility"}},"ja":{"stringUnit":{"state":"translated","value":"アクセシビリティ"}}}},
+    "settings.computerUse.permission.accessibility.subtitle": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Lets cmux Computer Use inspect and control app interfaces."}},"ja":{"stringUnit":{"state":"translated","value":"cmux Computer Useがアプリのインターフェースを確認して操作できるようにします。"}}}},
+    "settings.computerUse.permission.grant": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Grant…"}},"ja":{"stringUnit":{"state":"translated","value":"許可…"}}}},
+    "settings.computerUse.permission.granted": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Granted"}},"ja":{"stringUnit":{"state":"translated","value":"許可済み"}}}},
+    "settings.computerUse.permission.notGranted": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Not Granted"}},"ja":{"stringUnit":{"state":"translated","value":"未許可"}}}},
+    "settings.computerUse.permission.unknown": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Unknown"}},"ja":{"stringUnit":{"state":"translated","value":"不明"}}}},
+    "settings.computerUse.permission.openSystemSettings": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Open System Settings"}},"ja":{"stringUnit":{"state":"translated","value":"システム設定を開く"}}}},
+    "settings.computerUse.permission.screenRecording": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Screen Recording"}},"ja":{"stringUnit":{"state":"translated","value":"画面収録"}}}},
+    "settings.computerUse.permission.screenRecording.subtitle": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Lets cmux Computer Use see app windows and screen content."}},"ja":{"stringUnit":{"state":"translated","value":"cmux Computer Useがアプリウインドウや画面内容を確認できるようにします。"}}}},
+    "settings.computerUse.permissions": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Permissions"}},"ja":{"stringUnit":{"state":"translated","value":"権限"}}}},
+    "settings.computerUse.showInMenuBar": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Show Computer Use in Menu Bar"}},"ja":{"stringUnit":{"state":"translated","value":"メニューバーにコンピュータ操作を表示"}}}},
+    "settings.computerUse.showInMenuBar.subtitle": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Show live agent sessions and shortcuts to their terminal and driven app."}},"ja":{"stringUnit":{"state":"translated","value":"実行中のエージェントセッションと、そのターミナルや操作対象アプリへのショートカットを表示します。"}}}},
+    "settings.search.alias.section.computerUse": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"computer use cua accessibility screen capture recording permissions cursor mcp agents menu bar onboarding"}},"ja":{"stringUnit":{"state":"translated","value":"computer use cua accessibility screen capture recording permissions cursor mcp agents menu bar onboarding コンピュータ操作 アクセシビリティ 画面収録 権限 エージェント メニューバー オンボーディング"}}}},
+    "settings.search.alias.setting.computerUse.enabled": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"computerUse.enabled enable disable computer use cua mcp agent sessions"}},"ja":{"stringUnit":{"state":"translated","value":"computerUse.enabled enable disable computer use cua mcp agent sessions コンピュータ操作 有効 無効 エージェント セッション"}}}},
+    "settings.search.alias.setting.computerUse.permissions": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"accessibility screen recording capture permissions privacy system settings grant"}},"ja":{"stringUnit":{"state":"translated","value":"accessibility screen recording capture permissions privacy system settings grant アクセシビリティ 画面収録 権限 プライバシー システム設定 許可"}}}},
+    "settings.search.alias.setting.computerUse.showInMenuBar": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"computerUse.showInMenuBar menu bar menubar status item cursor agents"}},"ja":{"stringUnit":{"state":"translated","value":"computerUse.showInMenuBar menu bar menubar status item cursor agents メニューバー ステータス項目 カーソル エージェント"}}}},
+    "settings.search.keywords.computerUse": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"computer use accessibility screen recording permissions cursor mcp agents menu bar onboarding"}},"ja":{"stringUnit":{"state":"translated","value":"computer use accessibility screen recording permissions cursor mcp agents menu bar onboarding コンピュータ操作 アクセシビリティ 画面収録 権限 カーソル エージェント メニューバー オンボーディング"}}}},
+    "settings.section.computerUse": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Computer Use"}},"ja":{"stringUnit":{"state":"translated","value":"コンピュータ操作"}}}},
+    "caffeine.error.missingEnabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pass enabled=true or enabled=false." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "enabled=true または enabled=false を指定してください。" } }
+      }
+    },
+    "caffeine.error.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Keep Mac Awake isn't available yet." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "「Macをスリープさせない」はまだ利用できません。" } }
+      }
+    },
+    "cli.help.notify.reply": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "--reply                Allow a free-text inline reply" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "--reply                自由入力のインライン返信を許可" } }
+      }
+    },
+    "debug.menu.notification.all": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Emit All" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべて送信" } }
+      }
+    },
+    "debug.menu.notification.cli": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "CLI" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "CLI" } }
+      }
+    },
+    "debug.menu.notification.cliReply": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "CLI Reply" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "CLI 返信" } }
+      }
+    },
+    "debug.menu.notification.emit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Emit Notification" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知を送信" } }
+      }
+    },
+    "debug.menu.notification.error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Error" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エラー" } }
+      }
+    },
+    "debug.menu.notification.feedExitPlan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Exit Plan" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィード終了プラン" } }
+      }
+    },
+    "debug.menu.notification.feedPermission": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Permission" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィード権限" } }
+      }
+    },
+    "debug.menu.notification.feedQuestion": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Question" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィード質問" } }
+      }
+    },
+    "debug.menu.notification.feedQuestion4": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Question (4 Options)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィード質問（4つの選択肢）" } }
+      }
+    },
+    "debug.menu.notification.feedQuestionMany": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Question (Many Options)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィード質問（多数の選択肢）" } }
+      }
+    },
+    "debug.menu.notification.feedQuestionMultiple": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Question (Multiple)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィード質問（複数質問）" } }
+      }
+    },
+    "debug.menu.notification.feedQuestionMultiSelect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Question (Multi-select)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィード質問（複数選択）" } }
+      }
+    },
+    "debug.menu.notification.hookFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Hook Failed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フック失敗" } }
+      }
+    },
+    "debug.menu.notification.idle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Idle Reminder" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アイドル通知" } }
+      }
+    },
+    "debug.menu.notification.mode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Notification Debug Mode" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知デバッグモード" } }
+      }
+    },
+    "debug.menu.notification.needsPermission": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Needs Permission" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "権限が必要" } }
+      }
+    },
+    "debug.menu.notification.osc": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "OSC" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "OSC" } }
+      }
+    },
+    "debug.menu.notification.turnComplete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Turn Complete" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターン完了" } }
+      }
+    },
+    "debug.notification.error.invalidKindOrTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unknown kind or no notification target" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明な種類、または通知対象がありません" } }
+      }
+    },
+    "debug.notification.error.missingEnabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pass enabled=true or enabled=false to turn notification debug mode on or off." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "enabled=true または enabled=false を指定して、通知デバッグモードのオン/オフを切り替えてください。" } }
+      }
+    },
+    "debug.notification.error.missingKind": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pass kind=<notification kind> to choose which debug notification to emit." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "kind=<通知の種類> を指定して、発行するデバッグ通知を選んでください。" } }
+      }
+    },
+    "debug.notification.synthetic.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Synthetic %@ notification" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "合成 %@ 通知" } }
+      }
+    },
+    "debug.notification.synthetic.option": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Option %d" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "選択肢 %d" } }
+      }
+    },
+    "debug.notification.synthetic.plan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Inspect the notification and verify the actions." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知を確認し、アクションを検証します。" } }
+      }
+    },
+    "debug.notification.synthetic.question": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Choose a notification debug answer" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知デバッグの回答を選択" } }
+      }
+    },
+    "debug.notification.synthetic.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Notification Debug" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知デバッグ" } }
+      }
+    },
+    "feed.notification.exitPlan.revise": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Revise…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "修正…" } }
+      }
+    },
+    "feed.notification.question.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Other…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "その他…" } }
+      }
+    },
+    "terminal.notification.action.reply": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reply" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "返信" } }
+      }
+    },
+    "terminal.notification.action.replyPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Message the agent…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェントにメッセージ…" } }
+      }
+    },
+    "terminal.notification.action.replySend": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Send" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "送信" } }
+      }
+    },
     "about.appName": {
       "extractionState": "manual",
       "localizations": {
@@ -52088,13 +52419,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, or cloud"
+            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, cloud, or custom [sidebar-name]"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set にはモードが必要です: files, find, vault, sessions, feed, dock, cloud"
+            "value": "right-sidebar set にはモードが必要です: files, find, vault, sessions, feed, dock, cloud, custom [sidebar-name]"
           }
         }
       }
@@ -52241,13 +52572,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux right-sidebar <command> [flags]\n\nControl the right sidebar from the CLI.\n\nCommands:\n  toggle                         Toggle right sidebar visibility\n  show                           Show the right sidebar\n  hide                           Hide the right sidebar\n  focus                          Focus the current right sidebar mode\n  set <files|find|vault|sessions|feed|dock|cloud>\n                                 Show, switch mode, and focus\n  mode                           Print {\"visible\":bool,\"mode\":string}\n  files|find|vault|sessions|feed|dock|cloud\n                                 Alias for show + set + focus\n\nFlags:\n  --workspace <id|ref|index>     Target the window containing a workspace\n  --window <id|ref|index>        Target a window\n  --no-focus                     With set, switch mode without moving focus\n\nExamples:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set vault --no-focus\n  cmux right-sidebar mode"
+            "value": "Usage: cmux right-sidebar <command> [flags]\n\nControl the right sidebar from the CLI.\n\nCommands:\n  toggle                         Toggle right sidebar visibility\n  show                           Show the right sidebar\n  hide                           Hide the right sidebar\n  focus                          Focus the current right sidebar mode\n  set <files|find|vault|sessions|feed|dock|cloud|custom> [sidebar-name]\n                                 Show, switch mode, and focus. `custom` renders a\n                                 JS/Swift sidebar from ~/.config/cmux/sidebars as\n                                 a right panel; the optional name picks which one.\n  mode                           Print {\"visible\":bool,\"mode\":string}\n  files|find|vault|sessions|feed|dock|cloud|custom\n                                 Alias for show + set + focus\n\nFlags:\n  --workspace <id|ref|index>     Target the window containing a workspace\n  --window <id|ref|index>        Target a window\n  --no-focus                     With set, switch mode without moving focus\n\nExamples:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set vault --no-focus\n  cmux right-sidebar mode"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用法: cmux right-sidebar <command> [flags]\n\nCLI から右サイドバーを操作します。\n\nコマンド:\n  toggle                         右サイドバーの表示を切り替えます\n  show                           右サイドバーを表示します\n  hide                           右サイドバーを隠します\n  focus                          現在の右サイドバーモードにフォーカスします\n  set <files|find|vault|sessions|feed|dock|cloud>\n                                 表示して、モードを切り替え、フォーカスします\n  mode                           {\"visible\":bool,\"mode\":string} を出力します\n  files|find|vault|sessions|feed|dock|cloud\n                                 show + set + focus のエイリアス\n\nフラグ:\n  --workspace <id|ref|index>     ワークスペースを含むウィンドウを対象にします\n  --window <id|ref|index>        ウィンドウを対象にします\n  --no-focus                     set で、フォーカスを移さずにモードだけ切り替えます\n\n例:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set vault --no-focus\n  cmux right-sidebar mode"
+            "value": "使用法: cmux right-sidebar <command> [flags]\n\nCLI から右サイドバーを操作します。\n\nコマンド:\n  toggle                         右サイドバーの表示を切り替えます\n  show                           右サイドバーを表示します\n  hide                           右サイドバーを隠します\n  focus                          現在の右サイドバーモードにフォーカスします\n  set <files|find|vault|sessions|feed|dock|cloud|custom> [sidebar-name]\n                                 表示して、モードを切り替え、フォーカスします。custom は\n                                 ~/.config/cmux/sidebars の JS/Swift サイドバーを右パネルに\n                                 表示します（名前で選択できます）\n  mode                           {\"visible\":bool,\"mode\":string} を出力します\n  files|find|vault|sessions|feed|dock|cloud|custom\n                                 show + set + focus のエイリアス\n\nフラグ:\n  --workspace <id|ref|index>     ワークスペースを含むウィンドウを対象にします\n  --window <id|ref|index>        ウィンドウを対象にします\n  --no-focus                     set で、フォーカスを移さずにモードだけ切り替えます\n\n例:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set vault --no-focus\n  cmux right-sidebar mode"
           }
         }
       }
@@ -59744,23 +60075,6 @@
         }
       }
     },
-    "cloudTree.menu.closeWorkspace": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Close Workspace"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペースを閉じる"
-          }
-        }
-      }
-    },
     "cloudTree.menu.copyPort": {
       "extractionState": "manual",
       "localizations": {
@@ -59842,6 +60156,312 @@
           "stringUnit": {
             "state": "translated",
             "value": "ここに新規ターミナル"
+          }
+        }
+      }
+    },
+    "cloudTree.confirm.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンセル"
+          }
+        }
+      }
+    },
+    "cloudTree.deleteWorkspace.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除"
+          }
+        }
+      }
+    },
+    "cloudTree.deleteWorkspace.message.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The workspace closes on the machine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシン上のワークスペースが閉じます。"
+          }
+        }
+      }
+    },
+    "cloudTree.deleteWorkspace.message.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Its terminal is killed with it. To keep it, use “Close Workspace” instead — it moves to the Terminals pool."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中のターミナルも一緒に終了します。残す場合は「ワークスペースを閉じる」を使ってください。ターミナルはプールに移動します。"
+          }
+        }
+      }
+    },
+    "cloudTree.deleteWorkspace.message.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Its %d terminals are killed with it. To keep them, use “Close Workspace” instead — they move to the Terminals pool."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中の%d個のターミナルも一緒に終了します。残す場合は「ワークスペースを閉じる」を使ってください。ターミナルはプールに移動します。"
+          }
+        }
+      }
+    },
+    "cloudTree.deleteWorkspace.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete workspace “%@”?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース「%@」を削除しますか？"
+          }
+        }
+      }
+    },
+    "cloudTree.killTerminal.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kill"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "強制終了"
+          }
+        }
+      }
+    },
+    "cloudTree.killTerminal.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The process ends on the machine, everywhere it is shown. Panes keep their scrollback."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシン上のプロセスが終了し、表示中のすべての場所に反映されます。ペインのスクロールバックは残ります。"
+          }
+        }
+      }
+    },
+    "cloudTree.killTerminal.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kill terminal “%@”?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル「%@」を強制終了しますか？"
+          }
+        }
+      }
+    },
+    "cloudTree.menu.closeWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Workspace (Keep Terminals)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを閉じる（ターミナルを保持）"
+          }
+        }
+      }
+    },
+    "cloudTree.menu.deleteWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Workspace and Terminals…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースとターミナルを削除…"
+          }
+        }
+      }
+    },
+    "cloudTree.menu.killTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kill Terminal…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルを強制終了…"
+          }
+        }
+      }
+    },
+    "cloudTree.menu.openWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを開く"
+          }
+        }
+      }
+    },
+    "cloudTree.menu.renameWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名称変更…"
+          }
+        }
+      }
+    },
+    "cloudTree.operation.deleteWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deleting %@…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を削除しています…"
+          }
+        }
+      }
+    },
+    "cloudTree.operation.renameWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renaming %@…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の名称を変更しています…"
+          }
+        }
+      }
+    },
+    "cloudTree.rename.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名称変更"
+          }
+        }
+      }
+    },
+    "cloudTree.renameWorkspace.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename “%@”"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」の名称変更"
           }
         }
       }
@@ -60369,23 +60989,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "メモリ %@/%@ GB"
-          }
-        }
-      }
-    },
-    "cloudTree.terminal.open": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open in a pane"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ペインで開いています"
           }
         }
       }
@@ -110507,6 +111110,506 @@
         }
       }
     },
+    "diffViewer.findClose": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close find"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close find"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close find"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close find"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close find"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close find"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close find"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close find"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索を閉じる"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close find"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close find"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close find"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close find"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close find"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close find"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close find"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close find"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close find"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close find"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close find"
+          }
+        }
+      }
+    },
+    "diffViewer.findInDiff": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find in diff"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find in diff"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find in diff"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find in diff"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find in diff"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find in diff"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find in diff"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find in diff"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差分内を検索"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find in diff"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find in diff"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find in diff"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find in diff"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find in diff"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find in diff"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find in diff"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find in diff"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find in diff"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find in diff"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find in diff"
+          }
+        }
+      }
+    },
+    "diffViewer.findNextMatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next match"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next match"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next match"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next match"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next match"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next match"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next match"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next match"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次の一致"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next match"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next match"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next match"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next match"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next match"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next match"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next match"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next match"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next match"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next match"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next match"
+          }
+        }
+      }
+    },
+    "diffViewer.findPreviousMatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous match"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous match"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous match"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous match"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous match"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous match"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous match"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous match"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前の一致"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous match"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous match"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous match"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous match"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous match"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous match"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous match"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous match"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous match"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous match"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous match"
+          }
+        }
+      }
+    },
     "diffViewer.hideBackgrounds": {
       "extractionState": "manual",
       "localizations": {
@@ -125303,6 +126406,125 @@
           "stringUnit": {
             "state": "translated",
             "value": "系統"
+          }
+        }
+      }
+    },
+    "machines.agent.claude": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        }
+      }
+    },
+    "machines.agent.codex": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        }
+      }
+    },
+    "machines.agent.copyPrompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Cloud Prompt"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドプロンプトをコピー"
+          }
+        }
+      }
+    },
+    "machines.agent.error.missingSkill": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This build is missing the bundled cmux Cloud skill file."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このビルドには cmux Cloud スキルファイルが含まれていません。"
+          }
+        }
+      }
+    },
+    "machines.agent.operation.starting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starting %@…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を起動しています…"
+          }
+        }
+      }
+    },
+    "machines.agent.menuLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Cloud Agent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドエージェントを開く"
+          }
+        }
+      }
+    },
+    "machines.agent.opencode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
           }
         }
       }
@@ -144224,16 +145446,124 @@
     "mobile.pairing.manual.title": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكنك المسح؟ أدخل عنوان IP الرقمي لـ Tailscale لهذا الـ Mac والمنفذ:"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ne možete skenirati? Unesite numeričku Tailscale IP adresu i port ovog Maca:"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kan du ikke scanne? Indtast denne Macs numeriske Tailscale-IP-adresse og port:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du kannst nicht scannen? Gib die numerische Tailscale-IP-Adresse und den Port dieses Mac ein:"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Can't scan? Add this Mac manually:"
+            "value": "Can't scan? Enter this Mac's numeric Tailscale IP and port:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿No puedes escanear? Introduce la dirección IP numérica de Tailscale y el puerto de este Mac:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de scanner ? Saisissez l’adresse IP Tailscale numérique et le port de ce Mac :"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non riesci a scansionare? Inserisci l’indirizzo IP numerico Tailscale e la porta di questo Mac:"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "スキャンできない場合は、この Mac を手動で追加します:"
+            "value": "スキャンできない場合は、この Mac の数値 Tailscale IP アドレスとポートを入力してください："
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្កេនមិនបានមែនទេ? បញ្ចូល IP Tailscale ជាលេខ និងច្រករបស់ Mac នេះ៖"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스캔할 수 없나요? 이 Mac의 숫자 Tailscale IP와 포트를 입력하세요:"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kan du ikke skanne? Skriv inn det numeriske Tailscale-IP-et og porten til denne Mac-en:"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie możesz zeskanować? Wpisz numeryczny adres IP Tailscale i port tego Maca:"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não consegue escanear? Digite o IP numérico do Tailscale e a porta deste Mac:"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удаётся отсканировать? Введите числовой IP-адрес Tailscale и порт этого Mac:"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สแกนไม่ได้ใช่ไหม ป้อน IP Tailscale แบบตัวเลขและพอร์ตของ Mac เครื่องนี้:"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarayamıyor musunuz? Bu Mac'in sayısal Tailscale IP adresini ve bağlantı noktasını girin:"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдається відсканувати? Введіть числову IP-адресу Tailscale і порт цього Mac:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法扫描？请输入这台 Mac 的数字 Tailscale IP 和端口："
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法掃描？請輸入這部 Mac 的數字 Tailscale IP 與連接埠："
           }
         }
       }
@@ -154189,6 +155519,40 @@
         }
       }
     },
+    "rightSidebar.customSidebar.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No custom sidebar selected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタムサイドバーが選択されていません"
+          }
+        }
+      }
+    },
+    "rightSidebar.customSidebar.emptyHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick one with: cmux right-sidebar set custom <name>"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux right-sidebar set custom <name> で選択してください"
+          }
+        }
+      }
+    },
     "rightSidebar.customSidebar.missing": {
       "extractionState": "manual",
       "localizations": {
@@ -154395,6 +155759,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "ERROR: アプリデリゲートを利用できません"
+          }
+        }
+      }
+    },
+    "rightSidebar.remote.error.customSidebarNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: No custom sidebar named '%@' in ~/.config/cmux/sidebars"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: ~/.config/cmux/sidebars に「%@」というカスタムサイドバーはありません"
+          }
+        }
+      }
+    },
+    "rightSidebar.remote.error.customSidebarUnset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: No custom sidebar selected; run right_sidebar set custom <name>"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: カスタムサイドバーが未選択です。right_sidebar set custom <name> を実行してください"
+          }
+        }
+      }
+    },
+    "rightSidebar.remote.error.customSidebarsDisabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Custom sidebars are disabled (enable them in Settings → Beta Features)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: カスタムサイドバーは無効です（設定 → ベータ機能で有効にしてください）"
           }
         }
       }
@@ -154677,13 +156092,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: Usage: right_sidebar set <files|find|vault|sessions|feed|dock> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: Usage: right_sidebar set <files|find|vault|sessions|feed|dock|custom> [sidebar-name] [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: 使用法: right_sidebar set <files|find|vault|sessions|feed|dock> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: 使用法: right_sidebar set <files|find|vault|sessions|feed|dock|custom> [sidebar-name] [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         }
       }
@@ -216308,6 +217723,125 @@
         }
       }
     },
+    "shortcut.clearAllNotifications.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مسح كل الإشعارات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obriši sva obavještenja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ryd alle notifikationer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle Benachrichtigungen löschen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear All Notifications"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Borrar todas las notificaciones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effacer toutes les notifications"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancella tutte le notifiche"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべての通知をクリア"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 알림 지우기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fjern alle varsler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyczyść wszystkie powiadomienia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limpar Todas as Notificações"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Очистить все уведомления"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ล้างการแจ้งเตือนทั้งหมด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tüm Bildirimleri Temizle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Очистити всі сповіщення"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除所有通知"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除所有通知"
+          }
+        }
+      }
+    },
     "shortcut.flashFocusedPanel.label": {
       "extractionState": "manual",
       "localizations": {
@@ -219051,6 +220585,125 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tab"
+          }
+        }
+      }
+    },
+    "shortcut.markAllNotificationsRead.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعليم كل الإشعارات كمقروءة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Označi sva obavještenja kao pročitana"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marker alle notifikationer som læste"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle Benachrichtigungen als gelesen markieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark All Notifications Read"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marcar todas las notificaciones como leídas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marquer toutes les notifications comme lues"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Segna tutte le notifiche come lette"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべての通知を既読にする"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 알림을 읽음으로 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merk alle varsler som lest"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oznacz wszystkie powiadomienia jako przeczytane"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marcar Todas as Notificações como Lidas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отметить все уведомления как прочитанные"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทำเครื่องหมายการแจ้งเตือนทั้งหมดว่าอ่านแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tüm Bildirimleri Okundu İşaretle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Позначити всі сповіщення як прочитані"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将所有通知标记为已读"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將所有通知標示為已讀"
           }
         }
       }

@@ -142,7 +142,7 @@ impl ResourceMachineService for LocalResourceMachineService {
             }
             ResourceOperation::SessionOpen => self.open_local_session(request, &context),
             operation => Err(ResourceError::operation_failed(
-                resource_operation_name(operation),
+                operation.wire_name().to_owned(),
                 "operation was routed to the wrong machine service",
                 json!({}),
             )),
@@ -383,14 +383,6 @@ pub(crate) fn operation_failed(error: anyhow::Error) -> ResourceError {
         return resource.clone();
     }
     ResourceError::operation_failed("resource.runtime", error.to_string(), json!({}))
-}
-
-fn resource_operation_name(operation: ResourceOperation) -> String {
-    serde_json::to_value(operation)
-        .expect("resource operation serializes")
-        .as_str()
-        .expect("resource operation serializes as a string")
-        .to_string()
 }
 
 pub(crate) fn terminal_tab_ids_in_canonical_order(
@@ -732,6 +724,22 @@ pub(crate) fn public_session_snapshot_with_journal_head(
         let mut agents = public_projections
             .agents
             .into_iter()
+            .filter(|agent| {
+                !(agent.source == "hook" && agent.state == "done")
+                    && !agent
+                        .source_session
+                        .as_deref()
+                        .is_some_and(|value| value.starts_with("cmux-hook-ended:"))
+            })
+            .map(|mut agent| {
+                if agent.source_session.as_deref().is_some_and(|value| {
+                    value.starts_with("cmux-hook-sequence:")
+                        || value.starts_with("cmux-hook-ended:")
+                }) {
+                    agent.source_session = None;
+                }
+                agent
+            })
             .map(|agent| agent.into_public_snapshot(&topology.session_id))
             .collect::<Vec<_>>();
         agents.sort_by(|left, right| {
