@@ -44,26 +44,11 @@ struct MobilePrimaryTabScaffold<
 
     var body: some View {
         if isIPadLayout {
-            TabView(selection: tabSelection) {
-                primaryTabs
-
-                Tab(value: MobilePrimaryTab.search, role: .search) {
-                    searchDestination
-                        .searchable(
-                            text: activeSearchText,
-                            isPresented: searchPresentation,
-                            prompt: activeSearchPrompt
-                        )
-                        .onSubmit(of: .search) {
-                            selection = searchCoordinator.commitSubmit()
-                        }
-                }
-                .accessibilityIdentifier("MobilePrimaryTabSearch")
-            }
-            // iPad has enough room for the primary controls to live in a
-            // bottom rail. The iOS 26 adaptable tab bar otherwise floats over
-            // the split view's navigation toolbar.
-            .toolbarVisibility(.hidden, for: .tabBar)
+            // iPadOS adapts a regular TabView into a top tab strip even when
+            // its tab bar is hidden. Render the destination directly so the
+            // bottom rail is the only primary navigation chrome and cannot
+            // overlap a navigation toolbar.
+            iPadPrimaryContent
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 MobileIPadPrimaryBar(
                     selection: selection,
@@ -132,6 +117,26 @@ struct MobilePrimaryTabScaffold<
                 primaryTabs
             }
             .accessibilityIdentifier("MobilePrimaryTabs")
+        }
+    }
+
+    @ViewBuilder
+    private var iPadPrimaryContent: some View {
+        switch selection {
+        case .workspaces:
+            workspaces
+        case .notifications:
+            notifications
+        case .search:
+            searchDestination
+                .searchable(
+                    text: activeSearchText,
+                    isPresented: searchPresentation,
+                    prompt: activeSearchPrompt
+                )
+                .onSubmit(of: .search) {
+                    selection = searchCoordinator.commitSubmit()
+                }
         }
     }
 
