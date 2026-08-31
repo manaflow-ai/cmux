@@ -86,15 +86,6 @@ protocol RemoteTmuxTransportProfile: Sendable {
     /// whether a transport can be spawned at all, independent of argv.
     var requiresPseudoTerminal: Bool { get }
 
-    /// Whether the transport recovers from network loss by itself.
-    ///
-    /// This is the property that changes cmux's behavior rather than just its argv. cmux
-    /// treats stdout EOF as "the stream died, respawn with backoff". A transport that
-    /// reconnects internally produces no EOF for a network drop — the stream pauses and
-    /// resumes — so respawning on a stall would throw away the session it was about to
-    /// recover. Such a transport needs a liveness check (process alive plus a control-mode
-    /// round-trip) instead of an EOF trigger.
-    var reconnectsInternally: Bool { get }
 }
 
 /// What end-of-stream on the control connection means.
@@ -193,8 +184,6 @@ struct RemoteTmuxSSHTransportProfile: RemoteTmuxTransportProfile {
             + ["--", host.destination, remoteCommand]
     }
 
-    /// ssh does not: a dropped connection ends the process, and cmux respawns it.
-    var reconnectsInternally: Bool { false }
 
     /// ssh is happy on pipes, which is what cmux spawns today.
     var requiresPseudoTerminal: Bool { false }
@@ -403,7 +392,6 @@ struct RemoteTmuxETTransportProfile: RemoteTmuxTransportProfile {
         RemoteTmuxSSHTransportProfile().oneShotArgv(host: host, remoteCommand: remoteCommand)
     }
 
-    var reconnectsInternally: Bool { true }
     var requiresPseudoTerminal: Bool { true }
 }
 
