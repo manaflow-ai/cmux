@@ -6,7 +6,7 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "test": "bun test",
-    "typecheck": "tsgo --noEmit && tsgo --noEmit -p tsconfig.test.json",
+    "typecheck": "tsgo --noEmit && tsgo --noEmit -p tsconfig.test.json && tsgo --noEmit -p tsconfig.worker-test.json",
     "generate": "bun tools/generate.ts --write",
     "generate:check": "bun tools/generate.ts --check",
     "check": "bun run generate:check && bun run typecheck && bun test && wrangler deploy --dry-run --outdir dist"

@@ -109,7 +109,8 @@ describe("verifyStackAccessToken (local JWKS path)", () => {
   }
 
   async function signToken(
-    privateKey: CryptoKey,
+    // jose v5 types signing keys as its own KeyLike, not CryptoKey.
+    privateKey: Awaited<ReturnType<typeof jose.generateKeyPair>>["privateKey"],
     kid: string,
     {
       aud = "project-1",

@@ -21,6 +21,10 @@ public actor RelayHostLink {
     private static let reconnectDelays: [Duration] = [.seconds(1), .seconds(2), .seconds(5), .seconds(15), .seconds(30), .seconds(60)]
 
     private let hostDeviceID: String
+    /// This build's own app-instance tag: a tagged dev Mac serves its own
+    /// relay object so sibling dev builds on one machine stop superseding
+    /// each other. nil or a release lane = the untagged (production) object.
+    private let instanceTag: String?
     private let accessToken: RelayAccessTokenProvider
     private let relayURLOverride: URL?
     private let makeConnection: RelayConnectionFactory
@@ -34,12 +38,14 @@ public actor RelayHostLink {
 
     public init(
         hostDeviceID: String,
+        instanceTag: String? = nil,
         accessToken: @escaping RelayAccessTokenProvider,
         relayURLOverride: URL? = nil,
         makeConnection: @escaping RelayConnectionFactory = RelayConnection.factory(),
         onClientSession: @escaping SessionHandler
     ) {
         self.hostDeviceID = hostDeviceID
+        self.instanceTag = instanceTag
         self.accessToken = accessToken
         self.relayURLOverride = relayURLOverride
         self.makeConnection = makeConnection
@@ -79,7 +85,8 @@ public actor RelayHostLink {
             accessToken: token,
             role: .host,
             hostDeviceID: hostDeviceID,
-            deviceID: hostDeviceID
+            deviceID: hostDeviceID,
+            instanceTag: instanceTag
         ))
         let welcome = try await connection.connect()
         self.connection = connection

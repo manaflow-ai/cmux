@@ -206,6 +206,12 @@ public enum RelayProtocol {
     public static let roleHeaderName = "${protocol.ROLE_HEADER}"
     public static let hostDeviceHeaderName = "${protocol.HOST_DEVICE_HEADER}"
     public static let deviceHeaderName = "${protocol.DEVICE_HEADER}"
+    public static let instanceTagHeaderName = "${protocol.INSTANCE_TAG_HEADER}"
+    public static let maxInstanceTagChars = ${protocol.MAX_INSTANCE_TAG_CHARS}
+    /// Release lanes never split relay objects; see src/protocol.ts.
+    public static let untaggedInstanceTags: [String] = [${protocol.UNTAGGED_INSTANCE_TAGS.map((tag) => `"${tag}"`).join(", ")}]
+    /// Anchored full-string pattern a relay-naming instance tag must match.
+    public static let instanceTagPattern = "${protocol.INSTANCE_TAG_PATTERN.replace(/\\/g, "\\\\")}"
     public static let connectPath = "/v1/connect"
     public static let defaultRelayURL = "${protocol.DEFAULT_RELAY_URL}"
     public static let byeSuperseded = "${protocol.BYE_SUPERSEDED}"

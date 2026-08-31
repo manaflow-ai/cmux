@@ -65,6 +65,11 @@ final class MobileHostRelayRuntime {
         guard runTask == nil, let auth else { return }
         let link = RelayHostLink(
             hostDeviceID: MobileHostIdentity.deviceID(),
+            // This build's app-instance tag: a tagged dev build serves its
+            // own relay object, so sibling dev builds on one Mac stop
+            // superseding each other. Release lanes normalize to untagged
+            // inside RelayConnectAuth, keeping production names unchanged.
+            instanceTag: MobileHostIdentity.instanceTag(),
             accessToken: { try await auth.currentTokens().accessToken },
             relayURLOverride: Self.relayURLOverride(),
             onClientSession: { session in

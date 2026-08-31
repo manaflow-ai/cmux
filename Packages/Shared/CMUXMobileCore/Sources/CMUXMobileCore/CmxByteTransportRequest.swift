@@ -21,6 +21,11 @@ public struct CmxByteTransportRequest: Equatable, Sendable {
     public let route: CmxAttachRoute
     /// The authenticated peer device expected on the route, when known.
     public let expectedPeerDeviceID: String?
+    /// The expected peer's app-instance tag (the pairing's Mac build tag),
+    /// when known. The relay transport dials that build's own relay object
+    /// with it; nil keeps the untagged (production) object, and non-relay
+    /// transports ignore it.
+    public let expectedPeerInstanceTag: String?
     /// The authorization evidence permitted on the transport.
     public let authorizationMode: CmxTransportAuthorizationMode
     /// The local owner whose network path this request represents.
@@ -36,12 +41,14 @@ public struct CmxByteTransportRequest: Equatable, Sendable {
     public init(
         route: CmxAttachRoute,
         expectedPeerDeviceID: String?,
+        expectedPeerInstanceTag: String? = nil,
         authorizationMode: CmxTransportAuthorizationMode,
         sessionPurpose: CmxTransportSessionPurpose = .foregroundControl,
         irohDirectOnlyDialCandidates: [CmxIrohDirectDialCandidate]? = nil
     ) {
         self.route = route
         self.expectedPeerDeviceID = expectedPeerDeviceID
+        self.expectedPeerInstanceTag = expectedPeerInstanceTag
         self.authorizationMode = authorizationMode
         self.sessionPurpose = sessionPurpose
         self.irohDirectOnlyDialCandidates = irohDirectOnlyDialCandidates
@@ -54,6 +61,7 @@ public struct CmxByteTransportRequest: Equatable, Sendable {
         Self(
             route: route,
             expectedPeerDeviceID: expectedPeerDeviceID,
+            expectedPeerInstanceTag: expectedPeerInstanceTag,
             authorizationMode: authorizationMode,
             sessionPurpose: sessionPurpose,
             irohDirectOnlyDialCandidates: irohDirectOnlyDialCandidates

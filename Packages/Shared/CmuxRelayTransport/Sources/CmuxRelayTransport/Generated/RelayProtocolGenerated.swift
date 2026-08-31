@@ -24,6 +24,12 @@ public enum RelayProtocol {
     public static let roleHeaderName = "x-cmux-role"
     public static let hostDeviceHeaderName = "x-cmux-host-device"
     public static let deviceHeaderName = "x-cmux-device"
+    public static let instanceTagHeaderName = "x-cmux-instance-tag"
+    public static let maxInstanceTagChars = 64
+    /// Release lanes never split relay objects; see src/protocol.ts.
+    public static let untaggedInstanceTags: [String] = ["default", "nightly", "rc", "staging"]
+    /// Anchored full-string pattern a relay-naming instance tag must match.
+    public static let instanceTagPattern = "^[a-z0-9][a-z0-9._-]{0,63}$"
     public static let connectPath = "/v1/connect"
     public static let defaultRelayURL = "wss://mr.cmux.dev/v1/connect"
     public static let byeSuperseded = "superseded"

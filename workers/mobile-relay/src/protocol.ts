@@ -25,7 +25,6 @@
 // `peer_joined` messages instead of an embedded array for the same reason.
 //
 // Generated copies (do not edit them, run `bun run generate`):
-//   - web/services/mobileRelay/generated/protocol.ts (verbatim copy)
 //   - Packages/Shared/CmuxRelayTransport/.../Generated/RelayProtocolGenerated.swift
 
 import * as Schema from "effect/Schema";
@@ -81,6 +80,39 @@ export const HOST_DEVICE_HEADER = "x-cmux-host-device";
 export const DEVICE_HEADER = "x-cmux-device";
 /** Device ids ride headers and control frames; bound before use. */
 export const MAX_DEVICE_ID_CHARS = 128;
+/** Optional app-instance tag: two tagged dev builds on one physical Mac are
+ * distinct hosts, so each (user, device, tag) triple gets its own relay
+ * object instead of contending for one host slot. Absent header = today's
+ * untagged object name, so old clients and production endpoints are
+ * unchanged. */
+export const INSTANCE_TAG_HEADER = "x-cmux-instance-tag";
+export const MAX_INSTANCE_TAG_CHARS = 64;
+/** Release lanes ride the untagged object. Their endpoints update
+ * asynchronously (App Store phone vs auto-updated Mac), so the two sides of a
+ * pairing could disagree about the tag dimension and land on different
+ * objects; dev builds are rebuilt in matched pairs and get isolation. Keep in
+ * sync with MobileMacBuildCompatibilityPolicy.nonDevelopmentTags. */
+export const UNTAGGED_INSTANCE_TAGS: readonly string[] = ["default", "nightly", "rc", "staging"];
+/** Charset for a tag that names a relay object (anchored full-string match).
+ * Colon-free by construction so the tagged object name parses unambiguously. */
+export const INSTANCE_TAG_PATTERN = "^[a-z0-9][a-z0-9._-]{0,63}$";
+
+export type InstanceTagParse =
+  | { readonly ok: true; readonly tag: string | null }
+  | { readonly ok: false };
+
+/** Normalizes the optional connect instance tag. Absent, empty, and
+ * release-lane values are the untagged dimension (`tag: null`); a value that
+ * cannot name an object is a client error. Swift mirrors this rule in
+ * RelayConnectAuth so both endpoints of a pairing derive the same object. */
+export function parseInstanceTag(raw: string | null | undefined): InstanceTagParse {
+  const trimmed = raw?.trim().toLowerCase();
+  if (!trimmed) return { ok: true, tag: null };
+  if (UNTAGGED_INSTANCE_TAGS.includes(trimmed)) return { ok: true, tag: null };
+  if (trimmed.length > MAX_INSTANCE_TAG_CHARS) return { ok: false };
+  if (!new RegExp(INSTANCE_TAG_PATTERN).test(trimmed)) return { ok: false };
+  return { ok: true, tag: trimmed };
+}
 /** Stack access tokens are JWTs, well under this. */
 export const MAX_ACCESS_TOKEN_CHARS = 8 * 1024;
 
