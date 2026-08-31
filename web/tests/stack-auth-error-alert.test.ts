@@ -70,7 +70,7 @@ async function captureRedirect(
 }
 
 describe("Stack Auth async error alerts", () => {
-  test("promotes credential-signup duplicate results into the shared error path", async () => {
+  test("promotes credential-signup duplicate results without retaining the error", async () => {
     const source = await readFile(
       fileURLToPath(
         new URL(
@@ -81,9 +81,13 @@ describe("Stack Auth async error alerts", () => {
       "utf8",
     );
     const duplicateResultBranch =
-      'if (result.error.errorCode === "USER_EMAIL_ALREADY_EXISTS") throw result.error;';
+      'if (result.error.errorCode === "USER_EMAIL_ALREADY_EXISTS") {';
 
     expect(source).toContain(duplicateResultBranch);
+    expect(source).toContain(
+      "runAsynchronouslyWithAlert(Promise.reject(result.error), { noErrorLogging: true });",
+    );
+    expect(source).not.toContain("throw result.error;");
     expect(
       source.indexOf(duplicateResultBranch),
     ).toBeLessThan(source.indexOf('message: result.error.message'));
@@ -142,7 +146,14 @@ describe("Stack Auth async error alerts", () => {
 
     const message = await captureAlert(error);
     expect(message).toContain("An unhandled error occurred.");
-    expect(message).toContain(error.message);
+    expect(message).not.toContain(error.message);
+  });
+
+  test("preserves actionable known errors when the browser environment is unavailable", async () => {
+    Reflect.deleteProperty(mutableProcessEnv, "NODE_ENV");
+    const error = new KnownErrors.EmailNotVerified();
+
+    expect(await captureAlert(error)).toBe(error.message);
   });
 
   test("preserves actionable known errors in an explicit production environment", async () => {
