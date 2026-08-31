@@ -4149,19 +4149,36 @@
         }
       }
     },
-    "mobile.notificationFeed.filter.all": {
+    "mobile.notificationFeed.filter": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "All"
+            "value": "Filter"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "すべて"
+            "value": "フィルタ"
+          }
+        }
+      }
+    },
+    "mobile.notificationFeed.filter.allNotifications": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All Notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべての通知"
           }
         }
       }
@@ -4281,6 +4298,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "すべて既読にする"
+          }
+        }
+      }
+    },
+    "mobile.notificationFeed.markAllRead.confirmTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark all notifications as read?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべての通知を既読にしますか？"
           }
         }
       }
@@ -4931,6 +4965,23 @@
         }
       }
     },
+    "mobile.notificationFeed.row.source": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "From"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信元"
+          }
+        }
+      }
+    },
     "mobile.notificationFeed.row.unknownWorkspace": {
       "extractionState": "manual",
       "localizations": {
@@ -4944,23 +4995,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "不明なワークスペース"
-          }
-        }
-      }
-    },
-    "mobile.notificationFeed.row.workspace": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Workspace"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペース"
           }
         }
       }
@@ -5012,23 +5046,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "通知を検索"
-          }
-        }
-      }
-    },
-    "mobile.notificationFeed.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Notifications"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "通知"
           }
         }
       }
