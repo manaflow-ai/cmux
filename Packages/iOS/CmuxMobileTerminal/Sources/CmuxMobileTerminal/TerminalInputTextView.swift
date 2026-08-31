@@ -365,8 +365,10 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         dismissButton.translatesAutoresizingMaskIntoConstraints = false
         self.dismissButton = dismissButton
 
-        // Scrollable action buttons
-        let scrollView = UIScrollView()
+        // Scrollable action buttons. The fade subclass dissolves keys under
+        // the leading edge (against the pinned composer button) incrementally
+        // as the row scrolls, instead of hard-clipping them.
+        let scrollView = AccessoryEdgeFadeScrollView()
         scrollView.showsHorizontalScrollIndicator = false
         scrollView.showsVerticalScrollIndicator = false
         scrollView.alwaysBounceHorizontal = true
