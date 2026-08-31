@@ -1703,7 +1703,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// converges through the next geometry pass.
     private var appliedRenderTopInsetPts: CGFloat = 0
 
-    func setTopContentInset(_ inset: CGFloat) {
+    public func setTopContentInset(_ inset: CGFloat) {
         let clamped = max(0, inset)
         guard abs(clamped - topContentInset) > 0.25 else { return }
         MobileDebugLog.anchormux(
