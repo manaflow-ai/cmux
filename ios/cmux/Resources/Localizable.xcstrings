@@ -466,13 +466,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Manual pairing uses this account. If it does not match the Mac, scan a QR/link from the Mac."
+            "value": "Pairing uses this account. If it does not match the Mac, sign in to the same account, then scan the Mac QR or enter its numeric Tailscale IP."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "手動ペアリングではこのアカウントを使用します。Mac と一致しない場合は、Mac から QR/リンクをスキャンしてください。"
+            "value": "ペアリングではこのアカウントを使用します。Mac と一致しない場合は、同じアカウントでサインインしてから、Mac の QR をスキャンするか数値の Tailscale IP を入力してください。"
           }
         }
       }
@@ -500,13 +500,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Manual host and port entry is an advanced fallback for reconnecting an already paired Mac."
+            "value": "Scan the Mac's pairing QR, or enter its numeric Tailscale IP and port. In the Simulator, 127.0.0.1 can connect to a local Mac. MagicDNS names and local or LAN hosts aren't supported for account-authenticated pairing."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ホストとポートの手入力は、ペアリング済みのMacへ再接続するための高度な代替手段です。"
+            "value": "Mac のペアリング QR をスキャンするか、数値の Tailscale IP アドレスとポートを入力してください。シミュレータでは 127.0.0.1 で Mac に接続できます。アカウント認証によるペアリングでは、MagicDNS 名やローカル／LAN ホストはサポートされません。"
           }
         }
       }
@@ -534,13 +534,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "127.0.0.1 (simulator only)"
+            "value": "100.x.x.x (Tailscale IP; 127.0.0.1 in Simulator)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "127.0.0.1（シミュレータのみ）"
+            "value": "100.x.x.x（Tailscale IP、シミュレータでは127.0.0.1）"
           }
         }
       }
@@ -579,19 +579,36 @@
         }
       }
     },
+    "mobile.addDevice.tailscaleNumericRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "For Tailscale pairing, enter the Mac's numeric Tailscale IP or scan its QR. MagicDNS names and local or LAN hosts aren't supported."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale でペアリングするには、Mac の数値 Tailscale IP アドレスを入力するか QR をスキャンしてください。MagicDNS 名やローカル／LAN ホストはサポートされません。"
+          }
+        }
+      }
+    },
     "mobile.addDevice.manualRouteWarning": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Manual credentials work only in the simulator. On a device, choose Tailscale and scan the Mac QR."
+            "value": "For account-authenticated pairing, enter the Mac's numeric Tailscale IP or scan its QR. MagicDNS names and local or LAN hosts aren't supported."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アカウント認証情報はシミュレータのループバックでのみ送信できます。実機では Tailscale を選択し、Mac の QR をスキャンしてください。"
+            "value": "アカウント認証によるペアリングでは、Mac の数値 Tailscale IP アドレスを入力するか QR をスキャンしてください。MagicDNS 名やローカル／LAN ホストはサポートされません。"
           }
         }
       }
@@ -5107,13 +5124,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 0.64.17 still works over Tailscale. Choose Connect iPhone/iPad on that Mac and scan its Pair iPhone code once."
+            "value": "Older cmux versions still work over Tailscale. Open Tailscale Pairing on the Mac and scan its QR, or enter its numeric Tailscale IP and port once."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 0.64.17でもTailscale経由で接続できます。Macで「Connect iPhone/iPad」を選び、「Pair iPhone」のコードを一度スキャンしてください。"
+            "value": "古い cmux バージョンでも Tailscale 経由で接続できます。Mac で「Tailscale Pairing」を開き、QR をスキャンするか、数値の Tailscale IP アドレスとポートを一度入力してください。"
           }
         }
       }
@@ -6433,13 +6450,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "On cmux 0.64.17, open Pair iPhone. On newer versions, open Tailscale Pairing. Then scan a fresh QR or link."
+            "value": "Open Tailscale Pairing on the Mac and scan a fresh QR, or enter the Mac's numeric Tailscale IP and port."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 0.64.17では「Pair iPhone」を開きます。新しいバージョンでは「Tailscale Pairing」を開き、新しいQRコードまたはリンクをスキャンしてください。"
+            "value": "Mac で「Tailscale Pairing」を開き、新しい QR をスキャンするか、Mac の数値 Tailscale IP アドレスとポートを入力してください。"
           }
         }
       }
@@ -6450,13 +6467,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open Tailscale on both devices, confirm they use the same network, then scan a fresh Pair iPhone code from the Mac."
+            "value": "Open Tailscale on both devices, then scan a fresh Mac pairing QR or enter its numeric Tailscale IP and port."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "両方のデバイスでTailscaleを開き、同じネットワークを使用していることを確認してから、Macの新しい「Pair iPhone」コードをスキャンしてください。"
+            "value": "両方のデバイスで Tailscale を開き、新しい Mac のペアリング QR をスキャンするか、数値の Tailscale IP アドレスとポートを入力してください。"
           }
         }
       }
@@ -6576,6 +6593,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "このコードはMac自身（localhost）を指しているため、iPhoneからは使えません。cmux 0.64.17では「Pair iPhone」を開きます。新しいバージョンでは「Tailscale Pairing」を開き、新しいコードをスキャンしてください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.manual.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can't scan? Enter this Mac's numeric Tailscale IP and port:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スキャンできない場合は、この Mac の数値 Tailscale IP アドレスとポートを入力してください："
+          }
+        }
+      }
+    },
+    "mobile.pairing.manual.copyIP": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy IP"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP をコピー"
+          }
+        }
+      }
+    },
+    "mobile.pairing.manual.copyPort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Port"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ポートをコピー"
           }
         }
       }
@@ -6722,13 +6790,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This pairing route is not trusted. Pair again with a fresh QR/link from that computer."
+            "value": "This pairing route is not trusted. Enter the Mac's numeric Tailscale IP and port, or scan its pairing QR."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このペアリング経路は信頼できません。そのコンピュータの新しい QR/リンクで再度ペアリングしてください。"
+            "value": "このペアリング経路は信頼できません。Mac の数値 Tailscale IP アドレスとポートを入力するか、ペアリング QR をスキャンしてください。"
           }
         }
       }
@@ -8745,13 +8813,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install cmux on your computer, sign in to the same account, and leave it running. The computer then appears on this phone automatically. To pair through Tailscale, install Tailscale on both devices and connect them to the same Tailscale network. On cmux 0.64.17, choose Connect iPhone/iPad and scan its Pair iPhone code. On newer versions, open Tailscale Pairing and scan its code here."
+            "value": "Install cmux on your computer, sign in to the same account, and leave it running. The computer then appears on this phone automatically. To pair through Tailscale, install Tailscale on both devices and connect them to the same Tailscale network. Open Tailscale Pairing on the Mac and scan its QR here, or enter the Mac's numeric Tailscale IP and port."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータにcmuxをインストールし、同じcmuxアカウントでサインインしたまま起動しておきます。コンピュータは自動的にこの端末に表示されます。Tailscale経由でペアリングするには、両方のデバイスにTailscaleをインストールし、同じTailscaleネットワークに接続してください。cmux 0.64.17では「Connect iPhone/iPad」を選び、「Pair iPhone」のコードをスキャンします。新しいバージョンでは「Tailscale Pairing」を開き、表示されたコードをここでスキャンします。"
+            "value": "コンピュータに cmux をインストールし、同じ cmux アカウントでサインインしたまま起動しておきます。コンピュータは自動的にこの端末に表示されます。Tailscale 経由でペアリングするには、両方のデバイスに Tailscale をインストールし、同じ Tailscale ネットワークに接続してください。Mac で「Tailscale Pairing」を開き、QR をここでスキャンするか、Mac の数値 Tailscale IP アドレスとポートを入力します。"
           }
         }
       }
@@ -9612,13 +9680,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "QR pairing usually needs both devices on the same Tailscale network. Turn Tailscale on first, or pair by host and port on a trusted local network."
+            "value": "Keep both devices on the same Tailscale network. Scan the Mac's pairing QR, or enter its numeric Tailscale IP and port."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "QR ペアリングには通常、両方のデバイスが同じ Tailscale ネットワークに接続されている必要があります。まず Tailscale をオンにするか、信頼できるローカルネットワーク上でホストとポートを指定してペアリングしてください。"
+            "value": "両方のデバイスを同じ Tailscale ネットワークに接続してください。Mac のペアリング QR をスキャンするか、数値の Tailscale IP アドレスとポートを入力します。"
           }
         }
       }
@@ -20407,13 +20475,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install Tailscale on both devices and use the same Tailscale network. On cmux 0.64.17, choose Connect iPhone/iPad and scan the Pair iPhone code. On newer versions, open Tailscale Pairing and scan its code here. To use Iroh instead, open Settings, tap Connection Method, and choose Iroh."
+            "value": "Install Tailscale on both devices and use the same Tailscale network. Open Tailscale Pairing on the Mac and scan its QR here, or enter the Mac's numeric Tailscale IP and port. To use Iroh instead, open Settings, tap Connection Method, and choose Iroh."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "両方のデバイスにTailscaleをインストールし、同じTailscaleネットワークを使用してください。cmux 0.64.17では「Connect iPhone/iPad」を選び、「Pair iPhone」のコードをスキャンします。新しいバージョンでは「Tailscale Pairing」を開き、表示されたコードをここでスキャンします。代わりにIrohを使うには、「設定」を開き、「接続方法」をタップして「Iroh」を選択してください。"
+            "value": "両方のデバイスに Tailscale をインストールし、同じ Tailscale ネットワークを使用してください。Mac で「Tailscale Pairing」を開き、QR をここでスキャンするか、Mac の数値 Tailscale IP アドレスとポートを入力します。Iroh を使うには、「設定」で「接続方法」を開き、「Iroh」を選択してください。"
           }
         }
       }
@@ -20424,13 +20492,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install Tailscale on both devices and use the same Tailscale network. On cmux 0.64.17, choose Connect iPhone/iPad and scan the Pair iPhone code. On newer versions, open Tailscale Pairing and scan its code here."
+            "value": "Install Tailscale on both devices and use the same Tailscale network. Open Tailscale Pairing on the Mac and scan its QR here, or enter the Mac's numeric Tailscale IP and port."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "両方のデバイスにTailscaleをインストールし、同じTailscaleネットワークを使用してください。cmux 0.64.17では「Connect iPhone/iPad」を選び、「Pair iPhone」のコードをスキャンします。新しいバージョンでは「Tailscale Pairing」を開き、表示されたコードをここでスキャンします。"
+            "value": "両方のデバイスに Tailscale をインストールし、同じ Tailscale ネットワークを使用してください。Mac で「Tailscale Pairing」を開き、QR をここでスキャンするか、Mac の数値 Tailscale IP アドレスとポートを入力してください。"
           }
         }
       }
