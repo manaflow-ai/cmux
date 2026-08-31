@@ -48,7 +48,7 @@ export COMMENT_AUTHOR_LOGIN=contributor
 export COMMENT_AUTHOR_TYPE=User
 export COMMENT_AUTHOR_ASSOCIATION=NONE
 export WORKFLOW_PATH=.github/workflows/cla.yml
-export CLA_GENERATION=v2.2-action-ab07d43ac2d351da27b9c305592f5171534d3f41
+export CLA_GENERATION=v2.2-action-a34b7274a1f68a0d7bcb11e62a5f1454ea15515c
 export TARGET_EVENT=pull_request_target
 export TARGET_BASE_REF=main
 export SIGNATURE_RECORDED=false
@@ -214,6 +214,8 @@ run_case() {
   if [[ "$mode" == untrusted-recheck ]]; then
     comment_author=untrusted-user
     comment_author_id=301
+  elif [[ "$mode" == recheck-unset-output ]]; then
+    signature_recorded=''
   elif [[ "$mode" == external-signer ]]; then
     comment_author=coauthor
     comment_author_id=400
@@ -281,6 +283,7 @@ run_case closed-pr 1 "The issue is not an open pull request" 0
 run_case retargeted-pr 1 "The live pull request is not valid" 0
 run_case ambiguous-association 1 "Expected exactly one open pull request for this head" 0
 run_case untrusted-recheck 1 "Only the pull request author or a trusted repository participant" 0
+run_case recheck-unset-output 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case suffixed-path 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case late-ambiguous 1 "Expected exactly one open pull request for this head" 0
 run_case external-signer 0 "Requested rerun for CLA job 500 in workflow run 400" 1
