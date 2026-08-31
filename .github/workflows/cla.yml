@@ -126,6 +126,58 @@ jobs:
             exit 1
           fi
 
+      - name: "Validate historical CLA declarations"
+        # The archived action rescans old comments on every event and accepts
+        # trimmed, lower-case, and wrapped declarations. Reject those bodies
+        # before it can turn a non-exact historical comment into a signature.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+          CLA_SIGN_PHRASE: 'I have read the CLA Document and I hereby sign the CLA'
+        run: |
+          set -euo pipefail
+          if ! comments_json="$(gh api --paginate --slurp \
+            "repos/${GH_REPO}/issues/${PR_NUMBER}/comments?per_page=100" 2>/dev/null)"; then
+            echo "::error::Could not query pull request comments for CLA validation"
+            exit 1
+          fi
+          if ! jq -e 'type == "array" and all(.[]; type == "array")' <<<"${comments_json}" >/dev/null; then
+            echo "::error::Could not validate pull request comment data"
+            exit 1
+          fi
+          comment_count="$(jq '[.[] | .[]?] | length' <<<"${comments_json}")"
+          if ! [[ "${comment_count}" =~ ^[0-9]+$ ]]; then
+            echo "::error::Could not count pull request comments for CLA validation"
+            exit 1
+          fi
+          if (( comment_count > 1000 )); then
+            echo "::error title=Pull request comment limit::This pull request has more than 1000 comments. Remove old comments before requesting a CLA check."
+            exit 1
+          fi
+          unsafe_comments="$(jq -r --arg phrase "${CLA_SIGN_PHRASE}" '
+            [ .[] | .[]?
+              | (.body // "") as $body
+              | ($body | ascii_downcase | gsub("^\\s+|\\s+$"; "")) as $normalized
+              | ($phrase | ascii_downcase) as $expected
+              | select($body != $phrase)
+              | select(
+                  $normalized == $expected or
+                  ($normalized | test("^.*i\\s*have\\s*read\\s*the\\s*cla\\s*document\\s*and\\s*i\\s*hereby\\s*sign\\s*the\\s*cla.*$"))
+                )
+              | {id: (.id // 0), author: (.user.login // "unknown")}
+            ]
+            | .[]? | @json
+          ' <<<"${comments_json}")" || {
+            echo "::error::Could not validate historical CLA declarations"
+            exit 1
+          }
+          if [[ -n "${unsafe_comments}" ]]; then
+            echo "::error::A historical pull request comment matches the archived CLA signature pattern but is not the exact declaration. Delete it or post the exact declaration, then request the check again."
+            printf '%s\n' "${unsafe_comments}" >&2
+            exit 1
+          fi
+
       - name: "CLA Assistant v2"
         # The action handles signing and status updates. Merged pull requests
         # use the explicit lock step below because the archived action sends

@@ -16,6 +16,7 @@ on:
       - .github/workflows/ci.yml
       - tests/test_cla_rerun_workflow.sh
       - tests/test_cla_lock_workflow.sh
+      - tests/test_cla_comment_guard.sh
   workflow_dispatch:
 
 permissions:
@@ -206,6 +207,17 @@ jobs:
           ACTIONS_ID_TOKEN_REQUEST_TOKEN: ''
           ACTIONS_ID_TOKEN_REQUEST_URL: ''
         run: ./tests/test_cla_lock_workflow.sh
+
+      - name: Validate CLA historical-comment guard
+        env:
+          # The harness executes extracted pull-request shell only against a
+          # fake API. Give it no GitHub, runner, or OIDC credentials.
+          GH_TOKEN: ''
+          GITHUB_TOKEN: ''
+          ACTIONS_RUNTIME_TOKEN: ''
+          ACTIONS_ID_TOKEN_REQUEST_TOKEN: ''
+          ACTIONS_ID_TOKEN_REQUEST_URL: ''
+        run: ./tests/test_cla_comment_guard.sh
 
       - name: Validate Blacksmith Testbox broker trust boundary
         run: python3 tests/test_ci_testbox_broker_guard.py
