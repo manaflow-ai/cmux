@@ -13,8 +13,10 @@ public enum PendingSocketInput: Sendable {
     /// One indivisible composed prompt: app-owned preparation keys followed by
     /// bracketed-paste text and its agent-aware submit key. Hook attribution is
     /// carried with the queued transaction but is not recorded until the item
-    /// is actually flushed.
+    /// is actually flushed. `messageID` is generated at admission so a cold
+    /// surface preserves the same identity as a live surface.
     case promptSubmission(
+        messageID: UUID,
         preparationKeys: [PendingKeyEvent],
         text: Data,
         submitKey: PendingKeyEvent,
@@ -33,6 +35,7 @@ public enum PendingSocketInput: Sendable {
         case .key(let event):
             return event.queuedByteCost
         case .promptSubmission(
+            _,
             let preparationKeys,
             let text,
             let submitKey,

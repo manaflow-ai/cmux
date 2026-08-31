@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import CmuxTerminalCore
 
@@ -53,6 +54,25 @@ import Testing
                 == .programmatic(source: "workspace.agent_submit")
         )
         #expect(ledger.hasUnconfirmedHumanInput)
+    }
+
+    @Test func programmaticConfirmationReturnsLedgerOwnedMessageID() {
+        var ledger = TerminalPromptInputLedger()
+        let messageID = UUID()
+        ledger.recordProgrammaticSubmission(
+            message: "addressed prompt",
+            source: "workspace.agent_submit",
+            messageID: messageID
+        )
+
+        let confirmation = ledger.confirmSubmissionWithMessageID(
+            message: "addressed prompt"
+        )
+        #expect(
+            confirmation.origin
+                == .programmatic(source: "workspace.agent_submit")
+        )
+        #expect(confirmation.messageID == messageID)
     }
 
     @Test func humanOwnedAppSubmissionRecoversOnlyItsPriorInput() {

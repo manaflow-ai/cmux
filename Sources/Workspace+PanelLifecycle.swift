@@ -173,27 +173,17 @@ extension Workspace {
             return firstCandidate.scope
         }
 
-        // Hibernation deliberately removes the live PID binding. Retain a
-        // deterministic, session-scoped identity so an addressed prompt can
-        // wake the panel and remain one compound queued transaction.
-        if let panel = terminalPanel(for: panelId),
-           let agent = panel.agentHibernationState?.agent,
-           isStructuredAgentHookPIDKey(
-               "agentPIDKey:\(agent.kind.rawValue)"
-           ),
-           TextBoxAgentDetection.supportsActiveAgentPrefixes(
-               context: "agentPIDKey:\(agent.kind.rawValue)"
-           ) {
-            return "hibernatedAgent:\(agent.kind.rawValue):\(agent.sessionId)"
-        }
         return nil
     }
 
     private func synchronizePromptInputAgentScope(forPanelId panelId: UUID) {
         let scope = agentPromptInputScope(forPanelId: panelId)
+        let terminalPanel = terminalPanel(for: panelId)
         let hasTrackedPromptAgent = agentPIDKeysByPanelId[panelId]?.contains {
             isPromptCapableAgentPIDKey($0)
         } == true
+        let isAgentPromptResumePending =
+            terminalPanel?.agentPromptResumePending == true
         let controlReturnIsPromptSubmissionBoundary = scope.map {
             let activeAgentContext = String(
                 $0.prefix { character in character != "|" }
@@ -202,17 +192,20 @@ extension Workspace {
                 context: activeAgentContext
             )
         }
-        terminalPanel(for: panelId)?.surface
+        terminalPanel?.surface
             .synchronizePromptInputAgentScope(
                 scope,
                 controlReturnIsPromptSubmissionBoundary:
                     controlReturnIsPromptSubmissionBoundary
             )
         if scope != nil {
+            terminalPanel?.agentPromptResumePending = false
             TerminalController.shared.drainAgentPromptQueue(workspaceID: id)
-        } else if !hasTrackedPromptAgent {
+        } else if !hasTrackedPromptAgent && !isAgentPromptResumePending {
             // No remaining cmux-owned agent binding means queued messages for
-            // this surface cannot safely target a replacement process.
+            // this surface cannot safely target a replacement process. A
+            // hibernation resume is the exception: its replacement is still
+            // binding and the queue must survive the shell's idle callback.
             TerminalController.shared.discardAgentPromptQueue(
                 surfaceID: panelId,
                 workspaceID: id

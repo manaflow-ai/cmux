@@ -1,5 +1,5 @@
 internal import CryptoKit
-internal import Foundation
+public import Foundation
 
 /// Conservative input ownership and bounded hook matching used to keep
 /// app-owned submissions separate from human terminal-composer drafts.
@@ -112,10 +112,18 @@ public struct TerminalPromptInputLedger: Sendable {
     /// degrades in place to a sequence-only programmatic boundary. Adjacent
     /// retired boundaries coalesce, so delayed or rewritten hooks cannot
     /// consume a human boundary and new prompt delivery remains live.
+    ///
+    /// - Parameters:
+    ///   - message: Prompt text used for normalized hook matching.
+    ///   - source: App-owned source returned when the hook is matched.
+    ///   - confirmsHumanInputSnapshot: Optional human-input snapshot to retire
+    ///     when the app submission also owns that input.
+    ///   - messageID: Stable identity carried into the confirmation result.
     public mutating func recordProgrammaticSubmission(
         message: String,
         source: String?,
-        confirmsHumanInputSnapshot: HumanInputSnapshot? = nil
+        confirmsHumanInputSnapshot: HumanInputSnapshot? = nil,
+        messageID: UUID = UUID()
     ) {
         guard let source,
               let messageSignature = messageSignature(message) else {
@@ -138,6 +146,7 @@ public struct TerminalPromptInputLedger: Sendable {
             retireProgrammaticBoundary(at: oldestIndex)
         }
         pendingBoundaries.append(.programmatic(
+            messageID: messageID,
             messageSignature: messageSignature,
             source: source,
             confirmsHumanInputSnapshot: confirmsHumanInputSnapshot
@@ -155,10 +164,23 @@ public struct TerminalPromptInputLedger: Sendable {
     public mutating func confirmSubmission(message: String?)
         -> PromptSubmissionConfirmationOrigin
     {
+        confirmSubmissionWithMessageID(message: message).origin
+    }
+
+    /// Matches a hook and returns the ledger-owned app message ID when present.
+    ///
+    /// The compatibility ``confirmSubmission(message:)`` API retains its
+    /// origin-only result; addressed delivery uses this atomic result so the
+    /// workspace FIFO never maintains a second copy of prompt identity.
+    @discardableResult
+    public mutating func confirmSubmissionWithMessageID(message: String?)
+        -> PromptSubmissionConfirmation
+    {
         if let message,
            let messageSignature = messageSignature(message) {
             if let index = pendingBoundaries.firstIndex(where: {
                 guard case .programmatic(
+                    _,
                     let candidateSignature,
                     _,
                     _
@@ -168,11 +190,12 @@ public struct TerminalPromptInputLedger: Sendable {
                 return candidateSignature == messageSignature
             }) {
                 guard case .programmatic(
+                    let messageID,
                     _,
                     let source,
                     let confirmsHumanInputSnapshot
                 ) = pendingBoundaries.remove(at: index) else {
-                    return .unmatched
+                    return PromptSubmissionConfirmation(origin: .unmatched)
                 }
                 if let confirmsHumanInputSnapshot,
                    confirmsHumanInputSnapshot.epoch == humanInputEpoch {
@@ -181,7 +204,10 @@ public struct TerminalPromptInputLedger: Sendable {
                         confirmsHumanInputSnapshot.generation
                     )
                 }
-                return .programmatic(source: source)
+                return PromptSubmissionConfirmation(
+                    origin: .programmatic(source: source),
+                    messageID: messageID
+                )
             }
         }
         // Agent versions can normalize or rewrite the prompt before emitting
@@ -189,18 +215,18 @@ public struct TerminalPromptInputLedger: Sendable {
         // an unmatched hook consumes one older programmatic boundary, but never
         // a human boundary in the same call.
         if consumeEarliestProgrammaticBoundary() {
-            return .unmatched
+            return PromptSubmissionConfirmation(origin: .unmatched)
         }
         guard let first = pendingBoundaries.first,
               case .human(let generation) = first else {
-            return .unmatched
+            return PromptSubmissionConfirmation(origin: .unmatched)
         }
         pendingBoundaries.removeFirst()
         confirmedHumanInputGeneration = max(
             confirmedHumanInputGeneration,
             generation
         )
-        return .human
+        return PromptSubmissionConfirmation(origin: .human)
     }
 
     /// Retires one possible app-owned hook before unmatched attribution may

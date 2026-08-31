@@ -627,6 +627,256 @@
           }
         }
       },
+      "cli.agentSubmit.command.success": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "تم إرسال المطالبة"
+            }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Upit je poslan"
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Prompt sendt"
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Prompt gesendet"
+            }
+          },
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Prompt submitted"
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Prompt enviado"
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Prompt envoyé"
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Prompt inviato"
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "プロンプトを送信しました"
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "បានផ្ញើប្រអប់បញ្ចូល"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "프롬프트가 제출되었습니다"
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Prompt sendt"
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Prompt wysłany"
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Prompt enviado"
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Запрос отправлен"
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "ส่งพรอมต์แล้ว"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "İstem gönderildi"
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Запит надіслано"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "提示已提交"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "提示已提交"
+            }
+          }
+        }
+      },
+      "cli.send.agentSubmit.success": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "تم إرسال المطالبة"
+            }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Upit je poslan"
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Prompt sendt"
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Prompt gesendet"
+            }
+          },
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Prompt submitted"
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Prompt enviado"
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Prompt envoyé"
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Prompt inviato"
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "プロンプトを送信しました"
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "បានផ្ញើប្រអប់បញ្ចូល"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "프롬프트가 제출되었습니다"
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Prompt sendt"
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Prompt wysłany"
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Prompt enviado"
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Запрос отправлен"
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "ส่งพรอมต์แล้ว"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "İstem gönderildi"
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Запит надіслано"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "提示已提交"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "提示已提交"
+            }
+          }
+        }
+      },
       "cli.agentSubmit.usageLine": {
         "extractionState": "manual",
         "localizations": {
@@ -998,6 +1248,256 @@
             "stringUnit": {
               "state": "translated",
               "value": "無法準備附件。請檢查後再試。"
+            }
+          }
+        }
+      },
+      "socket.workspace.agentSubmit.asyncRequired": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "يتطلب workspace.agent_submit إرسالاً غير متزامن عبر المقبس."
+            }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "workspace.agent_submit zahtijeva asinhronu isporuku kroz utičnicu."
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "workspace.agent_submit kræver asynkron socket-afsendelse."
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "workspace.agent_submit erfordert eine asynchrone Socket-Übertragung."
+            }
+          },
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "workspace.agent_submit requires the asynchronous socket dispatch."
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "workspace.agent_submit requiere el envío asíncrono por socket."
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "workspace.agent_submit nécessite une transmission asynchrone par socket."
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "workspace.agent_submit richiede l’invio asincrono tramite socket."
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "workspace.agent_submit には非同期ソケットディスパッチが必要です。"
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "workspace.agent_submit ត្រូវការការបញ្ជូន socket អសមកាល។"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "workspace.agent_submit은 비동기 소켓 디스패치가 필요합니다."
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "workspace.agent_submit krever asynkron socket-dispatch."
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "workspace.agent_submit wymaga asynchronicznego wysłania przez gniazdo."
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "workspace.agent_submit requer despacho assíncrono pelo socket."
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "workspace.agent_submit требует асинхронной отправки через сокет."
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "workspace.agent_submit ต้องใช้การส่งผ่านซ็อกเก็ตแบบอะซิงโครนัส"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "workspace.agent_submit için eşzamansız soket gönderimi gerekir."
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "workspace.agent_submit потребує асинхронної передачі через сокет."
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "workspace.agent_submit 需要异步套接字调度。"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "workspace.agent_submit 需要非同步通訊端分派。"
+            }
+          }
+        }
+      },
+      "socket.workspace.agentSubmit.invalidPrompt": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "مطالبة وكيل غير صالحة."
+            }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Nevažeći upit agenta."
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Ugyldig agentprompt."
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Ungültige Agentenaufforderung."
+            }
+          },
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Invalid agent prompt."
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Prompt del agente no válido."
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Prompt d’agent invalide."
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Prompt dell’agente non valido."
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "無効なエージェントプロンプトです。"
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "ប្រអប់បញ្ចូលភ្នាក់ងារមិនត្រឹមត្រូវ។"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "유효하지 않은 에이전트 프롬프트입니다."
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Ugyldig agentprompt."
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Nieprawidłowy prompt agenta."
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Prompt do agente inválido."
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Недопустимый запрос агента."
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "พรอมต์เอเจนต์ไม่ถูกต้อง"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Geçersiz aracı istemi."
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Недійсний запит агента."
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "代理提示无效。"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "代理提示無效。"
             }
           }
         }

@@ -278,9 +278,11 @@ extension TerminalController {
             return .err(code: "invalid_params", message: "Nothing to send", data: nil)
         }
         guard let terminalParams = await mobileChatTerminalParams(sessionID: sessionID) else {
-            return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
-                "session_id": sessionID
-            ])
+            return .err(
+                code: "not_found",
+                message: Self.chatTerminalBindingErrorMessage,
+                data: nil
+            )
         }
         guard let resolved = mobileResolveWorkspaceAndSurface(
             params: terminalParams,
@@ -290,9 +292,11 @@ extension TerminalController {
               resolved.workspace.terminalInputTarget(
                   forPanelID: surfaceID
               )?.panel != nil else {
-            return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
-                "session_id": sessionID
-            ])
+            return .err(
+                code: "not_found",
+                message: Self.chatTerminalBindingErrorMessage,
+                data: nil
+            )
         }
         var attachmentPayloads: [MobileChatAttachmentPayload] = []
         attachmentPayloads.reserveCapacity(attachments.count)
@@ -339,7 +343,7 @@ extension TerminalController {
             return .err(
                 code: "not_found",
                 message: Self.chatTerminalBindingErrorMessage,
-                data: ["session_id": sessionID]
+                data: nil
             )
         }
 

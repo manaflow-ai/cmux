@@ -1,6 +1,7 @@
 import Foundation
 import CmuxControlSocket
 import CmuxTerminalCore
+import CmuxAgentPromptCore
 
 extension TerminalController {
     private enum AgentPromptSubmitParse {
@@ -100,14 +101,15 @@ extension TerminalController {
             workspaceID: workspaceID,
             requestedSurfaceID: surfaceID,
             text: text,
-            delivery: { [weak self] in
+            delivery: { [weak self] messageID in
                 guard let self else {
                     return .workspaceNotFound(workspaceID: workspaceID)
                 }
                 return self.deliverAgentPromptSubmission(
                     workspaceID: workspaceID,
                     requestedSurfaceID: surfaceID,
-                    text: text
+                    text: text,
+                    messageID: messageID
                 )
             }
         )
@@ -253,9 +255,30 @@ extension TerminalController {
         return updated
     }
 
-    /// Worker-lane handler for `workspace.agent_submit` used by synchronous
-    /// in-process callers and the legacy socket path.
-    nonisolated func v2WorkspaceAgentSubmit(params: [String: Any]) -> V2CallResult {
+    /// Localized fallback for an impossible parser result.
+    nonisolated static var agentPromptInvalidPromptMessage: String {
+        String(
+            localized: "socket.workspace.agentSubmit.invalidPrompt",
+            defaultValue: "Invalid agent prompt."
+        )
+    }
+
+    /// Explains why the legacy synchronous worker seam cannot handle this
+    /// main-actor command.
+    nonisolated static var agentPromptAsyncDispatchRequiredMessage: String {
+        String(
+            localized: "socket.workspace.agentSubmit.asyncRequired",
+            defaultValue: "workspace.agent_submit requires the asynchronous socket dispatch."
+        )
+    }
+
+    /// Main-actor compatibility entry point for in-process callers.
+    ///
+    /// Socket connections use ``v2WorkspaceAgentSubmitAsync(params:id:)``. A
+    /// synchronous caller is accepted only when it is already on the main
+    /// thread; it never blocks a socket worker on the main actor.
+    @MainActor
+    func v2WorkspaceAgentSubmit(params: [String: Any]) -> V2CallResult {
         // Accept the same workspace/surface handle refs as other v2 methods
         // by resolving non-UUID handles before the strict parser.
         var requestParams = params
@@ -263,9 +286,10 @@ extension TerminalController {
         let rawSurface = params["surface_id"] as? String
         if Self.agentPromptHandleNeedsResolution(rawWorkspace)
             || Self.agentPromptHandleNeedsResolution(rawSurface) {
-            let resolved = v2MainSync {
-                (self.v2UUIDAny(rawWorkspace), self.v2UUIDAny(rawSurface))
-            }
+            let resolved = (
+                v2UUIDAny(rawWorkspace),
+                v2UUIDAny(rawSurface)
+            )
             requestParams = Self.agentPromptParamsApplyingResolvedHandles(
                 params,
                 workspaceID: resolved.0,
@@ -275,17 +299,19 @@ extension TerminalController {
         let parsed = Self.parseAgentPromptSubmit(params: requestParams)
         guard case .success(let workspaceID, let surfaceID, let text) = parsed else {
             guard case .failure(let error) = parsed else {
-                return .err(code: "invalid_params", message: "Invalid agent prompt", data: nil)
+                return .err(
+                    code: "invalid_params",
+                    message: Self.agentPromptInvalidPromptMessage,
+                    data: nil
+                )
             }
             return error
         }
-        let receipt = v2MainSync {
-            enqueueAgentPromptSubmission(
-                workspaceID: workspaceID,
-                surfaceID: surfaceID,
-                text: text
-            )
-        }
+        let receipt = enqueueAgentPromptSubmission(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            text: text
+        )
         return Self.agentPromptSocketResult(
             receipt.result,
             messageID: receipt.messageID
@@ -318,7 +344,7 @@ extension TerminalController {
                 return v2Error(
                     id: id?.foundationObject,
                     code: "invalid_params",
-                    message: "Invalid agent prompt"
+                    message: Self.agentPromptInvalidPromptMessage
                 )
             }
             return v2Result(id: id?.foundationObject, error)

@@ -4,13 +4,39 @@ import CmuxTerminal
 import Foundation
 
 extension TerminalController {
+    /// Atomically confirms a hook in the surface ledger and releases the
+    /// matching workspace delivery barrier.
+    ///
+    /// The ledger is authoritative for prompt identity and source. The service
+    /// receives only that returned ID to advance ordering, so the two owners
+    /// cannot independently match the same prompt text.
+    func confirmAgentPromptSubmission(
+        workspaceID: UUID,
+        panel: TerminalPanel,
+        message: String?
+    ) -> (source: String, messageID: UUID)? {
+        let confirmation = panel.surface
+            .confirmPromptSubmissionWithMessageID(message: message)
+        guard case .programmatic(let source) = confirmation.origin,
+              let messageID = confirmation.messageID else {
+            return nil
+        }
+        _ = agentPromptSubmissionService.confirm(
+            workspaceID: workspaceID,
+            surfaceID: panel.id,
+            messageID: messageID
+        )
+        return (source, messageID)
+    }
+
     /// Main-actor half of one serialized agent prompt request: resolve the
     /// workspace's agent terminal, admit one compound transaction, and queue it
     /// untouched when a human draft or active turn owns the composer.
     func deliverAgentPromptSubmission(
         workspaceID: UUID,
         requestedSurfaceID: UUID?,
-        text: String
+        text: String,
+        messageID: UUID
     ) -> AgentPromptSubmissionResult {
         guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceID)
                 ?? (self.tabManager?.tabs.contains(where: { $0.id == workspaceID }) == true
@@ -72,7 +98,8 @@ extension TerminalController {
             agentInputScope: target.agentInputScope,
             rejectIfHumanComposerBusy: true,
             hookRecordingSource: "workspace.agent_submit",
-            deferDuringRuntimeClipboardRead: false
+            deferDuringRuntimeClipboardRead: false,
+            messageID: messageID
         )
         switch result {
         case .sent, .queued:

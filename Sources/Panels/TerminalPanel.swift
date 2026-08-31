@@ -93,6 +93,8 @@ final class TerminalPanel: Panel, ObservableObject {
     @Published var viewReattachToken: UInt64 = 0
 
     @Published var agentHibernationPhase: AgentHibernationPanelPhase = .live
+    /// Keeps addressed prompts queued while a hibernated agent is rebinding.
+    var agentPromptResumePending = false
 
     var onRequestWorkspacePaneFlash: ((WorkspaceAttentionFlashReason) -> Void)?
     var onRequestAgentHibernationResume: ((Bool) -> Bool)?
@@ -731,6 +733,8 @@ final class TerminalPanel: Panel, ObservableObject {
     /// merging with unconfirmed physical terminal input. Guarded callers fail
     /// closed while the agent scope is unavailable; the app-level service
     /// retains that request for retry.
+    /// The optional message ID is forwarded into the surface ledger so live
+    /// and cold delivery share one confirmation identity.
     @discardableResult
     func sendPromptSubmissionResult(
         _ text: String,
@@ -740,7 +744,8 @@ final class TerminalPanel: Panel, ObservableObject {
         rejectIfHumanComposerBusy: Bool,
         hookRecordingSource: String?,
         hookConfirmsHumanInput: Bool = false,
-        deferDuringRuntimeClipboardRead: Bool = true
+        deferDuringRuntimeClipboardRead: Bool = true,
+        messageID: UUID? = nil
     ) -> TerminalSurface.PromptSubmissionSendResult {
         if rejectIfHumanComposerBusy {
             guard let agentInputScope else {
@@ -762,7 +767,8 @@ final class TerminalPanel: Panel, ObservableObject {
             rejectIfHumanComposerBusy: rejectIfHumanComposerBusy,
             hookRecordingSource: hookRecordingSource,
             hookConfirmsHumanInput: hookConfirmsHumanInput,
-            deferDuringRuntimeClipboardRead: deferDuringRuntimeClipboardRead
+            deferDuringRuntimeClipboardRead: deferDuringRuntimeClipboardRead,
+            messageID: messageID
         )
     }
 

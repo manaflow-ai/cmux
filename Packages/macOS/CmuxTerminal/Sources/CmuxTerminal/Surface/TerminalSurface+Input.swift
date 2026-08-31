@@ -27,7 +27,11 @@ extension TerminalSurface {
     public func enqueueManualInputNamedKey(_ name: String) -> Bool {
         guard ioMode.usesManualIO, manualInputHandler != nil, let surface else { return false }
         let frame = TerminalManualInput.namedKey(name).manualIOData
-        return remoteOutputLane.enqueueTextInput(frame, to: surface)
+        let accepted = remoteOutputLane.enqueueTextInput(frame, to: surface)
+        if accepted {
+            recordAcceptedUnownedPromptKey(name)
+        }
+        return accepted
     }
 
     /// Notifies the pane host that user-initiated terminal input is about to be sent.
@@ -148,6 +152,15 @@ extension TerminalSurface {
         -> PromptSubmissionConfirmationOrigin
     {
         promptInputLedger.confirmSubmission(message: message)
+    }
+
+    /// Matches a prompt hook and returns its ledger-owned app message ID.
+    @MainActor
+    @discardableResult
+    public func confirmPromptSubmissionWithMessageID(message: String?)
+        -> PromptSubmissionConfirmation
+    {
+        promptInputLedger.confirmSubmissionWithMessageID(message: message)
     }
 
     /// Whether human terminal input may still be present in the current
@@ -437,7 +450,7 @@ extension TerminalSurface {
         var validatedSurface: ghostty_surface_t? = liveSurface
         var validatedGeneration: UInt64? = runtimeSurfaceGeneration
         var queuedInput = false
-        for input in Self.pendingSocketInputs(from: events) {
+        for input in pendingSocketInputs(from: events) {
             queuedInput = deliverPendingSocketInput(
                 input,
                 validatedSurface: &validatedSurface,
@@ -474,6 +487,8 @@ extension TerminalSurface {
     ///     agent hook records the prompt, or `nil` when no hook is expected.
     ///   - hookConfirmsHumanInput: Whether that matching hook also confirms
     ///     physical input that preceded this human-owned app submission.
+    ///   - messageID: Stable identity supplied by the app admission queue; a
+    ///     fresh ID is generated for standalone callers.
     /// - Returns: The definitive acceptance or rejection outcome.
     @MainActor
     @discardableResult
@@ -485,9 +500,11 @@ extension TerminalSurface {
         hookRecordingSource: String? =
             nil,
         hookConfirmsHumanInput: Bool = false,
-        deferDuringRuntimeClipboardRead: Bool = true
+        deferDuringRuntimeClipboardRead: Bool = true,
+        messageID: UUID? = nil
     ) -> PromptSubmissionSendResult {
         let data = Data(text.utf8)
+        let admissionMessageID = messageID ?? UUID()
         guard let submitEvent = pendingKeyEvent(for: submitKey) else {
             return .unknownKey
         }
@@ -508,7 +525,8 @@ extension TerminalSurface {
                         rejectIfHumanComposerBusy: rejectIfHumanComposerBusy,
                         hookRecordingSource: hookRecordingSource,
                         hookConfirmsHumanInput: hookConfirmsHumanInput,
-                        deferDuringRuntimeClipboardRead: true
+                        deferDuringRuntimeClipboardRead: true,
+                        messageID: admissionMessageID
                     )
                 }
             ) {
@@ -530,6 +548,7 @@ extension TerminalSurface {
             }
             guard enqueuePendingSocketInput(
                 .promptSubmission(
+                    messageID: admissionMessageID,
                     preparationKeys: preparationEvents,
                     text: data,
                     submitKey: submitEvent,
@@ -563,7 +582,8 @@ extension TerminalSurface {
             message: text,
             source: hookRecordingSource,
             confirmsHumanInputSnapshot:
-                hookConfirmedHumanInputSnapshot
+                hookConfirmedHumanInputSnapshot,
+            messageID: admissionMessageID
         )
         for preparationEvent in preparationEvents {
             sendKeyEvent(
@@ -584,16 +604,16 @@ extension TerminalSurface {
 
     @MainActor
     private func enqueuePendingSocketInput(_ text: String) -> Bool {
-        enqueuePendingSocketInputs(Self.pendingSocketInputs(for: text))
+        enqueuePendingSocketInputs(pendingSocketInputs(for: text))
     }
 
-    private static func pendingSocketInputs(
+    private func pendingSocketInputs(
         for text: String
     ) -> [PendingSocketInput] {
-        pendingSocketInputs(from: parsedSocketInputEvents(for: text))
+        pendingSocketInputs(from: Self.parsedSocketInputEvents(for: text))
     }
 
-    private static func pendingSocketInputs(
+    private func pendingSocketInputs(
         from events: [ParsedSocketInput]
     ) -> [PendingSocketInput] {
         events.compactMap { event in
@@ -1306,6 +1326,7 @@ extension TerminalSurface {
                 mods: event.mods
             )
         case .promptSubmission(
+            let messageID,
             let preparationKeys,
             let text,
             let submitKey,
@@ -1315,7 +1336,8 @@ extension TerminalSurface {
             promptInputLedger.recordProgrammaticSubmission(
                 message: String(decoding: text, as: UTF8.self),
                 source: hookRecordingSource,
-                confirmsHumanInputSnapshot: hookConfirmedHumanInputSnapshot
+                confirmsHumanInputSnapshot: hookConfirmedHumanInputSnapshot,
+                messageID: messageID
             )
             for preparationKey in preparationKeys {
                 sendKeyEvent(

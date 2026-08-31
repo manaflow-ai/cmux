@@ -11,6 +11,8 @@ public struct CmuxCLIArgumentParser: Sendable {
         public let idFormat: String?
         /// Arguments forwarded to the command-specific parser.
         public let remaining: [String]
+        /// Whether the `send` command requested addressed atomic delivery.
+        public let atomic: Bool
 
         /// Creates a parsed presentation-options result.
         ///
@@ -18,10 +20,16 @@ public struct CmuxCLIArgumentParser: Sendable {
         ///   - jsonOutput: Whether JSON output was requested.
         ///   - idFormat: The optional identifier format.
         ///   - remaining: Arguments that are not presentation options.
-        public init(jsonOutput: Bool, idFormat: String?, remaining: [String]) {
+        public init(
+            jsonOutput: Bool,
+            idFormat: String?,
+            remaining: [String],
+            atomic: Bool = false
+        ) {
             self.jsonOutput = jsonOutput
             self.idFormat = idFormat
             self.remaining = remaining
+            self.atomic = atomic
         }
     }
 
@@ -66,7 +74,17 @@ public struct CmuxCLIArgumentParser: Sendable {
     /// - Parameter commandArgs: Arguments after the top-level command.
     /// - Returns: The presentation flags and the command arguments to forward.
     /// - Throws: ``ParseError/missingIDFormatValue`` when `--id-format` has no value.
-    public func parse(_ commandArgs: [String]) throws -> Result {
+    public func parse(
+        _ commandArgs: [String],
+        command: String? = nil
+    ) throws -> Result {
+        if command == "send" {
+            return try parseSend(commandArgs)
+        }
+        return try parseGeneral(commandArgs)
+    }
+
+    private func parseGeneral(_ commandArgs: [String]) throws -> Result {
         var jsonOutput = false
         var idFormat: String?
         var remaining: [String] = []
@@ -111,6 +129,87 @@ public struct CmuxCLIArgumentParser: Sendable {
             }
             index += 1
         }
-        return Result(jsonOutput: jsonOutput, idFormat: idFormat, remaining: remaining)
+        return Result(
+            jsonOutput: jsonOutput,
+            idFormat: idFormat,
+            remaining: remaining
+        )
+    }
+
+    /// Parses `send` with its command-specific boolean flag before generic
+    /// option-value preservation can reinterpret prompt text.
+    private func parseSend(_ commandArgs: [String]) throws -> Result {
+        var jsonOutput = false
+        var idFormat: String?
+        var atomic = false
+        var remaining: [String] = []
+        var index = 0
+        var pastTerminator = false
+
+        while index < commandArgs.count {
+            let arg = commandArgs[index]
+            if pastTerminator {
+                remaining.append(arg)
+                index += 1
+                continue
+            }
+            if arg == "--" {
+                pastTerminator = true
+                remaining.append(arg)
+                index += 1
+                continue
+            }
+            if arg == "--json" {
+                jsonOutput = true
+                index += 1
+                continue
+            }
+            if arg == "--id-format" {
+                guard index + 1 < commandArgs.count else {
+                    throw ParseError.missingIDFormatValue
+                }
+                idFormat = commandArgs[index + 1]
+                index += 2
+                continue
+            }
+            if arg == "--atomic" {
+                atomic = true
+                index += 1
+                continue
+            }
+
+            remaining.append(arg)
+            if arg == "--agent" {
+                // `--agent` belongs to `hooks setup`, not `send`. Preserve it
+                // as prompt text, but do not let it swallow a presentation
+                // option. If its next token is `--atomic`, keep that pair
+                // literal as well; otherwise the legacy pair would silently
+                // change the prompt and select addressed delivery.
+                if index + 1 < commandArgs.count,
+                   commandArgs[index + 1] != "--",
+                   commandArgs[index + 1] != "--json",
+                   commandArgs[index + 1] != "--id-format" {
+                    remaining.append(commandArgs[index + 1])
+                    index += 2
+                } else {
+                    index += 1
+                }
+                continue
+            }
+            if Self.commandOptionsWithValues.contains(arg),
+               index + 1 < commandArgs.count {
+                remaining.append(commandArgs[index + 1])
+                index += 2
+                continue
+            }
+            index += 1
+        }
+
+        return Result(
+            jsonOutput: jsonOutput,
+            idFormat: idFormat,
+            remaining: remaining,
+            atomic: atomic
+        )
     }
 }

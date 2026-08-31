@@ -4881,12 +4881,25 @@ struct CMUXCLI {
             return
         }
         let passesThroughProviderArguments = managedProviderArgumentsPassThrough(command: command)
-        let presentationOptions: (jsonOutput: Bool, idFormat: String?, remaining: [String])
+        let presentationOptions: (
+            jsonOutput: Bool,
+            idFormat: String?,
+            remaining: [String],
+            atomic: Bool
+        )
         if passesThroughProviderArguments {
-            presentationOptions = (false, nil, rawCommandArgs)
+            presentationOptions = (false, nil, rawCommandArgs, false)
         } else {
-            let parsed = try CmuxCLIArgumentParser().parse(rawCommandArgs)
-            presentationOptions = (parsed.jsonOutput, parsed.idFormat, parsed.remaining)
+            let parsed = try CmuxCLIArgumentParser().parse(
+                rawCommandArgs,
+                command: command
+            )
+            presentationOptions = (
+                parsed.jsonOutput,
+                parsed.idFormat,
+                parsed.remaining,
+                parsed.atomic
+            )
         }
         if presentationOptions.jsonOutput {
             jsonOutput = true
@@ -7042,24 +7055,11 @@ struct CMUXCLI {
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (sfArg, rem1) = parseOption(rem0, name: "--surface")
             let (windowOpt, rem2) = parseOption(rem1, name: "--window")
-            let terminatorIndex = rem2.firstIndex(of: "--") ?? rem2.endIndex
-            let leadingArgs = rem2.prefix(upTo: terminatorIndex)
-            // "--agent" is registered in commandOptionsWithValues for
-            // `hooks setup --agent <name>`, so parsePresentationOptions
-            // swallows the token after it before this parser runs. Only
-            // "--atomic" selects addressed delivery; `cmux agent-submit`
-            // is the named form.
-            let addressedAgentDelivery = leadingArgs.contains("--atomic")
-            let addressedArgs = rem2.enumerated().compactMap { index, argument -> String? in
-                if index < terminatorIndex, argument == "--atomic" {
-                    return nil
-                }
-                return argument
-            }
+            let addressedAgentDelivery = presentationOptions.atomic
             let windowRaw = windowOpt ?? windowId
             let workspaceArg = wsArg ?? Self.callerWorkspaceForSurfaceHandle(sfArg, windowRaw: windowRaw)
             let surfaceArg = sfArg ?? (wsArg == nil && windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
-            let rawText = addressedArgs.dropFirst(addressedArgs.first == "--" ? 1 : 0).joined(separator: " ")
+            let rawText = rem2.dropFirst(rem2.first == "--" ? 1 : 0).joined(separator: " ")
             guard !rawText.isEmpty else { throw CLIError(message: "send requires text") }
             let text = addressedAgentDelivery ? rawText : unescapeSendText(rawText)
             var params: [String: Any] = ["text": text]
@@ -7087,7 +7087,7 @@ struct CMUXCLI {
                     jsonOutput: jsonOutput,
                     idFormat: idFormat,
                     fallbackText: String(
-                        localized: "cli.agentSubmit.success",
+                        localized: "cli.send.agentSubmit.success",
                         defaultValue: "Prompt submitted"
                     ) + (messageID.isEmpty ? "" : " message_id=\(messageID) state=\(state)")
                 )
@@ -7151,7 +7151,7 @@ struct CMUXCLI {
                 jsonOutput: jsonOutput,
                 idFormat: idFormat,
                 fallbackText: String(
-                    localized: "cli.agentSubmit.success",
+                    localized: "cli.agentSubmit.command.success",
                     defaultValue: "Prompt submitted"
                 ) + (messageID.isEmpty ? "" : " message_id=\(messageID) state=\(deliveryState)")
             )

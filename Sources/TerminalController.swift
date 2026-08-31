@@ -11,6 +11,7 @@ import CmuxPanes
 import CmuxRemoteDaemon
 import CmuxRemoteWorkspace
 import CmuxTerminal
+import CmuxAgentPromptCore
 import CmuxSettings
 import CmuxSwiftRenderUI
 import Carbon.HIToolbox
@@ -1175,6 +1176,16 @@ class TerminalController {
     nonisolated func socketWorkerV2Response(handling parsedRequest: ControlRequest) -> String? {
         let request = V2SocketRequest(bridging: parsedRequest)
         return withSocketCommandPolicy(commandKey: request.method, isV2: true, params: request.params) {
+            if request.method == "workspace.agent_submit" {
+                // The async socket dispatcher is the only worker delivery
+                // path. A legacy synchronous worker caller must not park on
+                // the main actor while this command resolves its target.
+                return v2Error(
+                    id: request.id,
+                    code: "invalid_dispatch",
+                    message: Self.agentPromptAsyncDispatchRequiredMessage
+                )
+            }
             if let workspaceParamError = v2UnsupportedWorkspaceAliasError(method: request.method, params: request.params) {
                 return v2Result(id: request.id, workspaceParamError)
             }
@@ -1570,11 +1581,6 @@ class TerminalController {
             return v2Result(id: request.id, v2SSHSessionAttachResolve(params: request.params))
         case "workspace.env":
             return v2Result(id: request.id, v2WorkspaceEnv(params: request.params))
-        case "workspace.agent_submit":
-            return v2Result(
-                id: request.id,
-                v2WorkspaceAgentSubmit(params: request.params)
-            )
         case "workspace.remote.pty_sessions":
             return v2Result(id: request.id, v2WorkspaceRemotePTYSessions(params: request.params))
         case "workspace.remote.pty_close":
@@ -2160,6 +2166,24 @@ class TerminalController {
             }
             let request = relayAuthorization.request
 
+            if request.method == "workspace.agent_submit" {
+                guard Thread.isMainThread else {
+                    return v2Error(
+                        id: request.id.map(\.foundationObject),
+                        code: "invalid_dispatch",
+                        message: Self.agentPromptAsyncDispatchRequiredMessage
+                    )
+                }
+                return v2MainSync(commandKey: request.method) {
+                    self.v2Result(
+                        id: request.id.map(\.foundationObject),
+                        self.v2WorkspaceAgentSubmit(
+                            params: request.params.mapValues(\.foundationObject)
+                        )
+                    )
+                }
+            }
+
             let policy = Self.executionPolicy(forV2Method: request.method)
             if Thread.isMainThread, policy == .socketWorker(mainThreadCallable: false) {
                 return v2Error(
@@ -2459,6 +2483,22 @@ class TerminalController {
         let id: Any? = bridged.id
         let method = bridged.method
         let params = bridged.params
+
+        if method == "workspace.agent_submit" {
+            guard Thread.isMainThread else {
+                return v2Error(
+                    id: id,
+                    code: "invalid_dispatch",
+                    message: Self.agentPromptAsyncDispatchRequiredMessage
+                )
+            }
+            return v2MainSync(commandKey: method) {
+                self.v2Result(
+                    id: id,
+                    self.v2WorkspaceAgentSubmit(params: params)
+                )
+            }
+        }
 
         guard Self.executionPolicy(forV2Method: method) == .mainActor else {
             return v2Error(
@@ -6245,22 +6285,18 @@ class TerminalController {
                     // The submitted prompt starts an agent turn; addressed
                     // delivery queues behind it until the stop hook.
                     workspace.recordAgentTurnStart(panelId: terminalPanel.id)
-                    let origin = terminalPanel.surface
-                        .confirmPromptSubmission(
-                            message: event.submittedPromptMessage
-                        )
-                    if case .programmatic(let source) = origin {
+                    if let confirmation = confirmAgentPromptSubmission(
+                        workspaceID: workspaceId,
+                        panel: terminalPanel,
+                        message: event.submittedPromptMessage
+                    ) {
                         confirmedSurfaceID = terminalPanel.id
-                        confirmedMessageID = agentPromptSubmissionService.confirm(
-                            workspaceID: workspaceId,
-                            surfaceID: terminalPanel.id,
-                            message: event.submittedPromptMessage
-                        )
+                        confirmedMessageID = confirmation.messageID
                         _ = tabManager.handlePromptSubmit(
                             workspaceId: workspaceId,
                             message: event.submittedPromptMessage,
                             iMessageModeEnabled: iMessageModeEnabled,
-                            source: source,
+                            source: confirmation.source,
                             messageID: confirmedMessageID
                         )
                     } else {

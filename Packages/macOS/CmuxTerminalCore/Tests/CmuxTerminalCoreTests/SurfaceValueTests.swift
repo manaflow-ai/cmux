@@ -48,6 +48,7 @@ import GhosttyKit
         }
         #expect(
             PendingSocketInput.promptSubmission(
+                messageID: UUID(),
                 preparationKeys: preparationKeys,
                 text: data,
                 submitKey: key,
@@ -63,6 +64,7 @@ import GhosttyKit
         ledger.recordHumanInput(.unknown)
         let snapshot = ledger.humanInputSnapshot
         let input = PendingSocketInput.promptSubmission(
+            messageID: UUID(),
             preparationKeys: [],
             text: Data("prompt".utf8),
             submitKey: PendingKeyEvent(
@@ -75,6 +77,7 @@ import GhosttyKit
         )
 
         guard case .promptSubmission(
+            _,
             _,
             _,
             _,

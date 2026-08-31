@@ -5535,7 +5535,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             if let terminalPanel = panels[panelId] as? TerminalPanel {
                 terminalPanel.updateShellActivityState(state)
             }
-            if state == .promptIdle {
+            if state == .promptIdle,
+               agentPromptInputScope(forPanelId: panelId) != nil {
                 TerminalController.shared.drainAgentPromptQueue(workspaceID: id)
             }
             return
@@ -5563,7 +5564,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             updateBindingOnlyRestoredAgentResumeState(panelId: panelId, shellState: state)
         }
         if state == .promptIdle { _ = clearStaleAgentPIDs(panelId: panelId, refreshPorts: true) }
-        if state == .promptIdle {
+        if state == .promptIdle,
+           agentPromptInputScope(forPanelId: panelId) != nil {
             TerminalController.shared.drainAgentPromptQueue(workspaceID: id)
         }
 #if DEBUG

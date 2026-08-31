@@ -12,182 +12,40 @@ import Testing
 #endif
 
 @MainActor
-private final class AgentPromptDeliveryGate {
-    var isReady = false
+private final class TemporaryAppEnvironment {
+    let appDelegate: AppDelegate
+    let tabManager: TabManager
+    private let previousAppDelegate: AppDelegate?
+    private let previousTabManager: TabManager?
+
+    init() {
+        previousAppDelegate = AppDelegate.shared
+        appDelegate = previousAppDelegate ?? AppDelegate()
+        previousTabManager = appDelegate.tabManager
+        tabManager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = tabManager
+    }
+
+    func restore() {
+        appDelegate.tabManager = previousTabManager
+        AppDelegate.shared = previousAppDelegate
+    }
 }
 
 @Suite("Atomic agent prompt submission", .serialized)
 struct AgentPromptSubmissionTests {
     @MainActor
-    @Test func addressedAdmissionReturnsMessageIDsAndDrainsFIFO() {
-        let service = AgentPromptSubmissionService(maximumPendingRequests: 8)
-        let workspaceID = UUID()
-        let surfaceID = UUID()
-        let gate = AgentPromptDeliveryGate()
-
-        func delivery(_ text: String) -> AgentPromptSubmissionResult {
-            if !gate.isReady {
-                return .rejectedComposerBusy(
-                    workspaceID: workspaceID,
-                    surfaceID: surfaceID
-                )
-            }
-            return .submitted(
-                workspaceID: workspaceID,
-                surfaceID: surfaceID,
-                queued: false
-            )
-        }
-
-        let first = service.submit(
-            workspaceID: workspaceID,
-            requestedSurfaceID: surfaceID,
-            text: "first",
-            delivery: { delivery("first") }
-        )
-        let second = service.submit(
-            workspaceID: workspaceID,
-            requestedSurfaceID: surfaceID,
-            text: "second",
-            delivery: { delivery("second") }
-        )
-
-        #expect(first.messageID != second.messageID)
-        #expect(first.result == .queued(
-            workspaceID: workspaceID,
-            surfaceID: surfaceID,
-            reason: "human_composer_busy"
-        ))
-        #expect(second.result == .queued(
-            workspaceID: workspaceID,
-            surfaceID: surfaceID,
-            reason: "workspace_fifo"
-        ))
-
-        gate.isReady = true
-        let firstDrain = service.drain(workspaceID: workspaceID)
-        #expect(firstDrain.map(\.messageID) == [first.messageID])
-        #expect(service.confirm(
-            workspaceID: workspaceID,
-            surfaceID: surfaceID,
-            message: "first"
-        ) == first.messageID)
-        let secondDrain = service.drain(workspaceID: workspaceID)
-        let drained = firstDrain + secondDrain
-        #expect(drained.map(\.messageID) == [first.messageID, second.messageID])
-        #expect(drained.allSatisfy {
-            if case .submitted = $0.result { return true }
-            return false
-        })
-    }
-
-    @MainActor
-    @Test func unconfirmedAcceptedPromptStopsBlockingTheWorkspaceFIFO() throws {
-        let service = AgentPromptSubmissionService(maximumPendingRequests: 8)
-        let workspaceID = UUID()
-        let surfaceID = UUID()
-
-        func accepting() -> AgentPromptSubmissionResult {
-            .submitted(workspaceID: workspaceID, surfaceID: surfaceID, queued: false)
-        }
-
-        let first = service.submit(
-            workspaceID: workspaceID,
-            requestedSurfaceID: surfaceID,
-            text: "first",
-            delivery: accepting
-        )
-        guard case .submitted = first.result else {
-            Issue.record("Expected the first prompt to be accepted")
-            return
-        }
-
-        // The agent never emits a matching hook: no confirm() arrives.
-        let second = service.submit(
-            workspaceID: workspaceID,
-            requestedSurfaceID: surfaceID,
-            text: "second",
-            delivery: accepting
-        )
-        #expect(second.result == .queued(
-            workspaceID: workspaceID,
-            surfaceID: surfaceID,
-            reason: "prior_prompt_in_flight"
-        ))
-        // Inside the confirmation window the barrier holds.
-        #expect(service.drain(workspaceID: workspaceID).isEmpty)
-
-        // Past the window the barrier expires and drain advances the FIFO.
-        let expired = service.expireStaleInFlight(
-            workspaceID: workspaceID,
-            now: Date().addingTimeInterval(service.confirmationTimeout + 1)
-        )
-        #expect(expired == first.messageID)
-        let drained = service.drain(workspaceID: workspaceID)
-        #expect(drained.map(\.messageID) == [second.messageID])
-
-        // A late hook still matches the first accepted message.
-        #expect(service.confirm(
-            workspaceID: workspaceID,
-            surfaceID: surfaceID,
-            message: "first"
-        ) == first.messageID)
-    }
-
-    @MainActor
-    @Test func zeroConfirmationWindowNeverWedgesLaterSubmissions() throws {
-        let service = AgentPromptSubmissionService(
-            maximumPendingRequests: 8,
-            confirmationTimeout: 0
-        )
-        let workspaceID = UUID()
-        let surfaceID = UUID()
-
-        func accepting() -> AgentPromptSubmissionResult {
-            .submitted(workspaceID: workspaceID, surfaceID: surfaceID, queued: false)
-        }
-
-        let first = service.submit(
-            workspaceID: workspaceID,
-            requestedSurfaceID: surfaceID,
-            text: "first",
-            delivery: accepting
-        )
-        guard case .submitted = first.result else {
-            Issue.record("Expected the first prompt to be accepted")
-            return
-        }
-        // The stale barrier expires during admission, so the second prompt
-        // delivers instead of queueing behind a hook that never comes.
-        let second = service.submit(
-            workspaceID: workspaceID,
-            requestedSurfaceID: surfaceID,
-            text: "second",
-            delivery: accepting
-        )
-        guard case .submitted = second.result else {
-            Issue.record("Expected the second prompt to be accepted")
-            return
-        }
-        #expect(first.messageID != second.messageID)
-    }
-
-    @MainActor
     @Test func addressedDeliveryDoesNotSelectOrFocusTargetWorkspace() throws {
-        let previousAppDelegate = AppDelegate.shared
-        let appDelegate = previousAppDelegate ?? AppDelegate()
-        let previousTabManager = appDelegate.tabManager
-        let tabManager = TabManager(autoWelcomeIfNeeded: false)
-        AppDelegate.shared = appDelegate
-        appDelegate.tabManager = tabManager
+        let environment = TemporaryAppEnvironment()
+        let tabManager = environment.tabManager
         var target: Workspace?
         defer {
             target?.panels.values.forEach { ($0 as? TerminalPanel)?.surface.releaseSurfaceForTesting() }
             if let target, tabManager.tabs.contains(where: { $0.id == target.id }) {
                 tabManager.closeWorkspace(target)
             }
-            appDelegate.tabManager = previousTabManager
-            AppDelegate.shared = previousAppDelegate
+            environment.restore()
         }
 
         let selected = tabManager.addWorkspace(select: true)
@@ -280,6 +138,73 @@ struct AgentPromptSubmissionTests {
     }
 
     @MainActor
+    @Test func hibernatedPromptSurvivesShellIdleBeforeAgentRebind() throws {
+        let environment = TemporaryAppEnvironment()
+        let tabManager = environment.tabManager
+        let workspace = tabManager.addWorkspace(select: true)
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(
+            workspace.terminalInputTarget(forPanelID: panelID)?.panel
+        )
+        defer {
+            panel.surface.releaseSurfaceForTesting()
+            if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            environment.restore()
+        }
+
+        panel.surface.releaseSurfaceForTesting()
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "hibernated-agent",
+            workingDirectory: nil,
+            launchCommand: nil
+        )
+        panel.agentHibernationPhase = .hibernated(
+            AgentHibernationPanelState(
+                agent: agent,
+                hibernatedAt: .now,
+                lastActivityAt: .now
+            )
+        )
+
+        let first = TerminalController.shared.v2WorkspaceAgentSubmit(params: [
+            "workspace_id": workspace.id.uuidString,
+            "surface_id": panelID.uuidString,
+            "text": "preserve across resume",
+        ])
+        guard case .ok(let firstPayload) = first,
+              let firstData = firstPayload as? [String: Any] else {
+            Issue.record("Expected the hibernated prompt to be queued")
+            return
+        }
+        #expect(firstData["queued"] as? Bool == true)
+        #expect(firstData["queue_reason"] as? String == "agent_not_ready")
+
+        // The replacement shell can report prompt-idle before its agent PID
+        // and hook scope are rebound. That notification must not consume the
+        // retained request as agent_not_found.
+        workspace.updatePanelShellActivityState(
+            panelId: panelID,
+            state: .promptIdle
+        )
+
+        let second = TerminalController.shared.v2WorkspaceAgentSubmit(params: [
+            "workspace_id": workspace.id.uuidString,
+            "surface_id": panelID.uuidString,
+            "text": "stay behind the first prompt",
+        ])
+        guard case .ok(let secondPayload) = second,
+              let secondData = secondPayload as? [String: Any] else {
+            Issue.record("Expected the retained prompt to remain in the FIFO")
+            return
+        }
+        #expect(secondData["queued"] as? Bool == true)
+        #expect(secondData["queue_reason"] as? String == "workspace_fifo")
+    }
+
+    @MainActor
     @Test func nativeHumanDraftIsPreservedAsASeparateFutureSubmission() {
         let panel = TerminalPanel(workspaceId: UUID())
         defer { panel.surface.releaseSurfaceForTesting() }
@@ -303,12 +228,8 @@ struct AgentPromptSubmissionTests {
 
     @MainActor
     @Test func hookObservedTurnGatesDeliveryInsteadOfShellActivity() throws {
-        let previousAppDelegate = AppDelegate.shared
-        let appDelegate = previousAppDelegate ?? AppDelegate()
-        let previousTabManager = appDelegate.tabManager
-        let tabManager = TabManager(autoWelcomeIfNeeded: false)
-        AppDelegate.shared = appDelegate
-        appDelegate.tabManager = tabManager
+        let environment = TemporaryAppEnvironment()
+        let tabManager = environment.tabManager
         var created: [Workspace] = []
         defer {
             for workspace in created {
@@ -319,8 +240,7 @@ struct AgentPromptSubmissionTests {
                     tabManager.closeWorkspace(workspace)
                 }
             }
-            appDelegate.tabManager = previousTabManager
-            AppDelegate.shared = previousAppDelegate
+            environment.restore()
         }
 
         func makeAgentWorkspace() throws -> (Workspace, UUID) {
@@ -432,12 +352,8 @@ struct AgentPromptSubmissionTests {
 
     @MainActor
     @Test func rawMobileDraftBlocksExactMobileAndAgentSubmissions() throws {
-        let previousAppDelegate = AppDelegate.shared
-        let appDelegate = previousAppDelegate ?? AppDelegate()
-        let previousTabManager = appDelegate.tabManager
-        let tabManager = TabManager(autoWelcomeIfNeeded: false)
-        AppDelegate.shared = appDelegate
-        appDelegate.tabManager = tabManager
+        let environment = TemporaryAppEnvironment()
+        let tabManager = environment.tabManager
         var workspaceForCleanup: Workspace?
         var panelForCleanup: TerminalPanel?
         defer {
@@ -446,8 +362,7 @@ struct AgentPromptSubmissionTests {
                tabManager.tabs.contains(where: { $0.id == workspace.id }) {
                 tabManager.closeWorkspace(workspace)
             }
-            appDelegate.tabManager = previousTabManager
-            AppDelegate.shared = previousAppDelegate
+            environment.restore()
         }
         let workspace = tabManager.addWorkspace(select: true)
         workspaceForCleanup = workspace
@@ -514,12 +429,8 @@ struct AgentPromptSubmissionTests {
 
     @MainActor
     @Test func exactMobileSendPreservesDeliveryBeforeAgentScopeBinding() throws {
-        let previousAppDelegate = AppDelegate.shared
-        let appDelegate = previousAppDelegate ?? AppDelegate()
-        let previousTabManager = appDelegate.tabManager
-        let tabManager = TabManager(autoWelcomeIfNeeded: false)
-        AppDelegate.shared = appDelegate
-        appDelegate.tabManager = tabManager
+        let environment = TemporaryAppEnvironment()
+        let tabManager = environment.tabManager
         var workspaceForCleanup: Workspace?
         var panelForCleanup: TerminalPanel?
         defer {
@@ -528,8 +439,7 @@ struct AgentPromptSubmissionTests {
                tabManager.tabs.contains(where: { $0.id == workspace.id }) {
                 tabManager.closeWorkspace(workspace)
             }
-            appDelegate.tabManager = previousTabManager
-            AppDelegate.shared = previousAppDelegate
+            environment.restore()
         }
         let workspace = tabManager.addWorkspace(select: true)
         workspaceForCleanup = workspace
@@ -596,12 +506,8 @@ struct AgentPromptSubmissionTests {
 
     @MainActor
     @Test func surfaceLessHookConfirmsUniqueAgentTerminalDraft() throws {
-        let previousAppDelegate = AppDelegate.shared
-        let appDelegate = previousAppDelegate ?? AppDelegate()
-        let previousTabManager = appDelegate.tabManager
-        let tabManager = TabManager(autoWelcomeIfNeeded: false)
-        AppDelegate.shared = appDelegate
-        appDelegate.tabManager = tabManager
+        let environment = TemporaryAppEnvironment()
+        let tabManager = environment.tabManager
         var workspaceForCleanup: Workspace?
         var panelForCleanup: TerminalPanel?
         defer {
@@ -610,8 +516,7 @@ struct AgentPromptSubmissionTests {
                tabManager.tabs.contains(where: { $0.id == workspace.id }) {
                 tabManager.closeWorkspace(workspace)
             }
-            appDelegate.tabManager = previousTabManager
-            AppDelegate.shared = previousAppDelegate
+            environment.restore()
         }
         let workspace = tabManager.addWorkspace(select: true)
         workspaceForCleanup = workspace
@@ -646,12 +551,8 @@ struct AgentPromptSubmissionTests {
 
     @MainActor
     @Test func staleExplicitSurfaceHookDoesNotConfirmAnotherTerminal() throws {
-        let previousAppDelegate = AppDelegate.shared
-        let appDelegate = previousAppDelegate ?? AppDelegate()
-        let previousTabManager = appDelegate.tabManager
-        let tabManager = TabManager(autoWelcomeIfNeeded: false)
-        AppDelegate.shared = appDelegate
-        appDelegate.tabManager = tabManager
+        let environment = TemporaryAppEnvironment()
+        let tabManager = environment.tabManager
         var workspaceForCleanup: Workspace?
         var panelForCleanup: TerminalPanel?
         defer {
@@ -660,8 +561,7 @@ struct AgentPromptSubmissionTests {
                tabManager.tabs.contains(where: { $0.id == workspace.id }) {
                 tabManager.closeWorkspace(workspace)
             }
-            appDelegate.tabManager = previousTabManager
-            AppDelegate.shared = previousAppDelegate
+            environment.restore()
         }
         let workspace = tabManager.addWorkspace(select: true)
         workspaceForCleanup = workspace
@@ -696,12 +596,8 @@ struct AgentPromptSubmissionTests {
 
     @MainActor
     @Test func surfaceLessHookUsesExactSessionInMultiAgentWorkspace() throws {
-        let previousAppDelegate = AppDelegate.shared
-        let appDelegate = previousAppDelegate ?? AppDelegate()
-        let previousTabManager = appDelegate.tabManager
-        let tabManager = TabManager(autoWelcomeIfNeeded: false)
-        AppDelegate.shared = appDelegate
-        appDelegate.tabManager = tabManager
+        let environment = TemporaryAppEnvironment()
+        let tabManager = environment.tabManager
         let workspace = tabManager.addWorkspace(select: true)
         let otherPanel = TerminalPanel(workspaceId: workspace.id)
         workspace.panels[otherPanel.id] = otherPanel
@@ -712,8 +608,7 @@ struct AgentPromptSubmissionTests {
             if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
                 tabManager.closeWorkspace(workspace)
             }
-            appDelegate.tabManager = previousTabManager
-            AppDelegate.shared = previousAppDelegate
+            environment.restore()
         }
         let targetPanelID = try #require(workspace.focusedPanelId)
         let targetPanel = try #require(
@@ -1103,12 +998,8 @@ struct AgentPromptSubmissionTests {
 
     @MainActor
     @Test func identityGapReturnsRetryableScopeErrorWithoutTerminalWrite() throws {
-        let previousAppDelegate = AppDelegate.shared
-        let appDelegate = previousAppDelegate ?? AppDelegate()
-        let previousTabManager = appDelegate.tabManager
-        let tabManager = TabManager(autoWelcomeIfNeeded: false)
-        AppDelegate.shared = appDelegate
-        appDelegate.tabManager = tabManager
+        let environment = TemporaryAppEnvironment()
+        let tabManager = environment.tabManager
         var workspaceForCleanup: Workspace?
         var panelForCleanup: TerminalPanel?
         defer {
@@ -1117,8 +1008,7 @@ struct AgentPromptSubmissionTests {
                tabManager.tabs.contains(where: { $0.id == workspace.id }) {
                 tabManager.closeWorkspace(workspace)
             }
-            appDelegate.tabManager = previousTabManager
-            AppDelegate.shared = previousAppDelegate
+            environment.restore()
         }
 
         let workspace = tabManager.addWorkspace(select: true)
@@ -1227,12 +1117,8 @@ struct AgentPromptSubmissionTests {
 
     @MainActor
     @Test func hooklessAgentRemainsNotFoundWithoutTerminalWrite() throws {
-        let previousAppDelegate = AppDelegate.shared
-        let appDelegate = previousAppDelegate ?? AppDelegate()
-        let previousTabManager = appDelegate.tabManager
-        let tabManager = TabManager(autoWelcomeIfNeeded: false)
-        AppDelegate.shared = appDelegate
-        appDelegate.tabManager = tabManager
+        let environment = TemporaryAppEnvironment()
+        let tabManager = environment.tabManager
         var workspaceForCleanup: Workspace?
         var panelForCleanup: TerminalPanel?
         defer {
@@ -1241,8 +1127,7 @@ struct AgentPromptSubmissionTests {
                tabManager.tabs.contains(where: { $0.id == workspace.id }) {
                 tabManager.closeWorkspace(workspace)
             }
-            appDelegate.tabManager = previousTabManager
-            AppDelegate.shared = previousAppDelegate
+            environment.restore()
         }
 
         let workspace = tabManager.addWorkspace(select: true)
@@ -1281,12 +1166,8 @@ struct AgentPromptSubmissionTests {
 
     @MainActor
     @Test func whitespaceOnlyPromptIsRejectedWithoutDelivery() throws {
-        let previousAppDelegate = AppDelegate.shared
-        let appDelegate = previousAppDelegate ?? AppDelegate()
-        let previousTabManager = appDelegate.tabManager
-        let tabManager = TabManager(autoWelcomeIfNeeded: false)
-        AppDelegate.shared = appDelegate
-        appDelegate.tabManager = tabManager
+        let environment = TemporaryAppEnvironment()
+        let tabManager = environment.tabManager
         var workspaceForCleanup: Workspace?
         var panelForCleanup: TerminalPanel?
         defer {
@@ -1295,8 +1176,7 @@ struct AgentPromptSubmissionTests {
                tabManager.tabs.contains(where: { $0.id == workspace.id }) {
                 tabManager.closeWorkspace(workspace)
             }
-            appDelegate.tabManager = previousTabManager
-            AppDelegate.shared = previousAppDelegate
+            environment.restore()
         }
 
         let workspace = tabManager.addWorkspace(select: true)

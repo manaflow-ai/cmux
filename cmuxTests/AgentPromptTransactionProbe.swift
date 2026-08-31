@@ -45,7 +45,7 @@ nonisolated final class AgentPromptTransactionProbe: @unchecked Sendable {
     func pendingPromptMessages(for target: SurfaceTarget) -> [String] {
         let surface = surface(for: target)
         return surface.pendingSocketInputQueue.compactMap { item -> String? in
-            guard case .promptSubmission(_, let text, _, _, _) = item else {
+            guard case .promptSubmission(_, _, let text, _, _, _) = item else {
                 return nil
             }
             return String(bytes: text, encoding: .utf8)
@@ -152,6 +152,7 @@ extension TerminalSurface {
     var pendingPromptPreparationKeyLabelsForTests: [[String]] {
         pendingSocketInputQueue.compactMap { item -> [String]? in
             guard case .promptSubmission(
+                _,
                 let preparationKeys,
                 _,
                 _,

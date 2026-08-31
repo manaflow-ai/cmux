@@ -255,6 +255,26 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(!fixture.surface.hasUnconfirmedHumanPromptInput)
     }
 
+    @Test func acceptedManualMirrorNamedKeyRecordsPromptOwnership() {
+        let runtimeSurface = allocatedRuntimeSurface()
+        let fixture = makeFixture(
+            ioMode: .manualMirror,
+            manualInputHandler: { _ in },
+            manualInputKeyNameResolver: { _ in "return" },
+            runtimeSurface: runtimeSurface
+        )
+        defer {
+            fixture.surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+        }
+        fixture.surface.synchronizePromptInputAgentScope(
+            "agentPIDKey:codex.manual-mirror"
+        )
+
+        #expect(fixture.surface.enqueueManualInputNamedKey("return"))
+        #expect(fixture.surface.hasUnconfirmedHumanPromptInput)
+    }
+
     @Test func acceptedExternalNamedReturnCreatesARecoverableBoundary() {
         let fixture = makeFixture()
         defer { fixture.surface.releaseSurfaceForTesting() }
@@ -509,6 +529,10 @@ struct TerminalSurfaceExplicitInputTests {
 
     private func makeFixture(
         initialInput: String? = nil,
+        ioMode: TerminalSurfaceIOMode = .exec,
+        manualInputHandler: (@Sendable (TerminalManualInput) -> Void)? = nil,
+        manualInputKeyNameResolver:
+            (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil,
         preparePaneHost: @Sendable @MainActor (any TerminalSurfacePaneHosting) -> Void = { _ in },
         onAttach: (() -> Void)? = nil,
         runtimeSurface: ghostty_surface_t? = nil
@@ -527,6 +551,9 @@ struct TerminalSurfaceExplicitInputTests {
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
             initialInput: initialInput,
+            ioMode: ioMode,
+            manualInputHandler: manualInputHandler,
+            manualInputKeyNameResolver: manualInputKeyNameResolver,
             preparePaneHost: preparePaneHost,
             dependencies: TerminalSurfaceRuntimeDependencies(
                 registry: registry,
@@ -570,6 +597,7 @@ private extension TerminalSurface {
     var pendingPromptPreparationKeyLabelsForTests: [[String]] {
         pendingSocketInputQueue.compactMap { item -> [String]? in
             guard case .promptSubmission(
+                _,
                 let preparationKeys,
                 _,
                 _,
