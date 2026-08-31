@@ -2438,11 +2438,14 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
             )
             #expect(restoredAgent.restoreWorkingDirectorySelection == .exact(launchDirectory))
             #expect(restoredAgent.workingDirectory == launchDirectory)
-            let restoredBinding = try #require(resumeSnapshot.binding)
+            let restoredBinding = try #require(
+                restored.surfaceResumeBinding(panelId: restoredPanelId)
+            )
             #expect(
                 restoredBinding.restoreWorkingDirectorySelection == .exact(launchDirectory)
             )
             #expect(restoredBinding.cwd == launchDirectory)
+            #expect(resumeSnapshot.binding?.cwd == launchDirectory)
             let startupInput = try #require(restoredPanel.surface.initialInput)
             #expect(startupInput.contains(launchDirectory), Comment(rawValue: startupInput))
             #expect(!startupInput.contains(localDirectory), Comment(rawValue: startupInput))
