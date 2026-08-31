@@ -411,6 +411,51 @@ struct CmxIrohRelayPolicyServiceTests {
     }
 
     @Test
+    func expiryDoesNotHandOutCustomSnapshotAcrossPreferenceGeneration() async throws {
+        let fixture = RelayPolicyServiceTestFixture()
+        let stores = makeStores()
+        let definition = try CmxIrohCustomRelayDefinition(
+            id: "private-home",
+            url: "https://relay.example.net/",
+            provider: "personal",
+            region: "home",
+            authMode: .none
+        )
+        _ = try await stores.service.install(
+            response: CmxIrohRelayPolicyResponse(
+                policy: fixture.token(sequence: 1),
+                preference: .custom([definition]),
+                preferenceRevision: 1
+            ),
+            accountID: "account-a",
+            trustRoot: fixture.firstTrustRoot,
+            relayCredential: nil,
+            now: fixture.now
+        )
+
+        // Treat a custom result as an optional so this regression test also
+        // compiles against the pre-fix non-optional API. The pre-fix early
+        // return hands the caller a snapshot that can be applied after a
+        // newer managed preference wins the service generation.
+        let staleCustom: CmxIrohEffectiveRelayPolicy? =
+            await stores.service.expireManagedPolicy(accountID: "account-a")
+        #expect(staleCustom == nil)
+
+        let managed = try await stores.service.install(
+            response: CmxIrohRelayPolicyResponse(
+                policy: fixture.token(sequence: 2),
+                preference: .automatic,
+                preferenceRevision: 2
+            ),
+            accountID: "account-a",
+            trustRoot: fixture.firstTrustRoot,
+            relayCredential: fixture.relayCredential(),
+            now: fixture.now
+        )
+        #expect(await stores.service.effectivePolicy() == managed)
+    }
+
+    @Test
     func implicitRevisionZeroStillRejectsEquivocation() async throws {
         let fixture = RelayPolicyServiceTestFixture()
         let stores = makeStores()
