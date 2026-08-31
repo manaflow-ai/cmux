@@ -1480,6 +1480,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// longer realign the grid or scrollback, so delivery requests a full
     /// replay instead.
     var terminalRenderGridHistoryContinuityBySurfaceID: [String: UInt64]
+    /// Chain identity (epoch + revision) of the last delivered render-grid
+    /// frame per surface. Every delta names the revision it was diffed
+    /// against; a mismatch means a frame was missed (including in-place
+    /// repaints invisible to the history chain) and delivery requests a full
+    /// replay instead of patching.
+    var terminalRenderGridRevisionContinuityBySurfaceID: [String: MobileTerminalRenderGridRevisionContinuity]
     /// Surfaces whose local mirror lost (or never had) its deep scrollback:
     /// cold attach and post-rebuild resets. Only these replays request the
     /// full hydration window; steady-state replays (barrier follow-ups, theme
@@ -1879,6 +1885,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.pendingTerminalInputDroppedRenderGridSurfaceIDs = []
         self.terminalActiveScreenBySurfaceID = [:]
         self.terminalRenderGridHistoryContinuityBySurfaceID = [:]
+        self.terminalRenderGridRevisionContinuityBySurfaceID = [:]
         self.terminalMirrorHydrationNeededSurfaceIDs = []
         self.terminalReplaySurfaceIDsInFlight = []
         self.terminalReplayRequestIDsInFlightBySurfaceID = [:]
@@ -10875,6 +10882,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalActiveScreenBySurfaceID = [:]
         diagnosedTerminalOutputSurfaceIDs = []
         terminalRenderGridHistoryContinuityBySurfaceID = [:]
+        terminalRenderGridRevisionContinuityBySurfaceID = [:]
         terminalMirrorHydrationNeededSurfaceIDs = []
         terminalReplaySurfaceIDsInFlight = []
         terminalReplayRequestIDsInFlightBySurfaceID = [:]
@@ -13707,6 +13715,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalPreBarrierDeliveredEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalRenderGridHistoryContinuityBySurfaceID.removeValue(forKey: surfaceID)
+        terminalRenderGridRevisionContinuityBySurfaceID.removeValue(forKey: surfaceID)
         diagnosedTerminalOutputSurfaceIDs.remove(surfaceID)
         terminalRenderGridBaselineReplayRequestCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalRenderGridBaselineReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
@@ -13766,6 +13775,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
         terminalActiveScreenBySurfaceID.removeValue(forKey: surfaceID)
         terminalRenderGridHistoryContinuityBySurfaceID.removeValue(forKey: surfaceID)
+        terminalRenderGridRevisionContinuityBySurfaceID.removeValue(forKey: surfaceID)
         terminalMirrorHydrationNeededSurfaceIDs.remove(surfaceID)
         diagnosedTerminalOutputSurfaceIDs.remove(surfaceID)
         recordAppEvent(
@@ -14036,6 +14046,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             switch replayResult {
             case .success(let data):
+                // Decode off the main actor BEFORE any state guards: replay
+                // payloads carry full-scrollback snapshots whose JSON+base64
+                // decode blocked the run loop long enough to accumulate into
+                // watchdog-fatal hangs under replay storms. The decode is a
+                // suspension point, so every staleness guard below already
+                // observes post-decode state.
+                let decoded = await Self.decodeTerminalReplayResponseOffMain(data)
                 guard self.terminalReplayRequestIDsInFlightBySurfaceID[surfaceID] == replayRequestID else {
                     MobileDebugLog.anchormux("CMUX_REPLAY stale_request surface=\(surfaceID)")
                     return
@@ -14061,9 +14078,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                     return
                 }
-                let payload = try? MobileTerminalReplayResponse.decode(data)
-                let bytes = payload?.dataBase64.flatMap { Data(base64Encoded: $0) }
-                let snapshotBytes = payload?.snapshotBase64.flatMap { Data(base64Encoded: $0) }
+                let payload = decoded.payload
+                let bytes = decoded.bytes
+                let snapshotBytes = decoded.snapshotBytes
                 let decodedRenderGrid = payload?.renderGrid
                 let renderGrid = decodedRenderGrid?.surfaceID == surfaceID ? decodedRenderGrid : nil
                 let replaySeq = renderGrid?.stateSeq ?? payload?.sequence
