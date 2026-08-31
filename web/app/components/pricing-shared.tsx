@@ -15,12 +15,6 @@ export type CompareRow = {
   hostedNetworking?: boolean;
 };
 
-export type SizeRow = {
-  size: string;
-  use: string;
-  rate: string;
-};
-
 export type FaqItem = {
   q: string;
   a: string;
@@ -245,66 +239,6 @@ export function PricingCompareTable({
         </table>
       </div>
     </div>
-  );
-}
-
-export function PricingSizeTable({
-  rows,
-  title,
-  body,
-  colSize,
-  colUse,
-  colRate,
-}: {
-  rows: SizeRow[];
-  title: string;
-  body: string;
-  colSize: string;
-  colUse: string;
-  colRate: string;
-}) {
-  return (
-    <section className="mt-16 border-t border-border pt-10">
-      <h2 className="mb-3 text-xs font-medium tracking-tight text-muted">
-        {title}
-      </h2>
-      <p className="max-w-2xl text-[15px] text-muted">{body}</p>
-      <div className="mt-4 max-md:overflow-x-auto">
-        <table className="w-full max-md:min-w-[42rem] border-collapse text-[15px]">
-          <thead>
-            <tr className="border-b border-border">
-              <th className="py-3 pr-4 text-left align-bottom font-medium min-w-[10rem]">
-                {colSize}
-              </th>
-              <th className="px-4 py-3 text-left align-bottom font-medium">
-                {colUse}
-              </th>
-              <th className="whitespace-nowrap px-4 py-3 text-left align-bottom font-medium">
-                {colRate}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, i) => (
-              <tr key={i} className="border-b border-border">
-                <th
-                  scope="row"
-                  className="whitespace-nowrap py-3 pr-4 text-left align-top font-normal"
-                >
-                  {row.size}
-                </th>
-                <td className="px-4 py-3 text-left align-top text-muted">
-                  {row.use}
-                </td>
-                <td className="whitespace-nowrap px-4 py-3 text-left align-top tabular-nums">
-                  {row.rate}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
   );
 }
 

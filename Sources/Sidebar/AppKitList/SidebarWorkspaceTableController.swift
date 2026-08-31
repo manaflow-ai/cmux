@@ -232,6 +232,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         appliedUnreadSnapshot = SidebarUnreadSnapshot()
         hasPendingContentRefresh = false
         pumpHeightOverrides.removeAll(keepingCapacity: false)
+        servedRowHeights.removeAll(keepingCapacity: false)
         rows.removeAll(keepingCapacity: false)
         workspaceIds.removeAll(keepingCapacity: false)
         selectedScrollTargetWorkspaceId = nil
@@ -616,6 +617,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             )
             : nil
         rows = nextRows
+        if hasStructuralChanges {
+            let liveIds = Set(nextRows.map(\.id))
+            servedRowHeights = servedRowHeights.filter { liveIds.contains($0.key) }
+        }
 
 #if DEBUG
         if hasStructuralChanges || !contentChanges.isEmpty {
@@ -701,6 +706,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 )
             }
         }
+
+        noteServedHeightDivergence(in: containerView.tableView)
 
 #if DEBUG
         // Height-drift probe (row clipping reports): the height the cache
@@ -891,10 +898,20 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
         guard rows.indices.contains(row) else { return tableView.rowHeight }
         let configuration = rows[row]
-        let columnWidth = lastMeasuredWidth > 0 ? lastMeasuredWidth : currentColumnWidth()
+        let height = authoritativeRowHeight(for: configuration)
+        servedRowHeights[configuration.id] = height
+        return height
+    }
+
+    /// The exact answer `heightOfRow` gives for this row right now:
+    /// pump override, then cache, then the single-line estimate.
+    private func authoritativeRowHeight(
+        for configuration: SidebarWorkspaceTableRowConfiguration
+    ) -> CGFloat {
         if let override = effectivePumpHeightOverride(for: configuration.id) {
             return override
         }
+        let columnWidth = lastMeasuredWidth > 0 ? lastMeasuredWidth : currentColumnWidth()
         return rowHeightCache.height(
             for: configuration,
             columnWidth: columnWidth
@@ -1674,6 +1691,38 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var lastLiveMeasuredWidth: CGFloat = 0
     private var hasLiveMeasuredRows = false
 
+    /// The height most recently returned to NSTableView per row id.
+    /// `heightOfRow` is the only point where row geometry enters the table,
+    /// and the table re-asks only after a note or reload — so any row whose
+    /// authoritative answer drifts from this ledger has a missed
+    /// `noteHeightOfRows` and paints clipped (or padded) until an unrelated
+    /// reload. The measure passes diff new heights against the cache's own
+    /// previous entry, not against what the table displays, so they cannot
+    /// catch every such miss themselves (the DEBUG drift probe in
+    /// `flushApply` logs exactly this class). `noteServedHeightDivergence`
+    /// turns the ledger into the corrective pass.
+    private var servedRowHeights: [SidebarWorkspaceRenderItemID: CGFloat] = [:]
+
+    /// Re-notes every row whose authoritative height no longer matches the
+    /// height the table was last served. Runs at the end of each apply and
+    /// settle pass; the triggered `heightOfRow` re-query updates the ledger,
+    /// so a corrected row converges in the same pass.
+    private func noteServedHeightDivergence(in table: NSTableView) {
+        guard !servedRowHeights.isEmpty else { return }
+        var diverged = IndexSet()
+        for (index, row) in rows.enumerated() {
+            guard let served = servedRowHeights[row.id] else { continue }
+            if abs(served - authoritativeRowHeight(for: row)) >= 0.5 {
+                diverged.insert(index)
+            }
+        }
+        guard !diverged.isEmpty else { return }
+#if DEBUG
+        cmuxDebugLog("sidebar.heightDrift.corrected rows=\(diverged.count)")
+#endif
+        noteHeightOfRowsWithoutAnimation(table, diverged)
+    }
+
     /// Legacy parity: rows re-wrap continuously while the divider or window
     /// edge is dragged instead of keeping last-width heights until mouse-up.
     /// Only the visible pure-AppKit rows (plus a small buffer) re-measure per
@@ -1785,6 +1834,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             if !changed.isEmpty {
                 noteHeightOfRowsWithoutAnimation(table, changed)
             }
+            noteServedHeightDivergence(in: table)
         }
         hasLiveMeasuredRows = false
         lastLiveMeasuredWidth = 0

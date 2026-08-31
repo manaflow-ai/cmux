@@ -1,4 +1,7 @@
 {
+  "billingRecovery": {
+    "message": "如果我們找到帳戶，請查看你的電子郵件以了解下一步"
+  },
   "cloudBillingReturn": {
     "eyebrow": "cmux Cloud",
     "returnTitle": "在終端機中繼續",

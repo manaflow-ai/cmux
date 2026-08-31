@@ -207,6 +207,15 @@ export interface VMProvider {
   create(options: CreateOptions): Promise<VMHandle>;
   destroy(vmId: string): Promise<void>;
 
+  /**
+   * Optional: delete a persistent home volume by name. Implementations must treat
+   * an already-missing volume as success and absorb the provider's brief
+   * volume-still-attached window after the owning sandbox is deleted (bounded
+   * retry). Ownership is the caller's judgment: only a volume owned solely by a
+   * destroyed machine may be passed here.
+   */
+  deleteHomeVolume?(volumeName: string): Promise<void>;
+
   getStatus?(vmId: string): Promise<VMStatus>;
   /// Live CPU/memory/disk for the Cloud panel's activity view. Must not wake a
   /// sleeping machine.
