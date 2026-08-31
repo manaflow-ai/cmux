@@ -1,5 +1,3 @@
-public import Foundation
-
 /// Supplies observable irx authentication state to a platform UI.
 public protocol CmxIrxAuthenticationStatusProviding: AnyObject, Sendable {
     /// Returns the current credential-free irx authentication state.
