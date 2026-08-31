@@ -432,11 +432,25 @@ extension RemoteTmuxController {
     ///   left a dismissed host parked with no retry and no waiter.
     @discardableResult
     func presentReconnectAuthentication(host: RemoteTmuxHost, sshArgv: [String]) -> Bool {
+        #if DEBUG
+        cmuxDebugLog("remote-tmux: reconnect-auth host=\(host.destination) argv=\(sshArgv.count)")
+        #endif
         guard !sshArgv.isEmpty else {
             Self.logger.error("reconnect-auth: empty sshArgv for \(host.destination, privacy: .public)")
             return false
         }
         let key = host.connectionHash
+        // A socket-driven attach is in flight: its caller (the `cmux ssh-tmux` CLI) receives
+        // `.authRequired` and runs the login in the user's own terminal. Opening the in-app
+        // sign-in tab too would race two ssh processes for one security key — measured: the
+        // tab's ssh grabbed the FIDO2 device and the CLI's fell through to a passcode prompt.
+        // Arm the master waiter so the parked stream resumes once that login lands.
+        if windowRegistry.isAttachInFlight(hostHash: key) {
+            Self.logger.info(
+                "reconnect-auth: attach in flight for \(host.destination, privacy: .public); caller owns the login")
+            ensureAuthenticationWait(host: host)
+            return true
+        }
         // A live connection to this host proves authentication is not the blocker, so asking
         // again is wrong. This is the straggler case: several sessions park, the user signs
         // in, the first to reconnect releases the offer, and a sibling still finishing its
@@ -794,6 +808,9 @@ extension RemoteTmuxController {
         for mirror in sessionMirrors.values where mirror.host.connectionHash == key {
             mirror.connection.resumeAfterInteractiveAuth()
         }
+        // A multiplexed host that parked before its first reconcile has no mirrors yet —
+        // the parked stream is the shared view connection, so it needs the same kick.
+        multiplexedViewsByHost[key]?.connection?.resumeAfterInteractiveAuth()
     }
 
     /// The command the login terminal runs.
@@ -835,7 +852,7 @@ extension RemoteTmuxController {
         let banner = RemoteTmuxHost.shellSingleQuoted("+ \(quoted)")
         let payload =
             "printf '%s\\n' \(banner); "
-            + "\(quoted) && printf '%s\\n' \(ok) || printf '%s\\n' \(failed); exec \(shell) -i"
+            + "CMUX_REMOTE_TMUX_AUTH=1 \(quoted) && printf '%s\\n' \(ok) || printf '%s\\n' \(failed); exec \(shell) -i"
         return "/bin/sh -c \(RemoteTmuxHost.shellSingleQuoted(payload))"
     }
 }

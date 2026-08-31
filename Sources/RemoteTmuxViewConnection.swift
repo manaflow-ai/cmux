@@ -224,7 +224,15 @@ final class RemoteTmuxViewConnection {
                 }
             },
             onAuthRequired: { [weak self] sshArgv in
-                self?.onAuthRequired?(sshArgv) ?? false
+                guard let self else { return false }
+                // The stream is parked for interactive credentials. Latch the verdict now, not
+                // only at teardown, and wake the attach barrier once the login has been offered:
+                // a caller waiting on first workspaces can then report authentication in the
+                // time the connect took to fail instead of after the full barrier timeout.
+                self.lastStreamAwaitedCredentials = true
+                let handled = self.onAuthRequired?(sshArgv) ?? false
+                self.resolveFirstWorkspacesWaiters(false)
+                return handled
             })
         try conn.start()
         conn.setClientSize(columns: initialCols, rows: initialRows)
