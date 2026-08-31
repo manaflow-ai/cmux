@@ -173,6 +173,10 @@ pub(crate) fn rows(
     rows
 }
 
+/// Priority order and seen semantics derived from herdr
+/// (https://github.com/herdrdev/herdr), Apache-2.0, commit 7b675f42af35
+/// (src/app/agent_view.rs), modified by manaflow.
+///
 /// herdr's agent priority order: a blocked agent waits on a human, an idle
 /// agent the user has not looked at yet carries unreviewed output, a working
 /// agent is in flight, and a seen idle agent is at rest.
