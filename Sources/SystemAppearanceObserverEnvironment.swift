@@ -55,16 +55,3 @@ extension SystemAppearanceObserver {
         }
     }
 }
-
-@MainActor
-private final class NotificationCenterSystemColorsObservation: SystemColorsObservation {
-    private let token: NSObjectProtocol
-
-    init(token: NSObjectProtocol) {
-        self.token = token
-    }
-
-    func invalidate() {
-        NotificationCenter.default.removeObserver(token)
-    }
-}
