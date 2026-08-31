@@ -308,16 +308,19 @@ final class CodexTurnLedger {
                 }
             case .stop(let turnID, let claimNotification, let requireCurrentTurn):
                 let key = self.turnKey(turnID ?? record.activeTurnID)
-                if requireCurrentTurn, let incomingTurnID = Self.normalized(turnID) {
-                    if let activeTurnID = Self.normalized(record.activeTurnID) {
+                if requireCurrentTurn {
+                    if Self.normalized(record.activeTurnID) == nil,
+                       record.pendingTurns[key] == nil,
+                       !claimNotification {
+                        // An unattributed stop must not invent the @current
+                        // turn when the ledger has no current identity.
+                        return .ignored
+                    }
+                    if let incomingTurnID = Self.normalized(turnID),
+                       let activeTurnID = Self.normalized(record.activeTurnID) {
                         if incomingTurnID != activeTurnID, record.pendingTurns[key] == nil {
                             return .ignored
                         }
-                    } else if !claimNotification, record.pendingTurns[key] == nil {
-                        // An unattributed stop cannot invent a turn when the
-                        // ledger has no current identity. Authoritative stops
-                        // keep the legacy unseen-turn compatibility behavior.
-                        return .ignored
                     }
                 }
                 let active = self.activeChildCount(record)

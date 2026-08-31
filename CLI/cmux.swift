@@ -7411,9 +7411,7 @@ struct CMUXCLI {
                     let workspaceArg = explicitWorkspaceArg ?? (windowRaw == nil ? env["CMUX_WORKSPACE_ID"] : nil)
                     if let workspaceArg, isUUID(workspaceArg) || explicitWorkspaceArg != nil {
                         params["preferred_workspace_id"] = isUUID(workspaceArg) ? workspaceArg : try resolveWorkspaceId(workspaceArg, client: client)
-                        if explicitWorkspaceArg == nil {
-                            params["preferred_workspace_is_explicit"] = false
-                        }
+                        params["preferred_workspace_is_explicit"] = explicitWorkspaceArg != nil
                     }
                     if windowRaw == nil, let surfaceId = env["CMUX_SURFACE_ID"], isUUID(surfaceId) {
                         params["preferred_surface_id"] = surfaceId
@@ -33346,6 +33344,7 @@ export default CMUXSessionRestore;
     ) throws {
         let env = ProcessInfo.processInfo.environment
         let skipCodexLegacyPromptStop = env["CMUX_CODEX_SETTLED_CHILD_STOP"] == "1"
+        let isCodexSettledStopRetry = skipCodexLegacyPromptStop
         let subcommand = commandArgs.first?.lowercased() ?? ""
         let hookArgs = Array(commandArgs.dropFirst())
         let cursorShellEvent = def.name == "cursor" && subcommand == "shell-exec"
@@ -35434,7 +35433,7 @@ export default CMUXSessionRestore;
                     // for an older turn settle the currently active turn.
                     // Legacy unwrapped launches retain their historical
                     // unseen-turn compatibility path.
-                    requireCurrentTurn: codexLifecycle.usesLegacyIdentity == false
+                    requireCurrentTurn: codexLifecycle.usesLegacyIdentity == false || isCodexSettledStopRetry
                 )
             }
             if def.name == "codex",

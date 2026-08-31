@@ -19,6 +19,7 @@ extension TerminalNotificationSocketActionTests {
             method: "notification.create_for_caller",
             params: [
                 "preferred_workspace_id": fixture.workspace.id.uuidString,
+                "preferred_workspace_is_explicit": true,
                 "preferred_surface_id": foreignSurfaceId.uuidString,
                 "prefer_tty": false,
                 "title": "Workspace scope",

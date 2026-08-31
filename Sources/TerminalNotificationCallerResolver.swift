@@ -81,7 +81,10 @@ extension TerminalController {
         }
 
         let preferredWorkspaceId = v2UUID(params, "preferred_workspace_id")
-        let preferredWorkspaceIsExplicit = boolParam(params, "preferred_workspace_is_explicit") ?? true
+        // Old clients do not send the provenance bit; preserve their moved-
+        // surface behavior and treat the workspace claim as ambient. New CLI
+        // callers set it explicitly when `--workspace` was supplied.
+        let preferredWorkspaceIsExplicit = boolParam(params, "preferred_workspace_is_explicit") ?? false
         let preferredSurfaceId = v2UUID(params, "preferred_surface_id")
         let callerTTY = stringParam(params, "caller_tty")
         let preferTTY = boolParam(params, "prefer_tty") ?? false
