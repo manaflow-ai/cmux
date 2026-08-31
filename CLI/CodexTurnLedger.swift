@@ -55,9 +55,7 @@ final class CodexTurnLedger {
         self.fileManager = fileManager
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     }
-
     deinit {}
-
     func sessionStart(
         sessionID: String,
         workspaceID: String?,
@@ -72,7 +70,6 @@ final class CodexTurnLedger {
             invocation: invocation
         )
     }
-
     func promptSubmit(
         sessionID: String,
         turnID: String?,
@@ -88,7 +85,6 @@ final class CodexTurnLedger {
             invocation: invocation
         )
     }
-
     func subagentStart(
         sessionID: String,
         agentID: String?,
@@ -137,7 +133,6 @@ final class CodexTurnLedger {
             invocation: invocation, allowCreate: allowCreate
         )
     }
-
     func sessionEnd(
         sessionID: String,
         workspaceID: String?,
@@ -152,7 +147,6 @@ final class CodexTurnLedger {
             invocation: invocation
         )
     }
-
     func observe(
         sessionID: String,
         workspaceID: String?,
@@ -167,7 +161,6 @@ final class CodexTurnLedger {
             invocation: invocation, allowCreate: allowCreate
         )
     }
-
     private func apply(
         _ event: Event,
         sessionID: String,
@@ -315,7 +308,8 @@ final class CodexTurnLedger {
                 let key = self.turnKey(turnID ?? record.activeTurnID)
                 if requireCurrentTurn,
                    let incomingTurnID = Self.normalized(turnID),
-                   incomingTurnID != Self.normalized(record.activeTurnID),
+                   let activeTurnID = Self.normalized(record.activeTurnID),
+                   incomingTurnID != activeTurnID,
                    record.pendingTurns[key] == nil {
                     return .ignored
                 }

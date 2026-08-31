@@ -142,7 +142,8 @@ struct CodexTurnLifecycleCoordinator {
         agentID: String?,
         turnID: String?,
         workspaceID: String?,
-        surfaceID: String?
+        surfaceID: String?,
+        allowCreate: Bool = true
     ) -> CodexTurnLedgerDecision {
         let starts: Bool
         switch eventName {
@@ -156,7 +157,8 @@ struct CodexTurnLifecycleCoordinator {
             turnID: turnID,
             workspaceID: workspaceID,
             surfaceID: surfaceID,
-            starts: starts
+            starts: starts,
+            allowCreate: allowCreate
         )
     }
 }

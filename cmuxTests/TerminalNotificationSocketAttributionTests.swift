@@ -1,5 +1,10 @@
 @preconcurrency import XCTest
 import Foundation
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
 
 // Stays on XCTest deliberately: these cases extend the existing socket-action
 // suite and reuse its process-safe fixture/server lifecycle.
@@ -54,10 +59,21 @@ extension TerminalNotificationSocketActionTests {
                 focus: false
             )
         )
-        let focusedTerminal = try XCTUnwrap(
-            fixture.workspace.panels[focusedSurfaceId] as? TerminalPanel
+        let temporaryPanel = try XCTUnwrap(
+            fixture.workspace.newTerminalSplit(
+                from: siblingPanel.id,
+                orientation: .horizontal,
+                focus: false
+            )
         )
-        let ambiguousTTY = try XCTUnwrap(focusedTerminal.surface.controllingTTYName())
+        // Keep a real, session-valid TTY name for PortScanner freshness, but
+        // detach its panel so no live runtime candidate owns that name. The
+        // two remaining panels then exercise the reported-TTY ambiguity tier.
+        let temporaryTransfer = try XCTUnwrap(
+            fixture.workspace.detachSurface(panelId: temporaryPanel.id)
+        )
+        let temporaryTerminal = try XCTUnwrap(temporaryTransfer.panel as? TerminalPanel)
+        let ambiguousTTY = try await waitForControllingTTYName(temporaryTerminal)
         fixture.workspace.registerReportedSurfaceTTYName(ambiguousTTY, panelId: focusedSurfaceId)
         fixture.workspace.registerReportedSurfaceTTYName(ambiguousTTY, panelId: siblingPanel.id)
         PortScanner.shared.registerTTY(
@@ -88,5 +104,23 @@ extension TerminalNotificationSocketActionTests {
         XCTAssertEqual(error["code"] as? String, "not_found")
         XCTAssertFalse(fixture.store.hasUnreadNotification(forTabId: fixture.workspace.id, surfaceId: focusedSurfaceId))
         XCTAssertFalse(fixture.store.hasUnreadNotification(forTabId: fixture.workspace.id, surfaceId: siblingPanel.id))
+    }
+
+    private func waitForControllingTTYName(
+        _ terminal: TerminalPanel,
+        timeout: TimeInterval = 5
+    ) async throws -> String {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let ttyName = terminal.surface.controllingTTYName() {
+                return ttyName
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        throw NSError(
+            domain: "TerminalNotificationSocketAttributionTests",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Terminal surface did not expose a controlling TTY"]
+        )
     }
 }

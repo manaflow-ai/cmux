@@ -275,12 +275,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
             unlink(socketPath)
         }
     }
-
-    func makeSocketFixture(
-        name: String,
-        includeWindow: Bool = false,
-        eagerLoadTerminal: Bool = false
-    ) throws -> SocketFixture {
+    func makeSocketFixture(name: String, includeWindow: Bool = false, eagerLoadTerminal: Bool = false) throws -> SocketFixture {
         let socketPath = makeSocketPath(name)
         let store = TerminalNotificationStore.shared
         let previousShared = AppDelegate.shared
@@ -298,11 +293,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         appDelegate.notificationStore = store
         AppFocusState.overrideIsFocused = false
 
-        let workspace = manager.addWorkspace(
-            title: "Socket Notifications",
-            select: true,
-            eagerLoadTerminal: eagerLoadTerminal
-        )
+        let workspace = manager.addWorkspace(title: "Socket Notifications", select: true, eagerLoadTerminal: eagerLoadTerminal)
         let surfaceId = try XCTUnwrap(workspace.focusedPanelId)
 
         let windowId: UUID?
@@ -351,7 +342,6 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
             originalAppFocusOverride: originalAppFocusOverride
         )
     }
-
     private func makeNotification(
         tabId: UUID,
         surfaceId: UUID?,

@@ -35215,7 +35215,7 @@ export default CMUXSessionRestore;
                         surfaceID: nil,
                         claimNotification: false,
                         allowCreate: false,
-                        requireCurrentTurn: true
+                        requireCurrentTurn: codexLifecycle.usesLegacyIdentity == false
                     )
                     if codexStopDecision?.settlement == .settled,
                        codexStopDecision?.shouldNotify == true {
@@ -38735,17 +38735,35 @@ export default CMUXSessionRestore;
         if source == "codex",
            hookEventName == "SubagentStart" || hookEventName == "SubagentStop" {
             let lifecycle = CodexTurnLifecycleCoordinator(environment: env, cli: self)
+            let feedLifecycleTarget: (workspaceId: String, surfaceId: String)? = {
+                guard let workspaceId = feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"]),
+                      isUUID(workspaceId),
+                      let rawSurfaceId = firstString(in: stdinObj, keys: ["surface_id", "surfaceId"])
+                          ?? env["CMUX_SURFACE_ID"],
+                      let activeClient = client,
+                      let listed = try? activeClient.sendV2(
+                          method: "surface.list",
+                          params: ["workspace_id": workspaceId]
+                      ),
+                      let surfaces = listed["surfaces"] as? [[String: Any]],
+                      let surface = surfaces.first(where: {
+                          ($0["id"] as? String) == rawSurfaceId
+                              || ($0["ref"] as? String) == rawSurfaceId
+                      }),
+                      let surfaceId = surface["id"] as? String,
+                      isUUID(surfaceId) else {
+                    return nil
+                }
+                return (workspaceId, surfaceId)
+            }()
             let decision = lifecycle.recordFeedLifecycle(
                 sessionID: sessionId,
                 eventName: hookEventName,
                 agentID: firstString(in: stdinObj, keys: ["agent_id", "agentId"]),
                 turnID: firstString(in: stdinObj, keys: ["turn_id", "turnId"]),
-                workspaceID: feedWorkspaceId(
-                    rawObject: stdinObj,
-                    fallback: env["CMUX_WORKSPACE_ID"]
-                ),
-                surfaceID: firstString(in: stdinObj, keys: ["surface_id", "surfaceId"])
-                    ?? env["CMUX_SURFACE_ID"]
+                workspaceID: feedLifecycleTarget?.workspaceId,
+                surfaceID: feedLifecycleTarget?.surfaceId,
+                allowCreate: feedLifecycleTarget != nil
             )
             if hookEventName == "SubagentStop",
                decision.ownership == .foreground,
