@@ -310,16 +310,6 @@ final class RemoteTmuxControlConnection {
     /// attempts); cancelled on `stop()` / genuine end so a dead connection stops
     /// retrying.
     private var reconnectTask: Task<Void, Never>?
-    /// Periodic liveness probe for transports that reconnect internally (see
-    /// ``checkLivenessAndRecoverIfStalled(completion:)``). Nil for ssh, which gets an EOF instead.
-    private var livenessTask: Task<Void, Never>?
-    /// Whether a liveness probe is still waiting for its answer. The next probe's due time is the
-    /// previous one's deadline, so this is what turns "no answer" into a detected stall.
-    var livenessProbeOutstanding = false
-    /// How often to ask a self-reconnecting transport whether it is still carrying the protocol.
-    /// Long enough that an ordinary reconnect finishes untouched, short enough that a wedged
-    /// mirror is not left silently frozen.
-    static var livenessProbeIntervalSeconds: UInt64 = 30
     /// Number of reconnect attempts since the last successful connect, driving the
     /// capped exponential backoff. Reset to 0 on a successful connect.
     private var reconnectAttemptCount = 0
@@ -954,9 +944,6 @@ final class RemoteTmuxControlConnection {
         failPendingCommandTransactions()
         reconnectTask?.cancel()
         reconnectTask = nil
-        livenessTask?.cancel()
-        livenessTask = nil
-        livenessProbeOutstanding = false
         resetWindowListRequestCoalescing()
         cancelSizingFollowUps()
         pendingPostAttachAction = nil
@@ -995,8 +982,76 @@ final class RemoteTmuxControlConnection {
         stderrPipeReader = nil
         stdinWriter?.close()
         stdinWriter = nil
-        process?.terminate()
+        terminateProcessTree(process)
         process = nil
+    }
+
+    /// Ends a spawned transport and everything it started.
+    ///
+    /// `Process.terminate()` signals one pid, and a transport is rarely one process: cmux may
+    /// launch a pty allocator that execs a broker that finally execs the client. Signalling only
+    /// the allocator leaves the broker and client running, and because the client holds the
+    /// remote end open they keep their session too — two such trees were found alive hours after
+    /// their respawns, each still holding a control client on the remote server.
+    ///
+    /// Signalling the allocator's process GROUP does not fix it either: `/usr/bin/script` puts
+    /// its command in a group of its own (measured — the allocator and its payload had different
+    /// pgids, and the payload survived a group kill). So the tree is walked instead, children
+    /// before parents, and each process that leads its own group takes that group with it.
+    ///
+    /// SIGTERM first because these clients close their remote end on it; anything still alive a
+    /// moment later is sent SIGKILL, so a client that ignores the polite signal cannot outlive
+    /// the stream that owns it.
+    private func terminateProcessTree(_ proc: Process?) {
+        guard let proc, proc.processIdentifier > 0 else { return }
+        let root = proc.processIdentifier
+        let tree = Self.processTree(root: root)
+        for pid in tree.reversed() { Self.signalProcess(pid, SIGTERM) }
+        proc.terminate()
+        Task.detached {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            for pid in tree.reversed() where Darwin.kill(pid, 0) == 0 {
+                Self.signalProcess(pid, SIGKILL)
+            }
+        }
+    }
+
+    /// `root` and its descendants, parents before children, bounded in depth so a pathological
+    /// tree cannot make teardown expensive.
+    nonisolated static func processTree(root: pid_t, childrenOf: (pid_t) -> [pid_t] = childPIDs) -> [pid_t] {
+        var out: [pid_t] = [root]
+        var frontier = [root]
+        for _ in 0..<4 {
+            let next = frontier.flatMap(childrenOf).filter { !out.contains($0) }
+            if next.isEmpty { break }
+            out.append(contentsOf: next)
+            frontier = next
+        }
+        return out
+    }
+
+    /// Sends `signal` to `pid`, and to its process group when `pid` leads one. A leader's group
+    /// holds the processes it started that the walk cannot see (anything spawned between the
+    /// listing and the signal).
+    nonisolated private static func signalProcess(_ pid: pid_t, _ signal: Int32) {
+        guard pid > 1 else { return }
+        if getpgid(pid) == pid { _ = Darwin.kill(-pid, signal) }
+        _ = Darwin.kill(pid, signal)
+    }
+
+    /// Direct children of `pid`, via the kernel process table (no subprocess, so teardown does
+    /// not spawn anything while it is tearing down).
+    nonisolated static let childPIDs: (pid_t) -> [pid_t] = { parent in
+        var name: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
+        var length = 0
+        guard sysctl(&name, 4, nil, &length, nil, 0) == 0, length > 0 else { return [] }
+        let count = length / MemoryLayout<kinfo_proc>.stride
+        var procs = [kinfo_proc](repeating: kinfo_proc(), count: count)
+        guard sysctl(&name, 4, &procs, &length, nil, 0) == 0 else { return [] }
+        let actual = length / MemoryLayout<kinfo_proc>.stride
+        return procs[0..<min(actual, count)].compactMap { entry in
+            entry.kp_eproc.e_ppid == parent ? entry.kp_proc.p_pid : nil
+        }
     }
 
     // MARK: - Internals
@@ -1204,13 +1259,6 @@ final class RemoteTmuxControlConnection {
 
     // MARK: - Reconnect
 
-    /// Stops the pointless retry loop and hands the user a login.
-    ///
-    /// The state becomes `.reconnecting` — the mirror is frozen, not dead — so the
-    /// session and every mirrored workspace survive the outage; a consumer runs the
-    /// argv under a tty and calls ``resumeAfterInteractiveAuth()``. A first attach
-    /// parks the same way, and its retry re-runs the mode it was asked for rather
-    /// than a plain attach, because there is no session it was thrown out of.
     private func parkForInteractiveAuth(reason: String) {
         guard connectionState != .ended, !awaitingInteractiveAuth else { return }
         // A transport that does not authenticate through cmux's ssh master gets no login offer:
@@ -1242,25 +1290,6 @@ final class RemoteTmuxControlConnection {
             record("\(reason)-auth-required-unhandled")
             awaitingInteractiveAuth = false
             scheduleReconnectAttempt()
-        }
-    }
-
-    /// Starts the stall monitor for a transport that owns its own reconnection.
-    ///
-    /// ssh is deliberately excluded: its stream ends on transport loss, `handleStreamEnd` already
-    /// recovers from that, and probing an idle ssh stream would add traffic and a failure mode
-    /// where today there is none.
-    private func startLivenessMonitorIfNeeded() {
-        guard transportProfile.reconnectsInternally else { return }
-        livenessTask?.cancel()
-        let interval = Self.livenessProbeIntervalSeconds
-        livenessTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: interval * 1_000_000_000)
-                if Task.isCancelled { return }
-                guard let self else { return }
-                await MainActor.run { self.checkLivenessAndRecoverIfStalled() }
-            }
         }
     }
 
@@ -1380,7 +1409,6 @@ final class RemoteTmuxControlConnection {
             if connectionState != .connected {
                 let wasReconnecting = connectionState == .reconnecting
                 connectionState = .connected
-                startLivenessMonitorIfNeeded()
                 // Only a first attach needs the rows-minus-one redraw kick. A
                 // reconnect keeps the existing tmux grid and replaces the mirror
                 // with an authoritative full-history seed; kicking after that seed
