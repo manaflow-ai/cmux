@@ -29,7 +29,9 @@ pub(crate) const AGENT_ROSTER_REDUCER_ID: &str = "agent_roster";
 /// Bump to discard persisted snapshots and re-fold from the journal head.
 /// Version 2 added the agent adapter id to roster entries. Version 3
 /// added screen-detected events and hook/screen/socket arbitration.
-pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 3;
+/// Version 4 stopped cross-adapter hook events (companion processes inside
+/// the owner's PTY) from clobbering or removing a live hook-owned entry.
+pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 4;
 
 /// A hook-owned roster entry younger than this cannot be overwritten by a
 /// screen-detected state: live hooks are stronger evidence than screen
@@ -213,7 +215,27 @@ impl AgentRoster {
         // only applies to entries screen detection itself established.
         // Socket reports lose to both stronger sources.
         match source {
-            AgentSource::Hook => {}
+            AgentSource::Hook => {
+                // A terminal roster slot belongs to one agent. A hook event
+                // from a DIFFERENT adapter than the live hook owner is an
+                // inner or companion process (claude spawning a short codex
+                // child, a plugin sidecar): its `done` must not remove the
+                // live owner, and its lifecycle must not overwrite the
+                // owner's state. A different adapter may claim the slot only
+                // once the owner's hook evidence has gone stale (owner died
+                // without a SessionEnd) - the same staleness window screen
+                // detection already respects.
+                if let Some(existing) = self.entries.get(terminal_id)
+                    && existing.agent_source() == AgentSource::Hook
+                    && let (Some(owner), Some(incoming)) =
+                        (existing.agent.as_deref(), agent.as_deref())
+                    && owner != incoming
+                    && (state == AgentState::Done
+                        || updated_at_ms.saturating_sub(existing.updated_at_ms) < STALE_HOOK_MS)
+                {
+                    return Vec::new();
+                }
+            }
             AgentSource::Detected => {
                 if let Some(existing) = self.entries.get(terminal_id) {
                     let existing_source = existing.agent_source();
