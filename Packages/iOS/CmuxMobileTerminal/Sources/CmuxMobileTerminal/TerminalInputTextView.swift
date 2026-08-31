@@ -372,6 +372,11 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         scrollView.showsHorizontalScrollIndicator = false
         scrollView.showsVerticalScrollIndicator = false
         scrollView.alwaysBounceHorizontal = true
+        // The accessory bar is already constrained to the container's safe-area
+        // guides. Letting UIKit apply another automatic inset can shift the
+        // initial horizontal content offset on iPad by the device's leading
+        // safe-area width, hiding the shortcuts at launch.
+        scrollView.contentInsetAdjustmentBehavior = .never
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         // The scroll view's FRAME starts flush at the composer button's
         // trailing edge; the 4pt visual gap the frame constant used to carry
