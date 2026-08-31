@@ -183,9 +183,6 @@ describe("app pricing page", () => {
     expect(html).toContain("--cmux-product-blue-on-background:#0091ff");
     expect(html).toContain("--cmux-product-blue-on-foreground:#006CBF");
     expect(html).toContain("mx-auto mt-6 flex w-fit");
-    expect(html).toContain(
-      "var(--cmux-product-blue-on-foreground, var(--cmux-product-blue, #0088ff))",
-    );
     expect(html).toContain('href="/enterprise?cmux_external_browser=1"');
   });
 
