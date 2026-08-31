@@ -322,12 +322,12 @@ if [[ "$ATTACH" -eq 1 ]]; then
         echo "error: tagged Mac '$TAG' is not running or its debug socket is not ready" >&2
         echo "error: start it and re-run with --ensure-mac, or re-run without --attach for an intentionally unpaired launch" >&2
       elif [[ "$ATTACH_MINT_STATUS" -eq 2 ]]; then
-        echo "error: tagged Mac '$TAG' advertised routes, but no encrypted Iroh route became ready" >&2
+        echo "error: tagged Mac '$TAG' advertised routes, but no relay-capable (device-id) URL or encrypted Iroh route became ready" >&2
         echo "error: Tailscale-only tickets are rejected because they cannot safely carry account credentials" >&2
-        echo "error: repair the tagged Mac's web/Iroh setup and re-run, or re-run without --attach for an intentionally unpaired launch" >&2
+        echo "error: repair the tagged Mac's web/relay/Iroh setup and re-run, or re-run without --attach for an intentionally unpaired launch" >&2
       else
         echo "error: could not mint a trusted physical-device attach ticket for '$TAG'" >&2
-        echo "error: the Iroh route may still be binding or its backend policy may be unavailable; retry after repairing the tagged Mac, or re-run without --attach" >&2
+        echo "error: the relay-capable URL or Iroh route may still be binding or its backend policy may be unavailable; retry after repairing the tagged Mac, or re-run without --attach" >&2
       fi
       exit 1
     elif [[ "$ENSURE_MAC" -eq 1 ]]; then

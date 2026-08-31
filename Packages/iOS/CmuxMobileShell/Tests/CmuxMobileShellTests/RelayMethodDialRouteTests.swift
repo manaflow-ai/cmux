@@ -104,4 +104,69 @@ import Testing
 
         #expect(routes == [relay])
     }
+
+    // MARK: Pairing URLs carrying the Mac device id (`d`)
+
+    private func decodedTicket(from url: String) throws -> CmxAttachTicket {
+        let parsed = try #require(URL(string: url))
+        let components = try #require(
+            URLComponents(url: parsed, resolvingAgainstBaseURL: false)
+        )
+        return try CmxPairingQRCode().decode(components)
+    }
+
+    /// A v2 pairing URL that carries the Mac's device id in `d` decodes to a
+    /// ticket whose `macDeviceID` binds the relay dial, so the relay method
+    /// gains the synthesized relay route on fresh pairing (the exact path
+    /// that used to fail fast with `noSupportedRoute` for anonymous URLs).
+    @Test func deviceIDBearingV2PairingTicketYieldsRelayRoute() throws {
+        let ticket = try decodedTicket(
+            from: "cmux-ios://attach?v=2&d=123e4567-e89b-42d3-a456-426614174004"
+                + "&r=100.64.0.5:58465"
+        )
+        #expect(ticket.macDeviceID == "123e4567-e89b-42d3-a456-426614174004")
+
+        let relay = try relay()
+        let routes = MobileShellComposite.relayMethodDialRoutes(
+            from: ticket.routes,
+            hostDeviceID: ticket.macDeviceID,
+            relayRoute: relay
+        )
+
+        #expect(routes == [relay])
+    }
+
+    @Test func deviceIDBearingV3PairingTicketYieldsRelayRoute() throws {
+        let ticket = try decodedTicket(
+            from: "cmux-ios://attach?v=3&i=\(String(repeating: "c", count: 64))"
+                + "&d=123e4567-e89b-42d3-a456-426614174004"
+        )
+        #expect(ticket.macDeviceID == "123e4567-e89b-42d3-a456-426614174004")
+
+        let relay = try relay()
+        let routes = MobileShellComposite.relayMethodDialRoutes(
+            from: ticket.routes,
+            hostDeviceID: ticket.macDeviceID,
+            relayRoute: relay
+        )
+
+        #expect(routes == [relay])
+    }
+
+    /// An id-less URL from an older Mac keeps the pre-`d` behavior: the
+    /// decoded ticket is anonymous and the relay route stays excluded.
+    @Test func deviceIDLessV2PairingTicketStillExcludesRelayRoute() throws {
+        let ticket = try decodedTicket(
+            from: "cmux-ios://attach?v=2&r=100.64.0.5:58465"
+        )
+        #expect(ticket.macDeviceID == "")
+
+        let routes = MobileShellComposite.relayMethodDialRoutes(
+            from: ticket.routes,
+            hostDeviceID: ticket.macDeviceID,
+            relayRoute: try relay()
+        )
+
+        #expect(routes.isEmpty)
+    }
 }

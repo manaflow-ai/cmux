@@ -261,11 +261,13 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         let attachURL = try #require(payload["attach_url"] as? String)
 
         // The pairing window's Tailscale code speaks the plain v2 grammar:
-        // routes plus the account binding (`ub`, the wrong-account fast-fail)
-        // and the compatibility level (`pc`, which fielded decoders default
-        // to 0 when absent, spuriously firing the cross-version warning).
-        // Never base64 JSON carrying device id, display name, or build
-        // metadata: those arrive post-handshake from `mobile.host.status`.
+        // routes plus the device id (`d`, which binds the phone's relay dial
+        // to this exact host pre-handshake), the account binding (`ub`, the
+        // wrong-account fast-fail), and the compatibility level (`pc`, which
+        // fielded decoders default to 0 when absent, spuriously firing the
+        // cross-version warning). Never base64 JSON carrying display name or
+        // build metadata: those arrive post-handshake from
+        // `mobile.host.status`.
         #expect(CmxPairingQRCode().isPairingCodeURLString(attachURL))
         #expect(!attachURL.contains("payload="))
         #expect(!attachURL.contains("av="))
@@ -285,15 +287,19 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         #expect(decoded.macAppVersion == nil)
         #expect(decoded.macAppBuild == nil)
         #expect(decoded.macDisplayName == nil)
-        #expect(decoded.macDeviceID == "")
+        // The store mints with the host's real device id and the v2 grammar
+        // now discloses it (`d`), so a phone can bind its relay dial to this
+        // Mac before the handshake.
+        #expect(decoded.macDeviceID == ticket.macDeviceID)
+        #expect(!decoded.macDeviceID.isEmpty)
 
         // Scannability: the account-bound two-route code stays at or below
-        // QR version 8 (49x49 modules) at the renderer's ECC M, so modules
+        // QR version 10 (57x57 modules) at the renderer's ECC M, so modules
         // render large on a glossy screen. The full-key JSON payload this
         // replaced rendered version 23 (109x109 modules).
         let image = try #require(CmxPairingQRBitmap().makeImage(payload: attachURL))
         let modules = image.width - CmxPairingQRBitmap.quietZoneModules * 2
-        #expect(modules <= 49, "pairing QR too dense: \(modules)x\(modules) modules")
+        #expect(modules <= 57, "pairing QR too dense: \(modules)x\(modules) modules")
     }
 
     #if DEBUG
