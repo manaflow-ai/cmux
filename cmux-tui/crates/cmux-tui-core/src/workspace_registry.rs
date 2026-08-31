@@ -680,6 +680,8 @@ pub struct WorkspaceRegistry {
     #[cfg(test)]
     resource_patch_failures_remaining: Cell<u64>,
     #[cfg(test)]
+    public_agent_projection_failures_remaining: Cell<u64>,
+    #[cfg(test)]
     journal_before_commit: Option<(std::sync::mpsc::SyncSender<()>, std::sync::mpsc::Receiver<()>)>,
     #[cfg(test)]
     journal_after_commit_admission:
@@ -2685,6 +2687,8 @@ impl WorkspaceRegistry {
             resource_effect_pepper,
             #[cfg(test)]
             resource_patch_failures_remaining: Cell::new(0),
+            #[cfg(test)]
+            public_agent_projection_failures_remaining: Cell::new(0),
             #[cfg(test)]
             journal_before_commit: None,
             #[cfg(test)]

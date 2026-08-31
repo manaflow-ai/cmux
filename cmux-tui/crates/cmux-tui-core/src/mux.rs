@@ -26515,6 +26515,38 @@ mod tests {
     }
 
     #[test]
+    fn agent_report_echo_key_propagates_authoritative_projection_read_failure() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+        mux.agent_records.lock().unwrap().insert(
+            terminal_id.clone(),
+            TerminalAgentRecord {
+                state: AgentState::Working,
+                source: AgentSource::Socket,
+                session: Some("projection-read-failure".into()),
+                agent: None,
+                updated_at_ms: 1,
+            },
+        );
+        mux.workspace_registry.lock().unwrap().set_public_agent_projection_read_failure(true);
+
+        let error = mux
+            .report_agent(
+                surface.id,
+                AgentState::Working,
+                AgentSource::Socket,
+                Some("projection-read-failure".into()),
+            )
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("public agent projection read failure"),
+            "unexpected projection read error: {error:#}"
+        );
+        mux.shutdown();
+    }
+
+    #[test]
     fn agent_reports_require_a_terminal_and_never_create_a_default_projection() {
         let mux = test_mux();
         let browser = mux.new_browser_tab("about:blank".into(), None, None).unwrap();

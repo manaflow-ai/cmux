@@ -213,6 +213,12 @@ impl WorkspaceRegistry {
         terminal: Option<&TerminalPublicId>,
         state: Option<&str>,
     ) -> anyhow::Result<Vec<RegistryAgentProjection>> {
+        #[cfg(test)]
+        if self.public_agent_projection_failures_remaining.get() > 0 {
+            self.public_agent_projection_failures_remaining
+                .set(self.public_agent_projection_failures_remaining.get() - 1);
+            anyhow::bail!("forced public agent projection read failure");
+        }
         let mut agents = self.durable_agents(terminal, state)?;
         agents.retain(|agent| {
             !(agent.source == "hook" && agent.state == "done")
@@ -229,6 +235,11 @@ impl WorkspaceRegistry {
             }
         }
         Ok(agents)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_public_agent_projection_read_failure(&self, enabled: bool) {
+        self.public_agent_projection_failures_remaining.set(u64::from(enabled));
     }
 
     fn live_terminal_public_ids(&self) -> anyhow::Result<HashSet<TerminalPublicId>> {
