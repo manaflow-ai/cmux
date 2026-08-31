@@ -210,6 +210,8 @@ export type CheckoutCompletionInput = {
   deferAnonymousCanonicalOwnerResolution?: boolean;
   /** Keep Pro metadata disabled until the destination mailbox is verified. */
   deferProMetadataUntilVerification?: boolean;
+  /** Use the idempotent delivery ledger for a user-requested recovery link. */
+  sendRecoveryMagicLink?: boolean;
 };
 
 export type CheckoutCompletionResult =
@@ -241,6 +243,7 @@ type UserCheckoutPostCommitSync = {
   stackUserId: string;
   stackApp: StackBillingApp | null | undefined;
   deferProMetadataUntilVerification?: boolean;
+  sendRecoveryMagicLink?: boolean;
 };
 
 type CheckoutCompletionLockedResult = {
@@ -452,6 +455,7 @@ export async function recordCheckoutCompletion(
           stackApp: checkoutStackApp,
           deferProMetadataUntilVerification:
             input.deferProMetadataUntilVerification,
+          sendRecoveryMagicLink: input.sendRecoveryMagicLink,
         },
         result: { scope: "user", stackUserId, subscriptionId: subscription.id },
       };
@@ -745,6 +749,19 @@ export async function recordFoundersCheckoutCompletion(
         dependencies,
       );
       await syncProPlanMetadata(freshUser, true, mutationLease);
+      if (input.sendRecoveryMagicLink) {
+        await requestPurchaseMagicLink(
+          db,
+          {
+            email,
+            checkoutSessionId: input.session.id,
+            stackUserId: user.id,
+            stackApp,
+          },
+          mutationLease,
+          dependencies,
+        );
+      }
     },
   });
 
@@ -928,6 +945,7 @@ export async function recordProCheckoutCompletionByEmail(
       allowCanonicalOwnershipRecovery: true,
       deferProMetadataUntilVerification:
         existingUser.primaryEmailVerified !== true,
+      sendRecoveryMagicLink: input.sendRecoveryMagicLink,
     },
     dependencies,
   );
@@ -1714,10 +1732,36 @@ async function syncUserCheckoutAfterCommit(
             stripeCustomerId: input.stripeCustomerId,
             stackUserId: input.stackUserId,
           });
+          if (input.sendRecoveryMagicLink) {
+            await requestPurchaseMagicLink(
+              db,
+              {
+                email: input.email,
+                checkoutSessionId: input.checkoutSessionId,
+                stackUserId: input.stackUserId,
+                stackApp: input.stackApp,
+              },
+              mutationLease,
+              dependencies,
+            );
+          }
         }
         return;
       }
       await syncProPlanMetadata(user, true, mutationLease);
+      if (input.sendRecoveryMagicLink && input.email) {
+        await requestPurchaseMagicLink(
+          db,
+          {
+            email: input.email,
+            checkoutSessionId: input.checkoutSessionId,
+            stackUserId: input.stackUserId,
+            stackApp: input.stackApp,
+          },
+          mutationLease,
+          dependencies,
+        );
+      }
     },
   });
 }

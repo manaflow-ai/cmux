@@ -26,7 +26,11 @@ export const BILLING_RECOVERY_RESPONSE_MESSAGE =
 type PaidRecoveryResult =
   | false
   | true
-  | { readonly deliveryEmail: string | null }
+  | {
+      readonly deliveryEmail: string | null;
+      /** The completion recorder already used the delivery ledger. */
+      readonly deliveryHandled?: boolean;
+    }
   | {
       readonly skipped:
         | "account_deletion_in_progress"
@@ -56,15 +60,27 @@ const productionDependencies: BillingRecoveryRouteDependencies = {
     const stackApp = getStackServerApp();
     const purchase = await findPaidBillingPurchaseByEmail(email);
     if (!purchase) return false;
-    const completion = await provisionPaidBillingPurchase(purchase, { stackApp });
+    const completion = await provisionPaidBillingPurchase(
+      {
+        ...purchase,
+        input: {
+          ...purchase.input,
+          sendRecoveryMagicLink: true,
+        },
+      },
+      { stackApp },
+    );
     if (!completion || !("scope" in completion) || completion.scope !== "user") {
       if (completion && "skipped" in completion) {
         return { skipped: completion.skipped };
       }
-      return { deliveryEmail: email };
+      return { deliveryEmail: email, deliveryHandled: true };
     }
     const user = await stackApp.getUser(completion.stackUserId);
-    return { deliveryEmail: user?.primaryEmail?.trim() || email };
+    return {
+      deliveryEmail: user?.primaryEmail?.trim() || email,
+      deliveryHandled: true,
+    };
   },
   sendMagicLink: async ({ email, callbackURL }) => {
     const result = await getStackServerApp().sendMagicLinkEmail(email, {
@@ -82,10 +98,10 @@ const productionDependencies: BillingRecoveryRouteDependencies = {
       ),
     ),
   checkRateLimit: checkVercelRateLimit,
-  // Prefer the shared feedback rule during migration, then use the dedicated
-  // billing rule when older deployments have not configured the former.
+  // Use the dedicated recovery rule first. The feedback rule is only a
+  // migration fallback for deployments that have not created the new rule.
   rateLimitRuleID: () =>
-    env.CMUX_FEEDBACK_RATE_LIMIT_ID ?? env.CMUX_BILLING_RECOVERY_RATE_LIMIT_ID,
+    env.CMUX_BILLING_RECOVERY_RATE_LIMIT_ID ?? env.CMUX_FEEDBACK_RATE_LIMIT_ID,
   isVercel: () => process.env.VERCEL === "1",
 };
 
@@ -122,14 +138,18 @@ export function makeBillingRecoveryHandler(
           } else if (paid) {
             const candidateDeliveryEmail =
               typeof paid === "object" ? paid.deliveryEmail : null;
-            const deliveryEmail =
-              candidateDeliveryEmail && validEmail(candidateDeliveryEmail)
-                ? candidateDeliveryEmail
-                : email;
-            await dependencies.sendMagicLink({
-              email: deliveryEmail,
-              callbackURL,
-            });
+            const deliveryHandled =
+              typeof paid === "object" && paid.deliveryHandled === true;
+            if (!deliveryHandled) {
+              const deliveryEmail =
+                candidateDeliveryEmail && validEmail(candidateDeliveryEmail)
+                  ? candidateDeliveryEmail
+                  : email;
+              await dependencies.sendMagicLink({
+                email: deliveryEmail,
+                callbackURL,
+              });
+            }
           } else if (!paid) {
             await dependencies.sendVerification({
               email,
@@ -143,10 +163,9 @@ export function makeBillingRecoveryHandler(
           console.error("billing.recovery.provider_failure", {
             failure: "provider_unavailable",
           });
-          // Keep the response generic so this does not become an account
-          // enumeration signal, while still telling the client that no
-          // authentication message was confirmed and that it may retry.
-          return json({ error: "recovery_unavailable" }, 503);
+          // Keep the successful-address response generic. Returning a provider
+          // error only for addresses that reached a delivery path would let a
+          // caller distinguish paid or registered mailboxes.
         }
 
         return json(

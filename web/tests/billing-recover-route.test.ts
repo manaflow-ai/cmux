@@ -78,6 +78,22 @@ describe("billing recovery route", () => {
     });
   });
 
+  test("does not send a second link when provisioning used the delivery ledger", async () => {
+    const sendMagicLink = mock(async () => undefined);
+    const response = await makeBillingRecoveryHandler(
+      dependencies({
+        recoverPaid: mock(async () => ({
+          deliveryEmail: "buyer@example.com",
+          deliveryHandled: true,
+        })),
+        sendMagicLink,
+      }),
+    )(request("buyer@example.com"));
+
+    expect(response.status).toBe(202);
+    expect(sendMagicLink).not.toHaveBeenCalled();
+  });
+
   test("does not send authentication mail when paid provisioning is blocked", async () => {
     const sendMagicLink = mock(async () => undefined);
     const sendVerification = mock(async () => ({
@@ -188,7 +204,7 @@ describe("billing recovery route", () => {
     });
   });
 
-  test("returns a generic retryable response when a provider fails", async () => {
+  test("keeps the valid-address response uniform when a provider fails", async () => {
     const response = await makeBillingRecoveryHandler(
       dependencies({
         recoverPaid: mock(async () => {
@@ -197,8 +213,11 @@ describe("billing recovery route", () => {
       }),
     )(request("buyer@example.com"));
 
-    expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({ error: "recovery_unavailable" });
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({
+      ok: true,
+      message: "If we found an account, check your email for next steps",
+    });
   });
 
   test("fails closed on the aggressive deployed rate limit", async () => {
