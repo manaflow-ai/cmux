@@ -1117,6 +1117,19 @@ const AGENT_ROSTER_STARTUP_FOLD_RECORD_LIMIT: usize = 512;
 /// projection is waiting on an external retry. The timeout is only a wake-up
 /// bound; SQLite remains the source of truth and no state is inferred from it.
 const AGENT_ROSTER_FOLD_WORKER_WAIT: Duration = Duration::from_secs(1);
+/// Give other journal work a scheduling window between bounded replay pages.
+/// This is a fairness delay, not a correctness timer: a new journal epoch
+/// wakes the worker immediately.
+const AGENT_ROSTER_FOLD_WORKER_BATCH_WAIT: Duration = Duration::from_millis(10);
+/// A pending projection already has its own durable retry counter. Stop the
+/// reducer worker after one bounded retry budget when that counter cannot
+/// release the row, and let a later availability signal or restart retry it.
+const AGENT_ROSTER_FOLD_WORKER_PROJECTION_RETRY_LIMIT: u32 = 8;
+
+fn agent_roster_projection_retry_delay(attempt: u32) -> Duration {
+    let shift = attempt.saturating_sub(1).min(5);
+    Duration::from_millis(100u64 << shift)
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum AgentRosterFoldProgress {
@@ -6090,6 +6103,7 @@ impl Mux {
     }
 
     fn run_agent_roster_fold_worker(mux: Weak<Self>) {
+        let mut projection_retry_attempts = 0u32;
         loop {
             let Some(mux) = mux.upgrade() else { return };
             if mux.shutting_down.load(Ordering::Acquire) {
@@ -6117,17 +6131,58 @@ impl Mux {
             match mux.fold_agent_roster_through(target_sequence) {
                 AgentRosterFoldProgress::MoreAvailable => {
                     // Keep each pass bounded and yield between pages so a
-                    // large restored journal cannot monopolize a core.
-                    std::thread::yield_now();
+                    // large restored journal cannot monopolize a core. Wait
+                    // on the journal signal rather than spinning; a commit
+                    // wakes this immediately while an old backlog advances
+                    // at a bounded cadence.
+                    projection_retry_attempts = 0;
+                    let epoch = mux.journal_event_epoch();
+                    mux.wait_for_journal_event(epoch, AGENT_ROSTER_FOLD_WORKER_BATCH_WAIT);
                 }
                 AgentRosterFoldProgress::WaitingForProjection => {
+                    // Retry the durable projection receipt. Each failed
+                    // attempt advances its persistent counter and eventually
+                    // quarantines an unresolvable row, which lets the
+                    // reducer move past it instead of polling forever.
+                    projection_retry_attempts = projection_retry_attempts.saturating_add(1);
+                    if let Err(error) = mux.retry_pending_agent_hooks() {
+                        eprintln!(
+                            "cmux-tui: retrying pending agent projections from the roster worker failed: {error}"
+                        );
+                    }
+                    if projection_retry_attempts >= AGENT_ROSTER_FOLD_WORKER_PROJECTION_RETRY_LIMIT
+                    {
+                        // Give the retry one final bounded fold pass. A
+                        // successful quarantine or cleanup clears the
+                        // counter and continues; only a still-pending row
+                        // stops the worker and reports recovery state.
+                        match mux.fold_agent_roster_through(target_sequence) {
+                            AgentRosterFoldProgress::ReachedTarget
+                            | AgentRosterFoldProgress::MoreAvailable => {
+                                projection_retry_attempts = 0;
+                                continue;
+                            }
+                            AgentRosterFoldProgress::WaitingForProjection => {
+                                mux.report_internal_diagnostic(
+                                    "agent roster replay paused after bounded projection retries; a later terminal-availability signal or restart will retry the pending event",
+                                );
+                                mux.mark_agent_roster_fold_worker_stopped();
+                                return;
+                            }
+                        }
+                    }
                     // A retry may clear the pending projection without
-                    // appending a journal row. The bounded timeout handles
-                    // that case while the epoch handles normal commits.
+                    // appending a journal row. The bounded exponential delay
+                    // handles repeated failures while the epoch handles
+                    // normal commits and successful cleanup wakes promptly.
                     let epoch = mux.journal_event_epoch();
-                    mux.wait_for_journal_event(epoch, AGENT_ROSTER_FOLD_WORKER_WAIT);
+                    mux.wait_for_journal_event(
+                        epoch,
+                        agent_roster_projection_retry_delay(projection_retry_attempts),
+                    );
                 }
                 AgentRosterFoldProgress::ReachedTarget => {
+                    projection_retry_attempts = 0;
                     // Close the worker only after a race-safe epoch/head
                     // handshake. A commit that arrives before the flag is
                     // cleared is either visible in the head or changes the
@@ -23627,6 +23682,7 @@ mod tests {
             records.get(&terminal_id).and_then(|record| record.agent.as_deref()),
             Some("claude")
         );
+        drop(records);
         reopened.shutdown();
         drop(reopened);
         std::fs::remove_dir_all(root).unwrap();
