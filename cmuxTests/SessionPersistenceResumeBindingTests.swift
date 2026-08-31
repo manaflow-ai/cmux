@@ -125,6 +125,66 @@ import Testing
     }
 
     @MainActor
+    @Test func localHookRefreshDoesNotApplyRetainedRemotePolicy() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        defer {
+            for workspace in manager.tabs {
+                workspace.teardownAllPanels()
+            }
+        }
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelID = try #require(workspace.focusedPanelId)
+        let sessionID = "workspace-execution-boundary"
+        let remoteBinding = SurfaceResumeBindingSnapshot(
+            kind: "grok",
+            command: "grok --resume \(sessionID)",
+            cwd: "/home/remote/project",
+            checkpointId: sessionID,
+            source: "agent-hook",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "grok",
+                executablePath: "grok",
+                arguments: ["grok", "--resume", sessionID],
+                workingDirectory: "/home/remote/project"
+            ),
+            restoreWorkingDirectorySelection: .exact("/home/remote/project"),
+            launchFlavor: .persistentSSH(SurfaceResumeRemoteContext(
+                workspaceID: workspace.id,
+                surfaceID: panelID,
+                persistentPTYSessionID: "workspace-remote-pty"
+            ))
+        )
+        workspace.surfaceResumeBindingsByPanelId[panelID] = remoteBinding
+        workspace.setRestoredAgentSnapshotForTesting(
+            SessionRestorableAgentSnapshot(
+                kind: .grok,
+                sessionId: sessionID,
+                workingDirectory: "/home/remote/project",
+                launchCommand: remoteBinding.launchCommand,
+                registration: .builtInGrok,
+                restoreWorkingDirectorySelection: .exact("/home/remote/project")
+            ),
+            panelId: panelID
+        )
+
+        let localRefresh = SurfaceResumeBindingSnapshot(
+            kind: "grok",
+            command: "grok --resume \(sessionID)",
+            checkpointId: sessionID,
+            source: "agent-hook",
+            launchFlavor: .local
+        )
+        #expect(workspace.setSurfaceResumeBinding(localRefresh, panelId: panelID))
+
+        let storedBinding = try #require(workspace.surfaceResumeBinding(panelId: panelID))
+        #expect(storedBinding.launchFlavor == .local)
+        #expect(storedBinding.restoreWorkingDirectorySelection == nil)
+        #expect(storedBinding.cwd == nil)
+        #expect(workspace.restoredAgentSnapshotsByPanelId[panelID]?.restoreWorkingDirectorySelection == nil)
+        #expect(workspace.restoredAgentSnapshotsByPanelId[panelID]?.workingDirectory == nil)
+    }
+
+    @MainActor
     @Test func resumeBindingSelectionChangesAutosaveFingerprint() throws {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         defer {
