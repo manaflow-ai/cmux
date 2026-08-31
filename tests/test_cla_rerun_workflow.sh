@@ -133,6 +133,7 @@ gh() {
       live_head_repo_id=100
       ;;
     stale-empty-execution) run_prs='[]'; run_sha=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb ;;
+    empty-mismatched-newer) run_prs='[]' ;;
     unbound-signer) ledger_id=401; ledger_login=other-signer; ledger_comment_id=901 ;;
     minimal-run-association) run_prs='[{"number":123,"base":{"ref":"main","repo":{"id":100}},"head":{"ref":"feature","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","repo":{"id":200}}}]' ;;
     wrong-run-association) run_prs='[{"number":124,"base":{"ref":"main","repo":{"id":100,"full_name":"manaflow-ai/cmux"}},"head":{"ref":"feature","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","repo":{"id":200,"full_name":"contributor/cmux"}}}]' ;;
@@ -207,6 +208,11 @@ gh() {
     repos/manaflow-ai/cmux/actions/workflows/300/runs)
       if [[ "${FAKE_MODE}" == paginated-runs && "${api_page}" == 1 ]]; then
         jq -nc '{workflow_runs:[range(0; 100) | {id:(1000 + .),workflow_id:300,path:".github/workflows/cla.yml",event:"pull_request_target",status:"completed",conclusion:"success",head_sha:"cccccccccccccccccccccccccccccccccccccccc",head_branch:"other",head_repository:{id:200,full_name:"contributor/cmux"},pull_requests:[],created_at:"2026-08-31T07:45:00Z"}]}'
+      elif [[ "${FAKE_MODE}" == empty-mismatched-newer ]]; then
+        jq -nc '{workflow_runs:[
+          {id:400,workflow_id:300,path:".github/workflows/cla.yml",event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",head_branch:"feature",head_repository:{id:200,full_name:"contributor/cmux"},pull_requests:[],created_at:"2026-08-31T07:00:00Z"},
+          {id:401,workflow_id:300,path:".github/workflows/cla.yml",event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",head_branch:"feature",head_repository:{id:200,full_name:"contributor/cmux"},pull_requests:[],created_at:"2026-08-31T07:30:00Z"}
+        ]}'
       elif [[ "${FAKE_MODE}" == duplicate-runs ]]; then
         jq -nc --arg head_repo "$run_head_repo" --argjson head_repo_id "$run_head_repo_id" --argjson head_repo_null "$run_head_repository_null" --arg run_sha "$run_sha" --arg path "$run_path" --argjson run_prs "$run_prs" \
           '{workflow_runs:[
@@ -225,7 +231,11 @@ gh() {
         run_id=401
         created_at=2026-08-31T07:30:00Z
       fi
-      jq -nc --argjson run_id "$run_id" --arg created_at "$created_at" --arg head_repo "$run_head_repo" --argjson head_repo_id "$run_head_repo_id" --argjson head_repo_null "$run_head_repository_null" --arg run_sha "$run_sha" --arg path "$run_path" --argjson run_prs "$run_prs" \
+      local detail_sha="$run_sha"
+      if [[ "${FAKE_MODE}" == empty-mismatched-newer ]]; then
+        if [[ "$run_id" == 400 ]]; then detail_sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; else detail_sha=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb; fi
+      fi
+      jq -nc --argjson run_id "$run_id" --arg created_at "$created_at" --arg head_repo "$run_head_repo" --argjson head_repo_id "$run_head_repo_id" --argjson head_repo_null "$run_head_repository_null" --arg run_sha "$detail_sha" --arg path "$run_path" --argjson run_prs "$run_prs" \
         '{id:$run_id,workflow_id:300,path:$path,event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:(if $head_repo_null then null else {id:$head_repo_id,full_name:$head_repo} end),pull_requests:$run_prs,created_at:$created_at}'
       ;;
     repos/manaflow-ai/cmux/actions/runs/400/jobs|repos/manaflow-ai/cmux/actions/runs/401/jobs)
@@ -235,8 +245,12 @@ gh() {
         run_id=401
         job_id=501
       fi
+      local jobs_sha="$run_sha"
+      if [[ "${FAKE_MODE}" == empty-mismatched-newer && "$run_id" == 400 ]]; then
+        jobs_sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      fi
       if [[ "${FAKE_MODE}" == paginated-jobs && "${api_page}" == 1 ]]; then
-        jq -nc --argjson run_id "$run_id" --arg run_sha "$run_sha" '{jobs:[range(0; 100) | {id:(1000 + .),run_id:$run_id,name:"unrelated",workflow_name:"CLA Assistant v2",status:"completed",conclusion:"success",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[]}]}'
+        jq -nc --argjson run_id "$run_id" --arg run_sha "$jobs_sha" '{jobs:[range(0; 100) | {id:(1000 + .),run_id:$run_id,name:"unrelated",workflow_name:"CLA Assistant v2",status:"completed",conclusion:"success",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[]}]}'
       elif [[ "${FAKE_MODE}" == compatibility-failed ]]; then
         jq -nc --argjson run_id "$run_id" --argjson job_id "$job_id" --arg marker "$marker" --arg run_sha "$run_sha" \
           '{jobs:[
@@ -256,7 +270,7 @@ gh() {
             {id:504,run_id:$run_id,name:"CLA Assistant",workflow_name:"CLA Assistant v2",status:"completed",conclusion:"cancelled",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[]}
           ]}'
       else
-        jq -nc --argjson run_id "$run_id" --argjson job_id "$job_id" --arg marker "$marker" --arg run_sha "$run_sha" --argjson omit "$omit_job_head_repository" \
+        jq -nc --argjson run_id "$run_id" --argjson job_id "$job_id" --arg marker "$marker" --arg run_sha "$jobs_sha" --argjson omit "$omit_job_head_repository" \
           '{jobs:[({id:$job_id,run_id:$run_id,name:"CLA Assistant v2",workflow_name:"CLA Assistant v2",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",steps:[{name:$marker,status:"completed",conclusion:"success"}]} + (if $omit then {} else {head_repository:null} end))]}'
       fi
       ;;
@@ -267,7 +281,11 @@ gh() {
         job_id=501
         run_id=401
       fi
-      jq -nc --argjson job_id "$job_id" --argjson run_id "$run_id" --arg marker "$marker" --arg run_sha "$run_sha" --argjson omit "$omit_job_head_repository" \
+      local job_sha="$run_sha"
+      if [[ "${FAKE_MODE}" == empty-mismatched-newer && "$run_id" == 400 ]]; then
+        job_sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      fi
+      jq -nc --argjson job_id "$job_id" --argjson run_id "$run_id" --arg marker "$marker" --arg run_sha "$job_sha" --argjson omit "$omit_job_head_repository" \
         '({id:$job_id,run_id:$run_id,name:"CLA Assistant v2",workflow_name:"CLA Assistant v2",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",steps:[{name:$marker,status:"completed",conclusion:"success"}]} + (if $omit then {} else {head_repository:null} end))'
       ;;
     *)
@@ -356,6 +374,7 @@ run_case paginated-runs 0 "Requested rerun for CLA job 500 in workflow run 400" 
 run_case paginated-jobs 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case empty-different-execution-associated 1 "no pull request association and its execution SHA does not match" 0
 run_case stale-empty-execution 1 "no pull request association and its execution SHA does not match" 0
+run_case empty-mismatched-newer 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case wrong-run-association 0 "No failed CLA run exists for this pull request head" 0
 run_case malformed-run-association 0 "No failed CLA run exists for this pull request head" 0
 run_case invalid-run-association 0 "No failed CLA run exists for this pull request head" 0

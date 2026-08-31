@@ -371,6 +371,7 @@ if ! candidate_list_json="$(jq -c \
            else null end) as $prs
         | if $prs == null then false
           elif ($prs | length) == 0 then
+            .head_sha == $sha and
             .head_branch == $head_ref and
             (
               ((.head_repository | type) == "object" and
@@ -381,10 +382,9 @@ if ! candidate_list_json="$(jq -c \
                $head_repo == $repo and
                $head_repo_id == $repo_id)
             )
-            # The source-commit association is checked again after
-            # selecting the run when its execution SHA differs.
-            # Keep the candidate discoverable so a valid GitHub
-            # association can prove that execution identity.
+            # Empty associations are eligible only for the exact current
+            # source SHA. A base or merge SHA must never shadow an older
+            # eligible run for this pull request.
           else any($prs[]?;
             (.number | type == "number") and
             (.number | tostring) == $pr and
@@ -427,6 +427,59 @@ fi
 candidate_count="$(jq -r 'length' <<<"${candidate_list_json}")"
 [[ "${candidate_count}" =~ ^[0-9]+$ ]] || fail "Could not count matching CLA workflow runs"
 if [[ "${candidate_count}" == "0" ]]; then
+  # Do not silently treat a failed run with an empty association and a
+  # different execution SHA as a successful no-op. It is not eligible for a
+  # rerun, but it still needs an explicit fail-closed migration/error path.
+  # Runs with the exact source SHA are handled by the candidate query above;
+  # this count therefore only catches mismatched runs that would otherwise be
+  # indistinguishable from an absent check.
+  empty_execution_mismatch_count="$(jq -r \
+    --arg path "${WORKFLOW_PATH}" \
+    --arg event "${TARGET_EVENT}" \
+    --arg sha "${head_sha}" \
+    --arg workflow_id "${workflow_id}" \
+    --arg repo "${GH_REPO}" \
+    --arg head_repo "${head_repo}" \
+    --argjson head_repo_id "${head_repo_id}" \
+    --argjson repo_id "${repo_id}" \
+    --arg head_ref "${head_ref}" \
+    --arg before "${COMMENT_CREATED_AT}" \
+    '[ .[] | .workflow_runs[]?
+      | select(
+          (.path == $path or
+           ((.path | startswith($path + "@")) and
+            ((.path | length) > (($path | length) + 1)))) and
+          .event == $event and
+          (.workflow_id | type == "number") and
+          .workflow_id == ($workflow_id | tonumber) and
+          (.head_sha | type == "string") and
+          (.head_sha | test("^[0-9a-f]{40}$")) and
+          .head_sha != $sha and
+          (.id | type == "number") and
+          .id > 0 and
+          .status == "completed" and
+          .conclusion == "failure" and
+          (.created_at | type == "string") and
+          .created_at <= $before and
+          .head_branch == $head_ref and
+          (.pull_requests == null or
+           ((.pull_requests | type) == "array" and
+            (.pull_requests | length) == 0)) and
+          (
+            ((.head_repository | type) == "object" and
+             .head_repository.full_name == $head_repo and
+             (.head_repository.id | type == "number") and
+             .head_repository.id == $head_repo_id) or
+            (.head_repository == null and
+             $head_repo == $repo and
+             $head_repo_id == $repo_id)
+          )
+        )
+    ] | length' <<<"${runs_json}")"
+  [[ "${empty_execution_mismatch_count}" =~ ^[0-9]+$ ]] || fail "Could not count unbound CLA workflow runs"
+  if (( empty_execution_mismatch_count > 0 )); then
+    fail "The workflow run has no pull request association and its execution SHA does not match the current pull request head"
+  fi
   # A run from before this workflow generation cannot be safely
   # rerun: GitHub reruns the old workflow revision, which could
   # execute the archived action or an obsolete policy. Distinguish
@@ -452,6 +505,7 @@ if [[ "${candidate_count}" == "0" ]]; then
           else null end) as $prs
        | if $prs == null then false
          elif ($prs | length) == 0 then
+           .head_sha == $sha and
            .head_branch == $head_ref and
            (
              ((.head_repository | type) == "object" and
