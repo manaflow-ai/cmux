@@ -119,6 +119,9 @@ describe("jobs page", () => {
     expect(html).not.toContain("Come build with us.");
     expect(html).not.toContain("border-t");
     expect(html).not.toContain("border-y");
+    expect(html).not.toMatch(/<p[^>]*>Jobs<\/p>/);
+    expect(html).not.toContain("details-title");
+    expect(html.match(/<aside aria-label="Details"/g)).toHaveLength(2);
     expect(html).toContain("focus-visible:outline-2");
     expect(html).toContain('aria-labelledby="jobs-title"');
   });
@@ -146,6 +149,8 @@ describe("jobs page", () => {
     expect(html).not.toContain("cmux について");
     expect(html).not.toContain("募集中のポジション");
     expect(html).not.toContain("興味がありますか？");
+    expect(html).not.toMatch(/<p[^>]*>採用情報<\/p>/);
+    expect(html.match(/<aside aria-label="詳細"/g)).toHaveLength(2);
     expect(html).not.toContain("What you'll do");
   });
 
@@ -203,6 +208,10 @@ describe("jobs page", () => {
       expect(html).toContain(catalog.jobs.title);
       expect(html).toContain(catalog.jobs.foundingDesigner.title);
       expect(html).toContain(catalog.jobs.applyCta);
+      expect(html).not.toMatch(
+        new RegExp(`<p[^>]*>${escapeRegExp(catalog.jobs.section)}<\\/p>`),
+      );
+      expect(html).toContain(`aria-label="${catalog.jobs.details}"`);
       expect(html).toContain(
         `mailto:founders@cmux.com?subject=${encodeURIComponent(
           catalog.jobs.applyEmailSubject,
@@ -494,4 +503,8 @@ function expectedAlternates(path: string, locale: Locale) {
         : `https://cmux.com/${locale}${path}`,
     languages,
   };
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

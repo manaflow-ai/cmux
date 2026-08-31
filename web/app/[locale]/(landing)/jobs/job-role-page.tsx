@@ -106,12 +106,9 @@ export function JobsPageContent() {
         className="mx-auto w-full max-w-6xl px-6 py-14 sm:py-20"
       >
         <header className="max-w-3xl">
-          <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted">
-            {t("section")}
-          </p>
           <h1
             id="jobs-title"
-            className="mt-4 text-4xl font-medium tracking-[-0.04em] text-balance sm:text-6xl"
+            className="text-4xl font-medium tracking-[-0.04em] text-balance sm:text-6xl"
           >
             {t("eyebrow")}
           </h1>
@@ -199,18 +196,11 @@ function JobRoleSection({
         </div>
 
         <aside
-          aria-labelledby={`${roleId}-details-title`}
+          aria-label={t("details")}
           className="order-first self-start lg:order-last lg:sticky lg:top-20"
         >
           <div className="bg-code-bg/50 p-5 sm:p-6">
-            <h3
-              id={`${roleId}-details-title`}
-              className="text-xs font-medium uppercase tracking-[0.14em] text-muted"
-            >
-              {t("details")}
-            </h3>
-
-            <dl className="mt-6 space-y-4 text-sm">
+            <dl className="space-y-4 text-sm">
               <div>
                 <dt className="text-muted">{t("compensationLabel")}</dt>
                 <dd className="mt-1 font-medium tabular-nums">
