@@ -42,19 +42,22 @@ gh() {
 
   case "${FAKE_MODE}" in
     exact)
-      jq -nc --arg phrase "$CLA_SIGN_PHRASE" '[[{id:1,body:$phrase,user:{login:"alice"}}]]'
+      jq -nc --arg phrase "$CLA_SIGN_PHRASE" '[[{id:1,body:$phrase,user:{login:"alice",type:"User"}}]]'
       ;;
     padded)
-      jq -nc --arg phrase "  $CLA_SIGN_PHRASE  " '[[{id:1,body:$phrase,user:{login:"alice"}}]]'
+      jq -nc --arg phrase "  $CLA_SIGN_PHRASE  " '[[{id:1,body:$phrase,user:{login:"alice",type:"User"}}]]'
       ;;
     lowercase)
-      jq -nc --arg phrase "$CLA_SIGN_PHRASE" '[[{id:1,body:($phrase|ascii_downcase),user:{login:"alice"}}]]'
+      jq -nc --arg phrase "$CLA_SIGN_PHRASE" '[[{id:1,body:($phrase|ascii_downcase),user:{login:"alice",type:"User"}}]]'
       ;;
     wrapped)
-      jq -nc --arg phrase "$CLA_SIGN_PHRASE" '[[{id:1,body:("prefix " + $phrase + " suffix"),user:{login:"alice"}}]]'
+      jq -nc --arg phrase "$CLA_SIGN_PHRASE" '[[{id:1,body:("prefix " + $phrase + " suffix"),user:{login:"alice",type:"User"}}]]'
       ;;
     unrelated)
-      jq -nc '[[{id:1,body:"Thanks for the review",user:{login:"alice"}}]]'
+      jq -nc '[[{id:1,body:"Thanks for the review",user:{login:"alice",type:"User"}}]]'
+      ;;
+    bot-exact)
+      jq -nc --arg phrase "$CLA_SIGN_PHRASE" '[[{id:1,body:$phrase,user:{login:"release[bot]",type:"Bot"}}]]'
       ;;
     too-many)
       jq -nc --arg phrase "$CLA_SIGN_PHRASE" '[range(0;1001) | {id:.,body:$phrase,user:{login:"alice"}}] | [.]'
@@ -96,5 +99,6 @@ run_case unrelated 0 ""
 run_case padded 1 "historical pull request comment"
 run_case lowercase 1 "historical pull request comment"
 run_case wrapped 1 "historical pull request comment"
+run_case bot-exact 1 "historical pull request comment"
 run_case too-many 1 "comment limit"
 run_case api-failure 1 "Could not query pull request comments"

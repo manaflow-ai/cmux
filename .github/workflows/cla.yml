@@ -160,10 +160,14 @@ jobs:
               | (.body // "") as $body
               | ($body | ascii_downcase | gsub("^\\s+|\\s+$"; "")) as $normalized
               | ($phrase | ascii_downcase) as $expected
-              | select($body != $phrase)
               | select(
                   $normalized == $expected or
                   ($normalized | test("^.*i\\s*have\\s*read\\s*the\\s*cla\\s*document\\s*and\\s*i\\s*hereby\\s*sign\\s*the\\s*cla.*$"))
+                )
+              | select(
+                  $body != $phrase or
+                  ((.user.type // "") != "User") or
+                  (((.user.login // "") | ascii_downcase) | endswith("[bot]"))
                 )
               | {id: (.id // 0), author: (.user.login // "unknown")}
             ]
