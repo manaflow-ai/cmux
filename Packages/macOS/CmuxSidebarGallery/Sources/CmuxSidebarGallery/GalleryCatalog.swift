@@ -53,8 +53,6 @@ struct GalleryCatalog {
         ("sidebar drag fix", "fix/sidebar-drag-failsafe", "~/repos/cmux"),
         ("ghostty", "cmux-fork", "~/repos/ghostty"),
         ("dragnet", "feat/drag-reorder", "~/repos/dragnet"),
-        ("web", "main", "~/repos/cmux/web"),
-        ("daemon", "main", "~/repos/cmux/daemon"),
     ]
 
     @ViewBuilder
@@ -70,11 +68,75 @@ struct GalleryCatalog {
         }
     }
 
+    /// The full rail contents: filter field, rows, footer action.
+    @ViewBuilder
+    static func railContents(
+        mode: SidebarPresentationMode,
+        filter: SidebarFilterFieldModel,
+        activeIndex: Int = 1
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 4) {
+                field(filter, isFocused: filter.hasQuery)
+                SidebarPresentationToggleButton(mode: mode, accent: accent, onToggle: {})
+                    .padding(.trailing, 8)
+            }
+            .padding(.top, 10)
+
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(Array(workspaces.enumerated()), id: \.offset) { index, workspace in
+                    GalleryMockRow(
+                        title: workspace.0,
+                        branch: workspace.1,
+                        directory: workspace.2,
+                        isActive: index == activeIndex
+                    )
+                }
+            }
+            .padding(.top, 8)
+
+            Spacer(minLength: 8)
+            Divider().opacity(0.4).padding(.horizontal, 8)
+            SidebarNewWorkspaceButton(accent: accent, onCreate: {})
+                .padding(.vertical, 6)
+        }
+    }
+
+    static let sceneWidth: CGFloat = 620
+    static let sceneHeight: CGFloat = 400
+    static let railWidth: CGFloat = 260
+
+    /// The floating panel over mock terminal content, as it appears on reveal.
+    static func floatingOverContent(filter: SidebarFilterFieldModel) -> some View {
+        ZStack(alignment: .topLeading) {
+            GalleryTerminalBackdrop()
+            SidebarPeekPanelChrome {
+                railContents(mode: .floating, filter: filter)
+                    .frame(maxHeight: .infinity, alignment: .top)
+            }
+            .frame(width: railWidth + SidebarPeekPanelMetrics.default.leadingInset)
+        }
+        .frame(width: sceneWidth, height: sceneHeight)
+        .clipped()
+    }
+
+    /// The docked sidebar beside the same content, for the mode comparison.
+    static func dockedBesideContent(filter: SidebarFilterFieldModel) -> some View {
+        HStack(spacing: 0) {
+            railContents(mode: .docked, filter: filter)
+                .frame(width: railWidth)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .background(Color.primary.opacity(0.04))
+            Divider().opacity(0.5)
+            GalleryTerminalBackdrop()
+        }
+        .frame(width: sceneWidth, height: sceneHeight)
+        .clipped()
+    }
+
     static func scenes() -> [GalleryScene] {
-        [
-            GalleryScene(name: "filter-field-idle") {
-                field(SidebarFilterFieldModel(queryText: "", matchCount: 24, totalCount: 24))
-            },
+        let resting = SidebarFilterFieldModel(queryText: "", matchCount: 6, totalCount: 6)
+        return [
             GalleryScene(name: "filter-field-scoped") {
                 field(
                     SidebarFilterFieldModel(
@@ -85,20 +147,6 @@ struct GalleryCatalog {
                     ),
                     isFocused: true
                 )
-            },
-            GalleryScene(name: "rail-resting", width: 260) {
-                rail {
-                    field(SidebarFilterFieldModel(queryText: "", matchCount: 6, totalCount: 6))
-                } content: {
-                    ForEach(Array(workspaces.enumerated()), id: \.offset) { index, workspace in
-                        GalleryMockRow(
-                            title: workspace.0,
-                            branch: workspace.1,
-                            directory: workspace.2,
-                            isActive: index == 1
-                        )
-                    }
-                }
             },
             GalleryScene(name: "rail-filtering", width: 260) {
                 rail {
@@ -131,6 +179,12 @@ struct GalleryCatalog {
                 } content: {
                     SidebarFilterEmptyStateView(queryText: "zzzz", accent: accent, onClear: {})
                 }
+            },
+            GalleryScene(name: "peek-floating", width: sceneWidth) {
+                floatingOverContent(filter: resting)
+            },
+            GalleryScene(name: "peek-docked", width: sceneWidth) {
+                dockedBesideContent(filter: resting)
             },
         ]
     }
