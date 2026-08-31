@@ -41,10 +41,11 @@ run_case() {
   local comment_body=recheck
   local output status
   case "$mode" in
-    exact-sign) comment_body='I have read the CLA Document and I hereby sign the CLA' ;;
+    exact-sign) comment_body='I have read the CLA Document v2.2 and I hereby sign the CLA' ;;
+    legacy-sign) comment_body='I have read the CLA Document and I hereby sign the CLA' ;;
     uppercase-recheck) comment_body=RECHECK ;;
-    padded-sign) comment_body=' I have read the CLA Document and I hereby sign the CLA ' ;;
-    wrapped-sign) comment_body='Please sign: I have read the CLA Document and I hereby sign the CLA' ;;
+    padded-sign) comment_body=' I have read the CLA Document v2.2 and I hereby sign the CLA ' ;;
+    wrapped-sign) comment_body='Please sign: I have read the CLA Document v2.2 and I hereby sign the CLA' ;;
     pull-opened) event_name=pull_request_target; event_action=opened; comment_body='' ;;
     pull-reopened) event_name=pull_request_target; event_action=reopened; comment_body='' ;;
     pull-synchronize) event_name=pull_request_target; event_action=synchronize; comment_body='' ;;
@@ -75,6 +76,7 @@ run_case() {
 
 run_case exact-recheck 0 ""
 run_case exact-sign 0 ""
+run_case legacy-sign 1 "exact CLA declaration"
 run_case uppercase-recheck 1 "exact CLA declaration"
 run_case padded-sign 1 "exact CLA declaration"
 run_case wrapped-sign 1 "exact CLA declaration"

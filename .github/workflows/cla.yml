@@ -49,7 +49,7 @@ jobs:
           set -euo pipefail
           if [[ "${EVENT_NAME}" == "issue_comment" ]]; then
             if [[ "${COMMENT_BODY}" != "recheck" &&
-                  "${COMMENT_BODY}" != "I have read the CLA Document and I hereby sign the CLA" ]]; then
+                  "${COMMENT_BODY}" != "I have read the CLA Document v2.2 and I hereby sign the CLA" ]]; then
               echo "::error::The comment is not an exact CLA declaration or recheck command"
               exit 1
             fi
@@ -92,7 +92,7 @@ jobs:
           github.event.issue.pull_request &&
           (
             github.event.comment.body == 'recheck' ||
-            github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA'
+                github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA'
           )
         )
       )
@@ -127,7 +127,7 @@ jobs:
           # Check the complete body in a shell before the action can record a
           # signature. `recheck` is the only other accepted trigger.
           if [[ "${EVENT_COMMENT_BODY}" != "recheck" &&
-                "${EVENT_COMMENT_BODY}" != "I have read the CLA Document and I hereby sign the CLA" ]]; then
+                "${EVENT_COMMENT_BODY}" != "I have read the CLA Document v2.2 and I hereby sign the CLA" ]]; then
             echo "::error::The comment is not an exact CLA declaration or recheck command"
             exit 1
           fi
@@ -190,7 +190,7 @@ jobs:
         # so a branch move cannot change the code executed by this workflow.
         # The fork's default branch must be protected before this check is made
         # required in repository rulesets.
-        uses: manaflow-ai/cla-github-action@b7a9d19a189cb373b70454143eebeb71ffdb524e
+        uses: manaflow-ai/cla-github-action@0b53543e4462accbdde6edc1329482130f9384b8
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -208,7 +208,10 @@ jobs:
           required-base-ref: 'main'
           # Require the exact phrase below. Raw-name allowlists are disabled;
           # commit metadata is not authenticated identity evidence.
-          custom-pr-sign-comment: 'I have read the CLA Document and I hereby sign the CLA'
+          custom-pr-sign-comment: 'I have read the CLA Document v2.2 and I hereby sign the CLA'
+          # Bot-opened PRs are intentionally fail-closed. Add only a reviewed
+          # numeric opener ID to allowlist-ids for an approved automation flow.
+          require-opener-as-author: 'true'
 
   RerunFailedCLA:
     name: "Rerun failed CLA check"
@@ -223,7 +226,7 @@ jobs:
       github.event.issue.pull_request &&
       (
         github.event.comment.body == 'recheck' ||
-        github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA'
+        github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA'
       )
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
@@ -273,7 +276,7 @@ jobs:
           [[ "${EVENT_NAME}" == "issue_comment" ]] || fail "Unexpected event for CLA rerun"
           [[ "${ISSUE_NUMBER}" =~ ^[1-9][0-9]*$ ]] || fail "Invalid issue number"
           [[ "${PR_NUMBER}" == "${ISSUE_NUMBER}" ]] || fail "Issue and pull request numbers differ"
-          [[ "${COMMENT_BODY}" == "recheck" || "${COMMENT_BODY}" == "I have read the CLA Document and I hereby sign the CLA" ]] || fail "Comment is not an accepted CLA trigger"
+          [[ "${COMMENT_BODY}" == "recheck" || "${COMMENT_BODY}" == "I have read the CLA Document v2.2 and I hereby sign the CLA" ]] || fail "Comment is not an accepted CLA trigger"
           [[ "${COMMENT_CREATED_AT}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || fail "Invalid comment timestamp"
           [[ -n "${COMMENT_AUTHOR_LOGIN}" ]] || fail "Comment author is missing"
           [[ "${COMMENT_AUTHOR_TYPE}" == "User" ]] || fail "Comment author is not a human user"

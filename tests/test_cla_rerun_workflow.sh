@@ -212,7 +212,7 @@ run_case() {
     comment_author=untrusted-user
   elif [[ "$mode" == external-signer ]]; then
     comment_author=coauthor
-    comment_body='I have read the CLA Document and I hereby sign the CLA'
+    comment_body='I have read the CLA Document v2.2 and I hereby sign the CLA'
   fi
   : >"$work/posts-$mode"
   printf '0\n' >"$work/association-$mode"
