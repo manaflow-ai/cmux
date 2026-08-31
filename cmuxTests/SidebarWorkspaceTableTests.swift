@@ -236,6 +236,45 @@ struct SidebarWorkspaceTableTests {
 
     @Test
     @MainActor
+    func rowHeightCacheIgnoresContrastOnlyEnvironmentChanges() {
+        let cache = SidebarWorkspaceTableRowHeightCache()
+        let workspaceId = UUID()
+        var measurementCount = 0
+        let measure: SidebarWorkspaceTableRowHeightCache.Measurement = { _, _ in
+            measurementCount += 1
+            return 44
+        }
+        let original = makeRowConfiguration(workspaceId: workspaceId)
+        let contrastEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
+            environment: .sidebarTableTestValues(
+                colorScheme: .light,
+                colorSchemeContrast: .increased
+            ),
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe()
+        )
+        let contrastChanged = SidebarWorkspaceTableRowConfiguration(
+            id: .workspace(workspaceId),
+            workspaceId: workspaceId,
+            groupId: nil,
+            isGroupHeader: false,
+            isPinned: false,
+            environment: contrastEnvironment,
+            equivalenceValue: TestRowContent(token: 0, fixedHeight: nil)
+        ) { _, _ in
+            AnyView(TestRowContent(token: 0, fixedHeight: nil))
+        }
+
+        _ = cache.prepare(rows: [original], columnWidth: 200, measure: measure)
+        let changes = cache.prepare(rows: [contrastChanged], columnWidth: 200, measure: measure)
+
+        #expect(measurementCount == 1)
+        #expect(changes.isEmpty)
+        #expect(cache.height(for: contrastChanged, columnWidth: 200) == 44)
+    }
+
+    @Test
+    @MainActor
     func cachedHeightQueriesDuringScrollNeverMeasure() {
         let cache = SidebarWorkspaceTableRowHeightCache()
         let row = makeRowConfiguration()
