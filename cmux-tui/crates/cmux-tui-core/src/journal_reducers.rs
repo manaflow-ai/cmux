@@ -1036,6 +1036,68 @@ mod tests {
     }
 
     #[test]
+    fn late_observation_from_an_exited_plugin_generation_cannot_recreate_a_row() {
+        let subjects = terminal_subject("term_a");
+        let payload = |observed_at_ms: u64| {
+            json!({
+                "format": AGENT_PLUGIN_FORMAT,
+                "plugin": {"id":"screen_detector","version":1},
+                "adapter": {"id":"codex","version":1},
+                "event":"state.changed",
+                "normalized": {
+                    "state":"working",
+                    "source_session":"pid:42",
+                    "plugin_generation":"1",
+                    "observed_at_ms": observed_at_ms.to_string()
+                }
+            })
+        };
+        let mut roster = AgentRoster::default();
+        let first = payload(100);
+        roster.apply(&RosterEvent {
+            producer_id: "screen_detector",
+            kind: "plugin.screen_detector.agent.state.changed",
+            subjects: &subjects,
+            payload: &first,
+            committed_at_ms: 100,
+        });
+        let exit = json!({
+            "format": crate::agent_hooks::AGENT_HOOK_FORMAT,
+            "adapter":{"id":"cmux","version":1},
+            "native_event": crate::agent_hooks::AGENT_PLUGIN_EXIT_NATIVE_EVENT,
+            "normalized": {
+                "plugin_id":"screen_detector",
+                "plugin_generation":"1",
+                "observed_at_ms":"200"
+            },
+            "native":{}
+        });
+        assert_eq!(
+            roster.apply(&RosterEvent {
+                producer_id: AGENT_HOOK_PRODUCER_ID,
+                kind: "agent.plugin.exited",
+                subjects: &[],
+                payload: &exit,
+                committed_at_ms: 200,
+            }),
+            vec![RosterDelta::Remove { terminal_id: "term_a".into(), source: AgentSource::Plugin }]
+        );
+        let late = payload(300);
+        assert!(
+            roster
+                .apply(&RosterEvent {
+                    producer_id: "screen_detector",
+                    kind: "plugin.screen_detector.agent.state.changed",
+                    subjects: &subjects,
+                    payload: &late,
+                    committed_at_ms: 300,
+                })
+                .is_empty()
+        );
+        assert!(!roster.entries.contains_key("term_a"));
+    }
+
+    #[test]
     fn untagged_plugin_exit_cannot_remove_a_tagged_child() {
         let subjects = terminal_subject("term_a");
         let payload = json!({
