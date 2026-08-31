@@ -602,6 +602,21 @@ extension Workspace {
                     if !confirmedRuntimeProcessIdentities.isEmpty {
                         return true
                     }
+                    let matchingObservation = restorableAgentObservation?.matchingAgentSession(
+                        kind: bindingKind.rawValue,
+                        sessionId: bindingSessionId
+                    )
+                    let matchesEffectiveRestorableAgent = effectiveRestorableAgent.map {
+                        $0.kind.rawValue == bindingKind.rawValue &&
+                            ManagedAgentSessionIdentity.sessionIDsMatch(
+                                kind: bindingKind.rawValue,
+                                lhs: $0.sessionId,
+                                rhs: bindingSessionId
+                            )
+                    } == true
+                    guard matchesEffectiveRestorableAgent || matchingObservation != nil else {
+                        return false
+                    }
                     // Remote hook reports are authoritative for the host-side
                     // process, but the local process census has no entry for
                     // that process. Preserve the command-running evidence so
@@ -610,19 +625,14 @@ extension Workspace {
                     // inspect the remote PID.
                     if isRemoteTerminalSurface(panelId),
                        panelShellActivityStates[panelId] == .commandRunning {
+                        // A definitive exited observation wins over a stale
+                        // shell-state value left by an unrelated command.
+                        guard matchingObservation?.processLiveness != .exited else {
+                            return false
+                        }
                         return true
                     }
-                    let matchingObservation = restorableAgentObservation?.matchingAgentSession(
-                        kind: bindingKind.rawValue,
-                        sessionId: bindingSessionId
-                    )
                     guard let effectiveRestorableAgent,
-                          effectiveRestorableAgent.kind.rawValue == bindingKind.rawValue,
-                          ManagedAgentSessionIdentity.sessionIDsMatch(
-                              kind: bindingKind.rawValue,
-                              lhs: effectiveRestorableAgent.sessionId,
-                              rhs: bindingSessionId
-                          ),
                           let matchingObservation else {
                         return false
                     }
