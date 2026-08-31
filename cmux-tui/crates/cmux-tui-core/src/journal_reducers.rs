@@ -315,7 +315,10 @@ impl AgentRoster {
                 .unwrap_or_else(|| format!("legacy:{terminal_id}:{}", event.sequence));
             if let Some(fence) = previous_fence.as_ref() {
                 if fence.session_id == session_id {
-                    if fence.ended || event.sequence <= fence.sequence {
+                    // A provider may reuse its native session id. A newer
+                    // explicit session start reopens that lifecycle, while
+                    // all other ended-fence records remain rejected.
+                    if (fence.ended && !is_session_start) || event.sequence <= fence.sequence {
                         return Vec::new();
                     }
                 } else if !is_session_start || !fence.ended || event.sequence <= fence.sequence {
