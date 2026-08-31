@@ -395,6 +395,19 @@ done
 run_window_full=false
 (( page_count == 100 )) && run_window_full=true
 
+# `pull_requests` is optional for fork runs, but when GitHub sends it, the
+# field must keep its documented array shape. Treat a changed or malformed
+# response as an infrastructure error. Silently treating it as an unmatched
+# run could strand a required failed check with no recovery path.
+if ! jq -e '
+  all(.[] | .workflow_runs[]?;
+    (type == "object") and
+    (.pull_requests == null or (.pull_requests | type == "array"))
+  )
+' <<<"${runs_json}" >/dev/null; then
+  fail "The CLA workflow returned malformed pull request associations"
+fi
+
 if ! candidate_list_json="$(jq -c \
     --arg path "${WORKFLOW_PATH}" \
     --arg event "${TARGET_EVENT}" \

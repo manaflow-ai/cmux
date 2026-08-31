@@ -434,8 +434,8 @@ run_case empty-different-execution-associated 1 "no pull request association and
 run_case stale-empty-execution 1 "no pull request association and its execution SHA does not match" 0
 run_case empty-mismatched-newer 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case wrong-run-association 0 "No failed CLA run exists for this pull request head" 0
-run_case malformed-run-association 0 "No failed CLA run exists for this pull request head" 0
-run_case invalid-run-association 0 "No failed CLA run exists for this pull request head" 0
+run_case malformed-run-association 1 "malformed pull request associations" 0
+run_case invalid-run-association 1 "malformed pull request associations" 0
 run_case stale-marker 1 "older workflow generation" 0
 run_case unrelated-main-commit 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case wrong-head-repo 0 "No failed CLA run exists for this pull request head" 0
