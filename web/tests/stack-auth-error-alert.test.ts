@@ -133,7 +133,7 @@ describe("Stack Auth async error alerts", () => {
 
     const message = await captureAlert(error);
     expect(message).toContain("An unhandled error occurred.");
-    expect(message).not.toContain(error.message);
+    expect(message).toContain(error.message);
   });
 
   test("keeps unknown errors generic when the environment is unavailable", async () => {
@@ -142,6 +142,13 @@ describe("Stack Auth async error alerts", () => {
 
     const message = await captureAlert(error);
     expect(message).toContain("An unhandled error occurred.");
-    expect(message).not.toContain(error.message);
+    expect(message).toContain(error.message);
+  });
+
+  test("preserves actionable known errors in an explicit production environment", async () => {
+    mutableProcessEnv.NODE_ENV = "production";
+    const error = new KnownErrors.EmailNotVerified();
+
+    expect(await captureAlert(error)).toBe(error.message);
   });
 });

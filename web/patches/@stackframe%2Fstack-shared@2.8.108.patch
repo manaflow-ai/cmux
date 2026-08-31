@@ -1,16 +1,15 @@
 diff --git a/dist/esm/utils/promises.js b/dist/esm/utils/promises.js
-index dd4213217eebd069805c9a6c8f5258e9b68795ef..ffda54dc9fef4acd737b5793ac1ca91a6a691f89 100644
+index dd4213217eebd069805c9a6c8f5258e9b68795ef..fc9980c061846d079c34e94e38e7f6f97e70ec31 100644
 --- a/dist/esm/utils/promises.js
 +++ b/dist/esm/utils/promises.js
-@@ -220,8 +220,24 @@ function runAsynchronouslyWithAlert(...args) {
+@@ -220,6 +220,24 @@ function runAsynchronouslyWithAlert(...args) {
  		...args[1],
  		onError: (error) => {
  			const nodeEnv = getProcessEnv("NODE_ENV");
--			if (KnownError.isKnownError(error) && nodeEnv?.includes("production")) alert(error.message);
--			else alert(`An unhandled error occurred. Please ${nodeEnv === "development" ? `check the browser console for the full error.` : "report this to the developer."}\n\n${error}`);
++			const knownError = KnownError.isKnownError(error);
 +			const productionLike = nodeEnv === undefined || nodeEnv.includes("production");
 +			if (
-+				KnownError.isKnownError(error) &&
++				knownError &&
 +				productionLike &&
 +				error.errorCode === "USER_EMAIL_ALREADY_EXISTS" &&
 +				typeof window !== "undefined"
@@ -23,25 +22,23 @@ index dd4213217eebd069805c9a6c8f5258e9b68795ef..ffda54dc9fef4acd737b5793ac1ca91a
 +					if (value) url.searchParams.set(name, value);
 +				}
 +				window.location.replace(url.toString());
-+			} else {
-+				alert(`An unhandled error occurred. Please ${nodeEnv === "development" ? `check the browser console for the full error.` : "report this to the developer."}`);
++				return;
 +			}
+ 			if (KnownError.isKnownError(error) && nodeEnv?.includes("production")) alert(error.message);
+ 			else alert(`An unhandled error occurred. Please ${nodeEnv === "development" ? `check the browser console for the full error.` : "report this to the developer."}\n\n${error}`);
  			args[1]?.onError?.(error);
- 		}
- 	}, ...args.slice(2));
 diff --git a/dist/utils/promises.js b/dist/utils/promises.js
-index c0092a18c833071ca870ff54571eed0d39b217ca..423ad6a5d242618d8871508354d291097ee129ca 100644
+index c0092a18c833071ca870ff54571eed0d39b217ca..b5ca2699c80d9d7d9583711bff199bac454c2769 100644
 --- a/dist/utils/promises.js
 +++ b/dist/utils/promises.js
-@@ -222,8 +222,24 @@ function runAsynchronouslyWithAlert(...args) {
+@@ -222,6 +222,24 @@ function runAsynchronouslyWithAlert(...args) {
  		...args[1],
  		onError: (error) => {
  			const nodeEnv = (0, __env_js.getProcessEnv)("NODE_ENV");
--			if (___index_js.KnownError.isKnownError(error) && nodeEnv?.includes("production")) alert(error.message);
--			else alert(`An unhandled error occurred. Please ${nodeEnv === "development" ? `check the browser console for the full error.` : "report this to the developer."}\n\n${error}`);
++			const knownError = ___index_js.KnownError.isKnownError(error);
 +			const productionLike = nodeEnv === undefined || nodeEnv.includes("production");
 +			if (
-+				___index_js.KnownError.isKnownError(error) &&
++				knownError &&
 +				productionLike &&
 +				error.errorCode === "USER_EMAIL_ALREADY_EXISTS" &&
 +				typeof window !== "undefined"
@@ -54,9 +51,8 @@ index c0092a18c833071ca870ff54571eed0d39b217ca..423ad6a5d242618d8871508354d29109
 +					if (value) url.searchParams.set(name, value);
 +				}
 +				window.location.replace(url.toString());
-+			} else {
-+				alert(`An unhandled error occurred. Please ${nodeEnv === "development" ? `check the browser console for the full error.` : "report this to the developer."}`);
++				return;
 +			}
+ 			if (___index_js.KnownError.isKnownError(error) && nodeEnv?.includes("production")) alert(error.message);
+ 			else alert(`An unhandled error occurred. Please ${nodeEnv === "development" ? `check the browser console for the full error.` : "report this to the developer."}\n\n${error}`);
  			args[1]?.onError?.(error);
- 		}
- 	}, ...args.slice(2));
