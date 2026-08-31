@@ -534,12 +534,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// connection resets so an older reconciliation cannot match newer state.
     @ObservationIgnored var caffeineStatusRevision: UInt64 = 0
     /// Keep-awake state for live CONTROL (secondary) connections, keyed by
-    /// pairing id. The foreground Mac's state stays in ``caffeineStatus``; the
-    /// per-Mac reads funnel through ``caffeineStatus(macDeviceID:instanceTag:)``.
-    public internal(set) var secondaryCaffeineStatusesByPairingID:
-        [String: MobileCaffeineStatus] = [:]
+    /// pairing id. Internal on purpose: a raw read would bypass the
+    /// live-subscription gate in ``caffeineStatus(macDeviceID:instanceTag:)``,
+    /// which every consumer must go through.
+    var secondaryCaffeineStatusesByPairingID: [String: MobileCaffeineStatus] = [:]
     /// Pairing ids with a caffeine mutation awaiting a secondary Mac.
-    public internal(set) var secondaryCaffeineMutationPairingIDs: Set<String> = []
+    /// Internal for the same reason; UI reads ``caffeineMutatingPairingIDs``.
+    var secondaryCaffeineMutationPairingIDs: Set<String> = []
 
     /// Whether the authenticated Mac supports changing its independent phone
     /// forwarding privacy gates from iOS.

@@ -148,7 +148,14 @@ extension MobileShellComposite {
     /// directly (no host-status round trip), so the control entry's known
     /// state moves into the foreground slot instead of waiting for a refresh.
     func adoptSecondaryCaffeineStatusForPromotedForeground(ownerKey: MacPairingKey) {
-        guard caffeineStatus == nil, !isCaffeineMutationInFlight,
+        guard caffeineStatus == nil, !isCaffeineMutationInFlight else { return }
+        // A pending control-connection mutation owns this pairing's optimistic
+        // value. Adopting it would let the promoted foreground accept a
+        // conflicting toggle while the Mac is still processing the first one,
+        // and the eventual response could never reconcile the foreground slot.
+        // Stay unknown instead; the status event or the Computers backfill
+        // lands the authoritative value moments later.
+        guard !secondaryCaffeineMutationPairingIDs.contains(ownerKey.pairingID),
               let adopted = secondaryCaffeineStatusesByPairingID[ownerKey.pairingID]
         else { return }
         secondaryCaffeineStatusesByPairingID[ownerKey.pairingID] = nil
@@ -421,12 +428,15 @@ extension MobileShellComposite {
 
     /// Whether the subscription this request was sent on still owns its pool
     /// slot; a retired or replaced control connection's stale response must
-    /// not overwrite the replacement's state.
+    /// not overwrite the replacement's state. A subscription mid-promotion is
+    /// also not current: its pairing is becoming the foreground, so a late
+    /// response must not resurrect a control-side entry that promotion
+    /// adoption just cleared — the foreground event/backfill reconciles it.
     private func isCurrentSecondaryCaffeineOperation(
         ownerKey: MacPairingKey,
         client: MobileCoreRPCClient
     ) -> Bool {
         guard let current = secondaryMacSubscriptions[ownerKey] else { return false }
-        return current.client === client
+        return current.client === client && !current.isTransitioningToFocus
     }
 }
