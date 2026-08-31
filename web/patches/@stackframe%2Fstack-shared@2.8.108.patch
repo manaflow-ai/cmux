@@ -1,0 +1,30 @@
+diff --git a/dist/esm/utils/promises.js b/dist/esm/utils/promises.js
+index dd4213217eebd069805c9a6c8f5258e9b68795ef..9abb8f78615fd7185e1d5bc120987b003ebe4ff1 100644
+--- a/dist/esm/utils/promises.js
++++ b/dist/esm/utils/promises.js
+@@ -220,7 +220,9 @@ function runAsynchronouslyWithAlert(...args) {
+ 		...args[1],
+ 		onError: (error) => {
+ 			const nodeEnv = getProcessEnv("NODE_ENV");
+-			if (KnownError.isKnownError(error) && nodeEnv?.includes("production")) alert(error.message);
++			// Browser bundles do not expose an environment value; typed errors remain safe to show.
++			const productionLike = nodeEnv === undefined || nodeEnv.includes("production");
++			if (KnownError.isKnownError(error) && productionLike) alert(error.message);
+ 			else alert(`An unhandled error occurred. Please ${nodeEnv === "development" ? `check the browser console for the full error.` : "report this to the developer."}\n\n${error}`);
+ 			args[1]?.onError?.(error);
+ 		}
+diff --git a/dist/utils/promises.js b/dist/utils/promises.js
+index c0092a18c833071ca870ff54571eed0d39b217ca..dd386e72ad8fdee54d482040c02baea04310da8c 100644
+--- a/dist/utils/promises.js
++++ b/dist/utils/promises.js
+@@ -222,7 +222,9 @@ function runAsynchronouslyWithAlert(...args) {
+ 		...args[1],
+ 		onError: (error) => {
+ 			const nodeEnv = (0, __env_js.getProcessEnv)("NODE_ENV");
+-			if (___index_js.KnownError.isKnownError(error) && nodeEnv?.includes("production")) alert(error.message);
++			// Browser bundles do not expose an environment value; typed errors remain safe to show.
++			const productionLike = nodeEnv === undefined || nodeEnv.includes("production");
++			if (___index_js.KnownError.isKnownError(error) && productionLike) alert(error.message);
+ 			else alert(`An unhandled error occurred. Please ${nodeEnv === "development" ? `check the browser console for the full error.` : "report this to the developer."}\n\n${error}`);
+ 			args[1]?.onError?.(error);
+ 		}
