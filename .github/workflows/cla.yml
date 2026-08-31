@@ -815,7 +815,7 @@ jobs:
               '[.[] | .jobs[]?
                 | select(
                     (.run_id | tostring) == $run_id and
-                    .name == "CLA Assistant v2" and
+                    .name == "CLA Assistant" and
                     .workflow_name == "CLA Assistant v2" and
                     .status == "completed" and
                     .conclusion == "failure" and
@@ -859,7 +859,7 @@ jobs:
             --argjson head_repo_id "${head_repo_id}" '
               .id == ($job_id | tonumber) and
               .run_id == ($run_id | tonumber) and
-              .name == "CLA Assistant v2" and
+              .name == "CLA Assistant" and
               .workflow_name == "CLA Assistant v2" and
               .status == "completed" and
               .conclusion == "failure" and
@@ -904,7 +904,7 @@ jobs:
             --argjson head_repo_id "${head_repo_id}" '
               .id == ($job_id | tonumber) and
               .run_id == ($run_id | tonumber) and
-              .name == "CLA Assistant v2" and
+              .name == "CLA Assistant" and
               .workflow_name == "CLA Assistant v2" and
               .status == "completed" and
               .conclusion == "failure" and
