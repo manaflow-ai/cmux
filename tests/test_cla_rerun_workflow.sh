@@ -38,7 +38,7 @@ export TARGET_BASE_REF=main
 # fork-only commit has no result from /commits/:sha/pulls, while the workflow
 # run still carries head_repository identity.
 gh() {
-  local endpoint="${@: -1}"
+  local endpoint="${*: -1}"
   local live_state=open
   local live_base=main
   local run_head_repo=contributor/cmux
