@@ -178,6 +178,8 @@ struct RawConfig {
     #[serde(default)]
     sidebar: RawSidebar,
     #[serde(default)]
+    agents: RawAgents,
+    #[serde(default)]
     machine_sidebar: RawMachineSidebar,
     #[serde(default)]
     machine_provider: RawMachineProvider,
@@ -621,6 +623,22 @@ struct RawSidebarPlugin {
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RawAgents {
+    /// Optional background process that reports generic agent journal events.
+    plugin: Option<RawAgentPlugin>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawAgentPlugin {
+    id: Option<String>,
+    command: Option<Vec<String>>,
+    cwd: Option<String>,
+    revision: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawMachineSidebar {
     enabled: Option<bool>,
     width: Option<u16>,
@@ -1027,6 +1045,13 @@ pub struct Sidebar {
     pub rail_glyph: String,
     /// Workspace row label template with `{index}` and `{name}`.
     pub workspace_label: String,
+}
+
+/// Background agent integrations. The process is optional and runs outside
+/// the core detector. Its events enter through the journal producer API.
+#[derive(Debug, Clone, Default)]
+pub struct Agents {
+    pub plugin: Option<cmux_tui_core::JournalPluginOptions>,
 }
 
 impl Default for Sidebar {
@@ -3027,6 +3052,7 @@ pub struct Config {
     pub chrome: ChromeMode,
     pub tabs: Tabs,
     pub sidebar: Sidebar,
+    pub agents: Agents,
     pub machine_sidebar: MachineSidebar,
     pub machine_provider: MachineProviderConfig,
     pub machines: Vec<MachineConfig>,
@@ -3264,6 +3290,14 @@ pub struct SidebarPluginConfig {
     pub cwd: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentPluginConfig {
+    pub id: String,
+    pub command: Vec<String>,
+    pub cwd: Option<String>,
+    pub revision: Option<String>,
+}
+
 /// Load the config: defaults, overlaid with the user's Ghostty selection
 /// colors, overlaid with `cmux-tui.json` or legacy `mux.json`.
 pub fn load() -> Config {
@@ -3414,6 +3448,36 @@ pub fn load() -> Config {
                 command,
                 cwd: plugin.cwd.filter(|cwd| !cwd.trim().is_empty()),
             });
+        }
+    }
+    if let Some(plugin) = raw.agents.plugin {
+        let id = plugin.id.unwrap_or_else(|| "agent_screen_detection".to_string());
+        let command = plugin
+            .command
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|arg| !arg.is_empty())
+            .collect::<Vec<_>>();
+        if command.is_empty() {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring agents.plugin with empty command"
+            );
+        } else {
+            let options = cmux_tui_core::JournalPluginOptions {
+                id,
+                command,
+                cwd: plugin.cwd.filter(|cwd| !cwd.trim().is_empty()),
+                revision: plugin.revision.filter(|revision| !revision.trim().is_empty()),
+            };
+            if let Err(error) = options.validate() {
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring invalid agents.plugin: {error}"
+                );
+            } else {
+                config.agents.plugin = Some(options);
+            }
         }
     }
     if let Some(enabled) = raw.machine_sidebar.enabled {
@@ -4004,6 +4068,7 @@ fn load_raw_config() -> RawConfig {
         "theme",
         "tabs",
         "sidebar",
+        "agents",
         "machine_sidebar",
         "machine_provider",
         "machines",
@@ -4044,6 +4109,7 @@ fn load_raw_config() -> RawConfig {
     section!(theme, "theme");
     section!(tabs, "tabs");
     section!(sidebar, "sidebar");
+    section!(agents, "agents");
     section!(machine_sidebar, "machine_sidebar");
     section!(machine_provider, "machine_provider");
     section!(machines, "machines");
@@ -4133,6 +4199,52 @@ pub(crate) fn write_sidebar_plugin_at_path(
                 && let Some(sidebar_object) = sidebar.as_object_mut()
             {
                 sidebar_object.remove("plugin");
+            }
+        }
+    }
+    write_config_value_atomic(path, &root)
+}
+
+/// Writes the userland agent plugin selection to the configured path.
+pub(crate) fn write_agent_plugin(
+    plugin: Option<&AgentPluginConfig>,
+) -> anyhow::Result<ConfigWriteOutcome> {
+    let path = config_path()?;
+    write_agent_plugin_at_path(&path, plugin)
+}
+
+pub(crate) fn write_agent_plugin_at_path(
+    path: &Path,
+    plugin: Option<&AgentPluginConfig>,
+) -> anyhow::Result<ConfigWriteOutcome> {
+    let mut root = read_config_value(path)?;
+    let Some(root_object) = root.as_object_mut() else {
+        anyhow::bail!("{} must contain a JSON object", path.display());
+    };
+    match plugin {
+        Some(plugin) => {
+            let agents = root_object.entry("agents").or_insert_with(|| json!({}));
+            if !agents.is_object() {
+                *agents = json!({});
+            }
+            let agents_object = agents.as_object_mut().expect("agents was just made an object");
+            let mut plugin_value = json!({
+                "id": &plugin.id,
+                "command": &plugin.command,
+            });
+            if let Some(cwd) = &plugin.cwd {
+                plugin_value["cwd"] = json!(cwd);
+            }
+            if let Some(revision) = &plugin.revision {
+                plugin_value["revision"] = json!(revision);
+            }
+            agents_object.insert("plugin".to_string(), plugin_value);
+        }
+        None => {
+            if let Some(agents) = root_object.get_mut("agents")
+                && let Some(agents_object) = agents.as_object_mut()
+            {
+                agents_object.remove("plugin");
             }
         }
     }

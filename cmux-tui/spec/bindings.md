@@ -97,6 +97,9 @@ cursor.
 The `cmux-sdk` package exports crate `cmux`. Resource handles clone without
 I/O. Mutation helpers create one secure key; `_with` variants accept explicit
 mutation options. Typed streams are owned iterators with cancellation handles.
+Journal producers use `Session::journal_producers`,
+`Session::put_journal_producer_manifest`, and `Session::append_journal_event`;
+the types are generic and do not require agent-specific core code.
 The optional `cmux-sidebar` package applies terminal-style render patches to a
 Ratatui buffer and forwards typed input without adding Ratatui to the base SDK.
 Private models live under `cmux::raw`.

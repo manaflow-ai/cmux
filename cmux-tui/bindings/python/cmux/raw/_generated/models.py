@@ -42,6 +42,7 @@ class AgentReportSource(str, Enum):
     HOOK = 'hook'
 
 class AgentSource(str, Enum):
+    PLUGIN = 'plugin'
     DETECTED = 'detected'
     SOCKET = 'socket'
     HOOK = 'hook'

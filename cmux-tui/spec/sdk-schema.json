@@ -585,6 +585,7 @@
   "AgentSource": {
    "kind": "enum",
    "values": [
+    "plugin",
     "detected",
     "socket",
     "hook"

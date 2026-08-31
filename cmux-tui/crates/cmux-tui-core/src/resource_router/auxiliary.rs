@@ -129,6 +129,8 @@ fn parse_agent_state(value: &Value) -> Result<AgentState, ResourceError> {
 
 fn parse_agent_source(value: &str) -> Result<AgentSource, ResourceError> {
     match value {
+        "plugin" => Ok(AgentSource::Plugin),
+        "detected" => Ok(AgentSource::Detected),
         "hook" => Ok(AgentSource::Hook),
         "socket" => Ok(AgentSource::Socket),
         _ => Err(validation_error("invalid agent report source", json!({"source":value}))),

@@ -151,6 +151,7 @@ enum StoredAgentSource {
     Hook,
     Socket,
     Detected,
+    Plugin,
 }
 
 impl StoredAgentSource {
@@ -159,6 +160,7 @@ impl StoredAgentSource {
             Self::Hook => "hook",
             Self::Socket => "socket",
             Self::Detected => "detected",
+            Self::Plugin => "plugin",
         }
     }
 }

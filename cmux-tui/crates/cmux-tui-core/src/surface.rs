@@ -1328,6 +1328,17 @@ impl Drop for ReaderCompletionGuard {
 }
 
 impl PtyTerminalRuntime {
+    /// Feed raw child output to the generic terminal metadata parser. The
+    /// parser has no knowledge of agents or plugins and keeps only bounded
+    /// terminal protocol state.
+    fn observe_terminal_output(&self, bytes: &[u8]) {
+        self.terminal_metadata.lock().unwrap().observe_output(bytes);
+    }
+
+    fn terminal_osc_progress(&self) -> String {
+        self.terminal_metadata.lock().unwrap().osc_progress().to_string()
+    }
+
     fn begin_terminal_journal_update(&self) -> Option<TerminalJournalUpdateGuard<'_>> {
         let _gate = self.journal_capture_gate.lock().unwrap();
         if !self.journal_capture_open.load(Ordering::Acquire) {
@@ -1409,6 +1420,10 @@ pub struct PtyTerminalRuntime {
     reader_completion: Arc<ReaderCompletion>,
     term: Mutex<Box<Terminal>>,
     stream_progress: Box<TerminalStreamProgress>,
+    /// Generic metadata parsed from raw PTY output. This field has no agent
+    /// or roster knowledge, so userland plugins can consume it through the
+    /// resource API without moving detection policy into core.
+    terminal_metadata: Mutex<crate::terminal_metadata::TerminalMetadata>,
     mouse_encoders: Mutex<Box<MouseEncoders>>,
     runtime: Mutex<PtyRuntime>,
     /// Explicit lifecycle authority for this process. Session content may
@@ -2370,6 +2385,7 @@ impl Surface {
                 reader_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
+                terminal_metadata: Mutex::new(Default::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
                 runtime: Mutex::new(PtyRuntime::Local { writer, master: Some(master), killer }),
                 lifetime,
@@ -2487,6 +2503,7 @@ impl Surface {
                                 .cursor_activity()
                                 .expect("valid local terminals expose cursor activity");
                             let normalized = term.vt_write_with_normalized(&buf[..n]);
+                            pty.observe_terminal_output(&buf[..n]);
                             let cursor_changed = term
                                 .cursor_activity()
                                 .expect("valid local terminals expose cursor activity")
@@ -2842,6 +2859,7 @@ impl Surface {
                 reader_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
+                terminal_metadata: Mutex::new(Default::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
                 runtime: Mutex::new(PtyRuntime::Hosted(Box::new(attachment))),
                 lifetime,
@@ -3020,6 +3038,7 @@ impl Surface {
                                     let journal_enabled = journal_update.is_some();
                                     let before = terminal_scroll_position(&term);
                                     let normalized = term.vt_write_with_normalized(&output);
+                                    pty.observe_terminal_output(&output);
                                     let output = match normalized {
                                         Cow::Borrowed(_) => output,
                                         Cow::Owned(normalized) => normalized,
@@ -3885,6 +3904,7 @@ impl Surface {
                 reader_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
+                terminal_metadata: Mutex::new(Default::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
                 runtime: Mutex::new(PtyRuntime::ExitedHosted),
                 lifetime: PtyLifetime::SessionOwned,
@@ -4110,6 +4130,7 @@ impl Surface {
                 reader_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
+                terminal_metadata: Mutex::new(Default::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
                 runtime: Mutex::new(PtyRuntime::Local {
                     writer: Box::new(std::io::sink()),
@@ -4419,6 +4440,16 @@ impl Surface {
         Ok(pty.stream_progress.revision())
     }
 
+    /// Return the latest bounded OSC 9 progress payload observed on this
+    /// terminal. This is generic terminal metadata. Agent plugins decide if
+    /// and how to interpret it.
+    pub(crate) fn terminal_osc_progress(&self) -> ghostty_vt::Result<String> {
+        let Some(pty) = self.as_pty() else {
+            return Err(ghostty_vt::Error::InvalidValue);
+        };
+        Ok(pty.terminal_osc_progress())
+    }
+
     pub(crate) fn subscribe_terminal_stream_change(
         &self,
     ) -> ghostty_vt::Result<TerminalStreamSubscription<'_>> {
@@ -4446,6 +4477,7 @@ impl Surface {
         let pty = self.as_pty()?;
         let mut term = pty.term.lock().unwrap();
         term.vt_write(bytes);
+        pty.observe_terminal_output(bytes);
         pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
         drop(term);
         pty.stream_progress.notify();

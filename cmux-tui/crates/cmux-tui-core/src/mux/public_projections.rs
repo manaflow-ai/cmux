@@ -153,6 +153,7 @@ fn agent_state(value: &str) -> anyhow::Result<AgentState> {
 
 fn agent_source(value: &str) -> anyhow::Result<AgentSource> {
     match value {
+        "plugin" => Ok(AgentSource::Plugin),
         "detected" => Ok(AgentSource::Detected),
         "socket" => Ok(AgentSource::Socket),
         "hook" => Ok(AgentSource::Hook),

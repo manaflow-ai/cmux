@@ -102,3 +102,156 @@ unless `--force` is supplied.
 
 Relative manifest run commands are resolved to absolute paths under the plugin
 directory before `sidebar plugin use` writes the runnable command into the cmux-tui config.
+
+## Agent Plugins
+
+An agent plugin is a server-side background executable. It does not run in a
+sidebar PTY and it does not add agent code to cmux core. Core owns process
+supervision, environment setup, journal admission, and roster reduction. The
+plugin owns process-group discovery, screen sampling, manifest rules, and
+agent-specific interpretation.
+
+### Configuration
+
+The selected plugin is stored in `~/.config/cmux/cmux-tui.json`:
+
+```json
+{
+  "agents": {
+    "plugin": {
+      "id": "agent_plugin_0123456789abcdef0123456789abcdef",
+      "command": ["/absolute/path/to/cmux-agent-screen-detection"],
+      "cwd": "/absolute/path/to/plugin",
+      "revision": "sha256-..."
+    }
+  }
+}
+```
+
+`id` is the stable producer identity. `command[0]` and `cwd` must be absolute.
+`revision` is optional for hand-written configuration, but the plugin manager
+writes a content-derived value. A changed revision restarts the child even
+when the command path is unchanged. Invalid replacement configuration disables
+the previous child instead of leaving stale detection active.
+
+The supervisor passes `CMUX_TUI_SOCKET`, `CMUX_MUX_SOCKET`,
+`CMUX_TUI_SESSION_ID`, `CMUX_PLUGIN_ID`, `CMUX_PLUGIN_REVISION`,
+`CMUX_PLUGIN_GENERATION`, `CMUX_PLUGIN_PROTOCOL_VERSION=1`,
+`CMUX_PLUGIN_KIND=journal`, `CMUX_JOURNAL_PLUGIN=1`, and the compatibility
+hint `CMUX_AGENT_PLUGIN=1`. The socket is already bound before the child
+starts. A plugin that emits restart-fenced observations should copy
+`CMUX_PLUGIN_GENERATION` into its event's `normalized.plugin_generation` field.
+
+### Lifecycle
+
+Core starts one child after the resource socket is bound. An unexpected exit
+creates a normal `agent.plugin.exited` journal event for that producer, then
+restarts it with bounded exponential backoff. The reducer removes only entries
+owned by the exited producer and only observations older than the exit fence.
+This prevents a crash from removing a replacement process that has already
+reported. Config reload stops the old child before starting the replacement.
+
+### Journal boundary
+
+Agent plugins use the generic `session.journal.producer.put` and
+`session.journal.append` operations. A producer manifest declares a namespace
+of `plugin.<producer_id>`, event schemas, maximum sensitivity, and the
+`journal.append.<namespace>` permission. Event payloads use the stable
+`cmux.agent-plugin.v1` envelope when they are intended for the built-in agent
+roster reducer:
+
+```json
+{
+  "format": "cmux.agent-plugin.v1",
+  "plugin": {"id": "agent_plugin_...", "version": 1},
+  "adapter": {"id": "codex", "version": 1},
+  "event": "state.changed",
+  "normalized": {
+    "state": "working",
+    "source_session": "pid:123",
+    "plugin_generation": "7",
+    "observed_at_ms": "1730000000000"
+  },
+  "native": {}
+}
+```
+
+The core reducer accepts this envelope without knowing the adapter catalog.
+Its source order is hook, plugin, detected legacy replay, then socket. A fresh
+hook blocks a plugin observation for 30 seconds. The plugin remains a normal
+journal producer, so replay, remote clients, and durable projections use the
+same event stream.
+
+### Terminal metadata
+
+The generic `terminal.screen.read` result may include `revision` and
+`osc_progress`. `revision` is a coalesced PTY output counter. `osc_progress` is
+bounded OSC 9 payload text captured by the terminal protocol layer. Core does
+not interpret either field as an agent signal. A plugin may combine them with
+the screen text, OSC title, and process metadata.
+
+The process result includes the PTY foreground executable. Native process-group
+inspection remains a plugin concern, so a plugin can add wrapped runtime
+arguments and child processes without a daemon schema change. If the host does
+not permit inspection, the plugin must use the one-process fallback.
+
+### Manifests and updates
+
+An agent plugin package declares `kind = "agent"` in `cmux-plugin.toml`:
+
+```toml
+[plugin]
+name = "agent-screen-detection"
+kind = "agent"
+version = "0.1.0"
+
+[run]
+command = ["target/release/cmux-agent-screen-detection"]
+
+[build]
+command = ["cargo", "build", "--release"]
+```
+
+The manager installs agent packages under
+`~/.local/share/cmux/mux-plugins/agent/<name>` (or the equivalent
+`$XDG_DATA_HOME` path), validates the manifest, runs its declared build, and
+checks the executable before writing the selected config. Installation and
+build execute third-party code with the user's permissions. Core does not
+sandbox a plugin.
+
+The reference screen detector keeps the 21 herdr-derived manifests in the
+plugin package. It loads bundled files first, then a bounded cache, then an
+explicit local override directory. `cmux-agent-screen-detection update` is
+the only network update path. The scanner never performs implicit network I/O,
+so startup does not depend on a catalog, DNS, or a remote service. Update
+failures are recorded per agent and never replace a valid cached manifest.
+
+The herdr source and Apache-2.0 notice are listed in
+`cmux-tui/ATTRIBUTIONS.md` and the plugin package `ATTRIBUTIONS.md`. Files
+derived from herdr carry the upstream path and pinned commit in their header.
+
+### Herdr capability coverage
+
+The reference package covers the agent-detection capabilities that can be
+shared without importing herdr's application into cmux:
+
+| Herdr capability | Userland package behavior |
+| --- | --- |
+| Screen manifests | 21 manifests are bundled and replaceable. Herdr lists 23 agent kinds, but OMP and Mastracode have no screen manifest at the pinned revision. |
+| Identity aliases and wrappers | Manifest aliases, shell/runtime arguments, package launchers, process groups, and a public-process fallback are supported. |
+| Regions and gates | Recent-screen regions, prompt and viewer slices, OSC title/progress regions, `all`, `any`, `not`, literal, regex, and line-regex gates are supported with bounded complexity. |
+| Rule priority and visibility | Numeric priority, idle fallback, blocker/working/idle visibility hints, and `skip_state_update` are preserved. |
+| Stable polling | Quiescence debounce, a one-second maximum evaluation pacer, startup grace, six-miss identity hysteresis, same-name process-group replacement edges, activity expiry, pending idle, blocker refresh, and process-exit edges are supported. Process hints and adaptive process-info cache intervals reduce process-tree work without delaying unknown-agent discovery. |
+| Explain and update diagnostics | `explain`, `list`, `status`, and explicit HTTPS `update` commands expose matcher evidence, source precedence, versions, and per-agent failures. |
+
+The package does not copy herdr's multiplexer UI, sound assets, API server, or
+closed agent enum. cmux already owns the native agents view and its journal
+projection. Hook authority and session identity remain in cmux's existing hook
+adapter because moving those contracts into a detector would make hook and
+screen producers compete outside one reducer. Windows deep process-group
+inspection is not yet implemented; the public process response remains the
+fallback there. Generic OSC metadata has no agent-specific reset operation, so
+the scanner's startup grace prevents stale screen classification while the
+daemon retains its generic terminal metadata. Network updates are explicit;
+the scanner never fetches data during startup. A different userland plugin can
+replace the reference package and emit the same generic journal envelope.

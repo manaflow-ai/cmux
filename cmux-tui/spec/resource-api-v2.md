@@ -348,6 +348,13 @@ Terminal and browser attachments have independent decimal-string sequences.
 Their initial snapshot is delivered after the open response. Overflow
 requires a fresh attachment snapshot.
 
+`terminal.screen.read` may include two optional terminal metadata fields:
+`revision` is a coalesced PTY output counter, and `osc_progress` is bounded
+OSC 9 progress text. These fields are generic protocol data. The daemon does
+not identify agents or apply vendor rules. A userland plugin can combine the
+metadata with process information and screen text before appending its own
+journal event.
+
 Every `browser.attach` frame also carries a required nullable
 `pointer_frame_seq`. A null token permits rendering but forbids pointer input.
 `browser.input.mouse` and `browser.input.wheel` require the exact non-null
@@ -394,7 +401,17 @@ defines the catalog format. Unknown parameter and result fields are rejected.
 | `mutation` | Durable mutation. A non-empty idempotency key is required. |
 | `stream_open` | Opens a stream. The client supplies stream_id. No idempotency key. |
 | `connection_control` | Connection-local control. No idempotency key. |
-| `local` | Filesystem-only sidebar plugin action. It never uses a protocol request envelope. |
+| `local` | Filesystem-only plugin manager action. It never uses a protocol request envelope. The agent plugin manager is a CLI entrypoint; it is not a transported resource operation. |
+
+Userland agent plugins use the normal journal operations. They register a
+`JournalProducerManifest` with `session.journal.producer.put`, then append
+`JournalIngress` events with `session.journal.append`. The manifest namespace is
+`plugin.<producer_id>`, and the append permission is
+`journal.append.<namespace>`. Core validates the manifest and event schema but
+does not know the plugin's agent catalog or screen grammar. The Rust SDK names
+these types generically. `Session::journal_producers` reads the installed
+manifests for diagnostics. Older `AgentPlugin*` aliases remain
+source-compatible.
 
 | Class | Operations |
 | --- | --- |
@@ -499,6 +516,10 @@ machine. Its origin is always `local`. `session.list`, `session.get`, and
 Sidebar plugin installation and selection are local filesystem operations.
 Transported sidebar view operations never send a `sidebar_plugin_` ID.
 Optional install names are filesystem slugs matching `[a-z0-9-_]+`.
+Agent plugin installation and selection are also local filesystem operations.
+They write `agents.plugin` and never send an `agent_plugin_` ID as a resource
+selector. The selected background process uses the journal operations above
+after the server socket is bound.
 
 `screen.layout.undo` accepts `confirm_close`, default false, and an optional
 opaque `confirmation_token` of 1 through 128 UTF-8 bytes. If the undo would

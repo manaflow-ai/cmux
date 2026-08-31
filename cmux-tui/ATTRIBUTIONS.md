@@ -4,22 +4,36 @@
 
 - Project: https://github.com/herdrdev/herdr
 - License: Apache-2.0 (upstream ships a LICENSE file and no NOTICE file; a
-  copy is vendored at `vendor/herdr-manifests/LICENSE`)
+  copy is included at
+  `bindings/examples/rust-agent-screen-detection/manifests/LICENSE`)
 - Pinned commit: `7b675f42af35508eab66ac42fe1598628597a893`
 
 Derived material, in each case modified by manaflow:
 
-- `vendor/herdr-manifests/*.toml`: the 21 agent-detection manifests,
-  vendored verbatim from `src/detect/manifests/` (per-file modifications,
-  if any, are noted in that directory's README). Never refreshed from
-  herdr's update endpoint; re-vendor and bump the pin instead.
-- `crates/cmux-tui-core/src/screen_detect/manifest.rs`: the manifest
-  engine (rule grammar, region extraction, gate evaluation, validation
-  limits), ported from `src/detect/manifest.rs`.
-- `crates/cmux-tui-core/src/screen_detect/{mod.rs,scanner.rs}`: detection
-  semantics (state model, edge-triggered transitions, foreground-process
-  identification, quiescence sampling) derived from `src/detect/mod.rs`
-  and herdr's poller design.
+- `bindings/examples/rust-agent-screen-detection/manifests/*.toml`: the 21
+  agent-detection manifests, vendored verbatim from
+  `src/detect/manifests/` (per-file modifications, if any, are noted in that
+  directory's README). Never refresh them from herdr's update endpoint;
+  re-vendor and bump the pin instead.
+- `bindings/examples/rust-agent-screen-detection/src/manifest.rs`: the
+  manifest engine (rule grammar, region extraction, gate evaluation,
+  validation limits), ported from `src/detect/manifest.rs`.
+- `bindings/examples/rust-agent-screen-detection/src/{detect.rs,scanner.rs}`:
+  detection semantics (state model, edge-triggered transitions,
+  foreground-process identification, quiescence sampling) derived from
+  `src/detect/mod.rs` and herdr's poller design. These files are a userland
+  plugin. Core only supervises the process and folds its generic events.
+- `bindings/examples/rust-agent-screen-detection/src/process.rs`: bounded
+  foreground process-group discovery and wrapper handling derived from
+  herdr's platform and detector modules, with platform fallbacks and stricter
+  candidate filtering added by manaflow.
+- `crates/cmux-tui-core/src/terminal_metadata.rs`: OSC string framing adapted
+  from herdr's `src/pane/osc.rs`. Core retains only generic bounded OSC 9
+  progress metadata; it has no agent or roster policy.
+- `bindings/examples/rust-agent-screen-detection/src/manifest_update.rs`:
+  explicit catalog and cache status concepts derived from herdr's update
+  surface. Network access, URL validation, atomic writes, and version policy
+  are a new manaflow implementation and never run during daemon startup.
 - `crates/cmux-tui/src/sidebar_projection.rs` (`agent_priority`) and the
   agents-view rendering in `crates/cmux-tui/src/ui/{sidebar.rs,rail.rs}`:
   the priority order (blocked > idle-unseen > working > idle-seen >

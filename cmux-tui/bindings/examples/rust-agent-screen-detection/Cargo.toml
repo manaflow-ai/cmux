@@ -1,0 +1,19 @@
+[package]
+name = "cmux-agent-screen-detection"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+license = "MIT"
+publish = false
+
+[dependencies]
+cmux-sdk = { path = "../../rust" }
+libc = "0.2"
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# This reference package is intentionally independent from the cmux-tui
+# workspace. A published copy must depend on a released cmux-sdk version.
+[workspace]

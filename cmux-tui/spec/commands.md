@@ -3586,7 +3586,7 @@ object{
   agents: array<object{
     surface: Id,
     state: "working"|"blocked"|"idle"|"done"|"unknown",
-    source: "detected"|"socket"|"hook",
+    source: "plugin"|"detected"|"socket"|"hook",
     session: string|null,
     updated_at_ms: uint64
   }>
@@ -3646,7 +3646,7 @@ Params:
 | --- | --- | --- | --- |
 | `surface` | `IdRef` | required | Surface associated with the agent |
 | `state` | `string` | required | `"working"`, `"blocked"`, `"idle"`, `"done"`, or `"unknown"` |
-| `source` | `string` | required | `"socket"` or `"hook"` |
+| `source` | `string` | required | `"socket"` or `"hook"` for `report-agent`; list responses can also contain `"detected"` or `"plugin"` |
 | `session` | `string` | default null | Optional upstream agent session id |
 
 Result:

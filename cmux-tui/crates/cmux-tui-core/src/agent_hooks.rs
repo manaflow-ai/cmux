@@ -10,12 +10,19 @@ use crate::{
 pub const AGENT_HOOK_PRODUCER_ID: &str = "cmux_agent";
 pub const AGENT_HOOK_MANIFEST_VERSION: u32 = 1;
 pub(crate) const AGENT_HOOK_FORMAT: &str = "cmux.agent-hook.v1";
+/// Internal lifecycle event emitted when the generic core supervisor observes
+/// a userland journal-plugin exit. This is a core projection adapter, not an
+/// agent implementation. It lets the roster remain a journal-only projection
+/// even when a crashed plugin cannot emit per-terminal `session.ended` events.
+// Keep the wire value from the preview so journals already on disk replay
+// after this boundary rename.
+pub(crate) const JOURNAL_PLUGIN_EXIT_NATIVE_EVENT: &str = "AgentPluginExited";
 const MAX_AGENT_SOURCE_BYTES: usize = 64;
 const MAX_NATIVE_EVENT_BYTES: usize = 128;
 const NORMALIZED_TEXT_BYTES: usize = 8 * 1024;
 const REDACTED_AGENT_VALUE: &str = "[redacted]";
 
-const AGENT_EVENT_KINDS: [&str; 12] = [
+const AGENT_EVENT_KINDS: [&str; 13] = [
     "agent.session.started",
     "agent.turn.started",
     "agent.turn.completed",
@@ -28,6 +35,7 @@ const AGENT_EVENT_KINDS: [&str; 12] = [
     "agent.error.reported",
     "agent.state.changed",
     "agent.session.ended",
+    "agent.plugin.exited",
 ];
 
 pub fn agent_hook_journal_ingress(
@@ -75,6 +83,50 @@ pub fn agent_hook_journal_ingress(
         correlation_id: None,
     })
 }
+
+/// Build the core-owned lifecycle event for an unexpectedly exited userland
+/// plugin. The reducer uses the plugin subject to retire all entries owned by
+/// that producer in one deterministic fold.
+pub(crate) fn journal_plugin_exit_journal_ingress(
+    plugin_id: &str,
+    generation: u64,
+) -> anyhow::Result<JournalIngress> {
+    validate_agent_source(plugin_id)?;
+    Ok(JournalIngress {
+        producer_id: AGENT_HOOK_PRODUCER_ID.into(),
+        manifest_version: AGENT_HOOK_MANIFEST_VERSION,
+        kind: "agent.plugin.exited".into(),
+        schema_version: 1,
+        occurred_at_ms: None,
+        subjects: vec![JournalSubject { kind: "plugin".into(), id: plugin_id.into() }],
+        sensitivity: Some(JournalSensitivity::Sensitive),
+        payload: json!({
+            "format": AGENT_HOOK_FORMAT,
+            "adapter": {"id": "cmux", "version": 1},
+            "native_event": JOURNAL_PLUGIN_EXIT_NATIVE_EVENT,
+            "normalized": {
+                "plugin_id": plugin_id,
+                "plugin_generation": generation.to_string(),
+                "observed_at_ms": crate::workspace_registry::unix_epoch_ms()?.to_string(),
+            },
+            "native": {},
+        }),
+        causation_id: None,
+        correlation_id: None,
+    })
+}
+
+/// Compatibility name from the first agent-plugin preview. New code should
+/// use [`journal_plugin_exit_journal_ingress`].
+pub(crate) fn agent_plugin_exit_journal_ingress(
+    plugin_id: &str,
+    generation: u64,
+) -> anyhow::Result<JournalIngress> {
+    journal_plugin_exit_journal_ingress(plugin_id, generation)
+}
+
+/// Compatibility name from the first agent-plugin preview.
+pub(crate) const AGENT_PLUGIN_EXIT_NATIVE_EVENT: &str = JOURNAL_PLUGIN_EXIT_NATIVE_EVENT;
 
 fn redact_agent_native(native_event: &str, mut native: Value) -> Value {
     if semantic_key(native_event) == "input" {

@@ -2040,6 +2040,7 @@ fn run_server(
     // Ghostty's config before any protocol client can create a surface.
     mux.seed_default_colors_if_no_durable_override(config.terminal_defaults);
     mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
+    mux.configure_journal_plugin(config.agents.plugin.clone());
     #[cfg(target_os = "linux")]
     let _provider_management = provider_management_listener
         .map(|listener| cmux_tui_core::provider_management::serve(listener, mux.clone()))
@@ -2135,6 +2136,7 @@ fn run_server(
         );
     }
     let served_socket = pending_server.into_bound_path();
+    mux.start_journal_plugin(served_socket.clone());
     let mut served_mux_cleanup = ServedMuxCleanup::new(mux.clone(), served_socket);
 
     let machine_runtime = (config.machine_sidebar.enabled

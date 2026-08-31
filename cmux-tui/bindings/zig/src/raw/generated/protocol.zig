@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "65aa592727bc414fe3e66ac125c9b8541a1926bbe9eaa572acc66b4681bf6589";
+pub const ir_sha256 = "340aad727f14ce1426d53cc29cdba21cb336df37660b2424488d8b0cb1f8dc3f";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -36,11 +36,13 @@ pub const AgentReportSource = enum {
 };
 
 pub const AgentSource = enum {
+    plugin,
     detected,
     socket,
     hook,
 
     pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "plugin")) return .plugin;
         if (std.mem.eql(u8, value, "detected")) return .detected;
         if (std.mem.eql(u8, value, "socket")) return .socket;
         if (std.mem.eql(u8, value, "hook")) return .hook;
@@ -49,6 +51,7 @@ pub const AgentSource = enum {
 
     pub fn toWire(self: @This()) []const u8 {
         return switch (self) {
+            .plugin => "plugin",
             .detected => "detected",
             .socket => "socket",
             .hook => "hook",

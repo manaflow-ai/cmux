@@ -126,6 +126,8 @@ fn terminal_screen_read(
         })
         .map_err(resource_operation_error)?
         .map_err(|error| resource_operation_error(error.into()))?;
+    let revision = surface.terminal_stream_revision().unwrap_or_default();
+    let osc_progress = surface.terminal_osc_progress().unwrap_or_default();
     Ok(json!({
         "text":text,
         "cols":cols,
@@ -133,6 +135,8 @@ fn terminal_screen_read(
         "cursor_row":cursor_row,
         "cursor_col":cursor_col,
         "cursor_visible":cursor_visible,
+        "revision":revision.to_string(),
+        "osc_progress":osc_progress,
     }))
 }
 
@@ -331,6 +335,7 @@ fn terminal_process_get(
         "argv":argv,
         "children":children,
         "foreground_cwd":crate::platform::foreground_cwd(pid),
+        "foreground_executable":crate::platform::foreground_process_name(pid),
     });
     if let Some(executable) = executable {
         value["executable"] = json!(executable);

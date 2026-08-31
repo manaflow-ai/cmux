@@ -632,6 +632,9 @@ USAGE
   cmux agent report --terminal <selector> --state <value> --source <value>
   cmux agent hook install|uninstall|status [provider...]
   cmux agent hook emit --source <agent> --event <native-event> [--terminal <id>]
+  cmux agent plugin list
+  cmux agent plugin install <git-url> [--name <value>] [--force]
+  cmux agent plugin use|update|remove <name-or-id>
 ";
 
 const SIDEBAR_HELP: &str = "\

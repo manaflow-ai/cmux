@@ -1030,7 +1030,7 @@ object{
   surface:Id,
   previous:"working"|"blocked"|"idle"|"done"|"unknown"|null,
   state:"working"|"blocked"|"idle"|"done"|"unknown",
-  source:"detected"|"socket"|"hook",
+  source:"plugin"|"detected"|"socket"|"hook",
   session:string|null,
   updated_at_ms:uint64
 }

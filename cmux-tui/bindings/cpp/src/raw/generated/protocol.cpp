@@ -103,6 +103,7 @@ Result<AgentReportSource> Codec<AgentReportSource>::decode(const Json& value) {
 
 Result<Json> Codec<AgentSource>::encode(const AgentSource& value) {
     switch (value) {
+        case AgentSource::plugin: return Json(std::string("plugin"));
         case AgentSource::detected: return Json(std::string("detected"));
         case AgentSource::socket: return Json(std::string("socket"));
         case AgentSource::hook: return Json(std::string("hook"));
@@ -111,6 +112,7 @@ Result<Json> Codec<AgentSource>::encode(const AgentSource& value) {
 }
 
 Result<AgentSource> Codec<AgentSource>::decode(const Json& value) {
+    if (value == Json(std::string("plugin"))) return AgentSource::plugin;
     if (value == Json(std::string("detected"))) return AgentSource::detected;
     if (value == Json(std::string("socket"))) return AgentSource::socket;
     if (value == Json(std::string("hook"))) return AgentSource::hook;

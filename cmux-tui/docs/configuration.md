@@ -98,6 +98,10 @@ Every view has an independent width and drag handle. Lower `collapse_priority` v
 | `sidebar.columns` | array of column objects | unset | Compatibility form for one-level `machines`, `workspaces`, and `tabs` views |
 | `sidebar.plugin.command` | array of strings | unset | External sidebar plugin argv; when set, the sidebar hosts this program in a PTY instead of the built-in list |
 | `sidebar.plugin.cwd` | string | unset | Working directory for the sidebar plugin process |
+| `agents.plugin.id` | string | unset | Stable journal producer ID for the selected userland agent plugin |
+| `agents.plugin.command` | array of strings | unset | Absolute argv for the background agent plugin process |
+| `agents.plugin.cwd` | string | unset | Absolute working directory for the agent plugin process |
+| `agents.plugin.revision` | string | unset | Content revision used to restart the process after an artifact update |
 
 Live sidebar dragging also leaves at least 40 columns for pane content.
 
@@ -123,6 +127,43 @@ Return to the built-in sidebar with:
 ```bash
 cmux sidebar plugin use --builtin
 ```
+
+### Agent plugins
+
+Agent detection is an optional background userland plugin. It does not run in
+the sidebar and it does not add vendor rules to cmux core. Core supervises the
+process and folds its journal events. The plugin reads terminal screen and
+process metadata, then writes namespaced events.
+
+Install and select a package with:
+
+```bash
+cmux agent plugin install <git-url>
+cmux agent plugin use <name-or-id>
+cmux server reload-config
+```
+
+The manager stores packages in
+`~/.local/share/cmux/mux-plugins/agent/<name>` (or the equivalent
+`$XDG_DATA_HOME` path). It validates `cmux-plugin.toml`, runs its declared
+build command, verifies the executable, and writes an absolute command and
+content revision to `agents.plugin`. The manager does not hide a server reload
+inside an install command. This keeps the config write and process restart
+observable and works when the selected server is remote.
+
+List, replace, or remove packages with:
+
+```bash
+cmux agent plugin list
+cmux agent plugin update <name-or-id>
+cmux agent plugin remove <name-or-id>
+```
+
+The reference screen detector keeps 21 herdr-derived manifests in its own
+package. `cmux-agent-screen-detection update` checks an HTTPS catalog only when
+the user invokes it. Startup never performs network access. See
+[`spec/plugins.md`](../spec/plugins.md) for the journal envelope, lifecycle,
+source precedence, process fallback, and attribution rules.
 
 ## Machines
 

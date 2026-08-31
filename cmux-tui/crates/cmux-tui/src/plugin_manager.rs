@@ -6,8 +6,38 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 
-use crate::config::{self, SidebarPluginConfig};
+use crate::config::{self, AgentPluginConfig, SidebarPluginConfig};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PluginKind {
+    Sidebar,
+    Agent,
+}
+
+impl PluginKind {
+    fn manifest_kind(self) -> &'static str {
+        match self {
+            Self::Sidebar => "sidebar",
+            Self::Agent => "agent",
+        }
+    }
+
+    fn command_prefix(self) -> &'static str {
+        match self {
+            Self::Sidebar => "cmux sidebar plugin",
+            Self::Agent => "cmux agent plugin",
+        }
+    }
+
+    fn id_prefix(self) -> &'static str {
+        match self {
+            Self::Sidebar => "sidebar_plugin_",
+            Self::Agent => "agent_plugin_",
+        }
+    }
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct CliOptions {
@@ -125,45 +155,59 @@ struct PluginRegistryMetadata {
     id: String,
 }
 
-pub(crate) fn execute(positionals: &[String], options: CliOptions) -> Result<Value, ManagerError> {
+pub(crate) fn execute(
+    positionals: &[String],
+    options: CliOptions,
+    kind: PluginKind,
+) -> Result<Value, ManagerError> {
     match positionals.first().map(String::as_str) {
-        Some("install") => install_command(positionals, &options),
-        Some("list") => list_command(positionals, &options),
-        Some("use") => use_command(positionals, &options),
-        Some("update") => update_command(positionals, &options),
-        Some("remove") => remove_command(positionals, &options),
+        Some("install") => install_command(positionals, &options, kind),
+        Some("list") => list_command(positionals, &options, kind),
+        Some("use") => use_command(positionals, &options, kind),
+        Some("update") => update_command(positionals, &options, kind),
+        Some("remove") => remove_command(positionals, &options, kind),
         Some(other) => Err(ManagerError::Usage(format!("unknown plugin subcommand {other:?}"))),
         None => Err(ManagerError::Usage("plugin subcommand is required".to_string())),
     }
 }
 
-fn install_command(positionals: &[String], options: &CliOptions) -> Result<Value, ManagerError> {
+fn install_command(
+    positionals: &[String],
+    options: &CliOptions,
+    kind: PluginKind,
+) -> Result<Value, ManagerError> {
     reject_plugin_flags(options, true, true, false)?;
     if positionals.len() != 2 {
-        return Err(ManagerError::Usage(
-            "usage: cmux sidebar plugin install <git-url> [--name <name>] [--force]".to_string(),
-        ));
+        return Err(ManagerError::Usage(format!(
+            "usage: {} install <git-url> [--name <name>] [--force]",
+            kind.command_prefix()
+        )));
     }
     if positionals[1].is_empty() {
         return Err(ManagerError::validation(Some("git_url"), "plugin git URL must not be empty"));
     }
-    let root = install_root()?;
+    validate_git_source(&positionals[1])
+        .map_err(|error| ManagerError::validation(Some("git_url"), error.to_string()))?;
+    let root = install_root(kind)?;
     fs::create_dir_all(&root)?;
     let temp_dir = root.join(format!(".install-{}-{}", std::process::id(), now_nanos()));
+    // Keep the user-supplied source after `--` so a value beginning with `-`
+    // cannot become a git option. The destination remains a separate final
+    // argument handled by `run_git`.
     let clone_result =
-        run_git(["clone", "--depth", "1", positionals[1].as_str()], Some(&temp_dir), None);
+        run_git(["clone", "--depth", "1", "--", positionals[1].as_str()], Some(&temp_dir), None);
     if let Err(error) = clone_result {
         let _ = fs::remove_dir_all(&temp_dir);
         return Err(error.into());
     }
 
     let result = (|| -> Result<Value, ManagerError> {
-        let manifest = read_manifest(&temp_dir)
+        let manifest = read_manifest(&temp_dir, kind)
             .map_err(|error| ManagerError::validation(None, error.to_string()))?;
         let name = installed_name(&manifest, options.name.as_deref())
             .map_err(|error| ManagerError::validation(Some("name"), error.to_string()))?;
         let target = root.join(&name);
-        if target.exists() && !options.force {
+        if path_exists(&target)? && !options.force {
             return Err(ManagerError::validation(
                 Some("name"),
                 format!(
@@ -175,21 +219,15 @@ fn install_command(positionals: &[String], options: &CliOptions) -> Result<Value
         run_build_if_needed(&manifest, &temp_dir)?;
         let command = resolved_run_command(&manifest, &temp_dir)?;
         verify_executable(&command[0])?;
-        let metadata = PluginRegistryMetadata { id: random_plugin_id()? };
-        replace_registry_metadata(&root, &name, &metadata)?;
-        let id = metadata.id;
-        if target.exists() {
-            fs::remove_dir_all(&target)?;
-        }
-        fs::rename(&temp_dir, &target)?;
-        let selected = selected_plugin_cwd()?.is_some_and(|cwd| same_path(&cwd, &target));
+        let metadata = PluginRegistryMetadata { id: random_plugin_id_for(kind)? };
+        let id = metadata.id.clone();
+        replace_plugin_install(&root, &name, &temp_dir, &target, &metadata, kind)?;
+        let selected = selected_plugin_cwd(kind)?.is_some_and(|cwd| same_path(&cwd, &target));
         if selected {
             let command = resolved_run_command(&manifest, &target)?;
             let cwd = canonical_path(&target)?;
-            persist_sidebar_plugin(Some(&SidebarPluginConfig {
-                command,
-                cwd: Some(cwd.display().to_string()),
-            }))?;
+            let revision = artifact_revision(&manifest, &target, &command);
+            persist_plugin(kind, &id, &command, Some(cwd.display().to_string()), Some(revision))?;
         }
         Ok(json!({"plugin": plugin_json(&InstalledPlugin {
             id,
@@ -205,93 +243,224 @@ fn install_command(positionals: &[String], options: &CliOptions) -> Result<Value
     result
 }
 
-fn list_command(positionals: &[String], options: &CliOptions) -> Result<Value, ManagerError> {
+fn list_command(
+    positionals: &[String],
+    options: &CliOptions,
+    kind: PluginKind,
+) -> Result<Value, ManagerError> {
     reject_plugin_flags(options, false, false, false)?;
     if positionals.len() != 1 {
-        return Err(ManagerError::Usage("usage: cmux sidebar plugin list".to_string()));
+        return Err(ManagerError::Usage(format!("usage: {} list", kind.command_prefix())));
     }
-    let plugins = installed_plugins()?;
+    let plugins = installed_plugins(kind)?;
     Ok(Value::Array(plugins.iter().map(plugin_json).collect()))
 }
 
-fn use_command(positionals: &[String], options: &CliOptions) -> Result<Value, ManagerError> {
+fn use_command(
+    positionals: &[String],
+    options: &CliOptions,
+    kind: PluginKind,
+) -> Result<Value, ManagerError> {
     reject_plugin_flags(options, false, false, true)?;
     match (positionals.len(), options.builtin) {
-        (1, true) => return write_builtin_config(options),
+        (1, true) => return write_builtin_config(options, kind),
         (2, false) => {}
         _ => {
-            return Err(ManagerError::Usage(
-                "usage: cmux sidebar plugin use <name-or-id> | cmux sidebar plugin use --builtin"
-                    .to_string(),
-            ));
+            return Err(ManagerError::Usage(format!(
+                "usage: {} use <name-or-id> | {} use --builtin",
+                kind.command_prefix(),
+                kind.command_prefix()
+            )));
         }
     }
-    let mut plugin = resolve_installed_plugin(&positionals[1])?;
+    let mut plugin = resolve_installed_plugin(&positionals[1], kind)?;
     let command = resolved_run_command(&plugin.manifest, &plugin.dir)?;
     verify_executable(&command[0])?;
     let cwd = canonical_path(&plugin.dir)?;
-    persist_sidebar_plugin(Some(&SidebarPluginConfig {
-        command,
-        cwd: Some(cwd.display().to_string()),
-    }))?;
+    let plugin_id = plugin.id.clone();
+    let revision = artifact_revision(&plugin.manifest, &plugin.dir, &command);
+    persist_plugin(kind, &plugin_id, &command, Some(cwd.display().to_string()), Some(revision))?;
     plugin.selected = true;
     Ok(json!({"plugin": plugin_json(&plugin)}))
 }
 
-fn update_command(positionals: &[String], options: &CliOptions) -> Result<Value, ManagerError> {
+fn update_command(
+    positionals: &[String],
+    options: &CliOptions,
+    kind: PluginKind,
+) -> Result<Value, ManagerError> {
     reject_plugin_flags(options, false, false, false)?;
     if positionals.len() != 2 {
-        return Err(ManagerError::Usage(
-            "usage: cmux sidebar plugin update <name-or-id>".to_string(),
-        ));
+        return Err(ManagerError::Usage(format!(
+            "usage: {} update <name-or-id>",
+            kind.command_prefix()
+        )));
     }
-    let mut plugin = resolve_installed_plugin(&positionals[1])?;
-    run_git(["pull", "--ff-only"], None, Some(&plugin.dir))?;
-    plugin.manifest = read_manifest(&plugin.dir)?;
-    run_build_if_needed(&plugin.manifest, &plugin.dir)?;
-    let command = resolved_run_command(&plugin.manifest, &plugin.dir)?;
-    verify_executable(&command[0])?;
-    if plugin.selected {
-        let cwd = canonical_path(&plugin.dir)?;
-        persist_sidebar_plugin(Some(&SidebarPluginConfig {
-            command,
-            cwd: Some(cwd.display().to_string()),
-        }))?;
+    let mut plugin = resolve_installed_plugin(&positionals[1], kind)?;
+    let source = git_text(&plugin.dir, ["remote", "get-url", "origin"]).ok_or_else(|| {
+        ManagerError::validation(
+            Some("plugin"),
+            format!("plugin {} has no readable origin remote", plugin.name),
+        )
+    })?;
+    validate_git_source(&source)
+        .map_err(|error| ManagerError::validation(Some("plugin"), error.to_string()))?;
+
+    // Build and validate a fresh clone before touching the active install.
+    // Updating in place would let a failed pull or build leave the selected
+    // plugin half-updated, which is unsafe for a daemon-owned process.
+    let root = install_root(kind)?;
+    let temp_dir = root.join(format!(".update-{}-{}", std::process::id(), now_nanos()));
+    let clone_result =
+        run_git(["clone", "--depth", "1", "--", source.as_str()], Some(&temp_dir), None);
+    if let Err(error) = clone_result {
+        let _ = fs::remove_dir_all(&temp_dir);
+        return Err(error.into());
     }
-    Ok(json!({"plugin": plugin_json(&plugin)}))
+
+    let result = (|| -> Result<Value, ManagerError> {
+        let manifest = read_manifest(&temp_dir, kind)
+            .map_err(|error| ManagerError::validation(None, error.to_string()))?;
+        let name = installed_name(&manifest, None)
+            .map_err(|error| ManagerError::validation(Some("name"), error.to_string()))?;
+        if name != plugin.name {
+            return Err(ManagerError::validation(
+                Some("name"),
+                format!(
+                    "updated plugin changed its manifest name from {:?} to {:?}; reinstall it to rename",
+                    plugin.name, name
+                ),
+            ));
+        }
+        run_build_if_needed(&manifest, &temp_dir)?;
+        let command = resolved_run_command(&manifest, &temp_dir)?;
+        verify_executable(&command[0])?;
+        let metadata = PluginRegistryMetadata { id: plugin.id.clone() };
+        replace_plugin_install(&root, &plugin.name, &temp_dir, &plugin.dir, &metadata, kind)?;
+        plugin.manifest = manifest;
+        if plugin.selected {
+            let command = resolved_run_command(&plugin.manifest, &plugin.dir)?;
+            let cwd = canonical_path(&plugin.dir)?;
+            let plugin_id = plugin.id.clone();
+            let revision = artifact_revision(&plugin.manifest, &plugin.dir, &command);
+            persist_plugin(
+                kind,
+                &plugin_id,
+                &command,
+                Some(cwd.display().to_string()),
+                Some(revision),
+            )?;
+        }
+        Ok(json!({"plugin": plugin_json(&plugin)}))
+    })();
+    if result.is_err() && temp_dir.exists() {
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+    result
 }
 
-fn remove_command(positionals: &[String], options: &CliOptions) -> Result<Value, ManagerError> {
+fn remove_command(
+    positionals: &[String],
+    options: &CliOptions,
+    kind: PluginKind,
+) -> Result<Value, ManagerError> {
     reject_plugin_flags(options, false, false, false)?;
     if positionals.len() != 2 {
-        return Err(ManagerError::Usage(
-            "usage: cmux sidebar plugin remove <name-or-id>".to_string(),
-        ));
+        return Err(ManagerError::Usage(format!(
+            "usage: {} remove <name-or-id>",
+            kind.command_prefix()
+        )));
     }
-    let installed = resolve_installed_plugin(&positionals[1])?;
+    let installed = resolve_installed_plugin(&positionals[1], kind)?;
     let mut plugin = plugin_json(&installed);
     if installed.selected {
-        persist_sidebar_plugin(None)?;
+        persist_plugin_none(kind)?;
     }
     fs::remove_dir_all(&installed.dir)?;
-    remove_registry_metadata(&install_root()?, &installed.name)?;
+    remove_registry_metadata(&install_root(kind)?, &installed.name, kind)?;
     plugin["active"] = Value::Bool(false);
     plugin["enabled"] = Value::Bool(false);
     Ok(json!({"plugin": plugin}))
 }
 
-fn write_builtin_config(_options: &CliOptions) -> Result<Value, ManagerError> {
-    persist_sidebar_plugin(None)?;
-    let plugins = installed_plugins()?;
+fn write_builtin_config(_options: &CliOptions, kind: PluginKind) -> Result<Value, ManagerError> {
+    persist_plugin_none(kind)?;
+    let plugins = installed_plugins(kind)?;
     Ok(json!({"plugins": plugins.iter().map(plugin_json).collect::<Vec<_>>()}))
 }
 
-fn persist_sidebar_plugin(plugin: Option<&SidebarPluginConfig>) -> Result<(), ManagerError> {
-    if let Some(error) = config::write_sidebar_plugin(plugin)?.into_unsynced_error() {
+fn persist_plugin(
+    kind: PluginKind,
+    id: &str,
+    command: &[String],
+    cwd: Option<String>,
+    revision: Option<String>,
+) -> Result<(), ManagerError> {
+    let outcome = match kind {
+        PluginKind::Sidebar => config::write_sidebar_plugin(Some(&SidebarPluginConfig {
+            command: command.to_vec(),
+            cwd,
+        }))?,
+        PluginKind::Agent => config::write_agent_plugin(Some(&AgentPluginConfig {
+            id: id.to_string(),
+            command: command.to_vec(),
+            cwd,
+            revision,
+        }))?,
+    };
+    if let Some(error) = outcome.into_unsynced_error() {
         crate::client_log::stderr_log!(
             "config",
             "{}",
             crate::localization::catalog().config.write_durability_warning(&error.to_string())
+        );
+    }
+    Ok(())
+}
+
+/// Return a content-derived revision for the selected artifact. A source
+/// checkout can rebuild to the same path, so a Git commit alone does not
+/// prove that the process changed. Hashing the executable also handles local
+/// rebuilds and gives the core supervisor a deterministic restart fence.
+fn artifact_revision(manifest: &PluginManifest, dir: &Path, command: &[String]) -> String {
+    let mut digest = Sha256::new();
+    if let Some(commit) = git_text(dir, ["rev-parse", "HEAD"]) {
+        digest.update(b"git\0");
+        digest.update(commit.as_bytes());
+    }
+    if let Some(version) = &manifest.plugin.version {
+        digest.update(b"version\0");
+        digest.update(version.as_bytes());
+    }
+    for argument in command {
+        digest.update(b"arg\0");
+        digest.update(argument.as_bytes());
+    }
+    if let Ok(bytes) = fs::read(&command[0]) {
+        digest.update(b"binary\0");
+        digest.update(&bytes);
+    } else if let Ok(metadata) = fs::metadata(&command[0]) {
+        digest.update(b"metadata\0");
+        digest.update(metadata.len().to_le_bytes());
+        if let Ok(modified) = metadata.modified()
+            && let Ok(duration) = modified.duration_since(UNIX_EPOCH)
+        {
+            digest.update(duration.as_nanos().to_le_bytes());
+        }
+    }
+    format!("sha256-{:x}", digest.finalize())
+}
+
+fn persist_plugin_none(kind: PluginKind) -> Result<(), ManagerError> {
+    let outcome = match kind {
+        PluginKind::Sidebar => config::write_sidebar_plugin(None)?,
+        PluginKind::Agent => config::write_agent_plugin(None)?,
+    };
+    if let Some(error) = outcome.into_unsynced_error() {
+        crate::client_log::stderr_log!(
+            "config",
+            "config write was committed but unsynced: {}",
+            error
         );
     }
     Ok(())
@@ -315,9 +484,9 @@ fn reject_plugin_flags(
     Ok(())
 }
 
-fn installed_plugins() -> anyhow::Result<Vec<InstalledPlugin>> {
-    let root = install_root()?;
-    let selected = selected_plugin_cwd()?;
+fn installed_plugins(kind: PluginKind) -> anyhow::Result<Vec<InstalledPlugin>> {
+    let root = install_root(kind)?;
+    let selected = selected_plugin_cwd(kind)?;
     let mut plugins = Vec::new();
     let entries = match fs::read_dir(&root) {
         Ok(entries) => entries,
@@ -339,14 +508,14 @@ fn installed_plugins() -> anyhow::Result<Vec<InstalledPlugin>> {
         {
             continue;
         }
-        let manifest = read_manifest(&dir)?;
+        let manifest = read_manifest(&dir, kind)?;
         let name = dir
             .file_name()
             .and_then(|value| value.to_str())
             .ok_or_else(|| anyhow::anyhow!("plugin directory name is not UTF-8"))?
             .to_string();
         validate_plugin_name(&name)?;
-        let metadata = read_registry_metadata(&root, &name)?;
+        let metadata = read_registry_metadata(&root, &name, kind)?;
         let selected = selected.as_ref().is_some_and(|cwd| same_path(cwd, &dir));
         plugins.push(InstalledPlugin { id: metadata.id, name, manifest, dir, selected });
     }
@@ -354,46 +523,53 @@ fn installed_plugins() -> anyhow::Result<Vec<InstalledPlugin>> {
     Ok(plugins)
 }
 
-fn resolve_installed_plugin(selector: &str) -> Result<InstalledPlugin, ManagerError> {
+fn resolve_installed_plugin(
+    selector: &str,
+    kind: PluginKind,
+) -> Result<InstalledPlugin, ManagerError> {
     let forced_name = selector.strip_prefix("name:");
     let selector = forced_name.unwrap_or(selector);
-    let by_id = forced_name.is_none() && selector.starts_with("sidebar_plugin_");
+    let by_id = forced_name.is_none() && selector.starts_with(kind.id_prefix());
     if by_id {
-        validate_plugin_id(selector)
-            .map_err(|error| ManagerError::validation(Some("sidebar_plugin"), error.to_string()))?;
+        validate_plugin_id_for(selector, kind)
+            .map_err(|error| ManagerError::validation(Some("plugin"), error.to_string()))?;
     } else {
         validate_plugin_name(selector)
-            .map_err(|error| ManagerError::validation(Some("sidebar_plugin"), error.to_string()))?;
+            .map_err(|error| ManagerError::validation(Some("plugin"), error.to_string()))?;
     }
-    installed_plugins()?
+    installed_plugins(kind)?
         .into_iter()
         .find(|plugin| if by_id { plugin.id == selector } else { plugin.name == selector })
         .ok_or_else(|| {
             ManagerError::validation(
-                Some("sidebar_plugin"),
+                Some("plugin"),
                 format!("plugin {selector:?} is not installed"),
             )
         })
 }
 
-fn read_manifest(dir: &Path) -> anyhow::Result<PluginManifest> {
+fn read_manifest(dir: &Path, kind: PluginKind) -> anyhow::Result<PluginManifest> {
     let path = dir.join("cmux-plugin.toml");
     let text = fs::read_to_string(&path)
         .map_err(|err| anyhow::anyhow!("failed to read {}: {err}", path.display()))?;
-    parse_manifest(&text)
+    parse_manifest_for_kind(&text, kind)
 }
 
 fn parse_manifest(text: &str) -> anyhow::Result<PluginManifest> {
+    parse_manifest_for_kind(text, PluginKind::Sidebar)
+}
+
+fn parse_manifest_for_kind(text: &str, kind: PluginKind) -> anyhow::Result<PluginManifest> {
     let manifest: PluginManifest =
         toml::from_str(text).map_err(|err| anyhow::anyhow!("invalid cmux-plugin.toml: {err}"))?;
-    validate_manifest(&manifest)?;
+    validate_manifest(&manifest, kind)?;
     Ok(manifest)
 }
 
-fn validate_manifest(manifest: &PluginManifest) -> anyhow::Result<()> {
+fn validate_manifest(manifest: &PluginManifest, kind: PluginKind) -> anyhow::Result<()> {
     validate_plugin_name(&manifest.plugin.name)?;
-    if manifest.plugin.kind != "sidebar" {
-        anyhow::bail!("plugin.kind must be \"sidebar\"");
+    if manifest.plugin.kind != kind.manifest_kind() {
+        anyhow::bail!("plugin.kind must be \"{}\"", kind.manifest_kind());
     }
     if manifest.run.command.first().is_none_or(|command| command.trim().is_empty()) {
         anyhow::bail!("run.command must not be empty");
@@ -413,6 +589,16 @@ fn validate_plugin_name(name: &str) -> anyhow::Result<()> {
         })
     {
         anyhow::bail!("plugin name must match [a-z0-9-_]+");
+    }
+    Ok(())
+}
+
+fn validate_git_source(source: &str) -> anyhow::Result<()> {
+    if source.is_empty() {
+        anyhow::bail!("plugin git URL must not be empty");
+    }
+    if source.bytes().any(|byte| byte == 0 || byte.is_ascii_control()) {
+        anyhow::bail!("plugin git URL must not contain NUL or control characters");
     }
     Ok(())
 }
@@ -492,16 +678,21 @@ fn run_git<const N: usize>(
     Ok(())
 }
 
-fn install_root() -> anyhow::Result<PathBuf> {
-    if let Some(data_home) = non_empty_env_path("XDG_DATA_HOME") {
-        return Ok(data_home.join("cmux").join("mux-plugins"));
-    }
-    let home = cmux_tui_core::platform::home_dir()
-        .ok_or_else(|| anyhow::anyhow!("could not resolve home directory"))?;
-    Ok(home.join(".local").join("share").join("cmux").join("mux-plugins"))
+fn install_root(kind: PluginKind) -> anyhow::Result<PathBuf> {
+    let root = if let Some(data_home) = non_empty_env_path("XDG_DATA_HOME") {
+        data_home.join("cmux").join("mux-plugins")
+    } else {
+        let home = cmux_tui_core::platform::home_dir()
+            .ok_or_else(|| anyhow::anyhow!("could not resolve home directory"))?;
+        home.join(".local").join("share").join("cmux").join("mux-plugins")
+    };
+    Ok(match kind {
+        PluginKind::Sidebar => root,
+        PluginKind::Agent => root.join("agent"),
+    })
 }
 
-fn selected_plugin_cwd() -> anyhow::Result<Option<PathBuf>> {
+fn selected_plugin_cwd(kind: PluginKind) -> anyhow::Result<Option<PathBuf>> {
     let path = config::config_path()?;
     let text = match fs::read_to_string(&path) {
         Ok(text) => text,
@@ -510,8 +701,12 @@ fn selected_plugin_cwd() -> anyhow::Result<Option<PathBuf>> {
     };
     let value: Value = serde_json::from_str(&text)
         .map_err(|err| anyhow::anyhow!("failed to parse {}: {err}", path.display()))?;
+    let section = match kind {
+        PluginKind::Sidebar => "sidebar",
+        PluginKind::Agent => "agents",
+    };
     Ok(value
-        .get("sidebar")
+        .get(section)
         .and_then(|sidebar| sidebar.get("plugin"))
         .and_then(|plugin| plugin.get("cwd"))
         .and_then(Value::as_str)
@@ -570,6 +765,7 @@ fn sanitized_git_source(source: &str) -> String {
 fn read_registry_metadata(
     install_root: &Path,
     name: &str,
+    kind: PluginKind,
 ) -> anyhow::Result<PluginRegistryMetadata> {
     validate_plugin_name(name)?;
     let path = registry_metadata_path(install_root, name);
@@ -577,7 +773,7 @@ fn read_registry_metadata(
         .map_err(|error| anyhow::anyhow!("failed to read {}: {error}", path.display()))?;
     let metadata: PluginRegistryMetadata = serde_json::from_str(&text)
         .map_err(|error| anyhow::anyhow!("invalid {}: {error}", path.display()))?;
-    validate_plugin_id(&metadata.id)?;
+    validate_plugin_id_for(&metadata.id, kind)?;
     Ok(metadata)
 }
 
@@ -589,9 +785,10 @@ fn replace_registry_metadata(
     install_root: &Path,
     name: &str,
     metadata: &PluginRegistryMetadata,
+    kind: PluginKind,
 ) -> anyhow::Result<()> {
     validate_plugin_name(name)?;
-    validate_plugin_id(&metadata.id)?;
+    validate_plugin_id_for(&metadata.id, kind)?;
     let registry = install_root.join(".registry");
     fs::create_dir_all(&registry)?;
     let path = registry_metadata_path(install_root, name);
@@ -609,7 +806,94 @@ fn replace_registry_metadata(
     Ok(())
 }
 
-fn remove_registry_metadata(install_root: &Path, name: &str) -> anyhow::Result<()> {
+/// Replace an installed plugin and its registry identity as one local
+/// transaction. A failed rename or metadata write restores the previous
+/// directory and identity, so `--force` cannot leave a half-installed plugin.
+fn replace_plugin_install(
+    install_root: &Path,
+    name: &str,
+    temp_dir: &Path,
+    target: &Path,
+    metadata: &PluginRegistryMetadata,
+    kind: PluginKind,
+) -> anyhow::Result<()> {
+    validate_plugin_name(name)?;
+    validate_plugin_id_for(&metadata.id, kind)?;
+    let target_backup =
+        install_root.join(format!(".{name}.backup-{}-{}", std::process::id(), now_nanos()));
+    let registry = install_root.join(".registry");
+    fs::create_dir_all(&registry)?;
+    let metadata_path = registry_metadata_path(install_root, name);
+    let metadata_backup =
+        registry.join(format!(".{name}.backup-{}-{}.json", std::process::id(), now_nanos()));
+    let target_exists = path_exists(target)?;
+    let metadata_exists = path_exists(&metadata_path)?;
+    let mut target_moved = false;
+    let mut metadata_moved = false;
+
+    let install_result = (|| -> anyhow::Result<()> {
+        if target_exists {
+            fs::rename(target, &target_backup).map_err(|error| {
+                anyhow::anyhow!("failed to stage {}: {error}", target.display())
+            })?;
+            target_moved = true;
+        }
+        if metadata_exists {
+            fs::rename(&metadata_path, &metadata_backup).map_err(|error| {
+                anyhow::anyhow!("failed to stage {}: {error}", metadata_path.display())
+            })?;
+            metadata_moved = true;
+        }
+        fs::rename(temp_dir, target)
+            .map_err(|error| anyhow::anyhow!("failed to install {}: {error}", target.display()))?;
+        replace_registry_metadata(install_root, name, metadata, kind)
+    })();
+
+    if let Err(error) = install_result {
+        let _ = fs::remove_dir_all(target);
+        if metadata_moved {
+            let _ = fs::remove_file(&metadata_path);
+            let _ = fs::rename(&metadata_backup, &metadata_path);
+        } else {
+            let _ = fs::remove_file(&metadata_path);
+        }
+        if target_moved {
+            let _ = fs::rename(&target_backup, target);
+        }
+        return Err(error);
+    }
+
+    // The new install and metadata are committed. Cleanup failures do not
+    // roll back a valid plugin, but the hidden backup is removed when possible.
+    if target_moved && let Err(error) = fs::remove_dir_all(&target_backup) {
+        eprintln!(
+            "cmux-tui: installed plugin {name:?}, but could not remove backup {}: {error}",
+            target_backup.display()
+        );
+    }
+    if metadata_moved && let Err(error) = fs::remove_file(&metadata_backup) {
+        eprintln!(
+            "cmux-tui: installed plugin {name:?}, but could not remove metadata backup {}: {error}",
+            metadata_backup.display()
+        );
+    }
+    Ok(())
+}
+
+fn path_exists(path: &Path) -> anyhow::Result<bool> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(anyhow::anyhow!("failed to inspect {}: {error}", path.display())),
+    }
+}
+
+fn remove_registry_metadata(
+    install_root: &Path,
+    name: &str,
+    _kind: PluginKind,
+) -> anyhow::Result<()> {
+    validate_plugin_name(name)?;
     let path = registry_metadata_path(install_root, name);
     match fs::remove_file(&path) {
         Ok(()) => Ok(()),
@@ -618,12 +902,13 @@ fn remove_registry_metadata(install_root: &Path, name: &str) -> anyhow::Result<(
     }
 }
 
-fn random_plugin_id() -> anyhow::Result<String> {
+fn random_plugin_id_for(kind: PluginKind) -> anyhow::Result<String> {
     let mut bytes = [0_u8; 16];
     getrandom::fill(&mut bytes)
         .map_err(|error| anyhow::anyhow!("cannot allocate plugin ID: {error}"))?;
-    let mut id = String::with_capacity("sidebar_plugin_".len() + 32);
-    id.push_str("sidebar_plugin_");
+    let prefix = kind.id_prefix();
+    let mut id = String::with_capacity(prefix.len() + 32);
+    id.push_str(prefix);
     const HEX: &[u8; 16] = b"0123456789abcdef";
     for byte in bytes {
         id.push(char::from(HEX[usize::from(byte >> 4)]));
@@ -632,9 +917,10 @@ fn random_plugin_id() -> anyhow::Result<String> {
     Ok(id)
 }
 
-fn validate_plugin_id(id: &str) -> anyhow::Result<()> {
-    let Some(payload) = id.strip_prefix("sidebar_plugin_") else {
-        anyhow::bail!("plugin ID must start with sidebar_plugin_");
+fn validate_plugin_id_for(id: &str, kind: PluginKind) -> anyhow::Result<()> {
+    let prefix = kind.id_prefix();
+    let Some(payload) = id.strip_prefix(prefix) else {
+        anyhow::bail!("plugin ID must start with {prefix}");
     };
     if payload.len() != 32
         || !payload.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
@@ -642,6 +928,14 @@ fn validate_plugin_id(id: &str) -> anyhow::Result<()> {
         anyhow::bail!("plugin ID must contain exactly 32 lowercase hexadecimal digits");
     }
     Ok(())
+}
+
+fn random_plugin_id() -> anyhow::Result<String> {
+    random_plugin_id_for(PluginKind::Sidebar)
+}
+
+fn validate_plugin_id(id: &str) -> anyhow::Result<()> {
+    validate_plugin_id_for(id, PluginKind::Sidebar)
 }
 
 fn git_text<const N: usize>(dir: &Path, args: [&str; N]) -> Option<String> {
@@ -748,10 +1042,10 @@ mod tests {
         fs::create_dir_all(&root).unwrap();
 
         let first = PluginRegistryMetadata { id: random_plugin_id().unwrap() };
-        replace_registry_metadata(&root, "first", &first).unwrap();
-        let replay = read_registry_metadata(&root, "first").unwrap();
+        replace_registry_metadata(&root, "first", &first, PluginKind::Sidebar).unwrap();
+        let replay = read_registry_metadata(&root, "first", PluginKind::Sidebar).unwrap();
         let second = PluginRegistryMetadata { id: random_plugin_id().unwrap() };
-        replace_registry_metadata(&root, "second", &second).unwrap();
+        replace_registry_metadata(&root, "second", &second, PluginKind::Sidebar).unwrap();
         assert_eq!(first.id, replay.id);
         assert_ne!(first.id, second.id);
         validate_plugin_id(&first.id).unwrap();

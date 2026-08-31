@@ -62,6 +62,7 @@ pub(super) struct PluginPlan {
     pub name: Option<String>,
     pub force: bool,
     pub builtin: bool,
+    pub kind: crate::plugin_manager::PluginKind,
 }
 
 #[derive(Clone, Debug)]
@@ -1335,6 +1336,9 @@ fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan
 fn parse_agent(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let selectors = Selectors::default();
     match strs(words).as_slice() {
+        ["plugin", tail @ ..] => {
+            parse_plugin(tail, flags, crate::plugin_manager::PluginKind::Agent)
+        }
         ["hook", action @ ("install" | "uninstall" | "status"), providers @ ..] => {
             let action = match *action {
                 "install" => crate::agent_hook_install::Action::Install,
@@ -1505,12 +1509,18 @@ fn parse_sidebar(
             insert_selector_or_current(selectors, flags, "view", "sidebar_view", "sidebar_view")?;
             request(ResourceOperation::SidebarViewReload, selectors, flags, Map::new())
         }
-        ["plugin", tail @ ..] => parse_plugin(tail, flags),
+        ["plugin", tail @ ..] => {
+            parse_plugin(tail, flags, crate::plugin_manager::PluginKind::Sidebar)
+        }
         _ => usage("sidebar action"),
     }
 }
 
-fn parse_plugin(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
+fn parse_plugin(
+    words: &[&str],
+    flags: &mut Flags,
+    kind: crate::plugin_manager::PluginKind,
+) -> Result<CommandPlan, UsageError> {
     let mut positionals = vec![];
     let mut builtin = false;
     match words {
@@ -1535,13 +1545,14 @@ fn parse_plugin(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, UsageE
             positionals.push("remove".into());
             positionals.push((*name).into());
         }
-        _ => return usage("sidebar plugin action"),
+        _ => return usage("plugin action"),
     }
     let plan = PluginPlan {
         positionals,
         name: flags.take("name"),
         force: flags.boolean("force"),
         builtin,
+        kind,
     };
     Ok(CommandPlan::Plugin(plan))
 }
@@ -2636,6 +2647,7 @@ pub(super) fn run_plugin(global: GlobalArgs, plan: PluginPlan) -> i32 {
             force: plan.force,
             builtin: plan.builtin,
         },
+        plan.kind,
     ) {
         Ok(result) => super::wire::print_local_success(&result, global.output),
         Err(error) => {

@@ -736,8 +736,9 @@ pub fn foreground_cwd(pid: u32) -> Option<String> {
 }
 
 /// Executable name of a terminal's live foreground process group leader
-/// (see [`foreground_cwd`] for the leader resolution contract). Used by
-/// screen detection to decide whether the pane runs a known agent CLI.
+/// (see [`foreground_cwd`] for the leader resolution contract). Exposed as
+/// generic terminal metadata so userland plugins can identify their own
+/// foreground applications.
 /// Returns `None` when the leader is gone, the child has no controlling
 /// terminal, or the platform denies the lookup.
 pub fn foreground_process_name(pid: u32) -> Option<String> {

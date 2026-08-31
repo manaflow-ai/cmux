@@ -64,6 +64,7 @@ pub(crate) fn apply_config_to_local_owner(mux: &Mux, config: &crate::config::Con
         crate::config::apply_browser_to_surface_options(config, options);
     });
     mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
+    mux.configure_journal_plugin(config.agents.plugin.clone());
 }
 
 #[derive(Clone)]

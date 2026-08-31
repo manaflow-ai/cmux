@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "65aa592727bc414fe3e66ac125c9b8541a1926bbe9eaa572acc66b4681bf6589";
+inline constexpr std::string_view kProtocolIrSha256 = "340aad727f14ce1426d53cc29cdba21cb336df37660b2424488d8b0cb1f8dc3f";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -301,6 +301,7 @@ enum class ClientAttachedEventTransport;
 enum class GraphicsStatusEventKind;
 
 enum class AgentSource {
+    plugin,
     detected,
     socket,
     hook,

@@ -486,6 +486,7 @@ pub struct TerminalSnapshot {
     pub rows: u16,
     pub running: bool,
     pub lifecycle: TerminalLifecycle,
+    pub stream_revision: Option<u64>,
     pub exit: Option<TerminalExit>,
     pub extra: BTreeMap<String, Value>,
 }
@@ -512,6 +513,8 @@ impl<'de> Deserialize<'de> for TerminalSnapshot {
             rows: u16,
             running: bool,
             lifecycle: TerminalLifecycle,
+            #[serde(default, deserialize_with = "deserialize_optional_decimal")]
+            stream_revision: Option<u64>,
             #[serde(default, deserialize_with = "deserialize_optional_non_null")]
             exit: Option<TerminalExit>,
             #[serde(default)]
@@ -559,6 +562,7 @@ impl<'de> Deserialize<'de> for TerminalSnapshot {
             rows: wire.rows,
             running: wire.running,
             lifecycle: wire.lifecycle,
+            stream_revision: wire.stream_revision,
             exit: wire.exit,
             extra: wire.extra,
         })
@@ -700,6 +704,7 @@ pub enum AgentSnapshotSource {
     Hook,
     Socket,
     Detected,
+    Plugin,
 }
 
 /// Catalog snapshot for one detected agent.
@@ -1134,6 +1139,15 @@ pub struct TerminalDefaultsSnapshot {
 #[serde(deny_unknown_fields)]
 pub struct TerminalScreenResult {
     pub text: String,
+    /// Monotonic terminal output revision. Plugins can use this to avoid
+    /// parsing an unchanged viewport.
+    #[serde(default, deserialize_with = "deserialize_optional_decimal")]
+    pub revision: Option<u64>,
+    /// Latest bounded OSC 9 progress payload from the terminal output
+    /// stream. Plugins may interpret this value; the daemon does not attach
+    /// agent meaning to it.
+    #[serde(default, deserialize_with = "deserialize_optional_non_null")]
+    pub osc_progress: Option<String>,
     #[serde(deserialize_with = "deserialize_positive_u16")]
     pub cols: u16,
     #[serde(deserialize_with = "deserialize_positive_u16")]
@@ -1238,6 +1252,11 @@ pub struct ProcessInfoResult {
     /// omits the field.
     #[serde(default)]
     pub foreground_cwd: Option<String>,
+    /// Executable basename of the PTY foreground process group leader.
+    /// This lets userland plugins identify nested agents without putting
+    /// vendor logic in the daemon.
+    #[serde(default)]
+    pub foreground_executable: Option<String>,
     pub children: Vec<u32>,
 }
 
