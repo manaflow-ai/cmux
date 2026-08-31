@@ -408,8 +408,9 @@ describe("recordFoundersCheckoutCompletion", () => {
     accountMutationOperationId = null;
   });
 
-  test("finds, verifies, links, syncs, and enrolls a Founder buyer", async () => {
+  test("finds, links, syncs, and enrolls a Founder buyer without verifying by payment", async () => {
     const update = mock(async () => undefined);
+    const sendMagicLinkEmail = mock(async () => undefined);
     const user = {
       id: "founder_1",
       primaryEmail: null,
@@ -451,7 +452,12 @@ describe("recordFoundersCheckoutCompletion", () => {
       },
       {
         db: fakeDb() as never,
-        stackApp: { getUser: async () => user, listUsers, createUser } as never,
+        stackApp: {
+          getUser: async () => user,
+          listUsers,
+          createUser,
+          sendMagicLinkEmail,
+        } as never,
         testflight: { enrollTester: enroll },
       },
     );
@@ -482,13 +488,22 @@ describe("recordFoundersCheckoutCompletion", () => {
           entry.values.scope === "user",
       ),
     ).toBe(true);
-    expect(update).toHaveBeenCalledWith({ primaryEmailVerified: true });
+    expect(update).toHaveBeenCalledWith({
+      primaryEmail: "buyer@example.com",
+      primaryEmailAuthEnabled: true,
+      primaryEmailVerified: false,
+    });
+    expect(update).not.toHaveBeenCalledWith({ primaryEmailVerified: true });
+    expect(sendMagicLinkEmail).toHaveBeenCalledWith("buyer@example.com", {
+      callbackUrl: "https://cmux.com/handler/after-sign-in",
+    });
     expect(enroll).toHaveBeenCalledWith("buyer@example.com", "Sample", "Buyer");
   });
 
-  test("verifies an existing Founder account without rewriting its email spelling", async () => {
+  test("does not verify an existing Founder account from payment email alone", async () => {
     const update = mock(async () => undefined);
     const setPrimaryEmail = mock(async () => undefined);
+    const sendMagicLinkEmail = mock(async () => undefined);
     const user = {
       id: "founder_existing",
       primaryEmail: "Billing.Fixture@gmail.com",
@@ -539,16 +554,18 @@ describe("recordFoundersCheckoutCompletion", () => {
               setPrimaryEmail,
             },
           ],
+          sendMagicLinkEmail,
         } as never,
       },
     );
 
-    expect(setPrimaryEmail).toHaveBeenCalledWith("Billing.Fixture@gmail.com", {
-      verified: true,
-    });
+    expect(setPrimaryEmail).not.toHaveBeenCalled();
     expect(update).not.toHaveBeenCalledWith({
       primaryEmail: "billing.fixture@gmail.com",
       primaryEmailAuthEnabled: true,
+    });
+    expect(sendMagicLinkEmail).toHaveBeenCalledWith("billing.fixture@gmail.com", {
+      callbackUrl: "https://cmux.com/handler/after-sign-in",
     });
   });
 
@@ -1020,26 +1037,31 @@ describe("recordCheckoutCompletion", () => {
     accountMutationOperationId = null;
   });
 
-  test("attaches Stripe email to a purchaser without a primary email", async () => {
+  test("attaches Stripe email as an unverified auth channel", async () => {
     const update = mock(async () => undefined);
+    const sendMagicLinkEmail = mock(async () => undefined);
     const user = { id: "user_123", primaryEmail: null, clientReadOnlyMetadata: {}, update };
 
     await recordCheckoutCompletion(checkoutInput() as never, {
       db: fakeDb() as never,
-      stackApp: { getUser: async () => user } as never,
+      stackApp: { getUser: async () => user, sendMagicLinkEmail } as never,
     });
 
     expect(update).toHaveBeenCalledWith({
       primaryEmail: "buyer@example.com",
       primaryEmailAuthEnabled: true,
+      primaryEmailVerified: false,
     });
-    expect(update).toHaveBeenCalledWith({ primaryEmailVerified: true });
+    expect(update).not.toHaveBeenCalledWith({ primaryEmailVerified: true });
+    expect(sendMagicLinkEmail).toHaveBeenCalledWith("buyer@example.com", {
+      callbackUrl: "https://cmux.com/handler/after-sign-in",
+    });
     expect(update).toHaveBeenCalledWith({
       clientReadOnlyMetadata: { cmuxPlan: "pro" },
     });
   });
 
-  test("promotes an anonymous checkout account before granting Pro access", async () => {
+  test("promotes an already verified anonymous checkout account before granting Pro access", async () => {
     const previousFetch = globalThis.fetch;
     const update = mock(async () => undefined);
     const sendMagicLinkEmail = mock(async () => undefined);
@@ -1047,8 +1069,8 @@ describe("recordCheckoutCompletion", () => {
       id: "anonymous_checkout",
       isAnonymous: true,
       isRestricted: true,
-      primaryEmail: null,
-      primaryEmailVerified: false,
+      primaryEmail: "buyer@example.com",
+      primaryEmailVerified: true,
       clientReadOnlyMetadata: {},
       update,
     };
@@ -1093,8 +1115,9 @@ describe("recordCheckoutCompletion", () => {
     });
   });
 
-  test("verifies an existing unverified purchase-attached email", async () => {
+  test("sends recovery mail without verifying an existing unverified purchase email", async () => {
     const update = mock(async () => undefined);
+    const sendMagicLinkEmail = mock(async () => undefined);
     const user = {
       id: "user_123",
       primaryEmail: "buyer@example.com",
@@ -1106,10 +1129,56 @@ describe("recordCheckoutCompletion", () => {
 
     await recordCheckoutCompletion(checkoutInput() as never, {
       db: fakeDb() as never,
-      stackApp: { getUser: async () => user } as never,
+      stackApp: { getUser: async () => user, sendMagicLinkEmail } as never,
     });
 
-    expect(update).toHaveBeenCalledWith({ primaryEmailVerified: true });
+    expect(update).not.toHaveBeenCalledWith({ primaryEmailVerified: true });
+    expect(sendMagicLinkEmail).toHaveBeenCalledWith("buyer@example.com", {
+      callbackUrl: "https://cmux.com/handler/after-sign-in",
+    });
+  });
+
+  test("keeps an unverified anonymous checkout account until mailbox confirmation", async () => {
+    const previousFetch = globalThis.fetch;
+    const update = mock(async () => undefined);
+    const sendMagicLinkEmail = mock(async () => undefined);
+    const user = {
+      id: "anonymous_unverified",
+      isAnonymous: true,
+      isRestricted: true,
+      primaryEmail: null,
+      primaryEmailVerified: false,
+      clientReadOnlyMetadata: {},
+      update,
+    };
+    const fetchMock = mock(async () => {
+      throw new Error("anonymous promotion must wait for verification");
+    });
+    globalThis.fetch = fetchMock as typeof globalThis.fetch;
+    try {
+      const input = checkoutInput();
+      input.session.client_reference_id = user.id;
+      input.subscription.metadata.stackUserId = user.id;
+      await recordCheckoutCompletion(input as never, {
+        db: fakeDb() as never,
+        stackApp: {
+          getUser: async () => user,
+          sendMagicLinkEmail,
+        } as never,
+      });
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(update).toHaveBeenCalledWith({
+      primaryEmail: "buyer@example.com",
+      primaryEmailAuthEnabled: true,
+      primaryEmailVerified: false,
+    });
+    expect(sendMagicLinkEmail).toHaveBeenCalledWith("buyer@example.com", {
+      callbackUrl: "https://cmux.com/handler/after-sign-in",
+    });
   });
 
   test("blocks checkout completion while account deletion is in progress", async () => {

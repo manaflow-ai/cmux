@@ -36,7 +36,7 @@ describe("purchase email verification", () => {
     expect(update).toHaveBeenCalledWith({ primaryEmailVerified: true });
   });
 
-  test("creates through the unverified-field fallback when an older SDK rejects it", async () => {
+  test("creates an unverified shell when an older SDK rejects the verification field", async () => {
     const update = mock(async () => undefined);
     const user = {
       id: "user-3",
@@ -67,7 +67,29 @@ describe("purchase email verification", () => {
       primaryEmail: "billingfixture@example.com",
       primaryEmailAuthEnabled: true,
     });
-    expect(update).toHaveBeenCalledWith({ primaryEmailVerified: true });
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  test("does not verify an existing unverified account from billing email alone", async () => {
+    const update = mock(async () => undefined);
+    const existing = {
+      id: "existing-unverified",
+      primaryEmail: "buyer@example.com",
+      primaryEmailVerified: false,
+      primaryEmailAuthEnabled: true,
+      update,
+    };
+
+    const result = await findOrCreateBillingUser(
+      {
+        listUsers: async () => [existing],
+        getUser: async () => existing,
+      } as never,
+      "buyer@example.com",
+    );
+
+    expect(result.id).toBe(existing.id);
+    expect(update).not.toHaveBeenCalled();
   });
 
   test("leaves anonymous accounts for the combined promotion mutation", async () => {
