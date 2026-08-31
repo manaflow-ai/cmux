@@ -74,26 +74,84 @@ public struct MobileRootAuthGate {
         }
     }
 
+    /// Whether ANY automatic startup connection (an injected launch attach or
+    /// the stored-Mac reconnect) may begin.
+    ///
+    /// After the launch auth bootstrap this is the classic barrier: bootstrap
+    /// finished and no restore is in flight. Before the bootstrap completes,
+    /// startup may begin EARLY against the session restored from the keychain:
+    /// `stackAuthenticated` flips true at launch priming only when cached
+    /// tokens plus a cached user exist, and `hasRestoredAccountIdentity`
+    /// additionally requires that restored user's id to be readable, so the
+    /// account scope of the early work is pinned to the restored identity.
+    /// The relay transport's access-token provider force-refreshes on demand,
+    /// so a stale restored token self-heals inside the dial; a bootstrap that
+    /// resolves a DIFFERENT account supersedes the early work through the
+    /// startup coordinator's account-scope reset. An interactive sign-in that
+    /// publishes before the bootstrap barrier (`isRestoringSession == false`,
+    /// bootstrap flag not yet set) still waits: its team scope is loaded by
+    /// the bootstrap continuation moments later, and dialing in the teamless
+    /// scope would only be superseded by that first team resolution.
+    /// - Parameters:
+    ///   - stackAuthenticated: Whether Stack auth is established (a restored
+    ///     keychain session counts while it is being validated).
+    ///   - attachTicketAuthenticated: Whether a temporary attach ticket grants access.
+    ///   - didFinishAuthBootstrap: Whether launch auth, including team resolution, completed.
+    ///   - isRestoringSession: Whether cached auth is still being validated or recreated.
+    ///   - hasRestoredAccountIdentity: Whether the restored session's user id is readable.
+    /// - Returns: `true` when startup connections may begin now.
+    public static func shouldStartStartupConnections(
+        stackAuthenticated: Bool,
+        attachTicketAuthenticated: Bool,
+        didFinishAuthBootstrap: Bool,
+        isRestoringSession: Bool,
+        hasRestoredAccountIdentity: Bool
+    ) -> Bool {
+        guard isAuthenticated(
+            stackAuthenticated: stackAuthenticated,
+            attachTicketAuthenticated: attachTicketAuthenticated
+        ) else { return false }
+        if didFinishAuthBootstrap {
+            return !isRestoringSession
+        }
+        return stackAuthenticated
+            && isRestoringSession
+            && hasRestoredAccountIdentity
+    }
+
     /// Whether a previously stored Mac should be reconnected automatically.
+    ///
+    /// Shares the early-dial rule of
+    /// ``shouldStartStartupConnections(stackAuthenticated:attachTicketAuthenticated:didFinishAuthBootstrap:isRestoringSession:hasRestoredAccountIdentity:)``:
+    /// before the launch bootstrap completes, the dial may start against the
+    /// RESTORED keychain session (readable user id) so the first relay dial
+    /// overlaps the auth SDK's bootstrap instead of waiting behind it.
     /// - Parameters:
     ///   - stackAuthenticated: Whether Stack auth is established.
     ///   - attachTicketAuthenticated: Whether a temporary attach ticket grants access.
     ///   - didFinishAuthBootstrap: Whether launch auth, including team resolution, completed.
     ///   - isRestoringSession: Whether cached auth is still being validated or recreated.
+    ///   - hasRestoredAccountIdentity: Whether the restored session's user id is readable.
     ///   - connectionState: The current connection state.
-    /// - Returns: `true` when Stack-authenticated, auth restore is complete, no temporary ticket is active, and the Mac is not yet connected.
+    /// - Returns: `true` when Stack-authenticated with no temporary ticket
+    ///   active, the Mac is not yet connected, and either the launch bootstrap
+    ///   completed (restore resolved) or the launch restore is still running
+    ///   with a readable restored account identity (the early dial).
     public static func shouldReconnectStoredMac(
         stackAuthenticated: Bool,
         attachTicketAuthenticated: Bool,
         didFinishAuthBootstrap: Bool,
         isRestoringSession: Bool,
+        hasRestoredAccountIdentity: Bool,
         connectionState: MobileConnectionState
     ) -> Bool {
-        stackAuthenticated
-            && didFinishAuthBootstrap
-            && !isRestoringSession
-            && !attachTicketAuthenticated
-            && connectionState != .connected
+        guard stackAuthenticated,
+              !attachTicketAuthenticated,
+              connectionState != .connected else { return false }
+        if didFinishAuthBootstrap {
+            return !isRestoringSession
+        }
+        return isRestoringSession && hasRestoredAccountIdentity
     }
 
     /// Whether the restoring-session UI should be shown while reconnecting a known
