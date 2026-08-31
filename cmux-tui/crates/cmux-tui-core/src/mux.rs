@@ -24204,6 +24204,42 @@ mod tests {
     }
 
     #[test]
+    fn socket_echoes_get_distinct_keys_after_an_aba_state_cycle() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-roster-aba-echo-{}", crate::workspace_registry::new_uuid_v4()));
+        let mux =
+            Mux::open_persistent("roster-aba-echo", SurfaceOptions::default(), &root).unwrap();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let socket_echoes = || {
+            mux.session_journal_after(0, 1024)
+                .unwrap()
+                .records
+                .into_iter()
+                .filter(|record| {
+                    record
+                        .payload
+                        .get("adapter")
+                        .and_then(|adapter| adapter.get("id"))
+                        .and_then(Value::as_str)
+                        == Some(crate::journal_reducers::SOCKET_REPORT_ADAPTER)
+                })
+                .count()
+        };
+
+        for state in
+            [AgentState::Working, AgentState::Blocked, AgentState::Working, AgentState::Blocked]
+        {
+            mux.report_agent(surface.id, state, AgentSource::Socket, Some("aba-session".into()))
+                .unwrap();
+        }
+        assert_eq!(socket_echoes(), 4, "each semantic ABA transition needs its own echo");
+
+        mux.shutdown();
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn repeated_socket_done_reports_coalesce_after_roster_removal() {
         let root = std::env::temp_dir()
             .join(format!("cmux-roster-done-echo-{}", crate::workspace_registry::new_uuid_v4()));
