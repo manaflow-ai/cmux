@@ -4215,9 +4215,15 @@ class TabManager: ObservableObject {
         }
     }
 
+    /// Re-applies `app.tabBarVisibility` to every live split controller:
+    /// workspace panes, per-workspace Docks, and window-scope Docks.
     func refreshTabBarVisibility() {
         for workspace in tabs {
             workspace.refreshTabBarVisibility()
+            workspace._dockSplit?.refreshTabBarVisibility()
+        }
+        for dockStore in liveWindowDockStores {
+            dockStore.refreshTabBarVisibility()
         }
     }
 

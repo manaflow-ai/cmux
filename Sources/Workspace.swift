@@ -4171,6 +4171,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         bonsplitController.configuration = configuration
     }
 
+    /// Re-applies the `app.tabBarVisibility` setting to this workspace's
+    /// split controller after the setting changes.
     func refreshTabBarVisibility() {
         let visibility = Self.tabBarVisibility(defaults: closeTabWarningDefaults)
         var configuration = bonsplitController.configuration
@@ -4179,6 +4181,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         bonsplitController.configuration = configuration
     }
 
+    /// Resolves the `app.tabBarVisibility` setting to bonsplit's visibility
+    /// mode for pane split controllers.
     static func tabBarVisibility(defaults: UserDefaults) -> TabBarVisibility {
         AppCatalogSection().tabBarVisibility.value(in: defaults).bonsplitVisibility
     }
@@ -14601,6 +14605,7 @@ extension Workspace: BonsplitDelegate {
 }
 
 extension PaneTabBarVisibility {
+    /// The bonsplit tab-bar visibility mode matching this setting value.
     var bonsplitVisibility: TabBarVisibility {
         switch self {
         case .always:
