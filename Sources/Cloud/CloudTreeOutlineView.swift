@@ -429,15 +429,14 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 ]
             case .displaysPool(let machine, _):
                 return [
-                    item(String(localized: "machines.menu.openDesktop", defaultValue: "Open Desktop")) { [nodeActions] in
-                        nodeActions.project(SurfaceResourceID(machine: machine, kind: .display, key: SurfaceResourceID.desktopDisplayKey), .split, true)
-                    },
+                    newDisplayItem(machine),
                     item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
                 ]
             case .workspacesGroup(let machine):
                 return [
                     item(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) { [nodeActions] in nodeActions.newWorkspace(machine) },
                     item(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) { [nodeActions] in nodeActions.newTerminal(machine, nil) },
+                    newDisplayItem(machine),
                     item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
                 ]
             case .workspace(let machine, let workspace, _):
@@ -448,6 +447,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     // workspace (remote and local never intermingle, D13).
                     item(String(localized: "cloudTree.menu.openWorkspace", defaultValue: "Open Workspace")) { [weak self] in self?.open(node) },
                     item(String(localized: "cloudTree.menu.newTerminalHere", defaultValue: "New Terminal Here")) { [nodeActions] in nodeActions.newTerminal(machine, workspace.id) },
+                    newDisplayItem(machine),
                     .separator(),
                     item(String(localized: "cloudTree.menu.renameWorkspace", defaultValue: "Rename\u{2026}")) { [nodeActions] in nodeActions.renameWorkspace(machine, workspace) },
                     item(String(localized: "cloudTree.menu.copyWorkspaceID", defaultValue: "Copy Workspace ID")) { [nodeActions] in nodeActions.copyToPasteboard(workspace.id) },
@@ -536,6 +536,15 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             let item = CloudTreeMenuItem(title: title, action: action)
             item.target = item
             return item
+        }
+
+        /// "New Display" opens another view of the machine's one desktop (a new
+        /// pane every time). It becomes a real display creation when the daemon
+        /// can create them (T10).
+        private func newDisplayItem(_ machine: SurfaceMachineID) -> NSMenuItem {
+            item(String(localized: "cloudTree.menu.newDisplay", defaultValue: "New Display")) { [nodeActions] in
+                nodeActions.project(SurfaceResourceID(machine: machine, kind: .display, key: SurfaceResourceID.desktopDisplayKey), .split, false)
+            }
         }
 
         // MARK: Drag source

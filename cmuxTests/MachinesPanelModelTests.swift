@@ -372,7 +372,7 @@ final class MachinesPanelModelTests: XCTestCase {
         )
     }
 
-    func testCloudTreePoolsThenWorkspacePointerLists() {
+    func testCloudTreeWorkspacesThenPoolsAndPointerLists() {
         let ws0 = SurfaceRemoteWorkspace(id: "ws_main", name: "main", index: 0, focused: true)
         let ws1 = SurfaceRemoteWorkspace(id: "ws_side", name: "side", index: 1, focused: false)
         let wsEmpty = SurfaceRemoteWorkspace(id: "ws_empty", name: "scratch", index: 2, focused: false)
@@ -405,17 +405,17 @@ final class MachinesPanelModelTests: XCTestCase {
             "machine:local/ws/\(local.uuidString)",
             "resource:local/terminal/AAA",
             "machine:vivid-newt",
-            "machine:vivid-newt/terminals",
-            "resource:vivid-newt/terminal/term_1",
-            "resource:vivid-newt/terminal/term_2",
-            "machine:vivid-newt/displays",
-            "resource:vivid-newt/display/display:1",
             "machine:vivid-newt/workspaces",
             "machine:vivid-newt/ws/ws_main",
             "machine:vivid-newt/ws/ws_main/resource:vivid-newt/terminal/term_1",
             "machine:vivid-newt/ws/ws_side",
             "machine:vivid-newt/ws/ws_side/resource:vivid-newt/terminal/term_1",
             "machine:vivid-newt/ws/ws_empty",
+            "machine:vivid-newt/terminals",
+            "resource:vivid-newt/terminal/term_1",
+            "resource:vivid-newt/terminal/term_2",
+            "machine:vivid-newt/displays",
+            "resource:vivid-newt/display/display:1",
         ])
         XCTAssertFalse(ids.contains { $0.contains("port") }, "ports stay out of the tree for now")
         let flattened = CloudTreeNodeBuilder.flattened(nodes)
@@ -450,10 +450,10 @@ final class MachinesPanelModelTests: XCTestCase {
         if case .localWorkspace(let row) = flattened[1].kind { XCTAssertEqual(row.title, "cmux90"); XCTAssertTrue(row.isSelected) } else { XCTFail("expected local workspace") }
         XCTAssertEqual(flattened.compactMap { $0.dragResource?.id.rawValue }, [
             "local/terminal/AAA",
+            "vivid-newt/terminal/term_1", "vivid-newt/terminal/term_1",
             "vivid-newt/terminal/term_1", "vivid-newt/terminal/term_2",
             "vivid-newt/display/display:1",
-            "vivid-newt/terminal/term_1", "vivid-newt/terminal/term_1",
-        ], "pool rows, then one drag resource per pointer row")
+        ], "workspace pointer rows precede pool rows, with one drag resource per visible row")
         XCTAssertTrue(flattened[0].isMachineRow)
         XCTAssertTrue(flattened[3].isMachineRow)
         XCTAssertEqual(flattened[3].machine, .cloud("vivid-newt"))
