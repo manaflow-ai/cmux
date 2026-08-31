@@ -6860,6 +6860,34 @@ mod tests {
     use crate::MuxEvent;
 
     #[test]
+    fn journal_target_does_not_retain_mux_owner() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-target-lifetime-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let mux = Mux::open_persistent("journal-target-lifetime", SurfaceOptions::default(), &root)
+            .unwrap();
+        let mux_weak = Arc::downgrade(&mux);
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let target = surface
+            .as_pty()
+            .and_then(PtySurface::journal_target)
+            .expect("persistent terminal has a journal target");
+
+        drop(mux);
+        assert_eq!(
+            mux_weak.strong_count(),
+            0,
+            "a journal target must not keep the session owner alive"
+        );
+
+        drop(target);
+        drop(surface);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn agent_browser_provider_uses_a_terminal_local_daemon_session() {
         let mut options = SurfaceOptions {
             extra_env: vec![
