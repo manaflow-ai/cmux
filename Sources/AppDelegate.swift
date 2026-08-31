@@ -5371,8 +5371,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 window: window,
                 workspaceTerminalFontSizeArbiter:
                     workspaceTerminalFontSizeArbiter,
-                dockPanelResolver: { [weak self] panelId in
-                    self?.windowDockContainingPanel(panelId)
+                dockPanelResolver: { [weak self, weak window] panelId in
+                    guard let self,
+                          let window,
+                          let context = self.mainWindowContexts[ObjectIdentifier(window)]
+                              ?? self.mainWindowContexts.values.first(where: {
+                                  $0.window === window
+                              }),
+                          let dock = context.existingWindowDock(),
+                          dock.containsPanel(panelId) else {
+                        return nil
+                    }
+                    return dock
                 }
             )
             mainWindowContexts[key] = context

@@ -274,11 +274,9 @@ extension AppDelegate {
             return dock.containsPanel(panelId)
                 && dock.panelIsSelectedInVisibleDockPane(panelId)
         }
-        if let browser = dock.browserPanel(owning: responder, in: window) {
-            return dock.panelIsSelectedInVisibleDockPane(browser.id)
-        }
         if let panelId = dock.focusedPanelId,
            let panel = dock.panels[panelId],
+           dock.panelIsSelectedInVisibleDockPane(panelId),
            panel.ownedFocusIntent(for: responder, in: window) != nil {
             return true
         }

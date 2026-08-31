@@ -466,6 +466,7 @@ struct cmuxApp: App {
             // mutation publishes an update. The Commands body itself only
             // reads the bounded snapshot, never the Dock's tab collections.
             let _ = focusHistoryMenuInvalidator.revision
+            let activeDockMenuTarget = activeDockForMenu
             CommandGroup(replacing: .appSettings) {
                 splitCommandButton(title: String(localized: "menu.app.settings", defaultValue: "Settings…"), shortcut: menuShortcut(for: .openSettings)) {
                     appDelegate.openPreferencesWindow(debugSource: "menu.cmdComma")
@@ -879,7 +880,7 @@ struct cmuxApp: App {
                     closeOtherTabsInFocusedPane()
                 }
                 .disabled(
-                    !(activeDockForMenu?.menuCapabilities.canCloseOtherTabs
+                    !(activeDockMenuTarget?.menuCapabilities.canCloseOtherTabs
                         ?? activeTabManager.canCloseOtherTabsInFocusedPane())
                 )
 
@@ -971,7 +972,10 @@ struct cmuxApp: App {
                             activeTabManager.hideFind()
                         }
                     }
-                    .disabled(!activeFindIsVisible)
+                    .disabled(
+                        !(activeDockMenuTarget?.menuCapabilities.hasFindSession
+                            ?? activeTabManager.isFindVisible)
+                    )
 
                     Divider()
 
@@ -987,7 +991,7 @@ struct cmuxApp: App {
                         activeTabManager.searchSelection()
                     }
                     .disabled(
-                        !(activeDockForMenu?.menuCapabilities.canUseSelection
+                        !(activeDockMenuTarget?.menuCapabilities.canUseSelection
                             ?? activeTabManager.canUseSelectionForFind)
                     )
 
@@ -1009,7 +1013,7 @@ struct cmuxApp: App {
                         }
                     }
                     .disabled(
-                        !(activeDockForMenu?.menuCapabilities.isTerminal
+                        !(activeDockMenuTarget?.menuCapabilities.isTerminal
                             ?? (activeTabManager.selectedTerminalPanel != nil))
                     )
                 }
@@ -1331,16 +1335,6 @@ struct cmuxApp: App {
         guard let target = activeBrowserActionTarget else { return false }
         return BrowserActionDispatcher(appDelegate: appDelegate)
             .perform(action, on: target)
-    }
-
-    private var activeFindIsVisible: Bool {
-        if let dock = activeDockForMenu {
-            return dock.menuCapabilities.hasFindSession
-        }
-        if let activeBrowserPanel {
-            return activeBrowserPanel.searchState != nil
-        }
-        return activeTabManager.isFindVisible
     }
 
     var activeTabManager: TabManager {
