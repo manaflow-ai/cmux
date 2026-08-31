@@ -3,6 +3,75 @@ import { describe, expect, mock, test } from "bun:test";
 import { claimPendingProBilling } from "../services/billing/purchase";
 
 describe("billing email claim resolution", () => {
+  test("consumes a claim when the anonymous source was promoted in place", async () => {
+    const transfer = {
+      kind: "claimed" as const,
+      claimId: "claim-promoted-in-place",
+      email: "billingfixture@example.com",
+      customerId: "cus-promoted-in-place",
+      subscriptionIds: ["sub-promoted-in-place"],
+      sourceStackUserId: "promoted-user",
+      targetStackUserId: "promoted-user",
+    };
+    const findClaims = mock(async () => [
+      {
+        id: transfer.claimId,
+        email: transfer.email,
+        stripeCustomerId: transfer.customerId,
+        stackUserId: transfer.sourceStackUserId,
+        claimedByUserId: null,
+      },
+    ]);
+    const transferClaim = mock(async () => transfer);
+
+    const result = await claimPendingProBilling(
+      {
+        id: transfer.targetStackUserId,
+        primaryEmail: transfer.email,
+        primaryEmailVerified: true,
+        isAnonymous: false,
+        isRestricted: false,
+      },
+      {
+        db: {} as never,
+        stackApp: {
+          getUser: async () => ({
+            id: transfer.sourceStackUserId,
+            isAnonymous: false,
+            primaryEmail: transfer.email,
+            primaryEmailVerified: true,
+            clientReadOnlyMetadata: {},
+            update: mock(async () => undefined),
+          }),
+        } as never,
+        ownershipRepository: { findClaims, transferClaim },
+        stripeClient: () => ({
+          customers: {
+            retrieve: async () => ({
+              id: transfer.customerId,
+              deleted: false,
+              email: transfer.email,
+              metadata: {},
+            }),
+            update: async () => undefined,
+          },
+          subscriptions: {
+            retrieve: async () => ({
+              id: transfer.subscriptionIds[0],
+              customer: transfer.customerId,
+              metadata: {},
+            }),
+            update: async () => undefined,
+          },
+        }) as never,
+      },
+    );
+
+    expect(result).toEqual({ claimed: 1 });
+    expect(findClaims).toHaveBeenCalledWith(transfer.email, transfer.targetStackUserId);
+    expect(transferClaim).toHaveBeenCalledTimes(1);
+  });
+
   test("moves an anonymous paid claim to a verified canonical account", async () => {
     const transfer = {
       kind: "claimed" as const,
