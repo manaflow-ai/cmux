@@ -15,6 +15,7 @@ struct RightSidebarPanelRegistry {
         let beta = BetaFeaturesCatalogSection()
         let feedKey = beta.rightSidebarFeed
         let dockKey = beta.rightSidebarDock
+        let cloudMachinesKey = beta.cloudMachines
         let sourceControlKey = beta.sourceControl
 
         self.descriptors = [
@@ -119,10 +120,33 @@ struct RightSidebarPanelRegistry {
                 AnyView(RightSidebarDockPanelContent(context: context))
             },
             Self.descriptor(
+                id: RightSidebarMode.machines.rawValue,
+                title: String(localized: "rightSidebar.mode.machines", defaultValue: "Cloud"),
+                symbolName: "cloud",
+                order: 60,
+                isAvailable: { defaults in
+                    CloudMachinesFeature.offMainIsEnabled(defaults: defaults)
+                        || Self.isEnabled(cloudMachinesKey, defaults: defaults)
+                },
+                shortcutAction: .switchRightSidebarToMachines,
+                cliArgument: "machines",
+                commandPaletteCommandID: "palette.showRightSidebarMachines",
+                paneCommandID: nil,
+                paneTitle: nil,
+                supportsTearOffPane: false,
+                syncsFileExplorerRoot: false
+            ) { context in
+                AnyView(
+                    MachinesPanelView(
+                        chromeBackgroundColor: context.windowAppearance.resolvedChromeBackgroundColor
+                    )
+                )
+            },
+            Self.descriptor(
                 id: RightSidebarMode.sourceControl.rawValue,
                 title: String(localized: "rightSidebar.mode.sourceControl", defaultValue: "Source Control"),
                 symbolName: "arrow.triangle.branch",
-                order: 60,
+                order: 70,
                 isAvailable: { defaults in Self.isEnabled(sourceControlKey, defaults: defaults) },
                 shortcutAction: .switchRightSidebarToSourceControl,
                 cliArgument: "source-control",

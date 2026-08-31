@@ -757,6 +757,9 @@ final class MainWindowFocusController {
         if mode == .feed || mode == .dock || mode == .sourceControl {
             return focusFirstItem ? .firstItem : .host
         }
+        if mode == .machines || mode == .customSidebar || mode == .sessions {
+            return .host
+        }
         return .host
     }
 
@@ -787,6 +790,9 @@ final class MainWindowFocusController {
                 return sourceControlHost?.focusFirstItemFromCoordinator() == true
             }
             return sourceControlHost?.focusHostFromCoordinator() == true
+        }
+        if mode == .machines || mode == .customSidebar {
+            return focusFallbackRightSidebarHost()
         }
         // Vault and future host-backed panels use the fallback right-sidebar
         // responder. The coordinator still records the requested mode.

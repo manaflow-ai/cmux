@@ -80,7 +80,7 @@ private func notificationFeedRowAccessibilityDetails(
         details.append(contentPreview)
     }
     details.append(notificationFeedRowAccessibilityField(
-        label: L10n.string("mobile.notificationFeed.row.computer", defaultValue: "Computer"),
+        label: L10n.string("mobile.notificationFeed.row.computer", defaultValue: "Connection"),
         value: computerStatusText
     ))
     return details

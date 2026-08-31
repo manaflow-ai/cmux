@@ -37,12 +37,25 @@ private enum ComputerVisibilityRowItem: Identifiable {
     }
 }
 
+/// Insertion/removal phase for a row copy crossing sections: a transitioning
+/// copy is invisible AND untouchable until the phase ends. SwiftUI still hit
+/// tests zero-opacity views, so a bare opacity transition would leave an
+/// invisible, enabled switch tappable during the sequenced fade-in delay.
+private struct ComputerRowTransitionPhase: ViewModifier {
+    let shown: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(shown ? 1 : 0)
+            .allowsHitTesting(shown)
+    }
+}
+
 /// A stable computer row whose trailing visibility switch survives transitions
 /// between visible and hidden content.
 ///
 /// Keeping one row identity and one `Toggle` instance lets SwiftUI carry the
-/// native switch transaction through the model update. Forget remains available
-/// only while the computer is hidden.
+/// native switch transaction through the model update.
 private struct ComputerVisibilityRow: View {
     let item: ComputerVisibilityRowItem
     let setVisible: (Bool) -> Void
@@ -50,12 +63,8 @@ private struct ComputerVisibilityRow: View {
     var style: MacComputerRow.Style
     let connect: @MainActor (MacComputerSnapshot) -> Void
     let isConnecting: Bool
-    let forget: (@MainActor () async -> Void)?
-
-    @State private var forgetTask: Task<Void, Never>?
-    @State private var showForgetConfirm = false
-
-    private var isBusy: Bool { forgetTask != nil || isVisibilityMutating }
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private var isBusy: Bool { isVisibilityMutating }
 
     var body: some View {
         HStack(spacing: item.isVisible ? 8 : 12) {
@@ -69,44 +78,24 @@ private struct ComputerVisibilityRow: View {
             )
         }
         .padding(.vertical, item.isVisible ? 0 : 4)
-        .contextMenu {
-            if item.hiddenComputer != nil, forget != nil {
-                forgetMenuButton
-            }
-        }
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            if item.hiddenComputer != nil, forget != nil {
-                forgetSwipeButton
-            }
-        }
-        .confirmationDialog(
-            L10n.string(
-                "mobile.computers.forget.confirmTitle",
-                defaultValue: "Forget this computer?"
-            ),
-            isPresented: $showForgetConfirm,
-            titleVisibility: .visible
-        ) {
-            Button(
-                L10n.string("mobile.computers.forget", defaultValue: "Forget"),
-                role: .destructive,
-                action: performForget
-            )
-            .accessibilityIdentifier("MobileComputerForgetConfirmButton-\(item.id)")
-            Button(
-                L10n.string("mobile.common.cancel", defaultValue: "Cancel"),
-                role: .cancel
-            ) {}
-        } message: {
-            Text(L10n.string(
-                "mobile.computers.forget.confirmMessage",
-                defaultValue: "It's removed from all your devices. If it's still online, it reappears the next time it connects."
-            ))
-        }
-        .onDisappear {
-            forgetTask?.cancel()
-            forgetTask = nil
-        }
+        // A toggle that moves a row across sections (Computers screen) is a
+        // remove+insert of two row copies: identity carries a Toggle through a
+        // model update only within one ForEach. Sequencing the fades (outgoing
+        // copy gone before the incoming copy appears) keeps the two switches
+        // from blending into one malformed half-on ghost. Within a single
+        // ForEach (disconnected shell) toggles reorder in place, so this
+        // transition never fires there. Reduce Motion swaps rows instantly,
+        // matching the owning lists' nil animation.
+        .transition(reduceMotion ? .identity : .asymmetric(
+            insertion: AnyTransition.modifier(
+                active: ComputerRowTransitionPhase(shown: false),
+                identity: ComputerRowTransitionPhase(shown: true)
+            ).animation(.easeIn(duration: 0.15).delay(0.25)),
+            removal: AnyTransition.modifier(
+                active: ComputerRowTransitionPhase(shown: false),
+                identity: ComputerRowTransitionPhase(shown: true)
+            ).animation(.easeOut(duration: 0.12))
+        ))
     }
 
     @ViewBuilder
@@ -174,40 +163,6 @@ private struct ComputerVisibilityRow: View {
     /// UIKit's item-count assertion (TestFlight crash, build
     /// 20260731052644). Same pattern as `WorkspaceNavigationRow`'s
     /// confirm-first Delete.
-    private var forgetSwipeButton: some View {
-        Button {
-            showForgetConfirm = true
-        } label: {
-            Label(
-                L10n.string("mobile.computers.forget", defaultValue: "Forget"),
-                systemImage: "trash"
-            )
-        }
-        .tint(.red)
-        .disabled(isBusy)
-        .accessibilityIdentifier("MobileComputerForgetSwipeButton-\(item.id)")
-    }
-
-    private var forgetMenuButton: some View {
-        Button(role: .destructive) {
-            showForgetConfirm = true
-        } label: {
-            Label(
-                L10n.string("mobile.computers.forget", defaultValue: "Forget"),
-                systemImage: "trash"
-            )
-        }
-        .disabled(isBusy)
-        .accessibilityIdentifier("MobileComputerForgetMenuButton-\(item.id)")
-    }
-
-    private func performForget() {
-        guard !isBusy, let forget else { return }
-        forgetTask = Task { @MainActor in
-            defer { forgetTask = nil }
-            await forget()
-        }
-    }
 }
 
 /// Shared row wiring for visible and hidden computers in one stable `ForEach`.
@@ -220,7 +175,6 @@ struct ComputerVisibilityRows: View {
     var mutatingComputerIDs: Set<String> = []
     let hide: @MainActor (MacComputerSnapshot) -> Void
     let unhide: @MainActor (MobileHiddenComputer) -> Void
-    var forget: (@MainActor (MobileHiddenComputer) async -> Void)? = nil
 
     private var items: [ComputerVisibilityRowItem] {
         visibleComputers.map(ComputerVisibilityRowItem.visible)
@@ -236,7 +190,6 @@ struct ComputerVisibilityRows: View {
                 style: style,
                 connect: connect,
                 isConnecting: connectingComputerID == item.id,
-                forget: forgetAction(for: item.hiddenComputer)
             )
         }
     }
@@ -252,11 +205,5 @@ struct ComputerVisibilityRows: View {
         }
     }
 
-    private func forgetAction(
-        for computer: MobileHiddenComputer?
-    ) -> (@MainActor () async -> Void)? {
-        guard let computer, let forget else { return nil }
-        return { await forget(computer) }
-    }
 }
 #endif

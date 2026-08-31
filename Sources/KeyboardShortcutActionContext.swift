@@ -208,6 +208,7 @@ extension KeyboardShortcutSettings.Action {
         case .switchRightSidebarToFiles, .switchRightSidebarToFind,
              .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock,
              .switchRightSidebarToSourceControl,
+             .switchRightSidebarToMachines,
              .simulatorHome, .simulatorRotateLeft, .simulatorRotateRight,
              .simulatorToggleAppearance, .simulatorToggleSoftwareKeyboard,
              .commandPaletteNext, .commandPalettePrevious:
@@ -229,7 +230,8 @@ extension KeyboardShortcutSettings.Action {
         case .commandPaletteNext, .commandPalettePrevious:
             return .commandPaletteVisible
         case .switchRightSidebarToFiles, .switchRightSidebarToFind, .switchRightSidebarToSessions,
-             .switchRightSidebarToFeed, .switchRightSidebarToDock, .switchRightSidebarToSourceControl,
+             .switchRightSidebarToFeed, .switchRightSidebarToDock,
+             .switchRightSidebarToSourceControl, .switchRightSidebarToMachines,
              .fileExplorerOpenSelection,
              .fileExplorerOpenSelectionFinderAlias:
             return .rightSidebarFocus

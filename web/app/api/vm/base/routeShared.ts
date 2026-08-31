@@ -1,6 +1,6 @@
 import type { AuthedUser } from "../../../../services/vms/auth";
 import { assertVmCreateEnabled } from "../../../../services/vms/config";
-import { defaultProviderId, type ProviderId } from "../../../../services/vms/drivers";
+import { defaultProviderId, isProviderId, type ProviderId } from "../../../../services/vms/drivers";
 import {
   isVmBillingTeamResolutionError,
   isVmProGateBlocked,
@@ -16,12 +16,20 @@ import {
 } from "../../../../services/vms/errors";
 import {
   imageUsesBakedFreestyleSignedAdmin,
+  inferVmProviderForImage,
   resolveVmImage,
+} from "../../../../services/vms/images/resolver";
+import {
+  reportVmImageConfigError,
+  isVmImageKind,
+  VM_IMAGE_KINDS,
+  type VmImageKind,
 } from "../../../../services/vms/images/resolver";
 import {
   jsonResponse,
   requestedVmTeamIdFromRequest,
   vmBillingTeamErrorResponse,
+  vmActiveLimitExceededResponse,
   vmErrorResponse,
   vmWorkflowErrorResponse,
   vmRequiresProResponse,
@@ -61,11 +69,13 @@ export async function runBaseRoute(input: {
     return vmRequiresProResponse();
   }
 
-  const provider = parsed.body.provider ?? defaultProviderId();
+  // Same provider inference as POST /api/vm: an explicit manifest image
+  // names its own provider even when the deployment default disagrees.
+  const provider = parsed.body.provider ?? inferVmProviderForImage(parsed.body.image) ?? defaultProviderId();
   let imageSelection;
   try {
     assertVmCreateEnabled(provider);
-    imageSelection = resolveVmImage(provider, parsed.body.image);
+    imageSelection = resolveVmImage(provider, parsed.body.image, process.env, { kind: parsed.body.kind });
   } catch (err) {
     if (isVmCreateDisabledError(err)) {
       return vmErrorResponse({
@@ -79,13 +89,20 @@ export async function runBaseRoute(input: {
       });
     }
     if (isVmImageConfigError(err)) {
+      const described = reportVmImageConfigError(err);
       return vmErrorResponse({
         error: "vm_image_config_error",
         status: 503,
-        message: "The Cloud VM image is not available in this environment.",
-        action: "Retry in a moment. If it keeps failing, contact support so we can check the Cloud VM image configuration.",
+        message: described.message,
+        action: described.action,
         reason: "Cloud VM image configuration is unavailable.",
-        details: { imageRequested: err.image !== undefined },
+        details: described.details,
+        diagnostics: {
+          provider,
+          image: err.image,
+          envVar: err.envVar,
+          configReason: err.reason,
+        },
         phase: "create",
         retryable: true,
       });
@@ -114,7 +131,7 @@ export async function runBaseRoute(input: {
         : openBaseVm(programInput),
     );
   } catch (err) {
-    const response = baseWorkflowErrorResponse(err, input.operation);
+    const response = baseWorkflowErrorResponse(err, input.operation, entitlements.planId);
     if (response) return response;
     throw err;
   }
@@ -124,6 +141,7 @@ export async function runBaseRoute(input: {
     provider: entry.provider,
     image: entry.image,
     imageVersion: entry.imageVersion,
+    kind: imageSelection.kind,
     status: entry.status,
     createdAt: entry.createdAt,
     base: {
@@ -135,7 +153,7 @@ export async function runBaseRoute(input: {
   });
 }
 
-function baseWorkflowErrorResponse(err: unknown, operation: BaseOperation): Response | null {
+function baseWorkflowErrorResponse(err: unknown, operation: BaseOperation, planId: string): Response | null {
   if (isVmCreateInProgressError(err)) {
     return vmErrorResponse({
       error: "vm_base_create_in_progress",
@@ -160,15 +178,12 @@ function baseWorkflowErrorResponse(err: unknown, operation: BaseOperation): Resp
     });
   }
   if (isVmLimitExceededError(err)) {
-    return vmErrorResponse({
-      error: "vm_active_limit_exceeded",
-      status: 402,
-      message: `This plan allows ${err.limit} active Cloud VM${err.limit === 1 ? "" : "s"} at a time.`,
-      action: operation === "reset"
+    return vmActiveLimitExceededResponse({
+      limit: err.limit,
+      planId,
+      retryAction: operation === "reset"
         ? "Stop or delete another active Cloud VM, then retry Base reset. The current Base is still retained."
         : "Stop or delete another active Cloud VM, then retry opening Base.",
-      extra: { limit: err.limit },
-      details: { limit: err.limit },
       phase: "create",
     });
   }
@@ -192,7 +207,7 @@ async function parseBaseRequest(
   request: Request,
   operation: BaseOperation,
 ): Promise<
-  | { readonly ok: true; readonly body: { readonly name?: string; readonly image?: string; readonly provider?: ProviderId; readonly billingTeamId?: string; readonly reason?: string | null } }
+  | { readonly ok: true; readonly body: { readonly name?: string; readonly image?: string; readonly kind?: VmImageKind; readonly provider?: ProviderId; readonly billingTeamId?: string; readonly reason?: string | null } }
   | { readonly ok: false; readonly response: Response }
 > {
   let raw: unknown = {};
@@ -247,8 +262,20 @@ async function parseBaseRequest(
       };
     }
   }
+  if (candidate.kind !== undefined && candidate.kind !== null && !isVmImageKind(candidate.kind)) {
+    return {
+      ok: false,
+      response: vmErrorResponse({
+        error: "vm_invalid_request",
+        status: 400,
+        message: `\`kind\` must be one of ${VM_IMAGE_KINDS.join(", ")} when provided.`,
+        action: "Remove `kind` to use the default Cloud VM image, or pass `desktop` or `base`.",
+        details: { field: "kind", allowedKinds: VM_IMAGE_KINDS },
+      }),
+    };
+  }
   const provider = typeof candidate.provider === "string" ? candidate.provider.trim() : undefined;
-  if (provider && provider !== "e2b" && provider !== "freestyle" && provider !== "daytona") {
+  if (provider && !isProviderId(provider)) {
     return {
       ok: false,
       response: vmErrorResponse({
@@ -265,6 +292,7 @@ async function parseBaseRequest(
     body: {
       name: stringValue(candidate.name),
       image: stringValue(candidate.image),
+      kind: isVmImageKind(candidate.kind) ? candidate.kind : undefined,
       provider: provider as ProviderId | undefined,
       billingTeamId: stringValue(bodyBillingTeamId),
       reason: stringValue(candidate.reason) ?? null,

@@ -553,8 +553,11 @@ dependencies = [
 name = "chatmux-relay"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "async-trait",
  "base64",
  "bytes",
+ "cmux-pty",
  "futures-util",
  "getrandom 0.3.4",
  "http",
@@ -572,8 +575,10 @@ dependencies = [
  "time",
  "tokio",
  "tokio-tungstenite",
+ "tokio-util",
  "tungstenite",
  "url",
+ "windows-sys 0.61.2",
  "x25519-dalek",
 ]
 
@@ -752,10 +757,13 @@ dependencies = [
  "cmux-pty",
  "cmux-remote",
  "cmux-remote-protocol",
+ "cmux-tui-cdp",
  "cmux-tui-core",
  "cmux-tui-machine-agent-protocol",
  "cmux-tui-machine-protocol",
+ "crossbeam-channel",
  "crossterm",
+ "fs4",
  "getrandom 0.3.4",
  "ghostty-vt",
  "glob",

@@ -2,6 +2,7 @@ import Darwin
 import Foundation
 import os
 import Testing
+import CmuxWorkspaces
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -351,5 +352,246 @@ struct AgentHibernationTerminationFailureTests {
         )
 
         #expect(record.hasPressureSafeProcessEvidence == false)
+        #expect(record.processSafetyAllowsHibernation == false)
+    }
+
+    @Test
+    func pressureTeardownRequiresFreshProcessEntry() {
+        #expect(
+            AgentHibernationController.memoryPressureTeardownAllowsProcessEntry(nil) == false
+        )
+
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .custom("test-agent"),
+            sessionId: "pressure-entry-evidence",
+            workingDirectory: "/tmp",
+            launchCommand: nil
+        )
+        func makeEntry(
+            processLiveness: RestorableAgentProcessLiveness = .exited,
+            processIDs: Set<Int> = [],
+            terminationProcessIDs: Set<Int> = [],
+            terminationProcessIdentities: [Int: AgentPIDProcessIdentity] = [:],
+            containsUnrelatedProcess: Bool
+        ) -> RestorableAgentSessionIndex.Entry {
+            RestorableAgentSessionIndex.Entry(
+                snapshot: snapshot,
+                lifecycle: .idle,
+                updatedAt: 0,
+                processLiveness: processLiveness,
+                processIDs: processIDs,
+                processIdentities: terminationProcessIdentities,
+                agentProcessIDs: processIDs,
+                agentProcessIdentities: terminationProcessIdentities,
+                hibernationPanelProcessIDs: processIDs,
+                terminationProcessIDs: terminationProcessIDs,
+                terminationProcessIdentities: terminationProcessIdentities,
+                containsUnrelatedProcess: containsUnrelatedProcess
+            )
+        }
+
+        #expect(
+            AgentHibernationController.memoryPressureTeardownAllowsProcessEntry(
+                makeEntry(containsUnrelatedProcess: false)
+            )
+        )
+        #expect(
+            AgentHibernationController.memoryPressureTeardownAllowsProcessEntry(
+                makeEntry(
+                    processLiveness: .unknown,
+                    containsUnrelatedProcess: false
+                )
+            ) == false
+        )
+        let identity = AgentPIDProcessIdentity(pid: 101, startSeconds: 1, startMicroseconds: 0)
+        #expect(
+            AgentHibernationController.memoryPressureTeardownAllowsProcessEntry(
+                makeEntry(
+                    processLiveness: .running,
+                    processIDs: [101],
+                    terminationProcessIDs: [101],
+                    terminationProcessIdentities: [101: identity],
+                    containsUnrelatedProcess: false
+                )
+            )
+        )
+        #expect(
+            AgentHibernationController.memoryPressureTeardownAllowsProcessEntry(
+                makeEntry(containsUnrelatedProcess: true)
+            ) == false
+        )
+    }
+
+    @MainActor
+    @Test
+    func hibernationRecordsDoNotReusePanelIDFallbackForMovedLiveProcess() throws {
+        let appDelegate = AppDelegate()
+        let manager = TabManager()
+        appDelegate.tabManager = manager
+        defer { appDelegate.tabManager = nil }
+
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelID = try #require(workspace.focusedPanelId)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "moved-live-process",
+            workingDirectory: "/tmp",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/usr/local/bin/codex",
+                arguments: ["/usr/local/bin/codex"],
+                workingDirectory: "/tmp",
+                environment: nil,
+                capturedAt: nil,
+                source: nil
+            )
+        )
+        workspace.restoredAgentLifecycle.setSnapshot(snapshot, panelId: panelID)
+        workspace.restoredAgentLifecycle.setResumeState(
+            .manualResumeAvailable,
+            panelId: panelID
+        )
+
+        let sourceWorkspaceID = UUID()
+        let sourceKey = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: sourceWorkspaceID,
+            panelId: panelID
+        )
+        let processID = 7_101
+        let identity = AgentPIDProcessIdentity(
+            pid: pid_t(processID),
+            startSeconds: 42,
+            startMicroseconds: 1
+        )
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: FileManager.default.temporaryDirectory.path,
+            fileManager: .default,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [
+                sourceKey: (
+                    snapshot: snapshot,
+                    updatedAt: 42,
+                    processIDs: [processID],
+                    agentProcessIDs: [processID],
+                    sessionIDSource: .explicit
+                ),
+            ],
+            hibernationProcessScopes: [
+                sourceKey: (
+                    panelProcessIDs: [processID],
+                    terminationProcessIDs: [processID],
+                    containsUnrelatedProcess: false
+                ),
+            ],
+            processIdentityProvider: { requestedProcessID in
+                requestedProcessID == processID ? identity : nil
+            }
+        )
+
+        let record = try #require(
+            appDelegate.agentHibernationRecords(
+                index: index,
+                activityByPanel: [:],
+                terminalInputByPanel: [:],
+                lifecycleChangeByPanel: [:]
+            ).first { $0.key.panelId == panelID }
+        )
+
+        #expect(record.processSafetyAllowsHibernation == false)
+    }
+
+    @MainActor
+    @Test
+    func oversizedLiveProcessScopeIsNotEligibleForHibernation() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.panels[panelID] as? TerminalPanel)
+        let processIDs = Set(
+            1...(AgentHibernationController.maximumScopedProcessTerminationCount + 1)
+        )
+        let processIdentities = Dictionary(uniqueKeysWithValues: processIDs.map { processID in
+            (
+                processID,
+                AgentPIDProcessIdentity(
+                    pid: pid_t(processID),
+                    startSeconds: Int64(processID),
+                    startMicroseconds: 0
+                )
+            )
+        })
+        let record = AgentHibernationRecord(
+            key: .init(workspaceId: workspace.id, panelId: panelID),
+            workspace: workspace,
+            terminalPanel: panel,
+            agent: .init(
+                kind: .custom("test-agent"),
+                sessionId: "oversized-process-scope",
+                workingDirectory: "/tmp",
+                launchCommand: nil
+            ),
+            lifecycle: .idle,
+            hasUnconfirmedTerminalInput: false,
+            lastActivityAt: 0,
+            isProtected: false,
+            hasLiveProcess: true,
+            containsUnrelatedProcess: false,
+            panelProcessIDs: processIDs,
+            processIDs: processIDs,
+            processIdentities: processIdentities
+        )
+
+        #expect(record.hasPressureSafeProcessEvidence == false)
+        #expect(!record.processSafetyAllowsHibernation)
+    }
+
+    @MainActor
+    @Test
+    func mismatchedProcessIdentityKeysAreNotEligibleForHibernation() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.panels[panelID] as? TerminalPanel)
+        let processIDs: Set<Int> = [101, 102]
+        let mismatchedIdentities = [
+            101: AgentPIDProcessIdentity(pid: 101, startSeconds: 1, startMicroseconds: 0),
+            999: AgentPIDProcessIdentity(pid: 999, startSeconds: 2, startMicroseconds: 0),
+        ]
+        let record = AgentHibernationRecord(
+            key: .init(workspaceId: workspace.id, panelId: panelID),
+            workspace: workspace,
+            terminalPanel: panel,
+            agent: .init(
+                kind: .custom("test-agent"),
+                sessionId: "mismatched-process-identities",
+                workingDirectory: "/tmp",
+                launchCommand: nil
+            ),
+            lifecycle: .idle,
+            hasUnconfirmedTerminalInput: false,
+            lastActivityAt: 0,
+            isProtected: false,
+            hasLiveProcess: true,
+            containsUnrelatedProcess: false,
+            panelProcessIDs: processIDs,
+            processIDs: processIDs,
+            processIdentities: mismatchedIdentities
+        )
+        let entry = RestorableAgentSessionIndex.Entry(
+            snapshot: record.agent,
+            lifecycle: .idle,
+            updatedAt: 0,
+            processLiveness: .running,
+            processIDs: processIDs,
+            processIdentities: mismatchedIdentities,
+            agentProcessIDs: processIDs,
+            agentProcessIdentities: mismatchedIdentities,
+            hibernationPanelProcessIDs: processIDs,
+            terminationProcessIDs: processIDs,
+            terminationProcessIdentities: mismatchedIdentities,
+            containsUnrelatedProcess: false
+        )
+
+        #expect(record.hasPressureSafeProcessEvidence == false)
+        #expect(!record.processSafetyAllowsHibernation)
+        #expect(!entry.processSafetyAllowsScheduledHibernation)
     }
 }

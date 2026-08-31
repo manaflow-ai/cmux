@@ -87,6 +87,8 @@ struct RightSidebarPanelView: View {
     private var dockEnabled
     @LiveSetting(\.betaFeatures.sourceControl)
     private var sourceControlEnabled
+    @LiveSetting(\.betaFeatures.cloudMachines)
+    private var cloudMachinesEnabled
 
     // Re-reading the observable store inside modeBar causes SwiftUI to
     // track the pending count so the badge updates live when hooks push
@@ -168,6 +170,7 @@ struct RightSidebarPanelView: View {
         .onChange(of: feedEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: dockEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: sourceControlEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
+        .onChange(of: cloudMachinesEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
     }
 
     private var modeBar: some View {

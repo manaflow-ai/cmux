@@ -60,6 +60,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     "terminal.bytes", "terminal.render_grid", "terminal.set_font",
                     "notification.dismissed", "notification.badge", "notification.feed.changed",
                     "phone_push.status.changed", "caffeine.status.changed",
+                    "mobile.compatible_tags.changed",
                     "browser.frame", "browser.state", "browser.closed", "browser.dialog", "browser.dialog.resolved",
                     "simulator.frame", "simulator.state", "simulator.closed",
                 ]
@@ -69,6 +70,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     "terminal.render_grid", "terminal.set_font",
                     "notification.dismissed", "notification.badge", "notification.feed.changed",
                     "phone_push.status.changed", "caffeine.status.changed",
+                    "mobile.compatible_tags.changed",
                     "browser.frame", "browser.state", "browser.closed", "browser.dialog", "browser.dialog.resolved",
                     "simulator.frame", "simulator.state", "simulator.closed",
                 ]
@@ -78,6 +80,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     "terminal.bytes", "terminal.set_font",
                     "notification.dismissed", "notification.badge", "notification.feed.changed",
                     "phone_push.status.changed", "caffeine.status.changed",
+                    "mobile.compatible_tags.changed",
                     "browser.frame", "browser.state", "browser.closed", "browser.dialog", "browser.dialog.resolved",
                     "simulator.frame", "simulator.state", "simulator.closed",
                 ]
@@ -357,6 +360,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var automaticReconnectRetryTask: Task<Void, Never>?
     var automaticReconnectRetryAccountID: String?
     var automaticReconnectRetryAt: Date?
+    /// Hard ceiling on one recovery-owner attempt (drain + dial + validation).
+    /// Every inner phase carries its own deadline; this exists so an await
+    /// that escapes them (a wedged FFI close, a continuation that never
+    /// resumes) degrades into a bounded failure with a scheduled retry
+    /// instead of an owner that silently coalesces every later trigger.
+    var connectionRecoveryAttemptDeadlineTask: Task<Void, Never>?
     var lastPresenceReconnectEvidence: (
         scope: MobileShellScopeSnapshot,
         instances: [MobilePresenceReconnectEvidence]
@@ -808,6 +817,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// rejected outright (the view bounds the encode below this, but the store
     /// re-enforces it as the single source of truth).
     public nonisolated static let maxPendingAttachmentImageBytes = 8 * 1024 * 1024
+    /// Per-file byte cap for one staged FILE attachment, matching the
+    /// task-attachment upload limit its send-time transport enforces on the
+    /// Mac side. Larger than the per-image cap because files are not
+    /// re-encoded down; the per-terminal and global byte budgets still bound
+    /// the aggregate.
+    public nonisolated static let maxPendingAttachmentFileBytes =
+        TaskComposerAttachment.maximumFileBytes
     /// GLOBAL encoded-bytes budget summed across EVERY terminal's staged set, not
     /// just the target's. The per-terminal cap bounds one draft, but each live
     /// terminal carries its own per-terminal budget, so staging photos across many
@@ -1527,6 +1543,57 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
     }
 
+    /// Whether `row` is served by the foreground RPC connection — the same
+    /// device/build matching as ``selectedWorkspaceUsesForegroundConnection``,
+    /// but for an explicit last-known row, used when the row has already
+    /// vanished from ``workspaces`` and the selection-based lookup can no
+    /// longer see it.
+    private func workspaceRowIsForegroundServed(_ row: MobileWorkspacePreview) -> Bool {
+        guard let macID = row.macDeviceID, !macID.isEmpty,
+              macID != Self.foregroundAnonymousKey else {
+            return true
+        }
+        guard let ownerDeviceID = foregroundMacDeviceID ?? recoveryTargetMacDeviceID else {
+            return false
+        }
+        guard cmxCanonicalDeviceID(macID) == cmxCanonicalDeviceID(ownerDeviceID) else {
+            return false
+        }
+        let ownerTag = foregroundMacDeviceID != nil
+            ? activeMacInstanceTag
+            : recoveryTargetInstanceTag
+        return macInstanceTagAuthority.sameStoredAuthority(row.macInstanceTag, ownerTag)
+    }
+
+    /// Whether a workspace's absence from the freshly derived list is
+    /// authoritative (deleted, closed, or unpaired — selection may retarget
+    /// and the mounted detail may pop) rather than a transient hole from a
+    /// degraded connection (the selection holds so the user is never pushed
+    /// out of the detail for connection reasons). See
+    /// ``WorkspaceAbsenceAuthority``.
+    func workspaceAbsenceIsAuthoritative(
+        lastKnownRow row: MobileWorkspacePreview?
+    ) -> Bool {
+        let foregroundIsHealthy = macConnectionStatus == .connected
+            && !isRecoveringConnection
+            && !connectionRecoveryFailed
+        let ownerStatus: MobileMacConnectionStatus? = row.flatMap { row in
+            guard let macID = row.macDeviceID, !macID.isEmpty,
+                  macID != Self.foregroundAnonymousKey else {
+                return workspacesByMac[.anonymousForeground]?.status
+            }
+            return workspacesByMac[
+                MacPairingKey(macDeviceID: macID, instanceTag: row.macInstanceTag)
+            ]?.status
+        }
+        return WorkspaceAbsenceAuthority.absenceIsAuthoritative(
+            hasLastKnownRow: row != nil,
+            rowIsForegroundServed: row.map(workspaceRowIsForegroundServed) ?? false,
+            foregroundIsHealthy: foregroundIsHealthy,
+            ownerStatus: ownerStatus
+        )
+    }
+
     /// Resolve a UI row id back to the Mac-local workspace id expected by RPC.
     ///
     /// Multi-Mac aggregation scopes row ids by Mac to avoid collisions, while
@@ -1808,6 +1875,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     isolated deinit {
         connectionRecoveryOwner.cancel()
+        connectionRecoveryAttemptDeadlineTask?.cancel()
         automaticReconnectRetryTask?.cancel()
         presenceTask?.cancel()
         networkPathObservationTask?.cancel()
@@ -2688,7 +2756,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard let self, !Task.isCancelled,
                   generation == self.storedMacReconnectGeneration,
                   self.connectionState != .connected else { return }
-            self.finishStoredMacReconnectAttempt(generation: generation, supersede: true)
+            // Resolve only the visible restoring flags; the dial may still be
+            // legitimately in flight (slow network, wedged physical cleanup
+            // ahead of it in the transport queue). Superseding the generation
+            // here used to discard a dial that then completed successfully
+            // seconds later: the adoption guards refused the freshly admitted
+            // session, leaking it, and the UI stayed at Not Connected with
+            // nothing scheduled to retry. A newer attempt supersedes this one
+            // naturally by claiming the next generation.
+            MobileDebugLog.anchormux(
+                "storedMacReconnect restoring gate resolved; dial continues generation=\(generation)"
+            )
+            self.finishStoredMacReconnectAttempt(generation: generation)
         }
         defer { restoringDeadline.cancel() }
         // Run the awaited restore/dial phase under the same hard ceiling for
@@ -2719,6 +2798,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // This preserves foreground-first ordering even though the
                 // deadline race executes the awaited phase in a child task.
                 scheduleSecondaryAggregation(discoverLivePeers: true)
+            }
+            if case .failed(let failure) = outcome {
+                armAutomaticReconnectRetryAfterFailedAttempt(
+                    failure: failure,
+                    stackUserID: stackUserID
+                )
             }
             return outcome
         }
@@ -2871,7 +2956,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                       instanceTag: mac.instanceTag,
                       scope: scope
                   ) else { break }
-            let irohReconnectIsBlocked = tailscaleOnly
+            // Tailscale Only blocks the Iroh lane only for legacy pairings
+            // without an Iroh identity; an identified pairing rides Iroh
+            // pinned to its Tailscale addresses (same lane the terminal
+            // lanes ride, same admission authority).
+            let irohReconnectIsBlocked = (connectionMethod(for: mac) == .tailscale
+                && !mac.routes.contains { $0.kind == .iroh })
                 || automaticIrohReconnectIsBlocked(accountID: scope.userID)
             let localRoutes = storedReconnectRoutes(mac).filter {
                 !irohReconnectIsBlocked || $0.kind != .iroh
@@ -2901,6 +2991,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     instanceTag: mac.instanceTag,
                     legacyTailscaleRoutes: mac.legacyTailscaleRoutes ?? [],
                     automaticReconnectAccountID: scope.userID,
+                    knownPairing: mac,
                     ifStillCurrent: { [weak self] in
                         self?.storedMacReconnectGeneration == generation
                     }
@@ -2923,6 +3014,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         instanceTag: mac.instanceTag,
                         legacyTailscaleRoutes: mac.legacyTailscaleRoutes ?? [],
                         automaticReconnectAccountID: scope.userID,
+                        knownPairing: mac,
                         ifStillCurrent: { [weak self] in
                             self?.storedMacReconnectGeneration == generation
                         }
@@ -2982,6 +3074,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     instanceTag: mac.instanceTag,
                     legacyTailscaleRoutes: mac.legacyTailscaleRoutes ?? [],
                     automaticReconnectAccountID: scope.userID,
+                    knownPairing: mac,
                     ifStillCurrent: { [weak self] in
                         self?.storedMacReconnectGeneration == generation
                     }
@@ -4239,7 +4332,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 displayName: payload.macDisplayName,
                 instanceTag: payload.macInstanceTag,
                 clientNamespace: payload.macClientNamespace,
-                macAppVersion: payload.macAppVersion
+                macAppVersion: payload.macAppVersion,
+                compatibleMacTags: payload.macCompatibleMacTags
             )
         }
     }
@@ -4261,7 +4355,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         displayName: String?,
         instanceTag: String?,
         clientNamespace: String? = nil,
-        macAppVersion: String? = nil
+        macAppVersion: String? = nil,
+        compatibleMacTags: [String]? = nil
     ) async {
         guard remoteClient === client,
               let rawReportedID = deviceID?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -4353,6 +4448,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         adoptForegroundMacIdentity(
             reportedID,
             previousKey: foregroundKeyBeforeTagAdoption
+        )
+        // Adopt the anchor Mac's sibling-tag grant set only after this
+        // connection's identity was accepted, so an incompatible or
+        // mismatched Mac can never influence the allowlist.
+        await applyAdvertisedCompatibleMacTags(
+            compatibleMacTags,
+            reportedInstanceTag: resolvedTag
         )
     }
 
@@ -4747,6 +4849,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) async -> SecondaryClientAttempt {
         guard let runtime else { return .permanentFailure }
         let supportedKinds = runtime.supportedRouteKinds
+        // Background control obeys the per-Computer method allowlist exactly
+        // like the foreground dial: pinned addresses only, fail closed.
+        let directOnlyCandidates = irohMethodPinnedDialCandidates(
+            forMacDeviceID: mac.macDeviceID,
+            instanceTag: mac.instanceTag,
+            knownPairing: mac
+        )
+        if let directOnlyCandidates, directOnlyCandidates.isEmpty {
+            return .permanentFailure
+        }
         let pinnedRoutes = orderedReconnectRoutes(
             for: mac,
             supportedKinds: supportedKinds
@@ -4828,7 +4940,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             let supportedRoutes = supportedRoutes(
                 for: ticket,
-                supportedKinds: supportedKinds
+                supportedKinds: supportedKinds,
+                pairedMacDeviceID: mac.macDeviceID,
+                instanceTag: mac.instanceTag
             )
             guard let selectedRoute = supportedRoutes.first(where: { candidate in
                 if case let .hostPort(routeHost, routePort) = candidate.endpoint {
@@ -4848,6 +4962,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ticket: ticket,
             allowsStackAuthFallback: MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
             legacyTailscaleAuthorizationEvidence: legacyTailscaleAuthorizationEvidence,
+            irohDirectOnlyDialCandidates: directOnlyCandidates,
             connectAttemptRegistry: connectAttemptRegistry,
             stackTokenGate: stackTokenGate,
             stackTokenForceRefreshGate: stackTokenForceRefreshGate,
@@ -7438,7 +7553,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         )
                 }
             }
-            self.selectedWorkspaceID = remapped?.id ?? derived.first?.id
+            if let remapped {
+                self.selectedWorkspaceID = remapped.id
+            } else if workspaceAbsenceIsAuthoritative(lastKnownRow: previousSelection) {
+                self.selectedWorkspaceID = derived.first?.id
+            }
+            // Otherwise keep the selection: a degraded connection made the
+            // row vanish, and the mounted detail keeps rendering its
+            // last-known snapshot until the reconnect restores the row or a
+            // healthy list confirms the deletion (which retargets above).
         }
         if selectedWorkspaceID != nil { syncSelectedTerminalForWorkspace() }
         let derivedGroups = workspaceAggregation.derivedGroups(
@@ -7991,7 +8114,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 startedAt: diagnosticStartedAt,
                 failure: .superseded
             )
-            if selectedWorkspaceID == id {
+            // Clear the selection (popping the mounted detail) only when the
+            // absence is authoritative. A detail remount can re-enter here
+            // during a reconnect window whose list transiently lacks the row;
+            // popping then would eject the user for a connection reason, so
+            // hold the selection and let the reconnect restore the row or a
+            // healthy list confirm the deletion.
+            if selectedWorkspaceID == id,
+               workspaceAbsenceIsAuthoritative(lastKnownRow: workspace) {
                 setSelectedWorkspaceID(nil)
             }
             return
@@ -8209,7 +8339,103 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// path and the second add re-reads the (already-grown) set, so the combined
     /// total can never exceed the cap. The store is the single source of truth.
     @discardableResult
-    public func addPendingAttachment(_ data: Data, format: String, forTerminalID terminalID: String? = nil) -> MobilePendingAttachment.ID? {
+    public func addPendingAttachment(
+        _ data: Data,
+        format: String,
+        thumbnailData: Data? = nil,
+        forTerminalID terminalID: String? = nil
+    ) -> MobilePendingAttachment.ID? {
+        stagePendingAttachment(
+            kind: .image,
+            data: data,
+            format: format,
+            displayName: nil,
+            thumbnailData: thumbnailData,
+            forTerminalID: terminalID
+        )
+    }
+
+    /// Stage arbitrary file bytes as a pending attachment for a terminal. The
+    /// bytes are uploaded to the Mac at send time (through the chunked
+    /// task-attachment verb) and the message references the returned path,
+    /// shell-quoted, ahead of the user's text.
+    /// - Parameters:
+    ///   - data: The raw file bytes, already under the per-file cap.
+    ///   - fileExtension: A lowercase extension hint for the chip and upload.
+    ///   - displayName: The user-visible file name, sent as the upload name.
+    ///   - terminalID: The terminal to stage under; `nil` falls back to the
+    ///     selected terminal.
+    /// - Returns: The new attachment's stable id, or `nil` when nothing was
+    ///   staged (see ``addPendingAttachment(_:format:forTerminalID:)``).
+    @discardableResult
+    public func addPendingFileAttachment(
+        _ data: Data,
+        fileExtension: String,
+        displayName: String,
+        thumbnailData: Data? = nil,
+        forTerminalID terminalID: String? = nil
+    ) -> MobilePendingAttachment.ID? {
+        stagePendingAttachment(
+            kind: .file,
+            data: data,
+            format: fileExtension,
+            displayName: displayName,
+            thumbnailData: thumbnailData,
+            forTerminalID: terminalID
+        )
+    }
+
+    /// Stage file bytes only if the captured session token still matches and
+    /// (when explicit) the target terminal still exists — the same stale-result
+    /// guard as the image variant, for the paste path whose materialization and
+    /// disk reads await off-main.
+    @discardableResult
+    public func addPendingFileAttachment(
+        _ data: Data,
+        fileExtension: String,
+        displayName: String,
+        thumbnailData: Data? = nil,
+        forTerminalID terminalID: String? = nil,
+        ifSessionGeneration capturedGeneration: Int
+    ) -> MobilePendingAttachment.ID? {
+        guard capturedGeneration == signInGeneration else {
+            recordAppEvent(
+                .terminalAttachmentRejected,
+                correlationID: terminalID,
+                failure: .superseded
+            )
+            return nil
+        }
+        if let terminalID, !terminalExistsInTopology(terminalID) {
+            recordAppEvent(
+                .terminalAttachmentRejected,
+                correlationID: terminalID,
+                failure: .superseded
+            )
+            return nil
+        }
+        return addPendingFileAttachment(
+            data,
+            fileExtension: fileExtension,
+            displayName: displayName,
+            thumbnailData: thumbnailData,
+            forTerminalID: terminalID
+        )
+    }
+
+    /// The single validated staging path: every image and file add (plain or
+    /// session-guarded) funnels through here so the per-kind size cap, the
+    /// per-terminal count/byte budgets, and the global all-terminals budgets
+    /// are enforced atomically against the CURRENT staged set on the main
+    /// actor.
+    private func stagePendingAttachment(
+        kind: MobilePendingAttachment.Kind,
+        data: Data,
+        format: String,
+        displayName: String?,
+        thumbnailData: Data?,
+        forTerminalID terminalID: String?
+    ) -> MobilePendingAttachment.ID? {
         let key = terminalID ?? selectedTerminalID?.rawValue
         func reject(
             _ failure: DiagnosticFailureKind,
@@ -8227,11 +8453,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let key else { return reject(.noRoute) }
         // Reject any add for a terminal that is not in the current topology, so a
         // closed/recreated/stale id can never accrue orphaned bytes the user can no
-        // longer see or send. This is the single validated path: both the base
-        // call and the session-guarded variant funnel through here.
+        // longer see or send.
         guard terminalExistsInTopology(key) else { return reject(.superseded) }
-        // A single image larger than the per-image cap is rejected outright.
-        guard data.count <= Self.maxPendingAttachmentImageBytes else {
+        // A single item larger than its kind's cap is rejected outright: images
+        // are bounded by the encode target, files by the send-time upload limit.
+        let perItemCap = switch kind {
+        case .image: Self.maxPendingAttachmentImageBytes
+        case .file: Self.maxPendingAttachmentFileBytes
+        }
+        guard data.count <= perItemCap else {
             return reject(.payloadTooLarge, count: data.count)
         }
         let existing = pendingAttachmentsByTerminalID[key] ?? []
@@ -8263,7 +8493,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard globalBytes + data.count <= Self.maxPendingAttachmentTotalBytesAllTerminals else {
             return reject(.resourceLimitReached, count: globalBytes + data.count)
         }
-        let attachment = MobilePendingAttachment(data: data, format: format)
+        let attachment = MobilePendingAttachment(
+            kind: kind,
+            data: data,
+            format: format,
+            displayName: displayName,
+            thumbnailData: thumbnailData
+        )
         pendingAttachmentsByTerminalID[key, default: []].append(attachment)
         recordAppEvent(
             .terminalAttachmentStaged,
@@ -8297,6 +8533,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func addPendingAttachment(
         _ data: Data,
         format: String,
+        thumbnailData: Data? = nil,
         forTerminalID terminalID: String? = nil,
         ifSessionGeneration capturedGeneration: Int
     ) -> MobilePendingAttachment.ID? {
@@ -8322,7 +8559,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
             return nil
         }
-        return addPendingAttachment(data, format: format, forTerminalID: terminalID)
+        return addPendingAttachment(
+            data,
+            format: format,
+            thumbnailData: thumbnailData,
+            forTerminalID: terminalID
+        )
     }
 
     /// Whether a terminal id is present in the current workspace/terminal
@@ -8432,13 +8674,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// reconciliation still keys on that captured terminal (not the live
     /// selection).
     ///
-    /// - Parameter capturedText: The exact text to send, snapshotted by the
-    ///   caller before any await. When `nil`, the live ``terminalInputText`` is
-    ///   read (the text-only entry points have no earlier await, so there is no
-    ///   snapshot to drift). ``submitComposer()`` MUST pass a snapshot: a terminal
-    ///   switch or a field edit during its image awaits would otherwise make this
-    ///   send (and the draft reconcile) read a different terminal's draft or skip
-    ///   the text the user actually composed at Send time.
+    /// - Parameters:
+    ///   - capturedText: The exact text to send, snapshotted by the
+    ///     caller before any await. When `nil`, the live ``terminalInputText`` is
+    ///     read (the text-only entry points have no earlier await, so there is no
+    ///     snapshot to drift). ``submitComposer()`` MUST pass a snapshot: a terminal
+    ///     switch or a field edit during its attachment awaits would otherwise make
+    ///     this send (and the draft reconcile) read a different terminal's draft or
+    ///     skip the text the user actually composed at Send time.
+    ///   - draftTextToReconcile: What the FIELD held at Send time, when it
+    ///     differs from the sent text. ``submitComposer()`` prepends uploaded
+    ///     file paths to the sent text, so the post-ack draft clear must compare
+    ///     the field against the un-prepended snapshot or it would never match
+    ///     and the sent draft would resurrect. `nil` means the sent text IS the
+    ///     field text.
     ///
     /// - Returns: `true` when the Mac acknowledged the paste (or the text was
     ///   empty, i.e. nothing to send), `false` when the send failed so the caller
@@ -8447,7 +8696,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func submitComposerInput(
         workspaceID: MobileWorkspacePreview.ID,
         terminalID: MobileTerminalPreview.ID,
-        capturedText: String? = nil
+        capturedText: String? = nil,
+        draftTextToReconcile: String? = nil
     ) async -> Bool {
         let text = capturedText ?? terminalInputText
         // Empty text is "nothing to send", which is a success from the caller's
@@ -8471,8 +8721,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // user switched terminals while the ack was in flight, the switch persists
         // the outgoing text as the captured terminal's draft, and the sent text
         // must be cleared from that key, not from whatever terminal is selected
-        // when the ack returns.
-        await reconcileComposerDraftAfterSend(sentText: text, submittedTerminalID: terminalID)
+        // when the ack returns. A files-only send has an empty field snapshot,
+        // so there is no draft to clear.
+        let draftText = draftTextToReconcile ?? text
+        if !draftText.isEmpty {
+            await reconcileComposerDraftAfterSend(
+                sentText: draftText,
+                submittedTerminalID: terminalID
+            )
+        }
         return true
     }
 
@@ -8547,15 +8804,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let submitSignInGeneration = signInGeneration
         let submitConnectionGeneration = connectionGeneration
         let submitClient = remoteClient
-        // Deliver each image first and await it, so the agent's terminal has the
-        // file paths before the text arrives. Remove each only after its send is
-        // acknowledged; on failure stop and keep the rest (and the text) staged.
+        // Deliver each attachment first and await it, so the agent's terminal has
+        // the file paths before the text arrives. Images travel inline through
+        // `terminal.paste_image` and are removed per-ack; files are uploaded
+        // through the chunked task-attachment verb and their returned Mac paths
+        // are prepended (shell-quoted) to the text below. On failure stop and
+        // keep the rest (and the text) staged.
+        var uploadedFilePaths: [(id: MobilePendingAttachment.ID, path: String)] = []
         for attachment in attachments {
             // Re-check the captured session/connection still matches before each
-            // image send (the previous iteration's send was awaited). A mismatch
-            // means the session or transport was replaced mid-submit; abort
-            // without sending so nothing leaks into the new session. Attachments
-            // are left staged (no removal happened for this iteration).
+            // attachment send (the previous iteration's send was awaited). A
+            // mismatch means the session or transport was replaced mid-submit;
+            // abort without sending so nothing leaks into the new session.
+            // Attachments are left staged (no removal happened for this
+            // iteration).
             guard isComposerSubmitIdentityCurrent(
                 signIn: submitSignInGeneration,
                 connection: submitConnectionGeneration,
@@ -8563,7 +8825,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ) else { return false }
             // Re-check the attachment is still staged for the captured terminal
             // before uploading it. The user can delete a not-yet-acked chip while
-            // an earlier image's send is in flight; that removes it from
+            // an earlier attachment's send is in flight; that removes it from
             // `pendingAttachmentsByTerminalID`, but this loop iterates a snapshot
             // taken before the awaits. Skipping the removed one keeps the local
             // snapshot from re-uploading bytes the user already dismissed. Runs on
@@ -8571,17 +8833,31 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // removal.
             guard pendingAttachments(forTerminalID: submittedTerminalID.rawValue)
                 .contains(where: { $0.id == attachment.id }) else { continue }
-            let sent = await submitTerminalPasteImage(
-                attachment.data,
-                format: attachment.format,
-                workspaceID: workspaceID,
-                terminalID: submittedTerminalID
-            )
-            guard sent else { return false }
-            removePendingAttachment(id: attachment.id, forTerminalID: submittedTerminalID.rawValue)
+            switch attachment.kind {
+            case .image:
+                let sent = await submitTerminalPasteImage(
+                    attachment.data,
+                    format: attachment.format,
+                    workspaceID: workspaceID,
+                    terminalID: submittedTerminalID
+                )
+                guard sent else { return false }
+                removePendingAttachment(id: attachment.id, forTerminalID: submittedTerminalID.rawValue)
+            case .file:
+                guard case .success(let path) =
+                        await uploadPendingFileAttachment(attachment) else {
+                    return false
+                }
+                // NOT removed yet: the path is only useful once the text send
+                // that references it acks. Removing now would strand the file if
+                // that send fails; keeping it staged means a retry re-uploads (a
+                // fresh path on whatever Mac is then current) instead of silently
+                // dropping the attachment.
+                uploadedFilePaths.append((id: attachment.id, path: path))
+            }
         }
         // Re-check the captured identity one last time before the text send. The
-        // final image's send was awaited above, so a sign-out / Mac switch /
+        // final attachment's send was awaited above, so a sign-out / Mac switch /
         // reconnect could have landed after it; abort (keep the text staged in the
         // field) rather than paste the user's message into the now-current
         // session.
@@ -8590,15 +8866,34 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             connection: submitConnectionGeneration,
             client: submitClient
         ) else { return false }
-        // Submit the captured text to the captured terminal (a no-op when empty,
-        // e.g. an images-only send). All images acked by here, so the text
+        // Prepend each uploaded file's quoted Mac path BEFORE the user's message
+        // (an agent reads the references, then the message about them). The
+        // field itself never contained the paths, so the draft reconcile below
+        // compares against the field snapshot, not the composed text.
+        var composedText = ""
+        for (_, path) in uploadedFilePaths {
+            composedText = TerminalComposerAttachmentInsertion(path: path)
+                .appending(to: composedText)
+        }
+        composedText += submittedText
+        // Submit the composed text to the captured terminal (a no-op when empty,
+        // e.g. an images-only send; a files-only send is non-empty because of
+        // the prepended paths). All attachments acked by here, so the text
         // follows. Passing the snapshot (not the live field) keeps this immune to
-        // a switch/edit that happened during the image awaits above.
+        // a switch/edit that happened during the attachment awaits above.
         sendSucceeded = await submitComposerInput(
             workspaceID: workspaceID,
             terminalID: submittedTerminalID,
-            capturedText: submittedText
+            capturedText: composedText,
+            draftTextToReconcile: submittedText
         )
+        if sendSucceeded {
+            // The text referencing the uploaded paths is acked; the file chips
+            // are now delivered and can leave the staged set.
+            for (id, _) in uploadedFilePaths {
+                removePendingAttachment(id: id, forTerminalID: submittedTerminalID.rawValue)
+            }
+        }
         return sendSucceeded
     }
 
@@ -8674,7 +8969,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         #if DEBUG
         mobileShellLog.debug("enqueue raw terminal input byteCount=\(text.utf8.count, privacy: .public)")
         #endif
-        guard let workspaceID = selectedWorkspace?.id,
+        // The explicit selection id, not `selectedWorkspace`: its first-row
+        // fallback would pair a foreign workspace id with the held terminal
+        // id when the selected row is transiently absent mid-reconnect.
+        guard let workspaceID = selectedWorkspaceID ?? workspaces.first?.id,
               let terminalID = selectedTerminalID else {
             #if DEBUG
             mobileShellLog.info("skip raw terminal input enqueue selectedWorkspace=\(self.selectedWorkspace == nil ? 0 : 1, privacy: .public) selectedTerminal=\(self.selectedTerminalID == nil ? 0 : 1, privacy: .public)")
@@ -8917,6 +9215,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         allowsStackAuthFallback: Bool? = nil,
         legacyTailscaleRoutes: [CmxAttachRoute] = [],
         userTailscalePairingAuthorizations: [CmxUserTailscalePairingAuthorization] = [],
+        directOnlyDialCandidates: [CmxIrohDirectDialCandidate]? = nil,
         pairedMacDeviceID: String? = nil,
         instanceTagExpectation: MobileMacInstanceTagExpectation = .adopt,
         ifStillCurrent: (() -> Bool)? = nil
@@ -8953,13 +9252,29 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalInputRPCPipeline.clear()
         resumeRawTerminalInputDrainWaiters()
         let supportedKinds = runtime?.supportedRouteKinds ?? []
+        // Per-Computer Direct enforcement: stored-Mac reconnects resolve the
+        // allowlist from their freshly loaded row and pass it in; ticket
+        // dials resolve it here from the published pairing list, using the
+        // caller's pairing identity so a sibling build sharing the device id
+        // cannot supply the wrong method. `nil` means the target's method
+        // pins no addresses (automatic, or a legacy pairing without an Iroh
+        // identity).
+        let directOnlyDialCandidates = directOnlyDialCandidates
+            ?? irohMethodPinnedDialCandidates(
+                forMacDeviceID: requestedMacDeviceID ?? ticket.macDeviceID,
+                instanceTag: instanceTagExpectation.expectedTag
+            )
         let supportedRoutes = supportedRoutes(
             for: ticket,
             supportedKinds: supportedKinds,
             legacyTailscaleRoutes: legacyTailscaleRoutes,
-            userTailscalePairingAuthorizations: userTailscalePairingAuthorizations
+            userTailscalePairingAuthorizations: userTailscalePairingAuthorizations,
+            directOnly: directOnlyDialCandidates != nil,
+            pairedMacDeviceID: requestedMacDeviceID,
+            instanceTag: instanceTagExpectation.expectedTag
         )
-        guard let firstRoute = supportedRoutes.first else {
+        guard directOnlyDialCandidates?.isEmpty != true,
+              let firstRoute = supportedRoutes.first else {
             // No route kind this build can dial: set the specific category;
             // the caller records the matching analytics reason from it.
             connectionError = MobilePairingFailureCategory.noSupportedRoute.message
@@ -9241,6 +9556,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     ?? MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
                 legacyTailscaleAuthorizationEvidence: legacyTailscaleAuthorizationEvidence,
                 userTailscalePairingAuthorization: userTailscalePairingAuthorization,
+                irohDirectOnlyDialCandidates: directOnlyDialCandidates,
                 connectAttemptRegistry: connectAttemptRegistry,
                 stackTokenGate: stackTokenGate,
                 stackTokenForceRefreshGate: stackTokenForceRefreshGate,
@@ -9686,7 +10002,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         for ticket: CmxAttachTicket,
         supportedKinds: [CmxAttachTransportKind],
         legacyTailscaleRoutes: [CmxAttachRoute] = [],
-        userTailscalePairingAuthorizations: [CmxUserTailscalePairingAuthorization] = []
+        userTailscalePairingAuthorizations: [CmxUserTailscalePairingAuthorization] = [],
+        directOnly: Bool = false,
+        pairedMacDeviceID: String? = nil,
+        instanceTag: String? = nil
     ) -> [CmxAttachRoute] {
         let orderedRoutes = CmxAttachRoute.addingIrohPrivatePaths(
             to: ticket.routes,
@@ -9701,13 +10020,25 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 supportedKinds.contains(route.kind)
             }
         }
-        let irohRoutes = supportedRoutes.filter { route in
-            route.kind == .iroh
-        }
         // The explicit Tailscale method is strict: only authorized Tailscale
         // destinations may be dialed, and an unavailable route leaves the app
-        // disconnected instead of silently switching to Iroh.
-        if connectionMethodStore?.method == .tailscale {
+        // disconnected instead of silently switching to Iroh. The method is
+        // the dialed Computer's own choice, falling back to the app default.
+        // Resolve it with the caller's pairing identity when one is known:
+        // sibling builds share a device id but choose methods independently,
+        // so a bare device lookup could apply the wrong build's method.
+        let ticketMethod = connectionMethod(
+            forMacDeviceID: pairedMacDeviceID ?? ticket.macDeviceID,
+            instanceTag: instanceTag
+        )
+        // Direct rides the Iroh lane EXCLUSIVELY (identity-checked,
+        // encrypted; the transport dials only the user-enabled addresses):
+        // no dev loopback and no host/port lane, so an unusable allowlist
+        // fails closed instead of switching paths.
+        if directOnly || ticketMethod == .direct {
+            return supportedRoutes.filter { $0.kind == .iroh }
+        }
+        if ticketMethod == .tailscale {
             let authorizedTailscale = supportedRoutes.filter { route in
                 Self.legacyTailscaleAuthorizationEvidence(
                     for: route,
@@ -9721,7 +10052,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             return authorizedTailscale
         }
-        return irohRoutes.isEmpty ? supportedRoutes : irohRoutes
+        // The Iroh method is just as strict as Tailscale Only: no raw
+        // host/port fallback, ever. Debug loopback rides alongside Iroh as
+        // the dev-build convenience (compiled out of production route sets):
+        // it is the same-machine lane, not a cross-method fallback, and an
+        // Iroh endpoint advertising no relays and no direct addresses must
+        // not starve it or a dev simulator can never pair.
+        return supportedRoutes.filter { $0.kind == .iroh || $0.kind == .debugLoopback }
     }
 
     /// The user-entered pairing-code authorization covering `route`, if any.
@@ -10829,6 +11166,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     func syncSelectedTerminalForWorkspace() {
+        // A selection held across a degraded-connection window has no live
+        // row, and ``selectedWorkspace`` would fall back to an arbitrary
+        // first row: re-deriving from that would clobber the held terminal
+        // selection (and swap its composer draft). Keep both selections for
+        // the row's return instead.
+        if selectedWorkspaceID != nil, explicitlySelectedWorkspace == nil {
+            return
+        }
         guard let selectedWorkspace else {
             selectedTerminalID = nil
             return
@@ -11136,7 +11481,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func sendRemoteTerminalInput(_ text: String) async {
-        guard let workspaceID = selectedWorkspace?.id,
+        // Explicit selection id first, mirroring `sendTerminalRawInput`: the
+        // `selectedWorkspace` first-row fallback would mispair ids when the
+        // selected row is transiently absent mid-reconnect.
+        guard let workspaceID = selectedWorkspaceID ?? workspaces.first?.id,
               let terminalID = selectedTerminalID else {
             #if DEBUG
             mobileShellLog.info("skip remote terminal input selectedWorkspace=\(self.selectedWorkspace == nil ? 0 : 1, privacy: .public) selectedTerminal=\(self.selectedTerminalID == nil ? 0 : 1, privacy: .public)")
@@ -11864,7 +12212,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 displayName: payload.macDisplayName,
                 instanceTag: payload.macInstanceTag,
                 clientNamespace: payload.macClientNamespace,
-                macAppVersion: payload.macAppVersion
+                macAppVersion: payload.macAppVersion,
+                compatibleMacTags: payload.macCompatibleMacTags
             )
             guard isCurrentRemoteConnection(
                 client: client,
@@ -12077,6 +12426,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         client: client,
                         generation: listenerConnectionGeneration
                     )
+                } else if event.topic == "mobile.compatible_tags.changed" {
+                    await self.handleCompatibleMacTagsChangedEvent(event)
                 } else if event.topic == "browser.frame" {
                     self.handleMobileBrowserFrameEvent(event)
                 } else if event.topic == "browser.state" {

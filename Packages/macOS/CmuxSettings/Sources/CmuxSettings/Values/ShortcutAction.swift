@@ -33,6 +33,10 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case jumpToUnread
     case toggleUnread
     case markOldestUnreadAndJumpNext
+    /// Marks every notification read without removing notification rows.
+    case markAllNotificationsRead
+    /// Removes every notification row and its unread indicators.
+    case clearAllNotifications
     case focusRightSidebar
     case switchRightSidebarToFiles
     case switchRightSidebarToFind
@@ -41,6 +45,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case switchRightSidebarToDock
     /// Shows the beta-gated Source Control panel in the right sidebar.
     case switchRightSidebarToSourceControl
+    case switchRightSidebarToMachines
     case triggerFlash
 
     // MARK: Navigation
@@ -278,7 +283,7 @@ extension ShortcutAction {
         switch self {
         case .switchRightSidebarToFiles, .switchRightSidebarToFind,
              .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock,
-             .switchRightSidebarToSourceControl:
+             .switchRightSidebarToSourceControl, .switchRightSidebarToMachines:
             return .atom(.sidebarFocus)
         case .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias:
             return .atom(.sidebarFocus)

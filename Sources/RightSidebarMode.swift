@@ -23,7 +23,12 @@ struct RightSidebarMode: RawRepresentable, CaseIterable, Codable, Hashable, Iden
     static let sessions = Self("sessions")
     static let feed = Self("feed")
     static let dock = Self("dock")
+    /// Cloud Machines, enabled by the remote rollout or local beta opt-in.
+    static let machines = Self("machines")
     static let sourceControl = Self("sourceControl")
+    /// Reserved for persisted custom-sidebar references; custom sidebars are
+    /// rendered as pane surfaces rather than registry-backed right-sidebar tabs.
+    static let customSidebar = Self("custom-sidebar")
 
     static var allCases: [RightSidebarMode] {
         RightSidebarPanelRegistry().descriptors.compactMap { RightSidebarMode(rawValue: $0.id) }

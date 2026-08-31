@@ -37,26 +37,52 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var workspaceIds: [UUID] = []
     private var selectedScrollTargetWorkspaceId: UUID?
     private var isPresentationActive = true
-    private var isApplyingTableGeometryUpdate = false
+    private var structuralUpdateDepth = 0
     private var deferredPumpHeightRowIds: Set<SidebarWorkspaceRenderItemID> = []
+    private var deferredStructuralHeightRows = IndexSet()
     private var appKitDropIndicator: SidebarDropIndicator?
     private var appKitDropIndicatorScope: SidebarWorkspaceReorderDropIndicatorScope = .raw
     private var appKitDropIndicatorIncludesRowTargets = false
+    private var isWorkspaceDragSourceActive = false
+    // Keep the source table alive until AppKit delivers the terminal callback.
+    // SwiftUI may remove the representable (fullscreen/display changes) while
+    // the native drag still owns that table.
+    private var activeWorkspaceDragTableView: SidebarWorkspaceTableViewImpl?
+    // Keep the containing drop views alive as well. A fast release can leave a
+    // deferred reorder waiting for its target bridge after the representable is
+    // dismantled; retaining only the table would lose that pending operation.
+    private var activeWorkspaceDragContainerView: SidebarWorkspaceTableContainerView?
+    private var activeWorkspaceDragSessionId: UUID?
+    private var activeWorkspaceDragCapabilityValue: String?
+    private var workspaceDragSourceCompletionReceived = false
+    private var pendingWorkspaceDragSessionId: UUID?
+    private var pendingWorkspaceDragWorkspaceId: UUID?
+    private var hasPendingOrActiveWorkspaceDrag: Bool {
+        isWorkspaceDragSourceActive
+            || pendingWorkspaceDragSessionId != nil
+            || activeWorkspaceDragContainerView?.reorderDropView.hasPendingDrop == true
+    }
     private weak var unreadSource: SidebarUnreadModel?
     private var unreadSnapshot = SidebarUnreadSnapshot()
     private var appliedUnreadSnapshot = SidebarUnreadSnapshot()
     private var hasPendingContentRefresh = false
+    private var pendingForcedReloadViewportOrigin: CGPoint?
     private var unreadObservation: SidebarUnreadObservation?
     private var clipBoundsObserver: NSObjectProtocol?
     private var resizeDidEndObserver: NSObjectProtocol?
+
+    private var isApplyingTableGeometryUpdate: Bool {
+        structuralUpdateDepth > 0
+    }
     /// Latest immutable input offered while an interactive resize owns this
     /// window. Already-applied rows stay authoritative until the real end signal.
     private var deferredInteractiveResizeApply: SidebarWorkspaceTableApplyInput?
     private lazy var mutationScheduler = SidebarWorkspaceTableMutationScheduler(
         applyFlush: { [weak self] in self?.flushApply($0) },
         viewportChangeFlush: { [weak self] in self?.flushViewportChange() },
-        reloadFlush: { [weak self] in self?.containerView?.tableView.reloadData() },
-        contentRefreshFlush: { [weak self] in self?.flushContentRefresh() }
+        reloadFlush: { [weak self] in self?.reloadTableWithoutAnimation() },
+        contentRefreshFlush: { [weak self] in self?.flushContentRefresh() },
+        rowHeightFlush: { [weak self] in self?.flushPumpHeightChanges($0) }
     )
     private let rowHeightCache = SidebarWorkspaceTableRowHeightCache()
     private let dropTargetGeometry = SidebarWorkspaceTableDropTargetGeometryGate()
@@ -111,7 +137,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         table.action = #selector(didClickTableRow)
         table.doubleAction = #selector(didDoubleClickTableRow)
         table.setDraggingSourceOperationMask(.move, forLocal: true)
-        table.setDraggingSourceOperationMask(.move, forLocal: false)
+        // Workspace rows are a source only. Reorder/drop destinations live in
+        // the dedicated overlay so AppKit cannot claim Mission Control or
+        // other window-level drags while a stale pasteboard is present.
+        table.setDraggingSourceOperationMask([], forLocal: false)
 
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("workspace"))
         column.resizingMask = .autoresizingMask
@@ -165,16 +194,37 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     func dismantleContainerView(_ container: SidebarWorkspaceTableContainerView) {
         guard containerView === container else { return }
+        let preserveNativeDragPresentation = hasPendingOrActiveWorkspaceDrag
+        if preserveNativeDragPresentation, activeWorkspaceDragContainerView == nil {
+            activeWorkspaceDragContainerView = container
+            installDeferredDropLifecycle(on: container)
+        }
         mutationScheduler.cancelPendingApplyAndViewport()
         deferredInteractiveResizeApply = nil
+        pendingForcedReloadViewportOrigin = nil
         deferredPumpHeightRowIds.removeAll(keepingCapacity: false)
+        deferredStructuralHeightRows.removeAll()
         previewBailoutTask?.cancel()
         previewBailoutTask = nil
         widthRemeasureTask?.cancel()
         widthRemeasureTask = nil
         let postUpdateActions = detachLoadedCells()
-        workspaceDragSessionDidEnd()
-        actions = nil
+        // A representable can be dismantled while AppKit still owns the native
+        // drag session (fullscreen/display reconstruction). Keep the action
+        // graph and table delegate alive until the terminal source callback.
+        // Retire controller-painted indicators while the action graph is still
+        // available; dropping `actions` first would silently skip the
+        // authoritative clear callback during presentation teardown.
+        clearWorkspaceDragPresentation()
+        if !hasPendingOrActiveWorkspaceDrag {
+            // A writer can be requested before AppKit creates a native
+            // session. This controller owns no completion in that interval;
+            // calling the generic action would be able to end a newer drag
+            // owned by another source.
+            pendingWorkspaceDragSessionId = nil
+            pendingWorkspaceDragWorkspaceId = nil
+            actions = nil
+        }
         unreadObservation?.cancel()
         unreadObservation = nil
         unreadSource = nil
@@ -188,12 +238,14 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         hoveredRowId = nil
         contextMenuRowId = nil
         cancelSelectionIntent()
-        clearDropViewActions(in: container)
+        if !preserveNativeDragPresentation {
+            clearDropViewActions(in: container)
+        }
         setAppKitDropIndicator(nil, scope: .raw, includeRowTargets: false)
-        container.tableView.workspaceController = nil
+        if !hasPendingOrActiveWorkspaceDrag {
+            detachController(from: container.tableView)
+        }
         container.clipView.workspaceController = nil
-        container.tableView.dataSource = nil
-        container.tableView.delegate = nil
         containerView = nil
         mutationScheduler.stagePostUpdateActions(postUpdateActions)
     }
@@ -308,6 +360,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         mutationScheduler.cancelPendingApplyAndViewport()
         deferredInteractiveResizeApply = nil
         deferredPumpHeightRowIds.removeAll(keepingCapacity: true)
+        deferredStructuralHeightRows.removeAll()
         previewBailoutTask?.cancel()
         previewBailoutTask = nil
         widthRemeasureTask?.cancel()
@@ -322,8 +375,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let previousRowIds = rows.map(\.id)
         rows = rows.filter { liveIds.contains($0.workspaceId) }
         rowHeightCache.suspendPresentation(retaining: Set(rows.map(\.id)))
-        if previousRowIds != rows.map(\.id) {
-            mutationScheduler.stageTableReload()
+        if previousRowIds != rows.map(\.id), let containerView {
+            stageForcedTableReload(in: containerView)
         }
     }
 
@@ -334,8 +387,18 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         rows = rows
             .filter { liveIds.contains($0.workspaceId) }
             .map { $0.presentationSnapshot() }
-        workspaceDragSessionDidEnd()
-        actions = nil
+        // Retire controller-painted indicators while the action graph is still
+        // available; dropping `actions` first would silently skip the
+        // authoritative clear callback during presentation teardown.
+        clearWorkspaceDragPresentation()
+        if !hasPendingOrActiveWorkspaceDrag {
+            // There is no table-owned native session to complete here. Leave
+            // session termination to the native source instead of invoking a
+            // generic callback during presentation teardown.
+            pendingWorkspaceDragSessionId = nil
+            pendingWorkspaceDragWorkspaceId = nil
+            actions = nil
+        }
         workspaceIds = liveWorkspaceIds
         selectedScrollTargetWorkspaceId = nil
         hoveredRowId = nil
@@ -344,11 +407,16 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         pumpHeightOverrides.removeAll(keepingCapacity: true)
         cancelSelectionIntent()
         rowHeightCache.suspendPresentation(retaining: Set(rows.map(\.id)))
-        if let containerView {
+        if let containerView, !hasPendingOrActiveWorkspaceDrag {
             clearDropViewActions(in: containerView)
             if previousRowIds != rows.map(\.id) {
-                mutationScheduler.stageTableReload()
+                stageForcedTableReload(in: containerView)
             }
+        } else if previousRowIds != rows.map(\.id) {
+            // A retained native source still owns the old drop callbacks. The
+            // row snapshot may change while hidden, but clearing those callbacks
+            // would erase a deferred drop before AppKit completes the source.
+            mutationScheduler.stageTableReload()
         }
         setAppKitDropIndicator(nil, scope: .raw, includeRowTargets: false)
         mutationScheduler.stagePostUpdateActions(postUpdateActions)
@@ -403,7 +471,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 actions: actions,
                 workspaceIds: nextWorkspaceIds,
                 selectedWorkspaceId: selectedWorkspaceId,
-                selectedScrollTargetWorkspaceId: selectedScrollTargetWorkspaceId
+                selectedScrollTargetWorkspaceId: selectedScrollTargetWorkspaceId,
+                forcedReloadViewportOrigin: pendingForcedReloadViewportOrigin
             )
         )
     }
@@ -423,6 +492,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let nextWorkspaceIds = input.workspaceIds
         let selectedWorkspaceId = input.selectedWorkspaceId
         let selectedScrollTargetWorkspaceId = input.selectedScrollTargetWorkspaceId
+        let forceTableReload = input.forceTableReload
+        let forcedReloadViewportOrigin = input.forcedReloadViewportOrigin
         // Authoritative render: reconciles any optimistic preview, so the
         // preview bailout stands down.
         applyGeneration &+= 1
@@ -431,6 +502,13 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         self.actions = actions
         actions.attachScrollView(containerView.scrollView)
         configureDropViews(in: containerView, actions: actions)
+        if let retainedContainer = activeWorkspaceDragContainerView,
+           retainedContainer !== containerView {
+            // Rebind the retained drop views to the latest render/action graph
+            // while AppKit keeps the old source alive through reconstruction.
+            // The drop view owns any pending payload; rebinding must not clear it.
+            configureDropViews(in: retainedContainer, actions: actions)
+        }
 
         let previousRows = rows
         let hasStructuralChanges = previousRows.map(\.id) != nextRows.map(\.id)
@@ -448,6 +526,16 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             }
             optimisticallyPaintedRowIds.removeAll(keepingCapacity: true)
         }
+        // Release pump geometry only when this apply actually supersedes the
+        // row's authoritative content. An unrelated workspace update must not
+        // widen a per-row pump event into a full visible-row reconfiguration;
+        // content-equivalent rows keep their painted model and height paired.
+        let releasedPumpRows = releasePumpHeightOverrides(
+            for: nextRows,
+            supersededIndexes: contentChanges,
+            releaseAll: forceTableReload
+        )
+        contentChanges.formUnion(releasedPumpRows)
         let width = currentColumnWidth()
         var heightChanges = IndexSet()
         if width == lastMeasuredWidth || lastMeasuredWidth == 0 {
@@ -466,20 +554,34 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             if width > 0 { lastMeasuredWidth = width }
         } else {
             // Divider drag in flight: keep last-width heights (text truncates
-            // live) and re-measure once the width settles.
+            // live) and re-measure once the width settles. Rows whose model is
+            // changing in this apply are the exception: prepare just those
+            // rows at the live width before their cells are reconfigured, so
+            // the delegate never answers with an old-width cache entry for a
+            // newly laid-out model.
+            var rowsToMeasureAtLiveWidth = contentChanges
+            rowsToMeasureAtLiveWidth.formUnion(releasedPumpRows)
+            if width > 0, !rowsToMeasureAtLiveWidth.isEmpty {
+                heightChanges.formUnion(
+                    rowHeightCache.prepareRows(
+                        at: rowsToMeasureAtLiveWidth,
+                        in: nextRows,
+                        columnWidth: width
+                    )
+                )
+                // `prepareRows` can update an entry without changing its
+                // numeric height. Keep the settlement state armed for either
+                // case so a rapid reversal cannot treat this partial width as
+                // settled and carry it forward through the equivalence fast
+                // path.
+                hasLiveMeasuredRows = true
+                lastLiveMeasuredWidth = width
+            }
             scheduleWidthRemeasure()
         }
         // Releasing a pump override changes what heightOfRow answers, so the
         // released rows must be re-noted like any other height change.
-        // Clearing silently left the table on the override height while the
-        // cache served the measured one — the row clipping/overlap reports
-        // (probe: served=48 actual=50 on every streaming row).
-        if !pumpHeightOverrides.isEmpty {
-            for (index, row) in nextRows.enumerated() where pumpHeightOverrides[row.id] != nil {
-                heightChanges.insert(index)
-            }
-        }
-        pumpHeightOverrides.removeAll(keepingCapacity: true)
+        heightChanges.formUnion(releasedPumpRows)
 
         var previousIds: [SidebarWorkspaceRenderItemID] = []
         var nextIds: [SidebarWorkspaceRenderItemID] = []
@@ -502,7 +604,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         }
         let requiresAtomicReorderReload =
             hasStructuralChanges && !heightChanges.isEmpty && isSmallPureReorder
-        let viewportAnchor = requiresAtomicReorderReload
+        // A forced reload follows hidden-presentation pruning, where
+        // `previousRows` no longer describes NSTableView's old graph. It uses
+        // the captured clip origin instead of a row anchor built from mismatched
+        // indices.
+        let viewportAnchor = !forceTableReload && requiresAtomicReorderReload
             ? SidebarWorkspaceTableViewportAnchor.capture(
                 table: containerView.tableView,
                 previousRows: previousRows,
@@ -520,7 +626,16 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         }
 #endif
         if hasStructuralChanges {
-            if heightChanges.isEmpty, isSmallPureReorder {
+            if forceTableReload {
+                let table = containerView.tableView
+                let postUpdateActions = detachLoadedCells()
+                performTableGeometryUpdateWithoutAnimation(heightChanges, in: table) {
+                    table.reloadData()
+                    restoreViewportOrigin(forcedReloadViewportOrigin, in: table)
+                    viewportAnchor?.restore(table: table, rows: nextRows)
+                }
+                mutationScheduler.stagePostUpdateActions(postUpdateActions)
+            } else if heightChanges.isEmpty, isSmallPureReorder {
                 // Stable-geometry reorder (drag-drop): move rows in place.
                 // reloadData tears down every visible cell and snaps the
                 // scroll position, while moves keep cells alive and settle
@@ -566,6 +681,15 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 }
                 mutationScheduler.stagePostUpdateActions(postUpdateActions)
             }
+        } else if forceTableReload {
+            let table = containerView.tableView
+            let postUpdateActions = detachLoadedCells()
+            performTableGeometryUpdateWithoutAnimation(in: table) {
+                table.reloadData()
+                restoreViewportOrigin(forcedReloadViewportOrigin, in: table)
+                viewportAnchor?.restore(table: table, rows: nextRows)
+            }
+            mutationScheduler.stagePostUpdateActions(postUpdateActions)
         } else {
             if !contentChanges.isEmpty || !heightChanges.isEmpty {
                 var rowsToNote = heightChanges
@@ -591,7 +715,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             let visible = table.rows(in: table.visibleRect)
             for row in visible.lowerBound..<(visible.lowerBound + visible.length)
             where rows.indices.contains(row) {
-                let served = pumpHeightOverrides[rows[row].id]
+                let served = effectivePumpHeightOverride(for: rows[row].id)
                     ?? rowHeightCache.height(for: rows[row], columnWidth: probeWidth)
                     ?? rows[row].estimatedHeight
                 let actual = table.rect(ofRow: row).height - spacing
@@ -631,6 +755,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             mutationScheduler.stageContentRefresh()
         }
         replayDeferredRowClickIfPossible()
+        pendingForcedReloadViewportOrigin = nil
     }
 
     private func interactiveGeometryResizeDidEnd() {
@@ -766,10 +891,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
         guard rows.indices.contains(row) else { return tableView.rowHeight }
         let configuration = rows[row]
-        if let override = pumpHeightOverrides[configuration.id] {
+        let columnWidth = lastMeasuredWidth > 0 ? lastMeasuredWidth : currentColumnWidth()
+        if let override = effectivePumpHeightOverride(for: configuration.id) {
             return override
         }
-        let columnWidth = lastMeasuredWidth > 0 ? lastMeasuredWidth : currentColumnWidth()
         return rowHeightCache.height(
             for: configuration,
             columnWidth: columnWidth
@@ -811,6 +936,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     func tableView(_ tableView: NSTableView, didRemove rowView: NSTableRowView, forRow row: Int) {
         guard let cell = rowView.view(atColumn: 0) as? NSView else { return }
+        if let workspaceCell = cell as? SidebarWorkspaceRowTableCellView {
+            releasePumpHeightOverride(ownedBy: workspaceCell)
+        }
         // Row retirement is the authoritative cleanup signal. A temporary
         // whole-table window reparent leaves its row views installed, while
         // an actual deletion/reload removes them through this callback.
@@ -825,16 +953,34 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
         // Group headers intentionally mint their anchor payload: anchor drags
         // route to top-level whole-group plans and are rejected cross-window.
+        _ = tableView
         guard rows.indices.contains(row), let actions else { return nil }
-        let workspaceId = rows[row].workspaceId
-        actions.beginWorkspaceDrag(workspaceId)
-        workspaceDragSessionDidBegin()
-        let item = NSPasteboardItem()
-        item.setString(
-            "\(SidebarTabDragPayload.prefix)\(workspaceId.uuidString)",
-            forType: NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
-        )
-        return item
+        let rowConfiguration = rows[row]
+        let workspaceId = actions.workspaceIdForDrag?(
+            rowConfiguration.id,
+            rowConfiguration.workspaceId
+        ) ?? rowConfiguration.workspaceId
+        if pendingWorkspaceDragWorkspaceId == nil {
+            // AppKit asks for the writer before it creates an NSDraggingSession.
+            // Keep only the row identity here; the live coordinator session is
+            // created in `willBeginAt`, so a writer that is abandoned during a
+            // reconstruction cannot leave a dead registry entry behind.
+            pendingWorkspaceDragWorkspaceId = workspaceId
+        }
+        let payloadWorkspaceId = pendingWorkspaceDragWorkspaceId ?? workspaceId
+        return SidebarTabDragPayload(
+            tabId: payloadWorkspaceId,
+            sessionId: pendingWorkspaceDragSessionId
+        ).pasteboardItem()
+    }
+
+    /// Retains the table/controller pair once AppKit has created the native
+    /// session. This keeps the delegate alive through fullscreen/display
+    /// reconstruction until AppKit's terminal callback.
+    private func retainWorkspaceDragSource(_ tableView: NSTableView) {
+        guard let tableView = tableView as? SidebarWorkspaceTableViewImpl else { return }
+        activeWorkspaceDragTableView = tableView
+        tableView.activeWorkspaceDragController = self
     }
 
     func tableView(
@@ -845,6 +991,36 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     ) {
         _ = screenPoint
         let draggedRows = Array(rowIndexes)
+        if let sourceRow = draggedRows.first, rows.indices.contains(sourceRow) {
+            let rowConfiguration = rows[sourceRow]
+            let workspaceId = actions?.workspaceIdForDrag?(
+                rowConfiguration.id,
+                rowConfiguration.workspaceId
+            ) ?? rowConfiguration.workspaceId
+            let currentSessionId = actions?.nativeWorkspaceDragLifecycle?.currentSessionId()
+            if pendingWorkspaceDragSessionId == nil || pendingWorkspaceDragSessionId != currentSessionId {
+                actions?.beginWorkspaceDrag(workspaceId)
+                pendingWorkspaceDragSessionId = actions?.nativeWorkspaceDragLifecycle?.currentSessionId()
+                pendingWorkspaceDragWorkspaceId = workspaceId
+            }
+            let payloadWorkspaceId = pendingWorkspaceDragWorkspaceId ?? workspaceId
+            activeWorkspaceDragSessionId = pendingWorkspaceDragSessionId
+            if let activeWorkspaceDragSessionId {
+                let capabilityValue = SidebarTabDragPayload(
+                    tabId: payloadWorkspaceId,
+                    sessionId: activeWorkspaceDragSessionId
+                ).pasteboardValue
+                activeWorkspaceDragCapabilityValue = capabilityValue
+                // The writer runs before AppKit creates the session. Re-write
+                // the live pasteboard here so the terminal callback can fence
+                // cleanup against a newer drag of the same workspace.
+                session.draggingPasteboard.setString(
+                    capabilityValue,
+                    forType: NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
+                )
+            }
+            workspaceDragSessionDidBegin()
+        }
         session.enumerateDraggingItems(
             options: [],
             for: tableView,
@@ -854,7 +1030,12 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             guard draggedRows.indices.contains(itemIndex) else { return }
             let row = draggedRows[itemIndex]
             guard rows.indices.contains(row) else { return }
-            let count = actions?.movingWorkspaceCount?(rows[row].workspaceId) ?? 1
+            let rowConfiguration = rows[row]
+            let workspaceId = actions?.workspaceIdForDrag?(
+                rowConfiguration.id,
+                rowConfiguration.workspaceId
+            ) ?? rowConfiguration.workspaceId
+            let count = actions?.movingWorkspaceCount?(workspaceId) ?? 1
             guard count > 1,
                   let image = workspaceDragImage(
                       tableView: tableView,
@@ -923,11 +1104,27 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         endedAt screenPoint: NSPoint,
         operation: NSDragOperation
     ) {
-        actions?.endWorkspaceDrag()
         workspaceDragSessionDidEnd()
     }
 
     func workspaceDragSessionDidBegin() {
+        guard !isWorkspaceDragSourceActive else { return }
+        if workspaceDragSourceCompletionReceived,
+           let retainedContainer = activeWorkspaceDragContainerView {
+            // A deferred drop from the previous native source cannot survive
+            // a newer source. Invalidate it before replacing the retained
+            // container, otherwise its late target update would either leak
+            // the old graph or commit against the new drag.
+            retainedContainer.reorderDropView.invalidatePendingDropForNewNativeSession()
+            releaseRetainedWorkspaceDragContainerIfPossible()
+        }
+        isWorkspaceDragSourceActive = true
+        workspaceDragSourceCompletionReceived = false
+        if let containerView {
+            activeWorkspaceDragContainerView = containerView
+            retainWorkspaceDragSource(containerView.tableView)
+            installDeferredDropLifecycle(on: containerView)
+        }
         // A drag consumes the press: the click action never fires, so no
         // authoritative selection apply will reconcile the optimistic press
         // highlight painted in previewSelection — without this rollback a
@@ -940,10 +1137,108 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         restoreVisibleCellPaint()
     }
 
+    /// Drops a provisional writer identity before a new mouse gesture. A
+    /// writer can be requested before AppKit creates a native session; if that
+    /// gesture is abandoned, the next press must not reuse its workspace id.
+    func prepareForMouseDown() {
+        guard !isWorkspaceDragSourceActive else { return }
+        pendingWorkspaceDragSessionId = nil
+        pendingWorkspaceDragWorkspaceId = nil
+    }
+
     func workspaceDragSessionDidEnd() {
+        // AppKit may deliver a duplicate terminal callback while a deferred
+        // drop is still waiting for its target bridge. The first callback owns
+        // source completion; a later callback must not fall back to the
+        // unscoped compatibility end hook (which could end a newer session).
+        if !isWorkspaceDragSourceActive,
+           activeWorkspaceDragSessionId == nil,
+           pendingWorkspaceDragSessionId == nil {
+            clearWorkspaceDragPresentation()
+            releaseRetainedWorkspaceDragContainerIfPossible()
+            return
+        }
+        guard hasPendingOrActiveWorkspaceDrag else {
+            clearWorkspaceDragPresentation()
+            pendingWorkspaceDragSessionId = nil
+            return
+        }
+        isWorkspaceDragSourceActive = false
+        let sessionId = activeWorkspaceDragSessionId ?? pendingWorkspaceDragSessionId
+        let capabilityValue = activeWorkspaceDragCapabilityValue ?? {
+            guard let sessionId,
+                  let workspaceId = pendingWorkspaceDragWorkspaceId else { return nil }
+            return SidebarTabDragPayload(
+                tabId: workspaceId,
+                sessionId: sessionId
+            ).pasteboardValue
+        }()
+        if let nativeWorkspaceDragLifecycle = actions?.nativeWorkspaceDragLifecycle {
+            // A tokenized bundle owns completion. If AppKit omitted either
+            // value, leave the registry untouched rather than invoking a
+            // legacy unscoped end callback.
+            if let sessionId, let capabilityValue {
+                nativeWorkspaceDragLifecycle.finish(sessionId, capabilityValue)
+            }
+        } else {
+            actions?.endWorkspaceDrag()
+        }
+        activeWorkspaceDragSessionId = nil
+        activeWorkspaceDragCapabilityValue = nil
+        pendingWorkspaceDragSessionId = nil
+        pendingWorkspaceDragWorkspaceId = nil
         reorderDragWindowPoint = nil
         reorderDragPayloadWorkspaceId = nil
         retireReorderIndicator()
+
+        let tableView = activeWorkspaceDragTableView
+        activeWorkspaceDragTableView = nil
+        workspaceDragSourceCompletionReceived = true
+        tableView?.activeWorkspaceDragController = nil
+        if let tableView, tableView !== containerView?.tableView {
+            detachController(from: tableView)
+        }
+        releaseRetainedWorkspaceDragContainerIfPossible()
+        if !isPresentationActive || containerView == nil {
+            actions = nil
+        }
+    }
+
+    private func installDeferredDropLifecycle(on container: SidebarWorkspaceTableContainerView) {
+        container.reorderDropView.onPendingDropLifecycleEnded = { [weak self, weak container] in
+            guard let self, let container else { return }
+            self.releaseRetainedWorkspaceDragContainerIfPossible(container: container)
+        }
+    }
+
+    private func releaseRetainedWorkspaceDragContainerIfPossible(
+        container expectedContainer: SidebarWorkspaceTableContainerView? = nil
+    ) {
+        guard workspaceDragSourceCompletionReceived,
+              let retainedContainer = activeWorkspaceDragContainerView,
+              expectedContainer == nil || retainedContainer === expectedContainer,
+              !retainedContainer.reorderDropView.hasPendingDrop else {
+            return
+        }
+        if retainedContainer !== containerView {
+            clearDropViewActions(in: retainedContainer)
+        } else {
+            retainedContainer.reorderDropView.onPendingDropLifecycleEnded = nil
+        }
+        activeWorkspaceDragContainerView = nil
+        workspaceDragSourceCompletionReceived = false
+    }
+
+    private func clearWorkspaceDragPresentation() {
+        reorderDragWindowPoint = nil
+        reorderDragPayloadWorkspaceId = nil
+        retireReorderIndicator()
+    }
+
+    private func detachController(from tableView: SidebarWorkspaceTableViewImpl) {
+        tableView.workspaceController = nil
+        tableView.dataSource = nil
+        tableView.delegate = nil
     }
 
     // MARK: Workspace reorder drop
@@ -961,8 +1256,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var reorderIndicatorPainter: SidebarWorkspaceTableReorderIndicatorPainter?
 
     /// Workspace id parsed from the live drag pasteboard by the overlay.
-    /// Survives dragState teardown (app-resign failsafe) so re-plans and the
-    /// final drop can re-arm the drag instead of silently no-oping.
+    /// Confirms the coordinator session during reconstruction; it cannot create
+    /// a session when the native source has already completed.
     private var reorderDragPayloadWorkspaceId: UUID?
 
     /// The plan whose indicator is currently painted. The drop commits this
@@ -1276,7 +1571,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         for row in visible.lowerBound..<(visible.lowerBound + visible.length) {
             let cellView = table.view(atColumn: 0, row: row, makeIfNecessary: false)
             (cellView as? SidebarWorkspaceRowTableCellView)?.restoreStoredModelPaint()
-            (cellView as? SidebarGroupHeaderTableCellView)?.clearOptimisticAnchorActive()
+            (cellView as? SidebarGroupHeaderTableCellView)?.restoreStoredModelPaint()
         }
     }
 
@@ -1404,17 +1699,22 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let end = min(rows.count, visibleRange.location + visibleRange.length + 2)
         guard start < end else { return }
         lastLiveMeasuredWidth = width
+        let measuredRows = IndexSet(integersIn: start..<end)
         let changed = rowHeightCache.prepareRows(
-            at: IndexSet(integersIn: start..<end),
+            at: measuredRows,
             in: rows,
             columnWidth: width
         )
         hasLiveMeasuredRows = true
-        for index in changed where rows.indices.contains(index) {
-            pumpHeightOverrides.removeValue(forKey: rows[index].id)
-        }
-        if !changed.isEmpty {
-            noteHeightOfRowsWithoutAnimation(table, changed)
+        var rowsToNote = changed
+        refreshVisiblePumpHeightOverrides(
+            in: table,
+            at: measuredRows,
+            columnWidth: width,
+            addingTo: &rowsToNote
+        )
+        if !rowsToNote.isEmpty {
+            noteHeightOfRowsWithoutAnimation(table, rowsToNote)
         }
 #if DEBUG
         cmuxDebugLog(
@@ -1450,24 +1750,44 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         guard width > 0 else { return }
         // A live partial pass leaves off-screen entries at the old width, so
         // it forces a full settle even when the drag ends back at the width
-        // it started from.
-        guard width != lastMeasuredWidth || hasLiveMeasuredRows else { return }
+        // it started from. A transient pump override also needs a settle when
+        // the divider returns to the settled width so its installed frame is
+        // reconciled with the cache.
+        let hasMismatchedPumpOverrides = pumpHeightOverrides.values.contains {
+            $0.columnWidth != width
+        }
+        guard width != lastMeasuredWidth
+            || hasLiveMeasuredRows
+            || hasMismatchedPumpOverrides else { return }
         var changed = rowHeightCache.prepareHostedRows(rows, columnWidth: width)
         lastMeasuredWidth = width
-        hasLiveMeasuredRows = false
-        lastLiveMeasuredWidth = 0
-        // Same rule as apply(): released pump overrides change what
-        // heightOfRow answers, so those rows re-note even when the cache
-        // entry itself didn't move.
-        if !pumpHeightOverrides.isEmpty {
-            for (index, row) in rows.enumerated() where pumpHeightOverrides[row.id] != nil {
-                changed.insert(index)
+        // A width settle is not an authoritative row apply: a pump may have
+        // painted a newer model into a visible cell without changing `rows`.
+        // Re-measure those cells at the settled width before noting the cache
+        // pass so the newer pump height is not replaced by an older snapshot.
+        if let table = containerView?.tableView {
+            let visibleRange = table.rows(in: table.visibleRect)
+            let lower = max(0, visibleRange.location)
+            let upper = min(rows.count, visibleRange.location + visibleRange.length)
+            if lower < upper {
+                refreshVisiblePumpHeightOverrides(
+                    in: table,
+                    at: IndexSet(integersIn: lower..<upper),
+                    columnWidth: width,
+                    addingTo: &changed
+                )
+            }
+            releaseMismatchedPumpHeightOverrides(
+                for: rows,
+                columnWidth: width,
+                addingTo: &changed
+            )
+            if !changed.isEmpty {
+                noteHeightOfRowsWithoutAnimation(table, changed)
             }
         }
-        pumpHeightOverrides.removeAll(keepingCapacity: true)
-        if !changed.isEmpty {
-            if let table = containerView?.tableView { noteHeightOfRowsWithoutAnimation(table, changed) }
-        }
+        hasLiveMeasuredRows = false
+        lastLiveMeasuredWidth = 0
         if hasPendingContentRefresh {
             mutationScheduler.stageContentRefresh()
         }
@@ -1520,36 +1840,72 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         }
     }
 
+    private func reloadTableWithoutAnimation() {
+        guard let table = containerView?.tableView else { return }
+        let viewportOrigin = pendingForcedReloadViewportOrigin
+        pendingForcedReloadViewportOrigin = nil
+        performTableGeometryUpdateWithoutAnimation(in: table) {
+            table.reloadData()
+            restoreViewportOrigin(viewportOrigin, in: table)
+        }
+    }
+
+    /// Coalesces a hidden-prune reload while retaining the mounted viewport.
+    private func stageForcedTableReload(in container: SidebarWorkspaceTableContainerView) {
+        if pendingForcedReloadViewportOrigin == nil {
+            pendingForcedReloadViewportOrigin = container.clipView.bounds.origin
+        }
+        mutationScheduler.stageTableReload()
+    }
+
+    /// Restores and constrains a captured viewport after table geometry reloads.
+    private func restoreViewportOrigin(_ origin: CGPoint?, in table: NSTableView) {
+        guard let origin, let scrollView = table.enclosingScrollView else { return }
+        table.layoutSubtreeIfNeeded()
+        let clipView = scrollView.contentView
+        var bounds = clipView.bounds
+        bounds.origin = origin
+        clipView.scroll(to: clipView.constrainBoundsRect(bounds).origin)
+        scrollView.reflectScrolledClipView(clipView)
+    }
+
     /// Serializes any table geometry mutation with pump-driven height updates.
     private func performTableGeometryUpdateWithoutAnimation(
         _ heightRows: IndexSet = [],
         in table: NSTableView,
         update: () -> Void
     ) {
-        isApplyingTableGeometryUpdate = true
+        structuralUpdateDepth += 1
         NSAnimationContext.beginGrouping()
         NSAnimationContext.current.duration = 0
         NSAnimationContext.current.allowsImplicitAnimation = false
-        update()
-        var rowsToNote = heightRows
-        for rowId in deferredPumpHeightRowIds {
-            if let index = rows.firstIndex(where: { $0.id == rowId }) {
-                rowsToNote.insert(index)
+        defer {
+            NSAnimationContext.endGrouping()
+            structuralUpdateDepth -= 1
+            if structuralUpdateDepth == 0 {
+                let latePumpRows = deferredPumpHeightRowIds
+                deferredPumpHeightRowIds.removeAll(keepingCapacity: true)
+                let lateIndexes = IndexSet(rows.indices.compactMap { index in
+                    latePumpRows.contains(rows[index].id) ? index : nil
+                })
+                if !lateIndexes.isEmpty {
+                    noteHeightOfRowsWithoutAnimation(table, lateIndexes)
+                }
             }
         }
-        if !rowsToNote.isEmpty {
-            table.noteHeightOfRows(withIndexesChanged: rowsToNote)
-        }
-        NSAnimationContext.endGrouping()
-        isApplyingTableGeometryUpdate = false
-        let latePumpRows = deferredPumpHeightRowIds
-        deferredPumpHeightRowIds.removeAll(keepingCapacity: true)
-        guard !latePumpRows.isEmpty else { return }
-        let lateIndexes = IndexSet(rows.indices.compactMap { index in
-            latePumpRows.contains(rows[index].id) ? index : nil
-        })
-        if !lateIndexes.isEmpty {
-            noteHeightOfRowsWithoutAnimation(table, lateIndexes)
+        update()
+        deferredStructuralHeightRows.formUnion(heightRows)
+        if structuralUpdateDepth == 1 {
+            var rowsToNote = deferredStructuralHeightRows
+            let pumpRowIds = deferredPumpHeightRowIds
+            deferredPumpHeightRowIds.removeAll(keepingCapacity: true)
+            rowsToNote.formUnion(IndexSet(rows.indices.compactMap { index in
+                pumpRowIds.contains(rows[index].id) ? index : nil
+            }))
+            if !rowsToNote.isEmpty {
+                table.noteHeightOfRows(withIndexesChanged: rowsToNote)
+            }
+            deferredStructuralHeightRows.removeAll()
         }
     }
 
@@ -1602,10 +1958,20 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let configuration = rows[row]
         guard let model = configuration.appKitWorkspaceRowModel else { return }
         guard let actions = configuration.appKitWorkspaceRowActions else {
+            if cell.currentModelForMeasurement != model {
+                releasePumpHeightOverride(for: configuration.id, ownedBy: cell)
+            }
             cell.configurePresentation(model: model)
             return
         }
         let rowId = configuration.id
+        // A hover/viewport repaint reapplies the authoritative model to an
+        // already-mounted cell. Retire any pump geometry owned by that exact
+        // cell before the repaint so its superseded height cannot outlive the
+        // model that is about to be installed.
+        if cell.currentModelForMeasurement != model {
+            releasePumpHeightOverride(for: rowId, ownedBy: cell)
+        }
         cell.setPresentationActive(isPresentationActive)
         cell.configure(
             model: model,
@@ -1647,7 +2013,154 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// Pump-driven height corrections between applies: heightOfRow consults
     /// these before the equivalence-keyed cache (which only refreshes on the
     /// next container apply).
-    private var pumpHeightOverrides: [SidebarWorkspaceRenderItemID: CGFloat] = [:]
+    private var pumpHeightOverrides: [
+        SidebarWorkspaceRenderItemID: (
+            height: CGFloat,
+            columnWidth: CGFloat,
+            cellIdentity: ObjectIdentifier
+        )
+    ] = [:]
+
+    /// A pump height is installed-cell state. Retiring that exact cell returns
+    /// the row to its authoritative cached geometry; an older retirement must
+    /// not clear an override already transferred to a replacement cell.
+    private func releasePumpHeightOverride(
+        for rowId: SidebarWorkspaceRenderItemID,
+        ownedBy cell: SidebarWorkspaceRowTableCellView
+    ) {
+        guard pumpHeightOverrides[rowId]?.cellIdentity == ObjectIdentifier(cell) else { return }
+        pumpHeightOverrides.removeValue(forKey: rowId)
+        if isApplyingTableGeometryUpdate {
+            deferredPumpHeightRowIds.insert(rowId)
+        } else {
+            mutationScheduler.stageRowHeightChange(rowId)
+        }
+    }
+
+    private func releasePumpHeightOverride(ownedBy cell: SidebarWorkspaceRowTableCellView) {
+        let cellIdentity = ObjectIdentifier(cell)
+        guard let rowId = pumpHeightOverrides.first(where: {
+            $0.value.cellIdentity == cellIdentity
+        })?.key else { return }
+        releasePumpHeightOverride(
+            for: rowId,
+            ownedBy: cell
+        )
+    }
+
+    /// Invalidates authoritative row heights after retired pump cells release ownership.
+    private func flushPumpHeightChanges(_ rowIds: Set<SidebarWorkspaceRenderItemID>) {
+        guard let table = containerView?.tableView else { return }
+        if isApplyingTableGeometryUpdate {
+            deferredPumpHeightRowIds.formUnion(rowIds)
+            return
+        }
+        let indexes = IndexSet(rows.indices.filter { rowIds.contains(rows[$0].id) })
+        guard !indexes.isEmpty else { return }
+        noteHeightOfRowsWithoutAnimation(table, indexes)
+    }
+
+    private func pumpHeightOverride(
+        for rowId: SidebarWorkspaceRenderItemID,
+        columnWidth: CGFloat
+    ) -> CGFloat? {
+        guard let override = pumpHeightOverrides[rowId],
+              override.columnWidth == columnWidth else {
+            return nil
+        }
+        return override.height
+    }
+
+    private func effectivePumpHeightOverride(
+        for rowId: SidebarWorkspaceRenderItemID
+    ) -> CGFloat? {
+        guard let override = pumpHeightOverrides[rowId] else { return nil }
+        // The override is the height currently installed in AppKit. Keep it
+        // through every transient width until a live/settled pass replaces or
+        // removes it; the stored width is used by those cleanup paths.
+        return override.height
+    }
+
+    /// Re-measures visible pump-painted cells during a non-authoritative width
+    /// pass so their newer model remains the source of truth for row geometry.
+    private func refreshVisiblePumpHeightOverrides(
+        in table: NSTableView,
+        at indexes: IndexSet,
+        columnWidth: CGFloat,
+        addingTo heightRows: inout IndexSet
+    ) {
+        guard columnWidth > 0 else { return }
+        for index in indexes where rows.indices.contains(index) {
+            let row = rows[index]
+            guard pumpHeightOverrides[row.id] != nil else { continue }
+            guard let cell = table.view(atColumn: 0, row: index, makeIfNecessary: false)
+                    as? SidebarWorkspaceRowTableCellView,
+                  let model = cell.currentModelForMeasurement else {
+                // The cache just remeasured this buffer row at the live width,
+                // but there is no painted cell whose newer pump model we can
+                // measure. Drop the old-width override so the fresh cache
+                // answer wins if the row scrolls into view before settle.
+                pumpHeightOverrides.removeValue(forKey: row.id)
+                heightRows.insert(index)
+                continue
+            }
+            let height = ceil(cell.layoutContent(model: model, width: columnWidth, apply: false))
+            let previousHeight = pumpHeightOverrides[row.id]?.height ?? height
+            pumpHeightOverrides[row.id] = (
+                height: height,
+                columnWidth: columnWidth,
+                cellIdentity: ObjectIdentifier(cell)
+            )
+            if abs(previousHeight - height) >= 0.5 {
+                heightRows.insert(index)
+            }
+        }
+    }
+
+    /// Drops pump heights for rows whose authoritative snapshot supersedes the
+    /// painted model and returns those rows for atomic model/height
+    /// reconciliation. Content-equivalent rows retain their pump pair so an
+    /// unrelated apply cannot trigger an O(rows) reconfiguration sweep.
+    private func releasePumpHeightOverrides(
+        for rows: [SidebarWorkspaceTableRowConfiguration],
+        supersededIndexes: IndexSet,
+        releaseAll: Bool
+    ) -> IndexSet {
+        guard !pumpHeightOverrides.isEmpty else { return [] }
+        var releasedRows = IndexSet()
+        var liveIds = Set<SidebarWorkspaceRenderItemID>()
+        liveIds.reserveCapacity(rows.count)
+        for (index, row) in rows.enumerated() {
+            liveIds.insert(row.id)
+            guard releaseAll || supersededIndexes.contains(index) else { continue }
+            guard pumpHeightOverrides.removeValue(forKey: row.id) != nil else { continue }
+            releasedRows.insert(index)
+        }
+        // A removed row has no height to re-note, but its override must not
+        // linger until a recycled cell happens to retire.
+        let removedIds = pumpHeightOverrides.keys.filter { !liveIds.contains($0) }
+        for rowId in removedIds {
+            pumpHeightOverrides.removeValue(forKey: rowId)
+        }
+        return releasedRows
+    }
+
+    /// Removes offscreen overrides that were measured at an older width after
+    /// a full settle pass has installed the cache answer for the new width.
+    private func releaseMismatchedPumpHeightOverrides(
+        for rows: [SidebarWorkspaceTableRowConfiguration],
+        columnWidth: CGFloat,
+        addingTo heightRows: inout IndexSet
+    ) {
+        for (index, row) in rows.enumerated() {
+            guard let override = pumpHeightOverrides[row.id],
+                  override.columnWidth != columnWidth else {
+                continue
+            }
+            pumpHeightOverrides.removeValue(forKey: row.id)
+            heightRows.insert(index)
+        }
+    }
 
     private func noteRowHeightOverride(
         rowId: SidebarWorkspaceRenderItemID,
@@ -1661,11 +2174,36 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let width = currentColumnWidth()
         guard width > 0 else { return }
         let height = ceil(cell.layoutContent(model: model, width: width, apply: false))
-        let current = pumpHeightOverrides[rowId]
+        let hadMismatchedOverride = pumpHeightOverrides[rowId].map {
+            $0.columnWidth != width
+        } ?? false
+        if hadMismatchedOverride {
+            pumpHeightOverrides.removeValue(forKey: rowId)
+        }
+        let current = pumpHeightOverride(for: rowId, columnWidth: width)
             ?? rowHeightCache.height(for: row, columnWidth: width)
             ?? row.estimatedHeight
-        guard abs(height - current) >= 0.5 else { return }
-        pumpHeightOverrides[rowId] = height
+        guard abs(height - current) >= 0.5 else {
+            if let override = pumpHeightOverrides[rowId], override.columnWidth == width {
+                pumpHeightOverrides[rowId] = (
+                    height: override.height,
+                    columnWidth: override.columnWidth,
+                    cellIdentity: ObjectIdentifier(cell)
+                )
+            }
+            guard hadMismatchedOverride else { return }
+            if isApplyingTableGeometryUpdate {
+                deferredPumpHeightRowIds.insert(rowId)
+            } else {
+                noteHeightOfRowsWithoutAnimation(table, IndexSet(integer: index))
+            }
+            return
+        }
+        pumpHeightOverrides[rowId] = (
+            height: height,
+            columnWidth: width,
+            cellIdentity: ObjectIdentifier(cell)
+        )
         if isApplyingTableGeometryUpdate {
             deferredPumpHeightRowIds.insert(rowId)
         } else {
@@ -1738,7 +2276,20 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             Self.reorderPayloadWorkspaceId(NSPasteboard(name: .drag))
         }
         reorder.isValidDrag = {
-            actions.isValidWorkspaceDrag() || livePayloadWorkspaceId() != nil
+            actions.isValidWorkspaceDrag()
+        }
+        reorder.hasLiveWorkspaceDrag = {
+            if let nativeWorkspaceDragLifecycle = actions.nativeWorkspaceDragLifecycle {
+                guard let sessionId = nativeWorkspaceDragLifecycle.currentSessionId() else { return false }
+                return SidebarTabDragPayload.hasLiveSession(
+                    in: NSPasteboard(name: .drag),
+                    currentSessionId: sessionId
+                )
+            }
+            // Compatibility action bundles predate the tokenized registry; in
+            // those isolated clients the validity closure is their only live
+            // session signal.
+            return actions.isValidWorkspaceDrag()
         }
         reorder.updateDrag = { [weak self, weak reorder] point, _ in
             guard let self, let reorder else { return false }
@@ -1757,6 +2308,14 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 targets: self.refreshReorderDropTargets(),
                 payloadWorkspaceId: livePayloadWorkspaceId()
             )
+        }
+        reorder.performPendingDropAtPoint = { [weak self] pendingDrop, _ in
+            guard let self else { return false }
+            let targets = self.refreshReorderDropTargets()
+            if let performPendingWorkspaceDrop = actions.performPendingWorkspaceDrop {
+                return performPendingWorkspaceDrop(pendingDrop, targets)
+            }
+            return false
         }
         reorder.clearDropIndicator = { [weak self] in
             self?.reorderDropDragExited()
@@ -1799,10 +2358,13 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     private func clearDropViewActions(in container: SidebarWorkspaceTableContainerView) {
         let reorder = container.reorderDropView
+        reorder.onPendingDropLifecycleEnded = nil
         reorder.suspendPresentation()
         reorder.isValidDrag = { false }
+        reorder.hasLiveWorkspaceDrag = { false }
         reorder.updateDrag = { _, _ in false }
         reorder.performDropAtPoint = { _, _ in false }
+        reorder.performPendingDropAtPoint = { _, _ in false }
         reorder.clearDropIndicator = {}
         reorder.setWorkspaceDropTargetCollectionActive = { _ in }
 

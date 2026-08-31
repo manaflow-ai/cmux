@@ -454,24 +454,25 @@ import Testing
     }
 }
 
-/// Keeps the multi-window placement regression independent from renderer-backed
-/// close-path fixtures. The source managers are windowless, so this test covers
-/// workspace ownership moves without realizing native Ghostty views.
+/// Keeps the multi-window placement regression in its own app-host suite. It
+/// creates three native windows and several Ghostty-backed panels; running it
+/// after the close-path cases can retain renderer teardown work on headless CI
+/// runners and crash before the topology assertions execute.
 @MainActor
 @Suite(.serialized) struct RemoteTmuxMirrorDedicatedPlacementTests {
+    /// `--new-window` must consolidate every mirror for the host even when the
+    /// Move Workspace action previously distributed those mirrors across several
+    /// Cached control connections keep this test network-free. Source managers
+/// are deliberately windowless: the regression is about workspace ownership
+/// and must not require a Ghostty renderer or AppKit window to be created.
     @Test func dedicatedWindowConsolidatesMirrorsFromEverySourceWindow() throws {
         let originalAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         AppDelegate.shared = appDelegate
         let controller = RemoteTmuxController()
-        let sourceManagerA = TabManager(autoWelcomeIfNeeded: false)
-        let sourceManagerB = TabManager(autoWelcomeIfNeeded: false)
-        let targetManager = TabManager(autoWelcomeIfNeeded: false)
-        // Retain each manager's workspace container, but release its initial
-        // terminal surfaces before exercising the windowless ownership move.
-        for manager in [sourceManagerA, sourceManagerB, targetManager] {
-            manager.tabs.forEach { $0.teardownAllPanels() }
-        }
+        let sourceManagerA = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false)
+        let sourceManagerB = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false)
+        let targetManager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false)
         let sourceWindowA = appDelegate.registerMainWindowContextForTesting(tabManager: sourceManagerA)
         let sourceWindowB = appDelegate.registerMainWindowContextForTesting(tabManager: sourceManagerB)
         let targetWindow = appDelegate.registerMainWindowContextForTesting(tabManager: targetManager)

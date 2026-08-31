@@ -16,6 +16,44 @@ extension RightSidebarMode {
         }
         return descriptor.isAvailable(defaults)
     }
+
+    /// Compatibility overload for callers that already have the legacy beta
+    /// values. The registry-backed Source Control flag is intentionally not
+    /// inferred here; use `availableModes(defaults:)` for the complete catalog.
+    static func availableModes(
+        feedEnabled: Bool,
+        dockEnabled: Bool,
+        machinesEnabled: Bool
+    ) -> [RightSidebarMode] {
+        allCases.filter {
+            $0.isAvailable(
+                feedEnabled: feedEnabled,
+                dockEnabled: dockEnabled,
+                machinesEnabled: machinesEnabled
+            )
+        }
+    }
+
+    func isAvailable(
+        feedEnabled: Bool,
+        dockEnabled: Bool,
+        machinesEnabled: Bool
+    ) -> Bool {
+        switch rawValue {
+        case RightSidebarMode.files.rawValue,
+             RightSidebarMode.find.rawValue,
+             RightSidebarMode.sessions.rawValue:
+            return true
+        case RightSidebarMode.feed.rawValue:
+            return feedEnabled
+        case RightSidebarMode.dock.rawValue:
+            return dockEnabled
+        case RightSidebarMode.machines.rawValue:
+            return machinesEnabled
+        default:
+            return false
+        }
+    }
 }
 
 enum RightSidebarKeyboardNavigation {

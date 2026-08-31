@@ -484,10 +484,12 @@ enum RightSidebarBetaFeatureSettings {
     static var feedEnabledKey: String { catalog.rightSidebarFeed.userDefaultsKey }
     static var dockEnabledKey: String { catalog.rightSidebarDock.userDefaultsKey }
     static var sourceControlEnabledKey: String { catalog.sourceControl.userDefaultsKey }
+    static var cloudMachinesEnabledKey: String { catalog.cloudMachines.userDefaultsKey }
 
     static var defaultFeedEnabled: Bool { catalog.rightSidebarFeed.defaultValue }
     static var defaultDockEnabled: Bool { catalog.rightSidebarDock.defaultValue }
     static var defaultSourceControlEnabled: Bool { catalog.sourceControl.defaultValue }
+    static var defaultCloudMachinesEnabled: Bool { catalog.cloudMachines.defaultValue }
 
     nonisolated static func isFeedEnabled(defaults: UserDefaults = .standard) -> Bool {
         guard defaults.object(forKey: feedEnabledKey) != nil else { return defaultFeedEnabled }
@@ -502,6 +504,11 @@ enum RightSidebarBetaFeatureSettings {
     nonisolated static func isSourceControlEnabled(defaults: UserDefaults = .standard) -> Bool {
         guard defaults.object(forKey: sourceControlEnabledKey) != nil else { return defaultSourceControlEnabled }
         return defaults.bool(forKey: sourceControlEnabledKey)
+    }
+
+    nonisolated static func isCloudMachinesEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: cloudMachinesEnabledKey) != nil else { return defaultCloudMachinesEnabled }
+        return defaults.bool(forKey: cloudMachinesEnabledKey)
     }
 }
 

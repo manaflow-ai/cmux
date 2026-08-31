@@ -1272,6 +1272,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         XCTAssertEqual(RightSidebarMode.feed.shortcutAction, .switchRightSidebarToFeed)
         XCTAssertEqual(RightSidebarMode.dock.shortcutAction, .switchRightSidebarToDock)
         XCTAssertEqual(RightSidebarMode.sourceControl.shortcutAction, .switchRightSidebarToSourceControl)
+        XCTAssertEqual(RightSidebarMode.machines.shortcutAction, .switchRightSidebarToMachines)
     }
 
     func testModeShortcutsUsePrivateControlDigitDefaults() {

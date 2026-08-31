@@ -20,14 +20,7 @@ struct MarkdownSurfaceView: View {
     @State private var retryCount = 0
 
     var body: some View {
-        VStack(spacing: 0) {
-            MacSurfaceHeader(
-                kind: surface.kind,
-                title: surface.title,
-                subtitle: MacSurfaceFileContext.subtitle(title: surface.title, path: path)
-            )
-            content
-        }
+        content
         // Path changes reload outright; title churn with a stable path re-runs
         // the load so a rewritten file re-renders (same-title edits stay stale
         // until the next descriptor emission — wave-0 accepted residual).

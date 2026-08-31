@@ -46,6 +46,11 @@ extension MobileShellComposite {
         if let aliases = pairedMacAliasIDsByRepresentativeID[pairingID] {
             return aliases
         }
+        // A row may only absorb an alias group whose representative shares its
+        // exact stored build authority: tagged rows match only their own tag's
+        // group, and an untagged legacy row matches only the untagged group.
+        // Hide/presence/counts riding these ids can therefore never silently
+        // cross builds.
         if let aliases = pairedMacAliasIDsByRepresentativeID.first(where: {
             let identity = MobilePairedMac.pairingIdentity(from: $0.key)
             return macInstanceTagAuthority.sameStoredAuthority(

@@ -72,6 +72,14 @@ import {
   type PairedMacBackupRecord,
 } from "./syncPairedMacs";
 import { sanitizePublishedRoutes } from "./routePrivacy";
+import {
+  ackPhoneReplies,
+  enqueuePhoneReply,
+  listPhoneReplies,
+  PHONE_REPLY_NUDGE_REVISION,
+  type EnqueuePhoneReplyResult,
+  type StoredPhoneReply,
+} from "./replies";
 
 const INSTANCE_PREFIX = "inst:";
 /** `owner:<deviceId>` -> Stack user id pinned on first heartbeat. Durable:
@@ -460,6 +468,34 @@ export class TeamPresence extends DurableObject {
       }
     }
     return { ok: true, delivered };
+  }
+
+  // ---- Phone reply inbox (see replies.ts for the design) ----
+
+  /** Park one inline notification reply and nudge the account's live
+   * connectivity subscribers so a reply-aware Mac sweeps the inbox now.
+   * `delivered: 0` on the nudge is fine — the Mac also sweeps on subscriber
+   * (re)start and on foregrounding, and the entry waits out its TTL. */
+  async enqueuePhoneReply(
+    accountId: string,
+    reply: Omit<StoredPhoneReply, "createdAtMs" | "expiresAtMs">,
+  ): Promise<EnqueuePhoneReplyResult> {
+    const result = await enqueuePhoneReply(this.ctx.storage, reply, Date.now());
+    if (result.ok && !result.duplicate) {
+      const nudge = await this.invalidateConnectivity(accountId, PHONE_REPLY_NUDGE_REVISION);
+      return { ...result, nudged: nudge.delivered };
+    }
+    return result;
+  }
+
+  /** Pending replies for one Mac, oldest first. */
+  async listPhoneReplies(macDeviceId: string): Promise<StoredPhoneReply[]> {
+    return listPhoneReplies(this.ctx.storage, macDeviceId, Date.now());
+  }
+
+  /** Remove replies the Mac has finished processing. Idempotent. */
+  async ackPhoneReplies(replyIds: string[]): Promise<{ removed: number }> {
+    return ackPhoneReplies(this.ctx.storage, replyIds, Date.now());
   }
 
   // ---- Subscribe transports (worker forwards the original Request) ----

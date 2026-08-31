@@ -303,6 +303,7 @@ def main() -> int:
                 "-only-testing:cmuxTests/CLISSHSessionAttachAnchorTests",
                 "-only-testing:cmuxTests/GhosttyTerminalViewVisibilityPolicyTests",
                 "-only-testing:cmuxTests/GhosttyOptionAsAltModsTests",
+                "-only-testing:cmuxTests/KeyboardShortcutSettingsFileStoreNoOpPersistenceTests",
                 "-only-testing:cmuxTests/RemoteTmuxMirrorLayoutIdentityTests",
                 "-only-testing:cmuxTests/SidebarWorkspaceSwitchLayoutFaultTests",
             ):
