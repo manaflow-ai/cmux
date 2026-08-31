@@ -244,7 +244,14 @@ struct WorkspaceMacTitlePicker: View, Equatable {
                 title: value.title,
                 isLoading: value.isLoading,
                 width: value.labelWidth,
-                truncationMode: value.selection == .machine ? .middle : .tail,
+                truncationMode: {
+                    switch value.selection {
+                    case .machine:
+                        return .middle
+                    case .automatic, .all:
+                        return .tail
+                    }
+                }(),
                 statusLine: value.statusLine
             )
             // Put the identity and status on the final combined label element.
