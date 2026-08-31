@@ -6582,6 +6582,59 @@ mod tests {
         assert_eq!(config.theme.selection_fg, Some(Color::Rgb(0xdd, 0xee, 0xff)));
     }
 
+    fn load_from_json(name: &str, json: &str) -> Config {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_tui_config = std::env::var_os("CMUX_TUI_CONFIG");
+        let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
+        let dir = std::env::temp_dir().join(format!("mux-config-test-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cmux-tui.json");
+        std::fs::write(&path, json).unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("CMUX_TUI_CONFIG", &path) };
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::remove_var("CMUX_MUX_CONFIG") };
+        let config = load();
+        restore_env_var("CMUX_TUI_CONFIG", old_tui_config);
+        restore_env_var("CMUX_MUX_CONFIG", old_mux_config);
+        let _ = std::fs::remove_dir_all(&dir);
+        config
+    }
+
+    #[test]
+    fn notifications_section_parses_and_keeps_the_rest_of_the_config() {
+        let config = load_from_json(
+            "notifications-section",
+            r#"{
+                "sidebar": {"views": [
+                    {"id": "workspaces-main", "levels": ["workspaces"]},
+                    {"id": "agents-all", "levels": ["agents"], "width": 34}
+                ]},
+                "notifications": {"agent_blocked": false, "agent_idle": false}
+            }"#,
+        );
+        assert!(!config.notifications.agent_blocked);
+        assert!(!config.notifications.agent_idle);
+        let ids: Vec<&str> = config.sidebar.views.iter().map(|view| view.id.as_str()).collect();
+        assert_eq!(ids, ["workspaces-main", "agents-all"]);
+    }
+
+    #[test]
+    fn unknown_top_level_key_keeps_configured_sidebar_views() {
+        let config = load_from_json(
+            "unknown-top-level-key",
+            r#"{
+                "sidebar": {"views": [
+                    {"id": "workspaces-main", "levels": ["workspaces"]},
+                    {"id": "agents-all", "levels": ["agents"], "width": 34}
+                ]},
+                "a_key_from_a_newer_version": {"enabled": true}
+            }"#,
+        );
+        let ids: Vec<&str> = config.sidebar.views.iter().map(|view| view.id.as_str()).collect();
+        assert_eq!(ids, ["workspaces-main", "agents-all"]);
+    }
+
     #[test]
     fn ghostty_defaults_survive_light_chrome_defaults() {
         let _guard = CONFIG_ENV_LOCK.lock().unwrap();
