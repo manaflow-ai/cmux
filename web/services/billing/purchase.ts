@@ -1136,13 +1136,14 @@ export async function findBillingUserByEmail(
   const queries = emailVariantsForMatching(literalEmail);
   const candidateByID = new Map<string, StackBillingUserLookup>();
   for (const query of queries) {
-    await collectBillingUserLookupCandidates(
+    const found = await collectBillingUserLookupCandidates(
       boundListUsers,
       query,
       matchingEmail,
       candidateByID,
       20,
     );
+    if (found) break;
   }
   if (candidateByID.size === 0 && isGmailAddress(literalEmail)) {
     // Stack's free-text query is literal and does not understand Gmail's
@@ -1155,7 +1156,6 @@ export async function findBillingUserByEmail(
       matchingEmail,
       candidateByID,
       STACK_USER_LOOKUP_PAGE_SIZE,
-      true,
     );
   }
   const candidates = [...candidateByID.values()].sort(compareStackUserLookup);
@@ -2701,13 +2701,14 @@ export async function findUserIdByEmail(
   const queries = emailVariantsForMatching(literalEmail);
   const ownersByID = new Map<string, StackBillingUserLookup>();
   for (const query of queries) {
-    await collectBillingUserLookupCandidates(
+    const found = await collectBillingUserLookupCandidates(
       boundListUsers,
       query,
       normalizedEmail,
       ownersByID,
       20,
     );
+    if (found) break;
   }
   if (ownersByID.size === 0 && isGmailAddress(literalEmail)) {
     await collectBillingUserLookupCandidates(
@@ -2716,7 +2717,6 @@ export async function findUserIdByEmail(
       normalizedEmail,
       ownersByID,
       STACK_USER_LOOKUP_PAGE_SIZE,
-      true,
     );
   }
   return [...ownersByID.values()].sort(compareStackUserLookup)[0]?.id ?? null;
@@ -2728,7 +2728,6 @@ async function collectBillingUserLookupCandidates(
   matchingEmail: string,
   candidates: Map<string, StackBillingUserLookup>,
   limit: number,
-  stopOnMatch = false,
 ): Promise<boolean> {
   let cursor: string | undefined;
   const seenCursors = new Set<string>();
@@ -2750,7 +2749,7 @@ async function collectBillingUserLookupCandidates(
         foundCanonicalMatch = true;
       }
     }
-    if (stopOnMatch && foundCanonicalMatch) return true;
+    if (foundCanonicalMatch) return true;
     const nextCursor = users.nextCursor ?? null;
     if (!nextCursor) return foundCanonicalMatch;
     if (seenCursors.has(nextCursor)) {

@@ -9,6 +9,7 @@ import {
 
 const STACK_USER_LOOKUP_PAGE_SIZE = 100;
 const MAX_STACK_USER_LOOKUP_PAGES = 100;
+const STACK_USER_LOOKUP_DEADLINE_MS = 4_000;
 
 type RecoveryContactChannel = {
   readonly value: string;
@@ -65,15 +66,37 @@ export function requestEmailVerificationRecovery(
       // undotted spelling (and googlemail.com is a separate search value).
       // Query every bounded provider spelling, then canonicalize locally.
       const usersByLiteralEmail = new Map<string, RecoveryUser>();
+      const lookupDeadlineAt = Date.now() + STACK_USER_LOOKUP_DEADLINE_MS;
+      const listUsers = async (
+        options: Parameters<EmailVerificationRecoveryStackApp["listUsers"]>[0],
+      ) => {
+        const remainingMs = lookupDeadlineAt - Date.now();
+        if (remainingMs <= 0) {
+          throw new Error("Stack Auth user lookup deadline exceeded");
+        }
+        let timeoutID: ReturnType<typeof setTimeout> | undefined;
+        try {
+          return await Promise.race([
+            dependencies.stackApp.listUsers(options),
+            new Promise<never>((_, reject) => {
+              timeoutID = setTimeout(
+                () => reject(new Error("Stack Auth user lookup deadline exceeded")),
+                remainingMs,
+              );
+            }),
+          ]);
+        } finally {
+          if (timeoutID !== undefined) clearTimeout(timeoutID);
+        }
+      };
       const collectUsers = async (
         query: string | undefined,
         limit: number,
-        stopOnCanonicalMatch = false,
       ): Promise<boolean> => {
         let cursor: string | undefined;
         const seenCursors = new Set<string>();
         for (let page = 0; page < MAX_STACK_USER_LOOKUP_PAGES; page += 1) {
-          const users = await dependencies.stackApp.listUsers({
+          const users = await listUsers({
             ...(query ? { query } : {}),
             ...(cursor ? { cursor } : {}),
             limit,
@@ -90,7 +113,7 @@ export function requestEmailVerificationRecovery(
               canonicalizeEmailForMatching(user.primaryEmail ?? "") ===
               normalizedEmail,
           );
-          if (stopOnCanonicalMatch && foundCanonicalMatch) return true;
+          if (foundCanonicalMatch) return true;
           const nextCursor = users.nextCursor ?? null;
           if (!nextCursor) return foundCanonicalMatch;
           if (seenCursors.has(nextCursor)) {
@@ -102,20 +125,18 @@ export function requestEmailVerificationRecovery(
         throw new Error("Stack Auth user lookup exceeded its bounded page budget");
       };
 
+      let foundCanonicalMatch = false;
       for (const query of emailVariantsForMatching(input.email)) {
-        await collectUsers(query, 20);
+        foundCanonicalMatch = await collectUsers(query, 20);
+        if (foundCanonicalMatch) break;
       }
       if (
-        ![...usersByLiteralEmail.values()].some(
-          (user) =>
-            canonicalizeEmailForMatching(user.primaryEmail ?? "") ===
-            normalizedEmail,
-        ) &&
+        !foundCanonicalMatch &&
         isGmailAddress(input.email)
       ) {
         // Stack searches literal contact-channel text. A full, bounded list
         // fallback is required to find a differently dotted Gmail spelling.
-        await collectUsers(undefined, STACK_USER_LOOKUP_PAGE_SIZE, true);
+        await collectUsers(undefined, STACK_USER_LOOKUP_PAGE_SIZE);
       }
       for (const user of usersByLiteralEmail.values()) {
         if (
