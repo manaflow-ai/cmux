@@ -216,12 +216,14 @@ struct SystemAppearanceObserverTests {
     }
 
     @Test
-    func systemColorsChangePostsAppearanceNotificationWithoutThemeSync() {
+    func systemColorsChangePostsAppearanceNotificationWithoutThemeSync() async {
         let harness = Harness()
         let observer = SystemAppearanceObserver(environment: harness.environment)
 
         observer.startObserving()
         harness.fireSystemColorsChanged()
+        await Task.yield()
+        await Task.yield()
 
         #expect(harness.events == [
             "effectivePrefersDark(false)",
@@ -230,18 +232,36 @@ struct SystemAppearanceObserverTests {
     }
 
     @Test
-    func systemColorsChangeAlsoInvalidatesExplicitAppearanceMode() {
+    func systemColorsChangeAlsoInvalidatesExplicitAppearanceMode() async {
         let harness = Harness()
         harness.modeRawValue = AppearanceMode.dark.rawValue
         let observer = SystemAppearanceObserver(environment: harness.environment)
 
         observer.startObserving()
         harness.fireSystemColorsChanged()
+        await Task.yield()
+        await Task.yield()
 
         #expect(harness.events == [
             "effectivePrefersDark(false)",
             "postSystemAppearanceDidChange",
         ])
+    }
+
+    @Test
+    func systemColorsNotificationBurstCoalescesIntoOneRefresh() async {
+        let harness = Harness()
+        let observer = SystemAppearanceObserver(environment: harness.environment)
+
+        observer.startObserving()
+        harness.fireSystemColorsChanged()
+        harness.fireSystemColorsChanged()
+        harness.fireSystemColorsChanged()
+        await Task.yield()
+        await Task.yield()
+
+        #expect(harness.events.filter { $0 == "postSystemAppearanceDidChange" }.count == 1)
+        #expect(harness.events.filter { $0 == "synchronizeTerminalTheme" }.isEmpty)
     }
 
     // (b) Explicit (non-system) mode: a KVO fire produces no notification and
