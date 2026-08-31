@@ -2844,6 +2844,25 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
     }
 
+    /// Retracts connection-state failures after the transport has published
+    /// an authoritative `.connected`.
+    ///
+    /// The sidebar row renders the latest log entry, so a recovered
+    /// `SSH error (target): …` or `SSH reconnect paused …` line (both
+    /// appended with source "remote") would otherwise keep a Connected
+    /// workspace flagged red forever. Proxy-only and daemon entries have
+    /// their own retraction paths; this covers the non-proxy connection seam
+    /// those paths deliberately leave alone.
+    /// https://github.com/manaflow-ai/cmux/issues/10640
+    func clearRecoveredRemoteConnectionSidebarArtifacts() {
+        logEntries.removeAll { $0.source == "remote" }
+        statusEntries.removeValue(forKey: Self.remoteErrorStatusKey)
+        remoteLastErrorFingerprint = nil
+        if let key = remoteNotificationCooldownKey(target: remoteDisplayTarget ?? "") {
+            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, correlationKey: key)
+        }
+    }
+
     private func remoteNotificationCooldownKey(target: String) -> String? {
         let rawTarget = (remoteConfiguration?.destination ?? target)
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -7263,6 +7282,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
         if state == .connected {
             clearProxyOnlyRemoteSidebarArtifacts()
+            clearRecoveredRemoteConnectionSidebarArtifacts()
             clearRecoveredRemoteDaemonSidebarArtifacts()
         }
     }

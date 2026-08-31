@@ -84,6 +84,31 @@ import Testing
         #expect(measured.cap < constantOnly)
     }
 
+    @Test func zeroMeasurementReservesEveryStructuralItem() {
+        // Remount repro: a workspace reopens straight into a browser with the
+        // Changes chip structurally present but nothing measured yet. The
+        // first pass must reserve for the chip too, or the title over-claims
+        // and the system folds the picker (or the title itself) into the More
+        // menu; a collapse born on the first pass never produces the
+        // attach-then-detach signature the recovery ratchet watches, so it
+        // sticks until the next remount.
+        let clusterOnly = MobileLeadingToolbarTitleWidth(
+            contentWidth: 402,
+            hasBackButton: true,
+            hasTrailingCluster: true,
+            trailingItemCount: 1
+        )
+        let clusterPlusChip = MobileLeadingToolbarTitleWidth(
+            contentWidth: 402,
+            hasBackButton: true,
+            hasTrailingCluster: true,
+            trailingItemCount: 2
+        )
+
+        #expect(clusterOnly.cap - clusterPlusChip.cap
+            == MobileLeadingToolbarTitleWidth.unmeasuredTrailingItemReserve)
+    }
+
     @Test func zeroMeasurementFallsBackToConstants() {
         let unmeasured = MobileLeadingToolbarTitleWidth(
             contentWidth: 393,
