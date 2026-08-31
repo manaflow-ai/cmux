@@ -571,7 +571,7 @@ cmux_attach_ensure_mac() {
         return 0
       fi
       if [[ "$target" == "physical_device" ]]; then
-        echo "warning: tagged Mac app for '$tag' launched, but no trusted Iroh ticket became ready." >&2
+        echo "warning: tagged Mac app for '$tag' launched, but no relay-capable or trusted Iroh ticket became ready." >&2
       else
         echo "warning: tagged Mac app for '$tag' launched, but its iOS pairing ticket did not become ready." >&2
       fi
@@ -587,9 +587,11 @@ cmux_attach_ensure_mac() {
 # URL on stdout (bearer credential; do not log). Args: <tag> <ttl_seconds>
 # <repo_root> <simulator_injection|physical_device>. The Mac owns route selection
 # and URL encoding for the target. Polls the mint RPC until routes are bound.
-# A physical-device ticket is usable only with an encrypted Iroh route. Plain
-# Tailscale TCP cannot carry the phone's Stack credential, so fail closed here
-# instead of launching an app that must reject the ticket as untrusted.
+# A physical-device ticket is usable with an encrypted Iroh route, or with a
+# relay-capable attach URL: one carrying the Mac's device id (`d`), which is
+# all the phone's relay method needs to bind its dial. Plain Tailscale TCP
+# cannot carry the phone's Stack credential, so fail closed here instead of
+# launching an app that must reject the ticket as untrusted.
 cmux_attach_mint_url() {
   local tag="$1" ttl="$2" repo_root="$3" target="$4" max="${5:-20}"
   local sock slug payload cli_output url node_status cli_status _i
@@ -626,9 +628,21 @@ cmux_attach_mint_url() {
         PAYLOAD="$payload" ATTACH_TARGET="$target" node --input-type=module <<'NODE' 2>/dev/null
 const payload = JSON.parse(process.env.PAYLOAD);
 const routes = payload?.ticket?.routes;
+const hasIroh =
+  Array.isArray(routes) && routes.some((route) => route?.kind === "iroh");
+// A relay-capable attach URL carries the Mac's device id (`d`), which is all
+// the phone's relay method needs to bind its dial; older Macs never write it,
+// so they keep polling for the Iroh route exactly as before.
+let relayCapable = false;
+if (typeof payload.attach_url === "string") {
+  try {
+    relayCapable = Boolean(new URL(payload.attach_url).searchParams.get("d"));
+  } catch {}
+}
 if (
   process.env.ATTACH_TARGET === "physical_device" &&
-  (!Array.isArray(routes) || !routes.some((route) => route?.kind === "iroh"))
+  !hasIroh &&
+  !relayCapable
 ) {
   process.exit(2);
 }
@@ -637,11 +651,12 @@ NODE
       )" || node_status=$?
       if [[ "$node_status" -eq 2 ]]; then
         # The legacy listener can publish Tailscale before asynchronous Iroh
-        # broker registration finishes. Remember that the Mac is reachable,
-        # but keep polling for the encrypted route until the readiness window
-        # closes.
+        # broker registration finishes (and older Macs never mint a
+        # relay-capable device-id URL at all). Remember that the Mac is
+        # reachable, but keep polling for a usable ticket until the
+        # readiness window closes.
         saw_no_iroh=1
-        last_reason="iroh_route_unavailable"
+        last_reason="relay_or_iroh_route_unavailable"
       elif [[ "$node_status" -ne 0 ]]; then
         last_reason="malformed_response"
       elif [[ -z "$url" ]]; then
@@ -654,8 +669,9 @@ NODE
     else
       last_reason="empty_response"
     fi
-    # Empty output, malformed output, and a valid ticket that has not gained an
-    # Iroh route yet are all transient during startup. Poll to the deadline.
+    # Empty output, malformed output, and a valid ticket that has not gained a
+    # relay-capable URL or an Iroh route yet are all transient during startup.
+    # Poll to the deadline.
     sleep 0.5
   done
   printf 'warning: attach readiness exhausted: %s\n' "$last_reason" >&2

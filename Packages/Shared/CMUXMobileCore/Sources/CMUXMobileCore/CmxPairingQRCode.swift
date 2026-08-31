@@ -2,8 +2,8 @@ import Foundation
 
 /// The minimal pairing-QR grammars for Iroh identity and Tailscale routes.
 ///
-/// Retained Iroh codes carry only the stable EndpointID:
-/// `cmux-ios://attach?v=3&i=<endpoint-id>`.
+/// Retained Iroh codes carry the stable EndpointID plus the optional Mac
+/// device id: `cmux-ios://attach?v=3&i=<endpoint-id>[&d=<mac-device-id>]`.
 ///
 /// The EndpointID is the only value the phone needs before dialing. The
 /// signed-in trust broker verifies same-account ownership while minting the
@@ -14,7 +14,7 @@ import Foundation
 ///
 /// Tailscale compatibility codes keep the v2 grammar so already-released
 /// clients can still scan them:
-/// `cmux-ios://attach?v=2&ub=<stack-user-id>&pc=<compat>&r=<host>:<port>[&r=<host>:<port>...]`.
+/// `cmux-ios://attach?v=2[&d=<mac-device-id>]&ub=<stack-user-id>&pc=<compat>&r=<host>:<port>[&r=<host>:<port>...]`.
 ///
 /// The only metadata a Tailscale code carries is what the phone consults
 /// before dialing: `ub`, the opaque Stack user id the account preflight
@@ -31,10 +31,17 @@ import Foundation
 ///   code look like a leaked credential.
 /// - **No expiry.** Ticket age authorizes nothing, so a code that sat on
 ///   screen for an hour still pairs.
-/// - **No display name, no device id, no build metadata.** All arrive
-///   post-handshake from `mobile.host.status`; the decoder leaves
-///   `macDeviceID` empty and the shell adopts the host-reported identity
-///   once connected.
+/// - **No display name, no build metadata.** Those arrive post-handshake
+///   from `mobile.host.status`. The one identity field both grammars carry
+///   is the optional `d` item, the Mac's opaque device id: the phone's
+///   relay method mints its session against one exact host device id, so a
+///   ticket without it can never add the relay dial route
+///   (`relayMethodDialRoutes` skips relay for anonymous tickets). v2
+///   decoders that predate `d` ignore the unknown item; v3 decoders that
+///   predate it reject the URL, which is acceptable because v3 URLs travel
+///   only between same-build launcher/dev flows while the scannable pairing
+///   window emits v2 only. A missing `d` decodes to an empty `macDeviceID`
+///   and the shell adopts the host-reported identity once connected.
 /// - **No loopback, ever.** v2 routes are Tailscale `host:port` only: the
 ///   encoder drops a DEBUG Mac's dev loopback route instead of encoding it,
 ///   the Mac refuses to mint a QR without a Tailscale route (it shows the
@@ -100,15 +107,22 @@ public struct CmxPairingQRCode: Sendable {
             guard let identity = encodableIrohIdentity(of: ticket) else {
                 return nil
             }
-            items = [
+            var identityItems = [
                 "v=\(Self.irohVersion)",
                 "i=\(identity.endpointID)"
             ]
+            if let deviceID = normalizedNonEmpty(ticket.macDeviceID) {
+                identityItems.append("d=\(percentEncodeQueryValue(deviceID))")
+            }
+            items = identityItems
         case .legacyPrivateNetworkCompatibility:
             guard let routes = encodableTailscaleRoutes(of: ticket) else {
                 return nil
             }
             var compatibilityItems: [String] = ["v=\(Self.tailscaleVersion)"]
+            if let deviceID = normalizedNonEmpty(ticket.macDeviceID) {
+                compatibilityItems.append("d=\(percentEncodeQueryValue(deviceID))")
+            }
             if let userID = normalizedNonEmpty(ticket.macUserID) {
                 compatibilityItems.append("ub=\(percentEncodeQueryValue(userID))")
             }
@@ -243,8 +257,11 @@ public struct CmxPairingQRCode: Sendable {
 
     /// Decode a supported plain pairing URL into a validated ticket.
     ///
-    /// The ticket comes back unscoped with an empty `macDeviceID`; the shell
-    /// recovers the Mac's identity post-handshake from `mobile.host.status`.
+    /// The ticket comes back unscoped. `macDeviceID` is read from the
+    /// optional `d` item when the minting Mac wrote one (it binds the
+    /// phone's relay dial to that exact host); URLs from older Macs decode
+    /// to an empty `macDeviceID` and the shell recovers the Mac's identity
+    /// post-handshake from `mobile.host.status`.
     /// - Parameter components: A parsed v2 or v3 attach URL.
     /// - Throws: ``MobileSyncPairingPayloadError/invalidURL`` for malformed
     ///   input and ``MobileSyncPairingPayloadError/loopbackRouteRejected``
@@ -289,7 +306,7 @@ private extension CmxPairingQRCode {
         let ticket = try CmxAttachTicket(
             workspaceID: "",
             terminalID: nil,
-            macDeviceID: "",
+            macDeviceID: queryValue(named: "d", in: components) ?? "",
             macDisplayName: nil,
             macUserEmail: queryValue(named: "e", in: components),
             macUserID: queryValue(named: "ub", in: components),
@@ -305,12 +322,17 @@ private extension CmxPairingQRCode {
     }
 
     /// Decode the v3 endpoint-only Iroh grammar.
+    ///
+    /// Exactly one `v`, one `i`, and at most one `d` (the Mac's device id,
+    /// which binds the phone's relay dial); any other item is a malformed or
+    /// hostile-bloated code and is rejected, exactly as before `d` existed.
     func decodeIroh(_ components: URLComponents) throws -> CmxAttachTicket {
         let items = components.queryItems ?? []
-        guard items.count == 2,
+        guard items.allSatisfy({ ["v", "i", "d"].contains($0.name) }),
               items.filter({ $0.name == "v" }).count == 1,
               let endpointID = items.first(where: { $0.name == "i" })?.value,
               items.filter({ $0.name == "i" }).count == 1,
+              items.filter({ $0.name == "d" }).count <= 1,
               let identity = try? CmxIrohPeerIdentity(endpointID: endpointID) else {
             throw MobileSyncPairingPayloadError.invalidURL
         }
@@ -323,7 +345,7 @@ private extension CmxPairingQRCode {
         let ticket = try CmxAttachTicket(
             workspaceID: "",
             terminalID: nil,
-            macDeviceID: "",
+            macDeviceID: queryValue(named: "d", in: components) ?? "",
             macDisplayName: nil,
             // v3 is intentionally endpoint-only. `nil` means the QR did not
             // make a compatibility claim, unlike v2's explicit unknown value

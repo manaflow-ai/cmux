@@ -94,12 +94,13 @@ private func compactIrohQRHostPortRoute() throws -> CmxAttachRoute {
         routeDisclosureMode: .irohIdentityOnly,
         pairingURLScheme: compactIrohQRTarget
     ))
+    // The Mac device id rides along as `d` so the phone's relay method can
+    // bind its dial to this exact host pre-handshake.
     #expect(
         pairingURL
-            == "\(compactIrohQRTarget.rawValue)://attach?v=3&i=\(compactIrohQREndpointID)"
+            == "\(compactIrohQRTarget.rawValue)://attach?v=3&i=\(compactIrohQREndpointID)&d=mac-1"
     )
     #expect(!pairingURL.contains("payload="))
-    #expect(!pairingURL.contains("mac-1"))
     #expect(!pairingURL.contains(privateAddress))
     #expect(!pairingURL.contains(relayURL))
     #expect(!pairingURL.contains(websocketURL))
@@ -118,7 +119,7 @@ private func compactIrohQRHostPortRoute() throws -> CmxAttachRoute {
         )
     )
     #expect(pairingDecoded.routes == [expectedPairingRoute])
-    #expect(pairingDecoded.macDeviceID.isEmpty)
+    #expect(pairingDecoded.macDeviceID == "mac-1")
     #expect(pairingDecoded.macDisplayName == nil)
     #expect(pairingDecoded.macUserID == nil)
     // Endpoint-only v3 codes intentionally omit compatibility metadata. Keep
@@ -146,7 +147,9 @@ private func compactIrohQRHostPortRoute() throws -> CmxAttachRoute {
     )
     #expect(pairingURL.utf8.count < beforeURL.utf8.count)
     #expect(afterModules < beforeModules)
-    #expect(afterModules <= 41)
+    // Version 7 (45 modules): the endpoint id plus the `d` device id that
+    // binds the phone's relay dial pre-handshake.
+    #expect(afterModules <= 45)
 
     let tailscaleOnly = try CmxAttachTicket(
         workspaceID: "",

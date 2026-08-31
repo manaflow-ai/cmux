@@ -61,15 +61,17 @@ import Testing
         let scheme = try #require(
             CmxPairingURLSchemeResolver().resolved?.rawValue
         )
-        #expect(url == "\(scheme)://attach?v=2&r=100.64.0.5:58465")
+        #expect(url == "\(scheme)://attach?v=2&d=mac-device-uuid&r=100.64.0.5:58465")
 
         let decoded = try CmxPairingQRCode().decode(try components(url))
         #expect(decoded.routes == ticket.routes)
         #expect(decoded.workspaceID == "")
         #expect(decoded.terminalID == nil)
-        // Identity, expiry, and token are deliberately absent: the host
-        // reports identity post-handshake, and nothing in the QR authorizes.
-        #expect(decoded.macDeviceID == "")
+        // The device id rides in `d` so the phone's relay method can bind its
+        // dial to this exact Mac pre-handshake. Display name, expiry, and
+        // token stay deliberately absent: the host reports the rest of its
+        // identity post-handshake, and nothing in the QR authorizes.
+        #expect(decoded.macDeviceID == "mac-device-uuid")
         #expect(decoded.macDisplayName == nil)
         #expect(decoded.expiresAt == nil)
         #expect(decoded.authToken == nil)
@@ -143,6 +145,81 @@ import Testing
         #expect(decoded.macAppBuild == "42")
     }
 
+    // MARK: Optional `d` device id (relay dial binding)
+
+    /// The decode half of the `d` compatibility matrix, all four
+    /// combinations. `d` carries the Mac's device id so the phone's relay
+    /// method can bind its dial to that exact host pre-handshake; a URL
+    /// without it (older Mac) decodes to an anonymous ticket exactly as
+    /// before, and the relay route stays excluded. The other half of the
+    /// matrix is structural: fielded v2 decoders read only named items and
+    /// ignore `d`, and fielded v3 decoders reject unknown items, which is
+    /// acceptable because v3 URLs travel only between same-build
+    /// launcher/dev flows while the scannable pairing window emits v2 only.
+    @Test func v2URLWithoutDeviceIDDecodesAnonymousTicket() throws {
+        let decoded = try CmxPairingQRCode().decode(
+            try components("cmux-ios://attach?v=2&r=100.64.0.5:58465")
+        )
+        #expect(decoded.macDeviceID == "")
+    }
+
+    @Test func v2URLWithDeviceIDDecodesCanonicalMacDeviceID() throws {
+        let decoded = try CmxPairingQRCode().decode(try components(
+            "cmux-ios://attach?v=2&d=123E4567-E89B-42D3-A456-426614174004&r=100.64.0.5:58465"
+        ))
+        #expect(decoded.macDeviceID == "123e4567-e89b-42d3-a456-426614174004")
+        #expect(decoded.routes.map(\.id) == ["tailscale"])
+    }
+
+    @Test func v3URLWithoutDeviceIDDecodesAnonymousTicket() throws {
+        let decoded = try CmxPairingQRCode().decode(try components(
+            "cmux-ios://attach?v=3&i=\(String(repeating: "c", count: 64))"
+        ))
+        #expect(decoded.macDeviceID == "")
+    }
+
+    @Test func v3URLWithDeviceIDDecodesCanonicalMacDeviceID() throws {
+        let decoded = try CmxPairingQRCode().decode(try components(
+            "cmux-ios://attach?v=3&i=\(String(repeating: "c", count: 64))"
+                + "&d=123E4567-E89B-42D3-A456-426614174004"
+        ))
+        #expect(decoded.macDeviceID == "123e4567-e89b-42d3-a456-426614174004")
+        #expect(decoded.routes.first?.kind == .iroh)
+    }
+
+    @Test func encodeOmitsDeviceIDItemWhenTicketIsAnonymous() throws {
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "",
+            macDisplayName: nil,
+            routes: [try tailscaleRoute(index: 0, host: "100.64.0.5")]
+        )
+        let url = try #require(encodeLegacy(ticket))
+        #expect(!url.contains("d="))
+        let decoded = try CmxPairingQRCode().decode(try components(url))
+        #expect(decoded.macDeviceID == "")
+    }
+
+    @Test func deviceIDBearingURLStillRejectsLoopbackRoutes() throws {
+        // The `d` item names a host identity; it must never soften the
+        // loopback rejection that keeps a scanned code from pointing the
+        // phone at itself.
+        let url = "cmux-ios://attach?v=2&d=123e4567-e89b-42d3-a456-426614174004"
+            + "&r=127.0.0.1:58465"
+        #expect(throws: MobileSyncPairingPayloadError.loopbackRouteRejected) {
+            try CmxPairingQRCode().decode(try components(url))
+        }
+    }
+
+    @Test func v3RejectsDuplicateDeviceIDItems() throws {
+        let url = "cmux-ios://attach?v=3&i=\(String(repeating: "c", count: 64))"
+            + "&d=mac-1&d=mac-2"
+        #expect(throws: MobileSyncPairingPayloadError.invalidURL) {
+            try CmxPairingQRCode().decode(try components(url))
+        }
+    }
+
     @Test func roundTripsIPv6LiteralThroughRealURLParsing() throws {
         let route = try tailscaleRoute(index: 0, host: "fd7a:115c:a1e0::1")
         let ticket = try pairingTicket(routes: [route])
@@ -170,7 +247,7 @@ import Testing
         let scheme = try #require(
             CmxPairingURLSchemeResolver().resolved?.rawValue
         )
-        #expect(url == "\(scheme)://attach?v=2&r=100.64.0.5:58465")
+        #expect(url == "\(scheme)://attach?v=2&d=mac-device-uuid&r=100.64.0.5:58465")
         let decoded = try CmxPairingQRCode().decode(try components(url))
         #expect(decoded.routes == [tailscale])
     }
@@ -393,9 +470,11 @@ import Testing
                 "\(afterBytes)B/QR v\(qrVersion(forByteCount: afterBytes)) (ECC M)"
             )
             #expect(afterBytes < beforeBytes)
-            // The representative 2-route QR stays under 100 bytes / version 6.
-            #expect(afterBytes < 100)
-            #expect(qrVersion(forByteCount: afterBytes) <= 6)
+            // The representative 2-route QR stays under 128 bytes / version 7
+            // (the `d` device id, which buys the phone's pre-handshake relay
+            // dial binding, costs one version over the id-less grammar).
+            #expect(afterBytes < 128)
+            #expect(qrVersion(forByteCount: afterBytes) <= 7)
         }
     }
 }
