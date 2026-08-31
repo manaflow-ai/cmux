@@ -4,7 +4,7 @@ on:
     types: [created]
   pull_request_target:
     branches: [main]
-    types: [opened,closed,reopened,synchronize]
+    types: [opened,closed,edited,reopened,synchronize]
 
 # Jobs declare only the permissions they need.
 permissions: {}
@@ -13,12 +13,18 @@ jobs:
   CLAAssistant:
     name: "CLA Assistant"
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     # Filter before concurrency admission. Otherwise arbitrary issue comments
     # can consume the signature queue without running the action.
     if: >-
       (
         github.event_name == 'pull_request_target' &&
-        github.event.action != 'closed'
+        (
+          github.event.action == 'opened' ||
+          github.event.action == 'edited' ||
+          github.event.action == 'reopened' ||
+          github.event.action == 'synchronize'
+        )
       ) ||
       (
         github.event_name == 'issue_comment' &&
@@ -49,7 +55,7 @@ jobs:
       - name: "CLA generation v2"
         run: echo "CLA generation v2"
 
-      - name: "Check CLA commit limit"
+      - name: "Validate CLA pull request"
         id: cla-preflight
         # The archived action reads only its first 100 commits. Fail closed
         # instead of allowing an unsigned committer beyond that limit through.
@@ -57,18 +63,48 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EVENT_BASE_REPO: ${{ github.event.pull_request.base.repo.full_name }}
         run: |
           set -euo pipefail
-          if ! commit_count="$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}" --jq '.commits' 2>/dev/null)"; then
-            echo "::error::Could not query the pull request commit count"
+          if ! [[ "${PR_NUMBER}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::Invalid pull request number"
             exit 1
           fi
+          if ! pr_json="$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}" 2>/dev/null)"; then
+            echo "::error::Could not query the pull request"
+            exit 1
+          fi
+          if ! jq -e --arg repo "${GH_REPO}" --argjson number "${PR_NUMBER}" '
+            .number == $number and
+            .state == "open" and
+            .base.ref == "main" and
+            .base.repo.full_name == $repo and
+            (.head.sha | type == "string") and
+            (.head.sha | test("^[0-9a-f]{40}$")) and
+            (.commits | type == "number")
+          ' <<<"${pr_json}" >/dev/null; then
+            echo "::error::The pull request is not an open pull request targeting main"
+            exit 1
+          fi
+          live_head_sha="$(jq -r '.head.sha' <<<"${pr_json}")"
+          if [[ "${EVENT_NAME}" == "pull_request_target" ]] && {
+            [[ "${EVENT_HEAD_SHA}" != "${live_head_sha}" ]] ||
+            [[ "${EVENT_BASE_REF}" != "main" ]] ||
+            [[ "${EVENT_BASE_REPO}" != "${GH_REPO}" ]]
+          }; then
+            echo "::error::The pull request changed while the CLA workflow was starting"
+            exit 1
+          fi
+          commit_count="$(jq -r '.commits' <<<"${pr_json}")"
           if ! [[ "${commit_count}" =~ ^[0-9]+$ ]]; then
             echo "::error::Could not determine the pull request commit count"
             exit 1
           fi
           if (( commit_count > 100 )); then
-            echo "::error title=CLA Assistant commit limit::This pull request has ${commit_count} commits. Split it into 100 or fewer commits before requesting a CLA check."
+            echo "::error title=Pull request commit limit::This pull request has ${commit_count} commits. Split it into 100 or fewer commits before requesting a CLA check."
             exit 1
           fi
 
@@ -111,6 +147,7 @@ jobs:
         github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA'
       )
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     # A contributor can submit more than one valid comment while the signing
     # job is running. Serialize reruns per PR so two comments cannot race the
     # same workflow run. The script rechecks the run state before POSTing.
@@ -429,6 +466,7 @@ jobs:
       github.event.action == 'closed' &&
       github.event.pull_request.merged == true
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     # Use a per-PR group so user comments cannot fill or replace the one-shot
     # merge-lock run. The open-PR guard above prevents new signing runs after
     # closure.
