@@ -1,22 +1,25 @@
 #!/usr/bin/env bash
-# Exercise the unprivileged CLA trigger admission gate. The gate must reject
-# case variants and wrapped comments before the privileged signature job's
-# concurrency group can admit them.
+# Exercise the unprivileged CLA trigger admission gate. The shell gate must
+# reject case variants and wrapped comments. The job-level expression is a
+# coarse prefilter, and its shared concurrency group bounds candidate floods.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKFLOW="$ROOT_DIR/.github/workflows/cla.yml"
 test -f "$WORKFLOW"
 
-# The protected ruleset already requires this exact check context. Keep the
-# admission gate non-canceling and event-scoped so an unrelated public comment
-# cannot cancel a valid signing trigger.
-grep -Fq 'name: "CLA Assistant"' "$WORKFLOW"
-grep -Fq 'group: cla-trigger-${{ github.run_id }}' "$WORKFLOW"
+# The protected ruleset must be migrated to the versioned check context before
+# enforcement. Keep admission non-canceling and bounded by event type so a
+# public comment cannot consume an unbounded number of runners.
+grep -Fq 'name: "CLA Assistant v2"' "$WORKFLOW"
+grep -Fq 'group: >-' "$WORKFLOW"
+grep -Fq 'cla-v2-${{ github.event_name }}-${{ github.event.action }}-' "$WORKFLOW"
 grep -Fq 'cancel-in-progress: false' "$WORKFLOW"
 grep -Fq "path-to-signatures: 'signatures/version2/cla.json'" "$WORKFLOW"
-if grep -Fq 'group: cla-trigger-${{ github.event.issue.number' "$WORKFLOW"; then
-  echo 'FAIL: CLA trigger gate is grouped by pull request and can replace a valid pending event' >&2
+grep -Fq "github.event.comment.body == 'recheck'" "$WORKFLOW"
+grep -Fq "github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA'" "$WORKFLOW"
+if grep -Fq 'cla-trigger-${{ github.run_id }}' "$WORKFLOW"; then
+  echo 'FAIL: CLA trigger gate admits an unbounded per-event runner group' >&2
   exit 1
 fi
 

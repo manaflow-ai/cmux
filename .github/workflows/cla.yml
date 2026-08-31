@@ -9,12 +9,26 @@ on:
 # Jobs declare only the permissions they need.
 permissions: {}
 
+# Bound workflow admission before any job-level `if` or runner allocation.
+# The body comparisons are only a coarse classifier because GitHub expression
+# string comparisons ignore case. The shell gate below remains the exact
+# authority. Keep the untrusted body out of the group name so a commenter
+# cannot create an unbounded set of concurrency groups. GitHub's default
+# `single` queue permits one running and one pending run per classifier.
+concurrency:
+  group: >-
+    cla-v2-${{ github.event_name }}-${{ github.event.action }}-
+    ${{ github.event.comment.body == 'recheck' }}-
+    ${{ github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA' }}
+  cancel-in-progress: false
+
 jobs:
   CLACommentGate:
     name: "Validate CLA trigger"
-    # This job is intentionally unprivileged. It runs the exact, case-
-    # sensitive comment check before the signature job can admit a public
-    # issue-comment event.
+    # This job is intentionally unprivileged. The job-level expression is a
+    # coarse admission filter, and the shell step below is the exact,
+    # case-sensitive check. GitHub expressions compare strings without case,
+    # so the shell remains the authority for the declaration itself.
     if: >-
       (
         github.event_name == 'pull_request_target' &&
@@ -27,17 +41,14 @@ jobs:
       (
         github.event_name == 'issue_comment' &&
         github.event.issue.state == 'open' &&
-        github.event.issue.pull_request
+        github.event.issue.pull_request &&
+        (
+          github.event.comment.body == 'recheck' ||
+          github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA'
+        )
       )
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
-    concurrency:
-      # Use one group per event. With cancel-in-progress enabled, an ordinary
-      # public comment could cancel a valid gate before it is admitted. With
-      # cancellation disabled and a unique group, every event is evaluated by
-      # the exact shell check below and no event can cancel another event.
-      group: cla-trigger-${{ github.run_id }}
-      cancel-in-progress: false
     permissions: {}
     steps:
       - name: "Validate exact CLA trigger"
@@ -67,9 +78,11 @@ jobs:
           fi
 
   CLAAssistant:
-    # Keep the existing check-run name. The repository ruleset currently
-    # requires the exact context "CLA Assistant".
-    name: "CLA Assistant"
+    # This versioned context is deliberate. The old "CLA Assistant" check
+    # could remain successful on an unchanged PR after this workflow changed.
+    # Update the main ruleset to require this context only after the migration
+    # smoke test and open-PR sweep complete.
+    name: "CLA Assistant v2"
     needs: CLACommentGate
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
@@ -106,6 +119,10 @@ jobs:
     permissions:
       contents: write
       issues: write
+      # Keep the permission used by the CLA check publisher. GitHub's job
+      # check is required by the main ruleset, and older action revisions also
+      # publish a commit status through this token.
+      statuses: write
       # GitHub's pull_request_target token denied issue comments for fork PRs
       # with this set to read, despite the endpoint documentation allowing
       # issues:write. Keep write until that live behavior changes.
@@ -190,7 +207,7 @@ jobs:
         # so a branch move cannot change the code executed by this workflow.
         # The fork's default branch must be protected before this check is made
         # required in repository rulesets.
-        uses: manaflow-ai/cla-github-action@0b53543e4462accbdde6edc1329482130f9384b8
+        uses: manaflow-ai/cla-github-action@49f01032e93ef115a238cd55ab9171ee3bd02435
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -218,9 +235,16 @@ jobs:
     needs: CLAAssistant
     # Keep the workflow-rerun token out of the signature-writing job. This
     # isolated fixed shell is the only job that can rerun a failed check, and
-    # it runs only after the exact accepted issue-comment path succeeds.
+    # it runs only after the exact accepted issue-comment path reaches the
+    # assistant. The assistant normally fails while contributors are unsigned,
+    # so allow both success and failure results below; the shell repeats every
+    # identity and run validation before using actions:write.
     if: >-
-      needs.CLAAssistant.result == 'success' &&
+      always() &&
+      (
+        needs.CLAAssistant.result == 'success' ||
+        needs.CLAAssistant.result == 'failure'
+      ) &&
       github.event_name == 'issue_comment' &&
       github.event.issue.state == 'open' &&
       github.event.issue.pull_request &&
@@ -818,7 +842,7 @@ jobs:
               '[.[] | .jobs[]?
                 | select(
                     (.run_id | tostring) == $run_id and
-                    .name == "CLA Assistant" and
+                    .name == "CLA Assistant v2" and
                     .workflow_name == "CLA Assistant v2" and
                     .status == "completed" and
                     .conclusion == "failure" and
@@ -862,7 +886,7 @@ jobs:
             --argjson head_repo_id "${head_repo_id}" '
               .id == ($job_id | tonumber) and
               .run_id == ($run_id | tonumber) and
-              .name == "CLA Assistant" and
+              .name == "CLA Assistant v2" and
               .workflow_name == "CLA Assistant v2" and
               .status == "completed" and
               .conclusion == "failure" and
@@ -907,7 +931,7 @@ jobs:
             --argjson head_repo_id "${head_repo_id}" '
               .id == ($job_id | tonumber) and
               .run_id == ($run_id | tonumber) and
-              .name == "CLA Assistant" and
+              .name == "CLA Assistant v2" and
               .workflow_name == "CLA Assistant v2" and
               .status == "completed" and
               .conclusion == "failure" and
