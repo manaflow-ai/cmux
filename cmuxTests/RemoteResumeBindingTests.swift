@@ -1,4 +1,5 @@
 import AppKit
+import CMUXAgentLaunch
 import CmuxControlSocket
 import CmuxCore
 import Darwin
@@ -1037,6 +1038,164 @@ struct RemoteResumeBindingTests {
             ],
         ])
         #expect(customResult["restore_record"] as? [String: Any] == nil)
+    }
+
+    @Test
+    func customAgentHookRestoreRecordRequiresTypedPlanForExactCwd() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        let windowID = UUID()
+        let window = makeMainWindow(id: windowID)
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowID,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowID)
+            AppDelegate.shared = previousAppDelegate
+            for workspace in manager.tabs {
+                workspace.teardownAllPanels()
+            }
+            window.orderOut(nil)
+        }
+
+        let workspace = try #require(manager.selectedWorkspace)
+        let surfaceID = try #require(workspace.focusedPanelId)
+        let sessionID = "custom-session-" + UUID().uuidString
+        let capturedDirectory = "/Users/alice/captured-custom-cwd"
+        let launchCommand = AgentLaunchCommandSnapshot(
+            executablePath: "/usr/local/bin/acme-agent",
+            arguments: ["/usr/local/bin/acme-agent", "--session", sessionID],
+            workingDirectory: capturedDirectory
+        )
+        let exactBinding = SurfaceResumeBindingSnapshot(
+            kind: "acme-agent",
+            command: "acme-agent --session " + sessionID,
+            cwd: capturedDirectory,
+            checkpointId: sessionID,
+            source: "agent-hook",
+            launchCommand: launchCommand,
+            restoreWorkingDirectorySelection: .exact(nil),
+            autoResume: true
+        )
+
+        // This is a persisted binding shape that cannot be installed through
+        // the normal mutation API without the custom registration. It must not
+        // advertise a restore record that the CLI planner cannot execute.
+        workspace.surfaceResumeBindingsByPanelId[surfaceID] = exactBinding
+        let noSnapshotResult = try v2Result(request: [
+            "id": "custom-exact-no-snapshot",
+            "method": "surface.resume.get",
+            "params": [
+                "window_id": windowID.uuidString,
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": surfaceID.uuidString,
+            ],
+        ])
+        #expect(noSnapshotResult["restore_record"] as? [String: Any] == nil)
+
+        // A matching snapshot without its registry metadata reaches the
+        // snapshot branch, so cover that branch separately from the fallback.
+        workspace.restoredAgentSnapshotsByPanelId[surfaceID] = SessionRestorableAgentSnapshot(
+            kind: .custom("acme-agent"),
+            sessionId: sessionID,
+            workingDirectory: capturedDirectory,
+            launchCommand: launchCommand
+        )
+        let missingRegistrationResult = try v2Result(request: [
+            "id": "custom-exact-missing-registration",
+            "method": "surface.resume.get",
+            "params": [
+                "window_id": windowID.uuidString,
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": surfaceID.uuidString,
+            ],
+        ])
+        #expect(missingRegistrationResult["restore_record"] as? [String: Any] == nil)
+
+        // A registry-backed snapshot supplies the typed argv required by both
+        // the control-surface record and AgentRestorePlanner.
+        let registration = CmuxVaultAgentRegistration(
+            id: "acme-agent",
+            name: "Acme Agent",
+            detect: CmuxVaultAgentDetectRule(processName: "acme-agent"),
+            sessionIdSource: .argvOption("--session"),
+            resumeCommand: "{{executable}} --session {{sessionId}}",
+            cwd: .preserve
+        )
+        let trustedDirectory = "/Users/alice/trusted-custom-cwd"
+        workspace.surfaceResumeBindingsByPanelId[surfaceID] = SurfaceResumeBindingSnapshot(
+            kind: "acme-agent",
+            command: "acme-agent --session " + sessionID,
+            cwd: trustedDirectory,
+            checkpointId: sessionID,
+            source: "agent-hook",
+            launchCommand: launchCommand,
+            restoreWorkingDirectorySelection: .exact(trustedDirectory),
+            autoResume: true
+        )
+        workspace.restoredAgentSnapshotsByPanelId[surfaceID] = SessionRestorableAgentSnapshot(
+            kind: .custom(registration.id),
+            sessionId: sessionID,
+            workingDirectory: capturedDirectory,
+            launchCommand: launchCommand,
+            registration: registration
+        )
+        let validResult = try v2Result(request: [
+            "id": "custom-exact-registered",
+            "method": "surface.resume.get",
+            "params": [
+                "window_id": windowID.uuidString,
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": surfaceID.uuidString,
+            ],
+        ])
+        let restoreRecord = try #require(validResult["restore_record"] as? [String: Any])
+        let preparedArguments = try #require(
+            restoreRecord["prepared_arguments"] as? [String]
+        )
+        #expect(preparedArguments == [
+            "/usr/local/bin/acme-agent",
+            "--session",
+            sessionID,
+        ])
+        let invocation = try #require(AgentRestorePlanner(
+            isExecutableFile: { _ in false }
+        ).invocation(
+            for: AgentRestoreRequest(
+                mode: .resumeAgent,
+                kind: try #require(restoreRecord["kind"] as? String),
+                checkpointID: try #require(restoreRecord["checkpoint_id"] as? String),
+                source: restoreRecord["source"] as? String,
+                workingDirectory: restoreRecord["working_directory"] as? String,
+                environment: restoreRecord["environment"] as? [String: String] ?? [:],
+                launchCommand: AgentLaunchCommand(
+                    launcher: launchCommand.launcher,
+                    executablePath: launchCommand.executablePath,
+                    arguments: launchCommand.arguments,
+                    workingDirectory: nil,
+                    environment: launchCommand.environment,
+                    verificationHome: launchCommand.verificationHome,
+                    capturedAt: launchCommand.capturedAt,
+                    source: launchCommand.source
+                ),
+                preparedArguments: preparedArguments,
+                preparedArgumentsWorkingDirectory: restoreRecord[
+                    "prepared_arguments_working_directory"
+                ] as? String,
+                observedPermissionMode: restoreRecord["permission_mode"] as? String
+            ),
+            ambientEnvironment: ["PATH": "/usr/bin:/bin"]
+        ))
+        #expect(invocation.arguments == preparedArguments)
     }
 
     @Test
