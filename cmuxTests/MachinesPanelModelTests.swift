@@ -415,10 +415,12 @@ final class MachinesPanelModelTests: XCTestCase {
             "machine:vivid-newt/workspaces",
             "machine:vivid-newt/ws/ws_main",
             "machine:vivid-newt/ws/ws_main/resource:vivid-newt/terminal/term_1",
+            "machine:vivid-newt/ws/ws_main/resource:vivid-newt/display/display:1",
             "machine:vivid-newt/ws/ws_side",
             "machine:vivid-newt/ws/ws_side/resource:vivid-newt/terminal/term_1",
             "machine:vivid-newt/ws/ws_side/resource:vivid-newt/display/display:1",
             "machine:vivid-newt/ws/ws_empty",
+            "machine:vivid-newt/ws/ws_empty/resource:vivid-newt/display/display:1",
         ])
         // A remote workspace already showing locally: its row marks it open and the click
         // jumps to that local workspace instead of opening a second copy.
@@ -445,6 +447,12 @@ final class MachinesPanelModelTests: XCTestCase {
         XCTAssertEqual(
             CloudTreeNodeBuilder.flattened(nodes).first { $0.id == "machine:vivid-newt/ws/ws_side" }?.dragGroup?.resources,
             [remoteA.id, display.id]
+        )
+        // An implicit display row (no view pins it) shows under the workspace but
+        // stays out of the workspace's open/drag group.
+        XCTAssertEqual(
+            CloudTreeNodeBuilder.flattened(nodes).first { $0.id == "machine:vivid-newt/ws/ws_main" }?.dragGroup?.resources,
+            [remoteA.id]
         )
         XCTAssertFalse(ids.contains { $0.contains("port") }, "ports stay out of the tree for now")
         let flattened = CloudTreeNodeBuilder.flattened(nodes)
@@ -481,8 +489,10 @@ final class MachinesPanelModelTests: XCTestCase {
             "local/terminal/AAA",
             "vivid-newt/terminal/term_1", "vivid-newt/terminal/term_2",
             "vivid-newt/display/display:1",
-            "vivid-newt/terminal/term_1", "vivid-newt/terminal/term_1", "vivid-newt/display/display:1",
-        ], "pool rows, then one drag resource per pointer row")
+            "vivid-newt/terminal/term_1", "vivid-newt/display/display:1",
+            "vivid-newt/terminal/term_1", "vivid-newt/display/display:1",
+            "vivid-newt/display/display:1",
+        ], "pool rows, then one drag resource per pointer (or implicit display) row")
         XCTAssertTrue(flattened[0].isMachineRow)
         XCTAssertTrue(flattened[3].isMachineRow)
         XCTAssertEqual(flattened[3].machine, .cloud("vivid-newt"))
@@ -860,5 +870,34 @@ final class CloudTreeScopeAndSignatureTests: XCTestCase {
             !CloudTreeNodeBuilder.isEmpty(machines: [], snapshot: catalogOnly),
             "a catalog-known cloud machine gets a placeholder row even while the fleet list lags"
         )
+    }
+}
+
+/// Pins the single-line machine row's inline fact: Locked wins, then the live
+/// CPU/Mem/Disk reading (when the style shows stats), else nothing.
+@Suite("Cloud tree machine inline fact")
+struct CloudTreeMachineInlineFactTests {
+    private func snapshot(stats: VMStats?) -> MachineSnapshot {
+        var machine = MachineSnapshotBuilder.snapshot(from: VMSummary(
+            id: "troll", provider: "blaxel", status: "running", image: "sandbox/cmux-devbox:latest", createdAt: 0, base: nil
+        ))
+        machine.stats = stats
+        return machine
+    }
+
+    @Test("An awake reading renders inline in the default single-line style")
+    func awakeReadingRendersInline() {
+        let stats = VMStats(
+            state: .awake, sampledAt: Date(timeIntervalSince1970: 0), cpus: 2, cpuPercent: 9.4,
+            loadAverage1m: nil, memoryTotalMb: 3891, memoryUsedMb: 3481, diskTotalMb: 3174, diskUsedMb: 2867
+        )
+        let fact = CloudTreeMachineRowContent.inlineFact(snapshot(stats: stats), style: .compact)
+        #expect(fact?.contains("CPU 9%") == true)
+        #expect(fact?.contains("3.4/3.8") == true)
+    }
+
+    @Test("No reading yet means no inline fact")
+    func missingStatsShowsNothing() {
+        #expect(CloudTreeMachineRowContent.inlineFact(snapshot(stats: nil), style: .compact) == nil)
     }
 }

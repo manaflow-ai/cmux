@@ -542,13 +542,20 @@ struct CloudTreeMachineRowContent: View {
                             .font(.system(size: 8, weight: .semibold))
                             .foregroundStyle(.secondary)
                             .frame(width: CloudTreeRowGrid.dotSlot, alignment: .center)
+                    } else {
+                        // This row is another computer: a dim cloud in the old dot
+                        // slot says so without competing with the name.
+                        Image(systemName: "cloud.fill")
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                            .frame(width: CloudTreeRowGrid.dotSlot, alignment: .center)
                     }
                     Text(machine.displayName)
                         .cmuxFont(size: style.machineNameSize, weight: style.machineBand ? .semibold : .medium, design: style.fontDesign)
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                         .truncationMode(.tail)
-                    if let fact = Self.inlineFact(machine) {
+                    if let fact = Self.inlineFact(machine, style: style) {
                         Text(fact)
                             .cmuxFont(size: style.detailSize, design: style.fontDesign)
                             .foregroundStyle(.tertiary)
@@ -569,6 +576,11 @@ struct CloudTreeMachineRowContent: View {
                     Image(systemName: "lock.fill")
                         .font(.system(size: 8, weight: .semibold))
                         .foregroundStyle(.secondary)
+                        .frame(width: CloudTreeRowGrid.dotSlot, height: style.machineNameLineHeight, alignment: .center)
+                } else {
+                    Image(systemName: "cloud.fill")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(.tertiary)
                         .frame(width: CloudTreeRowGrid.dotSlot, height: style.machineNameLineHeight, alignment: .center)
                 }
                 VStack(alignment: .leading, spacing: CloudTreeRowGrid.machineLineSpacing) {
@@ -653,10 +665,16 @@ struct CloudTreeMachineRowContent: View {
     }
 
     /// The single-line layout's one dim fact: "Locked" when expired, else nothing.
-    static func inlineFact(_ machine: MachineSnapshot) -> String? {
-        machine.freeAccess == .expired
-            ? String(localized: "machines.row.locked", defaultValue: "Locked")
-            : nil
+    static func inlineFact(_ machine: MachineSnapshot, style: CloudTreeStyle) -> String? {
+        if machine.freeAccess == .expired {
+            return String(localized: "machines.row.locked", defaultValue: "Locked")
+        }
+        // Single-line rows carry the live reading inline: the same CPU/Mem/Disk
+        // line the two-line card shows, dimmed after the name.
+        if style.showsMachineStats, let stats = machine.stats, let line = statsLine(stats) {
+            return line
+        }
+        return nil
     }
 
     static let relativeFormatter: RelativeDateTimeFormatter = {

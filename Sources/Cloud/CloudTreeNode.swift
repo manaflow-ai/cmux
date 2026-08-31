@@ -471,6 +471,12 @@ enum CloudTreeNodeBuilder {
                     let workspaceBrowsers = browsersByWorkspace[workspace.id] ?? []
                     let workspaceDisplays = displaysByWorkspace[workspace.id] ?? []
                     let members = (pointed + workspaceBrowsers + workspaceDisplays).map(\.id)
+                    // Every workspace can reach the machine's screen: when no view
+                    // pins a display yet, the machine's displays still show under
+                    // the workspace, so its terminals and its desktop open from one
+                    // place. Implicit rows stay out of `members`/dragGroup — only
+                    // real pointers travel with the workspace's open/drag group.
+                    let shownDisplays = workspaceDisplays.isEmpty ? displays : workspaceDisplays
                     return CloudTreeNode(
                         id: nodeID(workspace: workspace.id, machine: machine),
                         kind: .workspace(machine: machine, workspace, terminalCount: pointed.count, openIn: localWorkspaceShowing(members, snapshot: snapshot)),
@@ -481,7 +487,7 @@ enum CloudTreeNodeBuilder {
                                 id: nodeID(resource: $0.id, inRemoteWorkspace: workspace.id),
                                 kind: .browser(CloudTreeBrowserRow(resource: $0, isOpen: snapshot.isOpen($0.id), workspaceTitle: nil))
                             )
-                        } + workspaceDisplays.map {
+                        } + shownDisplays.map {
                             CloudTreeNode(id: nodeID(resource: $0.id, inRemoteWorkspace: workspace.id), kind: .display($0))
                         },
                         dragGroup: SurfaceResourceGroup(
