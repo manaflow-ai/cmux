@@ -1507,6 +1507,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var terminalLiveFontTokensBySurfaceID: [String: UUID]
     private var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
     private var terminalInputRPCPipeline: MobileTerminalInputRPCPipeline
+    /// Per-surface local echo prediction engines (debug toggle only; see
+    /// `MobileShellComposite+EchoPrediction.swift`). `@ObservationIgnored`:
+    /// overlay changes are pushed to the registered presenter, never observed.
+    @ObservationIgnored var echoPredictionEnginesBySurfaceID: [String: MobileEchoPredictionEngine] = [:]
+    /// Weak overlay renderers per mounted surface.
+    @ObservationIgnored var echoPredictionPresentersBySurfaceID: [String: MobileEchoPredictionPresenterBox] = [:]
     private var rawTerminalInputDrainWaiters: [CheckedContinuation<Void, Never>]
     private var isRawTerminalInputDrainLoopRunning: Bool
     #if DEBUG
@@ -9060,6 +9066,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard !text.isEmpty else { return }
         guard remoteClient != nil else { return }
         recordTerminalInputActivityForLiveness()
+        recordEchoPredictionKeystrokes(text, surfaceID: terminalID.rawValue)
         switch rawTerminalInputBuffer.enqueue(
             text,
             workspaceID: workspaceID,
@@ -9125,6 +9132,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func clearPendingTerminalInputForFocusChange() {
         rawTerminalInputBuffer.clear()
         terminalInputRPCPipeline.clear()
+        resetAllEchoPrediction()
         let pendingRawSends = rawTerminalSendOperationIDsByTerminalID
         for (terminalID, operationID) in pendingRawSends {
             finishRawTerminalSend(
@@ -13157,6 +13165,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             "s=\(surfaceID.prefix(8).lowercased()) ack_seq=\(remoteSeq)"
         )
         #endif
+        acknowledgeEchoPredictionInput(untilSeq: remoteSeq, surfaceID: surfaceID)
         let localSeq = deliveredTerminalByteEndSeqBySurfaceID[surfaceID] ?? 0
         guard remoteSeq > localSeq else { return }
         let canRenderGridAdvancePendingSeq = terminalOutputTransport == .renderGrid
@@ -13369,6 +13378,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func unregisterTerminalOutput(surfaceID: String, streamToken: UUID) {
         guard terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken else { return }
+        resetEchoPrediction(surfaceID: surfaceID, discardEngine: true)
         terminalLaneOutputReadySurfaceIDs.remove(surfaceID)
         if let terminalLaneCoordinator {
             Task { await terminalLaneCoordinator.deactivate(surfaceID: surfaceID) }
