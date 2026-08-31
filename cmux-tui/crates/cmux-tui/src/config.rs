@@ -81,6 +81,10 @@
 //!     "ws": "127.0.0.1:7681",
 //!     "ws_token": "replace-with-a-secret"
 //!   },
+//!   "notifications": {
+//!     "agent_blocked": true,
+//!     "agent_idle": true
+//!   },
 //!   "keys": {
 //!     "prefix": "ctrl+b",
 //!     "alt_shortcuts": true,
@@ -4048,6 +4052,7 @@ fn load_raw_config() -> RawConfig {
         "status_bar",
         "viewport",
         "server",
+        "notifications",
         "keys",
     ];
     if let Some(unknown) = object.keys().find(|key| !KNOWN.contains(&key.as_str())) {
@@ -4088,6 +4093,7 @@ fn load_raw_config() -> RawConfig {
     section!(status_bar, "status_bar");
     section!(viewport, "viewport");
     section!(server, "server");
+    section!(notifications, "notifications");
     section!(keys, "keys");
     raw
 }

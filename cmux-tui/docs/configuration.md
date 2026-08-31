@@ -308,6 +308,15 @@ Terminal panes, the workspace sidebar, and the shortcut modal share the same `â–
 
 WebSocket clients pair through a six-digit browser/TUI comparison by default. WebSocket binds must be loopback unless cmux-tui is started with `--ws-insecure-bind`. The listener has no TLS; use an authenticated TLS reverse proxy for remote access. See the [transport contract](../spec/transports.md#websocket).
 
+## Notifications
+
+| Key | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `notifications.agent_blocked` | boolean | `true` | Each attached client alerts its own host terminal (OSC 9, or OSC 99 on kitty, plus BEL) when an agent in an unfocused terminal turns blocked |
+| `notifications.agent_idle` | boolean | `true` | Same alert when an agent in an unfocused terminal ends a working or blocked run by turning idle |
+
+Alerts are per-client presentation: the client whose terminal has the agent focused never alerts. Inside tmux the escape is passthrough-wrapped and requires `allow-passthrough on`.
+
 ## Commands
 
 `commands` is an ordered list of user commands, the cmux-tui equivalent of tmux `bind-key ... command`. Each command names an argv program and optionally binds key chords to it. Pressing a bound chord runs the argv as a new PTY tab in the active pane, exactly like `cmux run`. The child inherits `CMUX_TUI_SOCKET`, so a command script can immediately drive the public CLI against its own session: create workspaces, apply splits, rename tabs, then close its own tab. The working directory defaults to the active pane's current directory; `cwd` values pass through without shell expansion, so use absolute paths or a shell argv for `~`.
