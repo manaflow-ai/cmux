@@ -658,6 +658,51 @@ impl WorkspaceRegistry {
         Ok(())
     }
 
+    /// Keep a durable dead-letter marker when a journal event names a terminal
+    /// that can never be materialized. The reducer must see this marker and
+    /// skip the event; deleting it would let a later replay create ghost
+    /// roster state.
+    pub(crate) fn quarantine_agent_hook_pending(
+        &mut self,
+        producer_id: &str,
+        origin: &str,
+        idempotency_key: &str,
+        sequence: u64,
+        ingress: &crate::JournalIngress,
+        error: &str,
+    ) -> anyhow::Result<()> {
+        const MAX_ERROR_CHARS: usize = 1_024;
+        let ingress_json = serde_json::to_string(ingress)?;
+        let terminal_id = ingress
+            .subjects
+            .iter()
+            .find(|subject| subject.kind == "terminal")
+            .map(|subject| subject.id.as_str());
+        let bounded_error = error.chars().take(MAX_ERROR_CHARS).collect::<String>();
+        self.connection.execute(
+            "INSERT INTO resource_agent_hook_pending(
+               producer_id, origin, idempotency_key, terminal_id, event_sequence, ingress_json, error, attempt
+             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+             ON CONFLICT(producer_id, origin, idempotency_key) DO UPDATE SET
+               terminal_id = excluded.terminal_id,
+               event_sequence = excluded.event_sequence,
+               ingress_json = excluded.ingress_json,
+               error = excluded.error,
+               attempt = MAX(resource_agent_hook_pending.attempt, excluded.attempt)",
+            params![
+                producer_id,
+                origin,
+                idempotency_key,
+                terminal_id,
+                i64::try_from(sequence)?,
+                ingress_json,
+                bounded_error,
+                AGENT_HOOK_MAX_ATTEMPTS,
+            ],
+        )?;
+        Ok(())
+    }
+
     pub(crate) fn purge_agent_hook_pending_for_terminal(
         &mut self,
         terminal_id: &crate::resource::TerminalPublicId,

@@ -2947,12 +2947,19 @@ impl Mux {
                         .workspace_registry
                         .lock()
                         .unwrap()
-                        .clear_agent_hook_pending(&producer_id, &origin, &key)
+                        .quarantine_agent_hook_pending(
+                            &producer_id,
+                            &origin,
+                            &key,
+                            sequence,
+                            &ingress,
+                            &error.to_string(),
+                        )
                         .is_ok()
                     {
                         applied += 1;
-                        // Removing a pending marker can release a contiguous
-                        // roster prefix even when the terminal is gone. Keep
+                        // The quarantined marker releases a contiguous roster
+                        // prefix without applying the impossible event. Keep
                         // one representative ingress so the reducer is
                         // retried after the durable skip is recorded.
                         fold_ingress = Some(ingress);
@@ -5831,15 +5838,24 @@ impl Mux {
             {
                 should_fold_roster = false;
                 if agent_hook_terminal_gone(&error) {
-                    if let Err(_bookkeeping_error) = self
-                        .workspace_registry
-                        .lock()
-                        .unwrap()
-                        .clear_agent_hook_pending(&ingress.producer_id, origin, idempotency_key)
+                    if let Err(_bookkeeping_error) =
+                        self.workspace_registry.lock().unwrap().quarantine_agent_hook_pending(
+                            &ingress.producer_id,
+                            origin,
+                            idempotency_key,
+                            commit.sequence,
+                            ingress,
+                            &error.to_string(),
+                        )
                     {
                         self.report_internal_diagnostic(
                             "terminal-gone agent hook cleanup deferred",
                         );
+                    } else {
+                        // The durable marker is an explicit reducer skip. It
+                        // must be folded so the contiguous journal cursor can
+                        // advance past this impossible event.
+                        should_fold_roster = true;
                     }
                 } else {
                     if let Err(_bookkeeping_error) =
@@ -24126,8 +24142,7 @@ mod tests {
             crate::workspace_registry::new_uuid_v4()
         ));
         let session = "roster-missing-terminal";
-        let terminal_id =
-            TerminalPublicId::parse("term_ffffffffffffffffffffffffffffffff").unwrap();
+        let terminal_id = TerminalPublicId::parse("term_ffffffffffffffffffffffffffffffff").unwrap();
         let ingress = crate::agent_hooks::agent_hook_journal_ingress(
             "claude",
             "UserPromptSubmit",
