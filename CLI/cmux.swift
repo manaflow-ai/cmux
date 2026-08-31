@@ -34515,6 +34515,10 @@ export default CMUXSessionRestore;
                 // session identity; passing a rejected/stale surface back
                 // would reintroduce the wrong-pane state we are closing.
                 reportTargetResolutionFailure()
+                // The unattributed journal below is the diagnostic record for
+                // this event. Do not let the function-level telemetry defer
+                // reuse a stale ambient workspace claim.
+                didSendFeedTelemetry = true
             }
             let agentId = input.rawObject.flatMap {
                 firstString(in: $0, keys: ["agent_id", "agentId"])

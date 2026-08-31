@@ -254,6 +254,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
             state.commands.contains { $0.contains("notify_target_async") },
             "Rejected child targets must not trigger a settled-stop notification, saw \(state.commands)"
         )
+        XCTAssertFalse(
+            state.commands.contains { $0.contains(#""method":"feed.push""#) },
+            "Rejected child targets must not emit Feed activity under a stale ambient workspace, saw \(state.commands)"
+        )
         let ledgerData = try Data(contentsOf: ledgerPath)
         let ledger = try XCTUnwrap(
             try JSONSerialization.jsonObject(with: ledgerData) as? [String: Any]
