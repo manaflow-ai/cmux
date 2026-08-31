@@ -30,10 +30,21 @@ const OPERATOR_FAULT_VM_ERROR_CODES: ReadonlySet<string> = new Set([
   "vm_create_failed",
 ]);
 
+/**
+ * 5xx codes that are expected product limitations, not incidents. The status
+ * stays >= 500 for HTTP honesty (501 Not Implemented), but a provider that
+ * simply lacks a capability is neither the caller's nor the operator's fault
+ * and must not page anyone.
+ */
+const EXPECTED_5XX_VM_ERROR_CODES: ReadonlySet<string> = new Set([
+  "vm_operation_unsupported",
+]);
+
 export function isOperatorFaultVmError(input: {
   readonly error: string;
   readonly status: number;
 }): boolean {
+  if (EXPECTED_5XX_VM_ERROR_CODES.has(input.error)) return false;
   return input.status >= 500 || OPERATOR_FAULT_VM_ERROR_CODES.has(input.error);
 }
 
