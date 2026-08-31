@@ -53,8 +53,6 @@ struct MobileSettingsView: View {
 #endif
     @State private var showingOnboarding = false
     @State private var showingSetupHelp = false
-    @State private var caffeineStatusLoadFailed = false
-    @State private var caffeineStatusRetryID = 0
     @State private var irxAuthenticationState: CmxIrxAuthenticationState = .ready
     #if DEBUG
     @State private var showingToastGallery = false

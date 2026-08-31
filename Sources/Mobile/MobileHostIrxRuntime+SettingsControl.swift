@@ -141,15 +141,23 @@ extension MobileHostIrxRuntime: CmxIrohSettingsControlling {
     }
 
     private func refreshIrohSettings(allowActivationRestart: Bool) async {
+        // A connection report is a read-only observation. Preserve every
+        // terminal/retrying phase while it is being assembled so the report
+        // cannot discard the bounded retry ladder or replace a
+        // reauthentication failure with an intermediate .activating snapshot.
+        // The public Settings refresh explicitly opts into a new activation
+        // attempt.
+        if !allowActivationRestart,
+           (activationState == .failed
+               || activationState == .retrying
+               || activationState == .reauthenticationRequired) {
+            publishIrxSettingsUpdate()
+            return
+        }
         if (activationState == .failed
             || activationState == .retrying
             || activationState == .reauthenticationRequired),
            let accountID = activeAccountID {
-            if activationState == .reauthenticationRequired,
-               !allowActivationRestart {
-                publishIrxSettingsUpdate()
-                return
-            }
             cancelActivationRetry()
             cancelAutopilotRecovery()
             activationRetryFailureCount = 0
