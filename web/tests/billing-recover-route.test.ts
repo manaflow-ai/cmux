@@ -25,7 +25,7 @@ function dependencies(
     sendVerification: mock(async () => ({ delivery: "accepted" as const })),
     checkRateLimit: mock(async () => ({ rateLimited: false })),
     rateLimitRuleID: () => "billing-recovery-limit",
-    isVercel: () => false,
+    isVercel: () => true,
     ...overrides,
   };
 }
@@ -185,6 +185,21 @@ describe("billing recovery route", () => {
 
     expect(response.status).toBe(429);
     expect(recoverPaid).not.toHaveBeenCalled();
+  });
+
+  test("fails closed outside Vercel instead of sending unthrottled mail", async () => {
+    const deps = dependencies({
+      isVercel: () => false,
+    });
+    const response = await makeBillingRecoveryHandler(deps)(
+      request("buyer@example.com"),
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "recovery_unavailable" });
+    expect(deps.checkRateLimit).not.toHaveBeenCalled();
+    expect(deps.recoverPaid).not.toHaveBeenCalled();
+    expect(deps.sendVerification).not.toHaveBeenCalled();
   });
 
   test("rejects malformed input without sending mail", async () => {
