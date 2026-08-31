@@ -16,21 +16,6 @@ permissions: {}
 env:
   CLA_GENERATION: 'v2.2-action-49f01032e93ef115a238cd55ab9171ee3bd02435'
 
-# Bound workflow admission before any job-level `if` or runner allocation.
-# The body comparisons are only a coarse classifier because GitHub expression
-# string comparisons ignore case. The shell gate below remains the exact
-# authority. Every value in this key comes from a fixed event type, action, or
-# boolean classifier, so public issue comments cannot create one concurrency
-# group per pull request. GitHub's default `single` queue permits one running
-# and one pending run per classifier. A trusted webhook classifier is required
-# if exact-byte admission without case-variant starvation is needed.
-concurrency:
-  group: >-
-    cla-v2-admission-${{ github.event_name }}-${{ github.event.action }}-
-    ${{ github.event.comment.body == 'recheck' }}-
-    ${{ github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA' }}
-  cancel-in-progress: false
-
 jobs:
   CLACommentGate:
     name: "Validate CLA trigger"
@@ -58,6 +43,17 @@ jobs:
       )
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
+    # Public issue comments use one bounded admission group. Pull-request
+    # lifecycle events retain one group per PR so a new merge or synchronize
+    # event cannot replace another PR's required work. The expression uses
+    # only the event name and the trusted PR number, never comment text.
+    # GitHub's default `single` queue permits one running and one pending run.
+    # A trusted webhook classifier is required if exact-byte admission without
+    # case-variant starvation is needed.
+    concurrency:
+      group: >-
+        cla-admission-${{ github.event_name }}-${{ github.event_name == 'issue_comment' && 'comments' || github.event.pull_request.number }}
+      cancel-in-progress: false
     permissions: {}
     steps:
       - name: "Validate exact CLA trigger"
@@ -259,7 +255,6 @@ jobs:
       - CLAAssistant
     if: >-
       always() &&
-      needs.CLACommentGate.result == 'success' &&
       github.event_name == 'pull_request_target' &&
       (
         github.event.action == 'opened' ||
@@ -272,11 +267,12 @@ jobs:
     steps:
       - name: "Require CLA Assistant v2 success"
         env:
+          GATE_RESULT: ${{ needs.CLACommentGate.result }}
           V2_RESULT: ${{ needs.CLAAssistant.result }}
         run: |
           set -euo pipefail
-          if [[ "${V2_RESULT}" != "success" ]]; then
-            echo "::error::CLA Assistant v2 did not pass (result: ${V2_RESULT})"
+          if [[ "${GATE_RESULT}" != "success" || "${V2_RESULT}" != "success" ]]; then
+            echo "::error::CLA Assistant v2 did not pass (gate: ${GATE_RESULT}, action: ${V2_RESULT})"
             exit 1
           fi
 

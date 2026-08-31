@@ -14,7 +14,7 @@ test -f "$WORKFLOW"
 grep -Fq 'name: "CLA Assistant v2"' "$WORKFLOW"
 grep -Fq 'name: "CLA Assistant"' "$WORKFLOW"
 grep -Fq 'group: >-' "$WORKFLOW"
-grep -Fq 'cla-v2-admission-${{ github.event_name }}-${{ github.event.action }}-' "$WORKFLOW"
+grep -Fq "cla-admission-\${{ github.event_name }}-\${{ github.event_name == 'issue_comment' && 'comments' || github.event.pull_request.number }}" "$WORKFLOW"
 grep -Fq 'github.event.comment.body == '\''recheck'\''' "$WORKFLOW"
 grep -Fq 'github.event.comment.body == '\''I have read the CLA Document v2.2 and I hereby sign the CLA'\''' "$WORKFLOW"
 grep -Fq 'always() &&' "$WORKFLOW"
@@ -26,12 +26,11 @@ if grep -Fq 'cla-trigger-${{ github.run_id }}' "$WORKFLOW"; then
   echo 'FAIL: CLA trigger gate admits an unbounded per-event runner group' >&2
   exit 1
 fi
-group_block="$(awk '/^concurrency:$/ { in_group=1; next } in_group && /^jobs:$/ { exit } in_group { print }' "$WORKFLOW")"
-if [[ "$group_block" == *'github.run_'* ||
-      "$group_block" == *'github.event.issue.number'* ||
-      "$group_block" == *'github.event.pull_request.number'* ||
-      "$group_block" == *'github.event.comment.body }}'* ||
-      "$group_block" == *'github.event.pull_request.head.sha'* ]]; then
+gate_group_block="$(awk '/^  CLACommentGate:/ { in_job=1; next } in_job && /^  [A-Za-z0-9_]+:/ { exit } in_job && /^    concurrency:$/ { in_group=1; next } in_group && /^    [A-Za-z0-9_]+:/ { exit } in_group { print }' "$WORKFLOW")"
+if [[ "$gate_group_block" == *'github.run_'* ||
+      "$gate_group_block" == *'github.event.issue.number'* ||
+      "$gate_group_block" == *'github.event.comment.body }}'* ||
+      "$gate_group_block" == *'github.event.pull_request.head.sha'* ]]; then
   echo 'FAIL: CLA admission group contains an unbounded or raw event value' >&2
   exit 1
 fi
@@ -113,18 +112,20 @@ awk '
   in_run { sub(/^          /, ""); print }
 ' "$WORKFLOW" >"$compat_script"
 bash -n "$compat_script"
-for result in success failure skipped; do
+for gate_result in success failure skipped; do
+  for result in success failure skipped; do
   set +e
-  V2_RESULT="$result" bash "$compat_script" >/dev/null 2>&1
+  GATE_RESULT="$gate_result" V2_RESULT="$result" bash "$compat_script" >/dev/null 2>&1
   status=$?
   set -e
-  if [[ "$result" == success && "$status" -ne 0 ]]; then
-    echo "FAIL: compatibility check rejected successful v2 result" >&2
+  if [[ "$gate_result" == success && "$result" == success && "$status" -ne 0 ]]; then
+    echo "FAIL: compatibility check rejected successful gate and v2 result" >&2
     exit 1
-  elif [[ "$result" != success && "$status" -eq 0 ]]; then
-    echo "FAIL: compatibility check accepted v2 result '$result'" >&2
+  elif [[ ( "$gate_result" != success || "$result" != success ) && "$status" -eq 0 ]]; then
+    echo "FAIL: compatibility check accepted gate '$gate_result' and v2 result '$result'" >&2
     exit 1
   fi
+  done
 done
 echo "PASS: compatibility result mirror"
 
