@@ -234,7 +234,7 @@ describe("billing email matching", () => {
       "billing+tag.one@gmail.com",
     );
     expect(canonicalizeEmailForMatching("A.l.i.a.s@googlemail.com")).toBe(
-      "alias@googlemail.com",
+      "alias@gmail.com",
     );
     expect(canonicalizeEmailForMatching(" User@Example.com ")).toBe(
       "user@example.com",

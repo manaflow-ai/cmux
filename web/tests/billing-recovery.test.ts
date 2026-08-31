@@ -49,6 +49,105 @@ describe("billing purchase recovery", () => {
     expect(result?.input.subscription).toMatchObject({ id: "sub_fixture" });
   });
 
+  test("treats googlemail.com as the same mailbox as gmail.com", async () => {
+    const customer = {
+      id: "cus_googlemail_fixture",
+      deleted: false,
+      email: "billingfixture@googlemail.com",
+      metadata: { app: "cmux" },
+    };
+    const subscription = {
+      id: "sub_googlemail_fixture",
+      customer: customer.id,
+      status: "active",
+      metadata: { app: "cmux", plan: "pro" },
+      cancel_at_period_end: false,
+      items: { data: [] },
+    };
+    const result = await findPaidBillingPurchaseByEmail(
+      "billing.fixture@gmail.com",
+      {
+        db: {
+          select: () => {
+            throw new Error("no local database in this test");
+          },
+        } as never,
+        stripeClient: () => ({
+          customers: {
+            list: mock(async (options?: Record<string, unknown>) => ({
+              data:
+                options?.email === "billingfixture@googlemail.com"
+                  ? [customer]
+                  : [],
+            })),
+          },
+          subscriptions: {
+            list: mock(async () => ({ data: [subscription] })),
+          },
+          checkout: {
+            sessions: {
+              list: mock(async () => ({ data: [] })),
+            },
+          },
+        }) as never,
+      },
+    );
+
+    expect(result?.kind).toBe("pro");
+    expect(result?.input.customer).toMatchObject({
+      email: "billingfixture@googlemail.com",
+    });
+  });
+
+  test("fails closed after a bounded Stripe subscription history scan", async () => {
+    const customer = {
+      id: "cus_history_limit_fixture",
+      deleted: false,
+      email: "history-limit@example.com",
+      metadata: {},
+    };
+    let subscriptionCalls = 0;
+    const result = await findPaidBillingPurchaseByEmail(
+      customer.email,
+      {
+        db: {
+          select: () => {
+            throw new Error("no local database in this test");
+          },
+        } as never,
+        stripeClient: () => ({
+          customers: {
+            list: mock(async () => ({ data: [customer] })),
+          },
+          subscriptions: {
+            list: mock(async () => {
+              subscriptionCalls += 1;
+              return {
+                data: [
+                  {
+                    id: `sub_history_${subscriptionCalls}`,
+                    customer: customer.id,
+                    status: "canceled",
+                    metadata: {},
+                  },
+                ],
+                has_more: subscriptionCalls < 25,
+              };
+            }),
+          },
+          checkout: {
+            sessions: {
+              list: mock(async () => ({ data: [] })),
+            },
+          },
+        }) as never,
+      },
+    );
+
+    expect(result).toBeNull();
+    expect(subscriptionCalls).toBeLessThan(25);
+  });
+
   test("provisioning delegates founders and Pro records to shared paths", async () => {
     const founders = mock(async () => undefined);
     const pro = mock(async () => undefined);
