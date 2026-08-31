@@ -385,7 +385,7 @@ struct PairingView: View {
         }
         return L10n.string(
             "mobile.addDevice.manualRouteWarning",
-            defaultValue: "This address is authorized only for this pairing. Verify it belongs to your Mac before continuing; local-network hosts are not protected by Tailscale."
+            defaultValue: "This address is authorized only for this pairing and uses an unencrypted connection. Verify it belongs to your Mac and that you trust the network before continuing; local-network hosts are not protected by Tailscale."
         )
     }
 

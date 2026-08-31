@@ -237,7 +237,7 @@ struct MobileRootPresentationState: Equatable {
                 presentation = nil
                 return .finishPairing
             case .pairingFromComputers:
-                presentation = nil
+                presentation = .computers
                 return .finishPairing
             case .settings, .computers:
                 presentation = nil

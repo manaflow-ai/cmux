@@ -602,13 +602,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This address is authorized only for this pairing. Verify it belongs to your Mac before continuing; local-network hosts are not protected by Tailscale."
+            "value": "This address is authorized only for this pairing and uses an unencrypted connection. Verify it belongs to your Mac and that you trust the network before continuing; local-network hosts are not protected by Tailscale."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このアドレスは、このペアリングにのみ許可されます。続行する前に Mac のアドレスであることを確認してください。ローカルネットワークのホストは Tailscale で保護されません。"
+            "value": "このアドレスは、このペアリングにのみ許可され、暗号化されていない接続を使用します。続行する前に Mac のアドレスであることと、ネットワークを信頼できることを確認してください。ローカルネットワークのホストは Tailscale で保護されません。"
           }
         }
       }

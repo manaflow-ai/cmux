@@ -658,8 +658,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     }
 
     /// One authorization decision shared by every token-send site. Generic
-    /// plaintext routes remain restricted to loopback; the legacy mode is valid
-    /// only while its immutable device/IP/port evidence still matches.
+    /// `.stackBearer` plaintext remains restricted to loopback; legacy evidence
+    /// and explicit user grants are valid only while their exact destination matches.
     private var canSendStackBearer: Bool {
         switch transportRequest.authorizationMode {
         case .stackBearer:

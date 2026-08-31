@@ -88,11 +88,14 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
             }
             if let userAuthorizedPairing,
                CmxTailscalePeerAddress(userAuthorizedPairing.host) == nil {
-                // MagicDNS and private-LAN names are valid only through the
-                // explicit user-entry capability. They do not expose a
-                // trustworthy numeric Tailscale peer/interface proof, so use
-                // the ordinary host transport while the RPC client continues
-                // to gate every bearer on this exact authorization.
+                // This is the deliberate manual-host trust boundary: the UI
+                // showed the user an unencrypted-network warning and required
+                // an explicit Pair action. Generic `.stackBearer` requests
+                // cannot reach this branch, and reconnect selection requires
+                // this exact grant plus the per-Computer `.tailscale` method.
+                // Use ordinary host transport because DNS/LAN names have no
+                // numeric Tailscale interface proof; the RPC client still
+                // gates every bearer on this exact authorization.
                 return try CmxNetworkByteTransport(
                     host: userAuthorizedPairing.host,
                     port: port,

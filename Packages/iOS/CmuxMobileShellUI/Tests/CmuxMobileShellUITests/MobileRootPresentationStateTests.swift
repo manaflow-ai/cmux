@@ -322,4 +322,14 @@ struct MobileRootPresentationStateTests {
         #expect(state.presentation == .computers)
         #expect(state.isRootSheetPresented)
     }
+
+    @Test func interactivePairingDismissalOpenedFromComputersRestoresTheComputersList() {
+        var state = MobileRootPresentationState()
+        state.apply(.presentComputers)
+        state.apply(.presentPairing(.manual))
+
+        #expect(state.apply(.sheetDidRequestDismissal) == .finishPairing)
+        #expect(state.presentation == .computers)
+        #expect(state.isRootSheetPresented)
+    }
 }
