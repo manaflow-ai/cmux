@@ -130,7 +130,6 @@ import Testing
             RemoteTmuxSSHTransportProfile().oneShotArgv(host: host, remoteCommand: remoteCommand)
         }
 
-        var reconnectsInternally: Bool { true }
         /// A persistent-session transport is a terminal client, so it needs a tty.
         var requiresPseudoTerminal: Bool { true }
         /// Keeping the remote session across a client death is the point of this transport.
@@ -221,7 +220,6 @@ import Testing
     /// ssh owns no reconnection: cmux respawns it. This is the flag that decides whether EOF
     /// or a liveness check drives recovery, so it is worth pinning rather than assuming.
     @Test func sshDoesNotReconnectItself() {
-        #expect(!RemoteTmuxSSHTransportProfile().reconnectsInternally)
     }
 
     /// The seam has to be able to express a transport that is not ssh at all: a different
@@ -232,7 +230,6 @@ import Testing
         let argv = profile.controlStreamArgv(host: host, sessionName: "work", mode: .attach)
 
         #expect(profile.executablePath() == "/usr/local/bin/et")
-        #expect(profile.reconnectsInternally)
         #expect(argv.last == "user@host")
         #expect(consecutive(argv, "--port", "2022"))
         // The command must run one command rather than opening a shell, and must still go
@@ -290,7 +287,6 @@ import Testing
             host: RemoteTmuxHost(destination: "user@host"),
             sessionName: "work"
         )
-        #expect(!connection.transportProfile.reconnectsInternally)
         #expect(connection.transportProfile.executablePath() == RemoteTmuxHost.defaultSSHExecutablePath())
     }
 }
@@ -587,49 +583,11 @@ import Testing
         )
     }
 
-    /// cmux does not second-guess a transport that owns its reconnection.
+    /// cmux does not second-guess a transport that owns its reconnection: there is no probe
+    /// and no timer, so a client that goes quiet while it reconnects is simply left alone.
+    /// `scripts/lint-remote-tmux-no-polling.sh` is what keeps it that way — a reintroduced
+    /// timer fails that lint rather than needing a test that waits one out here.
     ///
-    /// It used to: a 30-second probe, and a respawn when one went unanswered. An et client
-    /// riding out a network change is quiet for longer than that, so the probe killed the
-    /// process that was about to recover on its own, and the replacement had to bootstrap a
-    /// new session — which on a host with a second factor cannot happen unattended. What was
-    /// left was a dead mirror and orphaned clients.
-    ///
-    /// et exchanges keepalives every few seconds and exits when they stop, so its own exit is
-    /// both the earlier and the better-informed signal, and it already arrives as end of stream.
-    @MainActor @Test func aQuietSelfReconnectingTransportIsLeftAlone() {
-        let connection = RemoteTmuxControlConnection(
-            host: RemoteTmuxHost(destination: "user@host", transport: .et, transportPort: 2039),
-            sessionName: "work"
-        )
-        // A real stream to write into, so the probe is genuinely SENT and then genuinely goes
-        // unanswered — the shape of an et client mid-reconnect. Without a writer the probe
-        // merely fails to enqueue, which proves nothing about the policy under test.
-        let pipe = Pipe()
-        let writer = RemoteTmuxControlPipeWriter(
-            handle: pipe.fileHandleForWriting,
-            label: "et-quiet-stream-test",
-            maxPendingBytes: 1 << 16,
-            onFailure: {}
-        )
-        defer { writer.close(); try? pipe.fileHandleForReading.close() }
-        connection.installStdinWriterForTesting(writer)
-        connection.handle(.enter)
-        #expect(connection.connectionState == .connected)
-
-        var reported: Bool?
-        connection.probeLivenessOnce { reported = $0 }
-        #expect(reported == nil, "a probe that was sent stays outstanding until tmux answers")
-        // A second ask on top of an unanswered one is precisely what the deleted detector
-        // treated as a stall: probe N had to be answered before probe N+1 was due, and missing
-        // that deadline respawned the stream. Asking twice here is what makes this test fail if
-        // that policy ever comes back.
-        connection.probeLivenessOnce { reported = $0 }
-        #expect(connection.connectionState == .connected, "a quiet client must not be recovered")
-        #expect(!connection.snapshot().recentEvents.contains("liveness-stalled"))
-        #expect(!connection.snapshot().recentEvents.contains("reconnecting"))
-    }
-
     /// The replacement signal, and the only one: the client exits, which arrives as end of
     /// stream and reconnects exactly as it does for ssh.
     @Test func aSelfReconnectingTransportRecoversWhenItsClientExits() {
@@ -907,28 +865,11 @@ import Testing
     /// The two properties that decide behavior rather than argv.
     @Test func etOwnsItsReconnectionAndNeedsATTY() {
         let profile = RemoteTmuxETTransportProfile()
-        #expect(profile.reconnectsInternally)
         #expect(profile.requiresPseudoTerminal)
     }
 
     // MARK: - Seam 2: telling a stall from a death
 
-    /// A transport that owns its reconnection needs a question it can answer, because EOF is
-    /// no longer the signal: it does not end for a network drop. The probe must be a read
-    /// (mutating nothing, moving no client size) and must resolve through the same
-    /// `%begin`/`%end` correlation as any other command rather than a bespoke heartbeat.
-    @MainActor @Test func alivenessIsProvedByAControlModeRoundTrip() {
-        let connection = RemoteTmuxControlConnection(
-            host: RemoteTmuxHost(destination: "user@host", transport: .et),
-            sessionName: "work"
-        )
-        // Never started, so there is no stream to carry a question: the caller is told the
-        // probe did not leave, rather than being left waiting on a completion that cannot come.
-        var completionFired = false
-        let enqueued = connection.probeLiveness { _ in completionFired = true }
-        #expect(!enqueued, "a probe must report that it could not be sent on a dead stream")
-        #expect(!completionFired, "no completion may fire for a probe that never left")
-    }
 
     /// The property that makes the probe necessary in the first place.
     ///
@@ -939,8 +880,6 @@ import Testing
     /// ended (see endOfStreamAlwaysMeansReconnectAndLetTheReattachDecide).
     @Test func aStallIsNotADeathForATransportThatReconnectsItself() {
         let et = RemoteTmuxETTransportProfile()
-        #expect(et.reconnectsInternally)
-        #expect(!RemoteTmuxSSHTransportProfile().reconnectsInternally)
     }
 
     // MARK: - Runtime selection
@@ -954,7 +893,6 @@ import Testing
         let etHost = RemoteTmuxHost(destination: "user@host", transport: .et)
         let profile = etHost.transport.profile(port: etHost.port)
         #expect(profile.requiresPseudoTerminal)
-        #expect(profile.reconnectsInternally)
     }
 
     /// The transport's port is NOT ssh's port, and conflating them breaks every one-shot.
@@ -1441,7 +1379,6 @@ private struct SplitMix64 {
     func aTransportThatOwnsReconnectionIsNeverRespawnedForAStall(seed: UInt64) {
         var rng = SplitMix64(seed: seed)
         let profile = RemoteTmuxETTransportProfile()
-        #expect(profile.reconnectsInternally, "this suite is about internally-reconnecting transports")
 
         var model = Model()
 
@@ -2213,12 +2150,10 @@ private struct SplitMix64 {
         // The shapes the %exit cases lean on are the shipped ones, not this file's opinion.
         let persistent = FuzzTransportProfile(shape: .persistentRemote)
         let et = RemoteTmuxETTransportProfile(port: 2039)
-        #expect(persistent.reconnectsInternally == et.reconnectsInternally)
         #expect(persistent.remoteHalfSurvivesLocalExit == et.remoteHalfSurvivesLocalExit)
         #expect(persistent.remoteHalfSurvivesLocalExit, "the reattach chain needs a surviving remote half")
         let plain = FuzzTransportProfile(shape: .plainSSH)
         let ssh = RemoteTmuxSSHTransportProfile()
-        #expect(plain.reconnectsInternally == ssh.reconnectsInternally)
         #expect(plain.remoteHalfSurvivesLocalExit == ssh.remoteHalfSurvivesLocalExit)
         #expect(!plain.remoteHalfSurvivesLocalExit)
 
@@ -2358,13 +2293,6 @@ private struct FuzzTransportProfile: RemoteTmuxTransportProfile {
         switch shape {
         case .persistentRemote: return et.requiresPseudoTerminal
         case .plainSSH: return ssh.requiresPseudoTerminal
-        }
-    }
-
-    var reconnectsInternally: Bool {
-        switch shape {
-        case .persistentRemote: return et.reconnectsInternally
-        case .plainSSH: return ssh.reconnectsInternally
         }
     }
 
