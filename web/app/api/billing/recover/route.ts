@@ -170,7 +170,13 @@ export function makeBillingRecoveryHandler(
 
         return json(
           {
-            ok: true,
+            accepted: true,
+            // This is an accepted request, not proof that a message was sent.
+            // Keep the delivery state and retry guidance identical for every
+            // valid address so provider failures do not become an account-
+            // existence signal.
+            delivery: "unconfirmed",
+            retryable: true,
             message: await billingRecoveryResponseMessage(request),
           },
           202,

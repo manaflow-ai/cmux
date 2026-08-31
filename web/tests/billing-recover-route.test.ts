@@ -30,6 +30,10 @@ function dependencies(
   };
 }
 
+function acceptedResponse(message = "If we found an account, check your email for next steps") {
+  return { accepted: true, delivery: "unconfirmed", retryable: true, message };
+}
+
 describe("billing recovery route", () => {
   beforeEach(() => {
     delete process.env.VERCEL;
@@ -48,10 +52,7 @@ describe("billing recovery route", () => {
     )(request(" Billing.Fixture@Gmail.com "));
 
     expect(response.status).toBe(202);
-    expect(await response.json()).toEqual({
-      ok: true,
-      message: "If we found an account, check your email for next steps",
-    });
+    expect(await response.json()).toEqual(acceptedResponse());
     expect(recoverPaid).toHaveBeenCalledWith("Billing.Fixture@Gmail.com");
     expect(sendMagicLink).toHaveBeenCalledWith({
       email: "Billing.Fixture@Gmail.com",
@@ -110,10 +111,7 @@ describe("billing recovery route", () => {
     )(request("deleting@example.com"));
 
     expect(response.status).toBe(202);
-    expect(await response.json()).toEqual({
-      ok: true,
-      message: "If we found an account, check your email for next steps",
-    });
+    expect(await response.json()).toEqual(acceptedResponse());
     expect(sendMagicLink).not.toHaveBeenCalled();
     expect(sendVerification).not.toHaveBeenCalled();
   });
@@ -134,10 +132,7 @@ describe("billing recovery route", () => {
     )(request("buyer@example.com"));
 
     expect(response.status).toBe(202);
-    expect(await response.json()).toEqual({
-      ok: true,
-      message: "If we found an account, check your email for next steps",
-    });
+    expect(await response.json()).toEqual(acceptedResponse());
     expect(sendMagicLink).not.toHaveBeenCalled();
     expect(sendVerification).not.toHaveBeenCalled();
   });
@@ -149,10 +144,7 @@ describe("billing recovery route", () => {
     );
 
     expect(response.status).toBe(202);
-    expect(await response.json()).toEqual({
-      ok: true,
-      message: "If we found an account, check your email for next steps",
-    });
+    expect(await response.json()).toEqual(acceptedResponse());
     expect(deps.sendVerification).toHaveBeenCalledWith({
       email: "buyer@example.com",
       callbackURL: "https://cmux.com/handler/email-verification",
@@ -179,10 +171,7 @@ describe("billing recovery route", () => {
 
     // The route remains generic; only the locale-specific wording changes.
     expect(response.status).toBe(202);
-    expect(await response.json()).toEqual({
-      ok: true,
-      message: "If we found an account, check your email for next steps",
-    });
+    expect(await response.json()).toEqual(acceptedResponse());
 
     const japaneseRequest = new Request(
       "https://cmux.test/api/billing/recover",
@@ -198,10 +187,9 @@ describe("billing recovery route", () => {
     const japanese = await makeBillingRecoveryHandler(dependencies())(
       japaneseRequest,
     );
-    expect(await japanese.json()).toEqual({
-      ok: true,
-      message: "アカウントが見つかった場合は、メールで次の手順をご確認ください",
-    });
+    expect(await japanese.json()).toEqual(
+      acceptedResponse("アカウントが見つかった場合は、メールで次の手順をご確認ください"),
+    );
   });
 
   test("keeps the valid-address response uniform when a provider fails", async () => {
@@ -214,10 +202,7 @@ describe("billing recovery route", () => {
     )(request("buyer@example.com"));
 
     expect(response.status).toBe(202);
-    expect(await response.json()).toEqual({
-      ok: true,
-      message: "If we found an account, check your email for next steps",
-    });
+    expect(await response.json()).toEqual(acceptedResponse());
   });
 
   test("fails closed on the aggressive deployed rate limit", async () => {

@@ -984,7 +984,7 @@ describe("recordFoundersCheckoutCompletion", () => {
       id: "alias_real",
       isAnonymous: false,
       primaryEmail: "billingfixture@gmail.com",
-      primaryEmailVerified: false,
+      primaryEmailVerified: true,
       clientReadOnlyMetadata: {},
       update: mock(async () => undefined),
     };
@@ -1311,6 +1311,76 @@ describe("recordCheckoutCompletion", () => {
     expect(sendMagicLinkEmail).toHaveBeenCalledWith("buyer@example.com", {
       callbackUrl: "https://cmux.com/handler/after-sign-in",
     });
+  });
+
+  test("does not remap an anonymous checkout to an unverified email owner", async () => {
+    const sourceUpdate = mock(async (options: unknown) => {
+      if (
+        options &&
+        typeof options === "object" &&
+        "primaryEmail" in options
+      ) {
+        throw new Error("CONTACT_CHANNEL_ALREADY_USED_FOR_AUTH_BY_SOMEONE_ELSE");
+      }
+    });
+    const source = {
+      id: "anonymous_source_unverified_owner",
+      isAnonymous: true,
+      isRestricted: true,
+      primaryEmail: null,
+      primaryEmailVerified: false,
+      clientReadOnlyMetadata: {},
+      update: sourceUpdate,
+    };
+    const unverifiedOwner = {
+      id: "unverified_email_owner",
+      isAnonymous: false,
+      isRestricted: true,
+      primaryEmail: "buyer@example.com",
+      primaryEmailVerified: false,
+      clientReadOnlyMetadata: {},
+      update: mock(async () => undefined),
+    };
+    const getUser = mock(async (...args: unknown[]) =>
+      (args[0] as string) === source.id ? source : unverifiedOwner,
+    );
+    const listUsers = mock(async () => [
+      {
+        id: unverifiedOwner.id,
+        primaryEmail: unverifiedOwner.primaryEmail,
+        primaryEmailVerified: false,
+        isAnonymous: false,
+        isRestricted: true,
+      },
+    ]);
+
+    await recordCheckoutCompletion(
+      {
+        ...checkoutInput("cus_unverified_email_owner"),
+        session: {
+          ...checkoutInput("cus_unverified_email_owner").session,
+          client_reference_id: source.id,
+        },
+        subscription: {
+          ...checkoutInput("cus_unverified_email_owner").subscription,
+          metadata: { app: "cmux", plan: "pro", stackUserId: source.id },
+        },
+      } as never,
+      {
+        db: fakeDb() as never,
+        stackApp: { getUser, listUsers } as never,
+      },
+    );
+
+    expect(getUser).toHaveBeenCalledWith(source.id);
+    expect(sourceUpdate).toHaveBeenCalled();
+    expect(
+      updates.some(
+        (entry) =>
+          entry.table === stripeCustomers &&
+          entry.values.stackUserId === unverifiedOwner.id,
+      ),
+    ).toBe(false);
   });
 
   test("blocks checkout completion while account deletion is in progress", async () => {
@@ -1988,8 +2058,7 @@ describe("recordCheckoutCompletion", () => {
       [{ stackUserId: source.id, stackTeamId: null }],
     ];
 
-    await expect(
-      recordCheckoutCompletion(
+    const result = await recordCheckoutCompletion(
         {
           ...checkoutInput("cus_unverified_recovery"),
           session: {
@@ -2025,10 +2094,17 @@ describe("recordCheckoutCompletion", () => {
             ],
           } as never,
         },
+      );
+    expect(result).toEqual({
+      scope: "user",
+      stackUserId: source.id,
+      subscriptionId: "sub_123",
+    });
+    expect(
+      inserts.some(
+        (insert) => insert.table === stripeCustomers && insert.values.stackUserId === target.id,
       ),
-    ).rejects.toThrow("ownership conflict");
-    expect(inserts).toHaveLength(0);
-    expect(updates).toHaveLength(0);
+    ).toBe(false);
     expect(target.update).not.toHaveBeenCalled();
   });
 

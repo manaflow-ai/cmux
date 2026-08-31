@@ -357,7 +357,7 @@ export async function recordCheckoutCompletion(
       );
       if (ownerId && ownerId !== stackUserId) {
         const owner = await loadOptionalStackUser(ownerId, checkoutStackApp);
-        if (owner) {
+        if (owner && isVerifiedCanonicalBillingOwner(owner, checkoutEmailValue)) {
           stackUserId = ownerId;
           user = owner;
           resolvedFromAnonymousAlias = true;
@@ -2871,6 +2871,19 @@ function isCompatibleFounderOwner(
     );
   }
   return user.isAnonymous === true;
+}
+
+function isVerifiedCanonicalBillingOwner(
+  user: StackBillingUser,
+  purchaseEmail: string,
+): boolean {
+  return (
+    user.isAnonymous !== true &&
+    user.isRestricted !== true &&
+    user.primaryEmailVerified === true &&
+    canonicalizeEmailForMatching(user.primaryEmail ?? "") ===
+      canonicalizeEmailForMatching(purchaseEmail)
+  );
 }
 
 function gmailLocalDotCount(email: string): number {
