@@ -127,7 +127,10 @@ final class JSSidebarEngine {
             runtime?.dispatch = dispatch
         }
         guard let runtime, runtime.errorMessage == nil else {
-            lastData = dataContext
+            // Do NOT record the skipped keys as delivered: after a recoverable
+            // runtime exception the scene is still alive, and marking the data
+            // sent here would starve it forever (the next sync would diff
+            // against values the runtime never received).
             return
         }
         for (key, value) in dataContext where lastData[key] != value {

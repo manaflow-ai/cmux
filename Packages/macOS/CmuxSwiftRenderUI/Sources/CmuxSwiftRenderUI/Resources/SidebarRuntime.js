@@ -100,7 +100,10 @@
 
   function runInScope(scope, fn) {
     const prev = currentScope;
-    if (prev) prev.children.push(scope);
+    if (prev) {
+      prev.children.push(scope);
+      scope.parent = prev;
+    }
     currentScope = scope;
     try {
       return fn();
@@ -110,7 +113,18 @@
   }
 
   function disposeScope(scope) {
-    for (const child of scope.children) disposeScope(child);
+    // Detach from the parent, or a churning keyed list retains every
+    // unmounted row scope in the long-lived owner forever.
+    if (scope.parent) {
+      const siblings = scope.parent.children;
+      const at = siblings.indexOf(scope);
+      if (at >= 0) siblings.splice(at, 1);
+      scope.parent = null;
+    }
+    for (const child of scope.children) {
+      child.parent = null; // already being disposed with us; skip the splice
+      disposeScope(child);
+    }
     scope.children = [];
     for (const eff of scope.effects) {
       eff.disposed = true;
@@ -355,6 +369,7 @@
       const arr = Array.isArray(list) ? list : [];
       const seen = new Set();
       const order = [];
+      const orderedKeys = [];
       for (const item of arr) {
         const key = String(keyFn(item));
         if (seen.has(key)) continue; // ignore duplicate keys
@@ -371,7 +386,10 @@
           row.serialized = serialized;
           row.setItem(item);
         }
-        if (row.rootId) order.push(row.rootId);
+        if (row.rootId) {
+          order.push(row.rootId);
+          orderedKeys.push(key);
+        }
       }
       for (const [key, row] of Array.from(rows.entries())) {
         if (!seen.has(key)) {
@@ -381,14 +399,10 @@
       }
       pushOp({ op: "children", id, children: order });
       // Reorderable rows carry their item keys (JSON array, parallel to
-      // children) so the host can report moves by item id.
+      // children) so the host can report moves by item id. Keys were
+      // collected during the reconcile loop; no second scan.
       if (type === "reorderable") {
-        const keys = [];
-        for (const item of arr) {
-          const key = String(keyFn(item));
-          if (rows.has(key)) keys.push(key);
-        }
-        pushOp({ op: "update", id, key: "itemKeys", value: JSON.stringify(keys) });
+        pushOp({ op: "update", id, key: "itemKeys", value: JSON.stringify(orderedKeys) });
       }
     });
     return node;

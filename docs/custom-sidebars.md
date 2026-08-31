@@ -185,6 +185,11 @@ A ready-to-copy example ships in `Examples/CustomSidebars/workspaces.js`.
 
 ## Choosing the renderer (in-process vs remote)
 
+Known limitation: the remote (out-of-process) renderer does not propagate
+a sidebar's `surface: "glass"` request to the host, so remotely rendered
+sidebars keep the opaque backdrop. Glass works in the default in-process
+renderer.
+
 By default a custom sidebar renders in-process: the interpreted view mounts
 as real SwiftUI inside the cmux window, so hover styling, focus, keyboard,
 and same-frame resize all work natively. The tradeoff is that the
