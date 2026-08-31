@@ -14,6 +14,7 @@ fail() {
 [[ "${PR_NUMBER}" == "${ISSUE_NUMBER}" ]] || fail "Issue and pull request numbers differ"
 [[ "${COMMENT_BODY}" == "recheck" || "${COMMENT_BODY}" == "I have read the CLA Document v2.2 and I hereby sign the CLA" ]] || fail "Comment is not an accepted CLA trigger"
 [[ "${COMMENT_CREATED_AT}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || fail "Invalid comment timestamp"
+[[ "${COMMENT_ID}" =~ ^[1-9][0-9]*$ ]] || fail "Comment ID is invalid"
 [[ "${COMMENT_AUTHOR_ID}" =~ ^[1-9][0-9]*$ ]] || fail "Comment author ID is invalid"
 [[ -n "${COMMENT_AUTHOR_LOGIN}" ]] || fail "Comment author is missing"
 [[ "${COMMENT_AUTHOR_TYPE}" == "User" ]] || fail "Comment author is not a human user"
@@ -33,6 +34,50 @@ if [[ "${COMMENT_BODY}" == "I have read the CLA Document v2.2 and I hereby sign 
   fail "The signing comment did not result in a persisted signature"
 fi
 [[ "${CLA_GENERATION}" =~ ^v[0-9]+\.[0-9]+-action-[0-9a-f]{7,40}$ ]] || fail "Invalid CLA generation marker"
+
+# These values are part of the trusted workflow contract. They are deliberately
+# constants, not event or comment input, so a contributor cannot redirect this
+# check to a different ledger.
+readonly SIGNATURES_BRANCH='cla-signatures'
+readonly SIGNATURES_PATH='signatures/version2/cla.json'
+readonly MAX_RUN_PAGES=10
+
+validate_triggering_signature_record() {
+  local ledger_response ledger_content ledger_json
+  ledger_response="$(gh api \
+    --method GET \
+    --header 'Accept: application/vnd.github+json' \
+    --raw-field ref="${SIGNATURES_BRANCH}" \
+    "repos/${GH_REPO}/contents/${SIGNATURES_PATH}" 2>/dev/null)" || fail "Could not query the trusted CLA signature ledger"
+  jq -e '.type == "file" and .encoding == "base64" and (.content | type == "string") and (.content | length > 0)' <<<"${ledger_response}" >/dev/null || fail "The trusted CLA signature ledger response is malformed"
+  ledger_content="$(jq -r '.content' <<<"${ledger_response}")"
+  if ! ledger_json="$(
+    if base64 --decode >/dev/null 2>&1 <<<''; then
+      base64 --decode <<<"${ledger_content}"
+    else
+      base64 -D <<<"${ledger_content}"
+    fi
+  )"; then
+    fail "The trusted CLA signature ledger is not valid base64"
+  fi
+  jq -e \
+    --arg login "${COMMENT_AUTHOR_LOGIN}" \
+    --argjson id "${COMMENT_AUTHOR_ID}" \
+    --argjson comment_id "${COMMENT_ID}" \
+    --arg created_at "${COMMENT_CREATED_AT}" \
+    --argjson repo_id "${repo_id}" \
+    --argjson pr_number "${PR_NUMBER}" \
+    'type == "object" and
+     (.signedContributors | type == "array") and
+     any(.signedContributors[]?;
+       (.name | type == "string") and .name == $login and
+       (.id | type == "number") and .id == $id and
+       (.comment_id | type == "number") and .comment_id == $comment_id and
+       (.created_at | type == "string") and .created_at == $created_at and
+       (.repoId | type == "number") and .repoId == $repo_id and
+       (.pullRequestNo | type == "number") and .pullRequestNo == $pr_number
+     )' <<<"${ledger_json}" >/dev/null || fail "The signing comment was not the signature persisted by the CLA action"
+}
 
 issue_json="$(gh api "repos/${GH_REPO}/issues/${PR_NUMBER}" 2>/dev/null)" || fail "Could not query the issue"
 issue_state="$(jq -r '.state // empty' <<<"${issue_json}")"
@@ -66,6 +111,9 @@ pr_author_id="$(jq -r '.user.id // empty' <<<"${pr_json}")"
 [[ "${repo_id}" =~ ^[1-9][0-9]*$ ]] || fail "The pull request base repository ID is missing"
 [[ "${pr_author_login}" != "" ]] || fail "The pull request author is missing"
 [[ "${pr_author_id}" =~ ^[1-9][0-9]*$ ]] || fail "The pull request author ID is missing"
+if [[ "${COMMENT_BODY}" == "I have read the CLA Document v2.2 and I hereby sign the CLA" ]]; then
+  validate_triggering_signature_record
+fi
 # A contributor may recheck their own pull request. A different
 # commenter must be a trusted repository participant, which limits
 # unauthenticated users to the harmless no-op path.
@@ -263,11 +311,14 @@ runs_json="$(jq -c '[.]' <<<"${runs_page}")"
 
 # The API returns newest runs first. Probe additional bounded pages when the
 # first page is full, so normal workflow history growth does not strand a
-# failed check. Keep a finite cap and fail with an actionable message if an
-# unusually busy branch still cannot be searched safely.
+# failed check. GitHub documents a 1,000-result cap for filtered workflow-run
+# queries, so ten 100-item pages cover the complete API result window. If page
+# ten is full, fail with an actionable message instead of pretending page 11
+# can reveal an unreported run. `runs_json` stays an array of response objects;
+# the candidate query below flattens each `.workflow_runs` array explicitly.
 page_count="${run_count}"
 page_number=2
-while (( page_count == 100 && page_number <= 10 )); do
+while (( page_count == 100 && page_number <= MAX_RUN_PAGES )); do
   next_runs_page="$(gh api \
     --method GET \
     --header 'Accept: application/vnd.github+json' \
@@ -284,7 +335,7 @@ while (( page_count == 100 && page_number <= 10 )); do
   (( page_number++ ))
 done
 if (( page_count == 100 )); then
-  fail "Too many CLA workflow runs to inspect safely after 10 pages; push a new commit or ask an administrator to prune old runs before requesting a rerun"
+  fail "The GitHub workflow-run result window is full after ${MAX_RUN_PAGES} pages; push a new commit or ask an administrator to prune old runs before requesting a rerun"
 fi
 
 if ! candidate_list_json="$(jq -c \
@@ -632,35 +683,136 @@ jq -e \
 ' <<<"${final_run_json}" >/dev/null || fail "The exact failed CLA run is no longer eligible"
 validate_run_source_binding "${final_run_json}"
 
-# Rerun only the failed CLA job, rather than every job in the run.
-# The job endpoint still requires actions:write, but it cannot
-# accidentally restart an unrelated job added to this workflow.
-jobs_page="$(gh api \
-  --method GET \
-  --header 'Accept: application/vnd.github+json' \
-  --raw-field per_page=100 \
-  --raw-field page=1 \
-  "repos/${GH_REPO}/actions/runs/${run_id}/jobs" 2>/dev/null)" || fail "Could not query jobs for the selected CLA run"
-jq -e 'type == "object" and (.jobs | type == "array")' <<<"${jobs_page}" >/dev/null || fail "Could not validate jobs for the selected CLA run"
-job_count="$(jq -r '.jobs | length' <<<"${jobs_page}")"
-[[ "${job_count}" =~ ^[0-9]+$ ]] || fail "Could not count jobs for the selected CLA run"
-(( job_count <= 100 )) || fail "The selected CLA job page is oversized"
-if (( job_count == 100 )); then
-  jobs_page2="$(gh api \
+# Fetch the complete bounded job set for one exact run. The rerun endpoint
+# requires actions:write, so discovery must fail closed if pagination or shape
+# checks cannot prove that every failed job belongs to this CLA workflow.
+fetch_jobs_for_run() {
+  local target_run_id="$1"
+  local page_json page_count page2_json page2_count
+  page_json="$(gh api \
     --method GET \
     --header 'Accept: application/vnd.github+json' \
     --raw-field per_page=100 \
-    --raw-field page=2 \
-    "repos/${GH_REPO}/actions/runs/${run_id}/jobs" 2>/dev/null)" || fail "Could not query jobs for the selected CLA run page 2"
-  jq -e 'type == "object" and (.jobs | type == "array")' <<<"${jobs_page2}" >/dev/null || fail "Could not validate jobs for the selected CLA run page 2"
-  job_count2="$(jq -r '.jobs | length' <<<"${jobs_page2}")"
-  [[ "${job_count2}" =~ ^[0-9]+$ ]] || fail "Could not count jobs for the selected CLA run page 2"
-  (( job_count2 <= 100 )) || fail "The selected CLA job page is oversized"
-  jobs_page="$(jq -c --argjson page2 "${jobs_page2}" '.jobs += $page2.jobs' <<<"${jobs_page}")"
-  job_count=$((job_count + job_count2))
-  (( job_count2 < 100 )) || fail "Too many jobs in the selected CLA run after two pages; ask an administrator to inspect it before requesting a rerun"
-fi
-jobs_json="$(jq -c '[.]' <<<"${jobs_page}")"
+    --raw-field page=1 \
+    "repos/${GH_REPO}/actions/runs/${target_run_id}/jobs" 2>/dev/null)" || return 1
+  jq -e 'type == "object" and (.jobs | type == "array")' <<<"${page_json}" >/dev/null || return 1
+  page_count="$(jq -r '.jobs | length' <<<"${page_json}")"
+  [[ "${page_count}" =~ ^[0-9]+$ ]] || return 1
+  (( page_count <= 100 )) || return 1
+  if (( page_count == 100 )); then
+    page2_json="$(gh api \
+      --method GET \
+      --header 'Accept: application/vnd.github+json' \
+      --raw-field per_page=100 \
+      --raw-field page=2 \
+      "repos/${GH_REPO}/actions/runs/${target_run_id}/jobs" 2>/dev/null)" || return 1
+    jq -e 'type == "object" and (.jobs | type == "array")' <<<"${page2_json}" >/dev/null || return 1
+    page2_count="$(jq -r '.jobs | length' <<<"${page2_json}")"
+    [[ "${page2_count}" =~ ^[0-9]+$ ]] || return 1
+    (( page2_count <= 100 )) || return 1
+    page_json="$(jq -c --argjson page2 "${page2_json}" '.jobs += $page2.jobs' <<<"${page_json}")"
+    (( page2_count < 100 )) || return 1
+  fi
+  jq -c '[.]' <<<"${page_json}"
+}
+
+jobs_json="$(fetch_jobs_for_run "${run_id}")" || fail "Could not query and validate jobs for the selected CLA run"
+
+# Validate every failed job before granting the state-changing API call. The
+# old compatibility check is an intentional dependent of the v2 job. When it
+# is also failed, use the failed-jobs endpoint so GitHub refreshes both
+# head-bound check contexts. Any extra failure, cancellation, malformed job,
+# or stale source identity aborts the request.
+validate_failed_job_set() {
+  local payload="$1"
+  local all_jobs_json failed_jobs_json failed_count nonfailure_count
+  local unexpected_count v2_count v2_valid_count compatibility_count compatibility_valid_count
+  if ! all_jobs_json="$(jq -c '[.[] | .jobs[]?]' <<<"${payload}")"; then
+    fail "Could not flatten jobs for the selected CLA run"
+  fi
+  jq -e \
+    --arg run_id "${run_id}" \
+    'type == "array" and all(.[];
+      (.id | type == "number") and
+      .id > 0 and
+      (.run_id | type == "number") and
+      .run_id == ($run_id | tonumber) and
+      (.name | type == "string") and
+      (.workflow_name | type == "string") and
+      (.status == "completed") and
+      (.conclusion | type == "string")
+    )' <<<"${all_jobs_json}" >/dev/null || fail "The selected CLA run contains a malformed or incomplete job"
+
+  failed_jobs_json="$(jq -c '[.[] | select(.conclusion != "success" and .conclusion != "skipped")]' <<<"${all_jobs_json}")"
+  failed_count="$(jq -r 'length' <<<"${failed_jobs_json}")"
+  [[ "${failed_count}" =~ ^[0-9]+$ ]] || fail "Could not count failed jobs for the selected CLA run"
+  nonfailure_count="$(jq -r '[.[] | select(.conclusion != "failure")] | length' <<<"${failed_jobs_json}")"
+  (( nonfailure_count == 0 )) || fail "The selected CLA run contains a cancelled or non-failure job; refusing to rerun it"
+  unexpected_count="$(jq -r '[.[] | select(.name != "CLA Assistant v2" and .name != "CLA Assistant")] | length' <<<"${failed_jobs_json}")"
+  (( unexpected_count == 0 )) || fail "The selected CLA run contains an unexpected failed job; refusing to rerun it"
+
+  if ! v2_count="$(jq -r '[.[] | select(.name == "CLA Assistant v2")] | length' <<<"${failed_jobs_json}")" ||
+     ! v2_valid_count="$(jq -r \
+       --arg run_id "${run_id}" \
+       --arg run_sha "${run_execution_sha}" \
+       --arg run_head_branch "${run_head_branch}" \
+       --arg head_repo "${head_repo}" \
+       --argjson head_repo_id "${head_repo_id}" \
+       --arg cla_generation "${CLA_GENERATION}" \
+       '[.[] | select(
+          .name == "CLA Assistant v2" and
+          .workflow_name == "CLA Assistant v2" and
+          .run_id == ($run_id | tonumber) and
+          .head_sha == $run_sha and
+          .head_branch == $run_head_branch and
+          (has("head_repository") and
+           (.head_repository == null or
+            ((.head_repository | type) == "object" and
+             .head_repository.full_name == $head_repo and
+             .head_repository.id == $head_repo_id))) and
+          any(.steps[]?;
+            .name == ("CLA generation " + $cla_generation) and
+            .status == "completed" and
+            .conclusion == "success"
+          )
+       )] | length' <<<"${failed_jobs_json}")"; then
+    fail "Could not validate failed CLA Assistant v2 jobs"
+  fi
+  [[ "${v2_count}" =~ ^[0-9]+$ && "${v2_valid_count}" =~ ^[0-9]+$ ]] || fail "Could not count failed CLA Assistant v2 jobs"
+  (( v2_count == 1 )) || fail "Expected exactly one failed CLA Assistant v2 job"
+  (( v2_valid_count == 1 )) || fail "The selected failed CLA check was created by an older workflow generation. Push a new commit or close and reopen this pull request to create a current-generation CLA check, then post the exact signing declaration again."
+
+  compatibility_count="$(jq -r '[.[] | select(.name == "CLA Assistant")] | length' <<<"${failed_jobs_json}")"
+  if ! compatibility_valid_count="$(jq -r \
+      --arg run_id "${run_id}" \
+      --arg run_sha "${run_execution_sha}" \
+      --arg run_head_branch "${run_head_branch}" \
+      --arg head_repo "${head_repo}" \
+      --argjson head_repo_id "${head_repo_id}" \
+      '[.[] | select(
+         .name == "CLA Assistant" and
+         .workflow_name == "CLA Assistant v2" and
+         .run_id == ($run_id | tonumber) and
+         .head_sha == $run_sha and
+         .head_branch == $run_head_branch and
+         (has("head_repository") and
+          (.head_repository == null or
+           ((.head_repository | type) == "object" and
+            .head_repository.full_name == $head_repo and
+            .head_repository.id == $head_repo_id)))
+      )] | length' <<<"${failed_jobs_json}")"; then
+    fail "Could not validate failed CLA compatibility jobs"
+  fi
+  [[ "${compatibility_count}" =~ ^[0-9]+$ && "${compatibility_valid_count}" =~ ^[0-9]+$ ]] || fail "Could not count failed CLA compatibility jobs"
+  (( compatibility_count <= 1 )) || fail "The selected CLA run contains multiple failed compatibility jobs"
+  (( compatibility_valid_count == compatibility_count )) || fail "The failed CLA compatibility job is malformed or bound to a different source"
+  if (( compatibility_count == 1 )); then
+    RERUN_FAILED_JOBS=true
+  else
+    RERUN_FAILED_JOBS=false
+  fi
+}
+validate_failed_job_set "${jobs_json}"
 if ! cla_job_json="$(jq -c \
     --arg run_id "${run_id}" \
     --arg run_sha "${run_execution_sha}" \
@@ -776,18 +928,59 @@ jq -e \
       .status == "completed" and
       .conclusion == "success"
     )
-  ' <<<"${final_job_json}" >/dev/null || fail "The exact failed CLA job is no longer eligible"
+' <<<"${final_job_json}" >/dev/null || fail "The exact failed CLA job is no longer eligible"
+
+# Re-fetch the whole job set immediately before the state-changing call. This
+# catches a newly cancelled or unrelated failed job that could otherwise be
+# pulled into a failed-jobs rerun after the first validation.
+final_jobs_json="$(fetch_jobs_for_run "${run_id}")" || fail "Could not recheck and validate jobs for the selected CLA run"
+validate_failed_job_set "${final_jobs_json}"
+final_job_id="$(jq -r \
+  --arg run_id "${run_id}" \
+  --arg run_sha "${run_execution_sha}" \
+  --arg run_head_branch "${run_head_branch}" \
+  --arg head_repo "${head_repo}" \
+  --argjson head_repo_id "${head_repo_id}" \
+  --arg cla_generation "${CLA_GENERATION}" \
+  '[.[] | .jobs[]? | select(
+      .run_id == ($run_id | tonumber) and
+      .name == "CLA Assistant v2" and
+      .workflow_name == "CLA Assistant v2" and
+      .status == "completed" and
+      .conclusion == "failure" and
+      .head_sha == $run_sha and
+      .head_branch == $run_head_branch and
+      (has("head_repository") and
+       (.head_repository == null or
+        ((.head_repository | type) == "object" and
+         .head_repository.full_name == $head_repo and
+         .head_repository.id == $head_repo_id))) and
+      any(.steps[]?;
+        .name == ("CLA generation " + $cla_generation) and
+        .status == "completed" and
+        .conclusion == "success"
+      )
+    )]
+    | if length == 1 then .[0].id else empty end' <<<"${final_jobs_json}")"
+[[ "${final_job_id}" == "${job_id}" ]] || fail "The selected CLA job changed while preparing the rerun"
 
 # Repeat the positive live-PR association check after all discovery
 # calls. A second open PR for the same fork ref and SHA must stop the
 # rerun even if it appeared while the earlier checks were running.
 validate_live_open_head_association
 
+if [[ "${RERUN_FAILED_JOBS}" == true ]]; then
+  rerun_endpoint="repos/${GH_REPO}/actions/runs/${run_id}/rerun-failed-jobs"
+  rerun_description="failed CLA jobs (v2 and compatibility)"
+else
+  rerun_endpoint="repos/${GH_REPO}/actions/jobs/${job_id}/rerun"
+  rerun_description="CLA job ${job_id}"
+fi
 if ! gh api \
   --method POST \
   --header 'Accept: application/vnd.github+json' \
   --header 'X-GitHub-Api-Version: 2022-11-28' \
-  "repos/${GH_REPO}/actions/jobs/${job_id}/rerun" >/dev/null 2>&1; then
-  fail "Could not rerun the exact failed CLA job"
+  "${rerun_endpoint}" >/dev/null 2>&1; then
+  fail "Could not rerun the exact failed CLA job set"
 fi
-echo "Requested rerun for CLA job ${job_id} in workflow run ${run_id} at execution ${run_execution_sha} for PR head ${head_sha}"
+echo "Requested rerun for ${rerun_description} in workflow run ${run_id} at execution ${run_execution_sha} for PR head ${head_sha}"

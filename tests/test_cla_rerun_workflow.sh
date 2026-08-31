@@ -37,6 +37,7 @@ grep -Fq "repository: \${{ github.repository }}" "$WORKFLOW"
 grep -Fq "ref: \${{ github.workflow_sha }}" "$WORKFLOW"
 grep -Fq 'sparse-checkout: .github/scripts/rerun-failed-cla.sh' "$WORKFLOW"
 grep -Fq 'bash .github/scripts/rerun-failed-cla.sh' "$WORKFLOW"
+grep -Fq "COMMENT_ID: \${{ github.event.comment.id }}" "$WORKFLOW"
 grep -Fq '      - .github/scripts/rerun-failed-cla.sh' "$ROOT_DIR/.github/workflows/ci.yml"
 if grep -Fq "ref: \${{ github.event.pull_request" "$WORKFLOW"; then
   echo 'FAIL: CLA rerun checkout must never use a pull-request ref' >&2
@@ -57,6 +58,7 @@ export GH_REPO=manaflow-ai/cmux
 export EVENT_NAME=issue_comment
 export ISSUE_NUMBER=123
 export PR_NUMBER=123
+export COMMENT_ID=900
 export COMMENT_BODY=recheck
 export COMMENT_CREATED_AT=2026-08-31T08:00:00Z
 export COMMENT_AUTHOR_ID=300
@@ -64,7 +66,7 @@ export COMMENT_AUTHOR_LOGIN=contributor
 export COMMENT_AUTHOR_TYPE=User
 export COMMENT_AUTHOR_ASSOCIATION=NONE
 export WORKFLOW_PATH=.github/workflows/cla.yml
-export CLA_GENERATION=v2.2-action-c327a6f4071730000bf03f9f85c87d30e1fe8084
+export CLA_GENERATION=v2.2-action-056a0e9d7237954489ab474f24e66c2e742e78f9
 export TARGET_EVENT=pull_request_target
 export TARGET_BASE_REF=main
 export SIGNATURE_RECORDED=false
@@ -109,6 +111,9 @@ gh() {
   local marker="CLA generation ${CLA_GENERATION}"
   local run_path=.github/workflows/cla.yml
   local run_prs='[{"number":123,"base":{"ref":"main","repo":{"id":100,"full_name":"manaflow-ai/cmux"}},"head":{"ref":"feature","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","repo":{"id":200,"full_name":"contributor/cmux"}}}]'
+  local ledger_id=400
+  local ledger_login=coauthor
+  local ledger_comment_id=900
 
   case "${FAKE_MODE}" in
     stale-marker) marker="CLA generation v2.2-action-0000000000000000000000000000000000000000" ;;
@@ -127,6 +132,7 @@ gh() {
       live_head_repo_id=100
       ;;
     stale-empty-execution) run_prs='[]'; run_sha=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb ;;
+    unbound-signer) ledger_id=401; ledger_login=other-signer; ledger_comment_id=901 ;;
     minimal-run-association) run_prs='[{"number":123,"base":{"ref":"main","repo":{"id":100}},"head":{"ref":"feature","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","repo":{"id":200}}}]' ;;
     wrong-run-association) run_prs='[{"number":124,"base":{"ref":"main","repo":{"id":100,"full_name":"manaflow-ai/cmux"}},"head":{"ref":"feature","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","repo":{"id":200,"full_name":"contributor/cmux"}}}]' ;;
     malformed-run-association) run_prs='{}' ;;
@@ -161,6 +167,11 @@ gh() {
       else
         printf '[]\n'
       fi
+      ;;
+    repos/manaflow-ai/cmux/contents/signatures/version2/cla.json)
+      ledger_content="{\"signedContributors\":[{\"name\":\"${ledger_login}\",\"id\":${ledger_id},\"comment_id\":${ledger_comment_id},\"created_at\":\"2026-08-31T08:00:00Z\",\"repoId\":100,\"pullRequestNo\":123}]}"
+      encoded_ledger="$(printf '%s' "$ledger_content" | base64 | tr -d '\n')"
+      jq -nc --arg content "$encoded_ledger" '{type:"file",encoding:"base64",content:$content}'
       ;;
     repos/manaflow-ai/cmux/pulls)
       local association_call=1
@@ -224,6 +235,24 @@ gh() {
       fi
       if [[ "${FAKE_MODE}" == paginated-jobs && "${api_page}" == 1 ]]; then
         jq -nc --argjson run_id "$run_id" --arg run_sha "$run_sha" '{jobs:[range(0; 100) | {id:(1000 + .),run_id:$run_id,name:"unrelated",workflow_name:"CLA Assistant v2",status:"completed",conclusion:"success",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[]}]}'
+      elif [[ "${FAKE_MODE}" == compatibility-failed ]]; then
+        jq -nc --argjson run_id "$run_id" --argjson job_id "$job_id" --arg marker "$marker" --arg run_sha "$run_sha" \
+          '{jobs:[
+            {id:$job_id,run_id:$run_id,name:"CLA Assistant v2",workflow_name:"CLA Assistant v2",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[{name:$marker,status:"completed",conclusion:"success"}]},
+            {id:502,run_id:$run_id,name:"CLA Assistant",workflow_name:"CLA Assistant v2",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[]}
+          ]}'
+      elif [[ "${FAKE_MODE}" == unexpected-failure ]]; then
+        jq -nc --argjson run_id "$run_id" --argjson job_id "$job_id" --arg marker "$marker" --arg run_sha "$run_sha" \
+          '{jobs:[
+            {id:$job_id,run_id:$run_id,name:"CLA Assistant v2",workflow_name:"CLA Assistant v2",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[{name:$marker,status:"completed",conclusion:"success"}]},
+            {id:503,run_id:$run_id,name:"Unexpected privileged job",workflow_name:"CLA Assistant v2",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[]}
+          ]}'
+      elif [[ "${FAKE_MODE}" == cancelled-job ]]; then
+        jq -nc --argjson run_id "$run_id" --argjson job_id "$job_id" --arg marker "$marker" --arg run_sha "$run_sha" \
+          '{jobs:[
+            {id:$job_id,run_id:$run_id,name:"CLA Assistant v2",workflow_name:"CLA Assistant v2",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[{name:$marker,status:"completed",conclusion:"success"}]},
+            {id:504,run_id:$run_id,name:"CLA Assistant",workflow_name:"CLA Assistant v2",status:"completed",conclusion:"cancelled",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[]}
+          ]}'
       else
         jq -nc --argjson run_id "$run_id" --argjson job_id "$job_id" --arg marker "$marker" --arg run_sha "$run_sha" \
           '{jobs:[{id:$job_id,run_id:$run_id,name:"CLA Assistant v2",workflow_name:"CLA Assistant v2",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[{name:$marker,status:"completed",conclusion:"success"}]}]}'
@@ -264,10 +293,13 @@ run_case() {
     comment_author_id=400
     comment_body='I have read the CLA Document v2.2 and I hereby sign the CLA'
     signature_recorded=true
-  elif [[ "$mode" == unrecorded-signer ]]; then
+  elif [[ "$mode" == unrecorded-signer || "$mode" == unbound-signer ]]; then
     comment_author=coauthor
     comment_author_id=400
     comment_body='I have read the CLA Document v2.2 and I hereby sign the CLA'
+    if [[ "$mode" == unbound-signer ]]; then
+      signature_recorded=true
+    fi
   fi
   : >"$work/posts-$mode"
   printf '0\n' >"$work/association-$mode"
@@ -337,5 +369,10 @@ run_case suffixed-path 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case late-ambiguous 1 "Expected exactly one open pull request for this head" 0
 run_case external-signer 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case unrecorded-signer 1 "did not result in a persisted signature" 0
+run_case unbound-signer 1 "signing comment was not the signature persisted" 0
 run_case duplicate-runs 0 "Requested rerun for CLA job 501 in workflow run 401" 1 \
   "repos/manaflow-ai/cmux/actions/jobs/501/rerun"
+run_case compatibility-failed 0 "Requested rerun for failed CLA jobs (v2 and compatibility) in workflow run 400" 1 \
+  "repos/manaflow-ai/cmux/actions/runs/400/rerun-failed-jobs"
+run_case unexpected-failure 1 "unexpected failed job" 0
+run_case cancelled-job 1 "cancelled or non-failure job" 0

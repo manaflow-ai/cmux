@@ -17,7 +17,7 @@ permissions: {}
 # changes for every unrelated commit on main and would strand valid failed
 # checks on open pull requests.
 env:
-  CLA_GENERATION: 'v2.2-action-c327a6f4071730000bf03f9f85c87d30e1fe8084'
+  CLA_GENERATION: 'v2.2-action-056a0e9d7237954489ab474f24e66c2e742e78f9'
 
 jobs:
   CLACommentGate:
@@ -54,7 +54,7 @@ jobs:
     # after this gate succeeds. This is an availability tradeoff, not an
     # authorization bypass.
     concurrency:
-      group: cla-admission-${{ github.repository }}-${{ github.event.pull_request.number || github.event.issue.number }}
+      group: cla-admission-${{ github.repository }}-${{ github.event_name }}-${{ github.event.issue.number || github.event.pull_request.number }}
       cancel-in-progress: false
     permissions: {}
     steps:
@@ -228,7 +228,7 @@ jobs:
         # so a branch move cannot change the code executed by this workflow.
         # The fork's default branch must be protected before this check is made
         # required in repository rulesets.
-        uses: manaflow-ai/cla-github-action@c327a6f4071730000bf03f9f85c87d30e1fe8084 # v0.0.1
+        uses: manaflow-ai/cla-github-action@056a0e9d7237954489ab474f24e66c2e742e78f9 # v0.0.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -256,7 +256,9 @@ jobs:
   # check to "CLA Assistant v2". It runs for every non-closed pull-request
   # lifecycle event, including edited events, because issue_comment checks
   # attach to the default branch SHA, not the pull request head, and cannot
-  # safely refresh the old required context.
+  # safely refresh the old required context by themselves. On a signing
+  # comment, RerunFailedCLA validates both failed contexts in the exact prior
+  # target run and uses the failed-jobs endpoint to refresh them together.
   # `always()` is required so a failed v2 action cannot turn this old required
   # context into a skipped-success check.
   CLACompatibility:
@@ -352,6 +354,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           PR_NUMBER: ${{ github.event.issue.number }}
+          COMMENT_ID: ${{ github.event.comment.id }}
           COMMENT_BODY: ${{ github.event.comment.body }}
           COMMENT_CREATED_AT: ${{ github.event.comment.created_at }}
           COMMENT_AUTHOR_ID: ${{ github.event.comment.user.id }}

@@ -34,7 +34,7 @@ for job in CLACommentGate CLAAssistant CLACompatibility RerunFailedCLA LockMerge
 done
 gate_group_block="$(awk '/^  CLACommentGate:/ { in_job=1; next } in_job && /^  [A-Za-z0-9_]+:/ { exit } in_job { print }' "$WORKFLOW")"
 if [[ "$gate_group_block" != *$'\n    concurrency:'* ||
-      "$gate_group_block" != *"group: cla-admission-\${{ github.repository }}-\${{ github.event.pull_request.number || github.event.issue.number }}"* ||
+      "$gate_group_block" != *"group: cla-admission-\${{ github.repository }}-\${{ github.event_name }}-\${{ github.event.issue.number || github.event.pull_request.number }}"* ||
       "$gate_group_block" != *$'cancel-in-progress: false'* ]]; then
   echo 'FAIL: CLA admission gate must use a bounded per-PR non-canceling queue' >&2
   exit 1
