@@ -27,6 +27,11 @@ export type VmImageManifestEntry = {
   readonly defaultForKind?: boolean;
   readonly features?: {
     readonly bakedFreestyleSignedAdmin?: boolean;
+    /**
+     * The image lives on the Freestyle BETA platform (beta-api.freestyle.sh);
+     * the freestyle driver dispatches creates from it to the beta arm.
+     */
+    readonly freestylePlatform?: "beta";
   };
   readonly cmuxdRemoteCommit: string;
   readonly builtAt: string;
@@ -163,6 +168,11 @@ export function imageUsesBakedFreestyleSignedAdmin(provider: ProviderId, imageId
   return entry?.features?.bakedFreestyleSignedAdmin === true;
 }
 
+/** Whether an image id or version names a Freestyle BETA platform image (see `features.freestylePlatform`). */
+export function imageUsesFreestyleBetaPlatform(provider: ProviderId, image: string): boolean {
+  return findVmImageManifestEntry(provider, image)?.features?.freestylePlatform === "beta";
+}
+
 /**
  * Resolution order:
  *  1. an explicit `requestedImage` (must be in the manifest unless unmanifested images are allowed);
@@ -196,6 +206,17 @@ export function resolveVmImage(
   const envVar = providerImageEnvKey(provider, kind);
   const configured = env[envVar]?.trim();
   if (configured) {
+    // An operator's generic selector naming an image of another kind is not a
+    // misconfiguration for this request: deployments from before image kinds
+    // existed set the single selector to the desktop image. Serve the
+    // requested kind from the manifest defaults instead of failing the
+    // create on the mismatch. Client-requested images keep the strict check.
+    if (kind !== undefined) {
+      const entry = findVmImageManifestEntry(provider, configured);
+      if (entry && deriveVmImageKind(entry, configured) !== kind) {
+        return resolveByKind(provider, kind, envVar, env);
+      }
+    }
     return resolveKnownOrAllowed(provider, configured, envVar, env, kind);
   }
 

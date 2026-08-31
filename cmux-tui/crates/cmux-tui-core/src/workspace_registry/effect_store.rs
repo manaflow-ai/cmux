@@ -660,7 +660,8 @@ impl WorkspaceRegistry {
         result: &Value,
         created_path: &Value,
         deltas: &Value,
-    ) -> anyhow::Result<ResourcePatchCommit> {
+        workspace_ledger: Option<&ResourceWorkspaceLedger>,
+    ) -> anyhow::Result<(ResourcePatchCommit, Option<u64>)> {
         validate_correlation_key(correlation_key)?;
         validate_identifier("mutation id", &mutation.id)?;
         validate_identifier("mutation origin", &mutation.origin)?;
@@ -697,6 +698,24 @@ impl WorkspaceRegistry {
             .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
         let sqlite_revision =
             i64::try_from(revision).context("resource revision exceeds SQLite range")?;
+        // Workspace-projection creations must advance the legacy workspace
+        // ledger in this same transaction (the resource close path already
+        // does); otherwise later legacy CAS mutations conflict forever.
+        let workspace_revision = workspace_ledger
+            .map(|ledger| {
+                super::commit_workspace_registry_in_transaction(
+                    &tx,
+                    mutation,
+                    &fingerprint,
+                    None,
+                    ledger.event_kind,
+                    &ledger.workspace_key,
+                    &ledger.workspaces,
+                    &canonical_json(&ledger.legacy_result)?,
+                )
+                .map(|(revision, _)| revision)
+            })
+            .transpose()?;
         apply_resource_patch(&tx, patch, sqlite_revision)?;
         tx.execute(
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
@@ -738,7 +757,10 @@ impl WorkspaceRegistry {
         // replay window and must count toward a boundary compaction.
         resource_store::prune_resource_mutations(&tx)?;
         tx.commit()?;
-        Ok(ResourcePatchCommit { revision, result: result.clone(), replayed: false })
+        Ok((
+            ResourcePatchCommit { revision, result: result.clone(), replayed: false },
+            workspace_revision,
+        ))
     }
 
     pub fn prepare_resource_effect(

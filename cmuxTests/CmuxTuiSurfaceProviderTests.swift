@@ -229,6 +229,9 @@ import Testing
         #expect(CloudTuiCommandLine.commandStartingIn(cwd: nil, command: ["bash", "-l"]) == ["bash", "-l"])
         #expect(CloudTuiCommandLine.commandStartingIn(cwd: "/root/work/my app", command: ["codex", "exec", "it's"]) ==
             ["sh", "-lc", "cd '/root/work/my app' && exec codex exec 'it'\\''s'"])
+        // Rename takes the name via --name (verified live; positional is usage.invalid).
+        #expect(CloudTuiCommandLine.renameWorkspaceArguments(socketPath: "/k.sock", workspaceID: "ws_main", name: "backend work") ==
+            ["--socket", "/k.sock", "--json", "workspace", "ws_main", "rename", "--name", "backend work"])
     }
 
     @Test func clientPathsMirrorTheCLI() throws {

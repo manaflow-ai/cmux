@@ -652,7 +652,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     if !chunk.data.isEmpty || chunk.terminalConfigTheme != nil {
                         let applied = await surfaceView.processOutputAndWait(
                             chunk.data,
-                            terminalConfigTheme: chunk.terminalConfigTheme
+                            terminalConfigTheme: chunk.terminalConfigTheme,
+                            pushesLocalScrollbackRows: chunk.sourceRenderGridFrame?.scrolledRows ?? 0
                         )
                         guard applied else {
                             store.terminalOutputDidReset(
@@ -1101,7 +1102,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             if !chunk.data.isEmpty || chunk.terminalConfigTheme != nil {
                 let applied = await surfaceView.processOutputAndWait(
                     chunk.data,
-                    terminalConfigTheme: chunk.terminalConfigTheme
+                    terminalConfigTheme: chunk.terminalConfigTheme,
+                    pushesLocalScrollbackRows: chunk.sourceRenderGridFrame?.scrolledRows ?? 0
                 )
                 guard !Task.isCancelled else { return false }
                 guard applied else {
