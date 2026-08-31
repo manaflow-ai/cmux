@@ -71,12 +71,14 @@ gh() {
   local run_head_repo=contributor/cmux
   local run_head_repo_id=200
   local marker="CLA generation v2 ${WORKFLOW_SHA}"
+  local run_path=.github/workflows/cla.yml
 
   case "${FAKE_MODE}" in
     stale-marker) marker="CLA generation v2 cccccccccccccccccccccccccccccccccccccccc" ;;
     wrong-head-repo) run_head_repo=attacker/cmux; run_head_repo_id=201 ;;
     closed-pr) live_state=closed ;;
     retargeted-pr) live_base=release ;;
+    suffixed-path) run_path=.github/workflows/cla.yml@main ;;
   esac
 
   if [[ " $* " == *" --method POST "* ]]; then
@@ -109,12 +111,12 @@ gh() {
       printf '[{"workflows":[{"id":300,"path":".github/workflows/cla.yml","state":"active"}]}]\n'
       ;;
     repos/manaflow-ai/cmux/actions/workflows/300/runs\?event=pull_request_target\&head_sha=*\&per_page=100)
-      jq -nc --arg head_repo "$run_head_repo" --argjson head_repo_id "$run_head_repo_id" \
-        '[{workflow_runs:[{id:400,workflow_id:300,path:".github/workflows/cla.yml",event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",head_branch:"feature",head_repository:{id:$head_repo_id,full_name:$head_repo},pull_requests:[],created_at:"2026-08-31T07:00:00Z"}]}]'
+      jq -nc --arg head_repo "$run_head_repo" --argjson head_repo_id "$run_head_repo_id" --arg path "$run_path" \
+        '[{workflow_runs:[{id:400,workflow_id:300,path:$path,event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",head_branch:"feature",head_repository:{id:$head_repo_id,full_name:$head_repo},pull_requests:[],created_at:"2026-08-31T07:00:00Z"}]}]'
       ;;
     repos/manaflow-ai/cmux/actions/runs/400)
-      jq -nc --arg head_repo "$run_head_repo" --argjson head_repo_id "$run_head_repo_id" \
-        '{id:400,workflow_id:300,path:".github/workflows/cla.yml",event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",head_branch:"feature",head_repository:{id:$head_repo_id,full_name:$head_repo},pull_requests:[],created_at:"2026-08-31T07:00:00Z"}'
+      jq -nc --arg head_repo "$run_head_repo" --argjson head_repo_id "$run_head_repo_id" --arg path "$run_path" \
+        '{id:400,workflow_id:300,path:$path,event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",head_branch:"feature",head_repository:{id:$head_repo_id,full_name:$head_repo},pull_requests:[],created_at:"2026-08-31T07:00:00Z"}'
       ;;
     repos/manaflow-ai/cmux/actions/runs/400/jobs\?per_page=100)
       jq -nc --arg marker "$marker" \
@@ -177,3 +179,4 @@ run_case closed-pr 1 "The issue is not an open pull request" 0
 run_case retargeted-pr 1 "The live pull request is not valid" 0
 run_case ambiguous-association 1 "Expected exactly one open pull request for this head" 0
 run_case wrong-commenter 1 "Only the pull request author or a trusted repository participant" 0
+run_case suffixed-path 0 "Requested rerun for CLA job 500 in workflow run 400" 1

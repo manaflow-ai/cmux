@@ -281,11 +281,10 @@ jobs:
           # is owner:ref, so the result must contain exactly one PR with the
           # exact number, SHA, head repository, and base repository. This
           # rejects duplicate or cross-PR matches before any run is selected.
-          case "${head_repo}" in
-            ""|*/*/*) fail "The pull request head repository name is invalid" ;;
-          esac
+          [[ "${head_repo}" == */* && "${head_repo}" != */*/* ]] || fail "The pull request head repository name is invalid"
           head_owner="${head_repo%%/*}"
-          [[ -n "${head_owner}" ]] || fail "The pull request head owner is missing"
+          head_name="${head_repo#*/}"
+          [[ -n "${head_owner}" && -n "${head_name}" ]] || fail "The pull request head repository name is invalid"
           open_prs_json="$(gh api \
             --method GET \
             --paginate \
@@ -353,7 +352,9 @@ jobs:
               --arg before "${COMMENT_CREATED_AT}" '
                 [ .[] | .workflow_runs[]?
                   | select(
-                      .path == $path and
+                      (.path == $path or
+                       ((.path | startswith($path + "@")) and
+                        ((.path | length) > (($path | length) + 1)))) and
                       .event == $event and
                       .head_sha == $sha and
                       .head_branch == $head_ref and
@@ -417,7 +418,9 @@ jobs:
             --arg before "${COMMENT_CREATED_AT}" '
               .id == ($run_id | tonumber) and
               .workflow_id == ($workflow_id | tonumber) and
-              .path == $path and
+              (.path == $path or
+               ((.path | startswith($path + "@")) and
+                ((.path | length) > (($path | length) + 1)))) and
               .event == $event and
               .status == "completed" and
               .conclusion == "failure" and
@@ -476,7 +479,9 @@ jobs:
             --arg before "${COMMENT_CREATED_AT}" '
               .id == ($run_id | tonumber) and
               .workflow_id == ($workflow_id | tonumber) and
-              .path == $path and
+              (.path == $path or
+               ((.path | startswith($path + "@")) and
+                ((.path | length) > (($path | length) + 1)))) and
               .event == $event and
               .status == "completed" and
               .conclusion == "failure" and
