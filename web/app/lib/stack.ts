@@ -81,22 +81,24 @@ export async function markStackUserEmailVerifiedViaApi(
 }
 
 /**
- * Convert an anonymous checkout user into a normal verified account.
+ * Convert an anonymous user whose email is already verified into a normal
+ * account.
  *
- * `is_anonymous: false` is intentionally sent in the same server mutation as
- * the paid email. Omitting `password` preserves any password already stored on
- * the account, so a customer can keep using the credential they set before
- * checkout.
+ * The caller must have just observed `primaryEmailVerified === true`. This
+ * patch does not set the verification bit, so a billing email can never turn
+ * an unverified account into an authenticated account. Omitting `password`
+ * preserves any password already stored on the account.
  */
 export async function promoteStackUserFromAnonymousViaApi(
   userId: string,
   email: string,
 ): Promise<void> {
+  if (!email.trim()) {
+    throw new Error("Stack Auth anonymous promotion requires a verified email");
+  }
   await updateStackUserViaApi(
     userId,
     {
-      primary_email: email,
-      primary_email_verified: true,
       primary_email_auth_enabled: true,
       is_anonymous: false,
     },

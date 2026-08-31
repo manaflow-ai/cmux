@@ -469,7 +469,7 @@ describe("recordFoundersCheckoutCompletion", () => {
     });
     expect(createUser).toHaveBeenCalledWith({
       primaryEmail: "buyer@example.com",
-      primaryEmailAuthEnabled: false,
+      primaryEmailAuthEnabled: true,
       primaryEmailVerified: false,
     });
     expect(
@@ -954,7 +954,7 @@ describe("recordFoundersCheckoutCompletion", () => {
       ),
     ).toBe(true);
     expect(inserts.some((entry) => entry.table === billingEmailClaims)).toBe(false);
-    expect(real.update).toHaveBeenCalledWith({ primaryEmailVerified: true });
+    expect(real.update).not.toHaveBeenCalledWith({ primaryEmailVerified: true });
   });
 
   test("moves an already-parked alias customer without leaving a claim", async () => {
@@ -1079,8 +1079,6 @@ describe("recordCheckoutCompletion", () => {
       expect(request.method).toBe("PATCH");
       expect(request.url).toContain("/api/v1/users/anonymous_checkout");
       expect(await request.json()).toEqual({
-        primary_email: "buyer@example.com",
-        primary_email_verified: true,
         primary_email_auth_enabled: true,
         is_anonymous: false,
       });
@@ -1400,6 +1398,7 @@ describe("recordCheckoutCompletion", () => {
     expect(update).toHaveBeenCalledWith({
       primaryEmail: "buyer@example.com",
       primaryEmailAuthEnabled: true,
+      primaryEmailVerified: false,
     });
     expect(inserts.some((insert) => insert.table === billingEmailClaims)).toBe(false);
   });
@@ -1419,6 +1418,7 @@ describe("recordCheckoutCompletion", () => {
     expect(update).toHaveBeenCalledWith({
       primaryEmail: "buyer@example.com",
       primaryEmailAuthEnabled: true,
+      primaryEmailVerified: false,
     });
     expect(inserts.some((insert) => insert.table === billingEmailClaims)).toBe(false);
   });
@@ -1468,6 +1468,7 @@ describe("recordCheckoutCompletion", () => {
     expect(update).toHaveBeenCalledWith({
       primaryEmail: "buyer@example.com",
       primaryEmailAuthEnabled: true,
+      primaryEmailVerified: false,
     });
     expect(
       inserts.some(

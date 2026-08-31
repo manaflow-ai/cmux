@@ -45,7 +45,6 @@ import {
   emailVariantsForMatching,
 } from "./emailMatching";
 import {
-  markPurchaseEmailVerified,
   isUnsupportedVerificationFieldError,
   type StackPurchaseUser,
 } from "./stackVerification";
@@ -647,7 +646,8 @@ export async function recordFoundersCheckoutCompletion(
     stackApp,
     sync: async (freshUser, mutationLease) => {
       // A newly-created user already has an email, while an older account may
-      // still need the literal Stripe address attached. Both paths verify it.
+      // still need the literal Stripe address attached. Neither path marks the
+      // channel verified until Stack accepts the recipient's link.
       await attachPurchaseEmailOrRecordClaim(
         db,
         {
@@ -846,10 +846,10 @@ async function resolveBillingEmailClaimsForCustomer(
 /**
  * Resolve a checkout account without changing an existing Stack identity.
  *
- * Verification and anonymous promotion run in the post-commit metadata
- * mutation, where the account-deletion lease is already held. A new account
- * starts as an unverified shell under a canonical-email lease; the same
- * post-commit mutation enables sign-in and verifies the paid address.
+ * Mailbox verification and anonymous promotion run only after Stack confirms
+ * the email channel. A new account starts as an unverified shell under a
+ * canonical-email lease; the post-commit mutation can attach the channel and
+ * send a sign-in link, but it never marks an existing mailbox as verified.
  */
 async function findOrCreateCheckoutBillingUser(
   stackApp: StackBillingApp,
@@ -917,15 +917,20 @@ async function createUnverifiedCheckoutUser(
   try {
     return await stackApp.createUser!({
       primaryEmail,
-      primaryEmailAuthEnabled: false,
+      // Auth may be requested before verification. Stack keeps the account
+      // restricted until the one-time link proves control of this channel.
+      primaryEmailAuthEnabled: true,
       primaryEmailVerified: false,
     });
   } catch (error) {
-    // Older Stack SDKs can reject the explicit verification field. Keep the
-    // shell unverified by omitting optional flags, then let the guarded
-    // metadata mutation enable and verify it.
+    // Older Stack SDKs can reject the explicit verification field. The
+    // primary-email create still starts an unverified shell; the next read
+    // determines whether a verification message is needed.
     if (!isUnsupportedVerificationFieldError(error)) throw error;
-    return await stackApp.createUser!({ primaryEmail });
+    return await stackApp.createUser!({
+      primaryEmail,
+      primaryEmailAuthEnabled: true,
+    });
   }
 }
 
@@ -936,15 +941,9 @@ export async function findOrCreateBillingUser(
 ): Promise<StackBillingUser> {
   const existing = await findBillingUserByEmail(stackApp, email);
   if (existing) {
-    // A paid checkout is the authoritative proof for this mailbox. Verify an
-    // older account before any ownership-remap decision so an unverified
-    // target cannot strand the purchase or fail closed after the move.
-    // Anonymous accounts are promoted through the combined server mutation
-    // in attachPurchaseEmailOrRecordClaim. Calling the ordinary SDK verifier
-    // first can fail on older Stack versions and leave that promotion undone.
-    if (existing.isAnonymous !== true) {
-      await markPurchaseEmailVerified(existing, email);
-    }
+    // Stripe proves payment, not control of the mailbox. Leave an existing
+    // account's verification and auth state unchanged until Stack completes
+    // its own email or magic-link verification flow.
     return existing;
   }
   if (!stackApp.createUser) {
@@ -953,28 +952,7 @@ export async function findOrCreateBillingUser(
 
   const trimmedEmail = email.trim();
   try {
-    let created: StackBillingUser;
-    try {
-      created = await stackApp.createUser({
-        primaryEmail: trimmedEmail,
-        primaryEmailAuthEnabled: true,
-        primaryEmailVerified: true,
-      });
-    } catch (error) {
-      // Older Stack SDKs reject the verified create field. Create the account
-      // with auth enabled, then use the shared verifier (SDK or REST fallback)
-      // so the purchase never gets stranded behind an unverified channel.
-      if (!isUnsupportedVerificationFieldError(error)) throw error;
-      created = await stackApp.createUser({
-        primaryEmail: trimmedEmail,
-        primaryEmailAuthEnabled: true,
-      });
-    }
-    // Older SDKs may accept the create option but return a stale user object;
-    // the shared verifier makes the persisted state explicit and remains a
-    // no-op for current SDKs that report `primaryEmailVerified: true`.
-    await markPurchaseEmailVerified(created, trimmedEmail);
-    return created;
+    return await createUnverifiedCheckoutUser(stackApp, trimmedEmail);
   } catch (error) {
     // Another webhook can win the canonical-email race. Re-read before
     // surfacing the create failure so retries remain idempotent.
@@ -2434,11 +2412,10 @@ async function attachPurchaseEmailOrRecordClaim(
 ): Promise<void> {
   const purchaseEmail = canonicalizeEmailForMatching(input.email);
   if (input.user.isAnonymous === true) {
-    // Stack does not promote anonymous users when an email is attached through
-    // the ordinary user update API. Use Hexclave's server endpoint so the
-    // email, verification, auth capability, and anonymous flag change in one
-    // mutation. The password field is omitted, which preserves any password
-    // the buyer already set.
+    // Stack does not clear the anonymous flag when an email is attached through
+    // the ordinary user update API. A verified channel can use the Hexclave
+    // endpoint to clear that flag. The password field is omitted, which
+    // preserves any password the buyer already set.
     if (
       input.user.primaryEmail &&
       canonicalizeEmailForMatching(input.user.primaryEmail) !== purchaseEmail
@@ -2450,36 +2427,53 @@ async function attachPurchaseEmailOrRecordClaim(
       }
       return;
     }
-    try {
-      await mutationLease.refresh();
-      await promoteStackUserFromAnonymousViaApi(input.user.id, input.email);
-      await requestPurchaseMagicLink(input.stackApp, input.email, mutationLease);
-    } catch (error) {
-      if (!isEmailAlreadyUsedError(error)) throw error;
-      await mutationLease.refresh();
-      const inserted = await recordBillingEmailClaim(db, input);
-      if (inserted) {
+    if (input.user.primaryEmailVerified === true) {
+      // A verified Stack channel is the only proof needed to remove the
+      // anonymous restriction. The REST mutation omits password, so an
+      // existing password survives the promotion.
+      try {
+        await mutationLease.refresh();
+        await promoteStackUserFromAnonymousViaApi(input.user.id, input.email);
         await requestPurchaseMagicLink(input.stackApp, input.email, mutationLease);
+      } catch (error) {
+        if (!isEmailAlreadyUsedError(error)) throw error;
+        await mutationLease.refresh();
+        const inserted = await recordBillingEmailClaim(db, input);
+        if (inserted) {
+          await requestPurchaseMagicLink(input.stackApp, input.email, mutationLease);
+        }
+      }
+    } else {
+      // Payment does not prove mailbox control. Attach the channel as
+      // unverified, then let Stack's one-time link establish ownership.
+      try {
+        await mutationLease.refresh();
+        await input.user.update({
+          primaryEmail: input.email,
+          primaryEmailAuthEnabled: true,
+          primaryEmailVerified: false,
+        });
+        await requestPurchaseMagicLink(input.stackApp, input.email, mutationLease);
+      } catch (error) {
+        if (!isEmailAlreadyUsedError(error)) throw error;
+        await mutationLease.refresh();
+        const inserted = await recordBillingEmailClaim(db, input);
+        if (inserted) {
+          await requestPurchaseMagicLink(input.stackApp, input.email, mutationLease);
+        }
       }
     }
     return;
   }
   if (input.user.primaryEmail) {
-    // A purchase can be the first authoritative verification for an existing
-    // but unverified Stack account. Keep the account's original spelling and
-    // only verify when the two addresses are the same canonical mailbox.
+    // Keep an existing account's spelling and verification state unchanged.
+    // The billing email can trigger a recovery message, but only Stack can
+    // verify the channel after the recipient proves mailbox control.
     if (
       canonicalizeEmailForMatching(input.user.primaryEmail) === purchaseEmail
     ) {
-      if (
-        input.user.primaryEmailVerified !== true ||
-        (input.user.primaryEmailAuthEnabled !== true &&
-          input.user.emailAuthEnabled !== true)
-      ) {
-        await mutationLease.refresh();
-        await input.user.update({ primaryEmailAuthEnabled: true });
-        await mutationLease.refresh();
-        await markPurchaseEmailVerified(input.user, input.email);
+      if (input.user.primaryEmailVerified !== true) {
+        await requestPurchaseMagicLink(input.stackApp, input.email, mutationLease);
       }
     }
     return;
@@ -2501,9 +2495,9 @@ async function attachPurchaseEmailOrRecordClaim(
     await input.user.update({
       primaryEmail: input.email,
       primaryEmailAuthEnabled: true,
+      primaryEmailVerified: false,
     });
-    await mutationLease.refresh();
-    await markPurchaseEmailVerified(input.user, input.email);
+    await requestPurchaseMagicLink(input.stackApp, input.email, mutationLease);
   } catch (error) {
     if (!isEmailAlreadyUsedError(error)) throw error;
     await mutationLease.refresh();

@@ -27,7 +27,7 @@ const signOut = mock((options?: unknown) => {
   void options;
   return Promise.resolve();
 });
-const promoteVerifiedAnonymousUser = mock(async (_userId: string, _email: string) => undefined);
+const promoteVerifiedAnonymousUser = mock(async () => undefined);
 
 const { makeAfterSignInHandler } = await import("../app/handler/after-sign-in/handler");
 const { appPricingNativeReturnURL } = await import("../app/lib/billing");

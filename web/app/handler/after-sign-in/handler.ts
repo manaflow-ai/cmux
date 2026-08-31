@@ -42,6 +42,10 @@ type StackAuthSessionLike = {
 };
 
 type StackAuthUserLike = {
+  id?: string;
+  primaryEmail?: string | null;
+  primaryEmailVerified?: boolean;
+  isAnonymous?: boolean;
   createSession: (options: { expiresInMillis: number }) => Promise<StackAuthSessionLike>;
 };
 
@@ -55,6 +59,8 @@ type AfterSignInHandlerDependencies = {
   projectId: string | undefined;
   stackServerApp: StackServerAppLike;
   getCookieStore: () => Promise<CookieStore>;
+  /** Promote an anonymous account only after Stack reports a verified email. */
+  promoteVerifiedAnonymousUser?: (userId: string, email: string) => Promise<void>;
 };
 
 function findStackCookie(
@@ -326,6 +332,28 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
         (await authApp.getUser({ or: "return-null" })) ??
         (await authApp.getUser({ or: ANONYMOUS_IF_EXISTS }));
       if (user) {
+        if (
+          user.isAnonymous === true &&
+          user.primaryEmailVerified === true &&
+          user.primaryEmail &&
+          user.id &&
+          dependencies.promoteVerifiedAnonymousUser
+        ) {
+          try {
+            // The callback is reached after Stack has accepted the one-time
+            // email link. Only then may the anonymous restriction be removed.
+            await dependencies.promoteVerifiedAnonymousUser(
+              user.id,
+              user.primaryEmail,
+            );
+          } catch {
+            // Keep the sign-in handoff usable. A later callback or billing
+            // recovery can retry the idempotent promotion.
+            console.error("auth.after_sign_in.anonymous_promotion_failed", {
+              failure: "provider_unavailable",
+            });
+          }
+        }
         const session = await user.createSession({ expiresInMillis: 30 * 24 * 60 * 60 * 1000 });
         const tokens = await session.getTokens();
         if (tokens.refreshToken) refreshToken = tokens.refreshToken;
