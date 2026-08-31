@@ -1182,8 +1182,18 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
         if page.records.is_empty() {
             break;
         }
+        // `head_sequence` is the journal head, not the end of this bounded
+        // page. Query projection status only for the rows that this startup
+        // pass can actually inspect, otherwise a large retained pending
+        // table defeats the replay bound before reduction starts.
+        let page_through_sequence = page
+            .records
+            .last()
+            .map(|record| record.sequence)
+            .unwrap_or(host.cursor)
+            .min(page.head_sequence);
         let (pending_sequences, quarantined_sequences) =
-            registry.agent_hook_projection_sequence_states(host.cursor, page.head_sequence)?;
+            registry.agent_hook_projection_sequence_states(host.cursor, page_through_sequence)?;
         let previous_cursor = host.cursor;
         let mut blocked_on_pending = false;
         let mut processed_records = 0usize;
@@ -5909,20 +5919,6 @@ impl Mux {
         if target_sequence <= read_cursor {
             return AgentRosterFoldProgress::ReachedTarget;
         }
-        let (pending_sequences, quarantined_sequences) = match self
-            .workspace_registry
-            .lock()
-            .unwrap()
-            .agent_hook_projection_sequence_states(read_cursor, target_sequence)
-        {
-            Ok(sequences) => sequences,
-            Err(error) => {
-                eprintln!(
-                    "cmux-tui: reading pending agent hook projections before roster fold failed: {error}"
-                );
-                return AgentRosterFoldProgress::WaitingForProjection;
-            }
-        };
         let mut folded_records = 0usize;
         loop {
             let page = match self
@@ -5934,6 +5930,26 @@ impl Mux {
                 Ok(page) => page,
                 Err(error) => {
                     eprintln!("cmux-tui: reading committed agent events back failed: {error}");
+                    return AgentRosterFoldProgress::WaitingForProjection;
+                }
+            };
+            let page_through_sequence = page
+                .records
+                .last()
+                .map(|record| record.sequence)
+                .unwrap_or(read_cursor)
+                .min(target_sequence);
+            let (pending_sequences, quarantined_sequences) = match self
+                .workspace_registry
+                .lock()
+                .unwrap()
+                .agent_hook_projection_sequence_states(read_cursor, page_through_sequence)
+            {
+                Ok(sequences) => sequences,
+                Err(error) => {
+                    eprintln!(
+                        "cmux-tui: reading pending agent hook projections before roster fold failed: {error}"
+                    );
                     return AgentRosterFoldProgress::WaitingForProjection;
                 }
             };
@@ -10357,6 +10373,7 @@ impl Mux {
             .cloned();
         let ended_fence = current_fence.as_ref().filter(|fence| fence.ended);
         let mut direct_hook_state = None;
+        let mut external_lifecycle_reopened = false;
         if source != AgentSource::Hook {
             let new_lifecycle_session = source_session.as_deref().is_some_and(|session| {
                 !session.is_empty()
@@ -10366,6 +10383,12 @@ impl Mux {
                     && !durable_hook_session.as_deref().is_some_and(|old| session == old)
                     && !durable_external_session.as_deref().is_some_and(|old| session == old)
             });
+            // A new external session may replace a stale Hook compatibility
+            // record only when the durable hook fence proves that the old
+            // lifecycle ended. A merely different session must still remain
+            // below an active Hook record.
+            external_lifecycle_reopened =
+                new_lifecycle_session && (durable_hook_session.is_some() || ended_fence.is_some());
             if (durable_hook_session.is_some() || durable_external_end || ended_fence.is_some())
                 && !new_lifecycle_session
                 && !(durable_external_end
@@ -10446,6 +10469,7 @@ impl Mux {
         let lower_authority_report_ignored = records.get(&terminal_id).is_some_and(|existing| {
             (existing.source == AgentSource::Hook
                 && source != AgentSource::Hook
+                && !external_lifecycle_reopened
                 && !effective_hook_state.is_some_and(|state| state.ended))
                 || (existing.source == AgentSource::Socket && source == AgentSource::Detected)
         });

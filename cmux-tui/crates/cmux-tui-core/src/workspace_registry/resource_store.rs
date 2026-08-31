@@ -256,7 +256,9 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
     transaction.execute_batch(
         "DROP INDEX IF EXISTS resource_agent_hook_pending_by_terminal;
          CREATE INDEX IF NOT EXISTS resource_agent_hook_pending_by_terminal
-           ON resource_agent_hook_pending(terminal_id, event_sequence, idempotency_key);",
+           ON resource_agent_hook_pending(terminal_id, event_sequence, idempotency_key);
+         CREATE INDEX IF NOT EXISTS resource_agent_hook_pending_by_sequence
+           ON resource_agent_hook_pending(event_sequence, attempt);",
     )?;
     Ok(())
 }
@@ -770,9 +772,10 @@ impl WorkspaceRegistry {
             return Ok((HashSet::new(), HashSet::new()));
         }
         let mut statement = self.connection.prepare(
-            "SELECT event_sequence, attempt
+            "SELECT event_sequence, MAX(attempt)
              FROM resource_agent_hook_pending
-             WHERE event_sequence > ?1 AND event_sequence <= ?2",
+             WHERE event_sequence > ?1 AND event_sequence <= ?2
+             GROUP BY event_sequence",
         )?;
         let mut pending = HashSet::new();
         let mut quarantined = HashSet::new();
