@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import { fileURLToPath } from "node:url";
+import { runInNewContext } from "node:vm";
 import { createElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -39,12 +40,46 @@ describe("Stack SSR bootstrap script", () => {
     const first = callback();
     const second = callback();
 
-    expect(renderToStaticMarkup(first as ReactElement)).toContain(
+    const firstElement = first as ReactElement<{
+      dangerouslySetInnerHTML: { __html: string };
+    }>;
+    const bodyReadyScript = firstElement.props.dangerouslySetInnerHTML.__html;
+    expect(bodyReadyScript).toContain("if(!document.body)return false");
+    expect(bodyReadyScript).toContain("MutationObserver");
+    expect(renderToStaticMarkup(firstElement)).toContain(
       'nonce="test-nonce"',
     );
-    expect(renderToStaticMarkup(first as ReactElement)).toContain(
+    expect(renderToStaticMarkup(firstElement)).toContain(
       "window.__cmuxTheme = true;",
     );
+
+    const observerCallbacks: Array<() => void> = [];
+    let observerDisconnected = false;
+    const context = {
+      document: {
+        body: null as object | null,
+        documentElement: {},
+      },
+      MutationObserver: class {
+        constructor(private readonly callback: () => void) {
+          observerCallbacks.push(callback);
+        }
+
+        observe() {}
+
+        disconnect() {
+          observerDisconnected = true;
+        }
+      },
+      window: {} as Record<string, unknown>,
+    };
+    runInNewContext(bodyReadyScript, context);
+    expect(observerCallbacks).toHaveLength(1);
+    expect(context.window.__cmuxTheme).toBeUndefined();
+    context.document.body = {};
+    observerCallbacks[0]!();
+    expect(context.window.__cmuxTheme).toBe(true);
+    expect(observerDisconnected).toBe(true);
     expect(second).toBeNull();
   });
 });

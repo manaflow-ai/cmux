@@ -1,8 +1,8 @@
 diff --git a/dist/components/elements/ssr-layout-effect.js b/dist/components/elements/ssr-layout-effect.js
-index 99773f6ee51f305b7497b78a55eaca0a4c09d899..2efb1d7a8d732c8678b9578764f565f9d5c102b5 100644
+index 99773f6ee51f305b7497b78a55eaca0a4c09d899..b38183e45f861e0e99ac3381b969f028ceab636a 100644
 --- a/dist/components/elements/ssr-layout-effect.js
 +++ b/dist/components/elements/ssr-layout-effect.js
-@@ -3,18 +3,26 @@
+@@ -3,18 +3,28 @@
  Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' });
  const require_chunk = require('../../chunk-BE-pF4vm.js');
  let react = require("react");
@@ -17,9 +17,11 @@ index 99773f6ee51f305b7497b78a55eaca0a4c09d899..2efb1d7a8d732c8678b9578764f565f9
 +	(0, next_navigation.useServerInsertedHTML)(() => {
 +		if (insertedRef.current) return null;
 +		insertedRef.current = true;
++		const escapedSource = props.script.replace(/<\/script/gi, "<\\/script");
++		const bodyReadyScript = `(function(){const run=()=>{if(!document.body)return false;${escapedSource};return true;};if(!run()){const observer=new MutationObserver(()=>{if(run()) observer.disconnect();});observer.observe(document.documentElement,{childList:true});}})()`;
 +		return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("script", {
 +			nonce: props.nonce,
-+			dangerouslySetInnerHTML: { __html: props.script }
++			dangerouslySetInnerHTML: { __html: bodyReadyScript }
 +		}, "stack-ssr-script");
 +	});
  	(0, react.useLayoutEffect)(() => {
@@ -35,10 +37,10 @@ index 99773f6ee51f305b7497b78a55eaca0a4c09d899..2efb1d7a8d732c8678b9578764f565f9
  
  //#endregion
 diff --git a/dist/esm/components/elements/ssr-layout-effect.js b/dist/esm/components/elements/ssr-layout-effect.js
-index 1233d79c915fc5b7214fbf3a56570cd9f9f04950..59cfe22e64602ceb82e75ee417126e34cac18961 100644
+index 1233d79c915fc5b7214fbf3a56570cd9f9f04950..3a2fd72f225807cde363d35b32a008f13d39f0c8 100644
 --- a/dist/esm/components/elements/ssr-layout-effect.js
 +++ b/dist/esm/components/elements/ssr-layout-effect.js
-@@ -1,18 +1,27 @@
+@@ -1,18 +1,29 @@
  "use client";
  
 -import { useLayoutEffect } from "react";
@@ -55,9 +57,11 @@ index 1233d79c915fc5b7214fbf3a56570cd9f9f04950..59cfe22e64602ceb82e75ee417126e34
 +	useServerInsertedHTML(() => {
 +		if (insertedRef.current) return null;
 +		insertedRef.current = true;
++		const escapedSource = props.script.replace(/<\/script/gi, "<\\/script");
++		const bodyReadyScript = `(function(){const run=()=>{if(!document.body)return false;${escapedSource};return true;};if(!run()){const observer=new MutationObserver(()=>{if(run()) observer.disconnect();});observer.observe(document.documentElement,{childList:true});}})()`;
 +		return /* @__PURE__ */ jsx("script", {
 +			nonce: props.nonce,
-+			dangerouslySetInnerHTML: { __html: props.script }
++			dangerouslySetInnerHTML: { __html: bodyReadyScript }
 +		}, "stack-ssr-script");
 +	});
  	useLayoutEffect(() => {
