@@ -1796,31 +1796,11 @@ fn render_codex_trust_document(
                 }
             }
         }
-        let remove_state = state.is_empty();
-        if remove_state {
-            // Deleting a table the USER created (kept as a placeholder, or
-            // carrying comments) would destroy their content, and creation
-            // cannot be tracked across processes. Remove a table only when it
-            // is empty AND undecorated, which is all the installer ever
-            // writes itself.
-            let state_removable = document
-                .as_table()
-                .get("hooks")
-                .and_then(toml_edit::Item::as_table_like)
-                .and_then(|hooks| hooks.get("state"))
-                .is_some_and(item_is_removable_empty_table);
-            if state_removable
-                && let Some(hooks) = document
-                    .as_table_mut()
-                    .get_mut("hooks")
-                    .and_then(toml_edit::Item::as_table_like_mut)
-            {
-                hooks.remove("state");
-            }
-            if document.as_table().get("hooks").is_some_and(item_is_removable_empty_table) {
-                document.as_table_mut().remove("hooks");
-            }
-        }
+        // Uninstall NEVER removes tables, only the trust entries whose hashes
+        // prove cmux ownership. Empty-and-undecorated cannot distinguish an
+        // installer-created table from a user-created placeholder across
+        // processes, so an empty [hooks]/[hooks.state] skeleton is left
+        // behind instead of guessing; it is harmless to codex.
     }
 
     let updated = document.to_string();
@@ -1828,33 +1808,6 @@ fn render_codex_trust_document(
         return Ok((original, None));
     }
     Ok((original, Some(updated)))
-}
-
-/// Whether an empty table can be deleted without destroying user content:
-/// empty AND carrying no comments or other decoration, which is all the
-/// installer ever writes itself.
-fn item_is_removable_empty_table(item: &toml_edit::Item) -> bool {
-    match item {
-        toml_edit::Item::Table(table) => table.is_empty() && decor_is_blank(table.decor()),
-        // TOML cannot attach comments inside an inline table; only the
-        // value's own decoration (a trailing comment) matters.
-        toml_edit::Item::Value(value) => match value {
-            toml_edit::Value::InlineTable(inline) => {
-                inline.is_empty() && decor_is_blank(value.decor())
-            }
-            _ => false,
-        },
-        _ => false,
-    }
-}
-
-/// Treats an unresolvable raw span as decoration so removal stays
-/// conservative.
-fn decor_is_blank(decor: &toml_edit::Decor) -> bool {
-    let blank = |raw: Option<&toml_edit::RawString>| {
-        raw.is_none_or(|raw| raw.as_str().is_some_and(|text| text.trim().is_empty()))
-    };
-    blank(decor.prefix()) && blank(decor.suffix())
 }
 
 /// Preflights the cmux-owned `hooks.state` trust-entry edit of the codex user
@@ -2564,15 +2517,20 @@ mod tests {
     }
 
     #[test]
-    fn codex_uninstall_removes_an_installer_created_trust_table_entirely() {
+    fn codex_uninstall_removes_entries_but_never_tables() {
         let root = tempfile::tempdir().unwrap();
         let context = context(root.path());
         let install = Plan { action: Action::Install, providers: vec!["codex".into()] };
         assert!(!run_with_context(&install, &context).failed);
         let uninstall = Plan { action: Action::Uninstall, providers: vec!["codex".into()] };
         assert!(!run_with_context(&uninstall, &context).failed);
+        // Ownership of an empty table cannot be proven across processes, so
+        // uninstall deletes only hash-proven trust entries and leaves the
+        // empty [hooks.state] skeleton behind; codex ignores it.
+        let state = codex_state_table(&context);
+        assert!(state.is_empty(), "only the empty skeleton may remain: {state:?}");
         let text = fs::read_to_string(context.home.join(".codex/config.toml")).unwrap();
-        assert!(!text.contains("hooks"), "empty trust tables must not linger: {text}");
+        assert!(!text.contains("trusted_hash"), "{text}");
     }
 
     #[test]
