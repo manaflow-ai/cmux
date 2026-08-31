@@ -60,6 +60,11 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     ///   - irohDirectOnlyDialCandidates: The per-Computer Direct method's
     ///     complete path allowlist for an Iroh route. Ignored for other route
     ///     kinds; `nil` = the normal Iroh dial plan.
+    ///   - admitsReplacementDialAlongsideInstalledSession: Make-before-break.
+    ///     Lets this client's dial share the physical route with the ONE
+    ///     installed session it replaces, instead of being registry-gated
+    ///     behind that session's live lease. Only the roaming relay swap
+    ///     passes `true`; every other dial stays exclusive.
     ///   - transportConnectObserver: Optional synchronous sink for privacy-safe
     ///     transport dial lifecycle events. The observer must return immediately.
     public init(
@@ -71,6 +76,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         userTailscalePairingAuthorization: CmxUserTailscalePairingAuthorization? = nil,
         expectedPeerInstanceTag: String? = nil,
         irohDirectOnlyDialCandidates: [CmxIrohDirectDialCandidate]? = nil,
+        admitsReplacementDialAlongsideInstalledSession: Bool = false,
         connectAttemptRegistry: MobileRPCConnectAttemptRegistry = MobileRPCConnectAttemptRegistry(),
         stackTokenGate: RPCStackTokenGate? = nil,
         stackTokenForceRefreshGate: RPCStackTokenGate? = nil,
@@ -162,6 +168,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 route: route
             ),
             connectAttemptRegistry: connectAttemptRegistry,
+            admitsReplacementDialAlongsideInstalledSession:
+                admitsReplacementDialAlongsideInstalledSession,
             abandonedConnectCleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
             lateAbandonedConnectCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds,
             makeTransport: { [runtime, transportRequest, lifecycleGate] in

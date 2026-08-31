@@ -116,6 +116,15 @@ extension MobileShellComposite {
                 break
             }
         }
+        // Relay roaming is make-before-break: while connected over the relay
+        // WebSocket, a network path change dials a parallel replacement and
+        // swaps only once it is admitted, so a WiFi-to-cellular move repaints
+        // without the probe-teardown-redial gap. Every other trigger and
+        // every other route kind keeps the probe-first recovery below.
+        if case .networkChange = trigger,
+           startRoamingRelaySwapIfEligible(trigger: trigger) {
+            return
+        }
         let connectionMethodChanged: Bool
         if case .connectionMethodChanged = trigger {
             connectionMethodChanged = true
@@ -166,7 +175,24 @@ extension MobileShellComposite {
         if connectionRecoveryOwner.isRedialingOrValidating {
             let replacementIsInstalled = connectionRecoveryOwner.isValidatingReplacement
                 || connectionRecoveryOwner.activeAttempt?.sourceConnectionGeneration != connectionGeneration
-            guard replacementIsInstalled else { return }
+            guard replacementIsInstalled else {
+                // The serving connection died while a roaming replacement was
+                // still dialing. That in-flight dial IS the recovery: record
+                // the death so a failed dial escalates to teardown + retry
+                // instead of leaving a dead session published as connected,
+                // and stop suppressing the reconnecting UI.
+                if let attempt = connectionRecoveryOwner.activeAttempt,
+                   attempt.id == roamingSwapAttemptID,
+                   !roamingSwapOldClientDied {
+                    roamingSwapOldClientDied = true
+                    applyConnectionRecoveryOwnerState()
+                    MobileDebugLog.anchormux(
+                        "roaming.swap serving connection died mid-dial "
+                            + "trigger=\(trigger.description)"
+                    )
+                }
+                return
+            }
             guard failConnectionRecoveryReplacement(failure: .connectionClosed) else { return }
             connectionState = .disconnected
             macConnectionStatus = .unavailable
@@ -396,7 +422,7 @@ extension MobileShellComposite {
     /// this exists so an await that escapes them (a wedged FFI close, a
     /// continuation that never resumes) degrades into a bounded outage
     /// instead of an owner that silently coalesces every later trigger.
-    private func startConnectionRecoveryAttemptDeadline(
+    func startConnectionRecoveryAttemptDeadline(
         _ attempt: MobileConnectionRecoveryOwner.Attempt
     ) {
         connectionRecoveryAttemptDeadlineTask?.cancel()
@@ -496,7 +522,7 @@ extension MobileShellComposite {
         ))
     }
 
-    private func recordConnectionRecoveryFailed(
+    func recordConnectionRecoveryFailed(
         _ attempt: MobileConnectionRecoveryOwner.Attempt,
         failure: DiagnosticFailureKind
     ) {
@@ -511,7 +537,7 @@ extension MobileShellComposite {
     }
 
     /// A peer alias is stable for this process but never exports the Mac ID.
-    private var activePeerDiagnosticAlias: UInt32? {
+    var activePeerDiagnosticAlias: UInt32? {
         DiagnosticCorrelation().handle(
             for: activeTicket?.macDeviceID ?? foregroundMacDeviceID
         )
@@ -541,6 +567,14 @@ extension MobileShellComposite {
             connectionRecoveryAttemptDeadlineTask?.cancel()
             connectionRecoveryAttemptDeadlineTask = nil
         }
+        // Roaming tracking is scoped to its exact attempt: once the owner
+        // settles to idle (or another attempt claims the owner) the marker and
+        // its old-client-death evidence expire with it.
+        if roamingSwapAttemptID != nil,
+           connectionRecoveryOwner.activeAttempt?.id != roamingSwapAttemptID {
+            roamingSwapAttemptID = nil
+            roamingSwapOldClientDied = false
+        }
         switch connectionRecoveryOwner.phase {
         case .idle:
             isRecoveringConnection = false
@@ -552,10 +586,21 @@ extension MobileShellComposite {
             // UI (the picker status line and terminal status pill).
             isRecoveringConnection = false
             connectionRecoveryFailed = false
-        case .redialing, .validatingReplacement:
-            isRecoveringConnection = true
-            connectionRecoveryFailed = false
-            if connectionState == .connected { markMacConnectionReconnecting() }
+        case .redialing(let attempt), .validatingReplacement(let attempt, _):
+            // A roaming make-before-break attempt keeps the old connection
+            // serving during the dial and through post-swap validation, so
+            // it stays visually indistinguishable from a probe until the old
+            // client actually dies.
+            if attempt.id == roamingSwapAttemptID,
+               !roamingSwapOldClientDied,
+               connectionState == .connected {
+                isRecoveringConnection = false
+                connectionRecoveryFailed = false
+            } else {
+                isRecoveringConnection = true
+                connectionRecoveryFailed = false
+                if connectionState == .connected { markMacConnectionReconnecting() }
+            }
         case .failed:
             isRecoveringConnection = false
             connectionRecoveryFailed = true
@@ -700,6 +745,7 @@ extension MobileShellComposite {
         automaticReconnectAccountID: String? = nil,
         recordsPairingAttempt: Bool = false,
         knownPairing: MobilePairedMac? = nil,
+        makeBeforeBreak: Bool = false,
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> StoredMacReconnectOutcome {
         await connectStoredMacOutcome(
@@ -713,12 +759,19 @@ extension MobileShellComposite {
             automaticReconnectAccountID: automaticReconnectAccountID,
             recordsPairingAttempt: recordsPairingAttempt,
             knownPairing: knownPairing,
+            makeBeforeBreak: makeBeforeBreak,
             ifStillCurrent: ifStillCurrent
         )
     }
 
     /// Connects through a stored route set while enforcing the caller's exact
     /// authenticated instance-authority requirement.
+    ///
+    /// `makeBeforeBreak`: the live foreground client keeps serving while the
+    /// replacement dials (see `connect(ticket:…makeBeforeBreak:)`); a failed
+    /// dial reports failure WITHOUT touching the serving connection, and
+    /// success is judged by the swap actually replacing the client rather
+    /// than by the connected state the old client already provides.
     @discardableResult
     private func connectStoredMacOutcome(
         name: String,
@@ -729,9 +782,12 @@ extension MobileShellComposite {
         automaticReconnectAccountID: String? = nil,
         recordsPairingAttempt: Bool = false,
         knownPairing: MobilePairedMac? = nil,
+        makeBeforeBreak: Bool = false,
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> StoredMacReconnectOutcome {
         guard ifStillCurrent?() ?? true else { return .superseded }
+        let servingClientBeforeMakeBeforeBreakDial =
+            makeBeforeBreak ? remoteClient : nil
         // The caller's freshly loaded row is authoritative for the method:
         // during startup restore the published `pairedMacs` list backing the
         // by-ID resolver is not loaded yet and would silently fall back to
@@ -796,6 +852,7 @@ extension MobileShellComposite {
                     legacyTailscaleRoutes: legacyTailscaleRoutes,
                     pairedMacDeviceID: pairedMacDeviceID,
                     instanceTagExpectation: instanceTagExpectation,
+                    makeBeforeBreak: makeBeforeBreak,
                     ifStillCurrent: ifStillCurrent
                 )
                 guard ifStillCurrent?() ?? true else { return .superseded }
@@ -811,7 +868,16 @@ extension MobileShellComposite {
                         accountID: automaticReconnectAccountID
                     )
                 }
-                if !disconnectForAuthorizationFailureIfNeeded(error) {
+                let servingConnectionSurvivedMakeBeforeBreakDial =
+                    makeBeforeBreak
+                        && connectionState == .connected
+                        && remoteClient != nil
+                        && remoteClient === servingClientBeforeMakeBeforeBreakDial
+                if !disconnectForAuthorizationFailureIfNeeded(error),
+                   !servingConnectionSurvivedMakeBeforeBreakDial {
+                    // A failed make-before-break replacement leaves the
+                    // still-serving connection exactly as it was; every other
+                    // failed dial resolves to disconnected as before.
                     connectionState = .disconnected
                     macConnectionStatus = .unavailable
                     clearRemoteConnectionContext()
@@ -842,9 +908,15 @@ extension MobileShellComposite {
             }
         }
 
+        // A make-before-break dial cannot infer success from the connected
+        // state its still-serving predecessor already provides: the swap must
+        // have actually replaced the foreground client.
+        let swapReplacedServingClient = !makeBeforeBreak
+            || remoteClient !== servingClientBeforeMakeBeforeBreakDial
         let connected = (ifStillCurrent?() ?? true)
             && connectionState == .connected
             && remoteClient != nil
+            && swapReplacedServingClient
             && foregroundMacDeviceID == pairedMacDeviceID
         if connected, let automaticReconnectAccountID {
             clearAutomaticReconnectBackoff(accountID: automaticReconnectAccountID)
