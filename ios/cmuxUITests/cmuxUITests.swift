@@ -3911,10 +3911,12 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(waitForHittable(nonmatchingRow, timeout: 3))
         XCTAssertTrue(waitForHittable(readRow, timeout: 3))
 
-        let unreadFilter = app.descendants(matching: .any)["MobileNotificationFeedFilterUnread"]
-        XCTAssertTrue(waitForHittable(unreadFilter, timeout: 3))
-        unreadFilter.tap()
-        XCTAssertTrue(unreadFilter.isSelected)
+        let filterMenu = app.buttons["MobileNotificationFeedFilterMenu"]
+        XCTAssertTrue(waitForHittable(filterMenu, timeout: 3))
+        filterMenu.tap()
+        let unreadOption = app.buttons["Unread"]
+        XCTAssertTrue(unreadOption.waitForExistence(timeout: 3))
+        unreadOption.tap()
         XCTAssertTrue(waitForNotHittable(readRow, timeout: 3))
 
         let searchButton = app.tabBars.buttons
@@ -3922,7 +3924,7 @@ final class cmuxUITests: XCTestCase {
             .firstMatch
         XCTAssertTrue(searchButton.waitForExistence(timeout: 3))
         tap(searchButton, in: app)
-        XCTAssertTrue(unreadFilter.isSelected)
+        // The unread filter chosen in the menu must survive the tab switch.
         XCTAssertTrue(waitForNotHittable(readRow, timeout: 3))
 
         let searchField = app.searchFields["Search notifications"]
@@ -4102,23 +4104,24 @@ final class cmuxUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["Notification feed"].exists)
         XCTAssertFalse(app.staticTexts["Context"].exists)
         XCTAssertFalse(app.staticTexts["Opens in"].exists)
-        XCTAssertLessThanOrEqual(approvalTitle.frame.maxY, approvalWorkspace.frame.minY)
-        XCTAssertLessThanOrEqual(approvalWorkspace.frame.minY - approvalTitle.frame.maxY, 6)
-        XCTAssertEqual(approvalWorkspace.frame.midY, approvalComputer.frame.midY, accuracy: 2)
-        XCTAssertLessThanOrEqual(approvalWorkspace.frame.maxY, approvalBody.frame.minY)
-        XCTAssertGreaterThanOrEqual(approvalWorkspace.frame.height, approvalComputer.frame.height)
+        // Workspace-first anatomy: the workspace is the headline, the
+        // notification title sits below it beside the computer name.
+        XCTAssertLessThanOrEqual(approvalWorkspace.frame.maxY, approvalTitle.frame.minY)
+        XCTAssertLessThanOrEqual(approvalTitle.frame.minY - approvalWorkspace.frame.maxY, 6)
+        XCTAssertEqual(approvalTitle.frame.midY, approvalComputer.frame.midY, accuracy: 2)
+        XCTAssertLessThanOrEqual(approvalTitle.frame.maxY, approvalBody.frame.minY)
 
         XCTAssertLessThanOrEqual(approvalRow.frame.height, 135)
+        XCTAssertEqual(approvalRow.label, "cmux iOS")
         let approvalValue = try XCTUnwrap(approvalRow.value as? String)
-        let workspaceRange = try XCTUnwrap(approvalValue.range(of: "cmux iOS"))
+        let sourceRange = try XCTUnwrap(approvalValue.range(of: "From: Codex needs approval"))
         let bodyRange = try XCTUnwrap(approvalValue.range(of: "The feed is ready"))
-        let computerRange = try XCTUnwrap(approvalValue.range(of: "Studio"))
-        XCTAssertTrue(approvalValue.contains("Workspace: cmux iOS"))
-        XCTAssertTrue(approvalValue.contains("Computer: Studio"))
+        let computerRange = try XCTUnwrap(approvalValue.range(of: "Computer: Studio"))
+        XCTAssertFalse(approvalValue.contains("Workspace:"))
         XCTAssertFalse(approvalValue.contains("Context:"))
         XCTAssertFalse(approvalValue.contains("Pane:"))
         XCTAssertFalse(approvalValue.contains("Notification feed"))
-        XCTAssertLessThan(workspaceRange.lowerBound, bodyRange.lowerBound)
+        XCTAssertLessThan(sourceRange.lowerBound, bodyRange.lowerBound)
         XCTAssertLessThan(bodyRange.lowerBound, computerRange.lowerBound)
 
         let unavailableRow = app.descendants(matching: .any)[
@@ -4126,13 +4129,17 @@ final class cmuxUITests: XCTestCase {
         ]
         XCTAssertTrue(unavailableRow.waitForExistence(timeout: 3))
         let unavailableValue = try XCTUnwrap(unavailableRow.value as? String)
-        XCTAssertTrue(unavailableValue.contains("Workspace: Cloud Builder"))
+        XCTAssertEqual(unavailableRow.label, "Cloud Builder")
+        XCTAssertTrue(unavailableValue.contains("From: Input needed"))
         XCTAssertTrue(unavailableValue.contains("Computer: Build Mac · Unavailable"))
         XCTAssertFalse(unavailableValue.contains("Pane:"))
 
-        let unreadFilter = app.descendants(matching: .any)["MobileNotificationFeedFilterUnread"]
-        XCTAssertTrue(unreadFilter.waitForExistence(timeout: 3))
-        unreadFilter.tap()
+        let filterMenu = app.buttons["MobileNotificationFeedFilterMenu"]
+        XCTAssertTrue(filterMenu.waitForExistence(timeout: 3))
+        filterMenu.tap()
+        let unreadOption = app.buttons["Unread"]
+        XCTAssertTrue(unreadOption.waitForExistence(timeout: 3))
+        unreadOption.tap()
 
         XCTAssertTrue(approvalRow.waitForExistence(timeout: 3))
         approvalRow.swipeRight()
@@ -4141,9 +4148,10 @@ final class cmuxUITests: XCTestCase {
         markRead.tap()
         XCTAssertTrue(approvalRow.waitForNonExistence(timeout: 3))
 
-        let allFilter = app.descendants(matching: .any)["MobileNotificationFeedFilterAll"]
-        XCTAssertTrue(allFilter.waitForExistence(timeout: 3))
-        allFilter.tap()
+        filterMenu.tap()
+        let allOption = app.buttons["All Notifications"]
+        XCTAssertTrue(allOption.waitForExistence(timeout: 3))
+        allOption.tap()
 
         let completedRow = app.descendants(matching: .any)["MobileNotificationFeedRow-macbook-tests-passed"]
         XCTAssertTrue(completedRow.waitForExistence(timeout: 3))
@@ -4196,7 +4204,19 @@ final class cmuxUITests: XCTestCase {
 
         let markAllRead = app.buttons["MobileNotificationFeedMarkAllRead"]
         XCTAssertTrue(markAllRead.waitForExistence(timeout: 3))
+
+        // Mark-all-read is gated behind a confirmation alert. Cancel first to
+        // prove the gate protects the unread state, then confirm.
         markAllRead.tap()
+        let markAllReadAlert = app.alerts["Mark all notifications as read?"]
+        XCTAssertTrue(markAllReadAlert.waitForExistence(timeout: 3))
+        markAllReadAlert.buttons["Cancel"].tap()
+        XCTAssertTrue(markAllReadAlert.waitForNonExistence(timeout: 3))
+        XCTAssertTrue(markAllRead.waitForExistence(timeout: 3))
+
+        markAllRead.tap()
+        XCTAssertTrue(markAllReadAlert.waitForExistence(timeout: 3))
+        markAllReadAlert.buttons["Mark All Read"].tap()
         XCTAssertTrue(markAllRead.waitForNonExistence(timeout: 3))
 
         let workspacesTab = app.tabBars.buttons["Workspaces"]
