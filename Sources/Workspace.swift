@@ -2170,7 +2170,12 @@ extension Workspace {
             // behind as a less-restrictive manual restore path. Persistent SSH
             // reattach keeps the continuation snapshot above, so its binding is
             // retained while its captured startup input remains suppressed.
-            let resumeBindingForRetention = restorableAgent != nil && restorableAgentForContinuation == nil
+            // A process-detected/plain SSH binding is independent of that
+            // agent recipe and must remain available for terminal reattach.
+            let shouldDropRejectedAgentBinding = restorableAgent != nil &&
+                restorableAgentForContinuation == nil &&
+                resumeBinding?.isAgentHookBinding == true
+            let resumeBindingForRetention = shouldDropRejectedAgentBinding
                 ? nil
                 : (effectiveResumeBindingForStartup ?? resumeBinding)
             if let storedResumeBinding = resumeBindingForRetention {
