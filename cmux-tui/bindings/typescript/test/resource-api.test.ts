@@ -939,6 +939,122 @@ test("optional fields and expected revisions reach the wire", async () => {
   client.close();
 });
 
+test("userland agent plugins expose generic journal data and terminal metadata", async () => {
+  const manifest = {
+    producer_id: "screen-detector",
+    namespace: "plugin.screen-detector",
+    manifest_version: 1,
+    max_sensitivity: "metadata",
+    permissions: ["journal.append.plugin.screen-detector"],
+    events: [{
+      kind: "plugin.screen-detector.agent.state.changed",
+      schema_version: 1,
+      class: "state",
+      replay: "required",
+      sensitivity: "metadata",
+      payload_schema: { type: "object" },
+    }],
+  };
+  const transport = new FakeTransport((request, current) => {
+    switch (request.operation) {
+      case "agent.list":
+        current.ok(request, [{
+          id: AGENT,
+          session_id: SESSION,
+          terminal_id: TERMINAL,
+          state: "working",
+          source: "plugin",
+          updated_at_ms: "10",
+          source_session: "pid:42",
+        }]);
+        return;
+      case "terminal.screen.read":
+        current.ok(request, {
+          text: "working",
+          revision: "42",
+          osc_progress: "4;1;50",
+          cols: 80,
+          rows: 24,
+          cursor_row: 0,
+          cursor_col: 7,
+          cursor_visible: true,
+        });
+        return;
+      case "session.journal.producer.list":
+        current.ok(request, { producers: [manifest] });
+        return;
+      case "session.journal.producer.put":
+        current.ok(request, {
+          value: {
+            producer_id: "screen-detector",
+            manifest_version: 1,
+            namespace: "plugin.screen-detector",
+            sequence: "11",
+            event_id: "event-11",
+          },
+          generation: "generation-a",
+          revision: "12",
+          replayed: false,
+        });
+        return;
+      case "session.journal.append":
+        current.ok(request, {
+          value: {
+            producer_id: "screen-detector",
+            sequence: "13",
+            event_id: "event-13",
+          },
+          generation: "generation-a",
+          revision: "14",
+          replayed: false,
+        });
+        return;
+      default:
+        throw new Error(`unexpected operation ${request.operation}`);
+    }
+  });
+  const client = new Client({ transport, randomHex128: () => HEX_A });
+  const session = client.session(SESSION);
+  const terminal = session.terminal(TERMINAL);
+
+  const agents = await session.listAgents();
+  assert.equal(agents[0]?.source, "plugin");
+  const screen = await terminal.readScreen();
+  assert.equal(screen.revision, "42");
+  assert.equal(screen.oscProgress, "4;1;50");
+
+  const producers = await session.listJournalProducers();
+  assert.equal(producers[0]?.producerId, "screen-detector");
+  const installed = await session.putJournalProducer(manifest, {
+    idempotencyKey: "manifest-1",
+  });
+  assert.equal(installed.value.eventId, "event-11");
+  const appended = await session.appendJournal({
+    producerId: "screen-detector",
+    manifestVersion: 1,
+    kind: "plugin.screen-detector.agent.state.changed",
+    schemaVersion: 1,
+    payload: { state: "working" },
+  }, { idempotencyKey: "event-1" });
+  assert.equal(appended.value.sequence, "13");
+
+  const put = transport.requests.find(
+    (request) => request.operation === "session.journal.producer.put",
+  );
+  assert.deepEqual((put?.params as Envelope).manifest, manifest);
+  const append = transport.requests.find(
+    (request) => request.operation === "session.journal.append",
+  );
+  assert.deepEqual((append?.params as Envelope).event, {
+    producer_id: "screen-detector",
+    manifest_version: 1,
+    kind: "plugin.screen-detector.agent.state.changed",
+    schema_version: 1,
+    payload: { state: "working" },
+  });
+  client.close();
+});
+
 test("indeterminate mutations are typed and never retried", async () => {
   const transport = new FakeTransport((request, current) => {
     current.emit({
