@@ -131,10 +131,11 @@ class MockCmuxSocket:
         elif method == "agent.resolve_delivery_target":
             params = payload.get("params")
             pid_resolution = params.get("pid_resolution") if isinstance(params, dict) else None
+            source = "pid" if isinstance(params, dict) and "pid" in params else "surface"
             result = {
                 "workspace_id": self.workspace_id,
                 "surface_id": self.surface_id,
-                "source": "pid",
+                "source": source,
                 "pid_resolution": pid_resolution,
             }
         elif method == "surface.resume.set":

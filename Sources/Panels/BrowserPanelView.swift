@@ -5542,6 +5542,10 @@ struct WebViewRepresentable: NSViewRepresentable {
         private var hostedWebViewConstraints: [NSLayoutConstraint] = []
         private weak var localInlineSlotView: WindowBrowserSlotView?
         private var localInlineSlotConstraints: [NSLayoutConstraint] = []
+        // The SwiftUI anchor remains mounted while the live web view is
+        // reparented into WindowBrowserHostView. It must not remain an
+        // AppKit hit-test target during that portal-owned interval.
+        private var isWindowPortalHosting = false
         private weak var hostedInspectorSideDockContainerView: HostedInspectorSideDockContainerView?
         private var hostedInspectorSideDockConstraints: [NSLayoutConstraint] = []
         private weak var hostedInspectorFrontendWebView: WKWebView?
@@ -6045,6 +6049,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 
         func prepareForWindowPortalHosting() {
+            isWindowPortalHosting = true
             cancelHostedWebKitPresentationRefresh()
             hostedInspectorDockConfigurationSyncScheduler.cancel()
             notifyHostedWebKitHidden(reason: "prepareForWindowPortalHosting")
@@ -6052,6 +6057,10 @@ struct WebViewRepresentable: NSViewRepresentable {
             hostedInspectorFrontendWebView = nil
             lastHostedInspectorManualSideDockAllowed = nil
             lastHostedInspectorDetachedFromHostWindow = nil
+        }
+
+        func setWindowPortalHosting(_ isHosting: Bool) {
+            isWindowPortalHosting = isHosting
         }
 
         func clearStaleHostedInspectorOwnershipState() {
@@ -6506,6 +6515,10 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 
         override func hitTest(_ point: NSPoint) -> NSView? {
+            // WindowBrowserHostView owns the live web view while portal mode is
+            // active. Returning nil here prevents a retained, transparent
+            // SwiftUI anchor from stealing the sidebar divider underneath it.
+            guard !isWindowPortalHosting else { return nil }
             let hostedInspectorHit = hostedInspectorDividerHit(at: point)
             updateDividerCursor(at: point, hostedInspectorHit: hostedInspectorHit)
             let passThrough = shouldPassThroughToSidebarResizer(at: point, hostedInspectorHit: hostedInspectorHit)
@@ -7378,6 +7391,7 @@ struct WebViewRepresentable: NSViewRepresentable {
 
     private func updateUsingLocalInlineHosting(_ nsView: NSView, context: Context, webView: WKWebView) -> Bool {
         guard let host = nsView as? HostContainerView else { return false }
+        host.setWindowPortalHosting(false)
         let slotView = host.ensureLocalInlineSlotView()
         slotView.setDesignComposer(designComposer)
         let isAlreadyInLocalHost = host.containsManagedLocalInlineContent(webView)
@@ -7652,7 +7666,8 @@ struct WebViewRepresentable: NSViewRepresentable {
         host.onDidMoveToWindow = { [weak host, weak webView, weak coordinator, weak portalAnchorView, weak browserPanel = panel] in
             guard let host, let webView, let coordinator, let portalAnchorView, let browserPanel else { return }
             guard coordinator.attachGeneration == generation else { return }
-            guard currentPaneDropContext()?.paneId.id == paneId.id else { return }
+            guard let currentPaneDropContext = currentPaneDropContext(),
+                  currentPaneDropContext.paneId.id == paneId.id else { return }
             guard browserPanel.claimPortalHost(
                 hostId: ObjectIdentifier(host),
                 paneId: paneId,
@@ -7666,7 +7681,8 @@ struct WebViewRepresentable: NSViewRepresentable {
                 webView: webView,
                 to: portalAnchorView,
                 visibleInUI: coordinator.desiredPortalVisibleInUI,
-                zPriority: coordinator.desiredPortalZPriority
+                zPriority: coordinator.desiredPortalZPriority,
+                paneDropContext: currentPaneDropContext
             )
             BrowserWindowPortalRegistry.refresh(
                 webView: webView,
@@ -7676,7 +7692,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 for: webView,
                 height: coordinator.desiredPortalVisibleInUI ? paneTopChromeHeight : 0
             )
-            BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: activePaneDropContext)
+            BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: currentPaneDropContext)
             BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: activeSearchOverlay)
             BrowserWindowPortalRegistry.updateDesignComposer(for: webView, configuration: activeDesignComposer)
             BrowserWindowPortalRegistry.updateOmnibarSuggestions(for: webView, configuration: activeOmnibarSuggestions)
@@ -7686,7 +7702,8 @@ struct WebViewRepresentable: NSViewRepresentable {
         host.onGeometryChanged = { [weak host, weak webView, weak coordinator, weak portalAnchorView, weak browserPanel = panel] in
             guard let host, let webView, let coordinator, let portalAnchorView, let browserPanel else { return }
             guard coordinator.attachGeneration == generation else { return }
-            guard currentPaneDropContext()?.paneId.id == paneId.id else { return }
+            guard let currentPaneDropContext = currentPaneDropContext(),
+                  currentPaneDropContext.paneId.id == paneId.id else { return }
             guard browserPanel.claimPortalHost(
                 hostId: ObjectIdentifier(host),
                 paneId: paneId,
@@ -7703,7 +7720,8 @@ struct WebViewRepresentable: NSViewRepresentable {
                     webView: webView,
                     to: portalAnchorView,
                     visibleInUI: coordinator.desiredPortalVisibleInUI,
-                    zPriority: coordinator.desiredPortalZPriority
+                    zPriority: coordinator.desiredPortalZPriority,
+                    paneDropContext: currentPaneDropContext
                 )
                 BrowserWindowPortalRegistry.refresh(
                     webView: webView,
@@ -7713,7 +7731,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                     for: webView,
                     height: coordinator.desiredPortalVisibleInUI ? paneTopChromeHeight : 0
                 )
-                BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: activePaneDropContext)
+                BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: currentPaneDropContext)
                 BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: activeSearchOverlay)
                 BrowserWindowPortalRegistry.updateDesignComposer(for: webView, configuration: activeDesignComposer)
                 BrowserWindowPortalRegistry.updateOmnibarSuggestions(for: webView, configuration: activeOmnibarSuggestions)
@@ -7746,7 +7764,8 @@ struct WebViewRepresentable: NSViewRepresentable {
                     webView: webView,
                     to: portalAnchorView,
                     visibleInUI: coordinator.desiredPortalVisibleInUI,
-                    zPriority: coordinator.desiredPortalZPriority
+                    zPriority: coordinator.desiredPortalZPriority,
+                    paneDropContext: activePaneDropContext
                 )
                 // Force a rendering-state reattach after portal host replacement
                 // (e.g. after a pane split). Without this, WKWebView can freeze
@@ -7997,7 +8016,8 @@ struct WebViewRepresentable: NSViewRepresentable {
             return BrowserPaneDropContext(
                 workspaceId: panel.workspaceId,
                 panelId: panel.id,
-                paneId: paneId
+                paneId: paneId,
+                isDockHosted: true
             )
         }
         guard let app = AppDelegate.shared,
@@ -8009,7 +8029,8 @@ struct WebViewRepresentable: NSViewRepresentable {
         return BrowserPaneDropContext(
             workspaceId: panel.workspaceId,
             panelId: panel.id,
-            paneId: resolvedPaneId
+            paneId: resolvedPaneId,
+            isDockHosted: false
         )
     }
 }

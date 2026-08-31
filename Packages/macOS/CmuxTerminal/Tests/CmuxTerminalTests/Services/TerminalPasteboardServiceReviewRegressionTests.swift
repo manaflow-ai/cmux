@@ -1,17 +1,9 @@
 import AppKit
+import GhosttyKit
 import Testing
 
 @testable import CmuxTerminal
 
-// SAFETY: the detached cancellation probe exclusively owns these handles until
-// its result is awaited; cleanup and assertions happen afterward on MainActor.
-private struct CancelledPasteboardWriteFixture: @unchecked Sendable {
-    let service: TerminalPasteboardService
-    let pasteboard: NSPasteboard
-    let item: NSPasteboardItem
-}
-
-@MainActor
 @Suite("Terminal pasteboard service review regressions", .serialized)
 struct TerminalPasteboardServiceReviewRegressionTests {
     @Test("cancelled caller observes an admitted clipboard write")
@@ -32,26 +24,22 @@ struct TerminalPasteboardServiceReviewRegressionTests {
             standardPasteboard: standard,
             selectionPasteboard: selection
         )
-        let item = NSPasteboardItem()
-        #expect(item.setString("replacement", forType: .string))
-
-        let fixture = CancelledPasteboardWriteFixture(
-            service: service,
-            pasteboard: standard,
-            item: item
-        )
-        // This probe exercises the service's intentionally nonisolated caller
-        // contract; the unchecked fixture above makes its exclusive lifetime
-        // explicit to Swift 6.
-        let write = Task.detached {
-            await fixture.service.replaceContentsAndWait(
-                of: fixture.pasteboard,
-                with: [fixture.item]
+        let write = Task<TerminalPasteboardMutationResult?, Never> {
+            let item = NSPasteboardItem()
+            guard item.setString("replacement", forType: .string),
+                  let pasteboard = service.pasteboard(
+                      for: GHOSTTY_CLIPBOARD_STANDARD
+                  ) else {
+                return nil
+            }
+            return await service.replaceContentsAndWait(
+                of: pasteboard,
+                with: [item]
             )
         }
         write.cancel()
 
-        let result = await write.value
+        let result = try #require(await write.value)
         #expect(result.status == .written)
         #expect(result.didWrite)
         #expect(standard.string(forType: .string) == "replacement")
