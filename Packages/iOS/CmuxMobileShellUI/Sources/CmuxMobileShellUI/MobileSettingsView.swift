@@ -54,12 +54,6 @@ struct MobileSettingsView: View {
 #endif
     @State private var showingOnboarding = false
     @State private var showingSetupHelp = false
-    /// The connection row a focus switch is in flight for, so that row shows a
-    /// spinner and other rows refuse a competing switch until it resolves.
-    @State private var switchingConnectionID: String?
-    /// The display name a focus switch just failed for; non-nil presents the
-    /// failure alert.
-    @State private var switchFailedComputerName: String?
     #if DEBUG
     @State private var showingToastGallery = false
     /// Seconds between tapping "Run Toast Demo" and the first toast, so you
@@ -125,13 +119,12 @@ struct MobileSettingsView: View {
                 // empty header. One row per connected Mac: transport is per
                 // computer (each dials its own configured method), so the old
                 // single "Active Transport" row became a per-row trailing
-                // label, and selecting a row switches focus to that computer.
+                // label, and a row navigates into that computer's detail.
                 if hasConnectionRows {
                     Section {
-                        if let connections = store?.liveMacConnections,
-                           !connections.isEmpty {
-                            ForEach(connections) { connection in
-                                connectionRow(connection)
+                        if let store, !store.liveMacConnections.isEmpty {
+                            ForEach(store.liveMacConnections) { connection in
+                                connectionRow(connection, store: store)
                             }
                         } else if !connectedHostName.isEmpty {
                             LabeledContent(
@@ -170,7 +163,7 @@ struct MobileSettingsView: View {
                     } footer: {
                         Text(L10n.string(
                             "mobile.settings.connectionFooter",
-                            defaultValue: "Select a computer to focus it. Each computer connects using its own method, shown on the right."
+                            defaultValue: "Each computer connects using its own method, shown on the right. Select one to inspect or configure it."
                         ))
                     }
                 }
@@ -503,17 +496,6 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsVersionRow")
                 }
             }
-            .alert(
-                connectionSwitchFailedTitle,
-                isPresented: connectionSwitchFailedIsPresented
-            ) {
-                Button(
-                    L10n.string("mobile.common.ok", defaultValue: "OK"),
-                    role: .cancel
-                ) {}
-            } message: {
-                Text(connectionSwitchFailedMessage)
-            }
             .task {
                 notificationsEnabled = pushCoordinator.isEnabled
                 await pushCoordinator.refreshReadiness()
@@ -641,115 +623,30 @@ struct MobileSettingsView: View {
         }
     }
 
-    /// One connected Mac: a selection row (checkmark = focused computer) whose
-    /// trailing text is the transport that connection actually dialed. Tapping
-    /// a non-focused row switches focus to that Mac.
+    /// One connected Mac: name plus the transport that connection actually
+    /// dialed, navigating into the computer's detail (method, addresses,
+    /// routes, power) — the same screen the Computers list opens. Focus roles
+    /// are internal plumbing and deliberately not surfaced here.
     private func connectionRow(
-        _ connection: MobileMacConnectionSnapshot
+        _ connection: MobileMacConnectionSnapshot,
+        store: CMUXMobileShellStore
     ) -> some View {
-        Button {
-            selectConnection(connection)
+        NavigationLink {
+            MacComputerDetailView(
+                store: store,
+                macDeviceID: connection.macDeviceID,
+                instanceTag: connection.instanceTag,
+                focusedRouteKind: connection.routeKind
+            )
         } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "checkmark")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.tint)
-                    .opacity(connection.role == .focused ? 1 : 0)
-                    .accessibilityHidden(true)
-                Text(connection.displayName)
-                    .foregroundStyle(.primary)
-                Spacer()
-                if switchingConnectionID == connection.id {
-                    ProgressView()
-                } else if let routeKind = connection.routeKind {
+            LabeledContent(connection.displayName) {
+                if let routeKind = connection.routeKind {
                     Text(transportName(routeKind))
-                        .foregroundStyle(.secondary)
                 }
             }
-            .contentShape(Rectangle())
         }
-        // Plain style keeps the row text primary/secondary (a default Form
-        // button would tint the whole label); only the checkmark carries the
-        // accent color.
-        .buttonStyle(.plain)
-        .disabled(switchingConnectionID != nil)
         .accessibilityIdentifier(
             "MobileSettingsMacConnection-\(connection.macDeviceID)"
-        )
-        .accessibilityLabel(connectionRowAccessibilityLabel(connection))
-        .accessibilityAddTraits(
-            connection.role == .focused ? .isSelected : []
-        )
-    }
-
-    private func connectionRowAccessibilityLabel(
-        _ connection: MobileMacConnectionSnapshot
-    ) -> String {
-        var parts = [connection.displayName]
-        if connection.role == .focused {
-            parts.append(L10n.string(
-                "mobile.settings.connectionFocused",
-                defaultValue: "Focused"
-            ))
-        }
-        if let routeKind = connection.routeKind {
-            parts.append(transportName(routeKind))
-        }
-        return parts.joined(separator: ", ")
-    }
-
-    /// Switch focus to the tapped connection. `switchToMac` promotes the live
-    /// control connection (or re-dials) and only persists the new active row on
-    /// success, so a failed switch leaves the current session intact.
-    private func selectConnection(_ connection: MobileMacConnectionSnapshot) {
-        guard connection.role != .focused,
-              switchingConnectionID == nil,
-              let store else { return }
-        switchingConnectionID = connection.id
-        let name = connection.displayName
-        Task {
-            let connected = await store.switchToMac(
-                macDeviceID: connection.macDeviceID,
-                instanceTag: connection.instanceTag
-            )
-            switchingConnectionID = nil
-            // A `false` while another switch is in flight means this attempt
-            // was superseded, not that the computer is unreachable; stay quiet.
-            if !connected, !store.isMacSwitchInFlight {
-                switchFailedComputerName = name
-            }
-        }
-    }
-
-    private var connectionSwitchFailedTitle: String {
-        String(
-            format: L10n.string(
-                "mobile.disconnected.connectFailedTitleFormat",
-                defaultValue: "Couldn't connect to %@"
-            ),
-            switchFailedComputerName ?? ""
-        )
-    }
-
-    /// The switch attempt owns the store's latest classified failure. Show it
-    /// with its guidance, falling back only when no specific reason exists.
-    private var connectionSwitchFailedMessage: String {
-        if let failure = MobileDisconnectedFailureCopy(
-            error: store?.connectionError,
-            guidance: store?.connectionErrorGuidance
-        ).combined {
-            return failure
-        }
-        return L10n.string(
-            "mobile.disconnected.connectFailedMessage",
-            defaultValue: "Make sure the computer is awake and online, then try again."
-        )
-    }
-
-    private var connectionSwitchFailedIsPresented: Binding<Bool> {
-        Binding(
-            get: { switchFailedComputerName != nil },
-            set: { if !$0 { switchFailedComputerName = nil } }
         )
     }
 

@@ -1146,13 +1146,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Select a computer to focus it. Each computer connects using its own method, shown on the right."
+            "value": "Each computer connects using its own method, shown on the right. Select one to inspect or configure it."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータを選択するとフォーカスが切り替わります。各コンピュータは右側に表示される、それぞれの方式で接続します。"
+            "value": "各コンピュータは右側に表示される、それぞれの方式で接続します。選択すると詳細の確認や設定ができます。"
           }
         }
       }
@@ -8123,23 +8123,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "コンピュータ"
-          }
-        }
-      }
-    },
-    "mobile.settings.connectionFocused": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Focused"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フォーカス中"
           }
         }
       }
