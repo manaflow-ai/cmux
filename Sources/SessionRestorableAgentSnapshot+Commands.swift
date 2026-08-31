@@ -265,9 +265,12 @@ extension SurfaceResumeBindingSnapshot {
         }
         var structuredLaunchCommand = launchCommand
         if let bindingEnvironment = environment, !bindingEnvironment.isEmpty {
-            var mergedEnvironment = structuredLaunchCommand.environment ?? [:]
-            mergedEnvironment.merge(bindingEnvironment) { _, bindingValue in bindingValue }
-            structuredLaunchCommand.environment = mergedEnvironment.isEmpty ? nil : mergedEnvironment
+            if var launch = structuredLaunchCommand {
+                var mergedEnvironment = launch.environment ?? [:]
+                mergedEnvironment.merge(bindingEnvironment) { _, bindingValue in bindingValue }
+                launch.environment = mergedEnvironment.isEmpty ? nil : mergedEnvironment
+                structuredLaunchCommand = launch
+            }
         }
         let agent = SessionRestorableAgentSnapshot(
             kind: agentKind,
