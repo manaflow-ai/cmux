@@ -16,7 +16,9 @@ permissions:
   actions: read
   contents: write
   issues: write
-  # PR timeline comments use the pull-request permission on GitHub's token.
+  # GitHub's pull_request_target token denied issue comments for fork PRs with
+  # this set to read, despite the endpoint documentation allowing issues:write.
+  # Keep write until that live behavior changes.
   pull-requests: write
   statuses: write
 
@@ -67,9 +69,17 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: >-
-          gh api --method PUT
-          --header 'Accept: application/vnd.github+json'
-          --header 'X-GitHub-Api-Version: 2022-11-28'
-          "repos/${GH_REPO}/issues/${PR_NUMBER}/lock"
-          --field lock_reason=resolved
+        run: |
+          set -euo pipefail
+          issue_endpoint="repos/${GH_REPO}/issues/${PR_NUMBER}"
+          lock_endpoint="${issue_endpoint}/lock"
+          if [[ "$(gh api "${issue_endpoint}" --jq '.locked')" == "true" ]]; then
+            echo "Pull request ${PR_NUMBER} is already locked"
+            exit 0
+          fi
+          gh api --method PUT \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "${lock_endpoint}" \
+            --field lock_reason=resolved
+          [[ "$(gh api "${issue_endpoint}" --jq '.locked')" == "true" ]]
