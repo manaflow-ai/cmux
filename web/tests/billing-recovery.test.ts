@@ -175,4 +175,64 @@ describe("billing purchase recovery", () => {
 
     expect(result?.kind).toBe("founders_edition");
   });
+
+  test("does not recover a Founder subscription without settled payment evidence", async () => {
+    const customer = {
+      id: "cus_unpaid_founder_fixture",
+      deleted: false,
+      email: "unpaid-founder@example.com",
+      metadata: {},
+    };
+    const subscription = {
+      id: "sub_unpaid_founder_fixture",
+      customer: customer.id,
+      status: "incomplete",
+      metadata: { founders_edition: "true" },
+      cancel_at_period_end: false,
+      items: { data: [] },
+    };
+    const sessionsList = mock(async (...args: unknown[]) => {
+      const options = (args[0] ?? {}) as Record<string, unknown>;
+      return {
+        data: [
+          {
+            id: options?.customer
+              ? "cs_unpaid_founder_customer_fixture"
+              : "cs_unpaid_founder_recent_fixture",
+            customer: customer.id,
+            customer_details: { email: customer.email },
+            payment_status: "unpaid",
+            metadata: { founders_edition: "true" },
+            subscription: subscription.id,
+          },
+        ],
+      };
+    });
+    const result = await findPaidBillingPurchaseByEmail(
+      customer.email,
+      {
+        db: {
+          select: () => {
+            throw new Error("no local database in this test");
+          },
+        } as never,
+        stripeClient: () => ({
+          customers: {
+            list: mock(async () => ({ data: [customer] })),
+          },
+          subscriptions: {
+            list: mock(async () => ({ data: [subscription] })),
+          },
+          checkout: {
+            sessions: {
+              list: sessionsList,
+            },
+          },
+        }) as never,
+      },
+    );
+
+    expect(result).toBeNull();
+    expect(sessionsList).toHaveBeenCalledTimes(2);
+  });
 });

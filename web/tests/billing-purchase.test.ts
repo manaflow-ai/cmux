@@ -1193,7 +1193,7 @@ describe("recordCheckoutCompletion", () => {
       { id: "other_user", primaryEmail: "buyer@example.com" },
     ]);
     const user = { id: "user_123", primaryEmail: null, clientReadOnlyMetadata: {}, update };
-    selectResults = [[], [], [], [{ id: "claim_1" }]];
+    selectResults = [[], [], [], [], [], [{ id: "claim_1" }]];
 
     await recordCheckoutCompletion(checkoutInput() as never, {
       db: fakeDb() as never,
@@ -1211,16 +1211,9 @@ describe("recordCheckoutCompletion", () => {
     });
   });
 
-  test("does not move a recovered customer back on a stale checkout replay", async () => {
-    const source = {
+  test("rejects an ordinary checkout when Stripe customer ownership differs", async () => {
+    const requestedUser = {
       id: "user_123",
-      isAnonymous: true,
-      primaryEmail: null,
-      clientReadOnlyMetadata: { cmuxPlan: "pro" },
-      update: mock(async () => undefined),
-    };
-    const target = {
-      id: "target_user",
       isAnonymous: false,
       isRestricted: false,
       primaryEmail: "buyer@example.com",
@@ -1228,24 +1221,29 @@ describe("recordCheckoutCompletion", () => {
       clientReadOnlyMetadata: { cmuxPlan: "pro" },
       update: mock(async () => undefined),
     };
-    const getUser = mock(async (rawID: unknown) => {
-      const id = rawID as string;
-      return id === target.id ? target : source;
-    });
-    selectResults = [[{ stackUserId: target.id, stackTeamId: null }]];
+    const mappedOwner = {
+      id: "mapped_owner",
+      isAnonymous: false,
+      isRestricted: false,
+      primaryEmail: "different@example.com",
+      primaryEmailVerified: true,
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+      update: mock(async () => undefined),
+    };
+    const getUser = mock(async (rawID: unknown) =>
+      (rawID as string) === mappedOwner.id ? mappedOwner : requestedUser,
+    );
+    selectResults = [[{ stackUserId: mappedOwner.id, stackTeamId: null }]];
 
-    const result = await recordCheckoutCompletion(checkoutInput() as never, {
-      db: fakeDb() as never,
-      stackApp: { getUser } as never,
-    });
-
-    expect(result).toEqual({
-      scope: "user",
-      stackUserId: target.id,
-      subscriptionId: "sub_123",
-    });
+    await expect(
+      recordCheckoutCompletion(checkoutInput() as never, {
+        db: fakeDb() as never,
+        stackApp: { getUser } as never,
+      }),
+    ).rejects.toThrow("ownership conflict");
     expect(inserts).toHaveLength(0);
-    expect(getUser).toHaveBeenCalledWith(target.id);
+    expect(updates).toHaveLength(0);
+    expect(getUser).toHaveBeenCalledWith(mappedOwner.id);
   });
 
   test("recovery can remap a parked historical customer before recording Pro", async () => {
@@ -1418,7 +1416,7 @@ describe("recordCheckoutCompletion", () => {
       clientReadOnlyMetadata: { cmuxPlan: "pro" },
       update,
     };
-    selectResults = [[{ id: "cus_old" }]];
+    selectResults = [[], [{ id: "cus_old" }]];
 
     await recordCheckoutCompletion(checkoutInput("cus_new") as never, {
       db: fakeDb() as never,
