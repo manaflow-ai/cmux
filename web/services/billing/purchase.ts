@@ -1806,14 +1806,14 @@ export async function latestStripeSubscriptionForSession(
       .from(stripeSubscriptions)
       .where(eq(stripeSubscriptions.id, subscriptionId))
       .limit(1);
-    if (rows[0]) return rows[0];
+    // A concrete Stripe subscription id is an exact read key. Never replace a
+    // missing or delayed row with another subscription for the same customer.
+    return rows[0] ?? null;
   }
 
   // Founder's Edition payment-link sessions are one-time payments and often
-  // have no Stripe subscription id. The completion recorder stores a synthetic
-  // active row keyed by the Stripe customer; use that exact customer as the
-  // success-page read-back key so a paid Founder is not sent to the pending
-  // screen.
+  // have no Stripe subscription id. Only those sessions may use the synthetic
+  // customer fallback. A session with a concrete id was handled above.
   const customerId = customerIdFromSession(session, expandedCustomerForLookup(session));
   if (!customerId) return null;
   const rows = await db
