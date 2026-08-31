@@ -24874,7 +24874,16 @@ mod tests {
             .is_err()
         );
         mux.shutdown();
+        let mux_weak = Arc::downgrade(&mux);
+        eprintln!(
+            "cmux-tui test authority scope mux strong count after shutdown: {}",
+            mux_weak.strong_count()
+        );
         drop(mux);
+        eprintln!(
+            "cmux-tui test authority scope mux strong count after drop: {}",
+            mux_weak.strong_count()
+        );
 
         let reopened = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
         let records = reopened.agent_records.lock().unwrap();
