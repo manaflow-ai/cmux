@@ -144,9 +144,6 @@ jobs:
       - name: Validate macOS runner guards
         run: ./tests/test_ci_self_hosted_guard.sh
 
-      - name: Validate CLA rerun workflow guard
-        run: ./tests/test_cla_rerun_workflow.sh
-
       - name: Validate release SDK build lane
         run: ./tests/test_ci_release_sdk_lane.sh
 
@@ -181,6 +178,9 @@ jobs:
 
       - name: Install workflow guard Python dependencies
         run: python3 -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3 bashlex==0.18
+
+      - name: Validate CLA rerun workflow guard
+        run: ./tests/test_cla_rerun_workflow.sh
 
       - name: Validate Blacksmith Testbox broker trust boundary
         run: python3 tests/test_ci_testbox_broker_guard.py
