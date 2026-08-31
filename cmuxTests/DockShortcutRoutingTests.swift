@@ -2538,6 +2538,45 @@ struct DockShortcutRoutingTests {
         }
     }
 
+    @Test("Dock panel zoom stays scoped to the captured panel")
+    @MainActor
+    func dockPanelZoomTargetsBrowserAndRejectsTerminal() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let browserID = try #require(
+                    harness.dock.newSurface(
+                        kind: .browser,
+                        inPane: harness.rootPane,
+                        focus: true
+                    )
+                )
+                let browser = try #require(harness.dock.browserPanel(for: browserID))
+                let before = browser.currentPageZoomFactor()
+
+                #expect(
+                    harness.dock.performDockPanelZoom(
+                        .increase,
+                        panelId: browserID
+                    )
+                )
+                #expect(browser.currentPageZoomFactor() > before)
+
+                let terminal = try harness.dock.seedShortcutTestPanel(
+                    inPane: harness.rootPane
+                )
+                #expect(
+                    !harness.dock.performDockPanelZoom(
+                        .increase,
+                        panelId: terminal.id
+                    )
+                )
+
+                harness.dock.focusPanel(browserID)
+                #expect(harness.dock.performDockPanelZoom(.reset))
+            }
+        }
+    }
+
     @Test("A single Dock tab can move to a new workspace")
     @MainActor
     func singleDockTabOffersNewWorkspaceDestination() async throws {
