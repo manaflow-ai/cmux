@@ -34530,14 +34530,17 @@ export default CMUXSessionRestore;
                 if case .codexSubagentStart = action { return true }
                 return false
             }()
-            let decision = codexLifecycle.subagent(
-                sessionID: sessionId,
-                agentID: agentId,
-                turnID: turnId,
-                workspaceID: workspaceId,
-                surfaceID: surfaceId,
-                starts: starts
-            )
+            let canApplyLedger = target != nil || codexLifecycle.hasRecord(sessionID: sessionId)
+            let decision = canApplyLedger
+                ? codexLifecycle.subagent(
+                    sessionID: sessionId,
+                    agentID: agentId,
+                    turnID: turnId,
+                    workspaceID: workspaceId,
+                    surfaceID: surfaceId,
+                    starts: starts
+                )
+                : .ignored
             let childJournalKind: AgentJournalEventKind = {
                 if case .codexSubagentStart = action {
                     return .childSpawned
@@ -35164,23 +35167,36 @@ export default CMUXSessionRestore;
 
         case .stop:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+            let resolvedTarget = resolveAgentHookTarget(mapped: mapped)
+            let resolvedWorkspaceId = resolvedTarget?.workspaceId
+            let resolvedSurfaceId = resolvedTarget?.surfaceId
+            let codexLedgerRecordExists: Bool = {
+                guard def.name == "codex",
+                      !sessionId.isEmpty,
+                      let codexLifecycle else {
+                    return false
+                }
+                return codexLifecycle.hasRecord(sessionID: sessionId)
+            }()
             // Admit ownership before touching the legacy prompt-depth store.
             // A nested reviewer must not be able to create or mutate a generic
             // session record merely because it inherited the foreground PID.
             let codexStopOwnership: CodexTurnLedgerDecision? = {
                 guard def.name == "codex",
                       !sessionId.isEmpty,
-                      let codexLifecycle else {
+                      let codexLifecycle,
+                      resolvedTarget != nil || codexLedgerRecordExists else {
                     return nil
                 }
                 return codexLifecycle.observe(
                     sessionID: sessionId,
-                    workspaceID: resolvedDirectWorkspaceArg ?? mapped?.workspaceId,
-                    surfaceID: resolvedDirectSurfaceArg ?? mapped?.surfaceId
+                    workspaceID: resolvedWorkspaceId,
+                    surfaceID: resolvedSurfaceId
                 )
             }()
             var codexStopDecision = codexStopOwnership
-            if def.name == "codex", !sessionId.isEmpty {
+            if def.name == "codex", !sessionId.isEmpty,
+               resolvedTarget != nil || codexLedgerRecordExists {
                 guard codexStopDecision?.ownership == .foreground else {
                     telemetry.breadcrumb("codex-hook.stop.nested-or-unknown")
                     print("{}")
@@ -35190,13 +35206,37 @@ export default CMUXSessionRestore;
             // Retire only after the ledger admits this callback as the
             // foreground owner. A nested reviewer must not tear down the
             // foreground Codex transcript monitor while it inherits its PID.
-            if def.name == "codex", !sessionId.isEmpty {
+            if def.name == "codex", !sessionId.isEmpty,
+               codexStopDecision?.ownership == .foreground {
                 let stopTurnId = input.turnId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 if !stopTurnId.isEmpty {
                     retireCodexMonitorLeases(sessionId: sessionId, turnId: stopTurnId, env: env)
                 }
             }
-            guard let target = resolveAgentHookTarget(mapped: mapped) else {
+            guard let target = resolvedTarget else {
+                if def.name == "codex",
+                   !sessionId.isEmpty,
+                   codexLedgerRecordExists,
+                   let codexLifecycle,
+                   codexStopDecision?.ownership == .foreground {
+                    codexStopDecision = codexLifecycle.stop(
+                        sessionID: sessionId,
+                        turnID: input.turnID,
+                        workspaceID: nil,
+                        surfaceID: nil
+                    )
+                    if codexStopDecision?.settlement == .settled,
+                       codexStopDecision?.shouldNotify == true {
+                        // Re-run the normal projection out of band; it will
+                        // re-resolve the pane and still fail closed if proof
+                        // remains unavailable.
+                        spawnDetachedCodexSettledStop(
+                            payload: rawInput,
+                            environment: env,
+                            telemetry: telemetry
+                        )
+                    }
+                }
                 reportTargetResolutionFailure()
                 emitJournal(.turnCompleted, workspaceId: nil, surfaceId: nil, unattributedReason: "target-unresolved")
                 didSendFeedTelemetry = true

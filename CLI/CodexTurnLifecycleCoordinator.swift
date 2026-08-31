@@ -18,6 +18,17 @@ struct CodexTurnLifecycleCoordinator {
         ledger = cli.codexTurnLedger(environment: environment)
     }
 
+    /// Read-only admission check used when a hook cannot prove a pane. An
+    /// unattributed callback may update an existing session's lifecycle, but
+    /// it must not create a durable ledger record with no owner or surface.
+    func hasRecord(sessionID: String) -> Bool {
+        guard let normalizedSessionID = CodexTurnLedger.normalized(sessionID),
+              let state = try? ledger.load() else {
+            return false
+        }
+        return state.records[normalizedSessionID] != nil
+    }
+
     func sessionStart(
         sessionID: String,
         workspaceID: String?,

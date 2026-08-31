@@ -147,6 +147,7 @@ extension Workspace {
             return
         }
         if transfer.ttyNameWasReportedByCurrentRuntime,
+           !transfer.isRemoteTerminal,
            let terminal = panels[transfer.panelId] as? TerminalPanel,
            transfer.ttyReportRuntimeSurfaceGeneration ==
             terminal.surface.runtimeSurfaceGeneration {
@@ -157,7 +158,8 @@ extension Workspace {
     }
 
     func restoreTransferredSurfaceTTYRuntimeProofIfNeeded(from transfer: DetachedSurfaceTransfer) {
-        guard transfer.ttyNameWasReportedByCurrentRuntime else { return }
+        guard transfer.ttyNameWasReportedByCurrentRuntime,
+              !transfer.isRemoteTerminal else { return }
         if !surfaceRegistry.runtimeReportedTTYSurfaceIDs.contains(transfer.panelId) {
             adoptTransferredSurfaceTTYName(from: transfer)
         }
