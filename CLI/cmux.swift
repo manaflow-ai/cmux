@@ -33345,6 +33345,7 @@ export default CMUXSessionRestore;
         let env = ProcessInfo.processInfo.environment
         let skipCodexLegacyPromptStop = env["CMUX_CODEX_SETTLED_CHILD_STOP"] == "1"
         let isCodexSettledStopRetry = skipCodexLegacyPromptStop
+        let settledStopTurnID = normalizedHookValue(env["CMUX_CODEX_SETTLED_STOP_TURN_ID"])
         let subcommand = commandArgs.first?.lowercased() ?? ""
         let hookArgs = Array(commandArgs.dropFirst())
         let cursorShellEvent = def.name == "cursor" && subcommand == "shell-exec"
@@ -34572,7 +34573,8 @@ export default CMUXSessionRestore;
                 spawnDetachedCodexSettledStop(
                     payload: rawInput,
                     environment: env,
-                    telemetry: telemetry
+                    telemetry: telemetry,
+                    turnID: decision.turnID
                 )
             }
 
@@ -35186,6 +35188,9 @@ export default CMUXSessionRestore;
 
         case .stop:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+            let effectiveCodexStopTurnID = def.name == "codex" && isCodexSettledStopRetry
+                ? (normalizedHookValue(input.turnId) ?? settledStopTurnID)
+                : input.turnId
             let resolvedTarget = resolveAgentHookTarget(mapped: mapped)
             let resolvedWorkspaceId = resolvedTarget?.workspaceId
             let resolvedSurfaceId = resolvedTarget?.surfaceId
@@ -35219,7 +35224,7 @@ export default CMUXSessionRestore;
             // foreground Codex transcript monitor while it inherits its PID.
             if def.name == "codex", !sessionId.isEmpty,
                codexStopDecision?.ownership == .foreground {
-                let stopTurnId = input.turnId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let stopTurnId = normalizedHookValue(effectiveCodexStopTurnID) ?? ""
                 if !stopTurnId.isEmpty {
                     retireCodexMonitorLeases(sessionId: sessionId, turnId: stopTurnId, env: env)
                 }
@@ -35231,7 +35236,7 @@ export default CMUXSessionRestore;
                    codexStopDecision?.ownership == .foreground {
                     codexStopDecision = codexLifecycle.stop(
                         sessionID: sessionId,
-                        turnID: input.turnID,
+                        turnID: effectiveCodexStopTurnID,
                         workspaceID: nil,
                         surfaceID: nil,
                         claimNotification: false,
@@ -35246,7 +35251,8 @@ export default CMUXSessionRestore;
                         spawnDetachedCodexSettledStop(
                             payload: rawInput,
                             environment: env,
-                            telemetry: telemetry
+                            telemetry: telemetry,
+                            turnID: codexStopDecision?.turnID
                         )
                     }
                 }
@@ -35426,7 +35432,7 @@ export default CMUXSessionRestore;
                let codexLifecycle {
                 codexStopDecision = codexLifecycle.stop(
                     sessionID: sessionId,
-                    turnID: input.turnId,
+                    turnID: effectiveCodexStopTurnID,
                     workspaceID: workspaceId,
                     surfaceID: surfaceId,
                     // Tokenized Codex launches must not let a delayed Stop
@@ -38780,14 +38786,29 @@ export default CMUXSessionRestore;
            hookEventName == "SubagentStart" || hookEventName == "SubagentStop" {
             let lifecycle = CodexTurnLifecycleCoordinator(environment: env, cli: self)
             let feedLifecycleTarget: (workspaceId: String, surfaceId: String)? = {
-                guard let workspaceId = feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"]),
-                      isUUID(workspaceId),
-                      let rawSurfaceId = firstString(in: stdinObj, keys: ["surface_id", "surfaceId"])
+                guard let rawSurfaceId = firstString(in: stdinObj, keys: ["surface_id", "surfaceId"])
                           ?? env["CMUX_SURFACE_ID"],
                       let activeClient = client ?? makeLifecycleProbeClient() else {
                     return nil
                 }
-                func resolveFromSurfaceList() -> (workspaceId: String, surfaceId: String)? {
+                let rawWorkspaceId = feedWorkspaceId(
+                    rawObject: stdinObj,
+                    fallback: env["CMUX_WORKSPACE_ID"]
+                )
+                let workspaceId = rawWorkspaceId.flatMap { raw in
+                    guard isUUID(raw) else {
+                        return try? resolveWorkspaceId(
+                            raw,
+                            client: activeClient,
+                            responseTimeout: max(0.01, lifecycleProbeDeadline.timeIntervalSinceNow),
+                            deadline: lifecycleProbeDeadline
+                        )
+                    }
+                    return raw
+                }
+                func resolveFromSurfaceList(
+                    workspaceId: String
+                ) -> (workspaceId: String, surfaceId: String)? {
                     guard let listed = try? activeClient.sendV2(
                           method: "surface.list",
                           params: ["workspace_id": workspaceId],
@@ -38807,11 +38828,12 @@ export default CMUXSessionRestore;
                 }
 
                 guard isUUID(rawSurfaceId) else {
-                    return resolveFromSurfaceList()
+                    guard let workspaceId else { return nil }
+                    return resolveFromSurfaceList(workspaceId: workspaceId)
                 }
+                var params: [String: Any] = ["surface_id": rawSurfaceId]
+                if let workspaceId { params["workspace_id"] = workspaceId }
                 do {
-                    var params: [String: Any] = ["surface_id": rawSurfaceId]
-                    params["workspace_id"] = workspaceId
                     let target = try activeClient.sendV2(
                         method: "agent.resolve_delivery_target",
                         params: params,
@@ -38828,7 +38850,8 @@ export default CMUXSessionRestore;
                     return (liveWorkspaceId, liveSurfaceId)
                 } catch let error as CLIError where error.v2Code == "method_not_found"
                         || error.v2Code == "unrecognized_method" {
-                    return resolveFromSurfaceList()
+                    guard let workspaceId else { return nil }
+                    return resolveFromSurfaceList(workspaceId: workspaceId)
                 } catch {
                     return nil
                 }
@@ -38856,7 +38879,8 @@ export default CMUXSessionRestore;
                 spawnDetachedCodexSettledStop(
                     payload: payload,
                     environment: env,
-                    telemetry: telemetry
+                    telemetry: telemetry,
+                    turnID: decision.turnID
                 )
             }
             // A rejected lifecycle identity is intentionally diagnostic-only.

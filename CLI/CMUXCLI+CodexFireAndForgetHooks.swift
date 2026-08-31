@@ -13,7 +13,8 @@ extension CMUXCLI {
     func spawnDetachedCodexSettledStop(
         payload: String,
         environment: [String: String],
-        telemetry: CLISocketSentryTelemetry
+        telemetry: CLISocketSentryTelemetry,
+        turnID: String? = nil
     ) {
         let retryCount = max(0, Int(environment["CMUX_CODEX_SETTLED_STOP_RETRY_COUNT"] ?? "0") ?? 0)
         guard retryCount < Self.codexSettledStopMaximumRetries else {
@@ -59,6 +60,11 @@ extension CMUXCLI {
         var childEnvironment = environment
         childEnvironment["CMUX_CODEX_SETTLED_CHILD_STOP"] = "1"
         childEnvironment["CMUX_CODEX_SETTLED_STOP_RETRY_COUNT"] = String(retryCount + 1)
+        if let turnID = turnID?.trimmingCharacters(in: .whitespacesAndNewlines), !turnID.isEmpty {
+            childEnvironment["CMUX_CODEX_SETTLED_STOP_TURN_ID"] = turnID
+        } else {
+            childEnvironment.removeValue(forKey: "CMUX_CODEX_SETTLED_STOP_TURN_ID")
+        }
         process.environment = childEnvironment
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice

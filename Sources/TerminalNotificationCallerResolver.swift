@@ -198,6 +198,13 @@ extension TerminalController {
             return TerminalCallerTarget(workspace: workspace, surfaceId: nil)
         }
 
+        // An explicit workspace selector that no longer resolves is a hard
+        // scope failure. Never let a globally resolvable surface or TTY cross
+        // that boundary after the workspace disappears.
+        if preferredWorkspaceIsExplicit, preferredWorkspaceId != nil {
+            return nil
+        }
+
         // With no live workspace selector, a stable surface UUID is stronger
         // than an ordinary (non-preferred) TTY claim and may re-home a pane
         // after a workspace move.
