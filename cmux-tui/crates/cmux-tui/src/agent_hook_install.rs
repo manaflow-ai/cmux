@@ -1469,6 +1469,110 @@ mod tests {
         assert!(!text.contains(COMMAND_MARKER));
     }
 
+    /// Trust hashes verified against the real codex 0.150.1 binary: with these
+    /// exact `hooks.state` values in `config.toml`, codex executes the installed
+    /// hooks.json commands; without them it parses hooks.json (it even warns
+    /// about clamping the SessionEnd timeout) and silently skips every handler,
+    /// so codex sessions never reach the cmux-tui agents view
+    /// (https://github.com/manaflow-ai/cmux/issues/11040).
+    const CODEX_TRUSTED_HASHES: &[(&str, &str)] = &[
+        (
+            "session_start",
+            "sha256:397d7ce9e0c6367e34771a4293777ff95415b595bf77e2aa420425adc75d70ae",
+        ),
+        (
+            "user_prompt_submit",
+            "sha256:07ddfc92c131019a0f7099cf68bfbcd34749f112ce56105f544c9a826070db37",
+        ),
+        ("stop", "sha256:8150babcaace7dd374a53671af15022040cb1f48fea365beacdecff744161348"),
+        (
+            "permission_request",
+            "sha256:def8faccd7926451435a173f6b392150e425fd369e221674a6b7741d69158c5c",
+        ),
+        ("pre_tool_use", "sha256:2f90e5824bf1d244ed7fd88f0f545dd3bc896050df56efc12dab3d021efe3d8f"),
+        (
+            "post_tool_use",
+            "sha256:a10109f22d9a6ca69c88a0989d208d1323e2894eea3965a42883d5167457e8b4",
+        ),
+        ("pre_compact", "sha256:a5939da92131e5397df18219e069c0fa59494d832f77ec37d985286aeacca1ec"),
+        ("post_compact", "sha256:609234714e7a0ddf9fbc32c049f2651e732c2f27f12cca21954907df0434e1e8"),
+        (
+            "subagent_start",
+            "sha256:fb16a1107f5a630d93d50e448ad1b20bf677d94d0ade1a5ec3216cb2b8bf53dc",
+        ),
+        (
+            "subagent_stop",
+            "sha256:37436a4778c90ed5ab0e207b2922d3e1151dedfa26c33489c9faef7c990e8866",
+        ),
+        // SessionEnd hashes the clamped 3s timeout, not the configured 5s.
+        ("session_end", "sha256:8366ef19df8ee745ecc7acbd8f72f7109478a583dfd5d06b61537b8e8d19e088"),
+    ];
+
+    fn codex_state_table(context: &Context) -> toml::value::Table {
+        let text = fs::read_to_string(context.home.join(".codex/config.toml"))
+            .expect("codex trust state must be written to $CODEX_HOME/config.toml");
+        let config: toml::Value = toml::from_str(&text).expect("config.toml must stay valid TOML");
+        config
+            .get("hooks")
+            .and_then(|hooks| hooks.get("state"))
+            .and_then(toml::Value::as_table)
+            .cloned()
+            .expect("config.toml must contain a hooks.state table")
+    }
+
+    #[test]
+    fn codex_install_writes_matching_trust_state_into_config_toml() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let plan = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        let result = run_with_context(&plan, &context);
+        assert!(!result.failed, "{}", result.value);
+        let hooks_path = context.home.join(".codex/hooks.json");
+        let state = codex_state_table(&context);
+        for (event, hash) in CODEX_TRUSTED_HASHES {
+            let key = format!("{}:{event}:0:0", hooks_path.display());
+            let entry =
+                state.get(&key).unwrap_or_else(|| panic!("missing hooks.state entry {key}"));
+            assert_eq!(
+                entry.get("trusted_hash").and_then(toml::Value::as_str),
+                Some(*hash),
+                "{key}"
+            );
+        }
+        assert_eq!(state.len(), CODEX_EVENTS.len());
+    }
+
+    #[test]
+    fn codex_trust_keys_use_the_installed_group_position() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let hooks_path = context.home.join(".codex/hooks.json");
+        atomic_write(
+            &hooks_path,
+            br#"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"custom-hook"}]}]}}"#,
+            Some(0o600),
+        )
+        .unwrap();
+        let plan = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        let result = run_with_context(&plan, &context);
+        assert!(!result.failed, "{}", result.value);
+        let state = codex_state_table(&context);
+        // The custom Stop group keeps position 0, so the cmux-owned handler is
+        // group 1 and its trust key must say so; codex keys trust by position.
+        let stop_key = format!("{}:stop:1:0", hooks_path.display());
+        let stop_hash =
+            CODEX_TRUSTED_HASHES.iter().find(|(event, _)| *event == "stop").map(|(_, hash)| *hash);
+        assert_eq!(
+            state
+                .get(&stop_key)
+                .and_then(|entry| entry.get("trusted_hash"))
+                .and_then(toml::Value::as_str),
+            stop_hash,
+            "{stop_key}"
+        );
+        assert!(!state.contains_key(&format!("{}:stop:0:0", hooks_path.display())));
+    }
+
     #[test]
     fn claude_commands_are_async_without_weakening_other_provider_receipts() {
         let root = tempfile::tempdir().unwrap();
