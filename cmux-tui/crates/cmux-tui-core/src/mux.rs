@@ -25243,6 +25243,20 @@ mod tests {
         };
         mux.append_journal_ingress(&hook("SessionEnd", "old-hook"), "test", "ended-hook").unwrap();
 
+        // Simulate a compatibility cache that outlives the durable end
+        // fence while bounded startup replay or cleanup is still pending.
+        // A proven new socket lifecycle must replace this stale Hook record.
+        mux.agent_records.lock().unwrap().insert(
+            terminal_id.clone(),
+            TerminalAgentRecord {
+                state: AgentState::Idle,
+                source: AgentSource::Hook,
+                session: Some("old-hook".into()),
+                agent: Some("claude".into()),
+                updated_at_ms: 1,
+            },
+        );
+
         let record = mux
             .report_agent(
                 surface.id,
