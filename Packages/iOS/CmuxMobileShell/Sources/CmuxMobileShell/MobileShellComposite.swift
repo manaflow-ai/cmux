@@ -878,6 +878,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// writing the previous user's state under ids the next account may reuse. Not
     /// observed: it gates async hand-backs, not view state.
     @ObservationIgnored var signInGeneration = 0
+    @ObservationIgnored private var createdTerminalSelection: CreatedTerminalSelection?
     public var selectedWorkspaceID: MobileWorkspacePreview.ID? {
         didSet {
             if selectedWorkspaceID != oldValue {
@@ -923,6 +924,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         didSet {
             guard selectedTerminalID != oldValue else { return }
+            if selectedTerminalID != createdTerminalSelection?.terminalID {
+                createdTerminalSelection = nil
+            }
             if let selectedTerminalID {
                 recordAppEvent(
                     .surfaceFocused,
@@ -1329,6 +1333,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
     var foregroundMacDeviceID: String? {
         didSet {
+            if oldValue == nil, let foregroundMacDeviceID {
+                createdTerminalSelection?.adoptMacDeviceIDIfMissing(
+                    foregroundMacDeviceID,
+                    instanceTag: activeMacInstanceTag
+                )
+            }
             if let foregroundMacDeviceID {
                 recoveryTargetMacDeviceID = foregroundMacDeviceID
                 recoveryTargetInstanceTag = activeMacInstanceTag
@@ -8131,6 +8141,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 list[index].terminals.append(terminal)
             }
         }
+        createdTerminalSelection = CreatedTerminalSelection(
+            workspace: workspace,
+            terminalID: terminal.id
+        )
         selectedTerminalID = terminal.id
         suppressTerminalAutoFocusOnNextAttach(for: terminal.id)
         recordAppEvent(
@@ -11413,6 +11427,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 recordDisplayedTabAfterSync = true
             }
         }
+        // A create response is followed by one or more workspace snapshots.
+        // Keep the newly created terminal selected while it is still starting,
+        // even when the refresh contains another ready terminal that would
+        // otherwise win the fallback below. The pin is scoped to the remote
+        // workspace and owning Mac, so a row-id remap cannot retarget it.
+        if let created = createdTerminalSelection, selectedTerminalID == created.terminalID {
+            if created.matches(workspace: selectedWorkspace),
+               let selectedTerminal = selectedWorkspace.terminals.first(where: { $0.id == created.terminalID }) {
+                guard selectedTerminal.isReady else { return }
+            }
+            createdTerminalSelection = nil
+        }
         if let selectedTerminalID,
            let selectedTerminal = selectedWorkspace.terminals.first(where: { $0.id == selectedTerminalID }),
            selectedTerminal.isReady || !selectedWorkspace.hasReadyTerminal {
@@ -11869,7 +11895,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             .terminalCreateStarted,
             correlationID: rowWorkspaceID.rawValue
         )
+        let requestedRow = workspaces.first { $0.id == rowWorkspaceID }
         let requestedWorkspaceID = remoteWorkspaceID(for: rowWorkspaceID)
+        let requestedMacDeviceID = requestedRow?.macDeviceID ?? foregroundMacDeviceID
+        let requestedInstanceTag = requestedRow?.macInstanceTag ?? activeMacInstanceTag
         let generation = connectionGeneration
         do {
             let resultData = try await client.sendRequest(
@@ -11890,9 +11919,44 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return
             }
             applyRemoteWorkspaceList(response, mergeExistingWorkspaces: true)
-            if selectedWorkspaceID == rowWorkspaceID,
+            let selectedRow = explicitlySelectedWorkspace
+            let selectedRowMatchesAnonymousRequest: Bool
+            if CreatedTerminalSelection.deviceIDsMatch(requestedRow?.macDeviceID, nil),
+               let foregroundMacDeviceID,
+               let selectedRow,
+               selectedRow.rpcWorkspaceID == requestedWorkspaceID,
+               CreatedTerminalSelection.deviceIDsMatch(
+                   selectedRow.macDeviceID,
+                   foregroundMacDeviceID
+               ),
+               macInstanceTagAuthority.sameStoredAuthority(
+                   selectedRow.macInstanceTag,
+                   activeMacInstanceTag
+               ) {
+                selectedRowMatchesAnonymousRequest = true
+            } else {
+                selectedRowMatchesAnonymousRequest = false
+            }
+            let selectedRowMatchesRequest = selectedRow?.id == rowWorkspaceID
+                || (selectedRow?.rpcWorkspaceID == requestedWorkspaceID
+                    && CreatedTerminalSelection.deviceIDsMatch(
+                        selectedRow?.macDeviceID,
+                        requestedMacDeviceID
+                    )
+                    && macInstanceTagAuthority.sameStoredAuthority(
+                        selectedRow?.macInstanceTag,
+                        requestedInstanceTag
+                    ))
+                || selectedRowMatchesAnonymousRequest
+            if let selectedRow, selectedRowMatchesRequest,
                let createdID = response.createdTerminalID {
                 let createdTerminalID = MobileTerminalPreview.ID(rawValue: createdID)
+                createdTerminalSelection = CreatedTerminalSelection(
+                    workspace: selectedRow,
+                    fallbackMacDeviceID: requestedMacDeviceID,
+                    fallbackInstanceTag: requestedInstanceTag,
+                    terminalID: createdTerminalID
+                )
                 selectedTerminalID = createdTerminalID
                 suppressTerminalAutoFocusOnNextAttach(for: createdTerminalID)
             }
