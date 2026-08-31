@@ -990,15 +990,31 @@ fn install_provider(
             }
             let after = serde_json::to_vec(&root)?;
             let files_changed = !(before == after && path.exists());
+            // codex refuses to execute the hooks.json entries until config.toml
+            // trusts each one, so installing means keeping both files in sync.
+            // Preflight that edit completely BEFORE touching hooks.json: a
+            // malformed or unwritable config must fail the install while
+            // hooks.json stays byte-identical to its pre-install state.
+            let trust = if provider.id == "codex" {
+                prepare_codex_trust_state(path, from_env_override, &root, /*install*/ true)?
+            } else {
+                None
+            };
+            let previous_hooks = files_changed.then(|| {
+                fs::read(path).ok().map(|bytes| (bytes, existing_file_mode(path).unwrap_or(0o600)))
+            });
             if files_changed {
-                let mut encoded = serde_json::to_vec_pretty(&Value::Object(root.clone()))?;
+                let mut encoded = serde_json::to_vec_pretty(&Value::Object(root))?;
                 encoded.push(b'\n');
                 atomic_write(path, &encoded, Some(0o600))?;
             }
-            // codex refuses to execute the hooks.json entries until config.toml
-            // trusts each one, so installing means keeping both files in sync.
-            let trust_changed = provider.id == "codex"
-                && sync_codex_trust_state(path, from_env_override, &root, /*install*/ true)?;
+            let trust_changed = match &trust {
+                Some(write) => {
+                    commit_codex_trust_state_or_rollback(write, path, previous_hooks)?;
+                    true
+                }
+                None => false,
+            };
             Ok(("installed", files_changed || trust_changed))
         }
         Format::Plugin { template } => {
@@ -1048,30 +1064,50 @@ fn uninstall_provider(
     match provider.format {
         Format::Nested { .. } | Format::Flat { .. } => {
             ensure_replaceable_target(path)?;
-            let files_changed = if path.exists() {
+            // Render the cleaned hooks.json without writing it yet.
+            let pending_hooks = if path.exists() {
                 let nested = matches!(provider.format, Format::Nested { .. });
                 let mut root = read_json_object(path)?;
                 let before = serde_json::to_vec(&root)?;
                 rewrite_json_hooks(&mut root, provider, nested, 0, false)?;
                 let after = serde_json::to_vec(&root)?;
                 if before == after {
-                    false
+                    None
                 } else {
                     let mut encoded = serde_json::to_vec_pretty(&Value::Object(root))?;
                     encoded.push(b'\n');
-                    atomic_write(path, &encoded, Some(0o600))?;
-                    true
+                    Some(encoded)
                 }
             } else {
-                false
+                None
             };
-            let trust_changed = provider.id == "codex"
-                && sync_codex_trust_state(
+            // Preflight the trust-state cleanup BEFORE touching hooks.json so a
+            // malformed config fails the uninstall with hooks.json intact
+            // instead of removing hooks while their trust entries linger.
+            let trust = if provider.id == "codex" {
+                prepare_codex_trust_state(
                     path,
                     from_env_override,
                     &Map::new(),
                     /*install*/ false,
-                )?;
+                )?
+            } else {
+                None
+            };
+            let files_changed = pending_hooks.is_some();
+            let previous_hooks = files_changed.then(|| {
+                fs::read(path).ok().map(|bytes| (bytes, existing_file_mode(path).unwrap_or(0o600)))
+            });
+            if let Some(encoded) = &pending_hooks {
+                atomic_write(path, encoded, Some(0o600))?;
+            }
+            let trust_changed = match &trust {
+                Some(write) => {
+                    commit_codex_trust_state_or_rollback(write, path, previous_hooks)?;
+                    true
+                }
+                None => false,
+            };
             Ok(("absent", files_changed || trust_changed))
         }
         Format::Plugin { .. } => {
@@ -1566,15 +1602,25 @@ fn codex_state_table_mut<'a>(
     ))
 }
 
-/// Installs or removes the cmux-owned `hooks.state` trust entries in the codex
-/// user config next to `hooks_path`, preserving unrelated keys, comments, and
-/// formatting. Returns whether the config file changed.
-fn sync_codex_trust_state(
+/// A fully validated, pre-rendered config.toml trust-state write. Producing
+/// one performs every step that can fail for content reasons (read, parse,
+/// shape validation, rendering, target-directory writability), so the caller
+/// can sequence it BEFORE mutating hooks.json and commit it afterwards.
+struct PreparedCodexTrustWrite {
+    config_path: PathBuf,
+    updated: String,
+    mode: u32,
+}
+
+/// Preflights the cmux-owned `hooks.state` trust-entry edit of the codex user
+/// config next to `hooks_path`, preserving unrelated keys, comments, and
+/// formatting. Returns `None` when the config already matches.
+fn prepare_codex_trust_state(
     hooks_path: &Path,
     from_env_override: bool,
     root: &Map<String, Value>,
     install: bool,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<Option<PreparedCodexTrustWrite>> {
     let parent = hooks_path.parent().context("codex hooks path has no parent")?;
     let config_path = parent.join(CODEX_CONFIG_FILE);
     let key_hooks_path = codex_state_key_hooks_path(hooks_path, from_env_override);
@@ -1584,7 +1630,7 @@ fn sync_codex_trust_state(
         BTreeMap::new()
     };
     if !install && !config_path.exists() {
-        return Ok(false);
+        return Ok(None);
     }
     let (original, mut document) = read_codex_config_document(&config_path)?;
     let owned_hashes = codex_owned_trust_hashes()?;
@@ -1635,14 +1681,70 @@ fn sync_codex_trust_state(
 
     let updated = document.to_string();
     if Some(updated.as_str()) == original.as_deref() || (original.is_none() && updated.is_empty()) {
-        return Ok(false);
+        return Ok(None);
     }
-    atomic_write(
-        &config_path,
-        updated.as_bytes(),
-        Some(existing_file_mode(&config_path).unwrap_or(0o600)),
-    )?;
-    Ok(true)
+    ensure_writable_directory(parent)?;
+    Ok(Some(PreparedCodexTrustWrite {
+        mode: existing_file_mode(&config_path).unwrap_or(0o600),
+        config_path,
+        updated,
+    }))
+}
+
+fn commit_codex_trust_state(write: &PreparedCodexTrustWrite) -> anyhow::Result<()> {
+    atomic_write(&write.config_path, write.updated.as_bytes(), Some(write.mode))
+}
+
+/// Restores hooks.json to its pre-operation content (or absence) after a
+/// failed trust-state commit, so a config.toml write failure cannot leave a
+/// half-applied install or uninstall behind.
+fn restore_hooks_file(path: &Path, previous: Option<(Vec<u8>, u32)>) -> anyhow::Result<()> {
+    match previous {
+        Some((bytes, mode)) => atomic_write(path, &bytes, Some(mode)),
+        None => match fs::remove_file(path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error).with_context(|| format!("remove {}", path.display())),
+        },
+    }
+}
+
+/// Applies a preflighted trust write after hooks.json was already updated,
+/// rolling hooks.json back (best effort) if the commit itself still fails.
+fn commit_codex_trust_state_or_rollback(
+    write: &PreparedCodexTrustWrite,
+    hooks_path: &Path,
+    previous_hooks: Option<Option<(Vec<u8>, u32)>>,
+) -> anyhow::Result<()> {
+    let Err(commit_error) = commit_codex_trust_state(write) else {
+        return Ok(());
+    };
+    if let Some(previous) = previous_hooks
+        && let Err(rollback_error) = restore_hooks_file(hooks_path, previous)
+    {
+        return Err(commit_error.context(format!(
+            "additionally, restoring {} failed: {rollback_error:#}",
+            hooks_path.display()
+        )));
+    }
+    Err(commit_error)
+}
+
+/// Verifies the directory accepts new files before any mutation happens, so
+/// preflight failures surface while both target files are still untouched.
+fn ensure_writable_directory(parent: &Path) -> anyhow::Result<()> {
+    fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    let mut random = [0_u8; 8];
+    getrandom::fill(&mut random).context("allocate preflight file identity")?;
+    let suffix = random.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+    let probe = parent.join(format!(".cmux-tui-preflight-{suffix}"));
+    OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&probe)
+        .with_context(|| format!("preflight write access to {}", parent.display()))?;
+    fs::remove_file(&probe).with_context(|| format!("remove {}", probe.display()))?;
+    Ok(())
 }
 
 fn existing_file_mode(path: &Path) -> Option<u32> {
@@ -2000,11 +2102,50 @@ mod tests {
             let context = context(root.path());
             let config_path = context.home.join(".codex/config.toml");
             atomic_write(&config_path, broken.as_bytes(), Some(0o600)).unwrap();
+            let hooks_path = context.home.join(".codex/hooks.json");
+            let custom =
+                br#"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"custom-hook"}]}]}}"#;
+            atomic_write(&hooks_path, custom, Some(0o600)).unwrap();
             let plan = Plan { action: Action::Install, providers: vec!["codex".into()] };
             let result = run_with_context(&plan, &context);
             assert!(result.failed, "{broken:?}: {}", result.value);
             assert_eq!(fs::read_to_string(&config_path).unwrap(), broken);
+            // The config preflight runs before hooks.json is touched, so a
+            // failed install must not leave new untrusted hooks behind.
+            assert_eq!(fs::read(&hooks_path).unwrap(), custom, "{broken:?}");
         }
+    }
+
+    #[test]
+    fn codex_install_preflight_failure_leaves_an_absent_hooks_json_absent() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let config_path = context.home.join(".codex/config.toml");
+        atomic_write(&config_path, b"hooks = true\n", Some(0o600)).unwrap();
+        let plan = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        let result = run_with_context(&plan, &context);
+        assert!(result.failed, "{}", result.value);
+        assert!(!context.home.join(".codex/hooks.json").exists());
+    }
+
+    #[test]
+    fn codex_uninstall_preflight_failure_leaves_hooks_json_untouched() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let install = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        assert!(!run_with_context(&install, &context).failed);
+        let hooks_path = context.home.join(".codex/hooks.json");
+        let installed = fs::read(&hooks_path).unwrap();
+        let config_path = context.home.join(".codex/config.toml");
+        atomic_write(&config_path, b"not = valid = toml\n", Some(0o600)).unwrap();
+
+        let uninstall = Plan { action: Action::Uninstall, providers: vec!["codex".into()] };
+        let result = run_with_context(&uninstall, &context);
+        assert!(result.failed, "{}", result.value);
+        // Removing the hooks while their stale trust entries linger would be a
+        // half-applied uninstall; the config preflight must fail first.
+        assert_eq!(fs::read(&hooks_path).unwrap(), installed);
+        assert_eq!(fs::read_to_string(&config_path).unwrap(), "not = valid = toml\n");
     }
 
     #[test]
