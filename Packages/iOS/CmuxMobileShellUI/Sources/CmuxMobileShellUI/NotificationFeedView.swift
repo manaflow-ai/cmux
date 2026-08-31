@@ -45,6 +45,9 @@ struct NotificationFeedView: View {
                 }
             )
         }
+        // No title of its own (the tab names the screen), so collapse the
+        // large-title zone or the list opens with a bar-height blank strip.
+        .mobileInlineNavigationTitle()
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 if projection.sourceUnreadCount > 0 {
