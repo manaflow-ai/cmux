@@ -128,6 +128,7 @@ extension MobileShellComposite {
         agentFeedSuccessfulMacIDs = []
         agentFeedSnapshotsByMac = [:]
         agentFeedPendingReplyRequestIDs = []
+        agentFeedLocalRepliesByItemID = [:]
         agentFeedItems = []
         agentFeedStatus = .idle
     }
@@ -267,17 +268,22 @@ extension MobileShellComposite {
         return true
     }
 
-    /// Rebuilds connection-state projections and deterministic cross-Mac ordering.
+    /// Rebuilds connection-state projections, this device's recorded replies,
+    /// and deterministic cross-Mac ordering.
     func recomputeAgentFeedItems() {
         var merged: [MobileAgentFeedItem] = []
         for (macDeviceID, snapshot) in agentFeedSnapshotsByMac {
             let status = agentFeedConnectionStatus(for: macDeviceID)
             for item in snapshot.items {
-                merged.append(
-                    item.connectionStatus == status
-                        ? item
-                        : item.updating(connectionStatus: status)
-                )
+                var projected = item
+                if projected.connectionStatus != status {
+                    projected = projected.updating(connectionStatus: status)
+                }
+                if let reply = agentFeedLocalRepliesByItemID[projected.id],
+                   projected.userReply != reply {
+                    projected = projected.updating(userReply: reply)
+                }
+                merged.append(projected)
             }
         }
         merged.sort { lhs, rhs in
@@ -370,6 +376,10 @@ extension MobileShellComposite {
                 ]
             )
             _ = try await target.client.sendRequest(request)
+            // Record the reply against the row so the feed shows what was
+            // said in response to this specific message.
+            agentFeedLocalRepliesByItemID[item.id] = trimmed
+            recomputeAgentFeedItems()
             return true
         } catch {
             agentFeedLog.error(

@@ -201,6 +201,9 @@ public struct MobileAgentFeedItem: Identifiable, Equatable, Sendable {
     public let context: MobileAgentFeedContext?
     /// The current reachability of the owning Mac.
     public let connectionStatus: MobileMacConnectionStatus
+    /// The free-text reply this device sent to the row's terminal, recorded
+    /// locally so the row shows what was said in response to it.
+    public let userReply: String?
 
     /// Whether the row is awaiting a decision the user can take from the Feed.
     public var needsInput: Bool {
@@ -241,7 +244,8 @@ public struct MobileAgentFeedItem: Identifiable, Equatable, Sendable {
         workspaceTitle: String? = nil,
         surfaceTitle: String? = nil,
         context: MobileAgentFeedContext? = nil,
-        connectionStatus: MobileMacConnectionStatus
+        connectionStatus: MobileMacConnectionStatus,
+        userReply: String? = nil
     ) {
         self.id = MobileAgentFeedItemID(
             macDeviceID: macDeviceID,
@@ -277,13 +281,15 @@ public struct MobileAgentFeedItem: Identifiable, Equatable, Sendable {
         self.surfaceTitle = surfaceTitle
         self.context = context
         self.connectionStatus = connectionStatus
+        self.userReply = userReply
     }
 
     /// Returns the same row with updated lifecycle and reachability state.
     public func updating(
         status: MobileAgentFeedItemStatus? = nil,
         updatedAt: Date? = nil,
-        connectionStatus: MobileMacConnectionStatus? = nil
+        connectionStatus: MobileMacConnectionStatus? = nil,
+        userReply: String? = nil
     ) -> MobileAgentFeedItem {
         MobileAgentFeedItem(
             macDeviceID: macDeviceID,
@@ -314,7 +320,8 @@ public struct MobileAgentFeedItem: Identifiable, Equatable, Sendable {
             workspaceTitle: workspaceTitle,
             surfaceTitle: surfaceTitle,
             context: context,
-            connectionStatus: connectionStatus ?? self.connectionStatus
+            connectionStatus: connectionStatus ?? self.connectionStatus,
+            userReply: userReply ?? self.userReply
         )
     }
 }

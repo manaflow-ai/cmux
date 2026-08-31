@@ -58,6 +58,12 @@ struct AgentFeedRow: View, Equatable {
                         actions: actions
                     )
                 } else if model.item.supportsTerminalReply, model.item.kind == .stop {
+                    if let reply = model.item.userReply {
+                        userReplyMarker(
+                            reply: reply,
+                            reference: model.presentation.replyReferenceSnippet
+                        )
+                    }
                     AgentFeedInlineReplyField(
                         item: model.item,
                         isReplyPending: isReplyPending,
@@ -119,6 +125,45 @@ struct AgentFeedRow: View, Equatable {
         .fixedSize(horizontal: false, vertical: true)
     }
 
+    /// The user's recorded reply, quote-referencing the message it answered.
+    private func userReplyMarker(reply: String, reference: String?) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let reference {
+                HStack(spacing: 5) {
+                    Image(systemName: "arrowshape.turn.up.left")
+                        .font(.caption2)
+                    Text(String(
+                        localized: "mobile.agentFeed.reply.referenceFormat",
+                        defaultValue: "Replying to “\(reference)”",
+                        bundle: .module
+                    ))
+                    .font(.caption)
+                    .lineLimit(1)
+                }
+                .foregroundStyle(.tertiary)
+            }
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                Text(String(
+                    localized: "mobile.agentFeed.reply.youLabel",
+                    defaultValue: "You",
+                    bundle: .module
+                ))
+                .font(.footnote.weight(.semibold))
+                Text(reply)
+                    .font(.footnote)
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color.accentColor.opacity(0.12))
+            )
+        }
+        .padding(.top, 2)
+    }
+
     private func resolutionLine(_ label: String) -> some View {
         HStack(spacing: 5) {
             Image(systemName: resolutionSymbolName)
@@ -159,9 +204,9 @@ private struct AgentFeedRowOutputText: View {
                 .fixedSize(horizontal: false, vertical: true)
             if isExpandable {
                 Button {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        isExpanded.toggle()
-                    }
+                    // No animation: the row grows downward in place, so the
+                    // top of the row never moves while expanding.
+                    isExpanded.toggle()
                 } label: {
                     Text(isExpanded
                         ? String(

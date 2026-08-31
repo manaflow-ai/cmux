@@ -61,12 +61,17 @@ struct AgentFeedView: View {
                 feedList
             }
         }
-        .navigationTitle(String(
-            localized: "mobile.agentFeed.title",
-            defaultValue: "Feed",
-            bundle: .module
-        ))
-        .navigationBarTitleDisplayMode(.inline)
+        // The Feed carries no navigation title: the timeline itself is the
+        // header, and the toolbar hosts only the filter menu.
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                AgentFeedFilterMenu(
+                    filter: filter,
+                    needsInputCount: needsInputCount,
+                    setFilter: { filter = $0 }
+                )
+            }
+        }
         .onAppear {
             now = Date()
             guard refreshesOnAppear else { return }
@@ -77,9 +82,6 @@ struct AgentFeedView: View {
     private var feedList: some View {
         List {
             Section {
-                filterPicker
-                    .listRowSeparator(.hidden)
-                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 2, trailing: 16))
                 if visibleItems.isEmpty {
                     AgentFeedEmptyView(filter: filter)
                         .listRowSeparator(.hidden)
@@ -110,37 +112,58 @@ struct AgentFeedView: View {
         }
     }
 
-    private var filterPicker: some View {
-        Picker(
-            String(
-                localized: "mobile.agentFeed.filter",
-                defaultValue: "Filter",
-                bundle: .module
-            ),
-            selection: $filter
-        ) {
-            Text(String(
-                localized: "mobile.agentFeed.filter.all",
-                defaultValue: "All Activity",
-                bundle: .module
-            ))
-            .tag(AgentFeedFilter.all)
-            Text(
-                needsInputCount > 0
-                    ? String(
-                        localized: "mobile.agentFeed.filter.needsInputCount",
-                        defaultValue: "Needs Input (\(needsInputCount))",
-                        bundle: .module
-                    )
-                    : String(
-                        localized: "mobile.agentFeed.filter.needsInput",
-                        defaultValue: "Needs Input",
-                        bundle: .module
-                    )
-            )
-            .tag(AgentFeedFilter.needsInput)
+}
+
+/// The Feed's filter as a toolbar menu, mirroring the Workspaces filter
+/// control: a `Menu` hosting a picker, with the filled Mail-style icon while
+/// a narrowing filter is active.
+private struct AgentFeedFilterMenu: View {
+    let filter: AgentFeedFilter
+    let needsInputCount: Int
+    let setFilter: (AgentFeedFilter) -> Void
+
+    var body: some View {
+        Menu {
+            Picker(
+                String(
+                    localized: "mobile.agentFeed.filter",
+                    defaultValue: "Filter",
+                    bundle: .module
+                ),
+                selection: Binding(get: { filter }, set: { setFilter($0) })
+            ) {
+                Text(String(
+                    localized: "mobile.agentFeed.filter.all",
+                    defaultValue: "All Activity",
+                    bundle: .module
+                ))
+                .tag(AgentFeedFilter.all)
+                Text(
+                    needsInputCount > 0
+                        ? String(
+                            localized: "mobile.agentFeed.filter.needsInputCount",
+                            defaultValue: "Needs Input (\(needsInputCount))",
+                            bundle: .module
+                        )
+                        : String(
+                            localized: "mobile.agentFeed.filter.needsInput",
+                            defaultValue: "Needs Input",
+                            bundle: .module
+                        )
+                )
+                .tag(AgentFeedFilter.needsInput)
+            }
+        } label: {
+            Image(systemName: filter == .needsInput
+                ? "line.3.horizontal.decrease.circle.fill"
+                : "line.3.horizontal.decrease.circle")
         }
-        .pickerStyle(.segmented)
+        .accessibilityLabel(String(
+            localized: "mobile.agentFeed.filter",
+            defaultValue: "Filter",
+            bundle: .module
+        ))
+        .accessibilityIdentifier("MobileAgentFeedFilterMenu")
     }
 }
 

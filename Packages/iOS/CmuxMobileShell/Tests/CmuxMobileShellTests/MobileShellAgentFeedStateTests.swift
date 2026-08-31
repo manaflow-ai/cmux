@@ -165,6 +165,35 @@ struct MobileShellAgentFeedStateTests {
         #expect(store.agentFeedItems.map(\.itemID) == ["good"])
     }
 
+    @Test("Recorded terminal replies mark their row and survive refreshes")
+    func recordedRepliesSurviveRefresh() throws {
+        let store = MobileShellComposite()
+        #expect(store.applyAgentFeedSnapshot(
+            try response(revision: 1, rows: [
+                row(id: "s", kind: "stop", status: "telemetry", requestID: nil),
+            ]),
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac"
+        ))
+        let item = try #require(store.agentFeedItems.first)
+        store.agentFeedLocalRepliesByItemID[item.id] = "ship it"
+        store.recomputeAgentFeedItems()
+        #expect(store.agentFeedItems.first?.userReply == "ship it")
+
+        // A newer snapshot rebuilds the row; the recorded reply reattaches.
+        #expect(store.applyAgentFeedSnapshot(
+            try response(revision: 2, rows: [
+                row(id: "s", kind: "stop", status: "telemetry", requestID: nil),
+            ]),
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac"
+        ))
+        #expect(store.agentFeedItems.first?.userReply == "ship it")
+
+        store.resetAgentFeed()
+        #expect(store.agentFeedLocalRepliesByItemID.isEmpty)
+    }
+
     @Test("Reset clears rows, revisions, and pending replies")
     func reset() throws {
         let store = MobileShellComposite()

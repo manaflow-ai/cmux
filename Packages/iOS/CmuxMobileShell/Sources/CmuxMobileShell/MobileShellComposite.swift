@@ -414,6 +414,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public internal(set) var agentFeedPendingReplyRequestIDs: Set<String> = []
     var agentFeedSnapshotsByMac: [String: AgentFeedMacSnapshot] = [:]
     var agentFeedKnownRevisionsByMac: [String: Int] = [:]
+    /// Free-text terminal replies this device sent, keyed by the replied row,
+    /// so the row keeps showing what was said across snapshot refreshes.
+    var agentFeedLocalRepliesByItemID: [MobileAgentFeedItemID: String] = [:]
     var agentFeedRefreshTasksByMac: [String: Task<Void, Never>] = [:]
     var agentFeedRefreshPendingMacIDs: Set<String> = []
     var agentFeedSuccessfulMacIDs: Set<String> = []

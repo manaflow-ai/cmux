@@ -43,6 +43,9 @@ struct AgentFeedRowPresentation: Equatable, Sendable {
     let resolutionLabel: String?
     /// Whether the plan text is long enough to collapse behind "Show more".
     let outputIsExpandable: Bool
+    /// A one-line snippet of the message being replied to, quoted next to the
+    /// user's recorded reply so the reply references this exact row.
+    let replyReferenceSnippet: String?
 
     init(item: MobileAgentFeedItem) {
         authorName = AgentFeedRowPresentation.authorName(forSource: item.source)
@@ -55,6 +58,24 @@ struct AgentFeedRowPresentation: Equatable, Sendable {
         toolLine = AgentFeedRowPresentation.toolLine(for: item)
         provenance = AgentFeedRowPresentation.provenance(for: item)
         resolutionLabel = AgentFeedRowPresentation.resolutionLabel(for: item)
+        if item.userReply != nil {
+            let reference = output ?? AgentFeedRowPresentation.headline(for: item)
+            replyReferenceSnippet = AgentFeedRowPresentation.snippet(reference)
+        } else {
+            replyReferenceSnippet = nil
+        }
+    }
+
+    /// First line of `text`, capped for a quote-reply reference.
+    private static func snippet(_ text: String) -> String {
+        let firstLine = text
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .first { !$0.isEmpty } ?? text
+        if firstLine.count > 90 {
+            return String(firstLine.prefix(90)) + "…"
+        }
+        return firstLine
     }
 
     private static func authorName(forSource source: String) -> String {
