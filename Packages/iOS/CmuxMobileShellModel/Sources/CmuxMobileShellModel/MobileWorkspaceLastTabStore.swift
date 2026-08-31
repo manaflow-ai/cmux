@@ -1,24 +1,31 @@
 public import Foundation
 
-/// The tab a workspace last showed on this device: a terminal, or a
-/// non-terminal Mac surface.
+/// The tab a workspace last showed on this device. Every tab kind the
+/// workspace detail can present is remembered on equal footing.
 public struct MobileWorkspaceLastTab: Hashable, Sendable {
     /// Which selection axis the remembered tab lives on.
     public enum Kind: String, Codable, Sendable {
         case terminal
         case macSurface
+        case browserStream
+        case simulatorStream
+        case localBrowser
     }
 
     /// The remembered tab's selection axis.
     public var kind: Kind
-    /// The raw terminal or surface identifier, Mac-local like the ids inside
-    /// a workspace preview.
+    /// The raw terminal, surface, or stream-panel identifier, Mac-local like
+    /// the ids inside a workspace preview. ``Kind/localBrowser`` has no
+    /// Mac-side identity; its ``tabID`` is a fixed placeholder.
     public var tabID: String
+
+    /// The placeholder ``tabID`` for the phone-local browser tab.
+    public static let localBrowserTabID = "local"
 
     /// Creates a remembered tab.
     /// - Parameters:
     ///   - kind: Which selection axis the tab lives on.
-    ///   - tabID: The raw terminal or surface identifier.
+    ///   - tabID: The raw terminal, surface, or stream-panel identifier.
     public init(kind: Kind, tabID: String) {
         self.kind = kind
         self.tabID = tabID
@@ -48,7 +55,10 @@ public struct MobileWorkspaceLastTabStore: Sendable {
     public static let maxEntries = 512
 
     private struct Entry: Codable, Sendable {
-        var kind: MobileWorkspaceLastTab.Kind
+        /// Stored as the kind's raw string so an entry written by a NEWER
+        /// build with a kind this build does not know decodes (and is
+        /// ignored) instead of failing the whole map.
+        var kind: String
         var tabID: String
         /// Monotonic recency stamp (not wall-clock), so pruning order is
         /// deterministic even for writes within one instant.
@@ -80,20 +90,22 @@ public struct MobileWorkspaceLastTabStore: Sendable {
     public static var inMemory: Self { .init(defaults: nil) }
 
     /// The tab this workspace last showed on this device, or `nil` if none
-    /// was recorded (or it was pruned).
+    /// was recorded, it was pruned, or it was written by a newer build with
+    /// an unknown kind.
     public func lastTab(for workspaceStateID: String) -> MobileWorkspaceLastTab? {
-        guard let entry = map[workspaceStateID] else { return nil }
-        return MobileWorkspaceLastTab(kind: entry.kind, tabID: entry.tabID)
+        guard let entry = map[workspaceStateID],
+              let kind = MobileWorkspaceLastTab.Kind(rawValue: entry.kind) else { return nil }
+        return MobileWorkspaceLastTab(kind: kind, tabID: entry.tabID)
     }
 
     /// Record the tab a workspace currently shows. Persists immediately;
     /// re-recording the unchanged tab is a no-op (no write, no recency bump).
     public mutating func set(_ tab: MobileWorkspaceLastTab, for workspaceStateID: String) {
         if let existing = map[workspaceStateID],
-           existing.kind == tab.kind, existing.tabID == tab.tabID {
+           existing.kind == tab.kind.rawValue, existing.tabID == tab.tabID {
             return
         }
-        map[workspaceStateID] = Entry(kind: tab.kind, tabID: tab.tabID, seq: nextSeq)
+        map[workspaceStateID] = Entry(kind: tab.kind.rawValue, tabID: tab.tabID, seq: nextSeq)
         nextSeq &+= 1
         if map.count > Self.maxEntries {
             let oldestKeys = map.sorted { $0.value.seq < $1.value.seq }

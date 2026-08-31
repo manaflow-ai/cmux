@@ -489,6 +489,25 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// read the selection properties); injected so tests/previews can pass a
     /// suite-scoped `UserDefaults` or ``MobileWorkspaceLastTabStore/inMemory``.
     @ObservationIgnored var lastTabStore: MobileWorkspaceLastTabStore
+    /// The workspace whose last-opened tab should be restored by the next
+    /// selection sync. Armed by every workspace open (selection change or
+    /// ``openWorkspace(_:)`` on a remount) and disarmed by a successful or
+    /// definitively failed restore, or by any explicit tab selection. Stays
+    /// armed across syncs while the remembered tab's backing data (stream
+    /// panel discovery) is still loading. Not observed: it gates selection
+    /// writes, not view state.
+    @ObservationIgnored var pendingLastTabRestoreWorkspaceID: MobileWorkspacePreview.ID?
+    /// True while ``syncSelectedTerminalForWorkspace()`` applies derived
+    /// fallback selections, so the selection observers treat those writes as
+    /// churn (no recording, no restore disarm) instead of explicit tab opens.
+    /// Not observed: it gates recording, not view state.
+    @ObservationIgnored private var isSyncingDerivedTabSelection = false
+    /// One-shot intent for the workspace detail view to reopen the
+    /// phone-local browser tab. The local browser lives in the view-layer
+    /// `BrowserSurfaceStore`, which this store cannot reach, so restoring
+    /// that tab kind is handed off to the detail view. Observable so the
+    /// mounted detail reacts when a restore arms it after the view's task.
+    public private(set) var pendingLocalBrowserTabRestoreWorkspaceID: MobileWorkspacePreview.ID?
     /// Device-local sort preference for the aggregated All Computers list
     /// (mode + user computer order). `@ObservationIgnored`: views read the
     /// observable ``workspaceSortMode`` / ``workspaceComputerPriority``
@@ -855,6 +874,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         didSet {
             if selectedWorkspaceID != oldValue {
                 selectedMacSurfaceID = nil
+                // Selecting a workspace is an "open": arm the last-opened-tab
+                // restore so the synchronizer below (and later data-arrival
+                // syncs) put back the tab this device last showed there.
+                pendingLastTabRestoreWorkspaceID = selectedWorkspaceID
+                pendingLocalBrowserTabRestoreWorkspaceID = nil
             }
             syncSelectedTerminalForWorkspace()
         }
@@ -865,7 +889,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// terminal and composer draft) and cleared when the workspace changes.
     public var selectedMacSurfaceID: MobileSurfacePreview.ID? {
         didSet {
-            guard selectedMacSurfaceID != oldValue, let selectedMacSurfaceID else { return }
+            guard selectedMacSurfaceID != oldValue, let selectedMacSurfaceID,
+                  !isSyncingDerivedTabSelection else { return }
+            // An unsuppressed non-nil change is an explicit tab open (the
+            // picker or a deep link), so it both wins over a pending restore
+            // and becomes the remembered tab. Derived promotions inside the
+            // synchronizer are suppressed and recorded only at open time.
+            pendingLastTabRestoreWorkspaceID = nil
             recordLastOpenedMacSurfaceTab(selectedMacSurfaceID)
         }
     }
@@ -890,7 +920,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     .surfaceFocused,
                     correlationID: selectedTerminalID.rawValue
                 )
-                recordLastOpenedTerminalTab(selectedTerminalID)
+                // An unsuppressed non-nil change is an explicit tab open
+                // (picker, push deep link, attach ticket, create flow): it
+                // wins over a pending restore and becomes the remembered tab.
+                // The synchronizer's derived fallbacks are suppressed and
+                // recorded only at open time, so background churn (a terminal
+                // closing while the user is on the list) cannot clobber the
+                // remembered stream or surface tab.
+                if !isSyncingDerivedTabSelection {
+                    pendingLastTabRestoreWorkspaceID = nil
+                    recordLastOpenedTerminalTab(selectedTerminalID)
+                }
             }
             swapDraft(from: draftedOutgoingTerminalID, outgoingText: draftedOutgoingText, to: selectedTerminalID)
             draftedOutgoingTerminalID = nil
@@ -1934,6 +1974,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // last-tab state through `.standard` (the app injects a persistent
         // store through the composite initializer instead).
         lastTabStore: MobileWorkspaceLastTabStore = .inMemory,
+        browserStreamEvents: (any BrowserStreamEventReceiving)? = nil,
+        simulatorStreamStore: MobileSimulatorStreamStore? = nil,
         terminalInputAckResubscribeClock: any Clock<Duration> = ContinuousClock(),
         controlPlaneSchedulingClock: any Clock<Duration> = ContinuousClock()
     ) -> CMUXMobileShellStore {
@@ -1943,7 +1985,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             deliveredNotificationClearer: NoopDeliveredNotificationClearer(),
             lastTabStore: lastTabStore,
             controlPlaneSchedulingClock: controlPlaneSchedulingClock,
-            terminalInputAckResubscribeClock: terminalInputAckResubscribeClock
+            terminalInputAckResubscribeClock: terminalInputAckResubscribeClock,
+            browserStreamEvents: browserStreamEvents,
+            simulatorStreamStore: simulatorStreamStore
         )
     }
 
@@ -8026,9 +8070,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             terminalAutoFocusSuppressedSurfaceIDs.insert(id.rawValue)
         }
         // Re-confirming the already-selected terminal is still an explicit tab
-        // open (returning from a Mac surface to the terminal picker's checked
-        // row), so the last-opened-tab memory must move off the surface even
-        // though the selection below is unchanged.
+        // open (returning from a stream or Mac surface to the terminal
+        // picker's checked row), so it disarms a pending restore and moves the
+        // last-opened-tab memory even though the selection below is unchanged.
+        pendingLastTabRestoreWorkspaceID = nil
         recordLastOpenedTerminalTab(id)
         guard selectedTerminalID != id else { return }
         selectedTerminalID = id
@@ -8077,6 +8122,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Open the workspace preview, switching the foreground Mac first when the workspace belongs to another paired Mac.
     public func openWorkspace(_ id: MobileWorkspacePreview.ID) async {
+        // Re-arm the last-opened-tab restore even when the selection is
+        // unchanged: reopening the SAME workspace from the list remounts the
+        // detail without a selection change, and its streams were stopped on
+        // the previous leave. Synchronous, before the first await, so no
+        // derived recording can slip in between the open and the arm.
+        pendingLastTabRestoreWorkspaceID = id
+        if explicitlySelectedWorkspace?.id == id {
+            syncSelectedTerminalForWorkspace()
+        }
         let diagnosticStartedAt = appDiagnosticNow()
         recordAppEvent(
             .workspaceOpenStarted,
@@ -11202,27 +11256,44 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if selectedWorkspaceID != nil, explicitlySelectedWorkspace == nil {
             return
         }
+        // Everything this synchronizer assigns is derived churn, not an
+        // explicit tab open: the selection observers must neither record it
+        // nor disarm a pending restore for it.
+        isSyncingDerivedTabSelection = true
+        var recordDisplayedTabAfterSync = false
+        defer {
+            isSyncingDerivedTabSelection = false
+            // A completed open with nothing (left) to restore records the tab
+            // that actually got displayed, so the NEXT open reproduces it.
+            if recordDisplayedTabAfterSync, let workspace = explicitlySelectedWorkspace {
+                recordDisplayedTab(in: workspace)
+            }
+        }
         guard let selectedWorkspace else {
             selectedTerminalID = nil
             return
         }
+        // Opening a workspace restores its last opened tab — any kind, ahead
+        // of every keep-current and Mac-focus heuristic below.
+        if pendingLastTabRestoreWorkspaceID == selectedWorkspace.id {
+            switch restoreLastOpenedTab(in: selectedWorkspace) {
+            case .restored:
+                pendingLastTabRestoreWorkspaceID = nil
+                return
+            case .waiting:
+                // The remembered tab's backing data (stream panel discovery)
+                // has not arrived: stay armed for the next sync and fall
+                // through WITHOUT recording, so the interim fallback cannot
+                // clobber the remembered tab.
+                break
+            case .unavailable:
+                pendingLastTabRestoreWorkspaceID = nil
+                recordDisplayedTabAfterSync = true
+            }
+        }
         if let selectedTerminalID,
            let selectedTerminal = selectedWorkspace.terminals.first(where: { $0.id == selectedTerminalID }),
            selectedTerminal.isReady || !selectedWorkspace.hasReadyTerminal {
-            // A held valid selection is the workspace's displayed tab; keep the
-            // last-opened-tab memory tracking it (selections that landed before
-            // the workspace id, like push deep links, only become attributable
-            // here). Skip while a stream or Mac surface owns the frame: the
-            // terminal selection is then background state, not the shown tab.
-            if !nonTerminalTabOwnsFrame(in: selectedWorkspace) {
-                recordLastOpenedTerminalTab(selectedTerminalID)
-            }
-            return
-        }
-        // The workspace needs a fresh tab decision (it was just opened, or its
-        // held tab disappeared): the tab this device last opened there wins
-        // over every Mac-focus heuristic below.
-        if restoreLastOpenedTab(in: selectedWorkspace) {
             return
         }
         // Clear stale Mac selections and promote an active or Mac-focused
@@ -11312,29 +11383,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     // MARK: - Last opened tab per workspace
 
-    /// True when a live stream or still-valid Mac surface owns the workspace
-    /// frame, so the selected terminal is background state rather than the
-    /// displayed tab.
-    private func nonTerminalTabOwnsFrame(in workspace: MobileWorkspacePreview) -> Bool {
-        let workspaceID = workspace.rpcWorkspaceID.rawValue
-        if simulatorStreamStore?.activeState(in: workspaceID) != nil { return true }
-        if let browserStore = browserStreamEvents as? BrowserStreamStore,
-           browserStore.activeState(in: workspaceID) != nil {
-            return true
-        }
-        if let selectedMacSurfaceID,
-           workspace.surfaces.contains(where: { $0.id == selectedMacSurfaceID && !$0.kind.isTerminal }) {
-            return true
-        }
-        return false
+    /// Outcome of one armed restore attempt.
+    enum LastTabRestoreOutcome {
+        /// The remembered tab is showing (or was just reselected); disarm.
+        case restored
+        /// The remembered tab's backing data has not loaded yet (stream panel
+        /// discovery, cross-Mac row hydration); stay armed for the next sync.
+        case waiting
+        /// Nothing is remembered, or the remembered tab no longer exists;
+        /// disarm and let the fallback heuristics pick a tab.
+        case unavailable
     }
 
     /// Records `terminalID` as the last opened tab of the explicitly selected
-    /// workspace. Every selection entrypoint (picker, push deep link, create
-    /// flows, the open-workspace synchronizer) funnels here through the
-    /// selection property observers, so the memory always tracks the tab the
-    /// user actually saw. Membership is checked so a selection that races a
-    /// workspace switch can never stamp another workspace's memory.
+    /// workspace. Explicit selection entrypoints (picker, push deep link,
+    /// attach ticket, create flows) funnel here through the selection
+    /// observers. Membership is checked so a selection that races a workspace
+    /// switch can never stamp another workspace's memory.
     private func recordLastOpenedTerminalTab(_ terminalID: MobileTerminalPreview.ID) {
         guard let workspace = explicitlySelectedWorkspace,
               workspace.terminals.contains(where: { $0.id == terminalID }) else { return }
@@ -11355,35 +11420,176 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
     }
 
-    /// Restores the workspace's remembered last-opened tab, if it still
-    /// exists there. Called only from ``syncSelectedTerminalForWorkspace()``
-    /// after the keep-current check, so it runs exactly when a workspace
-    /// needs a fresh tab decision (open/reopen, or the held tab disappeared)
-    /// and never yanks a live stream or still-valid Mac surface the user is
-    /// looking at. Returns false when nothing restorable is remembered, so
-    /// the caller falls back to the Mac-focus heuristics.
-    private func restoreLastOpenedTab(in workspace: MobileWorkspacePreview) -> Bool {
-        guard !nonTerminalTabOwnsFrame(in: workspace),
-              let remembered = lastTabStore.lastTab(for: workspace.lastTabStateID) else { return false }
+    /// Records a Mac browser stream pick as the workspace's last opened tab.
+    /// Called by the detail view's picker action, which owns stream
+    /// activation; an explicit pick also disarms a pending restore.
+    public func recordLastOpenedBrowserStreamTab(
+        panelID: String,
+        in workspaceID: MobileWorkspacePreview.ID
+    ) {
+        pendingLastTabRestoreWorkspaceID = nil
+        guard let workspace = workspaces.first(where: { $0.id == workspaceID }) else { return }
+        lastTabStore.set(
+            MobileWorkspaceLastTab(kind: .browserStream, tabID: panelID),
+            for: workspace.lastTabStateID
+        )
+    }
+
+    /// Records a Mac Simulator stream pick as the workspace's last opened
+    /// tab; the Simulator sibling of ``recordLastOpenedBrowserStreamTab(panelID:in:)``.
+    public func recordLastOpenedSimulatorStreamTab(
+        panelID: String,
+        in workspaceID: MobileWorkspacePreview.ID
+    ) {
+        pendingLastTabRestoreWorkspaceID = nil
+        guard let workspace = workspaces.first(where: { $0.id == workspaceID }) else { return }
+        lastTabStore.set(
+            MobileWorkspaceLastTab(kind: .simulatorStream, tabID: panelID),
+            for: workspace.lastTabStateID
+        )
+    }
+
+    /// Records the phone-local browser as the workspace's last opened tab.
+    /// Called by the detail view when it opens the local browser pane.
+    public func recordLastOpenedLocalBrowserTab(in workspaceID: MobileWorkspacePreview.ID) {
+        pendingLastTabRestoreWorkspaceID = nil
+        guard let workspace = workspaces.first(where: { $0.id == workspaceID }) else { return }
+        lastTabStore.set(
+            MobileWorkspaceLastTab(
+                kind: .localBrowser,
+                tabID: MobileWorkspaceLastTab.localBrowserTabID
+            ),
+            for: workspace.lastTabStateID
+        )
+    }
+
+    /// Consumes the one-shot local-browser restore intent for `workspaceID`.
+    /// The detail view calls this and reopens its local browser pane when it
+    /// returns true; the local browser lives in the view-layer store this
+    /// composite cannot reach.
+    public func consumeLocalBrowserTabRestore(for workspaceID: MobileWorkspacePreview.ID) -> Bool {
+        guard pendingLocalBrowserTabRestoreWorkspaceID == workspaceID else { return false }
+        pendingLocalBrowserTabRestoreWorkspaceID = nil
+        return true
+    }
+
+    /// Records whatever tab the workspace is actually displaying, used once
+    /// per completed open (when nothing was restorable) so the next open
+    /// reproduces this one. The phone-local browser is view-owned and
+    /// invisible here; its open action records itself.
+    private func recordDisplayedTab(in workspace: MobileWorkspacePreview) {
+        let workspaceID = workspace.rpcWorkspaceID.rawValue
+        if let simulator = simulatorStreamStore?.activeState(in: workspaceID) {
+            lastTabStore.set(
+                MobileWorkspaceLastTab(kind: .simulatorStream, tabID: simulator.id),
+                for: workspace.lastTabStateID
+            )
+            return
+        }
+        if let browserStore = browserStreamEvents as? BrowserStreamStore,
+           let browser = browserStore.activeState(in: workspaceID) {
+            lastTabStore.set(
+                MobileWorkspaceLastTab(kind: .browserStream, tabID: browser.id),
+                for: workspace.lastTabStateID
+            )
+            return
+        }
+        if let surfaceID = selectedMacSurfaceID,
+           workspace.surfaces.contains(where: { $0.id == surfaceID && !$0.kind.isTerminal }) {
+            lastTabStore.set(
+                MobileWorkspaceLastTab(kind: .macSurface, tabID: surfaceID.rawValue),
+                for: workspace.lastTabStateID
+            )
+            return
+        }
+        if let terminalID = selectedTerminalID {
+            recordLastOpenedTerminalTab(terminalID)
+        }
+    }
+
+    /// Attempts to restore the workspace's remembered last-opened tab. Called
+    /// only from ``syncSelectedTerminalForWorkspace()`` while a restore is
+    /// armed for this workspace, ahead of every fallback heuristic, so every
+    /// tab kind is restored on equal footing.
+    private func restoreLastOpenedTab(in workspace: MobileWorkspacePreview) -> LastTabRestoreOutcome {
+        guard let remembered = lastTabStore.lastTab(for: workspace.lastTabStateID) else {
+            return .unavailable
+        }
+        let workspaceID = workspace.rpcWorkspaceID.rawValue
+        let browserStore = browserStreamEvents as? BrowserStreamStore
+        // A stream already live in this workspace: matching memory means the
+        // open landed on the remembered tab; a different live stream is newer
+        // user-visible state than the memory and wins.
+        if let activeSimulator = simulatorStreamStore?.activeState(in: workspaceID) {
+            return remembered.kind == .simulatorStream && remembered.tabID == activeSimulator.id
+                ? .restored : .unavailable
+        }
+        if let activeBrowser = browserStore?.activeState(in: workspaceID) {
+            return remembered.kind == .browserStream && remembered.tabID == activeBrowser.id
+                ? .restored : .unavailable
+        }
         switch remembered.kind {
         case .terminal:
             let id = MobileTerminalPreview.ID(rawValue: remembered.tabID)
-            // Same readiness policy as the keep-current check above: a
-            // remembered tab that is not ready loses to a ready sibling.
-            guard let terminal = workspace.terminals.first(where: { $0.id == id }),
-                  terminal.isReady || !workspace.hasReadyTerminal else { return false }
+            guard let terminal = workspace.terminals.first(where: { $0.id == id }) else {
+                // An empty row usually means the workspace's data has not
+                // hydrated yet (cross-Mac open); a populated row without the
+                // tab means it was closed on the Mac.
+                return workspace.terminals.isEmpty && workspace.surfaces.isEmpty
+                    ? .waiting : .unavailable
+            }
+            // Same readiness policy as the keep-current check: a remembered
+            // tab that is not ready yet keeps the restore armed rather than
+            // losing permanently to a ready sibling.
+            guard terminal.isReady || !workspace.hasReadyTerminal else { return .waiting }
+            selectedMacSurfaceID = nil
             if selectedTerminalID != id {
                 // Restoring is chrome navigation, not a typing intent: the
                 // surface must not grab the keyboard when it attaches.
                 suppressTerminalAutoFocusOnNextAttach(for: id)
                 selectedTerminalID = id
             }
-            return true
+            return .restored
         case .macSurface:
             let id = MobileSurfacePreview.ID(rawValue: remembered.tabID)
-            guard workspace.surfaces.contains(where: { $0.id == id && !$0.kind.isTerminal }) else { return false }
+            guard workspace.surfaces.contains(where: { $0.id == id && !$0.kind.isTerminal }) else {
+                return workspace.terminals.isEmpty && workspace.surfaces.isEmpty
+                    ? .waiting : .unavailable
+            }
             selectedMacSurfaceID = id
-            return true
+            return .restored
+        case .browserStream:
+            guard let browserStore else { return .unavailable }
+            if browserStore.panels(in: workspaceID).contains(where: { $0.panelID == remembered.tabID }) {
+                _ = browserStore.activate(panelID: remembered.tabID, in: workspaceID)
+                let panelID = remembered.tabID
+                Task { await startMobileBrowserStream(panelID: panelID) }
+                return .restored
+            }
+            // Not discovered yet: the Mac row still lists the pane, or panel
+            // discovery has never completed for this workspace — the detail
+            // view's refresh will re-run this sync.
+            if workspace.surfaces.contains(where: { $0.id.rawValue == remembered.tabID && $0.kind == .browser })
+                || browserStore.panelDiscoveryRevision(in: workspaceID) == 0 {
+                return .waiting
+            }
+            return .unavailable
+        case .simulatorStream:
+            guard let simulatorStreamStore else { return .unavailable }
+            guard workspace.simulators.contains(where: { $0.panelID == remembered.tabID }) else {
+                return .unavailable
+            }
+            // Seed panel state from the workspace row: the detail view's own
+            // panel sync arrives only after it mounts.
+            simulatorStreamStore.replaceSimulatorPanels(in: workspaceID, with: workspace.simulators)
+            _ = simulatorStreamStore.activate(panelID: remembered.tabID, in: workspaceID)
+            let panelID = remembered.tabID
+            Task { await startMobileSimulatorStream(panelID: panelID, workspaceID: workspaceID) }
+            return .restored
+        case .localBrowser:
+            // View-owned tab: hand the reopen to the mounted detail view.
+            pendingLocalBrowserTabRestoreWorkspaceID = workspace.id
+            return .restored
         }
     }
 

@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileBrowserStream
 import CmuxMobilePairedMac
 import CmuxMobileRPC
 import CmuxMobileShellModel
@@ -753,6 +754,159 @@ import Testing
         store.selectedWorkspaceID = workspaceA.id
 
         #expect(store.selectedTerminalID?.rawValue == "a1")
+    }
+
+    @Test func reopeningSameWorkspaceRestoresBrowserStreamTab() async {
+        let browserStreams = BrowserStreamStore()
+        let store = MobileShellComposite.preview(browserStreamEvents: browserStreams)
+        store.signIn()
+        let workspaceB = MobileWorkspacePreview(
+            id: "ws-b",
+            name: "Beta",
+            terminals: [MobileTerminalPreview(id: "b1", name: "Shell", isFocused: true)],
+            surfaces: [MobileSurfacePreview(id: "panel-1", kind: .browser, title: "Web")]
+        )
+        store.replaceForegroundWorkspaceState([workspaceB])
+        store.selectedWorkspaceID = workspaceB.id
+        browserStreams.replacePanels(in: "ws-b", with: [
+            MobileBrowserPanelDescriptor(
+                panelID: "panel-1", workspaceID: "ws-b", url: nil, title: "Web",
+                pageWidth: 900, pageHeight: 600,
+                canGoBack: false, canGoForward: false, isLoading: false
+            ),
+        ])
+
+        // The user opens the browser stream tab from the picker.
+        _ = browserStreams.activate(panelID: "panel-1", in: "ws-b")
+        store.recordLastOpenedBrowserStreamTab(panelID: "panel-1", in: workspaceB.id)
+
+        // Leaving the workspace unmounts the stream surface, which stops and
+        // deactivates the stream (`onDisappear` in the detail view).
+        browserStreams.deactivate(in: "ws-b")
+        #expect(browserStreams.activeState(in: "ws-b") == nil)
+
+        // Reopening the SAME workspace from the list remounts the detail with
+        // an unchanged selection; only `openWorkspace` marks the open.
+        await store.openWorkspace(workspaceB.id)
+
+        #expect(browserStreams.activeState(in: "ws-b")?.id == "panel-1")
+    }
+
+    @Test func listRefreshWhileAwayDoesNotClobberBrowserStreamMemory() async {
+        let browserStreams = BrowserStreamStore()
+        let store = MobileShellComposite.preview(browserStreamEvents: browserStreams)
+        store.signIn()
+        let workspaceB = MobileWorkspacePreview(
+            id: "ws-b",
+            name: "Beta",
+            terminals: [MobileTerminalPreview(id: "b1", name: "Shell", isFocused: true)],
+            surfaces: [MobileSurfacePreview(id: "panel-1", kind: .browser, title: "Web")]
+        )
+        store.replaceForegroundWorkspaceState([workspaceB])
+        store.selectedWorkspaceID = workspaceB.id
+        browserStreams.replacePanels(in: "ws-b", with: [
+            MobileBrowserPanelDescriptor(
+                panelID: "panel-1", workspaceID: "ws-b", url: nil, title: "Web",
+                pageWidth: 900, pageHeight: 600,
+                canGoBack: false, canGoForward: false, isLoading: false
+            ),
+        ])
+        _ = browserStreams.activate(panelID: "panel-1", in: "ws-b")
+        store.recordLastOpenedBrowserStreamTab(panelID: "panel-1", in: workspaceB.id)
+        browserStreams.deactivate(in: "ws-b")
+
+        // While the user sits on the workspace list (selection retained, the
+        // stream stopped), workspace list refreshes re-run the selection
+        // synchronizer. That churn must not overwrite the remembered tab.
+        store.replaceForegroundWorkspaceState([workspaceB])
+        store.replaceForegroundWorkspaceState([workspaceB])
+
+        await store.openWorkspace(workspaceB.id)
+        #expect(browserStreams.activeState(in: "ws-b")?.id == "panel-1")
+    }
+
+    @Test func reopeningSameWorkspaceRestoresSimulatorStreamTab() async {
+        let simulatorStreams = MobileSimulatorStreamStore()
+        let store = MobileShellComposite.preview(simulatorStreamStore: simulatorStreams)
+        store.signIn()
+        let simulator = MobileSimulatorPanelDescriptor(
+            panelID: "sim-1", workspaceID: "ws-b", title: "iPhone",
+            selectedDeviceName: "iPhone 17", selectedDeviceState: "Booted",
+            status: "ready", isReady: true,
+            supportsTouch: true, supportsKeyboard: true,
+            supportsHardwareButtons: true, supportsRotation: true
+        )
+        let workspaceB = MobileWorkspacePreview(
+            id: "ws-b",
+            name: "Beta",
+            terminals: [MobileTerminalPreview(id: "b1", name: "Shell", isFocused: true)],
+            simulators: [simulator]
+        )
+        store.replaceForegroundWorkspaceState([workspaceB])
+        store.selectedWorkspaceID = workspaceB.id
+        simulatorStreams.replaceSimulatorPanels(in: "ws-b", with: [simulator])
+        _ = simulatorStreams.activate(panelID: "sim-1", in: "ws-b")
+        store.recordLastOpenedSimulatorStreamTab(panelID: "sim-1", in: workspaceB.id)
+
+        simulatorStreams.deactivate(in: "ws-b")
+        #expect(simulatorStreams.activeState(in: "ws-b") == nil)
+
+        await store.openWorkspace(workspaceB.id)
+        #expect(simulatorStreams.activeState(in: "ws-b")?.id == "sim-1")
+    }
+
+    @Test func reopeningSameWorkspaceRestoresLocalBrowserTab() async {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        let workspaceB = MobileWorkspacePreview(
+            id: "ws-b",
+            name: "Beta",
+            terminals: [MobileTerminalPreview(id: "b1", name: "Shell", isFocused: true)]
+        )
+        store.replaceForegroundWorkspaceState([workspaceB])
+        store.selectedWorkspaceID = workspaceB.id
+        store.recordLastOpenedLocalBrowserTab(in: workspaceB.id)
+
+        await store.openWorkspace(workspaceB.id)
+
+        // The composite hands the phone-local browser reopen to the detail
+        // view as a one-shot intent.
+        #expect(store.consumeLocalBrowserTabRestore(for: workspaceB.id))
+        #expect(!store.consumeLocalBrowserTabRestore(for: workspaceB.id))
+    }
+
+    @Test func explicitTerminalPickWinsOverPendingStreamRestore() async {
+        let browserStreams = BrowserStreamStore()
+        let store = MobileShellComposite.preview(browserStreamEvents: browserStreams)
+        store.signIn()
+        let workspaceB = MobileWorkspacePreview(
+            id: "ws-b",
+            name: "Beta",
+            terminals: [
+                MobileTerminalPreview(id: "b1", name: "Shell", isFocused: true),
+                MobileTerminalPreview(id: "b2", name: "Second"),
+            ],
+            surfaces: [MobileSurfacePreview(id: "panel-1", kind: .browser, title: "Web")]
+        )
+        store.replaceForegroundWorkspaceState([workspaceB])
+        store.selectedWorkspaceID = workspaceB.id
+        store.recordLastOpenedBrowserStreamTab(panelID: "panel-1", in: workspaceB.id)
+        // The stream panel is never discovered (Mac unreachable), so a reopen
+        // keeps the restore armed. An explicit pick must disarm it and win.
+        await store.openWorkspace(workspaceB.id)
+        store.selectTerminalFromChrome("b2")
+
+        browserStreams.replacePanels(in: "ws-b", with: [
+            MobileBrowserPanelDescriptor(
+                panelID: "panel-1", workspaceID: "ws-b", url: nil, title: "Web",
+                pageWidth: 900, pageHeight: 600,
+                canGoBack: false, canGoForward: false, isLoading: false
+            ),
+        ])
+        store.refreshWorkspaceSelection()
+
+        #expect(browserStreams.activeState(in: "ws-b") == nil)
+        #expect(store.selectedTerminalID?.rawValue == "b2")
     }
 
     @Test func lastOpenedTabIsRestoredAcrossStoreInstances() {

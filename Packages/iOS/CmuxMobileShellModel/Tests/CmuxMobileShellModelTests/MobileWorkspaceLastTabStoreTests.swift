@@ -53,6 +53,18 @@ import Testing
         #expect(defaults.data(forKey: MobileWorkspaceLastTabStore.defaultsKey) == nil)
     }
 
+    @Test func unknownKindEntriesFromNewerBuildsAreIgnoredNotFatal() {
+        let defaults = makeDefaults()
+        let json = """
+        {"ws-a":{"kind":"browserStream","tabID":"p1","seq":1},\
+        "ws-b":{"kind":"holographicPane","tabID":"x","seq":2}}
+        """
+        defaults.set(json.data(using: .utf8), forKey: MobileWorkspaceLastTabStore.defaultsKey)
+        let store = MobileWorkspaceLastTabStore(defaults: defaults)
+        #expect(store.lastTab(for: "ws-a") == MobileWorkspaceLastTab(kind: .browserStream, tabID: "p1"))
+        #expect(store.lastTab(for: "ws-b") == nil)
+    }
+
     @Test func prunesLeastRecentlyUpdatedWorkspacesBeyondCap() {
         var store = MobileWorkspaceLastTabStore.inMemory
         let overflow = 10
