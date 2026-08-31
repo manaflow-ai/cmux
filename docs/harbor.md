@@ -20,11 +20,17 @@ Harbor rows request manual IO whenever both terminal-backend beta flags are on.
 The drop provisions one cmux-tui daemon terminal, runs the external attach
 command there, and mirrors that terminal into the destination pane.
 
-The global terminal creation policy is still narrower. Plain local terminals
-and restored daemon-backed panels use manual IO. Splits, the first terminal in
-a new workspace, explicit startup commands, tmux-start commands, remote PTY
-sessions, and remote workspaces remain on their existing PTY paths. These are
-migration cuts, not per-row Harbor exceptions.
+The bundled cmux-tui client comes from a rolling artifact. cmux probes
+`attach --help` before it creates a manual-mirror surface. If that client does
+not advertise `--pipe-io`, cmux uses the existing exec-attach PTY path instead
+of showing a broken manual-IO pane.
+
+The global terminal creation policy covers plain local terminal tabs, the
+first terminal in a new workspace, ordinary splits, placeholder repairs, and
+restored daemon-backed panels. Explicit startup commands, initial input,
+restore agents, tmux-start commands, remote PTY sessions, and remote workspaces
+remain on their existing PTY paths until the daemon launch contract can carry
+their startup state. These are migration cuts, not per-row Harbor exceptions.
 
 zellij, GNU screen, and zmx currently expose session-level fallback attaches;
 tmux, cmux-tui, and Herdr expose terminal leaves when their probes provide a

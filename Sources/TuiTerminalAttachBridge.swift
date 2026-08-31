@@ -67,6 +67,10 @@ final class TuiTerminalAttachBridge {
 
     private var cachedTerminalIDs: (ids: Set<String>, fetchedAt: Date)?
     private var cachedCloseConfirmations: [String: (required: Bool, fetchedAt: Date)] = [:]
+    /// The app bundles a rolling cmux-tui artifact. Cache the capability by
+    /// path and modification date so one old artifact cannot crash-loop every
+    /// manual-mirror pane, while an installed replacement is detected.
+    private var cachedPipeIOCapability: (path: String, modificationDate: Date?, supported: Bool)?
 
     /// App-managed config for every bridge-spawned cmux-tui process (daemon,
     /// CLI calls, attach clients). Isolates app sessions from the user's
@@ -93,6 +97,35 @@ final class TuiTerminalAttachBridge {
         var env = ProcessInfo.processInfo.environment
         env["CMUX_TUI_CONFIG"] = bridgeConfigPath
         return env
+    }
+
+    /// True when the enabled beta path can use the renderer-less relay. The
+    /// bundled client may predate `--pipe-io`, so callers that require a
+    /// manual-mirror surface must check this before creating one. An older
+    /// client remains usable through the existing exec attach path.
+    func isManualIOAvailable() -> Bool {
+        guard Self.isManualIOEnabled else { return false }
+        let binary = Self.binaryPath
+        guard FileManager.default.isExecutableFile(atPath: binary) else {
+            logSpike("manualIO.capability unsupported reason=binary-not-executable path=\(binary)")
+            return false
+        }
+        let modificationDate = (try? FileManager.default.attributesOfItem(atPath: binary))?[.modificationDate] as? Date
+        if let cachedPipeIOCapability,
+           cachedPipeIOCapability.path == binary,
+           cachedPipeIOCapability.modificationDate == modificationDate {
+            return cachedPipeIOCapability.supported
+        }
+        let supported = TuiTerminalAttachPolicy.supportsPipeIO(
+            fromHelpOutput: Self.runCLI(
+                binary: binary,
+                arguments: ["attach", "--help"],
+                timeout: 10
+            )
+        )
+        cachedPipeIOCapability = (binary, modificationDate, supported)
+        logSpike("manualIO.capability path=\(binary) supported=\(supported ? 1 : 0)")
+        return supported
     }
 
     private var sessionName: String {
@@ -158,6 +191,10 @@ final class TuiTerminalAttachBridge {
     /// back or report. Same spike contract as `provisionTerminalForNewSurface`:
     /// short bounded CLI calls on the main actor.
     func provisionHarborTerminal(shellCommand: String, terminalName: String) -> String? {
+        guard isManualIOAvailable() else {
+            logSpike("harbor.provision.skip manual-io-unsupported")
+            return nil
+        }
         let binary = Self.binaryPath
         guard FileManager.default.isExecutableFile(atPath: binary) else {
             logSpike("harbor.provision.skip binary-not-executable path=\(binary)")

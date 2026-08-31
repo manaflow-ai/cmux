@@ -32,7 +32,7 @@ extension Workspace {
 #if DEBUG
         cmuxDebugLog("harbor.drop workspace=\(id.uuidString.prefix(5)) item=\(item.title)")
 #endif
-        if TuiTerminalAttachBridge.isManualIOEnabled,
+        if TuiTerminalAttachBridge.shared.isManualIOAvailable(),
            let terminalID = TuiTerminalAttachBridge.shared.provisionHarborTerminal(
                shellCommand: shellCommand,
                terminalName: HarborAttachCommand.terminalName(for: item)
@@ -64,7 +64,7 @@ extension Workspace {
             }
         }
 #if DEBUG
-        cmuxDebugLog("harbor.drop.fallback item=\(item.title) manualIO=\(TuiTerminalAttachBridge.isManualIOEnabled ? 1 : 0)")
+        cmuxDebugLog("harbor.drop.fallback item=\(item.title) manualIO=\(TuiTerminalAttachBridge.shared.isManualIOAvailable() ? 1 : 0)")
 #endif
         switch destination {
         case .insert(let paneId, _):

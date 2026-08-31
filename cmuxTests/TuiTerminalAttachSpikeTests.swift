@@ -164,6 +164,43 @@ struct TuiTerminalAttachSpikeTests {
         ))
     }
 
+    @Test
+    func doesNotReplaceStartupPayloadsWithAChildDaemonShell() {
+        func rejects(
+            hasStartupInput: Bool = false,
+            hasStartupRestoreAgent: Bool = false,
+            hasConfigCommand: Bool = false,
+            hasConfigInitialInput: Bool = false
+        ) {
+            #expect(!TuiTerminalAttachPolicy.shouldProvisionNewTerminal(
+                flagEnabled: true,
+                hasExplicitStartupCommand: false,
+                hasTmuxStartCommand: false,
+                hasRemotePTYSessionID: false,
+                isRemoteWorkspace: false,
+                hasStartupInput: hasStartupInput,
+                hasStartupRestoreAgent: hasStartupRestoreAgent,
+                hasConfigCommand: hasConfigCommand,
+                hasConfigInitialInput: hasConfigInitialInput
+            ))
+        }
+        rejects(hasStartupInput: true)
+        rejects(hasStartupRestoreAgent: true)
+        rejects(hasConfigCommand: true)
+        rejects(hasConfigInitialInput: true)
+    }
+
+    @Test
+    func pipeIOCapabilityRequiresTheAdvertisedHelpFlag() {
+        #expect(TuiTerminalAttachPolicy.supportsPipeIO(
+            fromHelpOutput: Data("--terminal <id> --pipe-io --cols <n>".utf8)
+        ))
+        #expect(!TuiTerminalAttachPolicy.supportsPipeIO(
+            fromHelpOutput: Data("cmux attach [OPTIONS]".utf8)
+        ))
+        #expect(!TuiTerminalAttachPolicy.supportsPipeIO(fromHelpOutput: nil))
+    }
+
     // MARK: - Session naming and commands
 
     @Test
