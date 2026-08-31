@@ -93,7 +93,29 @@ describe("billing recovery route", () => {
       }),
     )(request("deleting@example.com"));
 
-    expect(response.status).toBe(202);
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "recovery_unavailable" });
+    expect(sendMagicLink).not.toHaveBeenCalled();
+    expect(sendVerification).not.toHaveBeenCalled();
+  });
+
+  test("returns a retryable response when a paid purchase has no delivery email", async () => {
+    const sendMagicLink = mock(async () => undefined);
+    const sendVerification = mock(async () => ({
+      delivery: "accepted" as const,
+    }));
+    const response = await makeBillingRecoveryHandler(
+      dependencies({
+        recoverPaid: mock(async () => ({
+          skipped: "no_customer_email" as const,
+        })),
+        sendMagicLink,
+        sendVerification,
+      }),
+    )(request("buyer@example.com"));
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "recovery_unavailable" });
     expect(sendMagicLink).not.toHaveBeenCalled();
     expect(sendVerification).not.toHaveBeenCalled();
   });

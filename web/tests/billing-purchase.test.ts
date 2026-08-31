@@ -611,6 +611,62 @@ describe("recordFoundersCheckoutCompletion", () => {
     expect(inserts).toHaveLength(0);
   });
 
+  test("does not recreate a deleted Founder account from a replayed checkout", async () => {
+    const createUser = mock(async () => {
+      throw new Error("must not recreate a deleted account");
+    });
+    // The first row guards the synthetic email lease. The second row is the
+    // tombstone for the Stack id retained in the Stripe checkout metadata.
+    tombstoneSelectResults = [
+      [],
+      [{ status: "completed", updatedAt: new Date() }],
+    ];
+
+    await expect(
+      recordFoundersCheckoutCompletion(
+        {
+          session: {
+            id: "cs_deleted_replay",
+            customer: "cus_deleted_replay",
+            customer_details: { email: "deleted@example.com" },
+            client_reference_id: "deleted_stack_user",
+            metadata: {
+              founders_edition: "true",
+              stackUserId: "deleted_stack_user",
+            },
+            subscription: "sub_deleted_replay",
+          } as never,
+          subscription: {
+            id: "sub_deleted_replay",
+            customer: "cus_deleted_replay",
+            status: "active",
+            metadata: {
+              founders_edition: "true",
+              stackUserId: "deleted_stack_user",
+            },
+            cancel_at_period_end: false,
+            items: { data: [] },
+          } as never,
+          customer: {
+            id: "cus_deleted_replay",
+            deleted: false,
+            email: "deleted@example.com",
+          } as never,
+        },
+        {
+          db: fakeDb() as never,
+          stackApp: {
+            getUser: async () => null,
+            listUsers: async () => [],
+            createUser,
+          } as never,
+        },
+      ),
+    ).rejects.toThrow("account deletion");
+    expect(createUser).not.toHaveBeenCalled();
+    expect(inserts).toHaveLength(0);
+  });
+
   test("skips a Founder session without an email before Stack mutation", async () => {
     const createUser = mock(async () => {
       throw new Error("must not create");
