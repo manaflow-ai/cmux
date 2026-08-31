@@ -1620,36 +1620,6 @@ extension Workspace {
             let restoresRemoteWorkspaceTerminalSnapshot =
                 remoteStartupCommand != nil &&
                 (snapshot.terminal?.isRemoteTerminal != false || shouldRestoreSingleDefaultCloudTerminal)
-            let remoteRestoreWorkingDirectorySelection: AgentRestoreWorkingDirectorySelection? = {
-                guard restoresRemoteWorkspaceTerminalSnapshot,
-                      let restorableAgent else {
-                    return nil
-                }
-                guard restorableAgent.registration?.cwd != .ignore else {
-                    return .exact(nil)
-                }
-                guard restorableAgent.kind.cwdNamespacing != .byDirectory else {
-                    // Directory-keyed agents require their launch cwd to find the
-                    // session namespace. A trusted remote launch cwd is not persisted.
-                    return .unavailable
-                }
-                let trustedRuntimeDirectory = snapshot.directoryIsTrustedRemoteReport == true
-                    ? snapshot.terminal?.workingDirectory
-                    : nil
-                return .exact(AgentResumeWorkingDirectory().resolve(
-                    kind: restorableAgent.kind.rawValue,
-                    runtimeCwd: trustedRuntimeDirectory,
-                    launchWorkingDirectory: nil
-                ))
-            }()
-            let retainedRestorableAgent: SessionRestorableAgentSnapshot? =
-                if let remoteRestoreWorkingDirectorySelection {
-                    restorableAgent?.refreshingAuthoritativeRestoreWorkingDirectorySelection(
-                        remoteRestoreWorkingDirectorySelection
-                    )
-                } else {
-                    restorableAgent
-                }
             let restoredRemotePTYSessionID: String? = {
                 guard !isDefaultFreestyleSSHDRemoteWorkspace else {
                     return nil
@@ -1676,6 +1646,51 @@ extension Workspace {
                 persistentPTYSessionID: restoredRemotePTYSessionID,
                 restoresRemoteTerminal: restoresRemoteWorkspaceTerminalSnapshot
             )
+            let remoteRestoreWorkingDirectorySelection: AgentRestoreWorkingDirectorySelection? = {
+                guard restoresRemoteWorkspaceTerminalSnapshot,
+                      let restorableAgent else {
+                    return nil
+                }
+                guard restorableAgent.registration?.cwd != .ignore else {
+                    return .exact(nil)
+                }
+                // A persisted exact/unavailable selection on an authenticated
+                // persistent-SSH binding is already a trusted remote report.
+                // Preserve it when this legacy snapshot has no newer directory
+                // provenance; never substitute the local snapshot cwd.
+                if snapshot.directoryIsTrustedRemoteReport != true,
+                   locatedResumeBinding?.isAgentHookBinding == true,
+                   locatedResumeBinding?.launchFlavor.remoteContext != nil,
+                   let persistedSelection = locatedResumeBinding?.restoreWorkingDirectorySelection {
+                    switch persistedSelection {
+                    case .exact, .unavailable:
+                        return persistedSelection
+                    case .recordedFallback:
+                        break
+                    }
+                }
+                guard restorableAgent.kind.cwdNamespacing != .byDirectory else {
+                    // Directory-keyed agents require their launch cwd to find the
+                    // session namespace. A trusted remote launch cwd is not persisted.
+                    return .unavailable
+                }
+                let trustedRuntimeDirectory = snapshot.directoryIsTrustedRemoteReport == true
+                    ? snapshot.terminal?.workingDirectory
+                    : nil
+                return .exact(AgentResumeWorkingDirectory().resolve(
+                    kind: restorableAgent.kind.rawValue,
+                    runtimeCwd: trustedRuntimeDirectory,
+                    launchWorkingDirectory: nil
+                ))
+            }()
+            let retainedRestorableAgent: SessionRestorableAgentSnapshot? =
+                if let remoteRestoreWorkingDirectorySelection {
+                    restorableAgent?.refreshingAuthoritativeRestoreWorkingDirectorySelection(
+                        remoteRestoreWorkingDirectorySelection
+                    )
+                } else {
+                    restorableAgent
+                }
             let resumeBinding = Self.resumeBindingForSessionRestore(
                 locatedResumeBinding,
                 restorableAgent: retainedRestorableAgent,
