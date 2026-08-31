@@ -59,8 +59,14 @@ describe("lazy active-limit provider refresh", () => {
       providerVmId: "provider-vm-stale-freestyle",
       status: "running",
     });
+    const extraCandidates = Array.from({ length: 205 }, (_, index) => row({
+      id: `extra-${index}`,
+      providerVmId: `provider-vm-extra-${index}`,
+      status: "running",
+    }));
 
     let beginCreateCalls = 0;
+    let candidateLimit: number | undefined;
     const observed: ObservedStatusUpdate[] = [];
     const statusCalls: Array<[string, string]> = [];
 
@@ -75,7 +81,13 @@ describe("lazy active-limit provider refresh", () => {
           }))
           : Effect.succeed({ inserted: true, vm: requested });
       },
-      activeLimitCandidates: () => Effect.succeed([staleBlaxel, staleFreestyle]),
+      activeLimitCandidates: (input: { limit: number }) => {
+        candidateLimit = input.limit;
+        // Deliberately return more rows than the requested limit. The workflow
+        // keeps its own cap so alternate repository implementations cannot make
+        // the synchronous retry unbounded.
+        return Effect.succeed([staleBlaxel, staleFreestyle, ...extraCandidates]);
+      },
       markProviderObservedStatus: (update: ObservedStatusUpdate) => {
         observed.push(update);
         return Effect.succeed(true);
@@ -128,12 +140,16 @@ describe("lazy active-limit provider refresh", () => {
 
     expect(created.providerVmId).toBe("provider-vm-limit-refresh-new");
     expect(beginCreateCalls).toBe(2);
+    expect(candidateLimit).toBe(200);
+    expect(statusCalls).toHaveLength(200);
     // The refresh must probe BOTH stale rows; before the fix it skipped blaxel.
     expect(statusCalls).toContainEqual(["blaxel", "provider-vm-stale-blaxel"]);
     expect(statusCalls).toContainEqual(["freestyle", "provider-vm-stale-freestyle"]);
     // And must durably record what the provider said so the recount can pass.
     const observedIds = observed.map((u) => u.providerVmId).sort();
-    expect(observedIds).toEqual(["provider-vm-stale-blaxel", "provider-vm-stale-freestyle"]);
+    expect(observedIds).toContain("provider-vm-stale-blaxel");
+    expect(observedIds).toContain("provider-vm-stale-freestyle");
+    expect(observedIds).toHaveLength(200);
     expect(new Set(observed.map((u) => u.status))).toEqual(new Set(["destroyed"]));
   });
 });

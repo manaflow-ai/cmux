@@ -997,8 +997,15 @@ function refreshActiveLimitProviderStatuses(
     const candidates = yield* repo.activeLimitCandidates({
       userId: input.userId,
       billingTeamId: input.billingTeamId,
+      // Keep the synchronous retry bounded. If an account has more rows than
+      // this, the database remains conservative until the background reconcile
+      // catches up; we never create above the recorded active limit.
+      limit: VM_STATUS_RECONCILE_BATCH_LIMIT,
     });
-    yield* Effect.forEach(candidates, (vm) => {
+    // The repository applies the limit in SQL. Keep a second boundary here so
+    // alternate repository implementations cannot turn this request path into
+    // an unbounded provider sweep.
+    yield* Effect.forEach(candidates.slice(0, VM_STATUS_RECONCILE_BATCH_LIMIT), (vm) => {
       const providerVmId = vm.providerVmId;
       if (!providerVmId) return Effect.void;
       // Provider-agnostic on purpose: the cron reconcile path already refreshes
