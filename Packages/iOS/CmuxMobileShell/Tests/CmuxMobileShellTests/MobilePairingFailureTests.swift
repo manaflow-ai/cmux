@@ -337,7 +337,10 @@ import Testing
         // user must be told to update, not that the code is invalid.
         let message = MobilePairingFailureCategory.unrecognizedVersion.message
         #expect(message.lowercased().contains("newer version"))
-        #expect(MobilePairingFailureCategory.unrecognizedVersion.guidance != nil)
+        let guidance = MobilePairingFailureCategory.unrecognizedVersion.guidance
+        #expect(guidance?.localizedCaseInsensitiveContains("latest") == true)
+        #expect(guidance?.localizedCaseInsensitiveContains("iOS") == true)
+        #expect(guidance?.localizedCaseInsensitiveContains("App Store") == true)
         #expect(MobilePairingFailureCategory.unrecognizedVersion.analyticsReason == "unrecognized_version")
     }
 

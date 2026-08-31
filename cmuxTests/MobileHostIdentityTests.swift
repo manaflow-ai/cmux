@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxPhonePush
 import CmuxSettings
 import Foundation
 import Testing
@@ -30,95 +31,68 @@ struct MobileHostIdentityTests {
         ) == "future-one")
     }
 
-    @Test func stableMacOffersAndPersistsExactReleaseLaneTarget() throws {
-        let suiteName = "mobile-ios-target-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        let store = MobileIOSPairingTargetStore(
-            defaults: defaults,
-            macInstanceTag: "default"
-        )
-
-        #expect(store.availableNamespaces.map(\.bundleIdentifier) == [
-            "com.cmux.app",
-            "dev.cmux.app.beta",
-            "dev.cmux.app.internal",
-            "dev.cmux.app.demo",
-        ])
-        #expect(store.selectedNamespace?.bundleIdentifier == "com.cmux.app")
-        #expect(
-            store.selectedPairingURLScheme?.rawValue
-                == "cmux-ios-com.cmux.app"
-        )
-        #expect(
-            store.pushTargetNamespace?.bundleIdentifier == "com.cmux.app"
-        )
-
-        let internalNamespace = try #require(MobileIOSAppNamespace(
-            bundleIdentifier: "dev.cmux.app.internal"
-        ))
-        #expect(store.select(internalNamespace))
-        #expect(store.selectedNamespace == internalNamespace)
-        #expect(store.pushTargetNamespace == internalNamespace)
-        #expect(
-            store.selectedPairingURLScheme?.rawValue
-                == "cmux-ios-dev.cmux.app.internal"
-        )
-    }
-
-    @Test func nightlyMacOffersOfficialIOSBuildsInsteadOfTaggedDev() throws {
-        let suiteName = "mobile-ios-target-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        let store = MobileIOSPairingTargetStore(
-            defaults: defaults,
-            macInstanceTag: "nightly"
-        )
-
-        #expect(store.availableNamespaces.map(\.bundleIdentifier) == [
-            "com.cmux.app",
-            "dev.cmux.app.beta",
-            "dev.cmux.app.internal",
-            "dev.cmux.app.demo",
-        ])
-        #expect(store.selectedNamespace?.bundleIdentifier == "com.cmux.app")
-        #expect(
-            store.selectedPairingURLScheme?.rawValue
-                == "cmux-ios-com.cmux.app"
-        )
-        #expect(
-            store.pushTargetNamespace?.bundleIdentifier == "com.cmux.app"
-        )
-    }
-
-    @Test func taggedMacTargetsOnlyItsMatchingTaggedIOSBuild() throws {
+    @Test func legacyPairingTargetMigratesToThePairedPhoneRecord() throws {
         let suiteName = "mobile-ios-target-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         defaults.set(
             "dev.cmux.app.demo",
-            forKey: MobileIOSPairingTargetStore.defaultsKey
+            forKey: MobilePairedPhoneStore.legacyDefaultsKey
         )
-        let store = MobileIOSPairingTargetStore(
+        let store = MobilePairedPhoneStore(
             defaults: defaults,
-            macInstanceTag: "future-one"
+            macInstanceTag: "default"
         )
 
-        #expect(store.availableNamespaces.map(\.bundleIdentifier) == [
-            "dev.cmux.ios.future-one",
-        ])
-        #expect(
-            store.selectedNamespace?.bundleIdentifier
-                == "dev.cmux.ios.future-one"
+        #expect(store.targetBundleIdentifier(accountID: "account-a") == "dev.cmux.app.demo")
+        #expect(defaults.string(forKey: MobilePairedPhoneStore.legacyDefaultsKey) == nil)
+        #expect(defaults.data(forKey: MobilePairedPhoneStore.defaultsKey) != nil)
+
+        store.record(
+            clientID: "phone-a",
+            bundleIdentifier: "dev.cmux.app.internal",
+            accountID: "account-a",
+            pairedAt: Date(timeIntervalSince1970: 100)
         )
-        let demoNamespace = try #require(MobileIOSAppNamespace(
-            bundleIdentifier: "dev.cmux.app.demo"
-        ))
-        #expect(!store.select(demoNamespace))
-        #expect(
-            defaults.string(forKey: MobileIOSPairingTargetStore.defaultsKey)
-                == "dev.cmux.app.demo"
+        #expect(store.targetBundleIdentifier(accountID: "account-a") == "dev.cmux.app.internal")
+    }
+
+    @Test func pairedPhoneBundleDrivesPushEnvelopeTarget() throws {
+        let suiteName = "mobile-ios-target-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = MobilePairedPhoneStore(
+            defaults: defaults,
+            macInstanceTag: "default"
         )
+        store.record(
+            clientID: "phone-a",
+            bundleIdentifier: "dev.cmux.app.demo",
+            accountID: "account-a",
+            pairedAt: Date(timeIntervalSince1970: 200)
+        )
+        let target = try #require(store.targetBundleIdentifier(accountID: "account-a"))
+        let payload = try PhonePushRequestEnvelope(
+            payload: PhonePushPayload(
+                kind: .notify,
+                title: "title",
+                subtitle: "",
+                body: "body",
+                replyShape: "",
+                workspaceId: nil,
+                surfaceId: nil,
+                retargetsToLiveSurfaceOwner: false,
+                macDeviceId: "mac-a",
+                macInstanceTag: "default",
+                notificationId: nil,
+                notificationIds: [],
+                badgeCount: 1,
+                hideContent: false
+            ),
+            expirationEpochSeconds: 1000,
+            targetBundleIdentifier: target
+        )
+        #expect(payload.targetBundleIdentifier == "dev.cmux.app.demo")
     }
 
     @Test func irohRegistrationUsesAuthoritativeAppInstanceTag() {
