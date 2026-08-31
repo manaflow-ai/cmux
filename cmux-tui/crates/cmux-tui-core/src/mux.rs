@@ -10419,6 +10419,7 @@ impl Mux {
             "terminal_id":terminal_id,
             "state":record.state.as_str(),
             "source":record.source.as_str(),
+            "agent":record.agent,
             "updated_at_ms":record.updated_at_ms.to_string(),
             "source_session":persisted_source_session.clone().or(record.session.clone()),
         });
@@ -23538,6 +23539,14 @@ mod tests {
         let records = mux.list_agents(Some(surface.id), None);
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].agent.as_deref(), Some("claude"));
+        let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
+        let public_agent = snapshot["agents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|agent| agent["terminal_id"] == terminal_id.as_str())
+            .expect("public agent projection");
+        assert_eq!(public_agent["agent"], "claude");
 
         let (version, cursor, snapshot) = mux
             .workspace_registry
