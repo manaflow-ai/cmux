@@ -23979,6 +23979,10 @@ mod tests {
             .append_journal_ingress(&pending_hook, &validated, "test", "done-fence-prefix")
             .unwrap();
 
+        // Keep the test's unresolved prefix in place while the direct report
+        // exercises its admission fence. The normal worker is tested by the
+        // dedicated retry cases below.
+        mux.agent_roster_fold_worker_running.store(true, Ordering::Release);
         let done = mux
             .report_agent(
                 target_surface.id,
@@ -23999,6 +24003,7 @@ mod tests {
             working.is_err(),
             "a same-session Working report must respect the durable Done fence"
         );
+        mux.agent_roster_fold_worker_running.store(false, Ordering::Release);
         mux.shutdown();
     }
 
