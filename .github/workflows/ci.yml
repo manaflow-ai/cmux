@@ -219,6 +219,17 @@ jobs:
           ACTIONS_ID_TOKEN_REQUEST_URL: ''
         run: ./tests/test_cla_comment_guard.sh
 
+      - name: Validate CLA trigger admission gate
+        env:
+          # The gate has no GitHub API access and executes only extracted
+          # fixed shell against event fixtures.
+          GH_TOKEN: ''
+          GITHUB_TOKEN: ''
+          ACTIONS_RUNTIME_TOKEN: ''
+          ACTIONS_ID_TOKEN_REQUEST_TOKEN: ''
+          ACTIONS_ID_TOKEN_REQUEST_URL: ''
+        run: ./tests/test_cla_trigger_gate.sh
+
       - name: Validate Blacksmith Testbox broker trust boundary
         run: python3 tests/test_ci_testbox_broker_guard.py
 

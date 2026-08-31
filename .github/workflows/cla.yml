@@ -10,12 +10,11 @@ on:
 permissions: {}
 
 jobs:
-  CLAAssistant:
-    name: "CLA Assistant v2"
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 15
-    # Filter before concurrency admission. Otherwise arbitrary issue comments
-    # can consume the signature queue without running the action.
+  CLACommentGate:
+    name: "Validate CLA trigger"
+    # This job is intentionally unprivileged. It runs the exact, case-
+    # sensitive comment check before the signature job's concurrency group can
+    # admit a public issue-comment event.
     if: >-
       (
         github.event_name == 'pull_request_target' &&
@@ -28,17 +27,77 @@ jobs:
       (
         github.event_name == 'issue_comment' &&
         github.event.issue.state == 'open' &&
-        github.event.issue.pull_request &&
+        github.event.issue.pull_request
+      )
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    concurrency:
+      # A comment flood can cancel only this credential-free gate. It cannot
+      # occupy the signature queue or cancel a run writing the ledger.
+      group: cla-trigger-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}
+      cancel-in-progress: true
+    permissions: {}
+    steps:
+      - name: "Validate exact CLA trigger"
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          set -euo pipefail
+          if [[ "${EVENT_NAME}" == "issue_comment" ]]; then
+            if [[ "${COMMENT_BODY}" != "recheck" &&
+                  "${COMMENT_BODY}" != "I have read the CLA Document and I hereby sign the CLA" ]]; then
+              echo "::error::The comment is not an exact CLA declaration or recheck command"
+              exit 1
+            fi
+          elif [[ "${EVENT_NAME}" == "pull_request_target" ]]; then
+            case "${EVENT_ACTION}" in
+              opened|reopened|synchronize) ;;
+              *)
+                echo "::error::The pull request event is not an accepted CLA trigger"
+                exit 1
+                ;;
+            esac
+          else
+            echo "::error::The event is not an accepted CLA trigger"
+            exit 1
+          fi
+
+  CLAAssistant:
+    name: "CLA Assistant v2"
+    needs: CLACommentGate
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    # Filter before concurrency admission. Otherwise arbitrary issue comments
+    # can consume the signature queue without running the action.
+    if: >-
+      needs.CLACommentGate.result == 'success' &&
+      (
         (
-          github.event.comment.body == 'recheck' ||
-          github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA'
+          github.event_name == 'pull_request_target' &&
+          (
+            github.event.action == 'opened' ||
+            github.event.action == 'reopened' ||
+            github.event.action == 'synchronize'
+          )
+        ) ||
+        (
+          github.event_name == 'issue_comment' &&
+          github.event.issue.state == 'open' &&
+          github.event.issue.pull_request &&
+          (
+            github.event.comment.body == 'recheck' ||
+            github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA'
+          )
         )
       )
-    # Signature updates share one file. Queue up to 100 runs instead of
-    # silently replacing all but one pending contributor event.
+    # Signature updates share one file. The default Actions concurrency
+    # policy permits one running and one pending run; a newer pending event
+    # replaces the older one. This bounds public issue-comment admission
+    # without canceling a run that may be writing the ledger.
     concurrency:
       group: cla-signatures
-      queue: max
       cancel-in-progress: false
     permissions:
       # The archived action still performs a read-only workflow lookup before
@@ -237,10 +296,11 @@ jobs:
     timeout-minutes: 15
     # A contributor can submit more than one valid comment while the signing
     # job is running. Serialize reruns per PR so two comments cannot race the
-    # same workflow run. The script rechecks the run state before POSTing.
+    # same workflow run. The default Actions policy keeps one pending rerun
+    # and replaces older pending requests. The script rechecks the run state
+    # before POSTing.
     concurrency:
       group: cla-rerun-${{ github.event.issue.number }}
-      queue: max
       cancel-in-progress: false
     permissions:
       # This job has no checkout and executes only the fixed script below.
@@ -432,8 +492,11 @@ jobs:
           # events can leave several eligible failures for one exact head, so
           # sort by creation time and run ID and select the newest one. Every
           # candidate is tied to the exact workflow path, event, current PR
-          # head, and PR association. pull_request_target run.head_sha is the
-          # source PR head SHA, as confirmed by the GitHub Actions API.
+          # head, and PR association. When GitHub includes pull_requests on a
+          # run, bind the candidate to the exact PR object, including its head
+          # SHA. GitHub can return an empty array for fork pull_request_target
+          # runs, so those candidates use the unique live open-PR association
+          # checked above and the exact run head-repository binding below.
           runs_json="$(gh api --paginate --slurp "repos/${GH_REPO}/actions/workflows/${workflow_id}/runs?event=${TARGET_EVENT}&head_sha=${head_sha}&per_page=100" 2>/dev/null)" || fail "Could not query CLA workflow runs"
           if ! candidate_list_json="$(jq -c \
               --arg path "${WORKFLOW_PATH}" \
@@ -448,6 +511,26 @@ jobs:
               --arg base "${TARGET_BASE_REF}" \
               --arg head_ref "${head_ref}" \
               --arg before "${COMMENT_CREATED_AT}" '
+                def exact_run_pr:
+                  (.pull_requests) as $raw_prs
+                  | (if $raw_prs == null then [] else $raw_prs end) as $prs
+                  | if ($prs | type) != "array" then false
+                    elif ($prs | length) == 0 then true
+                    else any($prs[]?;
+                      (.number | tostring) == $pr and
+                      .base.ref == $base and
+                      ((.base.repo.full_name // "") == "" or
+                       .base.repo.full_name == $repo) and
+                      (.base.repo.id | type == "number") and
+                      .base.repo.id == $repo_id and
+                      .head.ref == $head_ref and
+                      .head.sha == $sha and
+                      (.head.repo.id | type == "number") and
+                      .head.repo.id == $head_repo_id and
+                      ((.head.repo.full_name // "") == "" or
+                       .head.repo.full_name == $head_repo)
+                    )
+                    end;
                 [ .[] | .workflow_runs[]?
                   | select(
                       (.path == $path or
@@ -467,19 +550,7 @@ jobs:
                       .conclusion == "failure" and
                       (.created_at | type == "string") and
                       .created_at <= $before and
-                      (
-                        ((.pull_requests // []) | length) == 0 or
-                        any((.pull_requests // [])[];
-                          (.number | tostring) == $pr and
-                          .base.ref == $base and
-                          .base.repo.id == $repo_id and
-                          .head.sha == $sha and
-                          (.head.repo.id | type == "number") and
-                          .head.repo.id == $head_repo_id and
-                          ((.head.repo.full_name // "") == "" or
-                           .head.repo.full_name == $head_repo)
-                        )
-                      )
+                      exact_run_pr
                     )
                 ]
                 | sort_by([.created_at, .id])
@@ -498,11 +569,35 @@ jobs:
               --arg path "${WORKFLOW_PATH}" \
               --arg event "${TARGET_EVENT}" \
               --arg sha "${head_sha}" \
+              --arg pr "${PR_NUMBER}" \
+              --arg repo "${GH_REPO}" \
               --arg head_ref "${head_ref}" \
               --arg head_repo "${head_repo}" \
               --argjson head_repo_id "${head_repo_id}" \
+              --argjson repo_id "${repo_id}" \
+              --arg base "${TARGET_BASE_REF}" \
               --arg before "${COMMENT_CREATED_AT}" \
-              '[ .[] | .workflow_runs[]?
+              'def exact_run_pr:
+                 (.pull_requests) as $raw_prs
+                 | (if $raw_prs == null then [] else $raw_prs end) as $prs
+                 | if ($prs | type) != "array" then false
+                   elif ($prs | length) == 0 then true
+                   else any($prs[]?;
+                     (.number | tostring) == $pr and
+                     .base.ref == $base and
+                     ((.base.repo.full_name // "") == "" or
+                      .base.repo.full_name == $repo) and
+                     (.base.repo.id | type == "number") and
+                     .base.repo.id == $repo_id and
+                     .head.ref == $head_ref and
+                     .head.sha == $sha and
+                     (.head.repo.id | type == "number") and
+                     .head.repo.id == $head_repo_id and
+                     ((.head.repo.full_name // "") == "" or
+                      .head.repo.full_name == $head_repo)
+                   )
+                   end;
+               [ .[] | .workflow_runs[]?
                 | select(
                     (.path == $path or
                      ((.path | startswith($path + "@")) and
@@ -515,7 +610,8 @@ jobs:
                     .status == "completed" and
                     .conclusion == "failure" and
                     (.created_at | type == "string") and
-                    .created_at <= $before
+                    .created_at <= $before and
+                    exact_run_pr
                   )
               ] | length' <<<"${runs_json}")"
             [[ "${stale_run_count}" =~ ^[0-9]+$ ]] || fail "Could not count stale CLA workflow runs"
@@ -551,6 +647,26 @@ jobs:
             --arg workflow_id "${workflow_id}" \
             --arg base "${TARGET_BASE_REF}" \
             --arg before "${COMMENT_CREATED_AT}" '
+              def exact_run_pr:
+                (.pull_requests) as $raw_prs
+                | (if $raw_prs == null then [] else $raw_prs end) as $prs
+                | if ($prs | type) != "array" then false
+                  elif ($prs | length) == 0 then true
+                  else any($prs[]?;
+                    (.number | tostring) == $pr and
+                    .base.ref == $base and
+                    ((.base.repo.full_name // "") == "" or
+                     .base.repo.full_name == $repo) and
+                    (.base.repo.id | type == "number") and
+                    .base.repo.id == $repo_id and
+                    .head.ref == $head_ref and
+                    .head.sha == $sha and
+                    (.head.repo.id | type == "number") and
+                    .head.repo.id == $head_repo_id and
+                    ((.head.repo.full_name // "") == "" or
+                     .head.repo.full_name == $head_repo)
+                  )
+                  end;
               .id == ($run_id | tonumber) and
               .workflow_id == ($workflow_id | tonumber) and
               (.path == $path or
@@ -568,19 +684,7 @@ jobs:
               ) and
               (.created_at | type == "string") and
               .created_at <= $before and
-              (
-                ((.pull_requests // []) | length) == 0 or
-                any((.pull_requests // [])[];
-                  (.number | tostring) == $pr and
-                  .base.ref == $base and
-                  .base.repo.id == $repo_id and
-                  .head.sha == $sha and
-                  (.head.repo.id | type == "number") and
-                  .head.repo.id == $head_repo_id and
-                  ((.head.repo.full_name // "") == "" or
-                   .head.repo.full_name == $head_repo)
-                )
-              )
+              exact_run_pr
             ' <<<"${run_json}" >/dev/null || fail "The selected run no longer matches the exact failed CLA check"
 
           # Close the main TOCTOU window. A push, close, or another rerun can
@@ -612,6 +716,26 @@ jobs:
             --arg run_id "${run_id}" \
             --arg base "${TARGET_BASE_REF}" \
             --arg before "${COMMENT_CREATED_AT}" '
+              def exact_run_pr:
+                (.pull_requests) as $raw_prs
+                | (if $raw_prs == null then [] else $raw_prs end) as $prs
+                | if ($prs | type) != "array" then false
+                  elif ($prs | length) == 0 then true
+                  else any($prs[]?;
+                    (.number | tostring) == $pr and
+                    .base.ref == $base and
+                    ((.base.repo.full_name // "") == "" or
+                     .base.repo.full_name == $repo) and
+                    (.base.repo.id | type == "number") and
+                    .base.repo.id == $repo_id and
+                    .head.ref == $head_ref and
+                    .head.sha == $sha and
+                    (.head.repo.id | type == "number") and
+                    .head.repo.id == $head_repo_id and
+                    ((.head.repo.full_name // "") == "" or
+                     .head.repo.full_name == $head_repo)
+                  )
+                  end;
               .id == ($run_id | tonumber) and
               .workflow_id == ($workflow_id | tonumber) and
               (.path == $path or
@@ -629,19 +753,7 @@ jobs:
               ) and
               (.created_at | type == "string") and
               .created_at <= $before and
-              (
-                ((.pull_requests // []) | length) == 0 or
-                any((.pull_requests // [])[];
-                  (.number | tostring) == $pr and
-                  .base.ref == $base and
-                  .base.repo.id == $repo_id and
-                  .head.sha == $sha and
-                  (.head.repo.id | type == "number") and
-                  .head.repo.id == $head_repo_id and
-                  ((.head.repo.full_name // "") == "" or
-                   .head.repo.full_name == $head_repo)
-                )
-              )
+              exact_run_pr
           ' <<<"${final_run_json}" >/dev/null || fail "The exact failed CLA run is no longer eligible"
 
           # Rerun only the failed CLA job, rather than every job in the run.
@@ -784,13 +896,13 @@ jobs:
       github.event.pull_request.merged == true
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
-    # Use the same queue as signature writes. The archived action has no
-    # final live-open check, so a signing run admitted before merge must finish
-    # before this lock is applied. The action-fork migration can split this
-    # group after its live-write guard is deployed.
+    # Lock requests do not update the signature ledger. Keep them in a
+    # separate per-PR group so a public comment cannot replace a pending merge
+    # lock. The default Actions policy keeps one pending close event, and the
+    # live merged-PR check below prevents stale events from locking a reopened
+    # or retargeted pull request.
     concurrency:
-      group: cla-signatures
-      queue: max
+      group: cla-lock-${{ github.event.pull_request.number }}
       cancel-in-progress: false
     permissions:
       issues: write
@@ -806,8 +918,11 @@ jobs:
           EVENT_BASE_REPO_ID: ${{ github.event.pull_request.base.repo.id }}
           EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           EVENT_HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          EVENT_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
-          EVENT_HEAD_REPO_ID: ${{ github.event.pull_request.head.repo.id }}
+          # GitHub can redact a deleted fork from a merged pull-request
+          # payload. Keep empty values distinct from a present repository so
+          # the live check below can require the same state.
+          EVENT_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name || '' }}
+          EVENT_HEAD_REPO_ID: ${{ github.event.pull_request.head.repo.id || '' }}
           EVENT_OPENER_ID: ${{ github.event.pull_request.user.id }}
           EVENT_OPENER_LOGIN: ${{ github.event.pull_request.user.login }}
         run: |
@@ -824,8 +939,12 @@ jobs:
           [[ "${EVENT_BASE_REPO_ID}" =~ ^[1-9][0-9]*$ ]] || fail "The merge event has no valid base repository ID"
           [[ "${EVENT_HEAD_SHA}" =~ ^[0-9a-f]{40}$ ]] || fail "The merge event has no valid head SHA"
           [[ -n "${EVENT_HEAD_REF}" && "${EVENT_HEAD_REF}" != *$'\n'* && "${EVENT_HEAD_REF}" != *$'\r'* ]] || fail "The merge event has no valid head ref"
-          [[ "${EVENT_HEAD_REPO}" == */* && "${EVENT_HEAD_REPO}" != */*/* ]] || fail "The merge event has no valid head repository"
-          [[ "${EVENT_HEAD_REPO_ID}" =~ ^[1-9][0-9]*$ ]] || fail "The merge event has no valid head repository ID"
+          if [[ -z "${EVENT_HEAD_REPO}" || -z "${EVENT_HEAD_REPO_ID}" ]]; then
+            [[ -z "${EVENT_HEAD_REPO}" && -z "${EVENT_HEAD_REPO_ID}" ]] || fail "The merge event has incomplete head repository metadata"
+          else
+            [[ "${EVENT_HEAD_REPO}" == */* && "${EVENT_HEAD_REPO}" != */*/* ]] || fail "The merge event has no valid head repository"
+            [[ "${EVENT_HEAD_REPO_ID}" =~ ^[1-9][0-9]*$ ]] || fail "The merge event has no valid head repository ID"
+          fi
           [[ "${EVENT_OPENER_ID}" =~ ^[1-9][0-9]*$ && -n "${EVENT_OPENER_LOGIN}" ]] || fail "The merge event has no valid pull request opener"
 
           validate_live_merged_pr() {
@@ -838,8 +957,8 @@ jobs:
               --argjson base_repo_id "${EVENT_BASE_REPO_ID}" \
               --arg head_sha "${EVENT_HEAD_SHA}" \
               --arg head_ref "${EVENT_HEAD_REF}" \
-              --arg head_repo "${EVENT_HEAD_REPO}" \
-              --argjson head_repo_id "${EVENT_HEAD_REPO_ID}" \
+              --arg event_head_repo "${EVENT_HEAD_REPO}" \
+              --arg event_head_repo_id "${EVENT_HEAD_REPO_ID}" \
               --argjson opener_id "${EVENT_OPENER_ID}" \
               --arg opener_login "${EVENT_OPENER_LOGIN}" '
                 .number == $number and
@@ -853,9 +972,16 @@ jobs:
                 .head.sha == $head_sha and
                 (.head.ref | type == "string") and
                 .head.ref == $head_ref and
-                (.head.repo.full_name | type == "string") and
-                .head.repo.full_name == $head_repo and
-                .head.repo.id == $head_repo_id and
+                (
+                  if $event_head_repo == "" and $event_head_repo_id == "" then
+                    .head.repo == null
+                  else
+                    (.head.repo.full_name | type == "string") and
+                    .head.repo.full_name == $event_head_repo and
+                    (.head.repo.id | type == "number") and
+                    (.head.repo.id | tostring) == $event_head_repo_id
+                  end
+                ) and
                 .user.id == $opener_id and
                 .user.login == $opener_login
               ' <<<"${live_pr_json}" >/dev/null || return 1

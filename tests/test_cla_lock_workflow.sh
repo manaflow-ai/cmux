@@ -66,18 +66,31 @@ gh() {
         changed-head-repo) head_repo=attacker/cmux; head_repo_id=201 ;;
         changed-opener) opener_id=43; opener_login=attacker ;;
         malformed-head) head_repo=""; head_repo_id=0 ;;
+        deleted-fork) head_repo=""; head_repo_id=0 ;;
       esac
-      jq -nc \
-        --arg state "$state" \
-        --argjson merged "$merged" \
-        --arg base_ref "$base_ref" \
-        --arg head_sha "$head_sha" \
-        --arg head_ref "$EVENT_HEAD_REF" \
-        --arg head_repo "$head_repo" \
-        --argjson head_repo_id "$head_repo_id" \
-        --argjson opener_id "$opener_id" \
-        --arg opener_login "$opener_login" \
-        '{number:123,state:$state,merged:$merged,base:{ref:$base_ref,repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{sha:$head_sha,ref:$head_ref,repo:{id:$head_repo_id,full_name:$head_repo}},user:{id:$opener_id,login:$opener_login}}'
+      if [[ "${FAKE_MODE:-}" == deleted-fork ]]; then
+        jq -nc \
+          --arg state "$state" \
+          --argjson merged "$merged" \
+          --arg base_ref "$base_ref" \
+          --arg head_sha "$head_sha" \
+          --arg head_ref "$EVENT_HEAD_REF" \
+          --argjson opener_id "$opener_id" \
+          --arg opener_login "$opener_login" \
+          '{number:123,state:$state,merged:$merged,base:{ref:$base_ref,repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{sha:$head_sha,ref:$head_ref,repo:null},user:{id:$opener_id,login:$opener_login}}'
+      else
+        jq -nc \
+          --arg state "$state" \
+          --argjson merged "$merged" \
+          --arg base_ref "$base_ref" \
+          --arg head_sha "$head_sha" \
+          --arg head_ref "$EVENT_HEAD_REF" \
+          --arg head_repo "$head_repo" \
+          --argjson head_repo_id "$head_repo_id" \
+          --argjson opener_id "$opener_id" \
+          --arg opener_login "$opener_login" \
+          '{number:123,state:$state,merged:$merged,base:{ref:$base_ref,repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{sha:$head_sha,ref:$head_ref,repo:{id:$head_repo_id,full_name:$head_repo}},user:{id:$opener_id,login:$opener_login}}'
+      fi
       ;;
     repos/manaflow-ai/cmux/issues/123)
       local locked=false
@@ -109,16 +122,24 @@ run_case() {
   local expected_text="$3"
   local expected_posts="$4"
   local output status posts
+  local event_head_repo="$EVENT_HEAD_REPO"
+  local event_head_repo_id="$EVENT_HEAD_REPO_ID"
   : >"$work/posts-$mode"
   : >"$work/lock-$mode"
   if [[ "$mode" == already-locked ]]; then
     printf 'true\n' >"$work/lock-$mode"
+  fi
+  if [[ "$mode" == deleted-fork || "$mode" == deleted-fork-metadata-mismatch ]]; then
+    event_head_repo=""
+    event_head_repo_id=""
   fi
   set +e
   output="$(
     FAKE_MODE="$mode" \
     FAKE_POST_FILE="$work/posts-$mode" \
     FAKE_LOCK_FILE="$work/lock-$mode" \
+    EVENT_HEAD_REPO="$event_head_repo" \
+    EVENT_HEAD_REPO_ID="$event_head_repo_id" \
     bash "$lock_script" 2>&1
   )"
   status=$?
@@ -149,5 +170,7 @@ run_case changed-head 1 "live pull request no longer matches" 0
 run_case changed-head-repo 1 "live pull request no longer matches" 0
 run_case changed-opener 1 "live pull request no longer matches" 0
 run_case malformed-head 1 "live pull request no longer matches" 0
+run_case deleted-fork 0 "Pull request 123 is locked" 1
+run_case deleted-fork-metadata-mismatch 1 "live pull request no longer matches" 0
 run_case api-failure 1 "Could not query the merged pull request" 0
 run_case lock-failure 1 "Could not lock the merged pull request" 1

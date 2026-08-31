@@ -75,10 +75,16 @@ gh() {
   local run_head_repo_id=200
   local marker="CLA generation v2 ${WORKFLOW_SHA}"
   local run_path=.github/workflows/cla.yml
+  local run_prs='[{"number":123,"base":{"ref":"main","repo":{"id":100,"full_name":"manaflow-ai/cmux"}},"head":{"ref":"feature","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","repo":{"id":200,"full_name":"contributor/cmux"}}}]'
 
   case "${FAKE_MODE}" in
     stale-marker) marker="CLA generation v2 cccccccccccccccccccccccccccccccccccccccc" ;;
     wrong-head-repo) run_head_repo=attacker/cmux; run_head_repo_id=201 ;;
+    fork-current|empty-run-association) run_prs='[]' ;;
+    minimal-run-association) run_prs='[{"number":123,"base":{"ref":"main","repo":{"id":100}},"head":{"ref":"feature","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","repo":{"id":200}}}]' ;;
+    wrong-run-association) run_prs='[{"number":124,"base":{"ref":"main","repo":{"id":100,"full_name":"manaflow-ai/cmux"}},"head":{"ref":"feature","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","repo":{"id":200,"full_name":"contributor/cmux"}}}]' ;;
+    malformed-run-association) run_prs='{}' ;;
+    invalid-run-association) run_prs='false' ;;
     closed-pr) live_state=closed ;;
     retargeted-pr) live_base=release ;;
     suffixed-path) run_path=.github/workflows/cla.yml@main ;;
@@ -123,14 +129,14 @@ gh() {
       ;;
     repos/manaflow-ai/cmux/actions/workflows/300/runs\?event=pull_request_target\&head_sha=*\&per_page=100)
       if [[ "${FAKE_MODE}" == duplicate-runs ]]; then
-        jq -nc --arg head_repo "$run_head_repo" --argjson head_repo_id "$run_head_repo_id" --arg path "$run_path" \
+        jq -nc --arg head_repo "$run_head_repo" --argjson head_repo_id "$run_head_repo_id" --arg path "$run_path" --argjson run_prs "$run_prs" \
           '[{workflow_runs:[
-            {id:400,workflow_id:300,path:$path,event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",head_branch:"feature",head_repository:{id:$head_repo_id,full_name:$head_repo},pull_requests:[],created_at:"2026-08-31T07:00:00Z"},
-            {id:401,workflow_id:300,path:$path,event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",head_branch:"feature",head_repository:{id:$head_repo_id,full_name:$head_repo},pull_requests:[],created_at:"2026-08-31T07:30:00Z"}
+            {id:400,workflow_id:300,path:$path,event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",head_branch:"feature",head_repository:{id:$head_repo_id,full_name:$head_repo},pull_requests:$run_prs,created_at:"2026-08-31T07:00:00Z"},
+            {id:401,workflow_id:300,path:$path,event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",head_branch:"feature",head_repository:{id:$head_repo_id,full_name:$head_repo},pull_requests:$run_prs,created_at:"2026-08-31T07:30:00Z"}
           ]}]'
       else
-        jq -nc --arg head_repo "$run_head_repo" --argjson head_repo_id "$run_head_repo_id" --arg path "$run_path" \
-          '[{workflow_runs:[{id:400,workflow_id:300,path:$path,event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",head_branch:"feature",head_repository:{id:$head_repo_id,full_name:$head_repo},pull_requests:[],created_at:"2026-08-31T07:00:00Z"}]}]'
+        jq -nc --arg head_repo "$run_head_repo" --argjson head_repo_id "$run_head_repo_id" --arg path "$run_path" --argjson run_prs "$run_prs" \
+          '[{workflow_runs:[{id:400,workflow_id:300,path:$path,event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",head_branch:"feature",head_repository:{id:$head_repo_id,full_name:$head_repo},pull_requests:$run_prs,created_at:"2026-08-31T07:00:00Z"}]}]'
       fi
       ;;
     repos/manaflow-ai/cmux/actions/runs/400|repos/manaflow-ai/cmux/actions/runs/401)
@@ -140,8 +146,8 @@ gh() {
         run_id=401
         created_at=2026-08-31T07:30:00Z
       fi
-      jq -nc --argjson run_id "$run_id" --arg created_at "$created_at" --arg head_repo "$run_head_repo" --argjson head_repo_id "$run_head_repo_id" --arg path "$run_path" \
-        '{id:$run_id,workflow_id:300,path:$path,event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",head_branch:"feature",head_repository:{id:$head_repo_id,full_name:$head_repo},pull_requests:[],created_at:$created_at}'
+      jq -nc --argjson run_id "$run_id" --arg created_at "$created_at" --arg head_repo "$run_head_repo" --argjson head_repo_id "$run_head_repo_id" --arg path "$run_path" --argjson run_prs "$run_prs" \
+        '{id:$run_id,workflow_id:300,path:$path,event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",head_branch:"feature",head_repository:{id:$head_repo_id,full_name:$head_repo},pull_requests:$run_prs,created_at:$created_at}'
       ;;
     repos/manaflow-ai/cmux/actions/runs/400/jobs\?per_page=100|repos/manaflow-ai/cmux/actions/runs/401/jobs\?per_page=100)
       local run_id=400
@@ -222,7 +228,13 @@ run_case() {
   echo "PASS: $mode"
 }
 
+run_case run-association 0 "Requested rerun for CLA job 500 in workflow run 400" 1
+run_case minimal-run-association 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case fork-current 0 "Requested rerun for CLA job 500 in workflow run 400" 1
+run_case empty-run-association 0 "Requested rerun for CLA job 500 in workflow run 400" 1
+run_case wrong-run-association 0 "No failed CLA run exists for this pull request head" 0
+run_case malformed-run-association 0 "No failed CLA run exists for this pull request head" 0
+run_case invalid-run-association 0 "No failed CLA run exists for this pull request head" 0
 run_case stale-marker 1 "older workflow generation" 0
 run_case wrong-head-repo 0 "No failed CLA run exists for this pull request head" 0
 run_case closed-pr 1 "The issue is not an open pull request" 0
