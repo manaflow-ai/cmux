@@ -4772,7 +4772,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return .failed
         }
 
-        if MobilePairingURLAuthorizationPolicy.requiresInAppScan(
+        if mobilePairingURLRequiresInAppScan(
             ticket: ticket,
             userEnteredPairingCode: userEnteredPairingCode,
             externalURL: externalURL

@@ -374,17 +374,17 @@ import Testing
             routes: [route],
             authToken: nil
         )
-        #expect(MobilePairingURLAuthorizationPolicy.requiresInAppScan(
+        #expect(mobilePairingURLRequiresInAppScan(
             ticket: ticket,
             userEnteredPairingCode: false,
             externalURL: true
         ))
-        #expect(!MobilePairingURLAuthorizationPolicy.requiresInAppScan(
+        #expect(!mobilePairingURLRequiresInAppScan(
             ticket: ticket,
             userEnteredPairingCode: true,
             externalURL: true
         ))
-        #expect(!MobilePairingURLAuthorizationPolicy.requiresInAppScan(
+        #expect(!mobilePairingURLRequiresInAppScan(
             ticket: ticket,
             userEnteredPairingCode: false,
             externalURL: false
