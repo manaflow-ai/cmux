@@ -26,6 +26,7 @@ import {
   revokeRouteTokensForUser as revokeRouteTokensForUserDefault,
 } from "../../../../services/coderouter/repository";
 import { isStripeBillingConfigured, stripe } from "../../../../services/billing/stripe";
+import { personalProWelcomeOwnsDelivery } from "../../../../services/billing/personalProWelcome";
 import {
   recordSpanError,
   setSpanAttributes,
@@ -344,11 +345,12 @@ function isPersonalProCheckout(
 }
 
 function isPersonalWelcomeConfigured(): boolean {
-  // The dedicated Stripe endpoint and this billing webhook are separate
-  // deliveries. Only suppress the legacy templated sender when the personal
-  // endpoint has both credentials it needs; otherwise retain it as a safe
-  // compatibility fallback for an older deployment.
-  return Boolean(env.RESEND_API_KEY && env.STRIPE_FOUNDERS_WEBHOOK_SECRET);
+  return personalProWelcomeOwnsDelivery({
+    enabled: env.CMUX_PERSONAL_PRO_WELCOME_ENABLED,
+    resendApiKey: env.RESEND_API_KEY,
+    webhookSecret: env.STRIPE_FOUNDERS_WEBHOOK_SECRET,
+    stripeSecretKey: env.STRIPE_SECRET_KEY,
+  });
 }
 
 function checkoutPaymentSettled(session: Stripe.Checkout.Session): boolean {

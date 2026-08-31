@@ -52,17 +52,26 @@ let retrievedSubscription: Record<string, unknown> = {
   id: "sub_test_pro",
   metadata: { stackUserId: "user-1", plan: "pro", app: "cmux" },
 };
-const retrieveSubscription = mock(async (_subscriptionId: string) => {
-  if (subscriptionRetrieveError) throw subscriptionRetrieveError;
-  return retrievedSubscription;
-});
+const retrieveSubscription = mock(
+  async (...args: unknown[]): Promise<{
+    metadata?: Record<string, string> | null;
+  }> => {
+    void args;
+    if (subscriptionRetrieveError) throw subscriptionRetrieveError;
+    return retrievedSubscription as {
+      metadata?: Record<string, string> | null;
+    };
+  },
+);
 
 const { makeFoundersWelcomeHandler } = await import(
   "../app/api/stripe/founders-welcome/route"
 );
 const POST = makeFoundersWelcomeHandler({
   personalProWelcomeEnabled: () => personalProWelcomeEnabled,
-  retrieveSubscription,
+  retrieveSubscription: retrieveSubscription as unknown as (
+    subscriptionId: string,
+  ) => Promise<{ metadata?: Record<string, string> | null }>,
 });
 
 // Freeze the clock so the test's signature timestamps and the route's

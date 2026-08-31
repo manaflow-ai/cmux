@@ -17,6 +17,8 @@ import {
 } from "./welcome-email";
 import { welcomeTriggerForCheckout } from "./welcome-trigger";
 import { locales, type Locale } from "../../../../i18n/routing";
+import { personalProWelcomeOwnsDelivery } from "../../../../services/billing/personalProWelcome";
+import { stripe } from "../../../../services/billing/stripe";
 
 // to blunt replay attempts.
 const SIGNATURE_TOLERANCE_SECONDS = 5 * 60;
@@ -25,6 +27,25 @@ type FoundersConfig = {
   resendApiKey: string;
   webhookSecret: string;
   fromEmail: string;
+};
+
+type FoundersWelcomeDependencies = {
+  personalProWelcomeEnabled: () => boolean;
+  retrieveSubscription: (
+    subscriptionId: string,
+  ) => Promise<{ metadata?: Record<string, string> | null }>;
+};
+
+const defaultDependencies: FoundersWelcomeDependencies = {
+  personalProWelcomeEnabled: () =>
+    personalProWelcomeOwnsDelivery({
+      enabled: env.CMUX_PERSONAL_PRO_WELCOME_ENABLED,
+      resendApiKey: env.RESEND_API_KEY,
+      webhookSecret: env.STRIPE_FOUNDERS_WEBHOOK_SECRET,
+      stripeSecretKey: env.STRIPE_SECRET_KEY,
+    }),
+  retrieveSubscription: async (subscriptionId) =>
+    stripe().subscriptions.retrieve(subscriptionId),
 };
 
 function resolveConfig(): FoundersConfig | null {
@@ -90,12 +111,16 @@ function isValidStripeSignature(
   });
 }
 
-export async function POST(request: Request) {
-  return withApiRouteSpan(
-    request,
-    "/api/stripe/founders-welcome",
-    { "cmux.subsystem": "stripe", "cmux.stripe.operation": "founders_welcome" },
-    async (span): Promise<Response> => {
+export function makeFoundersWelcomeHandler(
+  dependencies: Partial<FoundersWelcomeDependencies> = {},
+) {
+  const resolvedDependencies = { ...defaultDependencies, ...dependencies };
+  return async function POST(request: Request) {
+    return withApiRouteSpan(
+      request,
+      "/api/stripe/founders-welcome",
+      { "cmux.subsystem": "stripe", "cmux.stripe.operation": "founders_welcome" },
+      async (span): Promise<Response> => {
       const config = resolveConfig();
       if (!config) {
         return jsonError("Founders welcome endpoint is not configured", 503);
@@ -135,10 +160,25 @@ export async function POST(request: Request) {
         return NextResponse.json({ ok: true, skipped: "event_type" });
       }
       const session = event.data?.object;
-      const subscriptionMetadata =
+      let subscriptionMetadata =
         session?.subscription && typeof session.subscription === "object"
           ? session.subscription.metadata
           : null;
+      if (
+        !subscriptionMetadata &&
+        typeof session?.subscription === "string" &&
+        !hasSessionProductMarker(session.metadata)
+      ) {
+        try {
+          subscriptionMetadata = (
+            await resolvedDependencies.retrieveSubscription(session.subscription)
+          ).metadata ?? null;
+        } catch (error) {
+          recordSpanError(span, error);
+          console.error("stripe.founders_welcome.subscription_lookup_failed");
+          return jsonError("Unable to resolve checkout metadata", 503);
+        }
+      }
       const trigger = welcomeTriggerForCheckout(
         session?.metadata,
         subscriptionMetadata,
@@ -151,6 +191,12 @@ export async function POST(request: Request) {
       });
       if (trigger !== "founders_edition" && trigger !== "pro_plan") {
         return NextResponse.json({ ok: true, skipped: "not_welcome_eligible" });
+      }
+      if (
+        trigger === "pro_plan" &&
+        !resolvedDependencies.personalProWelcomeEnabled()
+      ) {
+        return NextResponse.json({ ok: true, skipped: "pro_rollout_disabled" });
       }
       if (
         event.type === "checkout.session.completed" &&
@@ -215,9 +261,12 @@ export async function POST(request: Request) {
         { ok: true, sent: true },
         { headers: { "Cache-Control": "no-store" } },
       );
-    },
-  );
+      },
+    );
+  };
 }
+
+export const POST = makeFoundersWelcomeHandler();
 
 function jsonError(message: string, status: number): Response {
   return NextResponse.json(
@@ -252,6 +301,17 @@ type StripeEvent = {
 type StripeSessionPayload = NonNullable<
   NonNullable<StripeEvent["data"]>["object"]
 >;
+
+function hasSessionProductMarker(
+  metadata: Record<string, string> | null | undefined,
+): boolean {
+  return Boolean(
+    metadata &&
+      (Object.prototype.hasOwnProperty.call(metadata, "app") ||
+        Object.prototype.hasOwnProperty.call(metadata, "plan") ||
+        Object.prototype.hasOwnProperty.call(metadata, "founders_edition")),
+  );
+}
 
 function localeForSession(session: StripeSessionPayload | undefined): Locale {
   const value =
