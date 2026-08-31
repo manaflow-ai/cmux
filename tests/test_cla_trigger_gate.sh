@@ -8,6 +8,18 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKFLOW="$ROOT_DIR/.github/workflows/cla.yml"
 test -f "$WORKFLOW"
 
+# The protected ruleset already requires this exact check context. Keep the
+# admission gate non-canceling and event-scoped so an unrelated public comment
+# cannot cancel a valid signing trigger.
+grep -Fq 'name: "CLA Assistant"' "$WORKFLOW"
+grep -Fq 'group: cla-trigger-${{ github.run_id }}' "$WORKFLOW"
+grep -Fq 'cancel-in-progress: false' "$WORKFLOW"
+grep -Fq "path-to-signatures: 'signatures/version2/cla.json'" "$WORKFLOW"
+if grep -Fq 'group: cla-trigger-${{ github.event.issue.number' "$WORKFLOW"; then
+  echo 'FAIL: CLA trigger gate is grouped by pull request and can replace a valid pending event' >&2
+  exit 1
+fi
+
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 gate_script="$work/gate.sh"

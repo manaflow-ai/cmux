@@ -13,8 +13,8 @@ jobs:
   CLACommentGate:
     name: "Validate CLA trigger"
     # This job is intentionally unprivileged. It runs the exact, case-
-    # sensitive comment check before the signature job's concurrency group can
-    # admit a public issue-comment event.
+    # sensitive comment check before the signature job can admit a public
+    # issue-comment event.
     if: >-
       (
         github.event_name == 'pull_request_target' &&
@@ -32,10 +32,12 @@ jobs:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     concurrency:
-      # A comment flood can cancel only this credential-free gate. It cannot
-      # occupy the signature queue or cancel a run writing the ledger.
-      group: cla-trigger-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}
-      cancel-in-progress: true
+      # Use one group per event. With cancel-in-progress enabled, an ordinary
+      # public comment could cancel a valid gate before it is admitted. With
+      # cancellation disabled and a unique group, every event is evaluated by
+      # the exact shell check below and no event can cancel another event.
+      group: cla-trigger-${{ github.run_id }}
+      cancel-in-progress: false
     permissions: {}
     steps:
       - name: "Validate exact CLA trigger"
@@ -65,7 +67,9 @@ jobs:
           fi
 
   CLAAssistant:
-    name: "CLA Assistant v2"
+    # Keep the existing check-run name. The repository ruleset currently
+    # requires the exact context "CLA Assistant".
+    name: "CLA Assistant"
     needs: CLACommentGate
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
@@ -190,7 +194,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          path-to-signatures: 'signatures/version1/cla.json'
+          # Version 2 has a separate ledger. Existing version-1 signatures were
+          # collected under earlier CLA terms and must not silently accept this
+          # revised document.
+          path-to-signatures: 'signatures/version2/cla.json'
           path-to-document: 'https://github.com/manaflow-ai/cmux/blob/${{ github.workflow_sha }}/CLA.md'
           # Merged pull requests use the explicit lock step below, which
           # supplies a valid lock reason and fails on API errors.
