@@ -86,16 +86,19 @@ describe("email verification recovery", () => {
         sendVerificationEmail,
       },
     ]);
-    const listUsers = mock(async ({ query }: { query: string }) =>
-      query === "john.doe@gmail.com"
+    const listUsers = mock(async (...args: unknown[]) => {
+      const { query } = args[0] as { query: string };
+      return query === "john.doe@gmail.com"
         ? [{ primaryEmail: "John.Doe@gmail.com", listContactChannels }]
-        : [],
-    );
+        : [];
+    }) as unknown as Parameters<
+      typeof requestEmailVerificationRecovery
+    >[1]["stackApp"]["listUsers"];
 
     const result = await Effect.runPromise(
       requestEmailVerificationRecovery(
         {
-          email: "johndoe@gmail.com",
+          email: "john.doe@gmail.com",
           callbackURL: "https://cmux.com/handler/email-verification",
         },
         { stackApp: { listUsers } },
