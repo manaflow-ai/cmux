@@ -38635,6 +38635,27 @@ export default CMUXSessionRestore;
         guard !source.isEmpty else {
             throw CLIError(message: "cmux hooks feed requires --source <agent-name>")
         }
+        var lifecycleProbeClient: SocketClient?
+        defer { lifecycleProbeClient?.close() }
+
+        func makeLifecycleProbeClient() -> SocketClient? {
+            guard let socketPath else { return nil }
+            let probe = SocketClient(path: socketPath)
+            do {
+                try probe.connectWithoutRetry(responseTimeout: 0.25)
+                try authenticateClientIfNeeded(
+                    probe,
+                    explicitPassword: socketPassword,
+                    socketPath: socketPath,
+                    responseTimeout: 0.25
+                )
+                lifecycleProbeClient = probe
+                return probe
+            } catch {
+                probe.close()
+                return nil
+            }
+        }
 
         // Outside a cmux terminal (no CMUX_SURFACE_ID) → silently no-op.
         // Also matches the graceful-fallback pattern of the other hooks.
@@ -38740,7 +38761,7 @@ export default CMUXSessionRestore;
                       isUUID(workspaceId),
                       let rawSurfaceId = firstString(in: stdinObj, keys: ["surface_id", "surfaceId"])
                           ?? env["CMUX_SURFACE_ID"],
-                      let activeClient = client,
+                      let activeClient = client ?? makeLifecycleProbeClient(),
                       let listed = try? activeClient.sendV2(
                           method: "surface.list",
                           params: ["workspace_id": workspaceId]
