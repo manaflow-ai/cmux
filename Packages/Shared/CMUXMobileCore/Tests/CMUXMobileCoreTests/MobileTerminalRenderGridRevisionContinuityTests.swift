@@ -71,6 +71,28 @@ private func chainFrame(
     #expect(MobileTerminalRenderGridRevisionContinuity.admits(full, delivered: nil))
 }
 
+@Test func revisionContinuityRejectsNonAdvancingDelta() throws {
+    let delivered = MobileTerminalRenderGridRevisionContinuity(
+        renderEpoch: "epoch-1",
+        renderRevision: 7
+    )
+    // A producer diffs against an older capture, never the same or a newer
+    // one; a frame violating that is malformed and must not patch.
+    let equalRevision = try chainFrame(revision: 7, baseRevision: 7)
+    let regressedRevision = try chainFrame(revision: 6, baseRevision: 7)
+
+    #expect(!MobileTerminalRenderGridRevisionContinuity.admits(equalRevision, delivered: delivered))
+    #expect(!MobileTerminalRenderGridRevisionContinuity.admits(regressedRevision, delivered: delivered))
+}
+
+@Test func revisionContinuityAdmitsEpochlessDeltaWithBase() throws {
+    // Epochless frames record no delivered identity, so rejecting their
+    // deltas would request replays forever; the history chain governs them.
+    let epochlessDelta = try chainFrame(revision: 8, epoch: "", baseRevision: 7)
+
+    #expect(MobileTerminalRenderGridRevisionContinuity.admits(epochlessDelta, delivered: nil))
+}
+
 @Test func revisionContinuityRoundTripsThroughCoding() throws {
     let delta = try chainFrame(revision: 8, baseRevision: 7)
 

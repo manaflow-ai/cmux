@@ -28,15 +28,20 @@ public struct MobileTerminalRenderGridRevisionContinuity: Equatable, Sendable {
     /// Whether `frame` may patch on top of the delivered state.
     ///
     /// Full frames always pass: they replace state rather than patch it.
-    /// Deltas from legacy producers (no base revision) pass so the history
-    /// chain remains their only guard. A delta that names a base passes only
-    /// when `delivered` records exactly that frame; with no delivered record
-    /// it fails closed.
+    /// Deltas without a base revision or without an epoch pass so the history
+    /// chain remains their only guard (legacy producers omit both, and the
+    /// consumer records no identity for epochless frames — rejecting them
+    /// would loop replays forever). A delta that names a base must advance
+    /// past it (a producer diffs against an older capture, never the same or
+    /// a newer one) and passes only when `delivered` records exactly that
+    /// frame; with no delivered record it fails closed.
     public static func admits(
         _ frame: MobileTerminalRenderGridFrame,
         delivered: Self?
     ) -> Bool {
         guard !frame.full, let base = frame.deltaBaseRenderRevision else { return true }
+        guard !frame.renderEpoch.isEmpty else { return true }
+        guard frame.renderRevision > base else { return false }
         guard let delivered else { return false }
         return delivered.renderEpoch == frame.renderEpoch
             && delivered.renderRevision == base
