@@ -779,7 +779,8 @@ fn process_name(pid: u32) -> Option<String> {
         // pbi_comm are fixed NUL-padded byte buffers.
         let info = unsafe { info.assume_init() };
         for field in [&info.pbi_name[..], &info.pbi_comm[..]] {
-            let bytes: Vec<u8> = field.iter().take_while(|&&byte| byte != 0).map(|&byte| byte as u8).collect();
+            let bytes: Vec<u8> =
+                field.iter().take_while(|&&byte| byte != 0).map(|&byte| byte as u8).collect();
             if let Ok(name) = std::str::from_utf8(&bytes)
                 && !name.is_empty()
                 && name.len() + 1 < field.len()
