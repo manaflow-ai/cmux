@@ -364,6 +364,42 @@ extension TerminalSurface {
         )
     }
 
+    /// Retires callback userdata and output state when the native surface is
+    /// already absent. A failed or out-of-band realization can still leave
+    /// these handles alive, so they follow the same lane fence as a native
+    /// free before their retained references are released.
+    @MainActor
+    private func retireRuntimeResourcesWithoutSurface(reason: String) {
+        let callbackContext = surfaceCallbackContext
+        surfaceCallbackContext = nil
+        let manualIOContext = self.manualIOContext
+        self.manualIOContext = nil
+        let teeLease = mobileByteTeeLease
+        mobileByteTeeLease = nil
+        invalidateRuntimeClipboardRequests(
+            in: callbackContext,
+            completingNativeRequests: false
+        )
+        let retiredRemoteOutputLane = retireRemoteOutputLane()
+        byteTee.dropSurface(surfaceID: id)
+        let staleRuntimeResources = TerminalSurfaceStaleRuntimeResources(
+            callbackContext: callbackContext,
+            manualIOContext: manualIOContext,
+            byteTeeLease: teeLease
+        )
+        staleRuntimeResourceReleaseTicket = runtimeTeardown.enqueueRuntimeTeardownFence(
+            id: UUID(),
+            workspaceId: tabId,
+            reason: reason,
+            fence: {
+                await retiredRemoteOutputLane.drain()
+            },
+            onCompletion: {
+                staleRuntimeResources.release()
+            }
+        )
+    }
+
     /// Frees the runtime surface while keeping the model alive for an
     /// agent-hibernation resume.
     ///
@@ -380,6 +416,9 @@ extension TerminalSurface {
         // surfaces.
         if surface == nil {
             let isNewHibernation = !runtimeSurfaceSuspendedForAgentHibernation
+            let hasRetainedRuntimeResources = surfaceCallbackContext != nil ||
+                manualIOContext != nil ||
+                mobileByteTeeLease != nil
             if let reservation = agentHibernationRuntimeTeardownReservation {
                 agentHibernationRuntimeTeardownReservation = nil
                 runtimeTeardown.cancelIsolatedHibernationTeardown(reservation)
@@ -402,6 +441,9 @@ extension TerminalSurface {
             backgroundSurfaceStartSource = .normal
             cancelAgentCommandShimInstallLifecycle()
             closeHeadlessStartupWindowIfNeeded()
+            if isNewHibernation || hasRetainedRuntimeResources {
+                retireRuntimeResourcesWithoutSurface(reason: reason)
+            }
             return true
         }
         guard let teardownReservation =
