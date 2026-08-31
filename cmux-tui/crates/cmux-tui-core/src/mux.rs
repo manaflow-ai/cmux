@@ -6471,17 +6471,16 @@ impl Mux {
         state: AgentState,
         source: AgentSource,
         session: Option<&str>,
-    ) -> Option<String> {
+    ) -> anyhow::Result<Option<String>> {
         // The durable projection is updated before its echo is folded. Read
         // it first so a blocked roster replay still has a stable semantic
         // receipt for repeated reports.
         let durable_previous = self
             .workspace_registry
-            .lock()
-            .unwrap()
-            .public_agent_projections(Some(terminal_id), None)
-            .ok()
-            .and_then(|mut projections| projections.pop())
+            .lock_until(Instant::now() + JOURNAL_DURABLE_WAIT)?
+            .public_agent_projections(Some(terminal_id), None)?
+            .into_iter()
+            .next()
             .map(|record| (record.state, record.source, record.source_session, record.agent));
         // The compatibility cache is updated as part of the direct resource
         // commit, before its journal echo is folded. Prefer it for admission
@@ -6555,7 +6554,7 @@ impl Mux {
             || hook_owned_external_report
             || socket_owned_detected_report
         {
-            return None;
+            return Ok(None);
         }
         let previous = previous
             .map(|(state, source, session, agent)| {
@@ -6578,7 +6577,7 @@ impl Mux {
             use std::fmt::Write as _;
             write!(key, "{byte:02x}").expect("writing to a String cannot fail");
         }
-        Some(key)
+        Ok(Some(key))
     }
 
     /// Echo direct reports into the journal so a restart can rebuild the
@@ -10203,7 +10202,7 @@ impl Mux {
                 id.clone()
             };
             let timestamp = now_ms();
-            match self.agent_report_echo_key(&terminal_id, state, source, session.as_deref()) {
+            match self.agent_report_echo_key(&terminal_id, state, source, session.as_deref())? {
                 Some(key) => {
                     let ingress = self.agent_report_echo_ingress(
                         &terminal_id,
@@ -10289,7 +10288,7 @@ impl Mux {
                 agent_state,
                 source,
                 source_session.as_deref(),
-            ) {
+            )? {
                 Some(key) => {
                     let ingress = self.agent_report_echo_ingress(
                         terminal_id,
@@ -26509,6 +26508,7 @@ mod tests {
                 AgentSource::Socket,
                 Some("aba-session"),
             )
+            .unwrap()
             .is_none()
         );
         mux.shutdown();
