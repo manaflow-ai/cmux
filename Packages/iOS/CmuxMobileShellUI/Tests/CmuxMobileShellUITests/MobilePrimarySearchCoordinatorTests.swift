@@ -61,6 +61,41 @@ import Testing
         #expect(coordinator.searchDestinationText(for: .notifications) == "")
     }
 
+    @Test func cancelPresentedSearchResetsQueryAndDismisses() {
+        let coordinator = MobilePrimarySearchCoordinator()
+        coordinator.synchronizeSelection(.workspaces)
+        coordinator.setPresentation(true)
+        coordinator.updateNativeSearchText(
+            "docs",
+            for: .workspaces,
+            activationGeneration: coordinator.activationGeneration
+        )
+
+        coordinator.cancelPresentedSearch()
+
+        #expect(coordinator.isPresented == false)
+        #expect(coordinator.workspaces == "")
+        #expect(coordinator.activeNativeSearchText() == "")
+        #expect(coordinator.searchDestinationText(for: .workspaces) == "")
+    }
+
+    @Test func deactivateCurrentSearchStillCommitsDraftForResultNavigation() {
+        let coordinator = MobilePrimarySearchCoordinator()
+        coordinator.synchronizeSelection(.workspaces)
+        coordinator.setPresentation(true)
+        coordinator.updateNativeSearchText(
+            "docs",
+            for: .workspaces,
+            activationGeneration: coordinator.activationGeneration
+        )
+
+        coordinator.deactivateCurrentSearch()
+
+        #expect(coordinator.isPresented == false)
+        #expect(coordinator.workspaces == "docs")
+        #expect(coordinator.searchDestinationText(for: .workspaces) == "docs")
+    }
+
     @Test func dismissedSearchClearsPreviouslySubmittedQuery() {
         let coordinator = MobilePrimarySearchCoordinator()
         coordinator.synchronizeSelection(.workspaces)

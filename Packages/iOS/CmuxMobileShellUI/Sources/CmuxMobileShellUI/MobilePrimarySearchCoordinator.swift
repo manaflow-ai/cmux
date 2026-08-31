@@ -59,6 +59,18 @@ final class MobilePrimarySearchCoordinator {
         isPresented = false
     }
 
+    /// A TabView-driven selection change away from a presented search is the
+    /// search tab's round X: while search is presented the tab bar is the
+    /// search field, so no other tab control can move selection. The X
+    /// cancels the query instead of committing it. Programmatic transitions
+    /// (result taps, deep links) keep committing through
+    /// ``deactivateCurrentSearch()``.
+    func cancelPresentedSearch() {
+        resetSearchQuery(for: scope)
+        beginDeactivation(for: scope)
+        isPresented = false
+    }
+
     func updateLifecycle(scope: MobilePrimarySearchScope, isSearching: Bool) {
         if isSearching {
             activate(scope: scope)
