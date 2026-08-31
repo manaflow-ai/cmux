@@ -210,8 +210,19 @@ extension RemoteTmuxController {
         }
 
         // Reuse a live view: the host is already mirrored; just surface it.
+        #if DEBUG
+        cmuxDebugLog(
+            "remote-tmux: mux-attach host=\(host.destination) hash=\(host.connectionHash) "
+                + "transport=\(host.transport.rawValue) viewExists=\(multiplexedViewsByHost[host.connectionHash] != nil)")
+        #endif
         if multiplexedViewsByHost[host.connectionHash] == nil {
             try await startMultiplexedHost(host: host, manager: targetManager)
+        } else if let parked = multiplexedViewsByHost[host.connectionHash]?.connection,
+                  parked.isAwaitingCredentials {
+            // A prior attach parked this stream on interactive authentication and this call is
+            // the post-login retry. Kick the parked stream now instead of waiting for the login
+            // waiter's next master probe.
+            parked.resumeAfterInteractiveAuth()
         }
 
         // The first reconcile lands asynchronously once the stream reports
@@ -235,6 +246,21 @@ extension RemoteTmuxController {
             return mirror.mirroredWorkspaceId
         }
         guard !workspaceIds.isEmpty else {
+            // Nothing mirrored because the stream parked for interactive credentials: hand the
+            // socket caller the same interactive invocation the GA preflight returns, so the
+            // `cmux ssh-tmux` CLI can authenticate inline in the user's own terminal. The parked
+            // view is deliberately kept: the login (CLI-run or the in-app tab) opens the shared
+            // master, and the retry resumes this stream over it instead of starting over.
+            let profile = host.transport.profile(
+                port: host.transportPort,
+                terminalPath: host.transportTerminalPath,
+                broker: host.transportBroker)
+            let awaitingLogin = hostAuth.isAwaiting(host)
+                || heldView?.lastStreamAwaitedCredentials == true
+                || heldView?.connection?.isAwaitingCredentials == true
+            if awaitingLogin, profile.authenticationIsSSHShaped {
+                return .authRequired(sshArgv: host.interactiveAuthInvocation())
+            }
             // Ask before stopping: `stopMultiplexedHost` discards the view that holds the verdict.
             let failure = multiplexedMirrorFailure(host: host, view: heldView)
             stopMultiplexedHost(host: host)
