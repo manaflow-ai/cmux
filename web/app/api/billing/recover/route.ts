@@ -115,7 +115,13 @@ export function makeBillingRecoveryHandler(
         const verificationURL = emailVerificationCallbackURL(request);
         try {
           const paid = await dependencies.recoverPaid(email);
-          if (paid && !(typeof paid === "object" && "skipped" in paid)) {
+          if (paid && typeof paid === "object" && "skipped" in paid) {
+            // No authentication message was sent. Keep the response generic,
+            // but make it retryable so account deletion or missing provider
+            // data does not present as a successful recovery.
+            return json({ error: "recovery_unavailable" }, 503);
+          }
+          if (paid) {
             const candidateDeliveryEmail =
               typeof paid === "object" ? paid.deliveryEmail : null;
             const deliveryEmail =

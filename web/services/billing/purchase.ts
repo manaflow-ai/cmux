@@ -505,7 +505,20 @@ export async function recordFoundersCheckoutCompletion(
   // anonymous promotion happen later, after the deletion guard is held by the
   // metadata sync. A missing account is created as an unverified shell under a
   // canonical-email lease so concurrent paid webhooks cannot create twins.
-  const user = await findOrCreateCheckoutBillingUser(stackApp, db, email);
+  const knownStackUserIds = [
+    input.session.client_reference_id,
+    input.session.metadata?.stackUserId,
+    providerSubscription?.metadata?.stackUserId,
+    input.customer && !input.customer.deleted
+      ? input.customer.metadata?.stackUserId
+      : null,
+  ].filter((value): value is string => typeof value === "string" && value.length > 0);
+  const user = await findOrCreateCheckoutBillingUser(
+    stackApp,
+    db,
+    email,
+    knownStackUserIds,
+  );
   if (!user) throw new Error("Stack Auth did not return a billing user");
 
   // Resolve the only potentially external owner lookup before taking the
@@ -715,10 +728,19 @@ export async function recordProCheckoutCompletionByEmail(
   if (!subscription) throw new Error("Stripe Pro checkout is missing a subscription");
   const stackApp = dependencies.stackApp ?? getStackServerApp();
   if (!stackApp) throw new Error("Stack Auth is not configured");
+  const knownStackUserIds = [
+    session.client_reference_id,
+    session.metadata?.stackUserId,
+    subscription.metadata?.stackUserId,
+    input.customer && !input.customer.deleted
+      ? input.customer.metadata?.stackUserId
+      : null,
+  ].filter((value): value is string => typeof value === "string" && value.length > 0);
   const existingUser = await findOrCreateCheckoutBillingUser(
     stackApp,
     dependencies.db ?? cloudDb(),
     email,
+    knownStackUserIds,
   );
   if (!existingUser) throw new Error("Stack Auth did not return a billing user");
 
@@ -833,6 +855,7 @@ async function findOrCreateCheckoutBillingUser(
   stackApp: StackBillingApp,
   db: BillingDb,
   email: string,
+  knownStackUserIds: readonly string[] = [],
 ): Promise<StackBillingUser> {
   const existing = await findBillingUserByEmail(stackApp, email);
   if (existing) return existing;
@@ -851,6 +874,16 @@ async function findOrCreateCheckoutBillingUser(
         // before creating another identity.
         const raced = await findBillingUserByEmail(stackApp, email);
         if (raced) return raced;
+
+        const deletionBlocked = await hasCheckoutBlockingAccountDeletionForUsers(
+          knownStackUserIds,
+          db,
+        );
+        if (deletionBlocked) {
+          throw new AccountDeletionMutationBlockedError(
+            knownStackUserIds[0] ?? emailLockKey,
+          );
+        }
 
         await lease.refresh();
         try {
@@ -1741,6 +1774,30 @@ async function hasCheckoutBlockingAccountDeletionTombstone(
     .where(eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(stackUserId)))
     .limit(1);
   return row ? isBlockingAccountDeletionTombstone(row) : false;
+}
+
+async function hasCheckoutBlockingAccountDeletionForUsers(
+  stackUserIds: readonly string[],
+  db: BillingDbClient,
+): Promise<boolean> {
+  const hashes = [
+    ...new Set(
+      stackUserIds
+        .filter((stackUserId) => stackUserId.length > 0)
+        .map(accountDeletionUserHash),
+    ),
+  ];
+  if (hashes.length === 0) return false;
+  const tombstones = await db
+    .select({
+      userIdHash: accountDeletionTombstones.userIdHash,
+      status: accountDeletionTombstones.status,
+      updatedAt: accountDeletionTombstones.updatedAt,
+    })
+    .from(accountDeletionTombstones)
+    .where(inArray(accountDeletionTombstones.userIdHash, hashes))
+    .limit(hashes.length);
+  return tombstones.some((tombstone) => isBlockingAccountDeletionTombstone(tombstone));
 }
 
 async function withAccountDeletionUserLock<T>(
