@@ -913,7 +913,7 @@ mod tests {
     }
 
     #[test]
-    fn retired_terminal_rejects_late_events_until_a_new_session_starts() {
+    fn retired_terminal_rejects_late_events_even_with_a_new_session_start() {
         let subjects = terminal_subject("term_a");
         let payload = json!({});
         let mut roster = AgentRoster::default();
@@ -926,13 +926,22 @@ mod tests {
         assert!(roster.apply(&hook_event(2, "agent.turn.started", &subjects, &payload)).is_empty());
         assert!(!roster.entries.contains_key("term_a"));
 
-        // Only a newer explicit session start clears the tombstone.
+        // A terminal resource id is tombstoned permanently. A later hook
+        // session start must not recreate roster state for that id, even when
+        // it claims a different provider session.
         assert!(
             roster.apply(&hook_event(1, "agent.session.started", &subjects, &payload)).is_empty()
         );
-        let deltas = roster.apply(&hook_event(2, "agent.session.started", &subjects, &payload));
-        assert_eq!(deltas.len(), 1);
-        assert_eq!(roster.entries["term_a"].state, "idle");
+        let new_session_payload = json!({
+            "normalized": {"agent_session_id": "new-session"}
+        });
+        assert!(
+            roster
+                .apply(&hook_event(2, "agent.session.started", &subjects, &new_session_payload))
+                .is_empty()
+        );
+        assert!(!roster.entries.contains_key("term_a"));
+        assert!(roster.is_retired("term_a"));
     }
 
     #[test]
