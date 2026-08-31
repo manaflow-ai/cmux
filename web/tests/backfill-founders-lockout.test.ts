@@ -128,6 +128,64 @@ describe("Founder's lockout backfill", () => {
     });
   });
 
+  test("rejects a payment-intent customer whose email differs from the case", async () => {
+    const stack = stackApp();
+    const paymentCustomer = {
+      id: "cus_other",
+      deleted: false,
+      email: "someone-else@example.com",
+      name: "Other Buyer",
+    };
+    const provider = {
+      customers: {
+        list: mock(async () => ({ data: [paymentCustomer], has_more: false })),
+      },
+      paymentIntents: {
+        retrieve: mock(async () => ({
+          id: "pi_other",
+          customer: paymentCustomer.id,
+        })),
+      },
+      subscriptions: {
+        list: mock(async () => ({
+          data: [{
+            id: "sub_other",
+            customer: paymentCustomer.id,
+            status: "active",
+            metadata: { founders_edition: "true" },
+            cancel_at_period_end: false,
+            items: { data: [] },
+          }],
+        })),
+      },
+      checkout: {
+        sessions: {
+          list: mock(async () => ({ data: [] })),
+        },
+      },
+    } as never;
+
+    const result = await runFoundersLockoutBackfill(
+      {
+        dryRun: true,
+        cases: [{
+          email: "billingfixture@gmail.com",
+          paymentIntent: "pi_other",
+        }],
+      },
+      {
+        stackApp: stack.value,
+        stripeClient: provider,
+      },
+    );
+
+    expect(result.customers[0]).toMatchObject({
+      status: "skipped",
+      reason: "no_paid_cmux_purchase_found",
+    });
+    expect(provider.subscriptions.list).not.toHaveBeenCalled();
+  });
+
   test("apply remaps a synthetic dotted alias before provisioning", async () => {
     const stack = stackApp();
     stack.user.primaryEmailVerified = true;
