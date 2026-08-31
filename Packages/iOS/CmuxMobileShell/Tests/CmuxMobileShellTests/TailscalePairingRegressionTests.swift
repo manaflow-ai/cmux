@@ -14,6 +14,7 @@ import Testing
 /// route can be proven to be both selected and authorized before the fix lands.
 @MainActor
 @Suite struct TailscalePairingRegressionTests {
+    private nonisolated static let fixedNow = Date(timeIntervalSince1970: 1_700_000_000)
     private let host = "100.71.210.41"
     private let port = CmxMobileDefaults.defaultHostPort
 
@@ -26,7 +27,7 @@ import Testing
         let factory = KindRecordingTransportFactory(router: router, box: box)
         let runtime = LivenessTestRuntime(
             transportFactory: factory,
-            now: { Date.now },
+            now: { Self.fixedNow },
             supportedRouteKinds: [.iroh, .tailscale]
         )
         let store = makeStore(runtime: runtime, connectionMethod: method)
@@ -51,7 +52,7 @@ import Testing
         let factory = KindRecordingTransportFactory(router: router, box: box)
         let runtime = LivenessTestRuntime(
             transportFactory: factory,
-            now: { Date.now },
+            now: { Self.fixedNow },
             supportedRouteKinds: [.tailscale]
         )
         let store = makeStore(runtime: runtime)
@@ -67,7 +68,7 @@ import Testing
             macDisplayName: "Legacy Mac",
             macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
             routes: [try tailscaleRoute()],
-            expiresAt: Date().addingTimeInterval(3600),
+            expiresAt: Self.fixedNow.addingTimeInterval(3600),
             authToken: nil
         )
         store.pairingCode = try attachURL(for: ticket)
@@ -99,7 +100,7 @@ import Testing
         )
         let runtime = LivenessTestRuntime(
             transportFactory: factory,
-            now: { Date.now },
+            now: { Self.fixedNow },
             supportedRouteKinds: [.tailscale],
             supportsServerPushEvents: false
         )
@@ -125,7 +126,7 @@ import Testing
         let factory = KindRecordingTransportFactory(router: router, box: box)
         let runtime = LivenessTestRuntime(
             transportFactory: factory,
-            now: { Date.now },
+            now: { Self.fixedNow },
             supportedRouteKinds: [.tailscale]
         )
         let store = makeStore(runtime: runtime)
@@ -150,7 +151,7 @@ import Testing
             let factory = KindRecordingTransportFactory(router: router, box: box)
             let runtime = LivenessTestRuntime(
                 transportFactory: factory,
-                now: { Date.now },
+                now: { Self.fixedNow },
                 supportedRouteKinds: [.tailscale]
             )
             let store = makeStore(runtime: runtime)
@@ -169,7 +170,7 @@ import Testing
         let factory = KindRecordingTransportFactory(router: router, box: box)
         let runtime = LivenessTestRuntime(
             transportFactory: factory,
-            now: { Date.now },
+            now: { Self.fixedNow },
             supportedRouteKinds: [.tailscale]
         )
         let store = makeStore(runtime: runtime)

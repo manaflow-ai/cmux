@@ -163,11 +163,12 @@ extension GitMetadataService {
         repository: ResolvedGitRepository,
         configPathsByRepository: [String: [String]]? = nil
     ) -> [String] {
-        let configPaths = if let configPathsByRepository {
-            configPathsByRepository[repository.workTreeRoot]
+        let configPaths: [String]
+        if let configPathsByRepository {
+            configPaths = configPathsByRepository[repository.workTreeRoot]
                 ?? gitRootConfigURLs(repository: repository).map(\.path)
         } else {
-            gitConfigURLs(repository: repository).map(\.path)
+            configPaths = gitConfigURLs(repository: repository).map(\.path)
         }
         return [
             joinedPath(root: repository.gitDirectory, relativePath: "HEAD"),

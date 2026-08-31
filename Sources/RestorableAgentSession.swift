@@ -976,6 +976,38 @@ struct RestorableAgentSessionIndex: Sendable {
         let terminationProcessIDs: Set<Int>
         let terminationProcessIdentities: [Int: AgentPIDProcessIdentity]
         let containsUnrelatedProcess: Bool
+
+        /// Keeps older in-process fixtures source-compatible while callers that
+        /// have persisted PID evidence can opt in explicitly.
+        init(
+            snapshot: SessionRestorableAgentSnapshot,
+            lifecycle: AgentHibernationLifecycleState?,
+            updatedAt: TimeInterval,
+            processLiveness: RestorableAgentProcessLiveness,
+            hasRecordedProcessID: Bool = false,
+            processIDs: Set<Int>,
+            processIdentities: [Int: AgentPIDProcessIdentity],
+            agentProcessIDs: Set<Int>,
+            agentProcessIdentities: [Int: AgentPIDProcessIdentity],
+            hibernationPanelProcessIDs: Set<Int>,
+            terminationProcessIDs: Set<Int>,
+            terminationProcessIdentities: [Int: AgentPIDProcessIdentity],
+            containsUnrelatedProcess: Bool
+        ) {
+            self.snapshot = snapshot
+            self.lifecycle = lifecycle
+            self.updatedAt = updatedAt
+            self.processLiveness = processLiveness
+            self.hasRecordedProcessID = hasRecordedProcessID
+            self.processIDs = processIDs
+            self.processIdentities = processIdentities
+            self.agentProcessIDs = agentProcessIDs
+            self.agentProcessIdentities = agentProcessIdentities
+            self.hibernationPanelProcessIDs = hibernationPanelProcessIDs
+            self.terminationProcessIDs = terminationProcessIDs
+            self.terminationProcessIdentities = terminationProcessIdentities
+            self.containsUnrelatedProcess = containsUnrelatedProcess
+        }
     }
 
     enum ProcessDetectedSessionIDSource: Equatable, Sendable {
@@ -1053,6 +1085,16 @@ struct RestorableAgentSessionIndex: Sendable {
     // for one surface. Keep stable-panel resolution bounded and fail closed if
     // the bound is exceeded rather than scanning the whole history on autosave.
     private static let maximumStablePanelCandidates = 4
+
+    /// Returns only an entry whose workspace and panel identities both match.
+    ///
+    /// Security-sensitive callers use this instead of the compatibility lookup
+    /// below so a stale workspace cannot adopt a same-panel entry from another
+    /// restored workspace. Process teardown safety likewise must never borrow a
+    /// live scope from a panel's previous workspace after the surface moves.
+    func exactEntry(workspaceId: UUID, panelId: UUID) -> Entry? {
+        entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]
+    }
 
     func entry(workspaceId: UUID, panelId: UUID) -> Entry? {
         entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]
@@ -1492,6 +1534,18 @@ struct RestorableAgentSessionIndex: Sendable {
             } else {
                 revalidatedLiveness
             }
+            // Restore liveness intentionally maps a mismatched generation to
+            // `.exited`, but that is not proof that the PID disappeared. Keep
+            // such a process unsafe for hibernation until the snapshot proves
+            // every recorded generation absent.
+            let presentMismatchedProcess = processLiveness == .exited &&
+                entry.processLiveness == .running &&
+                (
+                    recordedAgentProcessIDs.isEmpty ||
+                        recordedAgentProcessIDs.contains { processID in
+                            processSnapshot.process(pid: processID) != nil
+                        }
+                )
             let confirmedAgentProcessIDs = Set(matchesByProcessID.compactMap { processID, match in
                 match == .matches ? processID : nil
             })
@@ -1528,7 +1582,8 @@ struct RestorableAgentSessionIndex: Sendable {
                 terminationProcessIdentities: entry.terminationProcessIdentities.filter {
                     currentPanelProcessIDs.contains($0.key)
                 },
-                containsUnrelatedProcess: processLiveness == .running && entry.containsUnrelatedProcess
+                containsUnrelatedProcess: (processLiveness == .running && entry.containsUnrelatedProcess) ||
+                    presentMismatchedProcess
             )
         }
 
@@ -2044,6 +2099,18 @@ struct RestorableAgentSessionIndex: Sendable {
                 } else {
                     liveProcessIdentities = [:]
                 }
+                // A mismatched identity/argv is represented as `.exited` for
+                // restore policy, but a still-present PID is not safe to
+                // reclaim. Preserve that distinction in the scope verdict.
+                let presentMismatchedProcess: Bool = {
+                    guard processObservation.liveness == .exited,
+                          let processID = effectiveRecord.pid,
+                          processID > 0,
+                          processID <= Int(Int32.max) else {
+                        return false
+                    }
+                    return processPresenceProvider(processID) != .absent
+                }()
                 let entry = Entry(
                     snapshot: snapshot,
                     lifecycle: effectiveRecord.agentLifecycle,
@@ -2060,7 +2127,7 @@ struct RestorableAgentSessionIndex: Sendable {
                     // A saved hook PID proves liveness but cannot prove the
                     // surrounding pane is exclusive. Critical-pressure
                     // termination requires a fresh process-tree detection.
-                    containsUnrelatedProcess: liveProcessID != nil
+                    containsUnrelatedProcess: liveProcessID != nil || presentMismatchedProcess
                 )
                 if shouldReplaceHookEntry(
                     existing: hookCandidatesByPanelAndKind[panelKindKey],

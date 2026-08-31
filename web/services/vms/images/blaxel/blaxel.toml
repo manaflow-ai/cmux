@@ -6,11 +6,8 @@ description = "cmux Cloud machine: chatmux-devbox tool parity plus an openbox/Ti
 generation = "mk3"
 memory = 4096
 
-# cmuxd-remote websocket daemon (injected by the driver at create time).
-[[runtime.ports]]
-name = "cmuxd-ws"
-target = 7777
-protocol = "tcp"
+# cmux-tui remote daemon (1337) needs no declaration here: the driver mints
+# control-plane previews for it, which only require the sandbox to exist.
 
 # noVNC web client served by websockify; the desktop wrapper opens this port.
 [[runtime.ports]]

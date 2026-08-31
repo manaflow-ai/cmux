@@ -131,10 +131,19 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
     /// Returns the configured reference backend discovered during one bounded pass.
     func referenceStorageName() -> String? {
         let result = traverse()
-        if !result.isComplete {
-            return "unknown"
+        guard !result.isComplete else { return result.referenceStorageName }
+        // A partial walk must not trust a `files` value because a later
+        // include may override it. A discovered non-files backend is safe to
+        // treat conservatively as plumbing, however, and preserves external
+        // storage paths that Git reports for watcher setup.
+        guard let storage = result.referenceStorageName else { return "unknown" }
+        let backend: String
+        if let separator = storage.firstIndex(of: ":") {
+            backend = String(storage[..<separator]).lowercased()
+        } else {
+            backend = storage.lowercased()
         }
-        return result.referenceStorageName
+        return backend == "files" ? "unknown" : storage
     }
 
     private func traverse() -> (

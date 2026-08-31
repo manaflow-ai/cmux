@@ -324,17 +324,12 @@ extension GitMetadataService {
         return await withTaskCancellationHandler {
             await withCheckedContinuation {
                 (continuation: CheckedContinuation<GitConfigBranchTraversal.WatchPathResult, Never>) in
-                Self.blockingStatusQueue.async(
-                    group: nil,
-                    qos: .unspecified,
-                    flags: [],
-                    execute: {
+                Self.blockingStatusQueue.async(execute: DispatchWorkItem(block: {
                     let result = cancellationSignal.withCurrentBinding {
                         traversal.watchPathResult()
                     }
                     continuation.resume(returning: result)
-                    }
-                )
+                }))
             }
         } onCancel: {
             cancellationSignal.cancel()
@@ -352,11 +347,7 @@ extension GitMetadataService {
         return await withTaskCancellationHandler {
             await withCheckedContinuation {
                 (continuation: CheckedContinuation<(header: GitIndexHeaderSummary?, snapshot: GitIndexSnapshot?), Never>) in
-                Self.blockingStatusQueue.async(
-                    group: nil,
-                    qos: .unspecified,
-                    flags: [],
-                    execute: {
+                Self.blockingStatusQueue.async(execute: DispatchWorkItem(block: {
                     let result = cancellationSignal.withCurrentBinding {
                         guard deadline > DispatchTime.now() else {
                             return (
@@ -381,8 +372,7 @@ extension GitMetadataService {
                         return (header, snapshot)
                     }
                     continuation.resume(returning: result)
-                    }
-                )
+                }))
             }
         } onCancel: {
             cancellationSignal.cancel()
