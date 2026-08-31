@@ -179,17 +179,20 @@ extension ReconnectRouteSelectionTests {
         }
     }
 
-    @Test func explicitRootRetryBypassesAutomaticIrohBackoff() async throws {
+    @Test func explicitRootRetryBypassesAutomaticReconnectBackoff() async throws {
         let router = LivenessHostRouter()
         let box = TransportBox()
         let factory = KindRecordingTransportFactory(router: router, box: box)
         let runtime = LivenessTestRuntime(
             transportFactory: factory,
             now: Date.init,
-            supportedRouteKinds: [.iroh]
+            supportedRouteKinds: [.debugLoopback]
         )
+        // The stored pairing carries only a raw Tailscale route, which the
+        // relay default never dials; the retry rides the one synthesized
+        // relay WebSocket route.
         let store = try await makeReconnectStore(
-            routes: [try iroh()],
+            routes: [try tailscale()],
             runtime: runtime
         )
         store.recordTransientAutomaticReconnectBackoff(accountID: "user-1")
@@ -198,7 +201,7 @@ extension ReconnectRouteSelectionTests {
         #expect(await store.retryActiveMacReconnect(stackUserID: "user-1"))
 
         #expect(store.connectionState == .connected)
-        #expect(factory.attemptedKinds() == [.iroh])
+        #expect(factory.attemptedKinds() == [.websocket])
     }
 
     @Test func hungRedialSettlesAtDeadlineAndUnfreezesRecovery() async throws {
@@ -209,13 +212,15 @@ extension ReconnectRouteSelectionTests {
         var runtime = LivenessTestRuntime(
             transportFactory: factory,
             now: { clock.now },
-            supportedRouteKinds: [.iroh]
+            supportedRouteKinds: [.debugLoopback]
         )
         // Keep the initial healthy dial stable under full-suite contention while
         // remaining far below the production default of 30 seconds.
         runtime.reconnectAttemptDeadlineNanoseconds = 1_000_000_000
+        // Raw Tailscale is never dialed under the relay default, so every
+        // dial here is the synthesized relay WebSocket route.
         let store = try await makeReconnectStore(
-            routes: [try iroh()],
+            routes: [try tailscale()],
             runtime: runtime
         )
 
@@ -223,9 +228,9 @@ extension ReconnectRouteSelectionTests {
         #expect(store.connectionState == .connected)
         let client = try #require(store.remoteClient)
 
-        // Every dial from here on parks forever, exactly like the observed
-        // wedged Iroh dial.
-        factory.setHangingKinds([.iroh])
+        // Every dial from here on parks forever, exactly like a relay dial
+        // wedged on DNS churn or a half-open socket.
+        factory.setHangingKinds([.websocket])
         let dialsBeforeDrop = factory.attemptedKinds().count
 
         store.recoverDeadConnection(trigger: .eventStreamEnded, expectedClient: client)
