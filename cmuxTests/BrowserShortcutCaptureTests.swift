@@ -267,6 +267,23 @@ final class BrowserShortcutCaptureTests {
                 !appDelegate.shouldCaptureBrowserKeyboardShortcuts(for: commandR),
                 "A focusable portal sibling must remain browser chrome, not page focus"
             )
+
+            let nestedChromeView = BrowserCaptureFocusableView(
+                frame: NSRect(x: 0, y: 0, width: 120, height: 40)
+            )
+            harness.webView.addSubview(nestedChromeView, positioned: .above, relativeTo: nil)
+            defer { nestedChromeView.removeFromSuperview() }
+            #expect(harness.window.makeFirstResponder(nestedChromeView))
+            let nestedCommandR = try #require(makeKeyDownEvent(
+                key: "r",
+                modifiers: [.command],
+                keyCode: 15,
+                windowNumber: harness.window.windowNumber
+            ))
+            #expect(
+                !appDelegate.shouldCaptureBrowserKeyboardShortcuts(for: nestedCommandR),
+                "An unknown WebKit sibling must remain chrome, not page focus"
+            )
         }
     }
 

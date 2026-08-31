@@ -441,10 +441,7 @@ extension AppDelegate {
             ) {
                 guard case .page(let portalWebView) = focusOwner,
                       isBrowserPanelWebView(portalWebView),
-                      !shortcutResponderIsInspector(
-                          responder,
-                          in: portalWebView
-                      ) else {
+                      !shortcutResponderIsInspector(responder, in: portalWebView) else {
                     return nil
                 }
                 return portalWebView
@@ -456,7 +453,7 @@ extension AppDelegate {
             // recovery resolver.
             guard let directWebView = shortcutOwningWebView(for: responder) as? CmuxWebView,
                   isBrowserPanelWebView(directWebView),
-                  shortcutResponderBelongs(to: directWebView, responder: responder),
+                  shortcutResponderBelongsToPageContent(to: directWebView, responder: responder),
                   !shortcutResponderIsInspector(responder, in: directWebView) else {
                 return nil
             }
@@ -472,29 +469,29 @@ extension AppDelegate {
     }
 
     private func shortcutResponderBelongs(
-        to webView: WKWebView,
+        to root: NSView,
         responder: NSResponder
     ) -> Bool {
-        if responder === webView {
+        if responder === root {
             return true
         }
         if let view = responder as? NSView {
-            return view.isDescendant(of: webView)
+            return view.isDescendant(of: root)
         }
         if let fieldEditor = responder as? NSTextView,
            fieldEditor.isFieldEditor,
            let ownerView = cmuxFieldEditorOwnerView(fieldEditor),
-           (ownerView === webView || ownerView.isDescendant(of: webView)) {
+           (ownerView === root || ownerView.isDescendant(of: root)) {
             return true
         }
 
         var current = responder.nextResponder
         while let next = current {
-            if next === webView {
+            if next === root {
                 return true
             }
             if let view = next as? NSView,
-               (view === webView || view.isDescendant(of: webView)) {
+               (view === root || view.isDescendant(of: root)) {
                 return true
             }
             current = next.nextResponder
@@ -502,13 +499,29 @@ extension AppDelegate {
         return false
     }
 
+    private func shortcutResponderBelongsToPageContent(
+        to webView: WKWebView,
+        responder: NSResponder
+    ) -> Bool {
+        if responder === webView {
+            return true
+        }
+        // macOS WKWebView has no public `scrollView`; page responders are
+        // descendants of its direct content child, whereas inspector and
+        // companion views are sibling children. Resolve that structural root
+        // instead of treating every web-view descendant as page content.
+        guard let pageRoot = webView.subviews.first(where: {
+            !$0.isHidden && $0.alphaValue > 0 && !cmuxIsWebInspectorObject($0)
+        }) else {
+            return false
+        }
+        return shortcutResponderBelongs(to: pageRoot, responder: responder)
+    }
+
     private func shortcutResponderIsInspector(
         _ responder: NSResponder,
         in webView: WKWebView
     ) -> Bool {
-        if cmuxIsLikelyWebInspectorResponder(responder) {
-            return true
-        }
         guard let inspectorWebView = webView.cmuxInspectorFrontendWebView() else {
             return false
         }

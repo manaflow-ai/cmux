@@ -1701,16 +1701,8 @@ final class WindowBrowserSlotView: NSView {
             return .inspector
         }
 
-        // WebKit's private inspector object is not present in every SDK
-        // surface. Keep the existing object-level signal as a narrow fallback
-        // for an inspector nested inside the primary view; all unknown sibling
-        // views below still fail closed as ``otherChrome``.
-        if cmuxIsLikelyWebInspectorResponder(responder) {
-            return .inspector
-        }
-
         if let cmuxWebView = hostedWebView as? CmuxWebView,
-           responderBelongs(to: hostedWebView, responder: responder) {
+           pageContentOwns(responder, webView: hostedWebView) {
             return .page(cmuxWebView)
         }
 
@@ -1723,6 +1715,22 @@ final class WindowBrowserSlotView: NSView {
     private func responderBelongs(to root: NSView, responder: NSResponder) -> Bool {
         guard let view = viewOwningResponder(responder) else { return false }
         return view === root || view.isDescendant(of: root)
+    }
+
+    private func pageContentOwns(_ responder: NSResponder, webView: WKWebView) -> Bool {
+        if responder === webView {
+            return true
+        }
+        // On macOS, WKWebView does not expose UIKit's `scrollView`. Its page
+        // content lives below a direct internal child (typically WKFlippedView),
+        // while WebKit inspector/companion views can be sibling children. Use
+        // that structural root so unknown siblings fail closed.
+        guard let pageRoot = webView.subviews.first(where: {
+            !$0.isHidden && $0.alphaValue > 0 && !cmuxIsWebInspectorObject($0)
+        }) else {
+            return false
+        }
+        return responderBelongs(to: pageRoot, responder: responder)
     }
 
     private func viewOwningResponder(_ responder: NSResponder) -> NSView? {
