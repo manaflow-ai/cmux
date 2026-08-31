@@ -31,6 +31,7 @@ use cmux_remote::provider::{
     RelayCredentialSource, SshProvider, SshProviderConfig, SupportedClientAuthModes,
     sanitized_route,
 };
+use cmux_remote::secure_directory::{DirectoryAccess, ensure_secure_directory};
 use cmux_remote::ssh_bootstrap::{BUILD_IDENTITY, DISTRIBUTION_VERSION, NPM_BOOTSTRAP_VERSION};
 use cmux_remote_protocol::{
     LanePolicy, REMOTE_PROTOCOL_VERSION, RoutePolicy, SessionId, WorkspaceRequest,
@@ -52,21 +53,6 @@ use crate::remote_runtime::{
 };
 use crate::session::{RemoteSession, Session};
 
-const REMOTE_COMMANDS: &[&str] = &[
-    "remote",
-    "connect",
-    "ssh",
-    "forward",
-    "rpc",
-    "enroll",
-    "known-daemons",
-    "remote-probe",
-    "remote-link",
-    "remote-sidecar",
-    "remote-stop",
-    "install-self",
-];
-
 const DEFAULT_STARTUP_TIMEOUT: Duration = Duration::from_secs(90);
 const ENROLLMENT_APPROVAL_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const MAX_RPC_STDIN_LINE_BYTES: usize = 16 * 1024 * 1024;
@@ -75,11 +61,15 @@ const DETACHED_TERM_GRACE: Duration = Duration::from_millis(500);
 const DETACHED_KILL_GRACE: Duration = Duration::from_secs(1);
 
 pub fn is_remote_invocation(args: &[String]) -> bool {
-    args.first().is_some_and(|argument| REMOTE_COMMANDS.contains(&argument.as_str()))
+    crate::cli::is_remote_invocation(args)
 }
 
-pub fn run(args: &[String], usage: &str) -> i32 {
-    match run_inner(args, usage) {
+pub fn run(
+    args: &[String],
+    usage: &str,
+    load_config: impl FnOnce() -> crate::config::StartupConfigSnapshot,
+) -> i32 {
+    match run_inner(args, usage, load_config) {
         Ok(()) => 0,
         Err(error) => {
             crate::client_log::stderr_log!("remote", "cmux-tui: {error:#}");
@@ -88,17 +78,21 @@ pub fn run(args: &[String], usage: &str) -> i32 {
     }
 }
 
-fn run_inner(args: &[String], usage: &str) -> anyhow::Result<()> {
+fn run_inner(
+    args: &[String],
+    usage: &str,
+    load_config: impl FnOnce() -> crate::config::StartupConfigSnapshot,
+) -> anyhow::Result<()> {
     if remote_help_requested(&args[1..]) {
         print!("{}", remote_help(args.first().map(String::as_str)));
         return Ok(());
     }
     match args.first().map(String::as_str) {
-        Some("connect") => run_connect(&args[1..], None),
-        Some("ssh") => run_ssh(&args[1..]),
+        Some("connect") => run_connect(&args[1..], None, load_config),
+        Some("ssh") => run_ssh(&args[1..], load_config),
         Some("forward") => run_forward(&args[1..]),
         Some("rpc") => run_rpc(&args[1..]),
-        Some("enroll") => run_enroll(&args[1..]),
+        Some("enroll") => run_enroll(&args[1..], load_config),
         Some("known-daemons") => run_known_daemons(&args[1..]),
         Some("remote-probe") => run_probe(&args[1..]),
         Some("remote-link") => run_remote_link(&args[1..]),
@@ -507,15 +501,22 @@ fn set_invitation_arg(
     Ok(())
 }
 
-fn run_connect(args: &[String], preset_route: Option<String>) -> anyhow::Result<()> {
+fn run_connect(
+    args: &[String],
+    preset_route: Option<String>,
+    load_config: impl FnOnce() -> crate::config::StartupConfigSnapshot,
+) -> anyhow::Result<()> {
     let mut flags = parse_connect_flags(args)?;
     if preset_route.is_some() {
         flags.route = preset_route;
     }
-    connect_with_flags(flags)
+    connect_with_flags(flags, load_config)
 }
 
-fn connect_with_flags(flags: ConnectFlags) -> anyhow::Result<()> {
+fn connect_with_flags(
+    flags: ConnectFlags,
+    load_config: impl FnOnce() -> crate::config::StartupConfigSnapshot,
+) -> anyhow::Result<()> {
     let headless = flags.headless;
     let json = flags.json;
     let connected = start_connected(flags)?;
@@ -524,6 +525,7 @@ fn connect_with_flags(flags: ConnectFlags) -> anyhow::Result<()> {
             let runtime = tokio_runtime()?;
             runtime.block_on(async {
                 let mut previous = None;
+                let mut finished = connected.runtime.subscribe_finished();
                 while !crate::shutdown_requested() && !connected.runtime.is_finished() {
                     let snapshot = connected.runtime.connection_snapshot().await;
                     let mut topology = snapshot.clone();
@@ -542,7 +544,10 @@ fn connect_with_flags(flags: ConnectFlags) -> anyhow::Result<()> {
                         io::stdout().flush()?;
                         previous = Some(topology);
                     }
-                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    tokio::select! {
+                        _ = finished.changed() => {},
+                        _ = tokio::time::sleep(Duration::from_millis(100)) => {},
+                    }
                 }
                 Ok::<_, io::Error>(())
             })?;
@@ -556,7 +561,8 @@ fn connect_with_flags(flags: ConnectFlags) -> anyhow::Result<()> {
     }
 
     let remote = RemoteSession::connect(&connected.runtime.info().local_socket)?;
-    let result = crate::run_tui(Session::Remote(remote), connected.route, None);
+    let config = load_config();
+    let result = crate::run_tui(Session::Remote(remote), connected.route, None, config);
     let shutdown = connected.runtime.shutdown();
     result.and(shutdown)
 }
@@ -962,11 +968,24 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
         let forward =
             LocalPortForward::bind(connected.runtime.multiplexer().clone(), route, listen).await?;
         println!("{}", forward.webview_url(&scheme)?);
-        while !crate::shutdown_requested() && !connected.runtime.is_finished() {
-            tokio::time::sleep(Duration::from_millis(100)).await;
+        let mut finished = connected.runtime.subscribe_finished();
+        let mut wait_error = None;
+        if !crate::shutdown_requested() && !*finished.borrow() {
+            tokio::select! {
+                biased;
+                shutdown = crate::wait_for_shutdown_signal_async() => {
+                    if shutdown.is_err() {
+                        wait_error = shutdown.err();
+                    }
+                }
+                _ = finished.changed() => {}
+            }
         }
         forward.shutdown().await;
         let _ = client.request(WorkspaceRequest::CloseRoute { route }).await;
+        if let Some(error) = wait_error {
+            return Err(error.into());
+        }
         Ok::<_, anyhow::Error>(())
     });
     let shutdown = connected.runtime.shutdown();
@@ -1097,8 +1116,11 @@ fn run_rpc(args: &[String]) -> anyhow::Result<()> {
     result.and(shutdown)
 }
 
-fn run_ssh(args: &[String]) -> anyhow::Result<()> {
-    connect_with_flags(direct_ssh_flags(args)?)
+fn run_ssh(
+    args: &[String],
+    load_config: impl FnOnce() -> crate::config::StartupConfigSnapshot,
+) -> anyhow::Result<()> {
+    connect_with_flags(direct_ssh_flags(args)?, load_config)
 }
 
 fn direct_ssh_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
@@ -1400,9 +1422,12 @@ fn strict_option_value(args: &[String], index: &mut usize, option: &str) -> anyh
     Ok(value)
 }
 
-fn run_enroll(args: &[String]) -> anyhow::Result<()> {
+fn run_enroll(
+    args: &[String],
+    load_config: impl FnOnce() -> crate::config::StartupConfigSnapshot,
+) -> anyhow::Result<()> {
     if args.first().is_some_and(|action| action == "connect") {
-        return run_connect(&args[1..], None);
+        return run_connect(&args[1..], None, load_config);
     }
     let parsed = parse_enroll_admin_args(args)?;
     let admin_socket = parsed.admin_socket.clone().unwrap_or_else(|| {
@@ -1686,6 +1711,9 @@ fn print_admin_response(action: &str, response: AdminResponse, json: bool) -> an
     Ok(())
 }
 
+/// Advertised by `remote-probe --json` so a control plane can choose routes the client can use.
+pub const PROBE_CAPABILITIES: &[&str] = &["direct-ws-user-agent"];
+
 fn run_probe(args: &[String]) -> anyhow::Result<()> {
     let value = serde_json::json!({
         "app": "cmux-tui",
@@ -1696,6 +1724,10 @@ fn run_probe(args: &[String]) -> anyhow::Result<()> {
         "remote_protocol": REMOTE_PROTOCOL_VERSION,
         "os": std::env::consts::OS,
         "arch": std::env::consts::ARCH,
+        // Client-side transport capabilities a control plane can key routing on.
+        // `direct-ws-user-agent`: direct WebSocket dials carry a User-Agent, which
+        // hosted ingress on branded machine domains requires.
+        "capabilities": PROBE_CAPABILITIES,
     });
     if args.iter().any(|argument| argument == "--json") {
         println!("{}", serde_json::to_string(&value)?);
@@ -2120,9 +2152,10 @@ fn ensure_daemon(
     let mux_socket = mux_socket_override
         .map(Path::to_path_buf)
         .or_else(|| std::env::var_os("CMUX_MUX_SOCKET").map(PathBuf::from))
-        .unwrap_or_else(|| cmux_tui_core::server::default_socket_path(session));
+        .map_or_else(|| cmux_tui_core::server::try_default_socket_path(session), Ok)?;
     if UnixStream::connect(&mux_socket).is_err() {
-        let log = OpenOptions::new().create(true).append(true).open(&log_path)?;
+        let log = open_private_daemon_file(&log_path, true)
+            .with_context(|| format!("could not open daemon log {}", log_path.display()))?;
         let mut mux_owner = Command::new(&executable);
         mux_owner
             .args(["--headless", "--session", session, "--socket"])
@@ -2141,7 +2174,8 @@ fn ensure_daemon(
         )?;
     }
 
-    let log = OpenOptions::new().create(true).append(true).open(&log_path)?;
+    let log = open_private_daemon_file(&log_path, true)
+        .with_context(|| format!("could not open daemon log {}", log_path.display()))?;
     let mut command = Command::new(executable);
     command
         .args(["remote-sidecar", "--session", session, "--mux-socket"])
@@ -2301,11 +2335,55 @@ fn mux_monitor_disconnected(stream: &mut UnixStream, path: &Path) -> anyhow::Res
     }
 }
 
+fn open_private_daemon_file(path: &Path, append: bool) -> io::Result<fs::File> {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+
+    let mut options = OpenOptions::new();
+    options
+        .read(!append)
+        .write(true)
+        .create(true)
+        .append(append)
+        .truncate(false)
+        .mode(0o600)
+        // Opening a hostile FIFO must return so its type can be rejected
+        // below, rather than waiting for a peer that never arrives.
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK);
+    let file = options.open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "daemon state path is not a regular file",
+        ));
+    }
+    if metadata.uid() != unsafe { libc::geteuid() } {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "daemon state file is not owned by the effective user",
+        ));
+    }
+    if metadata.nlink() != 1 {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "daemon state file has unexpected hard links",
+        ));
+    }
+    // Existing files may predate this check and have inherited a broad umask.
+    // Tighten the inode through the open descriptor, avoiding a pathname race.
+    if metadata.permissions().mode() & 0o077 != 0 {
+        file.set_permissions(fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(file)
+}
+
 fn lock_daemon_start(session_state: &Path) -> anyhow::Result<fs::File> {
-    fs::create_dir_all(session_state)?;
+    ensure_secure_directory(session_state, DirectoryAccess::OwnerControlled).with_context(
+        || format!("could not prepare secure daemon state directory {}", session_state.display()),
+    )?;
     let lock_path = session_state.join("start.lock");
-    let lock =
-        OpenOptions::new().read(true).write(true).create(true).truncate(false).open(lock_path)?;
+    let lock = open_private_daemon_file(&lock_path, false)
+        .with_context(|| format!("could not open daemon start lock {}", lock_path.display()))?;
     let locked = unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) };
     if locked != 0 {
         return Err(io::Error::last_os_error().into());
@@ -2471,6 +2549,34 @@ fn expand_home(path: String) -> anyhow::Result<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn startup_config_loader_stays_lazy_for_help_and_parse_errors() {
+        let load_count = std::cell::Cell::new(0);
+        let help_args = ["connect", "--help"].map(str::to_string);
+        assert!(
+            super::run_inner(&help_args, "usage", || {
+                load_count.set(load_count.get() + 1);
+                panic!("remote help must not load startup config");
+            })
+            .is_ok()
+        );
+
+        let invalid_args = ["ssh", "--unknown"].map(str::to_string);
+        assert!(
+            super::run_inner(&invalid_args, "usage", || {
+                load_count.set(load_count.get() + 1);
+                panic!("remote parse errors must not load startup config");
+            })
+            .is_err()
+        );
+        assert_eq!(load_count.get(), 0);
+    }
+
+    #[test]
+    fn probe_capabilities_include_direct_ws_user_agent() {
+        assert!(super::PROBE_CAPABILITIES.contains(&"direct-ws-user-agent"));
+    }
+
     use super::*;
 
     fn seed_legacy_authorization_state(state_dir: &Path) {
@@ -2932,7 +3038,10 @@ mod tests {
     fn every_remote_subcommand_help_exits_without_running_the_command() {
         for command in ["connect", "ssh", "forward", "rpc", "enroll", "remote-probe"] {
             let args = [command.to_string(), "--help".to_string()];
-            assert!(run_inner(&args, "unused").is_ok(), "{command}");
+            assert!(
+                run_inner(&args, "unused", || panic!("help must not load TUI config")).is_ok(),
+                "{command}"
+            );
             assert!(remote_help(Some(command)).starts_with("USAGE:"));
         }
     }
@@ -3013,6 +3122,114 @@ mod tests {
         close_tx.send(()).unwrap();
         server.join().unwrap();
         assert!(mux_monitor_disconnected(&mut monitor, &mux).unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_state_files_are_private_and_existing_permissions_are_tightened() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        let directory = tempfile::tempdir().unwrap();
+        let log_path = directory.path().join("daemon.log");
+        fs::write(&log_path, b"old log\n").unwrap();
+        fs::set_permissions(&log_path, fs::Permissions::from_mode(0o644)).unwrap();
+
+        let mut log = open_private_daemon_file(&log_path, true).unwrap();
+        log.write_all(b"new log\n").unwrap();
+        let metadata = fs::metadata(&log_path).unwrap();
+        assert_eq!(metadata.uid(), unsafe { libc::geteuid() });
+        assert_eq!(metadata.nlink(), 1);
+        assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
+        assert_eq!(fs::read_to_string(&log_path).unwrap(), "old log\nnew log\n");
+
+        let lock_path = directory.path().join("start.lock");
+        let lock = open_private_daemon_file(&lock_path, false).unwrap();
+        assert_eq!(fs::metadata(&lock_path).unwrap().permissions().mode() & 0o777, 0o600);
+        drop(lock);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_state_files_refuse_symlinks_without_touching_target() {
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("target.log");
+        let link = directory.path().join("daemon.log");
+        fs::write(&target, b"keep\n").unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        let error = open_private_daemon_file(&link, true).unwrap_err();
+        assert_eq!(error.raw_os_error(), Some(libc::ELOOP));
+        assert_eq!(fs::read_to_string(&target).unwrap(), "keep\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_state_fifo_is_rejected_without_blocking() {
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::{FileTypeExt, OpenOptionsExt};
+        use std::sync::mpsc;
+
+        let directory = tempfile::tempdir().unwrap();
+        let fifo = directory.path().join("daemon.log");
+        let fifo_bytes = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        let result = unsafe { libc::mkfifo(fifo_bytes.as_ptr(), 0o600) };
+        assert_eq!(result, 0, "mkfifo failed: {}", io::Error::last_os_error());
+
+        let (sender, receiver) = mpsc::channel();
+        let path = fifo.clone();
+        let worker = thread::spawn(move || {
+            sender.send(open_private_daemon_file(&path, true).map(|_| ())).unwrap();
+        });
+
+        let outcome = receiver.recv_timeout(Duration::from_secs(1));
+        if outcome.is_err() {
+            // Release a writer that used blocking open in an unfixed build so
+            // this regression test fails promptly instead of leaking a thread.
+            let reader =
+                OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK).open(&fifo).unwrap();
+            let _ = receiver.recv_timeout(Duration::from_secs(1));
+            drop(reader);
+            worker.join().unwrap();
+            panic!("opening a daemon FIFO blocked before type validation");
+        }
+        worker.join().unwrap();
+        let error = outcome.unwrap().unwrap_err();
+        assert!(
+            error.kind() == io::ErrorKind::InvalidInput
+                || error.raw_os_error() == Some(libc::ENXIO),
+            "unexpected FIFO rejection: {error}"
+        );
+        assert!(fs::symlink_metadata(&fifo).unwrap().file_type().is_fifo());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_state_lock_rejects_insecure_parent_before_creation() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let shared = directory.path().join("shared");
+        fs::create_dir(&shared).unwrap();
+        fs::set_permissions(&shared, fs::Permissions::from_mode(0o777)).unwrap();
+        let state = shared.join("sessions").join("main");
+
+        let error = lock_daemon_start(&state).unwrap_err();
+        assert!(error.to_string().contains("secure daemon state directory"));
+        assert!(!state.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_state_lock_rejects_symlink_parent_before_creation() {
+        let directory = tempfile::tempdir().unwrap();
+        let target = tempfile::tempdir().unwrap();
+        let alias = directory.path().join("alias");
+        std::os::unix::fs::symlink(target.path(), &alias).unwrap();
+        let state = alias.join("sessions").join("main");
+
+        let error = lock_daemon_start(&state).unwrap_err();
+        assert!(error.to_string().contains("secure daemon state directory"));
+        assert!(!target.path().join("sessions").exists());
     }
 
     #[cfg(unix)]
@@ -3372,7 +3589,11 @@ mod tests {
                 parse_connect_flags(&args).err().expect("invalid connect arguments were accepted");
             assert_japanese(&error.to_string());
         }
-        assert_japanese(&run_ssh(&[]).unwrap_err().to_string());
+        assert_japanese(
+            &run_ssh(&[], || panic!("invalid SSH arguments must not load TUI config"))
+                .unwrap_err()
+                .to_string(),
+        );
         assert_japanese(&ssh_url("invalid destination").unwrap_err().to_string());
         assert_japanese(&run_forward(&[]).unwrap_err().to_string());
         assert_japanese(&run_rpc(&["--request".into()]).unwrap_err().to_string());

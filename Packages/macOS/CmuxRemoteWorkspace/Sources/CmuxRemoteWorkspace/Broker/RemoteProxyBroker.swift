@@ -26,7 +26,7 @@ internal import Foundation
 /// converted to milliseconds exactly).
 public final class RemoteProxyBroker: @unchecked Sendable {
     private final class Entry {
-        let configuration: WorkspaceRemoteConfiguration
+        var configuration: WorkspaceRemoteConfiguration
         var remotePath: String
         var tunnel: (any RemoteProxyTunneling)?
         var endpoint: BrowserProxyEndpoint?
@@ -66,6 +66,12 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         self.tunnelProvider = tunnelProvider
         self.clock = clock
     }
+
+    /// Re-mints a managed Cloud VM daemon endpoint before a retry. Stored endpoints go stale
+    /// when the machine's preview rotates (sandbox recreation, preview re-creation); without a
+    /// refresh the broker would redial a dead URL on every backoff. Returning nil keeps the
+    /// current configuration for that attempt.
+    public var configurationRefresher: (@Sendable (WorkspaceRemoteConfiguration) async -> WorkspaceRemoteConfiguration?)?
 
     /// Subscribes to the shared tunnel for `configuration`; see
     /// ``RemoteProxyBrokering/acquire(configuration:remotePath:onUpdate:)``.
@@ -505,6 +511,24 @@ public final class RemoteProxyBroker: @unchecked Sendable {
             return
         }
         notifyLocked(entry, update: .connecting)
+        if let refresher = configurationRefresher,
+           entry.configuration.managedCloudVMID != nil,
+           entry.configuration.daemonWebSocketEndpoint != nil {
+            let staleConfiguration = entry.configuration
+            Task { [weak self] in
+                let refreshed = await refresher(staleConfiguration)
+                guard let self else { return }
+                self.queue.async {
+                    guard let current = self.entries[key], current === entry else { return }
+                    guard current.tunnel == nil, current.restartTask == nil else { return }
+                    if let refreshed {
+                        current.configuration = refreshed
+                    }
+                    self.startEntryLocked(key: key, entry: current)
+                }
+            }
+            return
+        }
         startEntryLocked(key: key, entry: entry)
     }
 

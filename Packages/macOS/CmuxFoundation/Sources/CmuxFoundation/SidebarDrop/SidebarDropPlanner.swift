@@ -31,7 +31,7 @@ public struct SidebarDropPlanner {
         )
     }
 
-    func indicator(
+    public func indicator(
         draggedTabId: UUID?,
         targetTabId: UUID?,
         tabIds: [UUID],

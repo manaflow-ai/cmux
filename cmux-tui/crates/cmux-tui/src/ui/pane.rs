@@ -472,7 +472,17 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     app.rendered_terminal_pointer_semantics.insert(area.surface, render.pointer_semantics);
     app.rendered_pane_content_generations
         .insert(area.surface, PaneContentGeneration::Terminal(render.content_generation));
-    if focused && app.menu.is_none() && app.prompt.is_none() && app.pairing_dialog.is_none() {
+    if focused
+        && app.menu.is_none()
+        && app.prompt.is_none()
+        && app.pairing_dialog.is_none()
+        // A scoped attach client is a transparent passthrough: it asserts a
+        // cursor shape and color on the host terminal only when the inner
+        // application authored one (DECSCUSR), never for session or frontend
+        // defaults. Otherwise the host terminal's own configured cursor
+        // style stays untouched.
+        && (!app.is_surface_only() || surface.cursor_style_authored())
+    {
         let (shape, blinking) = render.frame.cursor_visual;
         app.use_terminal_cursor_spec(
             super::terminal_grid::resolved_cursor_color(&render),
@@ -526,11 +536,11 @@ fn draw_browser_content(
     let message = if let Some(status @ BrowserStatus::Failed(_)) = browser_status.as_ref() {
         status.failure().map(|failure| localization::catalog().browser.failure_message(failure))
     } else if matches!(browser_status, Some(BrowserStatus::Starting)) {
-        Some("starting browser...".to_string())
+        Some(localization::catalog().browser.starting.to_string())
     } else if surface.browser_url().is_none() {
-        Some("browser panes are not supported over attach yet".to_string())
+        Some(localization::catalog().browser.attach_unsupported.to_string())
     } else if !app.graphics_supported {
-        Some("terminal has no kitty graphics support".to_string())
+        Some(localization::catalog().browser.graphics_unsupported.to_string())
     } else if !surface.has_browser_frame() {
         let url = surface
             .browser_url()
@@ -542,7 +552,7 @@ fn draw_browser_content(
                     .map(|tab| tab.title.clone())
             })
             .unwrap_or_else(|| "browser".to_string());
-        Some(format!("loading {}...", truncate(&url, 48)))
+        Some(localization::catalog().browser.loading(&truncate(&url, 48)))
     } else {
         None
     };
