@@ -292,15 +292,28 @@ struct MobileRootPresentationStateTests {
         #expect(state.isIdle)
     }
 
-    @Test func connectionSuccessDismissesOnlyPairing() {
+    @Test func pairingSuccessDismissesTheRootSheetForFirstAndNthAdds() {
         var state = MobileRootPresentationState()
-        state.apply(.presentAutoConnectMigrationIfIdle)
-
-        #expect(state.apply(.dismissPairing) == .none)
-        #expect(state.presentation == .autoConnectMigrationIntroduction)
-
         state.apply(.presentPairing(.manual))
-        #expect(state.apply(.dismissPairing) == .finishPairing)
+        #expect(state.apply(.pairingSucceeded) == .finishPairing)
         #expect(state.presentation == nil)
+
+        // A second add starts from the same root state while a connection is
+        // already live; the semantic success action must have identical
+        // navigation semantics and cannot depend on a connection-state edge.
+        state.apply(.presentPairing(.manual))
+        #expect(state.apply(.pairingSucceeded) == .finishPairing)
+        #expect(state.presentation == nil)
+    }
+
+    @Test func cancellingPairingOpenedFromComputersRestoresTheComputersList() {
+        var state = MobileRootPresentationState()
+        state.apply(.presentComputers)
+        state.apply(.presentPairing(.manual))
+
+        #expect(state.presentation == .pairingFromComputers(.manual))
+        #expect(state.apply(.dismissPairing) == .finishPairing)
+        #expect(state.presentation == .computers)
+        #expect(state.isRootSheetPresented)
     }
 }

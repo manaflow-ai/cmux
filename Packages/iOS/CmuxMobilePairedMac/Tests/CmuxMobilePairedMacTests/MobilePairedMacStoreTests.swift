@@ -276,6 +276,10 @@ import Testing
             try await store.activeMac(stackUserID: "user-1")?.legacyTailscaleRoutes
                 == [tailscale]
         )
+        #expect(
+            try await store.activeMac(stackUserID: "user-1")?.userAuthorizedTailscaleRoutes
+                == [tailscale]
+        )
     }
 
     @Test func userGrantSurvivesAuthenticatedIrohPublication() async throws {

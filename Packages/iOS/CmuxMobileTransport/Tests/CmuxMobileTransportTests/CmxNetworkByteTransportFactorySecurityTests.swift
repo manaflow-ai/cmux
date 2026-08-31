@@ -187,6 +187,32 @@ private actor RejectingTailscaleAuthority: CmxTailscaleRouteAuthorizing {
         }
     }
 
+    @Test(arguments: [
+        "work-mac.tailnet.ts.net",
+        "work-mac",
+        "192.168.1.77",
+    ])
+    func buildsUserAuthorizedDirectTransportForNamedAndLanDestinations(
+        _ host: String
+    ) throws {
+        let route = try CmxAttachRoute(
+            id: "tailscale",
+            kind: .tailscale,
+            endpoint: .hostPort(host: host, port: 58_465)
+        )
+        let request = CmxByteTransportRequest(
+            route: route,
+            expectedPeerDeviceID: nil,
+            authorizationMode: .userAuthorizedTailscalePairing(
+                try CmxUserTailscalePairingAuthorization(host: host, port: 58_465)
+            )
+        )
+
+        let transport = try CmxNetworkByteTransportFactory().makeTransport(for: request)
+
+        #expect(transport is CmxNetworkByteTransport)
+    }
+
     @Test func rejectsUserAuthorizedPairingDestinationSubstitution() throws {
         let authorization = try CmxUserTailscalePairingAuthorization(
             host: "100.71.210.41",

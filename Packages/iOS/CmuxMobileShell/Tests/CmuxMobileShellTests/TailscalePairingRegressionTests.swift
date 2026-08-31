@@ -118,50 +118,48 @@ import Testing
         #expect((await router.authorization(for: "workspace.list")).first?.stackAccessToken == "test-stack-token")
         let saved = try await pairedMacStore.activeMac(stackUserID: "phone-user")
         #expect(saved?.legacyTailscaleRoutes?.first?.endpoint == .hostPort(host: host, port: port))
+        #expect(saved?.connectionMethodRawValue == MobileConnectionMethod.tailscale.rawValue)
     }
 
-    @Test func manualMagicDNSHasDeterministicSafeFallbackWithoutDialing() async throws {
+    @Test(arguments: [
+        "work-mac.tailnet.ts.net",
+        "work-mac",
+        "192.168.1.77",
+    ])
+    func manualNamedAndLanHostsPairAndPersistTailscaleMethod(_ manualHost: String) async throws {
         let router = LivenessHostRouter()
         let box = TransportBox()
         let factory = KindRecordingTransportFactory(router: router, box: box)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pairedMacStore = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
         let runtime = LivenessTestRuntime(
             transportFactory: factory,
             now: { Self.fixedNow },
-            supportedRouteKinds: [.tailscale]
+            supportedRouteKinds: [.tailscale],
+            supportsServerPushEvents: false
         )
-        let store = makeStore(runtime: runtime)
+        let store = makeStore(runtime: runtime, pairedMacStore: pairedMacStore)
 
         await store.connectManualHost(
             name: "Work Mac",
-            host: "work-mac.tailnet.ts.net",
+            host: manualHost,
             port: port
         )
 
-        #expect(store.connectionState == MobileConnectionState.disconnected)
-        #expect(store.activeRoute == nil)
-        #expect(factory.attemptedAuthorizationModes().isEmpty)
-        #expect(store.connectionError?.localizedCaseInsensitiveContains("numeric") == true)
-        #expect(await router.count(of: "workspace.list") == 0)
-    }
-
-    @Test func arbitraryAndLanManualHostsNeverReceiveAStackBearer() async throws {
-        for host in ["192.168.1.77", "10.0.0.5", "example.com"] {
-            let router = LivenessHostRouter()
-            let box = TransportBox()
-            let factory = KindRecordingTransportFactory(router: router, box: box)
-            let runtime = LivenessTestRuntime(
-                transportFactory: factory,
-                now: { Self.fixedNow },
-                supportedRouteKinds: [.tailscale]
-            )
-            let store = makeStore(runtime: runtime)
-
-            await store.connectManualHost(name: "Untrusted", host: host, port: port)
-
-            #expect(store.connectionState == MobileConnectionState.disconnected)
-            #expect(factory.attemptedAuthorizationModes().isEmpty)
-            #expect(await router.authorization(for: "workspace.list").isEmpty)
-        }
+        #expect(store.connectionState == MobileConnectionState.connected)
+        #expect(store.activeRoute?.endpoint == .hostPort(host: manualHost, port: port))
+        #expect(factory.attemptedAuthorizationModes().count == 1)
+        let saved = try #require(await pairedMacStore.activeMac(stackUserID: "phone-user"))
+        #expect(saved.connectionMethodRawValue == MobileConnectionMethod.tailscale.rawValue)
+        #expect(saved.legacyTailscaleRoutes?.first?.endpoint == .hostPort(host: manualHost, port: port))
     }
 
     @Test func externallyOpenedQRCodeDoesNotMintInAppTailscaleAuthorization() async throws {

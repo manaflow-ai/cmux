@@ -13,16 +13,26 @@ import Testing
         #expect(authorization.authorizes(host: "fd7a:115c:a1e0::1234", port: 58_465))
     }
 
-    @Test func rejectsNonTailscaleDestinations() {
+    @Test(arguments: [
+        "work-mac.tailnet.ts.net",
+        "work-mac",
+        "192.168.1.20",
+        "devbox.local",
+    ])
+    func acceptsValidatedMagicDNSAndDirectHosts(_ host: String) throws {
+        let authorization = try CmxUserTailscalePairingAuthorization(
+            host: host,
+            port: 58_465
+        )
+
+        #expect(authorization.authorizes(host: host, port: 58_465))
+        #expect(!authorization.authorizes(host: "other-(host)", port: 58_465))
+    }
+
+    @Test func rejectsMalformedHosts() {
         #expect(throws: CmxUserTailscalePairingAuthorizationError.invalidHost) {
             _ = try CmxUserTailscalePairingAuthorization(
-                host: "work-mac.tailnet.ts.net",
-                port: 58_465
-            )
-        }
-        #expect(throws: CmxUserTailscalePairingAuthorizationError.invalidHost) {
-            _ = try CmxUserTailscalePairingAuthorization(
-                host: "192.168.1.20",
+                host: "https://work-mac.tailnet.ts.net/path",
                 port: 58_465
             )
         }
