@@ -83,7 +83,6 @@ struct SidebarWorkspaceTableEnvironmentSnapshot {
     /// cached heights or trigger layout measurement.
     nonisolated func hasEquivalentGeometry(to other: Self) -> Bool {
         colorScheme == other.colorScheme
-            && colorSchemeContrast == other.colorSchemeContrast
             && globalFontMagnificationPercent == other.globalFontMagnificationPercent
     }
 
