@@ -4,6 +4,8 @@ Thank you for your interest in cmux, an open-source project of Manaflow, Inc. (t
 
 Please complete and sign this Agreement, and return a signed copy to Manaflow, Inc. Read this document carefully before signing and keep a copy for your records.
 
+This Agreement is maintained in English and the English version controls. Any translation is provided for convenience only and does not change the terms of this Agreement.
+
 | | |
 |---|---|
 | Full name: | _________________________________________________ |

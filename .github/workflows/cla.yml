@@ -5,6 +5,11 @@ on:
   pull_request_target:
     types: [opened,closed,synchronize]
 
+# Signature updates share one file and must not race.
+concurrency:
+  group: cla-signatures
+  cancel-in-progress: false
+
 # Keep the token scoped to the GitHub API operations used by this action.
 permissions:
   # The action inspects prior runs; its optional rerun request is best-effort.
