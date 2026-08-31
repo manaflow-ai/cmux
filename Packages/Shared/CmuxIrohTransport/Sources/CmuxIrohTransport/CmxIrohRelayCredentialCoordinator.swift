@@ -374,6 +374,14 @@ public actor CmxIrohRelayCredentialCoordinator {
                 ),
                 initialFailureCount: 1
             )
+            // Fail open while a last-good credential is installed on the
+            // endpoint: a failed mint must not fail the caller's foreground
+            // path into zero-route dial churn (cmux#10375). The bounded retry
+            // loop above keeps refreshing in the background, and the relay is
+            // the authority that rejects a credential that truly went bad.
+            if installedCredential != nil, !(error is CancellationError) {
+                return
+            }
             throw error
         }
     }

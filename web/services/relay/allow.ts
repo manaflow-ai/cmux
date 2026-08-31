@@ -6,22 +6,15 @@
 // trustworthy; this side only decides whether that endpoint is admitted.
 //
 // The admission lookup deliberately does NOT borrow the shared cloudDb
-// client: its pool checkout and connection phases have no deadline there, so
-// a stalled operation could neither be cancelled nor be counted on to settle.
-// Instead the admission path owns a dedicated client sized to its concurrency
-// cap with a hard bound on every phase (connect, checkout, execution, plus a
-// client-side cancel), so every admission operation settles within a known
-// bound and the concurrency slots — released strictly at settlement — bound
-// retained work without ever staying saturated after an outage heals.
+// client: it runs on the deadline-bounded per-hook client from ./hookDb, so
+// every admission operation settles within a known bound and the concurrency
+// slots — released strictly at settlement — bound retained work without ever
+// staying saturated after an outage heals.
 
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { attachDatabasePool } from "@vercel/functions";
-import type { Pool } from "pg";
-import postgres, { type Sql } from "postgres";
 
-import { createAwsRdsIamPool } from "../../db/client";
-import { cloudDbConfig, cloudDbConfigKey } from "../../db/config";
 import { isBlockingAccountDeletionTombstone } from "../account/deletionLock";
+import { closeRelayHookDbClientForTests, relayHookDbClient } from "./hookDb";
 
 export const RELAY_ALLOW_SIGNATURE_HEADER = "x-cmux-relay-allow-signature";
 
@@ -52,10 +45,6 @@ export const RELAY_ALLOW_STATEMENT_TIMEOUT_MS = 2_500;
  * timeout so the server usually cancels first.
  */
 export const RELAY_ALLOW_LOOKUP_SETTLE_MS = 4_000;
-
-/** Connection-establishment (and, for pg, checkout-wait) deadline. */
-const CONNECT_TIMEOUT_MS = 5_000;
-const IDLE_TIMEOUT_SECONDS = 60;
 
 export class RelayAllowAdmissionSaturatedError extends Error {
   constructor() {
@@ -150,91 +139,20 @@ const ADMISSION_SQL = `
   limit 1
 `;
 
-type AdmissionClientState = {
-  readonly key: string;
-  readonly lookup: (endpointId: string) => Promise<AdmissionRow | null>;
-  readonly close: () => Promise<void>;
-};
+const ADMISSION_HOOK = "relay-allow";
 
-const globalForAdmission = globalThis as typeof globalThis & {
-  __cmuxRelayAllowAdmission?: AdmissionClientState;
-};
-
-function admissionClient(): AdmissionClientState {
-  const config = cloudDbConfig();
-  const key = cloudDbConfigKey(config);
-  const cached = globalForAdmission.__cmuxRelayAllowAdmission;
-  if (cached?.key === key) return cached;
-  if (cached) {
-    // The database config rotated within this runtime: drop the stale client
-    // and close it so its pool is not retained alongside the replacement.
-    // In-flight lookups hold their own reference and settle under their phase
-    // deadlines; close() (pool.end / sql.end) waits for them, so this cannot
-    // interrupt an admission already running.
-    globalForAdmission.__cmuxRelayAllowAdmission = undefined;
-    void cached.close().catch(() => {
-      // Best-effort teardown; the replacement client is unaffected.
-    });
-  }
-
-  let state: AdmissionClientState;
-  if (config.driver === "aws-rds-iam") {
-    const pool: Pool = createAwsRdsIamPool(config, {
-      max: RELAY_ALLOW_MAX_CONCURRENT_ADMISSIONS,
-      // Bounds checkout waits as well as connection establishment.
-      connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
-      idleTimeoutMillis: IDLE_TIMEOUT_SECONDS * 1_000,
-      statement_timeout: RELAY_ALLOW_STATEMENT_TIMEOUT_MS,
-      query_timeout: RELAY_ALLOW_LOOKUP_SETTLE_MS,
-    });
-    attachDatabasePool(pool);
-    state = {
-      key,
-      lookup: async (endpointId) => {
-        const result = await pool.query<AdmissionRow>(ADMISSION_SQL, [endpointId]);
-        return result.rows[0] ?? null;
-      },
-      close: () => pool.end(),
-    };
-  } else {
-    const sql: Sql = postgres(config.url, {
-      max: RELAY_ALLOW_MAX_CONCURRENT_ADMISSIONS,
-      prepare: false,
-      connect_timeout: Math.ceil(CONNECT_TIMEOUT_MS / 1_000),
-      idle_timeout: IDLE_TIMEOUT_SECONDS,
-      connection: { statement_timeout: RELAY_ALLOW_STATEMENT_TIMEOUT_MS },
-    });
-    state = {
-      key,
-      lookup: async (endpointId) => {
-        const query = sql.unsafe<AdmissionRow[]>(ADMISSION_SQL, [endpointId]);
-        // cancel() rejects the query whether still queued or executing, so
-        // the operation settles even through a pool or network stall.
-        const settleBound = setTimeout(() => {
-          try {
-            query.cancel();
-          } catch {
-            // Cancellation is best-effort; the statement timeout remains.
-          }
-        }, RELAY_ALLOW_LOOKUP_SETTLE_MS);
-        try {
-          const rows = await query;
-          return rows[0] ?? null;
-        } finally {
-          clearTimeout(settleBound);
-        }
-      },
-      close: () => sql.end(),
-    };
-  }
-  globalForAdmission.__cmuxRelayAllowAdmission = state;
-  return state;
+async function admissionLookup(endpointId: string): Promise<AdmissionRow | null> {
+  const client = relayHookDbClient(ADMISSION_HOOK, {
+    maxConnections: RELAY_ALLOW_MAX_CONCURRENT_ADMISSIONS,
+    statementTimeoutMs: RELAY_ALLOW_STATEMENT_TIMEOUT_MS,
+    settleMs: RELAY_ALLOW_LOOKUP_SETTLE_MS,
+  });
+  const rows = await client.query(ADMISSION_SQL, [endpointId]);
+  return (rows[0] as AdmissionRow | undefined) ?? null;
 }
 
 export async function closeRelayAllowAdmissionClientForTests(): Promise<void> {
-  const state = globalForAdmission.__cmuxRelayAllowAdmission;
-  globalForAdmission.__cmuxRelayAllowAdmission = undefined;
-  await state?.close();
+  await closeRelayHookDbClientForTests(ADMISSION_HOOK);
 }
 
 /**
@@ -247,7 +165,7 @@ export async function relayAllowAdmission(
   endpointId: string,
 ): Promise<RelayAllowAdmission> {
   return await withRelayAllowAdmissionSlot(async () => {
-    const row = await admissionClient().lookup(endpointId);
+    const row = await admissionLookup(endpointId);
     if (!row) return "deny" as const;
     if (tombstoneBlocks(row)) return "deny" as const;
     return "allow" as const;

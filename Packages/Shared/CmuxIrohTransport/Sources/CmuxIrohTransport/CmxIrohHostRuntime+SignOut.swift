@@ -88,6 +88,10 @@ extension CmxIrohHostRuntime {
         registrationRefreshFailureCount = 0
         relayActivationTask?.cancel()
         relayActivationTask = nil
+        initialPublicationTask?.cancel()
+        initialPublicationTask = nil
+        initialPublicationPending = false
+        allowsReplacedBindingAdoption = false
         lanPublicationGeneration &+= 1
         lanPublicationTask?.cancel()
         lanPublicationTask = nil

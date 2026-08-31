@@ -193,6 +193,28 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
                 )
                 usedFreshDiscovery = true
             } catch {
+                try Task.checkCancellation()
+                // The refresh failed. Dialing with the last verified snapshot
+                // beats not dialing at all (cmux#9724): the staleness mark
+                // survives, so the next attempt still refetches once the
+                // broker recovers. Verification is not weakened; this
+                // snapshot passed the same checks when it was fetched.
+                if let lastGood = authoritativeDiscovery {
+                    do {
+                        return try await resolveContext(
+                            for: request,
+                            targetIdentity: targetIdentity,
+                            routeHints: routeHints,
+                            discovery: lastGood,
+                            at: clock
+                        )
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        // The last-good snapshot no longer authorizes this
+                        // peer; fall through to the offline cache.
+                    }
+                }
                 guard Self.isConnectivity(error),
                       let cached = try await cachedPolicy(
                           for: request,
