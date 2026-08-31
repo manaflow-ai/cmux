@@ -135,11 +135,16 @@ jobs:
 
   workflow-guard-tests:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # This job executes scripts from the pull request. It needs only read
+    # access for checkout, never workflow, issue, or repository write access.
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Validate macOS runner guards
         run: ./tests/test_ci_self_hosted_guard.sh
@@ -180,6 +185,11 @@ jobs:
         run: python3 -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3 bashlex==0.18
 
       - name: Validate CLA rerun workflow guard
+        env:
+          # The harness executes the extracted workflow shell against a fake
+          # API. Do not expose even the read-only Actions token to it.
+          GH_TOKEN: ''
+          GITHUB_TOKEN: ''
         run: ./tests/test_cla_rerun_workflow.sh
 
       - name: Validate Blacksmith Testbox broker trust boundary
