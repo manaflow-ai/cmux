@@ -66,7 +66,7 @@ export COMMENT_AUTHOR_LOGIN=contributor
 export COMMENT_AUTHOR_TYPE=User
 export COMMENT_AUTHOR_ASSOCIATION=NONE
 export WORKFLOW_PATH=.github/workflows/cla.yml
-export CLA_GENERATION=v2.2-action-056a0e9d7237954489ab474f24e66c2e742e78f9
+export CLA_GENERATION=v2.2-action-bc206ed9b52ad0b0cbe85244ce522e5e9b65c10e
 export TARGET_EVENT=pull_request_target
 export TARGET_BASE_REF=main
 export SIGNATURE_RECORDED=false
@@ -107,6 +107,7 @@ gh() {
   local run_head_repo=contributor/cmux
   local run_head_repo_id=200
   local run_head_repository_null=false
+  local omit_job_head_repository=false
   local run_sha=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
   local marker="CLA generation ${CLA_GENERATION}"
   local run_path=.github/workflows/cla.yml
@@ -140,6 +141,7 @@ gh() {
     closed-pr) live_state=closed ;;
     retargeted-pr) live_base=release ;;
     suffixed-path) run_path=.github/workflows/cla.yml@main ;;
+    job-missing-head-repository) omit_job_head_repository=true ;;
   esac
 
   if [[ " $* " == *" --method POST "* ]]; then
@@ -254,8 +256,8 @@ gh() {
             {id:504,run_id:$run_id,name:"CLA Assistant",workflow_name:"CLA Assistant v2",status:"completed",conclusion:"cancelled",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[]}
           ]}'
       else
-        jq -nc --argjson run_id "$run_id" --argjson job_id "$job_id" --arg marker "$marker" --arg run_sha "$run_sha" \
-          '{jobs:[{id:$job_id,run_id:$run_id,name:"CLA Assistant v2",workflow_name:"CLA Assistant v2",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[{name:$marker,status:"completed",conclusion:"success"}]}]}'
+        jq -nc --argjson run_id "$run_id" --argjson job_id "$job_id" --arg marker "$marker" --arg run_sha "$run_sha" --argjson omit "$omit_job_head_repository" \
+          '{jobs:[({id:$job_id,run_id:$run_id,name:"CLA Assistant v2",workflow_name:"CLA Assistant v2",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",steps:[{name:$marker,status:"completed",conclusion:"success"}]} + (if $omit then {} else {head_repository:null} end))]}'
       fi
       ;;
     repos/manaflow-ai/cmux/actions/jobs/500|repos/manaflow-ai/cmux/actions/jobs/501)
@@ -265,8 +267,8 @@ gh() {
         job_id=501
         run_id=401
       fi
-      jq -nc --argjson job_id "$job_id" --argjson run_id "$run_id" --arg marker "$marker" --arg run_sha "$run_sha" \
-        '{id:$job_id,run_id:$run_id,name:"CLA Assistant v2",workflow_name:"CLA Assistant v2",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[{name:$marker,status:"completed",conclusion:"success"}]}'
+      jq -nc --argjson job_id "$job_id" --argjson run_id "$run_id" --arg marker "$marker" --arg run_sha "$run_sha" --argjson omit "$omit_job_head_repository" \
+        '({id:$job_id,run_id:$run_id,name:"CLA Assistant v2",workflow_name:"CLA Assistant v2",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",steps:[{name:$marker,status:"completed",conclusion:"success"}]} + (if $omit then {} else {head_repository:null} end))'
       ;;
     *)
       echo "unexpected API endpoint: $endpoint" >&2
@@ -372,6 +374,7 @@ run_case unrecorded-signer 1 "did not result in a persisted signature" 0
 run_case unbound-signer 1 "signing comment was not the signature persisted" 0
 run_case duplicate-runs 0 "Requested rerun for CLA job 501 in workflow run 401" 1 \
   "repos/manaflow-ai/cmux/actions/jobs/501/rerun"
+run_case job-missing-head-repository 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case compatibility-failed 0 "Requested rerun for failed CLA jobs (v2 and compatibility) in workflow run 400" 1 \
   "repos/manaflow-ai/cmux/actions/runs/400/rerun-failed-jobs"
 run_case unexpected-failure 1 "unexpected failed job" 0

@@ -7,9 +7,20 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKFLOW="$ROOT_DIR/.github/workflows/cla.yml"
 test -f "$WORKFLOW"
 command -v jq >/dev/null
-grep -Fq "group: cla-signatures-\${{ github.repository }}-\${{ github.event.pull_request.number }}" "$WORKFLOW"
+grep -Fq "group: cla-lock-\${{ github.repository }}-\${{ github.event.pull_request.number }}" "$WORKFLOW"
 grep -Fq '      issues: write' "$WORKFLOW"
 grep -Fq '      pull-requests: read' "$WORKFLOW"
+
+# The merge-lock queue must remain independent from the signature queue. A
+# later sign/comment event must not replace a pending merge lock.
+lock_block="$(awk '
+  /^  LockMergedPullRequest:/ { in_job=1; next }
+  in_job && /^  [A-Za-z0-9_]+:/ { exit }
+  in_job { print }
+' "$WORKFLOW")"
+expected_lock_group="group: cla-lock-\${{ github.repository }}-\${{ github.event.pull_request.number }}"
+[[ "$lock_block" == *"$expected_lock_group"* ]]
+[[ "$lock_block" != *'group: cla-signatures-'* ]]
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT

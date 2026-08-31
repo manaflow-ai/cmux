@@ -17,7 +17,7 @@ permissions: {}
 # changes for every unrelated commit on main and would strand valid failed
 # checks on open pull requests.
 env:
-  CLA_GENERATION: 'v2.2-action-056a0e9d7237954489ab474f24e66c2e742e78f9'
+  CLA_GENERATION: 'v2.2-action-bc206ed9b52ad0b0cbe85244ce522e5e9b65c10e'
 
 jobs:
   CLACommentGate:
@@ -40,9 +40,18 @@ jobs:
         github.event_name == 'issue_comment' &&
         github.event.issue.state == 'open' &&
         github.event.issue.pull_request &&
+        github.event.comment.user.type == 'User' &&
         (
-          github.event.comment.body == 'recheck' ||
-          github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA'
+          github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA' ||
+          (
+            github.event.comment.body == 'recheck' &&
+            (
+              github.event.comment.user.id == github.event.issue.user.id ||
+              github.event.comment.author_association == 'OWNER' ||
+              github.event.comment.author_association == 'MEMBER' ||
+              github.event.comment.author_association == 'COLLABORATOR'
+            )
+          )
         )
       )
     runs-on: ubuntu-latest
@@ -63,13 +72,45 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           EVENT_ACTION: ${{ github.event.action }}
           COMMENT_BODY: ${{ github.event.comment.body }}
+          COMMENT_AUTHOR_ID: ${{ github.event.comment.user.id }}
+          COMMENT_AUTHOR_LOGIN: ${{ github.event.comment.user.login }}
+          PR_AUTHOR_ID: ${{ github.event.issue.user.id }}
+          COMMENT_AUTHOR_TYPE: ${{ github.event.comment.user.type }}
+          COMMENT_AUTHOR_ASSOCIATION: ${{ github.event.comment.author_association }}
         run: |
           set -euo pipefail
           if [[ "${EVENT_NAME}" == "issue_comment" ]]; then
+            if [[ "${COMMENT_AUTHOR_TYPE}" != "User" || -z "${COMMENT_AUTHOR_LOGIN}" ]]; then
+              echo "::error::Bot and malformed comments cannot trigger the CLA action"
+              exit 1
+            fi
+            case "${COMMENT_AUTHOR_LOGIN,,}" in
+              *"[bot]")
+                echo "::error::Bot comments cannot trigger the CLA action"
+                exit 1
+                ;;
+            esac
             if [[ "${COMMENT_BODY}" != "recheck" &&
                   "${COMMENT_BODY}" != "I have read the CLA Document v2.2 and I hereby sign the CLA" ]]; then
               echo "::error::The comment is not an exact CLA declaration or recheck command"
               exit 1
+            fi
+            if [[ "${COMMENT_BODY}" == "recheck" ]]; then
+              if [[ "${COMMENT_AUTHOR_TYPE}" != "User" ||
+                    ! "${COMMENT_AUTHOR_ID}" =~ ^[1-9][0-9]*$ ||
+                    ! "${PR_AUTHOR_ID}" =~ ^[1-9][0-9]*$ ]]; then
+                echo "::error::Only the pull request author or a trusted repository participant may request a CLA rerun"
+                exit 1
+              fi
+              if [[ "${COMMENT_AUTHOR_ID}" != "${PR_AUTHOR_ID}" ]]; then
+                case "${COMMENT_AUTHOR_ASSOCIATION}" in
+                  OWNER|MEMBER|COLLABORATOR) ;;
+                  *)
+                    echo "::error::Only the pull request author or a trusted repository participant may request a CLA rerun"
+                    exit 1
+                    ;;
+                esac
+              fi
             fi
           elif [[ "${EVENT_NAME}" == "pull_request_target" ]]; then
             case "${EVENT_ACTION}" in
@@ -98,8 +139,8 @@ jobs:
       signature_recorded: ${{ steps.cla_action.outputs.signature_recorded }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # Filter before concurrency admission. Otherwise arbitrary issue comments
-    # can consume the signature queue without running the action. Every
+    # Filter before concurrency admission. Untrusted recheck comments cannot
+    # consume the signature queue or invoke the write-capable action. Every
     # non-closed pull-request event, including edited, reaches the same
     # preflight and signer validation.
     if: >-
@@ -118,9 +159,18 @@ jobs:
           github.event_name == 'issue_comment' &&
           github.event.issue.state == 'open' &&
           github.event.issue.pull_request &&
+          github.event.comment.user.type == 'User' &&
           (
-            github.event.comment.body == 'recheck' ||
-                github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA'
+            github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA' ||
+            (
+              github.event.comment.body == 'recheck' &&
+              (
+                github.event.comment.user.id == github.event.issue.user.id ||
+                github.event.comment.author_association == 'OWNER' ||
+                github.event.comment.author_association == 'MEMBER' ||
+                github.event.comment.author_association == 'COLLABORATOR'
+              )
+            )
           )
         )
       )
@@ -228,7 +278,7 @@ jobs:
         # so a branch move cannot change the code executed by this workflow.
         # The fork's default branch must be protected before this check is made
         # required in repository rulesets.
-        uses: manaflow-ai/cla-github-action@056a0e9d7237954489ab474f24e66c2e742e78f9 # v0.0.1
+        uses: manaflow-ai/cla-github-action@bc206ed9b52ad0b0cbe85244ce522e5e9b65c10e # v0.0.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -250,6 +300,12 @@ jobs:
           # Bot-opened PRs are intentionally fail-closed. Add only a reviewed
           # numeric opener ID to allowlist-ids for an approved automation flow.
           require-opener-as-author: 'true'
+          # Pre-merge administrator action: before making "CLA Assistant v2" a
+          # required check, verify that the `cla-signatures` branch contains
+          # `signatures/version2/cla.json` with a read-only Contents API query.
+          # If it is absent, run the maintained action's reviewed bootstrap once
+          # under administrator control. Never create or edit this data branch
+          # from a pull-request workflow.
 
   # Compatibility check for the current ruleset. It mirrors the v2 action
   # result under the old context while administrators migrate the required
@@ -310,7 +366,16 @@ jobs:
       github.event.issue.state == 'open' &&
       github.event.issue.pull_request &&
       (
-        github.event.comment.body == 'recheck' ||
+        (
+          github.event.comment.body == 'recheck' &&
+          github.event.comment.user.type == 'User' &&
+          (
+            github.event.comment.user.id == github.event.issue.user.id ||
+            github.event.comment.author_association == 'OWNER' ||
+            github.event.comment.author_association == 'MEMBER' ||
+            github.event.comment.author_association == 'COLLABORATOR'
+          )
+        ) ||
         (
           github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA' &&
           needs.CLAAssistant.outputs.signature_recorded == 'true'
@@ -394,13 +459,14 @@ jobs:
       github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Lock requests do not update the signature ledger, but they must share the
-    # signer group's per-PR queue so a close event cannot race a pending ledger
-    # write. The default Actions policy keeps one pending event, and the live
-    # merged-PR check below prevents stale events from locking a reopened or
-    # retargeted pull request.
+    # Keep merge locks in a stable per-PR queue that is separate from the
+    # signer's signature queue. A later sign/comment event must not replace a
+    # pending lock event, and a close event must not replace a pending ledger
+    # write. The default Actions policy keeps one pending event in each queue;
+    # the live merged-PR check below prevents stale events from locking a
+    # reopened or retargeted pull request.
     concurrency:
-      group: cla-signatures-${{ github.repository }}-${{ github.event.pull_request.number }}
+      group: cla-lock-${{ github.repository }}-${{ github.event.pull_request.number }}
       cancel-in-progress: false
     permissions:
       issues: write

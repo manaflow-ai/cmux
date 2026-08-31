@@ -22,6 +22,7 @@ grep -Fq 'name: "CLA Assistant v2"' "$WORKFLOW"
 grep -Fq 'name: "CLA Assistant"' "$WORKFLOW"
 grep -Fq 'github.event.comment.body == '\''recheck'\''' "$WORKFLOW"
 grep -Fq 'github.event.comment.body == '\''I have read the CLA Document v2.2 and I hereby sign the CLA'\''' "$WORKFLOW"
+grep -Fq 'github.event.comment.user.id == github.event.issue.user.id' "$WORKFLOW"
 grep -Fq 'always() &&' "$WORKFLOW"
 grep -Fq 'cancel-in-progress: false' "$WORKFLOW"
 grep -Fq "group: cla-signatures-\${{ github.repository }}-\${{ github.event.pull_request.number || github.event.issue.number }}" "$WORKFLOW"
@@ -65,6 +66,11 @@ run_case() {
   local event_name=issue_comment
   local event_action=created
   local comment_body=recheck
+  local comment_author_id=300
+  local comment_author_login=contributor
+  local pr_author_id=300
+  local comment_author_type=User
+  local comment_author_association=NONE
   local output status
   case "$mode" in
     exact-sign) comment_body='I have read the CLA Document v2.2 and I hereby sign the CLA' ;;
@@ -72,6 +78,9 @@ run_case() {
     uppercase-recheck) comment_body=RECHECK ;;
     padded-sign) comment_body=' I have read the CLA Document v2.2 and I hereby sign the CLA ' ;;
     wrapped-sign) comment_body='Please sign: I have read the CLA Document v2.2 and I hereby sign the CLA' ;;
+    untrusted-recheck) comment_author_id=301 ;;
+    trusted-recheck) comment_author_id=301; comment_author_association=MEMBER ;;
+    bot-comment) comment_author_login='github-actions[bot]'; comment_author_type=Bot ;;
     pull-opened) event_name=pull_request_target; event_action=opened; comment_body='' ;;
     pull-edited) event_name=pull_request_target; event_action=edited; comment_body='' ;;
     pull-reopened) event_name=pull_request_target; event_action=reopened; comment_body='' ;;
@@ -84,6 +93,11 @@ run_case() {
     EVENT_NAME="$event_name" \
     EVENT_ACTION="$event_action" \
     COMMENT_BODY="$comment_body" \
+    COMMENT_AUTHOR_ID="$comment_author_id" \
+    COMMENT_AUTHOR_LOGIN="$comment_author_login" \
+    PR_AUTHOR_ID="$pr_author_id" \
+    COMMENT_AUTHOR_TYPE="$comment_author_type" \
+    COMMENT_AUTHOR_ASSOCIATION="$comment_author_association" \
     bash "$gate_script" 2>&1
   )"
   status=$?
@@ -105,6 +119,9 @@ run_case exact-recheck 0 ""
 run_case exact-sign 0 ""
 run_case legacy-sign 1 "exact CLA declaration"
 run_case uppercase-recheck 1 "exact CLA declaration"
+run_case untrusted-recheck 1 "Only the pull request author or a trusted repository participant"
+run_case trusted-recheck 0 ""
+run_case bot-comment 1 "Bot and malformed comments"
 run_case padded-sign 1 "exact CLA declaration"
 run_case wrapped-sign 1 "exact CLA declaration"
 run_case pull-opened 0 ""

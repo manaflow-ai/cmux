@@ -41,15 +41,23 @@ fi
 readonly SIGNATURES_BRANCH='cla-signatures'
 readonly SIGNATURES_PATH='signatures/version2/cla.json'
 readonly MAX_RUN_PAGES=10
+readonly MAX_LEDGER_BYTES=1000000
+readonly MAX_LEDGER_SIGNATURES=10000
 
 validate_triggering_signature_record() {
-  local ledger_response ledger_content ledger_json
+  local ledger_response ledger_content ledger_json ledger_encoded_bytes ledger_decoded_bytes
   ledger_response="$(gh api \
     --method GET \
     --header 'Accept: application/vnd.github+json' \
     --raw-field ref="${SIGNATURES_BRANCH}" \
     "repos/${GH_REPO}/contents/${SIGNATURES_PATH}" 2>/dev/null)" || fail "Could not query the trusted CLA signature ledger"
   jq -e '.type == "file" and .encoding == "base64" and (.content | type == "string") and (.content | length > 0)' <<<"${ledger_response}" >/dev/null || fail "The trusted CLA signature ledger response is malformed"
+  ledger_encoded_bytes="$(jq -r '.content | length' <<<"${ledger_response}")"
+  [[ "${ledger_encoded_bytes}" =~ ^[0-9]+$ ]] || fail "Could not measure the trusted CLA signature ledger"
+  # The maintained action rejects ledgers larger than 1 MB. Enforce the same
+  # bound before decoding, so a malformed Contents response cannot make this
+  # privileged job retain an unbounded payload.
+  (( ledger_encoded_bytes <= ((MAX_LEDGER_BYTES + 2) * 4 / 3 + 4) )) || fail "The trusted CLA signature ledger exceeds the 1 MB limit; ask an administrator to compact or migrate it before signing"
   ledger_content="$(jq -r '.content' <<<"${ledger_response}")"
   if ! ledger_json="$(
     if base64 --decode >/dev/null 2>&1 <<<''; then
@@ -60,6 +68,9 @@ validate_triggering_signature_record() {
   )"; then
     fail "The trusted CLA signature ledger is not valid base64"
   fi
+  ledger_decoded_bytes="$(printf '%s' "${ledger_json}" | wc -c | tr -d ' ')"
+  [[ "${ledger_decoded_bytes}" =~ ^[0-9]+$ ]] || fail "Could not measure the decoded CLA signature ledger"
+  (( ledger_decoded_bytes <= MAX_LEDGER_BYTES )) || fail "The trusted CLA signature ledger exceeds the 1 MB limit; ask an administrator to compact or migrate it before signing"
   jq -e \
     --arg login "${COMMENT_AUTHOR_LOGIN}" \
     --argjson id "${COMMENT_AUTHOR_ID}" \
@@ -67,8 +78,10 @@ validate_triggering_signature_record() {
     --arg created_at "${COMMENT_CREATED_AT}" \
     --argjson repo_id "${repo_id}" \
     --argjson pr_number "${PR_NUMBER}" \
+    --argjson max_signatures "${MAX_LEDGER_SIGNATURES}" \
     'type == "object" and
      (.signedContributors | type == "array") and
+     (.signedContributors | length <= $max_signatures) and
      any(.signedContributors[]?;
        (.name | type == "string") and .name == $login and
        (.id | type == "number") and .id == $id and
@@ -765,7 +778,7 @@ validate_failed_job_set() {
           .run_id == ($run_id | tonumber) and
           .head_sha == $run_sha and
           .head_branch == $run_head_branch and
-          (has("head_repository") and
+          ((has("head_repository") | not) or
            (.head_repository == null or
             ((.head_repository | type) == "object" and
              .head_repository.full_name == $head_repo and
@@ -795,7 +808,7 @@ validate_failed_job_set() {
          .run_id == ($run_id | tonumber) and
          .head_sha == $run_sha and
          .head_branch == $run_head_branch and
-         (has("head_repository") and
+         ((has("head_repository") | not) or
           (.head_repository == null or
            ((.head_repository | type) == "object" and
             .head_repository.full_name == $head_repo and
@@ -874,8 +887,10 @@ jq -e \
     .head_sha == $run_sha and
     .head_branch == $run_head_branch and
     (
+      (has("head_repository") | not) or
       .head_repository == null or
-      (.head_repository.full_name == $head_repo and
+      ((.head_repository | type) == "object" and
+       .head_repository.full_name == $head_repo and
        .head_repository.id == $head_repo_id)
     ) and
     any(.steps[]?;
@@ -919,8 +934,10 @@ jq -e \
     .head_sha == $run_sha and
     .head_branch == $run_head_branch and
     (
+      (has("head_repository") | not) or
       .head_repository == null or
-      (.head_repository.full_name == $head_repo and
+      ((.head_repository | type) == "object" and
+       .head_repository.full_name == $head_repo and
        .head_repository.id == $head_repo_id)
     ) and
     any(.steps[]?;
@@ -950,7 +967,7 @@ final_job_id="$(jq -r \
       .conclusion == "failure" and
       .head_sha == $run_sha and
       .head_branch == $run_head_branch and
-      (has("head_repository") and
+      ((has("head_repository") | not) or
        (.head_repository == null or
         ((.head_repository | type) == "object" and
          .head_repository.full_name == $head_repo and
