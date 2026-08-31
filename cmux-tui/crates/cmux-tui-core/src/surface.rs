@@ -2294,7 +2294,11 @@ impl Surface {
         for (k, v) in &opts.extra_env {
             cmd.env(k, v);
         }
-        let cwd = opts.cwd.clone().or_else(platform::default_terminal_cwd);
+        // Degrade a bad requested cwd (deleted directory, unconvertible
+        // OSC 7 report inherited from another tab) to the default directory
+        // instead of failing the spawn.
+        let cwd = platform::safe_spawn_cwd(opts.cwd.as_deref())
+            .map(|path| path.to_string_lossy().into_owned());
         if let Some(cwd) = cwd.as_deref() {
             cmd.cwd(cwd);
         }
@@ -2863,7 +2867,16 @@ impl Surface {
                 host_exit_record_path: Some(host_exit_record_path),
                 pid: snapshot.pid,
                 command: snapshot.command,
-                cwd: snapshot.cwd,
+                // The host reports a local path here, but a host binary from
+                // an older daemon generation still sends its raw OSC 7 pwd
+                // (`file://<host>/...`). Hosts outlive daemon upgrades, so
+                // sanitize on intake: this field is the spawn cwd every later
+                // inheritance falls back to.
+                cwd: snapshot
+                    .cwd
+                    .as_deref()
+                    .and_then(platform::terminal_pwd_to_local_path)
+                    .map(|path| path.to_string_lossy().into_owned()),
                 exit: Mutex::new(None),
                 local_pty_drained: AtomicBool::new(true),
                 exit_notified: AtomicBool::new(false),
@@ -5314,8 +5327,14 @@ impl Surface {
         self.pwd()
             .as_deref()
             .and_then(platform::terminal_pwd_to_local_path)
+            // The spawn cwd is normally a plain path, but sessions that
+            // predate cwd sanitization (or hosts from older daemon
+            // generations) can still carry a raw OSC 7 URL there; convert
+            // rather than trust it, so no caller ever sees a URL cwd.
+            .or_else(|| {
+                self.spawn_cwd().as_deref().and_then(platform::terminal_pwd_to_local_path)
+            })
             .map(|path| path.to_string_lossy().into_owned())
-            .or_else(|| self.spawn_cwd())
     }
 
     pub fn process_id(&self) -> Option<u32> {
