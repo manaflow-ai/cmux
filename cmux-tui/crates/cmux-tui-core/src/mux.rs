@@ -2302,6 +2302,7 @@ pub struct Mux {
     /// Serialize journal folds so a later commit cannot advance the reducer
     /// cursor past an earlier committed record.
     agent_roster_fold: Mutex<()>,
+    agent_roster_fold_worker_wait: Mutex<()>,
     /// A single coalesced worker drains replay work that exceeds the bounded
     /// synchronous report budget. The journal remains the source of truth.
     agent_roster_fold_worker_running: AtomicBool,
@@ -2723,6 +2724,7 @@ impl Mux {
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
             agent_roster: Mutex::new(agent_roster),
             agent_roster_fold: Mutex::new(()),
+            agent_roster_fold_worker_wait: Mutex::new(()),
             agent_roster_fold_worker_running: AtomicBool::new(false),
             agent_roster_fold_worker_changed: Condvar::new(),
             self_reference: OnceLock::new(),
@@ -6130,13 +6132,13 @@ impl Mux {
     }
 
     fn mark_agent_roster_fold_worker_stopped(&self) {
-        let _fold = self.agent_roster_fold.lock().unwrap();
+        let _wait = self.agent_roster_fold_worker_wait.lock().unwrap();
         self.agent_roster_fold_worker_running.store(false, Ordering::Release);
         self.agent_roster_fold_worker_changed.notify_all();
     }
 
     fn wait_for_agent_roster_fold_worker(&self, deadline: Instant) {
-        let mut fold = self.agent_roster_fold.lock().unwrap();
+        let mut wait = self.agent_roster_fold_worker_wait.lock().unwrap();
         while self.agent_roster_fold_worker_running.load(Ordering::Acquire) {
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
@@ -6146,8 +6148,8 @@ impl Mux {
                 break;
             }
             let (next, result) =
-                self.agent_roster_fold_worker_changed.wait_timeout(fold, remaining).unwrap();
-            fold = next;
+                self.agent_roster_fold_worker_changed.wait_timeout(wait, remaining).unwrap();
+            wait = next;
             if result.timed_out() && self.agent_roster_fold_worker_running.load(Ordering::Acquire) {
                 eprintln!(
                     "cmux-tui: agent roster fold worker did not stop before shutdown deadline"
