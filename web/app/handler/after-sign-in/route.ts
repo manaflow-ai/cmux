@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import {
-  promoteStackUserFromAnonymousViaApi,
+  promoteStackUserFromAnonymousWithDeletionGuard,
   stackServerApp,
 } from "../../lib/stack";
 import { env } from "../../env";
@@ -11,5 +11,5 @@ export const GET = makeAfterSignInHandler({
   projectId: env.NEXT_PUBLIC_STACK_PROJECT_ID,
   stackServerApp,
   getCookieStore: cookies,
-  promoteVerifiedAnonymousUser: promoteStackUserFromAnonymousViaApi,
+  promoteVerifiedAnonymousUser: promoteStackUserFromAnonymousWithDeletionGuard,
 });

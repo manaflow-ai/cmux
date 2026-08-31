@@ -1,5 +1,8 @@
 import { StackServerApp } from "@stackframe/stack";
 import { env } from "../env";
+import { cloudDb } from "../../db/client";
+import { withFreshAccountMetadataUser } from "../../services/account/metadataMutation";
+import { canonicalizeEmailForMatching } from "../../services/billing/emailMatching";
 
 // env.ts trims every runtimeEnv source, so consumers receive sanitized values
 // regardless of whether zod validation is skipped.
@@ -104,6 +107,41 @@ export async function promoteStackUserFromAnonymousViaApi(
     },
     "Stack Auth anonymous user promotion failed",
   );
+}
+
+/**
+ * Promote a verified anonymous user while coordinating with account deletion.
+ * The user is re-read after the deletion lease is held, so a stale callback
+ * cannot resurrect a tombstoned account.
+ */
+export async function promoteStackUserFromAnonymousWithDeletionGuard(
+  userId: string,
+  email: string,
+): Promise<void> {
+  const app = getStackServerApp();
+  await withFreshAccountMetadataUser({
+    db: cloudDb(),
+    userId,
+    loader: {
+      getUser: (requestedUserId) => app.getUser(requestedUserId),
+    },
+    operation: async (user, lease) => {
+      if (
+        user.id !== userId ||
+        user.isAnonymous !== true ||
+        user.primaryEmailVerified !== true ||
+        canonicalizeEmailForMatching(user.primaryEmail ?? "") !==
+          canonicalizeEmailForMatching(email)
+      ) {
+        throw new Error("Stack Auth anonymous promotion precondition changed");
+      }
+      await lease.refresh();
+      await promoteStackUserFromAnonymousViaApi(
+        user.id,
+        user.primaryEmail ?? email,
+      );
+    },
+  });
 }
 
 type StackUserApiPatch = {
