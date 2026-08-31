@@ -166,11 +166,11 @@ run_case valid 0 "Pull request 123 is locked" 1
 run_case already-locked 0 "already locked" 0
 run_case reopened 1 "live pull request no longer matches" 0
 run_case retargeted 1 "live pull request no longer matches" 0
-run_case changed-head 1 "live pull request no longer matches" 0
-run_case changed-head-repo 1 "live pull request no longer matches" 0
+run_case changed-head 0 "Pull request 123 is locked" 1
+run_case changed-head-repo 0 "Pull request 123 is locked" 1
 run_case changed-opener 1 "live pull request no longer matches" 0
 run_case malformed-head 1 "live pull request no longer matches" 0
 run_case deleted-fork 0 "Pull request 123 is locked" 1
-run_case deleted-fork-metadata-mismatch 1 "live pull request no longer matches" 0
+run_case deleted-fork-metadata-mismatch 0 "Pull request 123 is locked" 1
 run_case api-failure 1 "Could not query the merged pull request" 0
 run_case lock-failure 1 "Could not lock the merged pull request" 1

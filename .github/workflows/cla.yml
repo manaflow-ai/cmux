@@ -1108,8 +1108,9 @@ jobs:
           EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           EVENT_HEAD_REF: ${{ github.event.pull_request.head.ref }}
           # GitHub can redact a deleted fork from a merged pull-request
-          # payload. Keep empty values distinct from a present repository so
-          # the live check below can require the same state.
+          # payload. Validate the event shape, but do not treat source-head
+          # fields as immutable. GitHub permits a source branch to advance or
+          # be deleted after merge while the issue still needs locking.
           EVENT_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name || '' }}
           EVENT_HEAD_REPO_ID: ${{ github.event.pull_request.head.repo.id || '' }}
           EVENT_OPENER_ID: ${{ github.event.pull_request.user.id }}
@@ -1144,10 +1145,6 @@ jobs:
               --arg base_ref "${EVENT_BASE_REF}" \
               --arg base_repo "${EVENT_BASE_REPO}" \
               --argjson base_repo_id "${EVENT_BASE_REPO_ID}" \
-              --arg head_sha "${EVENT_HEAD_SHA}" \
-              --arg head_ref "${EVENT_HEAD_REF}" \
-              --arg event_head_repo "${EVENT_HEAD_REPO}" \
-              --arg event_head_repo_id "${EVENT_HEAD_REPO_ID}" \
               --argjson opener_id "${EVENT_OPENER_ID}" \
               --arg opener_login "${EVENT_OPENER_LOGIN}" '
                 .number == $number and
@@ -1158,21 +1155,19 @@ jobs:
                 .base.repo.full_name == $repo and
                 .base.repo.id == $base_repo_id and
                 (.head.sha | type == "string") and
-                .head.sha == $head_sha and
                 (.head.ref | type == "string") and
-                .head.ref == $head_ref and
                 (
-                  if $event_head_repo == "" and $event_head_repo_id == "" then
-                    .head.repo == null
+                  if .head.repo == null then
+                    true
                   else
                     (.head.repo.full_name | type == "string") and
-                    .head.repo.full_name == $event_head_repo and
                     (.head.repo.id | type == "number") and
-                    (.head.repo.id | tostring) == $event_head_repo_id
+                    .head.repo.id > 0
                   end
                 ) and
                 .user.id == $opener_id and
-                .user.login == $opener_login
+                (.user.login | type == "string") and
+                (.user.login | length > 0)
               ' <<<"${live_pr_json}" >/dev/null || return 1
           }
 
