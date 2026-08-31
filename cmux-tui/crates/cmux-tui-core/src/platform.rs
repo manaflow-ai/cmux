@@ -987,6 +987,28 @@ fn default_terminal_cwd_from(launch: Option<&Path>) -> Option<String> {
     home_dir().map(|path| path.to_string_lossy().into_owned())
 }
 
+/// Resolve a requested spawn working directory to an existing local
+/// directory, degrading instead of failing. A terminal-reported OSC 7 URL
+/// (Ghostty shell integration emits `file://<dhcp-name>/...`), a path on
+/// another host, or a directory that no longer exists must never abort a
+/// spawn: one tab's weird pwd report must not make every new tab fail with
+/// ENOENT. Falls back to the process launch directory, then home; `None`
+/// (spawn inherits the parent process cwd) only when even those are gone.
+pub fn safe_spawn_cwd(requested: Option<&str>) -> Option<PathBuf> {
+    if let Some(requested) = requested {
+        if let Some(path) = terminal_pwd_to_local_path(requested)
+            && path.is_dir()
+        {
+            return Some(path);
+        }
+        eprintln!(
+            "cmux-tui: requested terminal cwd {requested:?} is not a usable local directory; \
+             spawning in the default directory instead"
+        );
+    }
+    default_terminal_cwd().map(PathBuf::from).filter(|path| path.is_dir())
+}
+
 /// Convert a terminal-reported OSC 7 working directory into a local path.
 ///
 /// Shells normally report `file://host/path`. A URI from another host cannot
@@ -1433,5 +1455,31 @@ mod tests {
     fn local_hostname_decoder_accepts_non_utf8_os_bytes() {
         assert_eq!(decode_local_hostname(b"host\xff"), Some("host�".to_string()));
         assert_eq!(decode_local_hostname(b""), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn safe_spawn_cwd_degrades_bad_requests_and_keeps_good_directories() {
+        let dir = std::env::temp_dir();
+        let dir_text = dir.to_string_lossy().into_owned();
+        // A real local directory passes through unchanged.
+        assert_eq!(safe_spawn_cwd(Some(&dir_text)), Some(dir.clone()));
+        // A foreign-host OSC 7 URL, a nonexistent directory, and a URL whose
+        // path does not exist all degrade to a usable default, never None on
+        // a machine with a launch directory or home.
+        for bad in [
+            "file://someweirdhost/tmp",
+            "/definitely/not/a/real/dir-cmux-test",
+            "file://localhost/definitely/not/a/real/dir-cmux-test",
+        ] {
+            let fallback = safe_spawn_cwd(Some(bad));
+            assert_ne!(fallback.as_deref(), Some(Path::new(bad)), "{bad}");
+            assert!(fallback.as_ref().is_some_and(|path| path.is_dir()), "{bad} -> {fallback:?}");
+        }
+        // No request keeps the plain default.
+        assert_eq!(
+            safe_spawn_cwd(None).map(|path| path.to_string_lossy().into_owned()),
+            default_terminal_cwd()
+        );
     }
 }

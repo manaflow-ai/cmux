@@ -3352,8 +3352,17 @@ mod unix {
         frames
     }
 
+    /// The adopting daemon stores this as the surface's spawn cwd, so it must
+    /// be a LOCAL PATH, never the raw OSC 7 report. Ghostty shell integration
+    /// emits `file://<dhcp-name>/...`; a host name the locality check cannot
+    /// verify would otherwise poison every later cwd inheritance (new tabs
+    /// fail ENOENT on the URL). Unconvertible reports keep the launch cwd.
     fn snapshot_cwd(term: &Terminal, spawn_cwd: Option<&str>) -> Option<String> {
-        term.pwd().or_else(|| spawn_cwd.map(str::to_owned))
+        term.pwd()
+            .as_deref()
+            .and_then(crate::platform::terminal_pwd_to_local_path)
+            .map(|path| path.to_string_lossy().into_owned())
+            .or_else(|| spawn_cwd.map(str::to_owned))
     }
 
     impl HostShared {
@@ -4874,7 +4883,11 @@ mod unix {
         for (key, value) in &launch.extra_env {
             command.env(key, value);
         }
-        if let Some(cwd) = launch.cwd.as_deref() {
+        // Never abort the launch over the requested directory: an inherited
+        // cwd can name a deleted directory or an unconvertible OSC 7 report
+        // from an unrelated tab, and "new tab fails to open" is worse than
+        // spawning in the default directory.
+        if let Some(cwd) = crate::platform::safe_spawn_cwd(launch.cwd.as_deref()) {
             command.cwd(cwd);
         }
         let cmux_pty::SpawnedPty { master, mut child } = pty.spawn(command)?;

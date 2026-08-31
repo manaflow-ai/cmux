@@ -13177,14 +13177,16 @@ impl Mux {
         attached
     }
 
-    /// Working directory of a pane's active surface, if reported.
+    /// Working directory of a pane's active surface, if reported. An exited
+    /// terminal (kept as a durable receipt) no longer describes where the
+    /// user is working, so it contributes nothing to inheritance.
     fn pane_cwd(&self, pane: PaneId) -> Option<String> {
         let surface = {
             let state = self.state.lock().unwrap();
             let active = state.panes.get(&pane)?.active_surface()?;
             state.surfaces.get(&active).cloned()
         };
-        surface.and_then(|surface| surface.local_cwd())
+        surface.filter(|surface| surface.terminal_exit().is_none()).and_then(|s| s.local_cwd())
     }
 
     fn workspace_key_for_pane(&self, pane: PaneId) -> Option<String> {
