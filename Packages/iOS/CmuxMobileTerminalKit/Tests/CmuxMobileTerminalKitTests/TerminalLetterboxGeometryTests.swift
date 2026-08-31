@@ -190,7 +190,7 @@ struct TerminalLetterboxGeometryTests {
             chromeHidden: true,
             topContentInset: 106
         )
-        #expect(size.height == 874 - 106)
+        #expect(size.height == 768) // 874 - 106 band
     }
 
     @Test("negative top content inset is clamped to zero")
