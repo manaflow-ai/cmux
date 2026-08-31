@@ -24,12 +24,9 @@ export const EMAIL_SUBJECT = "cmux Founder's Edition";
 // the session id rather than a per-delivery random value.
 const THREAD_REF_HEADER = "X-Entity-Ref-ID";
 
-function firstName(fullName: string | null | undefined): string {
+function firstName(fullName: string | null | undefined): string | null {
   const trimmed = (fullName ?? "").trim();
-  if (!trimmed) {
-    return "there";
-  }
-  return trimmed.split(/\s+/)[0];
+  return trimmed ? trimmed.split(/\s+/)[0] : null;
 }
 
 function buildBody(name: string): string {
@@ -128,7 +125,7 @@ export function buildFoundersWelcomeEmail(params: {
     to: params.to,
     sessionRef: params.sessionRef,
     subject: params.subject ?? EMAIL_SUBJECT,
-    text: buildBody(firstName(params.customerName)),
+    text: buildBody(firstName(params.customerName) ?? "there"),
   });
 }
 
@@ -169,7 +166,7 @@ export async function buildProWelcomeEmail(params: {
     // unavailable or has incomplete data.
   }
   const copy = { ...DEFAULT_PRO_WELCOME_COPY, ...localizedCopy };
-  const name = firstName(params.customerName) || copy.fallbackName;
+  const name = firstName(params.customerName) ?? copy.fallbackName;
   const greeting = copy.greeting.replace("{name}", name);
   const testflightLink = copy.testflightLink.replace(
     "{url}",

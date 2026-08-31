@@ -195,6 +195,19 @@ describe("buildFoundersWelcomeEmail", () => {
     expect(pro.text).toContain("TestFlight に登録する：https://cmux.com/dashboard/testflight");
   });
 
+  test("uses the selected locale's fallback name when the customer has no name", async () => {
+    const pro = await buildProWelcomeEmail({
+      ...baseParams,
+      customerName: null,
+      to: "customer@example.com",
+      sessionRef: "cs_pro_ja_fallback",
+      locale: "ja",
+    });
+
+    expect(pro.text.startsWith("お客様 さん、こんにちは！")).toBe(true);
+    expect(pro.text).not.toContain("there");
+  });
+
   test("falls back to English when a locale catalog is unavailable", async () => {
     const pro = await buildProWelcomeEmail({
       ...baseParams,

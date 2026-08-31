@@ -48,6 +48,10 @@ import {
   isUnsupportedVerificationFieldError,
   type StackPurchaseUser,
 } from "./stackVerification";
+import {
+  makePurchaseMagicLinkDeliveryStore,
+  type PurchaseMagicLinkDeliveryStore,
+} from "./emailVerificationDelivery";
 
 export { canonicalizeEmailForMatching } from "./emailMatching";
 
@@ -162,6 +166,7 @@ export type BillingPurchaseDependencies = {
   stackApp?: StackBillingApp | null;
   stripeClient?: () => StripeBillingClient;
   ownershipRepository?: BillingOwnershipRepository;
+  magicLinkDelivery?: PurchaseMagicLinkDeliveryStore;
   testflight?: {
     isAscConfigured?: () => boolean;
     enrollTester?: (
@@ -203,6 +208,7 @@ export type FoundersCheckoutCompletionResult =
 type UserCheckoutPostCommitSync = {
   user: StackBillingUser;
   email: string | null;
+  checkoutSessionId: string;
   stripeCustomerId: string;
   stackUserId: string;
   stackApp: StackBillingApp | null | undefined;
@@ -407,6 +413,7 @@ export async function recordCheckoutCompletion(
         postCommitUserSync: {
           user,
           email,
+          checkoutSessionId: input.session.id,
           stripeCustomerId: customerId,
           stackUserId,
           stackApp: checkoutStackApp,
@@ -425,7 +432,11 @@ export async function recordCheckoutCompletion(
     });
   }
   if (lockedResult.postCommitUserSync) {
-    await syncUserCheckoutAfterCommit(db, lockedResult.postCommitUserSync);
+    await syncUserCheckoutAfterCommit(
+      db,
+      lockedResult.postCommitUserSync,
+      dependencies,
+    );
   }
   if (resolvedFromAnonymousAlias) {
     const sourceToClear = remappedSourceStackUserId ?? requestedStackUserId;
@@ -653,11 +664,13 @@ export async function recordFoundersCheckoutCompletion(
         {
           user: freshUser,
           email,
+          checkoutSessionId: input.session.id,
           stripeCustomerId: customerId,
           stackUserId: user.id,
           stackApp,
         },
         mutationLease,
+        dependencies,
       );
       await syncProPlanMetadata(freshUser, true, mutationLease);
     },
@@ -1280,11 +1293,12 @@ async function transferBillingOwnershipClaim(
       )
       .limit(100);
     const sourceSubscriptionIDs = sourceSubscriptions.map((row) => row.id);
+    const sourceSubscriptionIDSet = new Set(sourceSubscriptionIDs);
     if (
       targetSubscriptions.some(
         (row) =>
           isActiveStripeSubscriptionStatus(row.status) &&
-          !sourceSubscriptionIDs.includes(row.id),
+          !sourceSubscriptionIDSet.has(row.id),
       )
     ) {
       return null;
@@ -1498,6 +1512,7 @@ function normalizeFounderSubscription(
 async function syncUserCheckoutAfterCommit(
   db: BillingDb,
   input: UserCheckoutPostCommitSync,
+  dependencies: BillingPurchaseDependencies,
 ): Promise<void> {
   await syncStackUserMetadataWithAccountDeletionGuard({
     db,
@@ -1505,13 +1520,19 @@ async function syncUserCheckoutAfterCommit(
     stackApp: input.stackApp,
     sync: async (user, mutationLease) => {
       if (input.email) {
-        await attachPurchaseEmailOrRecordClaim(db, {
-          user,
-          email: input.email,
-          stripeCustomerId: input.stripeCustomerId,
-          stackUserId: input.stackUserId,
-          stackApp: input.stackApp,
-        }, mutationLease);
+        await attachPurchaseEmailOrRecordClaim(
+          db,
+          {
+            user,
+            email: input.email,
+            checkoutSessionId: input.checkoutSessionId,
+            stripeCustomerId: input.stripeCustomerId,
+            stackUserId: input.stackUserId,
+            stackApp: input.stackApp,
+          },
+          mutationLease,
+          dependencies,
+        );
       }
       await syncProPlanMetadata(user, true, mutationLease);
     },
@@ -2404,11 +2425,13 @@ async function attachPurchaseEmailOrRecordClaim(
   input: {
     user: StackBillingUser;
     email: string;
+    checkoutSessionId: string;
     stripeCustomerId: string;
     stackUserId: string;
     stackApp: StackBillingApp | null | undefined;
   },
   mutationLease: AccountDeletionUserMutationLease,
+  dependencies: BillingPurchaseDependencies,
 ): Promise<void> {
   const purchaseEmail = canonicalizeEmailForMatching(input.email);
   if (input.user.isAnonymous === true) {
@@ -2423,7 +2446,7 @@ async function attachPurchaseEmailOrRecordClaim(
       await mutationLease.refresh();
       const inserted = await recordBillingEmailClaim(db, input);
       if (inserted) {
-        await requestPurchaseMagicLink(input.stackApp, input.email, mutationLease);
+        await requestPurchaseMagicLink(db, input, mutationLease, dependencies);
       }
       return;
     }
@@ -2434,13 +2457,13 @@ async function attachPurchaseEmailOrRecordClaim(
       try {
         await mutationLease.refresh();
         await promoteStackUserFromAnonymousViaApi(input.user.id, input.email);
-        await requestPurchaseMagicLink(input.stackApp, input.email, mutationLease);
+        await requestPurchaseMagicLink(db, input, mutationLease, dependencies);
       } catch (error) {
         if (!isEmailAlreadyUsedError(error)) throw error;
         await mutationLease.refresh();
         const inserted = await recordBillingEmailClaim(db, input);
         if (inserted) {
-          await requestPurchaseMagicLink(input.stackApp, input.email, mutationLease);
+          await requestPurchaseMagicLink(db, input, mutationLease, dependencies);
         }
       }
     } else {
@@ -2453,13 +2476,13 @@ async function attachPurchaseEmailOrRecordClaim(
           primaryEmailAuthEnabled: true,
           primaryEmailVerified: false,
         });
-        await requestPurchaseMagicLink(input.stackApp, input.email, mutationLease);
+        await requestPurchaseMagicLink(db, input, mutationLease, dependencies);
       } catch (error) {
         if (!isEmailAlreadyUsedError(error)) throw error;
         await mutationLease.refresh();
         const inserted = await recordBillingEmailClaim(db, input);
         if (inserted) {
-          await requestPurchaseMagicLink(input.stackApp, input.email, mutationLease);
+          await requestPurchaseMagicLink(db, input, mutationLease, dependencies);
         }
       }
     }
@@ -2473,7 +2496,7 @@ async function attachPurchaseEmailOrRecordClaim(
       canonicalizeEmailForMatching(input.user.primaryEmail) === purchaseEmail
     ) {
       if (input.user.primaryEmailVerified !== true) {
-        await requestPurchaseMagicLink(input.stackApp, input.email, mutationLease);
+        await requestPurchaseMagicLink(db, input, mutationLease, dependencies);
       }
     }
     return;
@@ -2497,7 +2520,7 @@ async function attachPurchaseEmailOrRecordClaim(
       primaryEmailAuthEnabled: true,
       primaryEmailVerified: false,
     });
-    await requestPurchaseMagicLink(input.stackApp, input.email, mutationLease);
+    await requestPurchaseMagicLink(db, input, mutationLease, dependencies);
   } catch (error) {
     if (!isEmailAlreadyUsedError(error)) throw error;
     await mutationLease.refresh();
@@ -2628,19 +2651,37 @@ async function recordBillingEmailClaim(
 
 /** Send one best-effort sign-in link after parking or promoting a purchase. */
 async function requestPurchaseMagicLink(
-  stackApp: StackBillingApp | null | undefined,
-  email: string,
+  db: BillingDb,
+  input: {
+    email: string;
+    checkoutSessionId: string;
+    stackUserId: string;
+    stackApp: StackBillingApp | null | undefined;
+  },
   mutationLease: AccountDeletionUserMutationLease,
+  dependencies: BillingPurchaseDependencies,
 ): Promise<void> {
-  if (!stackApp?.sendMagicLinkEmail) return;
+  if (!input.stackApp?.sendMagicLinkEmail) return;
   await mutationLease.refresh();
   try {
-    const result = await stackApp.sendMagicLinkEmail(email, {
-      callbackUrl: PURCHASE_MAGIC_LINK_CALLBACK,
-    });
-    if (isFailedStackResult(result)) {
-      throw new Error("Stack sign-in link request failed");
-    }
+    const deliveryStore =
+      dependencies.magicLinkDelivery ?? makePurchaseMagicLinkDeliveryStore(db);
+    await deliveryStore.deliverOnce(
+      {
+        checkoutSessionId: input.checkoutSessionId,
+        stackUserId: input.stackUserId,
+        email: canonicalizeEmailForMatching(input.email),
+      },
+      async () => {
+        await mutationLease.refresh();
+        const result = await input.stackApp!.sendMagicLinkEmail!(input.email, {
+          callbackUrl: PURCHASE_MAGIC_LINK_CALLBACK,
+        });
+        if (isFailedStackResult(result)) {
+          throw new Error("Stack sign-in link request failed");
+        }
+      },
+    );
   } catch {
     // The billing rows are already durable. A failed message can be retried by
     // the recovery endpoint, so email delivery must not roll back a purchase.

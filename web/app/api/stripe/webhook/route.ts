@@ -204,6 +204,9 @@ async function processStripeEvent(
       // only as a fallback for deployments that have not configured the
       // personal endpoint; when both endpoints are configured this gate avoids
       // double-sending the customer.
+      // The personal endpoint's Pro message contains the TestFlight signup
+      // link. TestFlight enrollment remains an explicit signed-in user action
+      // in /api/testflight, so this webhook must not auto-enroll the buyer.
       if (
         result.scope === "user" &&
         isPersonalProCheckout(expanded, subscription) &&

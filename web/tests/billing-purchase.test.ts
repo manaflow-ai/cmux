@@ -1136,6 +1136,47 @@ describe("recordCheckoutCompletion", () => {
     });
   });
 
+  test("deduplicates recovery mail when the same checkout webhook repeats", async () => {
+    const update = mock(async () => undefined);
+    const sendMagicLinkEmail = mock(async () => undefined);
+    const user = {
+      id: "user_123",
+      primaryEmail: "buyer@example.com",
+      primaryEmailVerified: false,
+      primaryEmailAuthEnabled: true,
+      clientReadOnlyMetadata: {},
+      update,
+    };
+    const sentCheckoutSessions = new Set<string>();
+    const magicLinkDelivery = {
+      deliverOnce: mock(
+        async (
+          input: { checkoutSessionId: string },
+          deliver: () => Promise<void>,
+        ) => {
+          if (sentCheckoutSessions.has(input.checkoutSessionId)) {
+            return "already_sent" as const;
+          }
+          await deliver();
+          sentCheckoutSessions.add(input.checkoutSessionId);
+          return "sent" as const;
+        },
+      ),
+    };
+    const input = checkoutInput();
+    const dependencies = {
+      db: fakeDb() as never,
+      stackApp: { getUser: async () => user, sendMagicLinkEmail } as never,
+      magicLinkDelivery: magicLinkDelivery as never,
+    };
+
+    await recordCheckoutCompletion(input as never, dependencies);
+    await recordCheckoutCompletion(input as never, dependencies);
+
+    expect(magicLinkDelivery.deliverOnce).toHaveBeenCalledTimes(2);
+    expect(sendMagicLinkEmail).toHaveBeenCalledTimes(1);
+  });
+
   test("keeps an unverified anonymous checkout account until mailbox confirmation", async () => {
     const previousFetch = globalThis.fetch;
     const update = mock(async () => undefined);
