@@ -983,6 +983,7 @@ fn install_provider(
             ensure_replaceable_target(path)?;
             let nested = matches!(provider.format, Format::Nested { .. });
             let mut root = read_json_object(path)?;
+            let previous_root = root.clone();
             let before = serde_json::to_vec(&root)?;
             rewrite_json_hooks(&mut root, provider, nested, timeout, true)?;
             if provider.id == "cursor" && !root.contains_key("version") {
@@ -996,7 +997,13 @@ fn install_provider(
             // malformed or unwritable config must fail the install while
             // hooks.json stays byte-identical to its pre-install state.
             let trust = if provider.id == "codex" {
-                prepare_codex_trust_state(path, from_env_override, &root, /*install*/ true)?
+                prepare_codex_trust_state(
+                    path,
+                    from_env_override,
+                    &root,
+                    &previous_root,
+                    /*install*/ true,
+                )?
             } else {
                 None
             };
@@ -1062,10 +1069,15 @@ fn uninstall_provider(
     match provider.format {
         Format::Nested { .. } | Format::Flat { .. } => {
             ensure_replaceable_target(path)?;
-            // Render the cleaned hooks.json without writing it yet.
+            // Render the cleaned hooks.json without writing it yet, keeping
+            // the pre-rewrite content: the trust entries of exactly the hooks
+            // being removed are deleted by positional key, whatever hash a
+            // codex re-review may have stored for them.
+            let mut previous_root = Map::new();
             let pending_hooks = if path.exists() {
                 let nested = matches!(provider.format, Format::Nested { .. });
                 let mut root = read_json_object(path)?;
+                previous_root = root.clone();
                 let before = serde_json::to_vec(&root)?;
                 rewrite_json_hooks(&mut root, provider, nested, 0, false)?;
                 let after = serde_json::to_vec(&root)?;
@@ -1087,6 +1099,7 @@ fn uninstall_provider(
                     path,
                     from_env_override,
                     &Map::new(),
+                    &previous_root,
                     /*install*/ false,
                 )?
             } else {
@@ -1743,8 +1756,44 @@ struct CodexTrustEdit {
     config_path: PathBuf,
     key_prefix: String,
     desired: BTreeMap<String, String>,
+    /// Positional keys of the cmux-owned hooks in hooks.json BEFORE this
+    /// operation rewrote it. These entries are deleted regardless of their
+    /// hash value: codex persists a NEW hash when a user reviews and accepts
+    /// a modified cmux hook, so hash matching alone would leave that entry
+    /// behind to pollute a later hook at the same positional key.
+    removal_keys: BTreeSet<String>,
     owned_hashes: BTreeSet<String>,
     install: bool,
+}
+
+/// Positional trust keys of every cmux-owned handler occurrence in `root`.
+fn codex_owned_entry_keys(key_hooks_path: &Path, root: &Map<String, Value>) -> BTreeSet<String> {
+    let mut keys = BTreeSet::new();
+    let Some(hooks) = root.get("hooks").and_then(Value::as_object) else {
+        return keys;
+    };
+    for (event, groups) in hooks {
+        let Ok(label) = codex_event_state_label(event) else {
+            continue;
+        };
+        let Some(groups) = groups.as_array() else {
+            continue;
+        };
+        for (group_index, group) in groups.iter().enumerate() {
+            let Some(handlers) = group.get("hooks").and_then(Value::as_array) else {
+                continue;
+            };
+            for (handler_index, handler) in handlers.iter().enumerate() {
+                if handler.get("command").and_then(Value::as_str).is_some_and(is_owned_command) {
+                    keys.insert(format!(
+                        "{}:{label}:{group_index}:{handler_index}",
+                        key_hooks_path.display()
+                    ));
+                }
+            }
+        }
+    }
+    keys
 }
 
 /// A fully validated, pre-rendered config.toml trust-state write. Producing
@@ -1771,13 +1820,19 @@ fn render_codex_trust_document(
         let stale: Vec<String> = state
             .iter()
             .filter(|(key, entry)| {
+                // Primary removal follows the hooks this operation removes
+                // from hooks.json: their exact positional keys are deleted
+                // regardless of hash, covering entries codex re-trusted after
+                // a user edit. The canonical-hash sweep stays as secondary
+                // cleanup for orphaned keys from prior layouts.
                 key.starts_with(&edit.key_prefix)
                     && !edit.desired.contains_key(*key)
-                    && entry
-                        .as_table_like()
-                        .and_then(|entry| entry.get("trusted_hash"))
-                        .and_then(toml_edit::Item::as_str)
-                        .is_some_and(|hash| edit.owned_hashes.contains(hash))
+                    && (edit.removal_keys.contains(*key)
+                        || entry
+                            .as_table_like()
+                            .and_then(|entry| entry.get("trusted_hash"))
+                            .and_then(toml_edit::Item::as_str)
+                            .is_some_and(|hash| edit.owned_hashes.contains(hash)))
             })
             .map(|(key, _)| key.to_string())
             .collect();
@@ -1817,6 +1872,7 @@ fn prepare_codex_trust_state(
     hooks_path: &Path,
     from_env_override: bool,
     root: &Map<String, Value>,
+    previous_root: &Map<String, Value>,
     install: bool,
 ) -> anyhow::Result<Option<PreparedCodexTrustWrite>> {
     let parent = hooks_path.parent().context("codex hooks path has no parent")?;
@@ -1834,6 +1890,7 @@ fn prepare_codex_trust_state(
     }
     let edit = CodexTrustEdit {
         key_prefix: format!("{}:", key_hooks_path.display()),
+        removal_keys: codex_owned_entry_keys(&key_hooks_path, previous_root),
         owned_hashes: codex_owned_trust_hashes()?,
         config_path,
         desired,
@@ -2441,9 +2498,10 @@ mod tests {
         // Reset the trust state so a fresh edit is pending, then preflight it.
         atomic_write(&config_path, b"model = \"gpt-5.6\"\n", Some(0o600)).unwrap();
         let hooks_root = read_json_object(&hooks_path).unwrap();
-        let prepared = prepare_codex_trust_state(&hooks_path, false, &hooks_root, true)
-            .unwrap()
-            .expect("trust entries are missing, so an edit must be pending");
+        let prepared =
+            prepare_codex_trust_state(&hooks_path, false, &hooks_root, &hooks_root, true)
+                .unwrap()
+                .expect("trust entries are missing, so an edit must be pending");
 
         // A concurrent writer (codex's own trust review or the user) edits
         // config.toml between the preflight and the commit; the commit must
@@ -2461,7 +2519,9 @@ mod tests {
         atomic_write(&config_path, b"model = \"gpt-5.6\"\n", Some(0o600)).unwrap();
         let hooks_root = read_json_object(&hooks_path).unwrap();
         let prepared =
-            prepare_codex_trust_state(&hooks_path, false, &hooks_root, true).unwrap().unwrap();
+            prepare_codex_trust_state(&hooks_path, false, &hooks_root, &hooks_root, true)
+                .unwrap()
+                .unwrap();
         let installed_hooks = fs::read(&hooks_path).unwrap();
         atomic_write(&config_path, b"hooks = true\n", Some(0o600)).unwrap();
         atomic_write(&hooks_path, b"{}\n", Some(0o600)).unwrap();
@@ -2531,6 +2591,47 @@ mod tests {
         assert!(state.is_empty(), "only the empty skeleton may remain: {state:?}");
         let text = fs::read_to_string(context.home.join(".codex/config.toml")).unwrap();
         assert!(!text.contains("trusted_hash"), "{text}");
+    }
+
+    #[test]
+    fn codex_uninstall_removes_a_re_accepted_trust_entry() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let install = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        assert!(!run_with_context(&install, &context).failed);
+        let hooks_path = context.home.join(".codex/hooks.json");
+        let config_path = context.home.join(".codex/config.toml");
+
+        // Simulate codex re-accepting a user-edited cmux hook: the entry
+        // keeps the cmux hook's positional key but carries a NEW hash that
+        // no canonical command shape produces. Add a user-owned entry at
+        // another key that must survive.
+        let mut doc: toml_edit::DocumentMut =
+            fs::read_to_string(&config_path).unwrap().parse().unwrap();
+        let state = doc["hooks"]["state"].as_table_like_mut().unwrap();
+        let stop_key = format!("{}:stop:0:0", hooks_path.display());
+        state
+            .get_mut(&stop_key)
+            .unwrap()
+            .as_table_like_mut()
+            .unwrap()
+            .insert("trusted_hash", toml_edit::value("sha256:re-accepted-after-user-edit"));
+        let mut user_entry = toml_edit::InlineTable::new();
+        user_entry.insert("trusted_hash", toml_edit::Value::from("sha256:user"));
+        let user_key = "manual/hooks.json:stop:0:0";
+        state.insert(user_key, toml_edit::Item::Value(user_entry.into()));
+        atomic_write(&config_path, doc.to_string().as_bytes(), Some(0o600)).unwrap();
+
+        let uninstall = Plan { action: Action::Uninstall, providers: vec!["codex".into()] };
+        let result = run_with_context(&uninstall, &context);
+        assert!(!result.failed, "{}", result.value);
+        // The hook left hooks.json, so its trust entry must go with it by
+        // positional key, regardless of the re-accepted hash value.
+        assert!(!fs::read_to_string(&hooks_path).unwrap().contains(COMMAND_MARKER));
+        let state = codex_state_table(&context);
+        assert!(!state.contains_key(&stop_key), "{state:?}");
+        assert_eq!(state.len(), 1, "{state:?}");
+        assert!(state.contains_key(user_key));
     }
 
     #[test]
