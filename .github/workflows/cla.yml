@@ -54,11 +54,10 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
         run: |
           set -euo pipefail
-          if ! pr_data="$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}" --jq '{commits: .commits, opener: .user.login, opener_type: .user.type}' 2>/dev/null)"; then
+          if ! commit_count="$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}" --jq '.commits' 2>/dev/null)"; then
             echo "::error::Could not query the pull request commit count"
             exit 1
           fi
-          commit_count="$(jq -r '.commits' <<<"${pr_data}")"
           if ! [[ "${commit_count}" =~ ^[0-9]+$ ]]; then
             echo "::error::Could not determine the pull request commit count"
             exit 1
@@ -68,25 +67,10 @@ jobs:
             exit 1
           fi
 
-          # The integration owns its automated PRs. Skip the archived action
-          # for that authenticated App identity instead of trusting raw commit
-          # names through its spoofable allowlist.
-          bot_exempt='false'
-          if [[ "$(jq -r '.opener' <<<"${pr_data}")" == 'chatmux-connections[bot]' ]] &&
-             [[ "$(jq -r '.opener_type' <<<"${pr_data}")" == 'Bot' ]]; then
-            bot_exempt='true'
-          fi
-          printf 'bot_exempt=%s\n' "${bot_exempt}" >> "${GITHUB_OUTPUT}"
-
-      - name: "Accept trusted automation contribution"
-        if: steps.cla-preflight.outputs.bot_exempt == 'true'
-        run: echo "CLA check exempted for the authenticated Manaflow automation PR"
-
       - name: "CLA Assistant"
         # The action handles signing and status updates. Merged pull requests
         # use the explicit lock step below because the archived action sends
         # an invalid lock request.
-        if: steps.cla-preflight.outputs.bot_exempt != 'true'
         uses: contributor-assistant/github-action@ca4a40a7d1004f18d9960b404b97e5f30a505a08 # v2.6.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -99,7 +83,10 @@ jobs:
           lock-pullrequest-aftermerge: 'false'
           # signatures live on the unprotected cla-signatures branch so required checks on main don't block the bot's signature commits
           branch: 'cla-signatures'
-          # Require the exact phrase below. No raw-name allowlist is used.
+          # Require the exact phrase below. Do not use the action's raw-name
+          # allowlist: an unlinked commit identity can spoof it. Automated PRs
+          # follow this same fail-closed path until an authenticated signer is
+          # available.
           custom-pr-sign-comment: 'I have read the CLA Document and I hereby sign the CLA'
 
   LockMergedPullRequest:
