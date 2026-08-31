@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Exercise the unprivileged CLA trigger admission gate. The shell gate must
 # reject case variants and wrapped comments. The job-level expression is a
-# coarse prefilter, and its shared concurrency group bounds candidate floods.
+# coarse prefilter; exact admission runs before the signer queue.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -15,17 +15,27 @@ if rg -n 'changes\.base' "$WORKFLOW" >/dev/null; then
 fi
 
 # The protected ruleset must be migrated to the versioned check context before
-# enforcement. Keep admission non-canceling and bounded by event type so a
-# public comment cannot consume an unbounded number of runners.
+# enforcement. Exact admission must run before any replace-one queue, so a
+# case-variant comment cannot replace a valid pending comment.
 grep -Fq 'name: "CLA Assistant v2"' "$WORKFLOW"
 grep -Fq 'name: "CLA Assistant"' "$WORKFLOW"
-grep -Fq 'group: >-' "$WORKFLOW"
-grep -Fq "cla-admission-\${{ github.repository }}-\${{ github.event.issue.number || github.event.pull_request.number }}" "$WORKFLOW"
 grep -Fq 'github.event.comment.body == '\''recheck'\''' "$WORKFLOW"
 grep -Fq 'github.event.comment.body == '\''I have read the CLA Document v2.2 and I hereby sign the CLA'\''' "$WORKFLOW"
 grep -Fq 'always() &&' "$WORKFLOW"
 grep -Fq 'cancel-in-progress: false' "$WORKFLOW"
 grep -Fq "group: cla-signatures-\${{ github.repository }}-\${{ github.event.pull_request.number || github.event.issue.number }}" "$WORKFLOW"
+for job in CLACommentGate CLAAssistant CLACompatibility RerunFailedCLA LockMergedPullRequest; do
+  job_block="$(awk -v job="$job" '$0 == "  " job ":" { in_job=1; next } in_job && /^  [A-Za-z0-9_]+:/ { exit } in_job { print }' "$WORKFLOW")"
+  if [[ "$job_block" != *$'    runs-on: ubuntu-latest'* ]]; then
+    echo "FAIL: $job must run on a GitHub-hosted runner" >&2
+    exit 1
+  fi
+done
+gate_group_block="$(awk '/^  CLACommentGate:/ { in_job=1; next } in_job && /^  [A-Za-z0-9_]+:/ { exit } in_job { print }' "$WORKFLOW")"
+if [[ "$gate_group_block" == *$'\n    concurrency:'* ]]; then
+  echo 'FAIL: exact CLA admission gate must not use a replace-one concurrency queue' >&2
+  exit 1
+fi
 if rg -n -- '--paginate|--slurp' "$WORKFLOW" >/dev/null; then
   echo 'FAIL: CLA rerun queries must use explicit bounded pages' >&2
   exit 1
@@ -33,18 +43,6 @@ fi
 grep -Fq "path-to-signatures: 'signatures/version2/cla.json'" "$WORKFLOW"
 grep -Fq "github.event.comment.body == 'recheck'" "$WORKFLOW"
 grep -Fq "github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA'" "$WORKFLOW"
-if grep -Fq "cla-trigger-\${{ github.run_id }}" "$WORKFLOW"; then
-  echo 'FAIL: CLA trigger gate admits an unbounded per-event runner group' >&2
-  exit 1
-fi
-gate_group_block="$(awk '/^  CLACommentGate:/ { in_job=1; next } in_job && /^  [A-Za-z0-9_]+:/ { exit } in_job && /^    concurrency:$/ { in_group=1; next } in_group && /^    [A-Za-z0-9_]+:/ { exit } in_group { print }' "$WORKFLOW")"
-if [[ "$gate_group_block" == *'github.run_'* ||
-      "$gate_group_block" == *'github.event.comment.body }}'* ||
-      "$gate_group_block" == *'github.event.pull_request.head.sha'* ]]; then
-  echo 'FAIL: CLA admission group contains an unbounded or raw event value' >&2
-  exit 1
-fi
-
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 gate_script="$work/gate.sh"

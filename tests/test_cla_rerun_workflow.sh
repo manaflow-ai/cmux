@@ -74,16 +74,19 @@ export SIGNATURE_RECORDED=false
 # run still carries head_repository identity. GitHub may report the source PR
 # SHA or a different execution SHA on a pull_request_target run, so this fixture
 # keeps the live PR head at `aaaa...` and, for the populated-association case,
-# the selected run/job execution SHA at `bbbb...`. An empty-association run
-# with a different execution SHA is accepted only when its commit association
-# independently identifies the current PR.
+# the selected run/job execution SHA at `bbbb...`. A populated pull_requests
+# object binds that differing execution to the source PR. An empty association
+# must use the exact live PR head SHA or fail closed.
 gh() {
   local endpoint=""
+  local api_page=1
   local arg
   for arg in "$@"; do
+    if [[ "$arg" == page=* ]]; then
+      api_page="${arg#page=}"
+    fi
     if [[ "$arg" == repos/* ]]; then
       endpoint="$arg"
-      break
     fi
   done
   [[ -n "$endpoint" ]] || {
@@ -113,7 +116,7 @@ gh() {
     wrong-head-repo) run_head_repo=attacker/cmux; run_head_repo_id=201; run_prs='[]' ;;
     association-overflow) run_prs='[]' ;;
     fork-current|empty-run-association) run_prs='[]'; run_sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ;;
-    empty-different-execution-associated|execution-association-mismatch) run_prs='[]' ;;
+    empty-different-execution-associated) run_prs='[]' ;;
     same-repo-empty)
       run_prs='[]'
       run_head_repo=manaflow-ai/cmux
@@ -149,12 +152,12 @@ gh() {
     repos/manaflow-ai/cmux/commits/*/pulls)
       if [[ "${FAKE_MODE}" == association-overflow ]]; then
         jq -nc '[range(0; 100) | {number:(1000 + .),base:{ref:"main",repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",repo:{id:200,full_name:"contributor/cmux"}}}]'
+      elif [[ "${FAKE_MODE}" == paginated-associations && "${api_page}" == 1 ]]; then
+        jq -nc '[range(0; 100) | {number:(1000 + .),base:{ref:"main",repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"cccccccccccccccccccccccccccccccccccccccc",repo:{id:200,full_name:"contributor/cmux"}}}]'
+      elif [[ "${FAKE_MODE}" == paginated-associations && "${api_page}" == 2 ]]; then
+        jq -nc '[{number:123,base:{ref:"main",repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",repo:{id:200,full_name:"contributor/cmux"}}}]'
       elif [[ "${FAKE_MODE}" == same-repo-empty ]]; then
         jq -nc '[{number:123,base:{ref:"main",repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",repo:{id:100,full_name:"manaflow-ai/cmux"}}}]'
-      elif [[ "${FAKE_MODE}" == empty-different-execution-associated && "$endpoint" == *bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb* ]]; then
-        jq -nc '[{number:123,base:{ref:"main",repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",repo:{id:200,full_name:"contributor/cmux"}}}]'
-      elif [[ "${FAKE_MODE}" == execution-association-mismatch && "$endpoint" == *bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb* ]]; then
-        jq -nc '[{number:123,base:{ref:"main",repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",repo:{id:200,full_name:"contributor/cmux"}}}]'
       else
         printf '[]\n'
       fi
@@ -168,7 +171,11 @@ gh() {
         fi
         printf '%s\n' "$association_call" >"${FAKE_ASSOC_CALL_FILE}"
       fi
-      if [[ "${FAKE_MODE}" == ambiguous-association || ( "${FAKE_MODE}" == late-ambiguous && "$association_call" -gt 1 ) ]]; then
+      if [[ "${FAKE_MODE}" == paginated-open-prs && "${api_page}" == 1 ]]; then
+        jq -nc '[range(0; 100) | {number:(1000 + .),state:"open",base:{ref:"main",repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"cccccccccccccccccccccccccccccccccccccccc",repo:{id:200,full_name:"contributor/cmux"}}}]'
+      elif [[ "${FAKE_MODE}" == paginated-open-prs && "${api_page}" == 2 ]]; then
+        jq -nc '[{number:123,state:"open",base:{ref:"main",repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",repo:{id:200,full_name:"contributor/cmux"}}}]'
+      elif [[ "${FAKE_MODE}" == ambiguous-association || ( "${FAKE_MODE}" == late-ambiguous && "$association_call" -gt 1 ) ]]; then
         jq -nc '[
           {number:123,state:"open",base:{ref:"main",repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",repo:{id:200,full_name:"contributor/cmux"}}},
           {number:124,state:"open",base:{ref:"main",repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",repo:{id:200,full_name:"contributor/cmux"}}}
@@ -178,10 +185,16 @@ gh() {
       fi
       ;;
     repos/manaflow-ai/cmux/actions/workflows)
-      printf '{"workflows":[{"id":300,"path":".github/workflows/cla.yml","state":"active"}]}\n'
+      if [[ "${FAKE_MODE}" == paginated-workflows && "${api_page}" == 1 ]]; then
+        jq -nc '{workflows:[range(0; 100) | {id:(1000 + .),path:(".github/workflows/other-" + (.|tostring) + ".yml"),state:"active"}]}'
+      else
+        printf '{"workflows":[{"id":300,"path":".github/workflows/cla.yml","state":"active"}]}\n'
+      fi
       ;;
     repos/manaflow-ai/cmux/actions/workflows/300/runs)
-      if [[ "${FAKE_MODE}" == duplicate-runs ]]; then
+      if [[ "${FAKE_MODE}" == paginated-runs && "${api_page}" == 1 ]]; then
+        jq -nc '{workflow_runs:[range(0; 100) | {id:(1000 + .),workflow_id:300,path:".github/workflows/cla.yml",event:"pull_request_target",status:"completed",conclusion:"success",head_sha:"cccccccccccccccccccccccccccccccccccccccc",head_branch:"other",head_repository:{id:200,full_name:"contributor/cmux"},pull_requests:[],created_at:"2026-08-31T07:45:00Z"}]}'
+      elif [[ "${FAKE_MODE}" == duplicate-runs ]]; then
         jq -nc --arg head_repo "$run_head_repo" --argjson head_repo_id "$run_head_repo_id" --argjson head_repo_null "$run_head_repository_null" --arg run_sha "$run_sha" --arg path "$run_path" --argjson run_prs "$run_prs" \
           '{workflow_runs:[
             {id:400,workflow_id:300,path:$path,event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:(if $head_repo_null then null else {id:$head_repo_id,full_name:$head_repo} end),pull_requests:$run_prs,created_at:"2026-08-31T07:00:00Z"},
@@ -209,8 +222,12 @@ gh() {
         run_id=401
         job_id=501
       fi
-      jq -nc --argjson run_id "$run_id" --argjson job_id "$job_id" --arg marker "$marker" --arg run_sha "$run_sha" \
-        '{jobs:[{id:$job_id,run_id:$run_id,name:"CLA Assistant v2",workflow_name:"CLA Assistant v2",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[{name:$marker,status:"completed",conclusion:"success"}]}]}'
+      if [[ "${FAKE_MODE}" == paginated-jobs && "${api_page}" == 1 ]]; then
+        jq -nc --argjson run_id "$run_id" --arg run_sha "$run_sha" '{jobs:[range(0; 100) | {id:(1000 + .),run_id:$run_id,name:"unrelated",workflow_name:"CLA Assistant v2",status:"completed",conclusion:"success",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[]}]}'
+      else
+        jq -nc --argjson run_id "$run_id" --argjson job_id "$job_id" --arg marker "$marker" --arg run_sha "$run_sha" \
+          '{jobs:[{id:$job_id,run_id:$run_id,name:"CLA Assistant v2",workflow_name:"CLA Assistant v2",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[{name:$marker,status:"completed",conclusion:"success"}]}]}'
+      fi
       ;;
     repos/manaflow-ai/cmux/actions/jobs/500|repos/manaflow-ai/cmux/actions/jobs/501)
       local job_id=500
@@ -298,9 +315,13 @@ run_case fork-current 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case empty-run-association 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case same-repo-empty 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case association-overflow 1 "Too many pull request associations" 0
-run_case empty-different-execution-associated 0 "Requested rerun for CLA job 500 in workflow run 400" 1
-run_case execution-association-mismatch 1 "workflow execution SHA is not associated" 0
-run_case stale-empty-execution 1 "not associated with the current pull request" 0
+run_case paginated-associations 0 "Requested rerun for CLA job 500 in workflow run 400" 1
+run_case paginated-open-prs 0 "Requested rerun for CLA job 500 in workflow run 400" 1
+run_case paginated-workflows 0 "Requested rerun for CLA job 500 in workflow run 400" 1
+run_case paginated-runs 0 "Requested rerun for CLA job 500 in workflow run 400" 1
+run_case paginated-jobs 0 "Requested rerun for CLA job 500 in workflow run 400" 1
+run_case empty-different-execution-associated 1 "no pull request association and its execution SHA does not match" 0
+run_case stale-empty-execution 1 "no pull request association and its execution SHA does not match" 0
 run_case wrong-run-association 0 "No failed CLA run exists for this pull request head" 0
 run_case malformed-run-association 0 "No failed CLA run exists for this pull request head" 0
 run_case invalid-run-association 0 "No failed CLA run exists for this pull request head" 0

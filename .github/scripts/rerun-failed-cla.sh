@@ -76,12 +76,11 @@ if [[ "${COMMENT_BODY}" == "recheck" && "${COMMENT_AUTHOR_ID}" != "${pr_author_i
   esac
 fi
 
-# The workflow-run list can omit pull_requests for
-# pull_request_target runs. Resolve the commit through GitHub's PR
-# association endpoint when GitHub has the commit in the base repo.
-# Fork-only commits can legitimately return an empty list, so the
-# exact live PR plus the run head_repository binding below is the
-# association proof in that case.
+# The workflow-run list can omit pull_requests for pull_request_target runs.
+# The exact live PR plus the run head_repository/head_branch binding below is
+# used for populated source-head runs. Empty associations are accepted only
+# when the run execution SHA equals the live PR head SHA; a base or merge SHA
+# is not sufficient evidence for a privileged rerun.
 commit_prs_json="$(gh api \
   --method GET \
   --header 'Accept: application/vnd.github+json' \
@@ -91,7 +90,22 @@ commit_prs_json="$(gh api \
 jq -e 'type == "array"' <<<"${commit_prs_json}" >/dev/null || fail "Could not validate pull request associations"
 association_count="$(jq -r 'length' <<<"${commit_prs_json}")"
 [[ "${association_count}" =~ ^[0-9]+$ ]] || fail "Could not count pull request associations"
-(( association_count < 100 )) || fail "Too many pull request associations for this head; ask an administrator to resolve the association before requesting a rerun"
+(( association_count <= 100 )) || fail "The pull request association page is oversized"
+if (( association_count == 100 )); then
+  commit_prs_page2="$(gh api \
+    --method GET \
+    --header 'Accept: application/vnd.github+json' \
+    --raw-field per_page=100 \
+    --raw-field page=2 \
+    "repos/${GH_REPO}/commits/${head_sha}/pulls" 2>/dev/null)" || fail "Could not query pull request associations page 2"
+  jq -e 'type == "array"' <<<"${commit_prs_page2}" >/dev/null || fail "Could not validate pull request associations page 2"
+  commit_prs_page2_count="$(jq -r 'length' <<<"${commit_prs_page2}")"
+  [[ "${commit_prs_page2_count}" =~ ^[0-9]+$ ]] || fail "Could not count pull request associations page 2"
+  (( commit_prs_page2_count <= 100 )) || fail "The pull request association page is oversized"
+  commit_prs_json="$(jq -c --argjson page2 "${commit_prs_page2}" '. + $page2' <<<"${commit_prs_json}")"
+  association_count=$((association_count + commit_prs_page2_count))
+  (( commit_prs_page2_count < 100 )) || fail "Too many pull request associations for this head after two pages; ask an administrator to resolve the association before requesting a rerun"
+fi
 if (( association_count > 0 )); then
   jq -e \
     --arg repo "${GH_REPO}" \
@@ -138,7 +152,25 @@ validate_live_open_head_association() {
   jq -e 'type == "array"' <<<"${open_prs_page}" >/dev/null || fail "Could not validate live open pull requests"
   open_pr_count="$(jq -r 'length' <<<"${open_prs_page}")"
   [[ "${open_pr_count}" =~ ^[0-9]+$ ]] || fail "Could not count live open pull requests"
-  (( open_pr_count < 100 )) || fail "Too many open pull requests share this head; push a new head or ask an administrator to resolve the association before requesting a rerun"
+  (( open_pr_count <= 100 )) || fail "The live open pull request page is oversized"
+  if (( open_pr_count == 100 )); then
+    open_prs_page2="$(gh api \
+      --method GET \
+      --header 'Accept: application/vnd.github+json' \
+      --raw-field state=open \
+      --raw-field base="${TARGET_BASE_REF}" \
+      --raw-field head="${head_owner}:${head_ref}" \
+      --raw-field per_page=100 \
+      --raw-field page=2 \
+      "repos/${GH_REPO}/pulls" 2>/dev/null)" || fail "Could not query live open pull requests page 2"
+    jq -e 'type == "array"' <<<"${open_prs_page2}" >/dev/null || fail "Could not validate live open pull requests page 2"
+    open_pr_count2="$(jq -r 'length' <<<"${open_prs_page2}")"
+    [[ "${open_pr_count2}" =~ ^[0-9]+$ ]] || fail "Could not count live open pull requests page 2"
+    (( open_pr_count2 <= 100 )) || fail "The live open pull request page is oversized"
+    open_prs_page="$(jq -c --argjson page2 "${open_prs_page2}" '. + $page2' <<<"${open_prs_page}")"
+    open_pr_count=$((open_pr_count + open_pr_count2))
+    (( open_pr_count2 < 100 )) || fail "Too many open pull requests share this head after two pages; push a new head or ask an administrator to resolve the association before requesting a rerun"
+  fi
   open_prs_json="$(jq -c '[.]' <<<"${open_prs_page}")"
   if ! matching_open_prs_json="$(jq -c \
       --arg repo "${GH_REPO}" \
@@ -183,7 +215,22 @@ workflow_page="$(gh api \
 jq -e 'type == "object" and (.workflows | type == "array")' <<<"${workflow_page}" >/dev/null || fail "Could not validate repository workflows"
 workflow_count="$(jq -r '.workflows | length' <<<"${workflow_page}")"
 [[ "${workflow_count}" =~ ^[0-9]+$ ]] || fail "Could not count repository workflows"
-(( workflow_count < 100 )) || fail "Too many active repository workflows; ask an administrator to reduce the workflow list before requesting a rerun"
+(( workflow_count <= 100 )) || fail "The repository workflow page is oversized"
+if (( workflow_count == 100 )); then
+  workflow_page2="$(gh api \
+    --method GET \
+    --header 'Accept: application/vnd.github+json' \
+    --raw-field per_page=100 \
+    --raw-field page=2 \
+    "repos/${GH_REPO}/actions/workflows" 2>/dev/null)" || fail "Could not query repository workflows page 2"
+  jq -e 'type == "object" and (.workflows | type == "array")' <<<"${workflow_page2}" >/dev/null || fail "Could not validate repository workflows page 2"
+  workflow_count2="$(jq -r '.workflows | length' <<<"${workflow_page2}")"
+  [[ "${workflow_count2}" =~ ^[0-9]+$ ]] || fail "Could not count repository workflows page 2"
+  (( workflow_count2 <= 100 )) || fail "The repository workflow page is oversized"
+  workflow_page="$(jq -c --argjson page2 "${workflow_page2}" '.workflows += $page2.workflows' <<<"${workflow_page}")"
+  workflow_count=$((workflow_count + workflow_count2))
+  (( workflow_count2 < 100 )) || fail "Too many active repository workflows after two pages; ask an administrator to reduce the workflow list before requesting a rerun"
+fi
 workflow_json="$(jq -c '[.]' <<<"${workflow_page}")"
 workflow_id="$(jq -r --arg path "${WORKFLOW_PATH}" '[.[] | .workflows[]? | select(.path == $path and .state == "active") | .id] | if length == 1 then .[0] else empty end' <<<"${workflow_json}")"
 [[ "${workflow_id}" =~ ^[1-9][0-9]*$ ]] || fail "The expected CLA workflow is not active"
@@ -197,22 +244,49 @@ workflow_id="$(jq -r --arg path "${WORKFLOW_PATH}" '[.[] | .workflows[]? | selec
 # run, bind the candidate to the exact PR object, including its
 # source head SHA.
 # GitHub can return an empty array for fork pull_request_target runs,
-# so those candidates use the unique live open-PR association checked
-# above and the exact run head-repository binding below. The run's
-# head_sha is retained as an execution identity and is not assumed to
-# equal the source PR SHA.
+# so those candidates are retained only when the run's execution SHA equals
+# the live PR source SHA. Populated pull_requests records may bind a different
+# execution SHA to the exact source PR object.
 runs_page="$(gh api \
   --method GET \
   --header 'Accept: application/vnd.github+json' \
   --raw-field event="${TARGET_EVENT}" \
+  --raw-field branch="${head_ref}" \
   --raw-field per_page=100 \
   --raw-field page=1 \
   "repos/${GH_REPO}/actions/workflows/${workflow_id}/runs" 2>/dev/null)" || fail "Could not query CLA workflow runs"
 jq -e 'type == "object" and (.workflow_runs | type == "array")' <<<"${runs_page}" >/dev/null || fail "Could not validate CLA workflow runs"
 run_count="$(jq -r '.workflow_runs | length' <<<"${runs_page}")"
 [[ "${run_count}" =~ ^[0-9]+$ ]] || fail "Could not count CLA workflow runs"
-(( run_count < 100 )) || fail "Too many CLA workflow runs to inspect safely; push a new commit or ask an administrator to prune old runs before requesting a rerun"
+(( run_count <= 100 )) || fail "The CLA workflow run page is oversized"
 runs_json="$(jq -c '[.]' <<<"${runs_page}")"
+
+# The API returns newest runs first. Probe additional bounded pages when the
+# first page is full, so normal workflow history growth does not strand a
+# failed check. Keep a finite cap and fail with an actionable message if an
+# unusually busy branch still cannot be searched safely.
+page_count="${run_count}"
+page_number=2
+while (( page_count == 100 && page_number <= 10 )); do
+  next_runs_page="$(gh api \
+    --method GET \
+    --header 'Accept: application/vnd.github+json' \
+    --raw-field event="${TARGET_EVENT}" \
+    --raw-field branch="${head_ref}" \
+    --raw-field per_page=100 \
+    --raw-field page="${page_number}" \
+    "repos/${GH_REPO}/actions/workflows/${workflow_id}/runs" 2>/dev/null)" || fail "Could not query CLA workflow runs page ${page_number}"
+  jq -e 'type == "object" and (.workflow_runs | type == "array")' <<<"${next_runs_page}" >/dev/null || fail "Could not validate CLA workflow runs page ${page_number}"
+  page_count="$(jq -r '.workflow_runs | length' <<<"${next_runs_page}")"
+  [[ "${page_count}" =~ ^[0-9]+$ ]] || fail "Could not count CLA workflow runs page ${page_number}"
+  (( page_count <= 100 )) || fail "The CLA workflow returned an oversized run page"
+  runs_json="$(jq -c --argjson next_page "${next_runs_page}" '. + [$next_page]' <<<"${runs_json}")"
+  (( page_number++ ))
+done
+if (( page_count == 100 )); then
+  fail "Too many CLA workflow runs to inspect safely after 10 pages; push a new commit or ask an administrator to prune old runs before requesting a rerun"
+fi
+
 if ! candidate_list_json="$(jq -c \
     --arg path "${WORKFLOW_PATH}" \
     --arg event "${TARGET_EVENT}" \
@@ -388,7 +462,6 @@ run_head_branch="$(jq -r '.head_branch // empty' <<<"${candidate_json}")"
 validate_run_source_binding() {
   local run_payload="$1"
   local execution_sha pull_requests_type pull_request_count
-  local execution_prs_json execution_association_count
   execution_sha="$(jq -r '.head_sha // empty' <<<"${run_payload}")"
   [[ "${execution_sha}" =~ ^[0-9a-f]{40}$ ]] || fail "The workflow run execution SHA is invalid"
   pull_requests_type="$(jq -r 'if .pull_requests == null then "null" else (.pull_requests | type) end' <<<"${run_payload}")"
@@ -398,42 +471,14 @@ validate_run_source_binding() {
     *) fail "The workflow run pull request association is malformed" ;;
   esac
   [[ "${pull_request_count}" =~ ^[0-9]+$ ]] || fail "The workflow run pull request association count is invalid"
-  (( pull_request_count == 0 )) || return 0
-  [[ "${execution_sha}" == "${head_sha}" ]] && return 0
-
-  execution_prs_json="$(gh api \
-    --method GET \
-    --header 'Accept: application/vnd.github+json' \
-    --raw-field per_page=100 \
-    --raw-field page=1 \
-    "repos/${GH_REPO}/commits/${execution_sha}/pulls" 2>/dev/null)" || fail "Could not query workflow execution pull request associations"
-  execution_association_count="$(jq -r 'if type == "array" then length else -1 end' <<<"${execution_prs_json}")"
-  [[ "${execution_association_count}" =~ ^[0-9]+$ ]] || fail "Could not validate workflow execution pull request associations"
-  (( execution_association_count < 100 )) || fail "Too many pull request associations for the workflow execution head; ask an administrator to resolve the association before requesting a rerun"
-  jq -e \
-    --arg repo "${GH_REPO}" \
-    --arg pr "${PR_NUMBER}" \
-    --arg execution_sha "${execution_sha}" \
-    --arg base "${TARGET_BASE_REF}" \
-    --arg head_ref "${head_ref}" \
-    --arg head_repo "${head_repo}" \
-    --argjson head_repo_id "${head_repo_id}" \
-    --argjson repo_id "${repo_id}" '
-      type == "array" and
-      any(.[]?;
-        (.number | type == "number") and
-        (.number | tostring) == $pr and
-        .base.ref == $base and
-        .base.repo.full_name == $repo and
-        (.base.repo.id | type == "number") and
-        .base.repo.id == $repo_id and
-        .head.ref == $head_ref and
-        .head.sha == $execution_sha and
-        (.head.repo.id | type == "number") and
-        .head.repo.id == $head_repo_id and
-        .head.repo.full_name == $head_repo
-      )
-    ' <<<"${execution_prs_json}" >/dev/null || fail "The workflow execution SHA is not associated with the current pull request"
+  if (( pull_request_count == 0 )); then
+    # GitHub may omit pull_requests on a pull_request_target run. Without an
+    # authenticated PR object, accept only the source-head form. A base or
+    # merge execution SHA cannot be proved to belong to this PR, so fail
+    # closed instead of querying commit associations that may describe an
+    # ancestor or another pull request.
+    [[ "${execution_sha}" == "${head_sha}" ]] || fail "The workflow run has no pull request association and its execution SHA does not match the current pull request head"
+  fi
 }
 
 # Re-read the individual run. The list response is only a discovery
@@ -599,7 +644,22 @@ jobs_page="$(gh api \
 jq -e 'type == "object" and (.jobs | type == "array")' <<<"${jobs_page}" >/dev/null || fail "Could not validate jobs for the selected CLA run"
 job_count="$(jq -r '.jobs | length' <<<"${jobs_page}")"
 [[ "${job_count}" =~ ^[0-9]+$ ]] || fail "Could not count jobs for the selected CLA run"
-(( job_count < 100 )) || fail "Too many jobs in the selected CLA run; ask an administrator to inspect it before requesting a rerun"
+(( job_count <= 100 )) || fail "The selected CLA job page is oversized"
+if (( job_count == 100 )); then
+  jobs_page2="$(gh api \
+    --method GET \
+    --header 'Accept: application/vnd.github+json' \
+    --raw-field per_page=100 \
+    --raw-field page=2 \
+    "repos/${GH_REPO}/actions/runs/${run_id}/jobs" 2>/dev/null)" || fail "Could not query jobs for the selected CLA run page 2"
+  jq -e 'type == "object" and (.jobs | type == "array")' <<<"${jobs_page2}" >/dev/null || fail "Could not validate jobs for the selected CLA run page 2"
+  job_count2="$(jq -r '.jobs | length' <<<"${jobs_page2}")"
+  [[ "${job_count2}" =~ ^[0-9]+$ ]] || fail "Could not count jobs for the selected CLA run page 2"
+  (( job_count2 <= 100 )) || fail "The selected CLA job page is oversized"
+  jobs_page="$(jq -c --argjson page2 "${jobs_page2}" '.jobs += $page2.jobs' <<<"${jobs_page}")"
+  job_count=$((job_count + job_count2))
+  (( job_count2 < 100 )) || fail "Too many jobs in the selected CLA run after two pages; ask an administrator to inspect it before requesting a rerun"
+fi
 jobs_json="$(jq -c '[.]' <<<"${jobs_page}")"
 if ! cla_job_json="$(jq -c \
     --arg run_id "${run_id}" \

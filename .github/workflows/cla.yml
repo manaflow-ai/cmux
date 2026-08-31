@@ -45,20 +45,13 @@ jobs:
           github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA'
         )
       )
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 5
-    # All accepted events for one repository pull request share one bounded
-    # admission group. This serializes comments with lifecycle events for the
-    # same PR while keeping independent PRs independent. The group uses only
-    # the repository and trusted issue or pull-request number, never comment
-    # text or a per-event value.
-    # GitHub's default `single` queue permits one running and one pending run.
-    # A trusted webhook classifier is required if exact-byte admission without
-    # case-variant starvation is needed.
-    concurrency:
-      group: >-
-        cla-admission-${{ github.repository }}-${{ github.event.issue.number || github.event.pull_request.number }}
-      cancel-in-progress: false
+    # Do not put this exact-byte gate behind a replace-one concurrency queue.
+    # GitHub expression equality is case-insensitive, so a rejected case
+    # variant could otherwise replace a valid pending comment before the shell
+    # has a chance to inspect it. The signer job applies the per-PR queue only
+    # after this gate succeeds.
     permissions: {}
     steps:
       - name: "Validate exact CLA trigger"
@@ -99,7 +92,7 @@ jobs:
       # persisted a new signature. A comment by itself is not authorization
       # for a job with actions:write.
       signature_recorded: ${{ steps.cla_action.outputs.signature_recorded }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     # Filter before concurrency admission. Otherwise arbitrary issue comments
     # can consume the signature queue without running the action. Every
@@ -276,7 +269,7 @@ jobs:
         github.event.action == 'reopened' ||
         github.event.action == 'synchronize'
       )
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions: {}
     steps:
@@ -317,7 +310,7 @@ jobs:
           needs.CLAAssistant.outputs.signature_recorded == 'true'
         )
       )
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     # A contributor can submit more than one valid comment while the signing
     # job is running. Serialize reruns per PR so two comments cannot race the
@@ -392,7 +385,7 @@ jobs:
       github.event_name == 'pull_request_target' &&
       github.event.action == 'closed' &&
       github.event.pull_request.merged == true
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     # Lock requests do not update the signature ledger, but they must share the
     # signer group's per-PR queue so a close event cannot race a pending ledger
