@@ -163,6 +163,7 @@ jobs:
       # actions:write is required by the rerun endpoint; pull-requests:read is
       # required to validate the live PR and its relationship to the run.
       actions: write
+      issues: read
       pull-requests: read
     steps:
       - name: "Rerun exact failed pull_request_target run"
