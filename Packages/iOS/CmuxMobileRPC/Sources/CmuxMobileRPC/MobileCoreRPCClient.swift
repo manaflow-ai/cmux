@@ -91,8 +91,12 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         self.runtime = runtime
         self.route = route
         self.ticket = ticket
-        self.clientID = normalizedClientMetadata(clientID)
-        self.clientBundleIdentifier = normalizedClientMetadata(clientBundleIdentifier)
+        let normalizeClientMetadata: (String?) -> String? = { value in
+            let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed?.isEmpty == false ? trimmed : nil
+        }
+        self.clientID = normalizeClientMetadata(clientID)
+        self.clientBundleIdentifier = normalizeClientMetadata(clientBundleIdentifier)
         let authorizationMode: CmxTransportAuthorizationMode
         if route.kind == .iroh {
             authorizationMode = .transportAdmission
@@ -572,7 +576,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             )
         }
         let requestNeedsAuth = Self.requestRequiresAuth(request)
-        let requestIsCoveredByAttachTicket = !Self.requestNeedsStackAuthFallback(request, ticket: ticket)
+        let requestIsCoveredByAttachTicket = !requestNeedsStackAuthFallback(request, ticket: ticket)
         var auth: [String: Any] = [:]
         var requestStackAccessToken: String?
         let attachToken = ticket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -638,7 +642,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             } else {
                 stackAccessToken = try await stackAccessTokenForStatus(deadline: deadline)
             }
-            if let stackAccessToken {
+            if let stackAccessToken = stackAccessToken?.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ), !stackAccessToken.isEmpty {
                 auth["stack_access_token"] = stackAccessToken
             }
         }
@@ -646,7 +652,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         // lookup above is the authentication proof; do not disclose the
         // install identity on a tokenless manual route.
         if isHostStatusRequest,
-           auth["stack_access_token"] as? String != nil {
+           let stackAccessToken = auth["stack_access_token"] as? String,
+           !stackAccessToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             addClientIdentityMetadata(to: &request)
         }
         if !auth.isEmpty {
@@ -717,8 +724,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         }
     }
 
-    private static func requestNeedsStackAuthFallback(_ request: [String: Any], ticket: CmxAttachTicket) -> Bool {
-        guard requestRequiresAuth(request) else {
+    private func requestNeedsStackAuthFallback(_ request: [String: Any], ticket: CmxAttachTicket) -> Bool {
+        guard Self.requestRequiresAuth(request) else {
             return false
         }
         let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -807,6 +814,28 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         return method != "mobile.host.status"
     }
 
+    private func stringParamSelection(
+        _ params: [String: Any],
+        keys: [String]
+    ) -> MobileRPCStringParamSelection {
+        var selected: String?
+        for key in keys {
+            if let value = params[key] as? String {
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    if let selected, selected != trimmed {
+                        return MobileRPCStringParamSelection(
+                            value: selected,
+                            hasConflict: true
+                        )
+                    }
+                    selected = selected ?? trimmed
+                }
+            }
+        }
+        return MobileRPCStringParamSelection(value: selected, hasConflict: false)
+    }
+
     private func addClientIdentityMetadata(to request: inout [String: Any]) {
         guard let clientID,
               let clientBundleIdentifier else {
@@ -815,6 +844,15 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         var params = request["params"] as? [String: Any] ?? [:]
         params["client_id"] = clientID
         params["ios_bundle_identifier"] = clientBundleIdentifier
+        request["params"] = params
+    }
+
+    private func removeClientIdentityMetadata(from request: inout [String: Any]) {
+        var params = request["params"] as? [String: Any] ?? [:]
+        params.removeValue(forKey: "client_id")
+        params.removeValue(forKey: "ios_bundle_identifier")
+        params.removeValue(forKey: "ios_bundle_id")
+        params.removeValue(forKey: "iosBundleIdentifier")
         request["params"] = params
     }
 
@@ -828,44 +866,6 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         let stackAccessToken: String?
     }
 
-}
-
-private struct StringParamSelection {
-    let value: String?
-    let hasConflict: Bool
-}
-
-private func stringParamSelection(
-    _ params: [String: Any],
-    keys: [String]
-) -> StringParamSelection {
-    var selected: String?
-    for key in keys {
-        if let value = params[key] as? String {
-            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty {
-                if let selected, selected != trimmed {
-                    return StringParamSelection(value: selected, hasConflict: true)
-                }
-                selected = selected ?? trimmed
-            }
-        }
-    }
-    return StringParamSelection(value: selected, hasConflict: false)
-}
-
-private func normalizedClientMetadata(_ value: String?) -> String? {
-    let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
-    return trimmed?.isEmpty == false ? trimmed : nil
-}
-
-private func removeClientIdentityMetadata(from request: inout [String: Any]) {
-    var params = request["params"] as? [String: Any] ?? [:]
-    params.removeValue(forKey: "client_id")
-    params.removeValue(forKey: "ios_bundle_identifier")
-    params.removeValue(forKey: "ios_bundle_id")
-    params.removeValue(forKey: "iosBundleIdentifier")
-    request["params"] = params
 }
 
 private extension MobileCoreRPCClient {

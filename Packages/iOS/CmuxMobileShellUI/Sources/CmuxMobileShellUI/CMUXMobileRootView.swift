@@ -1199,6 +1199,13 @@ struct CMUXMobileRootView: View {
                 rawURL,
                 externalURL: true
             )
+            guard !Task.isCancelled else {
+                diagnosticLog?.recordAppEvent(
+                    .appOpenURLRejected,
+                    failure: .cancelled
+                )
+                return
+            }
             guard !Task.isCancelled, openURLTaskToken == token else { return }
             let failure: DiagnosticFailureKind? = switch result {
             case .connected:

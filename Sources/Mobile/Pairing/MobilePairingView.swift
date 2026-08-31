@@ -228,7 +228,7 @@ struct MobilePairingView: View {
 
         Text(String(
             localized: "mobile.pairing.updateIOSAppHint",
-            defaultValue: "If pairing does not complete, update cmux to the latest version on your iPhone from the App Store or TestFlight, then scan again."
+            defaultValue: "If pairing does not complete, update cmux to the latest version on your iPhone, then scan again."
         ))
         .cmuxFont(.caption)
         .foregroundStyle(.secondary)

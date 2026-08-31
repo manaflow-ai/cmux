@@ -343,7 +343,8 @@ import Testing
         let guidance = MobilePairingFailureCategory.unrecognizedVersion.guidance
         #expect(guidance?.localizedCaseInsensitiveContains("latest") == true)
         #expect(guidance?.localizedCaseInsensitiveContains("iPhone") == true)
-        #expect(guidance?.localizedCaseInsensitiveContains("App Store") == true)
+        #expect(guidance?.localizedCaseInsensitiveContains("App Store") != true)
+        #expect(guidance?.localizedCaseInsensitiveContains("TestFlight") != true)
         #expect(MobilePairingFailureCategory.unrecognizedVersion.analyticsReason == "unrecognized_version")
     }
 
@@ -374,20 +375,35 @@ import Testing
             routes: [route],
             authToken: nil
         )
-        #expect(mobilePairingURLRequiresInAppScan(
+        let policy = MobilePairingURLAuthorizationPolicy()
+        #expect(policy.requiresInAppScan(
             ticket: ticket,
             userEnteredPairingCode: false,
             externalURL: true
         ))
-        #expect(!mobilePairingURLRequiresInAppScan(
+        #expect(!policy.requiresInAppScan(
             ticket: ticket,
             userEnteredPairingCode: true,
             externalURL: true
         ))
-        #expect(!mobilePairingURLRequiresInAppScan(
+        #expect(!policy.requiresInAppScan(
             ticket: ticket,
             userEnteredPairingCode: false,
             externalURL: false
+        ))
+
+        let legacyTicket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "",
+            macDisplayName: nil,
+            routes: [route],
+            authToken: "legacy-attach-token"
+        )
+        #expect(!policy.requiresInAppScan(
+            ticket: legacyTicket,
+            userEnteredPairingCode: false,
+            externalURL: true
         ))
     }
 

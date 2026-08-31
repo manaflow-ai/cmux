@@ -2567,7 +2567,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard !trimmedCode.isEmpty else {
             return
         }
-        if CmxPairingURLScheme(urlString: trimmedCode) != nil {
+        if CmxPairingURLScheme(urlString: trimmedCode) != nil
+            || CmxPairingURLScheme.isPairingURLCandidate(trimmedCode) {
             // The pairing input field is an explicit in-app code entry (scan
             // or paste), the act that authorizes a compatibility Tailscale dial.
             await connectPairingURLResult(trimmedCode, userEnteredPairingCode: true)
@@ -4773,7 +4774,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return .failed
         }
 
-        if mobilePairingURLRequiresInAppScan(
+        if MobilePairingURLAuthorizationPolicy().requiresInAppScan(
             ticket: ticket,
             userEnteredPairingCode: userEnteredPairingCode,
             externalURL: externalURL

@@ -422,7 +422,7 @@ extension MobilePairingFailureCategory {
         case .buildIncompatible:
             return L10n.string(
                 "mobile.pairing.guidance.buildIncompatible",
-                defaultValue: "Update cmux to the latest version on your iPhone, then scan again. DEV iPhone builds connect to any DEV Mac build. BETA, INTERNAL, and App Store builds connect only to Stable or Nightly."
+                defaultValue: "Update cmux to the latest version on your iPhone, then scan again. DEV iPhone builds connect to any DEV Mac build. Official release builds connect only to Stable or Nightly."
             )
         case .ticketExpired, .unsupportedRoute, .noSupportedRoute:
             return L10n.string(
@@ -432,7 +432,7 @@ extension MobilePairingFailureCategory {
         case .unrecognizedVersion:
             return L10n.string(
                 "mobile.pairing.guidance.updateApp",
-                defaultValue: "Update cmux to the latest version on your iPhone from the App Store (or TestFlight), then scan again."
+                defaultValue: "Update cmux to the latest version on your iPhone, then scan again."
             )
         case .externalCodeRequiresInAppScan:
             return L10n.string(

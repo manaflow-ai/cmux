@@ -145240,13 +145240,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "If pairing does not complete, update cmux to the latest version on your iPhone from the App Store or TestFlight, then scan again."
+            "value": "If pairing does not complete, update cmux to the latest version on your iPhone, then scan again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ペアリングが完了しない場合は、App Store または TestFlight で iPhone の cmux を最新バージョンに更新してから、もう一度スキャンしてください。"
+            "value": "ペアリングが完了しない場合は、iPhone の cmux を最新バージョンに更新してから、もう一度スキャンしてください。"
           }
         }
       }

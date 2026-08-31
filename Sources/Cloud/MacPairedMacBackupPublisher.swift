@@ -127,19 +127,32 @@ final class MacPairedMacBackupPublisher {
 
     private func publish(routes: [CmxAttachRoute]) async {
         guard let auth, let baseURL = PresenceHeartbeatClient.resolvedServiceURL() else { return }
-        let tokens: (accessToken: String, refreshToken: String)
+        let sessionSnapshot: AuthenticatedSessionSnapshot
         do {
-            tokens = try await auth.currentTokens()
+            // Capture account identity and credentials as one session snapshot.
+            // Reading `currentTokens()` and `authenticatedSessionIdentity`
+            // separately can pair one account's bearer with another account's
+            // backup namespace across a sign-out or account switch.
+            sessionSnapshot = try await auth.authenticatedSessionSnapshot()
         } catch {
             return // not signed in -> nothing to publish
         }
+        guard await auth.isAuthenticatedSessionCurrent(sessionSnapshot) else {
+            return
+        }
         let teamID = auth.resolvedTeamID
-        let accountID = auth.authenticatedSessionIdentity?.accountID
+        let accountID = sessionSnapshot.accountID
         guard let targetBundleIdentifier = MobileHostService.shared
             .pairedPhoneBundleIdentifier(accountID: accountID),
               let targetNamespace = MobileIOSAppNamespace(
                   bundleIdentifier: targetBundleIdentifier
               ) else {
+            return
+        }
+        // The target is account-scoped state. Re-check the same snapshot after
+        // reading it and immediately before constructing the request so a
+        // transition cannot tear the auth/namespace pair.
+        guard await auth.isAuthenticatedSessionCurrent(sessionSnapshot) else {
             return
         }
 
@@ -174,16 +187,26 @@ final class MacPairedMacBackupPublisher {
 
         let req = Self.makeRequest(
             url: url,
-            accessToken: tokens.accessToken,
+            accessToken: sessionSnapshot.accessToken,
+            refreshToken: sessionSnapshot.refreshToken,
             teamID: teamID,
             targetNamespace: targetNamespace,
             payload: payload
         )
 
         do {
+            guard await auth.isAuthenticatedSessionCurrent(sessionSnapshot) else {
+                return
+            }
             let (_, response) = try await session.data(for: req)
             guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
                 macPairedMacPublishLog.warning("self-publish failed: HTTP \((response as? HTTPURLResponse)?.statusCode ?? -1)")
+                return
+            }
+            guard await auth.isAuthenticatedSessionCurrent(sessionSnapshot),
+                  MobileHostService.shared.pairedPhoneBundleIdentifier(
+                      accountID: sessionSnapshot.accountID
+                  ) == targetNamespace.bundleIdentifier else {
                 return
             }
             lastPublishedRoutes = routes
@@ -198,6 +221,7 @@ final class MacPairedMacBackupPublisher {
     nonisolated static func makeRequest(
         url: URL,
         accessToken: String,
+        refreshToken: String? = nil,
         teamID: String?,
         targetNamespace: MobileIOSAppNamespace,
         payload: Data
@@ -206,6 +230,9 @@ final class MacPairedMacBackupPublisher {
         request.httpMethod = "POST"
         request.timeoutInterval = 10
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        if let refreshToken, !refreshToken.isEmpty {
+            request.setValue(refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
+        }
         if let teamID, !teamID.isEmpty {
             request.setValue(teamID, forHTTPHeaderField: "X-Cmux-Team-Id")
         }

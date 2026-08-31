@@ -47,7 +47,7 @@ import Testing
         await client.disconnect()
     }
 
-    @Test func hostStatusOmitsPairingIdentityOnTokenlessManualRoute() async throws {
+    @Test func hostStatusOmitsPairingIdentityOnMissingOrBlankManualToken() async throws {
         let transport = QueuedCancellationProbeTransport()
         let route = try hostPortRoute(
             kind: .tailscale,
@@ -57,7 +57,10 @@ import Testing
         let runtime = TestMobileSyncRuntime(
             transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
             stackAccessToken: nil,
-            stackAccessTokenForStatus: nil
+            // A status provider can transiently return an empty/whitespace
+            // token while auth restoration is settling. Treat that as absent;
+            // it must not become identity metadata on the wire.
+            stackAccessTokenForStatus: "   "
         )
         let client = MobileCoreRPCClient(
             runtime: runtime,
