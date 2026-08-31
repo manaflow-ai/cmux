@@ -172,6 +172,18 @@ describe("buildFoundersWelcomeEmail", () => {
     expect(pro.text).toContain("TestFlight に登録する：https://cmux.com/dashboard/testflight");
   });
 
+  test("falls back to English when a locale catalog is unavailable", async () => {
+    const pro = await buildProWelcomeEmail({
+      ...baseParams,
+      to: "customer@example.com",
+      sessionRef: "cs_pro_fallback",
+      locale: "missing-locale" as never,
+    });
+
+    expect(pro.subject).toBe(PRO_EMAIL_SUBJECT);
+    expect(pro.text).toContain("Thanks for joining cmux Pro!");
+  });
+
   test("recipients, sender, and reply-to are preserved unchanged", () => {
     const email = buildFoundersWelcomeEmail({
       ...baseParams,

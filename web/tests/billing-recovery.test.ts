@@ -387,4 +387,69 @@ describe("billing purchase recovery", () => {
 
     expect(result).toBeNull();
   });
+
+  test("paginates the bounded payment-link fallback", async () => {
+    const subscription = {
+      id: "sub_recent_payment_link_fixture",
+      customer: "cus_recent_payment_link_fixture",
+      status: "active",
+      metadata: { founders_edition: "true" },
+      cancel_at_period_end: false,
+      items: { data: [] },
+    };
+    const session = {
+      id: "cs_older_payment_link_fixture",
+      customer: null,
+      customer_details: { email: "payment-link@example.com" },
+      payment_status: "paid",
+      metadata: { founders_edition: "true" },
+      subscription,
+    };
+    let sessionCalls = 0;
+    const result = await findPaidBillingPurchaseByEmail(
+      "payment-link@example.com",
+      {
+        db: {
+          select: () => {
+            throw new Error("no local database in this test");
+          },
+        } as never,
+        stripeClient: () => ({
+          customers: {
+            list: mock(async () => ({ data: [] })),
+          },
+          subscriptions: {
+            list: mock(async () => ({ data: [] })),
+          },
+          checkout: {
+            sessions: {
+              list: mock(async (...args: unknown[]) => {
+                sessionCalls += 1;
+                const options = (args[0] ?? {}) as Record<string, unknown>;
+                if (options.starting_after) {
+                  return { data: [session], has_more: false };
+                }
+                return {
+                  data: [
+                    {
+                      id: "cs_newer_unrelated_fixture",
+                      customer: null,
+                      customer_details: { email: "other@example.com" },
+                      payment_status: "paid",
+                      metadata: { app: "other" },
+                      subscription: null,
+                    },
+                  ],
+                  has_more: true,
+                };
+              }),
+            },
+          },
+        }) as never,
+      },
+    );
+
+    expect(result?.kind).toBe("founders_edition");
+    expect(sessionCalls).toBe(2);
+  });
 });
