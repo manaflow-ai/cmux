@@ -438,7 +438,7 @@
     "title": "Founding Engineer",
     "tagline": "AI とコーディングの未来をつくる。",
     "intro": "cmux は Ghostty を基盤にしたネイティブ macOS ターミナルです。複数の AI コーディングエージェントを並列で動かすために設計され、数十万人の開発者がエージェントによるコーディングワークフローに cmux を活用しています。",
-    "hiring": "AI とコーディングの未来をつくる、才能ある Founding Engineer を募集しています。",
+    "hiring": "AI とコーディングの未来をつくる、才能あるエンジニアを募集しています。",
     "whatYoullDo": "仕事内容",
     "whatYoullDoItems": [
       "cmux macOS（Swift/AppKit）、cmux Windows/Linux（C++/Chromium）、cmux iOS、cmux Cloud、sub-router (Go)、chatmux など、スタック全体にわたる最先端の開発者ツールをつくる。",
@@ -474,7 +474,7 @@
       "title": "Founding Designer",
       "tagline": "AI とコーディングの未来をデザインする。",
       "intro": "cmux は Ghostty を基盤にしたネイティブ macOS ターミナルです。複数の AI コーディングエージェントを並列で動かすために設計され、数十万人の開発者がエージェントによるコーディングワークフローに cmux を活用しています。",
-      "hiring": "AI とコーディングの未来をデザインする、才能ある Founding Designer を募集しています。",
+      "hiring": "AI とコーディングの未来をデザインする、才能あるデザイナーを募集しています。",
       "whatYoullDo": "仕事内容",
       "whatYoullDoItems": [
         "cmux macOS、cmux TUI、cmux Windows/Linux、cmux iOS、cmux Cloud、cmux.com、chatmux など、スタック全体にわたる最先端の開発者ツールをデザインする。",

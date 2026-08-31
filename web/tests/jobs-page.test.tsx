@@ -93,6 +93,15 @@ describe("jobs page", () => {
     );
     expect(html).toContain("Build frontier devtools across the stack");
     expect(html).toContain("Design frontier devtools across the stack");
+    const visibleCopy = html.replaceAll("&#x27;", "'");
+    expect(visibleCopy).toContain(
+      "We're hiring talented engineers to help us build the future of coding with AI.",
+    );
+    expect(visibleCopy).toContain(
+      "We're hiring a talented designer to help us design the future of coding with AI.",
+    );
+    expect(visibleCopy).not.toContain("talented founding engineers");
+    expect(visibleCopy).not.toContain("talented founding designer");
     expect(html).toContain("Using 10B+ tokens a day.");
     expect(html).toContain("Things that make us extra excited:");
     expect(html).toContain(
@@ -138,6 +147,12 @@ describe("jobs page", () => {
     expect(html).toContain("数十万人の開発者が");
     expect(html).toContain("$130k〜$170k + 株式 0.5%〜1.5%");
     expect(html).toContain("Founding Designer");
+    expect(html).toContain(
+      "AI とコーディングの未来をつくる、才能あるエンジニアを募集しています。",
+    );
+    expect(html).toContain(
+      "AI とコーディングの未来をデザインする、才能あるデザイナーを募集しています。",
+    );
     expect(html).toContain("デザインコンポーネントを知り尽くしている");
     expect(html).toContain("次のような経験や姿勢があると、特にうれしいです：");
     expect(html.match(/>メールする</g)).toHaveLength(2);
@@ -207,6 +222,10 @@ describe("jobs page", () => {
       expect(catalog.jobs.foundingDesigner.whatYoullDoItems).toHaveLength(4);
       expect(catalog.jobs.excitedItems).toHaveLength(6);
       expect(catalog.jobs.foundingDesigner.excitedItems).toHaveLength(5);
+      expect(catalog.jobs.hiring).not.toMatch(/founding|创始|創始|مؤسس/iu);
+      expect(catalog.jobs.foundingDesigner.hiring).not.toMatch(
+        /founding|创始|創始|مؤسس/iu,
+      );
       expect(catalog.jobs).not.toHaveProperty("whoWereLookingFor");
       expect(catalog.jobs).not.toHaveProperty("whoIntro");
       expect(catalog.jobs).not.toHaveProperty("whoWereLookingForItems");

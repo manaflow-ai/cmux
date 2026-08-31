@@ -80,7 +80,7 @@
     "title": "Founding Engineer",
     "tagline": "AI 코딩의 미래를 함께 만드세요.",
     "intro": "cmux는 Ghostty를 기반으로 한 네이티브 macOS 터미널입니다. 여러 AI 코딩 에이전트를 병렬로 실행하도록 설계되었으며, 수십만 명의 개발자가 에이전트 코딩 워크플로에 cmux를 사용하고 있습니다.",
-    "hiring": "AI 코딩의 미래를 만들어 갈 뛰어난 Founding Engineer를 찾고 있습니다.",
+    "hiring": "AI 코딩의 미래를 만들어 갈 뛰어난 엔지니어를 찾고 있습니다.",
     "whatYoullDo": "담당하게 될 일",
     "whatYoullDoItems": [
       "cmux macOS(Swift/AppKit), cmux Windows/Linux(C++/Chromium), cmux iOS, cmux Cloud, sub-router (Go), chatmux 등 스택 전반의 프런티어 개발자 도구를 만듭니다.",
@@ -116,7 +116,7 @@
       "title": "Founding Designer",
       "tagline": "AI 코딩의 미래를 디자인하세요.",
       "intro": "cmux는 Ghostty를 기반으로 한 네이티브 macOS 터미널입니다. 여러 AI 코딩 에이전트를 병렬로 실행하도록 설계되었으며, 수십만 명의 개발자가 에이전트 코딩 워크플로에 cmux를 사용하고 있습니다.",
-      "hiring": "AI 코딩의 미래를 디자인할 뛰어난 Founding Designer를 찾고 있습니다.",
+      "hiring": "AI 코딩의 미래를 디자인할 뛰어난 디자이너를 찾고 있습니다.",
       "whatYoullDo": "담당하게 될 일",
       "whatYoullDoItems": [
         "cmux macOS, cmux TUI, cmux Windows/Linux, cmux iOS, cmux Cloud, cmux.com, chatmux 등 스택 전반의 프런티어 개발자 도구를 디자인합니다.",

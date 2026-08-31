@@ -80,7 +80,7 @@
     "title": "Founding Engineer",
     "tagline": "一起打造 AI 程式設計的未來。",
     "intro": "cmux 是一款建基於 Ghostty 的原生 macOS 終端機，專為平行執行多個 AI 程式設計代理而設計。數十萬名開發者使用 cmux 推動他們的代理程式設計工作流程。",
-    "hiring": "我們正在招募優秀的創始工程師，與我們一起打造 AI 程式設計的未來。",
+    "hiring": "我們正在招募優秀的工程師，與我們一起打造 AI 程式設計的未來。",
     "whatYoullDo": "你將做什麼",
     "whatYoullDoItems": [
       "打造橫跨整個技術堆疊的前沿開發者工具：cmux macOS（Swift/AppKit）、cmux Windows/Linux（C++/Chromium）、cmux iOS、cmux Cloud、sub-router (Go)、chatmux 等。",
@@ -116,7 +116,7 @@
       "title": "Founding Designer",
       "tagline": "設計 AI 程式設計的未來。",
       "intro": "cmux 是一款建基於 Ghostty 的原生 macOS 終端機，專為平行執行多個 AI 程式設計代理而設計。數十萬名開發者使用 cmux 推動他們的代理程式設計工作流程。",
-      "hiring": "我們正在招募一位優秀的創始設計師，與我們一起設計 AI 程式設計的未來。",
+      "hiring": "我們正在招募一位優秀的設計師，與我們一起設計 AI 程式設計的未來。",
       "whatYoullDo": "你將做什麼",
       "whatYoullDoItems": [
         "設計橫跨整個技術堆疊的前沿開發者工具：cmux macOS、cmux TUI、cmux Windows/Linux、cmux iOS、cmux Cloud、cmux.com、chatmux 等。",

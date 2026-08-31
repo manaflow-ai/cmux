@@ -80,7 +80,7 @@
     "title": "Founding Engineer",
     "tagline": "Yapay zekâ ile kodlamanın geleceğini inşa edin.",
     "intro": "cmux, Ghostty üzerine kurulmuş, birden fazla yapay zekâ kodlama ajanını paralel çalıştırmak için tasarlanmış yerel bir macOS terminalidir. Yüz binlerce geliştirici, ajan tabanlı kodlama iş akışlarını yürütmek için cmux kullanıyor.",
-    "hiring": "Yapay zekâ ile kodlamanın geleceğini birlikte kuracak yetenekli Founding Engineer’lar arıyoruz.",
+    "hiring": "Yapay zekâ ile kodlamanın geleceğini birlikte kuracak yetenekli mühendisler arıyoruz.",
     "whatYoullDo": "Neler yapacaksınız",
     "whatYoullDoItems": [
       "Tüm yığında öncü geliştirici araçları oluşturmak: cmux macOS (Swift/AppKit), cmux Windows/Linux (C++/Chromium), cmux iOS, cmux Cloud, sub-router (Go), chatmux ve daha fazlası.",
@@ -116,7 +116,7 @@
       "title": "Founding Designer",
       "tagline": "Yapay zekâ ile kodlamanın geleceğini tasarlayın.",
       "intro": "cmux, Ghostty üzerine kurulmuş, birden fazla yapay zekâ kodlama ajanını paralel çalıştırmak için tasarlanmış yerel bir macOS terminalidir. Yüz binlerce geliştirici, ajan tabanlı kodlama iş akışlarını yürütmek için cmux kullanıyor.",
-      "hiring": "Yapay zekâ ile kodlamanın geleceğini birlikte tasarlayacak yetenekli bir Founding Designer arıyoruz.",
+      "hiring": "Yapay zekâ ile kodlamanın geleceğini birlikte tasarlayacak yetenekli bir tasarımcı arıyoruz.",
       "whatYoullDo": "Neler yapacaksınız",
       "whatYoullDoItems": [
         "Tüm yığında öncü geliştirici araçları tasarlamak: cmux macOS, cmux TUI, cmux Windows/Linux, cmux iOS, cmux Cloud, cmux.com, chatmux ve daha fazlası.",

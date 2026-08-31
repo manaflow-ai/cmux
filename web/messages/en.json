@@ -438,7 +438,7 @@
     "title": "Founding Engineer",
     "tagline": "Help us build the future of coding with AI.",
     "intro": "cmux is a native macOS terminal built on Ghostty, designed for running multiple AI coding agents in parallel. Hundreds of thousands of developers use cmux to drive their agentic coding workflows.",
-    "hiring": "We're hiring talented founding engineers to help us build the future of coding with AI.",
+    "hiring": "We're hiring talented engineers to help us build the future of coding with AI.",
     "whatYoullDo": "What you'll do",
     "whatYoullDoItems": [
       "Build frontier devtools across the stack: cmux macOS (Swift/AppKit), cmux Windows/Linux (C++/Chromium), cmux iOS, cmux Cloud, sub-router (Go), chatmux, and more.",
@@ -474,7 +474,7 @@
       "title": "Founding Designer",
       "tagline": "Design the future of coding with AI.",
       "intro": "cmux is a native macOS terminal built on Ghostty, designed for running multiple AI coding agents in parallel. Hundreds of thousands of developers use cmux to drive their agentic coding workflows.",
-      "hiring": "We're hiring a talented founding designer to help us design the future of coding with AI.",
+      "hiring": "We're hiring a talented designer to help us design the future of coding with AI.",
       "whatYoullDo": "What you'll do",
       "whatYoullDoItems": [
         "Design frontier devtools across the stack: cmux macOS, cmux TUI, cmux Windows/Linux, cmux iOS, cmux Cloud, cmux.com, chatmux, and more.",

@@ -80,7 +80,7 @@
     "title": "Founding Engineer",
     "tagline": "Gradite budućnost programiranja uz AI.",
     "intro": "cmux je nativni macOS terminal izgrađen na Ghosttyju, dizajniran za paralelno pokretanje više AI coding agenata. Stotine hiljada programera koristi cmux za svoje agentske coding tokove.",
-    "hiring": "Tražimo talentovane Founding Engineers da s nama grade budućnost programiranja uz AI.",
+    "hiring": "Tražimo talentovane inženjere da s nama grade budućnost programiranja uz AI.",
     "whatYoullDo": "Šta ćete raditi",
     "whatYoullDoItems": [
       "Gradite napredne alate za programere kroz cijeli stack: cmux macOS (Swift/AppKit), cmux Windows/Linux (C++/Chromium), cmux iOS, cmux Cloud, sub-router (Go), chatmux i više.",
@@ -116,7 +116,7 @@
       "title": "Founding Designer",
       "tagline": "Dizajnirajte budućnost programiranja uz AI.",
       "intro": "cmux je nativni macOS terminal izgrađen na Ghosttyju, dizajniran za paralelno pokretanje više AI coding agenata. Stotine hiljada programera koristi cmux za svoje agentske coding tokove.",
-      "hiring": "Tražimo talentovanog Founding Designera da s nama dizajnira budućnost programiranja uz AI.",
+      "hiring": "Tražimo talentovanog dizajnera da s nama dizajnira budućnost programiranja uz AI.",
       "whatYoullDo": "Šta ćete raditi",
       "whatYoullDoItems": [
         "Dizajnirate napredne alate za programere kroz cijeli stack: cmux macOS, cmux TUI, cmux Windows/Linux, cmux iOS, cmux Cloud, cmux.com, chatmux i više.",
