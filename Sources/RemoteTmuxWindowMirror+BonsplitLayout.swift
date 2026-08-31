@@ -29,7 +29,13 @@ extension RemoteTmuxWindowMirror {
                 width: CGFloat(geometry.surfacePadWidthPx) / geometry.scale,
                 height: CGFloat(geometry.surfacePadHeightPx) / geometry.scale
             ),
-            tabBarHeight: appearance.tabBarHeight,
+            // Charge the tab bar only when it is drawn. A mirror pane holds exactly one tab, so
+            // that is what the visibility rule is asked about; a hidden bar that still cost its
+            // height would leave the claim short by one bar per pane and strand a strip of the
+            // container that nothing renders into.
+            tabBarHeight: bonsplitController.configuration.tabBarVisibility.showsTabBar(tabCount: 1)
+                ? appearance.tabBarHeight
+                : 0,
             dividerThickness: appearance.dividerThickness,
             paneTitleRowHeight: tmuxTitleRowPlacement != nil
                 ? CGFloat(geometry.cellHeightPx) / geometry.scale
