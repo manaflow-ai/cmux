@@ -326,6 +326,26 @@ describe("Founder success read-back", () => {
       ),
     ).resolves.toEqual(row);
   });
+
+  test("does not substitute a different customer subscription for a known id", async () => {
+    const unrelatedRow = {
+      id: "sub_other",
+      customerId: "cus_fixture",
+      status: "canceled",
+    };
+    selectResults = [[], [unrelatedRow]];
+
+    await expect(
+      latestStripeSubscriptionForSession(
+        {
+          id: "cs_fixture",
+          customer: "cus_fixture",
+          subscription: "sub_missing",
+        } as never,
+        fakeDb() as never,
+      ),
+    ).resolves.toBeNull();
+  });
 });
 
 describe("recordFoundersCheckoutCompletion", () => {
