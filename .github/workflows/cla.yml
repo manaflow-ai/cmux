@@ -176,6 +176,7 @@ jobs:
           COMMENT_BODY: ${{ github.event.comment.body }}
           COMMENT_CREATED_AT: ${{ github.event.comment.created_at }}
           COMMENT_AUTHOR_LOGIN: ${{ github.event.comment.user.login }}
+          COMMENT_AUTHOR_TYPE: ${{ github.event.comment.user.type }}
           COMMENT_AUTHOR_ASSOCIATION: ${{ github.event.comment.author_association }}
           WORKFLOW_PATH: '.github/workflows/cla.yml'
           WORKFLOW_SHA: ${{ github.workflow_sha }}
@@ -198,6 +199,10 @@ jobs:
           [[ "${COMMENT_BODY}" == "recheck" || "${COMMENT_BODY}" == "I have read the CLA Document and I hereby sign the CLA" ]] || fail "Comment is not an accepted CLA trigger"
           [[ "${COMMENT_CREATED_AT}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || fail "Invalid comment timestamp"
           [[ -n "${COMMENT_AUTHOR_LOGIN}" ]] || fail "Comment author is missing"
+          [[ "${COMMENT_AUTHOR_TYPE}" == "User" ]] || fail "Comment author is not a human user"
+          case "${COMMENT_AUTHOR_LOGIN,,}" in
+            *"[bot]") fail "Bot comments cannot trigger a CLA rerun" ;;
+          esac
           case "${COMMENT_AUTHOR_ASSOCIATION}" in
             OWNER|MEMBER|COLLABORATOR|CONTRIBUTOR|FIRST_TIME_CONTRIBUTOR|FIRST_TIMER|NONE) ;;
             *) fail "Comment author association is invalid" ;;
@@ -236,7 +241,7 @@ jobs:
           # A contributor may recheck their own pull request. A different
           # commenter must be a trusted repository participant, which limits
           # unauthenticated users to the harmless no-op path.
-          if [[ "${COMMENT_AUTHOR_LOGIN}" != "${pr_author_login}" ]]; then
+          if [[ "${COMMENT_BODY}" == "recheck" && "${COMMENT_AUTHOR_LOGIN}" != "${pr_author_login}" ]]; then
             case "${COMMENT_AUTHOR_ASSOCIATION}" in
               OWNER|MEMBER|COLLABORATOR) ;;
               *) fail "Only the pull request author or a trusted repository participant may request a CLA rerun" ;;

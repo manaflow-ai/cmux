@@ -44,6 +44,7 @@ export PR_NUMBER=123
 export COMMENT_BODY=recheck
 export COMMENT_CREATED_AT=2026-08-31T08:00:00Z
 export COMMENT_AUTHOR_LOGIN=contributor
+export COMMENT_AUTHOR_TYPE=User
 export COMMENT_AUTHOR_ASSOCIATION=NONE
 export WORKFLOW_PATH=.github/workflows/cla.yml
 export WORKFLOW_SHA=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
@@ -147,9 +148,12 @@ run_case() {
   local expected_status="$2"
   local expected_text="$3"
   local expected_posts="$4"
-  local output status posts comment_author=contributor comment_association=NONE
-  if [[ "$mode" == wrong-commenter ]]; then
+  local output status posts comment_author=contributor comment_type=User comment_association=NONE comment_body=recheck
+  if [[ "$mode" == untrusted-recheck ]]; then
     comment_author=untrusted-user
+  elif [[ "$mode" == external-signer ]]; then
+    comment_author=coauthor
+    comment_body='I have read the CLA Document and I hereby sign the CLA'
   fi
   : >"$work/posts-$mode"
   printf '0\n' >"$work/association-$mode"
@@ -158,7 +162,9 @@ run_case() {
     FAKE_MODE="$mode" \
     FAKE_POST_FILE="$work/posts-$mode" \
     FAKE_ASSOC_CALL_FILE="$work/association-$mode" \
+    COMMENT_BODY="$comment_body" \
     COMMENT_AUTHOR_LOGIN="$comment_author" \
+    COMMENT_AUTHOR_TYPE="$comment_type" \
     COMMENT_AUTHOR_ASSOCIATION="$comment_association" \
     bash "$rerun_script" 2>&1
   )"
@@ -188,6 +194,7 @@ run_case wrong-head-repo 0 "No failed CLA run exists for this pull request head"
 run_case closed-pr 1 "The issue is not an open pull request" 0
 run_case retargeted-pr 1 "The live pull request is not valid" 0
 run_case ambiguous-association 1 "Expected exactly one open pull request for this head" 0
-run_case wrong-commenter 1 "Only the pull request author or a trusted repository participant" 0
+run_case untrusted-recheck 1 "Only the pull request author or a trusted repository participant" 0
 run_case suffixed-path 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case late-ambiguous 1 "Expected exactly one open pull request for this head" 0
+run_case external-signer 0 "Requested rerun for CLA job 500 in workflow run 400" 1
