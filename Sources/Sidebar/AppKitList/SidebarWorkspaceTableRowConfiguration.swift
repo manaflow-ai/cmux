@@ -191,7 +191,7 @@ struct SidebarWorkspaceTableRowConfiguration {
     /// would both re-measure the whole tail and drop the content-matched
     /// entries the stale-width `height(for:)` fallback depends on.
     func hasEquivalentHeightContent(to other: Self) -> Bool {
-        environment.hasEquivalentPresentation(to: other.environment)
+        environment.hasEquivalentGeometry(to: other.environment)
             && isHeightEquivalentValue(other.equivalenceValue)
     }
 

@@ -46,8 +46,8 @@ final class SystemAppearanceObserver {
     private let environment: Environment
     private var observation: EffectiveAppearanceObservation?
     private var systemColorsObservation: SystemColorsObservation?
-    private var systemColorsRefreshTask: Task<Void, Never>?
-    private var hasPendingSystemColorsRefresh = false
+    private var appearanceRefreshTask: Task<Void, Never>?
+    private var hasPendingAppearanceRefresh = false
     private var lastResolvedPrefersDark: Bool?
 
     init() {
@@ -72,9 +72,9 @@ final class SystemAppearanceObserver {
 
     // The concrete `NSKeyValueObservation` self-invalidates at deallocation.
     func stopObserving() {
-        systemColorsRefreshTask?.cancel()
-        systemColorsRefreshTask = nil
-        hasPendingSystemColorsRefresh = false
+        appearanceRefreshTask?.cancel()
+        appearanceRefreshTask = nil
+        hasPendingAppearanceRefresh = false
         observation?.invalidate()
         observation = nil
         systemColorsObservation?.invalidate()
@@ -86,21 +86,26 @@ final class SystemAppearanceObserver {
         // signal for semantic colors such as `controlAccentColor`. It applies
         // in explicit light/dark modes as well as system mode, and does not
         // reload terminal themes because the color-scheme preference did not
-        // change. AppKit can emit several notifications for one settings
-        // change, so hold one deferred refresh open until the current main
-        // actor turn drains.
-        guard observation != nil, systemColorsObservation != nil else { return }
-        guard !hasPendingSystemColorsRefresh else { return }
-        hasPendingSystemColorsRefresh = true
-        systemColorsRefreshTask = Task { @MainActor [weak self] in
-            // Yield once so a burst of same-turn system-color notifications
-            // shares one sidebar projection. This is a cooperative scheduling
-            // boundary, not a timing delay or polling loop.
+        scheduleAppearanceRefresh()
+    }
+
+    /// Schedules one notification for a burst of AppKit appearance inputs.
+    /// Both effective-appearance and system-color callbacks use this shared
+    /// gate so a light/dark transition that also refreshes semantic colors
+    /// cannot fan out into two sidebar projections.
+    private func scheduleAppearanceRefresh() {
+        guard observation != nil else { return }
+        guard !hasPendingAppearanceRefresh else { return }
+        hasPendingAppearanceRefresh = true
+        appearanceRefreshTask = Task { @MainActor [weak self] in
+            // Yield once so callbacks delivered in the same actor turn share
+            // one sidebar projection. This is cooperative scheduling, not a
+            // timing delay or polling loop.
             await Task.yield()
             guard let self, !Task.isCancelled else { return }
-            self.hasPendingSystemColorsRefresh = false
-            self.systemColorsRefreshTask = nil
-            guard self.observation != nil, self.systemColorsObservation != nil else { return }
+            self.hasPendingAppearanceRefresh = false
+            self.appearanceRefreshTask = nil
+            guard self.observation != nil else { return }
             self.environment.postSystemAppearanceDidChange()
         }
     }
@@ -120,6 +125,6 @@ final class SystemAppearanceObserver {
         cmuxDebugLog("systemAppearance.observer.change prefersDark=\(prefersDark)")
 #endif
         environment.synchronizeTerminalTheme()
-        environment.postSystemAppearanceDidChange()
+        scheduleAppearanceRefresh()
     }
 }

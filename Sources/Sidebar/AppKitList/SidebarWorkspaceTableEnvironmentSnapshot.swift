@@ -78,6 +78,15 @@ struct SidebarWorkspaceTableEnvironmentSnapshot {
             && accentColor == other.accentColor
     }
 
+    /// Returns whether the environment values that can affect row geometry
+    /// are unchanged. Palette-only changes intentionally do not invalidate
+    /// cached heights or trigger layout measurement.
+    nonisolated func hasEquivalentGeometry(to other: Self) -> Bool {
+        colorScheme == other.colorScheme
+            && colorSchemeContrast == other.colorSchemeContrast
+            && globalFontMagnificationPercent == other.globalFontMagnificationPercent
+    }
+
     @ViewBuilder
     func apply<Content: View>(to content: Content) -> some View {
         // SwiftUI exposes contrast as read-only. Independent NSHostingViews
