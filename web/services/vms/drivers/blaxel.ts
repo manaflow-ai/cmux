@@ -434,15 +434,20 @@ export class BlaxelProvider implements VMProvider {
           // resolved name (never the template) is what lands in providerMetadata,
           // so resurrection finds the right volume.
           const homeVolumeSpec = options.homeVolume?.trim() || undefined;
+          // A `{machine}` volume is owned by exactly one machine, so failure paths
+          // may delete it; a fixed name is the user's shared volume and is never
+          // deleted by create/destroy paths.
+          const perMachineHomeVolume = !!homeVolumeSpec?.includes("{machine}");
           const resolveHomeVolume = (machineName: string): string | undefined =>
             homeVolumeSpec?.replace("{machine}", machineName);
           let name = friendlyVmName();
           let homeVolume = resolveHomeVolume(name);
           let created: BlaxelSandbox | null = null;
           for (let attempt = 0; attempt < 4 && !created; attempt += 1) {
+            let volumeCreated = false;
             if (homeVolume) {
               const volume = homeVolume;
-              await timedStep("ensure_home_volume", () => this.ensureHomeVolume(volume, homeVolumeMb));
+              volumeCreated = await timedStep("ensure_home_volume", () => this.ensureHomeVolume(volume, homeVolumeMb));
             }
             try {
               created = await timedStep("create_sandbox", () => blaxelFetch<BlaxelSandbox>("POST", `${CONTROL_PLANE_BASE}/sandboxes`, {
@@ -458,6 +463,17 @@ export class BlaxelProvider implements VMProvider {
                 },
               }));
             } catch (err) {
+              // A per-machine volume this call just created for a sandbox that never
+              // came to exist is already orphaned — a retried create picks a fresh
+              // name, so nothing ever reattaches it. Delete it before moving on. A
+              // pre-existing volume (409 on ensure) is left alone: it may belong to
+              // the live sandbox this name conflicted with.
+              if (homeVolume && perMachineHomeVolume && volumeCreated) {
+                const volume = homeVolume;
+                await this.deleteHomeVolume(volume).catch((cleanupErr) => {
+                  console.error(`[blaxel] create cleanup failed; volume ${volume} may be orphaned`, cleanupErr);
+                });
+              }
               const conflict = err instanceof ProviderError && /-> 409/.test(err.message);
               if (!conflict || attempt === 3) throw err;
               name = friendlyVmName(attempt >= 1);
@@ -484,15 +500,24 @@ export class BlaxelProvider implements VMProvider {
             timedStep("ensure_raw_preview", () => this.ensurePreview(name, CMUX_TUI_RAW_PREVIEW_NAME, CMUX_TUI_PORT, { branded: false })),
           ]);
           // A machine that failed to bootstrap must not survive as an orphaned
-          // sandbox (its previews die with it); the durable home volume is kept —
-          // a retried create with the same volume reattaches it.
-          // A rollback failure means the sandbox is now leaked on the provider:
-          // log it loudly (the original create error still propagates) so the
-          // orphan is findable instead of silently accumulating.
-          const rollback = () =>
-            this.destroy(name).catch((cleanupErr) => {
+          // sandbox (its previews die with it). A per-machine home volume dies with
+          // the machine: a retried create picks a fresh name, so nothing would ever
+          // reattach it while its storage keeps billing. A shared user volume is
+          // kept — a retried create reattaches it by name.
+          // A rollback failure means the sandbox or volume is now leaked on the
+          // provider: log it loudly (the original create error still propagates) so
+          // the orphan is findable instead of silently accumulating.
+          const rollback = async () => {
+            await this.destroy(name).catch((cleanupErr) => {
               console.error(`[blaxel] create rollback failed; sandbox ${name} may be orphaned`, cleanupErr);
             });
+            if (homeVolume && perMachineHomeVolume) {
+              const volume = homeVolume;
+              await this.deleteHomeVolume(volume).catch((cleanupErr) => {
+                console.error(`[blaxel] create rollback failed; volume ${volume} may be orphaned`, cleanupErr);
+              });
+            }
+          };
           if (bootstrapResult.status === "rejected") {
             await rollback();
             throw bootstrapResult.reason;
@@ -514,7 +539,17 @@ export class BlaxelProvider implements VMProvider {
             image,
             createdAt: Date.now(),
             providerMetadata: homeVolume
-              ? { sandboxUrl, previewUrl, homeVolume, homeVolumeMb, image, memoryMb }
+              ? {
+                  sandboxUrl,
+                  previewUrl,
+                  homeVolume,
+                  homeVolumeMb,
+                  image,
+                  memoryMb,
+                  // Destroy paths delete only volumes a machine owns exclusively;
+                  // this marker is that ownership record.
+                  ...(perMachineHomeVolume ? { homeVolumePerMachine: true } : {}),
+                }
               : { sandboxUrl, previewUrl, image, memoryMb },
           };
         } catch (err) {
@@ -933,17 +968,60 @@ export class BlaxelProvider implements VMProvider {
 
   // A size the volume API rejects surfaces as the provider's own message (non-409
   // responses propagate); there is no silent fallback to a smaller disk.
-  private async ensureHomeVolume(name: string, sizeMb: number): Promise<void> {
+  /** Returns true when this call created the volume, false when it already existed. */
+  private async ensureHomeVolume(name: string, sizeMb: number): Promise<boolean> {
     try {
       await blaxelFetch("POST", `${CONTROL_PLANE_BASE}/volumes`, {
         metadata: { name },
         spec: { size: sizeMb },
       });
+      return true;
     } catch (err) {
       // An existing volume is the expected steady state; anything else is fatal.
       const conflict = err instanceof ProviderError && /-> 409/.test(err.message);
       if (!conflict) throw err;
+      return false;
     }
+  }
+
+  // Blaxel deletes sandboxes asynchronously and keeps a volume's attachment record
+  // alive until that finishes, answering 409 in the window. ~7.5 s of backoff covers it.
+  private static readonly HOME_VOLUME_DELETE_RETRY_DELAYS_MS: readonly number[] = [500, 1000, 2000, 4000];
+
+  /**
+   * Delete a persistent home volume (`DELETE /volumes/{name}`). A 404 is success —
+   * the volume is already gone. A 409 (still attached while the owning sandbox
+   * finishes deleting) is retried with bounded backoff; anything else, or an
+   * exhausted retry budget, throws so the caller can record the leak. Ownership is
+   * the caller's judgment: only a volume owned solely by a destroyed machine may
+   * be passed here.
+   */
+  async deleteHomeVolume(volumeName: string, opts?: { retryDelaysMs?: readonly number[] }): Promise<void> {
+    const name = volumeName.trim();
+    if (!name) throw new ProviderError("blaxel", "deleteHomeVolume requires a volume name");
+    await withVmSpan(
+      "cmux.vm.provider.delete_home_volume",
+      { "cmux.vm.provider": "blaxel", "cmux.vm.operation": "delete_home_volume", "cmux.vm.volume": name },
+      async () => {
+        const delays = opts?.retryDelaysMs ?? BlaxelProvider.HOME_VOLUME_DELETE_RETRY_DELAYS_MS;
+        for (let attempt = 0; ; attempt += 1) {
+          try {
+            await blaxelFetch("DELETE", `${CONTROL_PLANE_BASE}/volumes/${encodeURIComponent(name)}`);
+            return;
+          } catch (err) {
+            const gone = err instanceof ProviderError && /-> 404/.test(err.message);
+            if (gone) return;
+            const attached = err instanceof ProviderError && /-> 409/.test(err.message);
+            if (!attached || attempt >= delays.length) {
+              throw err instanceof ProviderError
+                ? err
+                : new ProviderError("blaxel", `deleteHomeVolume(${name}) failed`, err);
+            }
+            await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
+          }
+        }
+      },
+    );
   }
 
   /**

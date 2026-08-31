@@ -99,7 +99,7 @@ describe("dashboard billing page", () => {
     expect(html).toContain("Free");
     expect(html).toContain("You are currently on the Free plan.");
     expect(html).toContain(
-      "Upgrade when you need cloud agents or shared CodeRouter.",
+      "Upgrade when you need cloud agents.",
     );
     expect(html).toContain(
       'href="/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;interval=month"',
@@ -301,7 +301,7 @@ describe("dashboard billing page", () => {
     expect(html).toContain("Team Pro renews on");
     expect(html).toContain('name="scope" value="team"');
     expect(html).not.toContain(
-      "Upgrade when you need cloud agents or shared CodeRouter.",
+      "Upgrade when you need cloud agents.",
     );
   });
 
