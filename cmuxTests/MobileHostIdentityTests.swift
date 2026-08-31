@@ -218,6 +218,32 @@ struct MobileHostIdentityTests {
         #expect(store.targetBundleIdentifier(accountID: "account-a") == "dev.cmux.app.demo")
     }
 
+    @Test func aFreshConnectionCanRetargetASecondIOSVariantWithoutSignOut() throws {
+        let suiteName = "mobile-ios-target-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = MobilePairedPhoneStore(defaults: defaults, macInstanceTag: "default")
+
+        #expect(store.record(
+            clientID: "phone-a",
+            bundleIdentifier: "com.cmux.app",
+            accountID: "account-a",
+            handshakeIdentity: "stack:account-a:connection-a",
+            pairedAt: Date(timeIntervalSince1970: 100)
+        ))
+        // The same signed-in account can scan the one QR from another installed
+        // release variant. Its new transport connection is the new handshake
+        // boundary, so the target must follow the app that actually paired.
+        #expect(store.record(
+            clientID: "phone-a",
+            bundleIdentifier: "dev.cmux.app.beta",
+            accountID: "account-a",
+            handshakeIdentity: "stack:account-a:connection-b",
+            pairedAt: Date(timeIntervalSince1970: 200)
+        ))
+        #expect(store.targetBundleIdentifier(accountID: "account-a") == "dev.cmux.app.beta")
+    }
+
     @Test func oneAuthenticatedHandshakeCannotChangeItsRecordedBundle() throws {
         let suiteName = "mobile-ios-target-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))

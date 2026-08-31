@@ -18,7 +18,8 @@ extension MobileHostService {
         request: MobileHostRPCRequest,
         result: MobileHostRPCResult,
         authorization: MobileHostConnectionAuthorizationContext,
-        authenticatedSessionIdentity verifiedSessionIdentity: AuthenticatedSessionIdentity?
+        authenticatedSessionIdentity verifiedSessionIdentity: AuthenticatedSessionIdentity?,
+        connectionID: UUID? = nil
     ) async {
         guard Self.statusResultIncludesIdentity(result),
               let verifiedSessionIdentity,
@@ -30,7 +31,8 @@ extension MobileHostService {
         guard let handshakeIdentity = Self.authenticatedHandshakeIdentity(
             authorization: authorization,
             request: request,
-            sessionIdentity: verifiedSessionIdentity
+            sessionIdentity: verifiedSessionIdentity,
+            connectionID: connectionID
         ) else {
             return
         }
@@ -103,23 +105,29 @@ extension MobileHostService {
     private nonisolated static func authenticatedHandshakeIdentity(
         authorization: MobileHostConnectionAuthorizationContext,
         request: MobileHostRPCRequest,
-        sessionIdentity: AuthenticatedSessionIdentity
+        sessionIdentity: AuthenticatedSessionIdentity,
+        connectionID: UUID?
     ) -> String? {
         switch authorization {
         case .stackBearer:
             guard request.auth?.stackAccessToken?.isEmpty == false else {
                 return nil
             }
-            // Include the auth-session generation so a later sign-in or
-            // variant re-pair may replace the target, while repeated status
-            // responses within one authenticated session cannot switch it.
-            return "stack:\(sessionIdentity.accountID):\(sessionIdentity.generation)"
+            // Bind the bundle to this authenticated connection. A repeated
+            // status response on one connection cannot switch its namespace,
+            // while a fresh connection from another installed variant can
+            // legitimately retarget the Mac without requiring sign-out.
+            let connectionFingerprint = connectionID?.uuidString
+                ?? "session-\(sessionIdentity.generation)"
+            return "stack:\(sessionIdentity.accountID):\(connectionFingerprint)"
         case let .irohAdmission(peer):
             let bindingID = peer.bindingID.trimmingCharacters(in: .whitespacesAndNewlines)
             let endpointID = peer.endpointID.endpointID
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !bindingID.isEmpty, !endpointID.isEmpty else { return nil }
-            return "iroh:\(bindingID):\(peer.identityGeneration):\(endpointID)"
+            let connectionFingerprint = connectionID?.uuidString
+                ?? "peer-\(peer.identityGeneration)"
+            return "iroh:\(bindingID):\(connectionFingerprint):\(endpointID)"
         }
     }
 }

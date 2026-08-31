@@ -1449,6 +1449,7 @@ final class MobileHostService {
                     return await Self.connectionStatusResult(
                         for: request,
                         authorization: authorization,
+                        connectionID: id,
                         supportsArtifactLane: artifactTransfers != nil,
                         stackStatusResolution: { request in
                             await MobileHostService.networkStatusResolution(for: request)
@@ -1520,12 +1521,14 @@ final class MobileHostService {
     nonisolated static func connectionStatusResult(
         for request: MobileHostRPCRequest,
         authorization: MobileHostConnectionAuthorizationContext,
+        connectionID: UUID? = nil,
         supportsArtifactLane: Bool = false,
         stackStatus: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
     ) async -> MobileHostRPCResult {
         await connectionStatusResult(
             for: request,
             authorization: authorization,
+            connectionID: connectionID,
             supportsArtifactLane: supportsArtifactLane,
             stackStatusResolution: { request in
                 MobileHostStatusResolution(
@@ -1539,6 +1542,7 @@ final class MobileHostService {
     nonisolated static func connectionStatusResult(
         for request: MobileHostRPCRequest,
         authorization: MobileHostConnectionAuthorizationContext,
+        connectionID: UUID? = nil,
         supportsArtifactLane: Bool = false,
         stackStatusResolution: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostStatusResolution
     ) async -> MobileHostRPCResult {
@@ -1549,7 +1553,8 @@ final class MobileHostService {
                 request: request,
                 result: resolution.result,
                 authorization: authorization,
-                authenticatedSessionIdentity: resolution.authenticatedSessionIdentity
+                authenticatedSessionIdentity: resolution.authenticatedSessionIdentity,
+                connectionID: connectionID
             )
             return resolution.result
         case .irohAdmission:
@@ -1573,7 +1578,8 @@ final class MobileHostService {
                 request: request,
                 result: result,
                 authorization: authorization,
-                authenticatedSessionIdentity: authenticatedSessionIdentity
+                authenticatedSessionIdentity: authenticatedSessionIdentity,
+                connectionID: connectionID
             )
             return result
         }
