@@ -241,7 +241,6 @@ extension DockSplitStore {
         }
         let paneId = selection.paneId
         let tab = selection.tab
-        let panelId = selection.panelId
         let panel = selection.panel
         let terminal = panel as? TerminalPanel
         let browser = panel as? BrowserPanel
