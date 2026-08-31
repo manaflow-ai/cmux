@@ -413,7 +413,7 @@ validate_run_source_binding() {
   jq -e \
     --arg repo "${GH_REPO}" \
     --arg pr "${PR_NUMBER}" \
-    --arg sha "${head_sha}" \
+    --arg execution_sha "${execution_sha}" \
     --arg base "${TARGET_BASE_REF}" \
     --arg head_ref "${head_ref}" \
     --arg head_repo "${head_repo}" \
@@ -428,7 +428,7 @@ validate_run_source_binding() {
         (.base.repo.id | type == "number") and
         .base.repo.id == $repo_id and
         .head.ref == $head_ref and
-        .head.sha == $sha and
+        .head.sha == $execution_sha and
         (.head.repo.id | type == "number") and
         .head.repo.id == $head_repo_id and
         .head.repo.full_name == $head_repo
