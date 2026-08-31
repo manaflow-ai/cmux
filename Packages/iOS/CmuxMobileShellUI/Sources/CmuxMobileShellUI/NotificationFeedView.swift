@@ -29,8 +29,6 @@ struct NotificationFeedView: View {
         @Bindable var projection = projection
 
         VStack(spacing: 0) {
-            NotificationFeedFilterBar(selection: $projection.filter)
-            Divider()
             NotificationFeedList(
                 sections: projection.sections,
                 sourceItemCount: projection.sourceItemCount,
@@ -48,8 +46,8 @@ struct NotificationFeedView: View {
             )
         }
         .toolbar {
-            if projection.sourceUnreadCount > 0 {
-                ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                if projection.sourceUnreadCount > 0 {
                     Button {
                         isConfirmingMarkAllRead = true
                     } label: {
@@ -64,6 +62,8 @@ struct NotificationFeedView: View {
                     )
                     .accessibilityIdentifier("MobileNotificationFeedMarkAllRead")
                 }
+
+                NotificationFeedFilterMenu(selection: $projection.filter)
             }
         }
         .alert(
@@ -94,26 +94,33 @@ struct NotificationFeedView: View {
     }
 }
 
-private struct NotificationFeedFilterBar: View {
+/// The feed twin of `WorkspaceListFilterMenu`: read state lives in a toolbar
+/// menu instead of a segmented bar above the list, and the icon fills while a
+/// narrowing filter is active, mirroring Mail.
+private struct NotificationFeedFilterMenu: View {
     @Binding var selection: MobileNotificationFeedFilter
 
     var body: some View {
-        Picker(
-            L10n.string("mobile.notificationFeed.filter.label", defaultValue: "Notification filter"),
-            selection: $selection
-        ) {
-            Text(L10n.string("mobile.notificationFeed.filter.all", defaultValue: "All"))
+        Menu {
+            Picker(
+                L10n.string("mobile.notificationFeed.filter.label", defaultValue: "Notification filter"),
+                selection: $selection
+            ) {
+                Text(L10n.string(
+                    "mobile.notificationFeed.filter.allNotifications",
+                    defaultValue: "All Notifications"
+                ))
                 .tag(MobileNotificationFeedFilter.all)
-                .accessibilityIdentifier("MobileNotificationFeedFilterAll")
-            Text(L10n.string("mobile.notificationFeed.filter.unread", defaultValue: "Unread"))
-                .tag(MobileNotificationFeedFilter.unread)
-                .accessibilityIdentifier("MobileNotificationFeedFilterUnread")
+                Text(L10n.string("mobile.notificationFeed.filter.unread", defaultValue: "Unread"))
+                    .tag(MobileNotificationFeedFilter.unread)
+            }
+        } label: {
+            Image(systemName: selection == .unread
+                ? "line.3.horizontal.decrease.circle.fill"
+                : "line.3.horizontal.decrease.circle")
         }
-        .pickerStyle(.segmented)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(Color(uiColor: .systemBackground))
-        .accessibilityIdentifier("MobileNotificationFeedFilter")
+        .accessibilityLabel(L10n.string("mobile.notificationFeed.filter", defaultValue: "Filter"))
+        .accessibilityIdentifier("MobileNotificationFeedFilterMenu")
     }
 }
 

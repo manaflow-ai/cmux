@@ -4115,19 +4115,36 @@
         }
       }
     },
-    "mobile.notificationFeed.filter.all": {
+    "mobile.notificationFeed.filter": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "All"
+            "value": "Filter"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "すべて"
+            "value": "フィルタ"
+          }
+        }
+      }
+    },
+    "mobile.notificationFeed.filter.allNotifications": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All Notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべての通知"
           }
         }
       }
