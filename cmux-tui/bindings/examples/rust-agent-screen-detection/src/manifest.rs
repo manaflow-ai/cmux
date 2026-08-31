@@ -367,6 +367,12 @@ impl CompiledManifest {
         for (rule, compiled) in self.manifest.rules.iter().zip(&self.compiled_rules) {
             let (text, lower_text) = cached_region(&mut regions, input, &rule.region);
             let matched = compiled_gate_matches(compiled, text, lower_text);
+            let evidence = gate_evidence(
+                &manifest_gate_from_rule(rule),
+                compiled,
+                text,
+                lower_text,
+            );
             evaluated_rules.push(RuleExplanation {
                 id: rule.id.clone(),
                 priority: rule.priority,
@@ -387,6 +393,7 @@ impl CompiledManifest {
                 all_count: rule.all.len(),
                 any_count: rule.any.len(),
                 not_count: rule.not_gate.len(),
+                evidence,
             });
             if matched && selected.is_none_or(|previous| previous.priority < rule.priority) {
                 selected = Some(rule);
@@ -461,6 +468,26 @@ pub struct RuleExplanation {
     pub all_count: usize,
     pub any_count: usize,
     pub not_count: usize,
+    /// Matcher evidence contains only expressions that matched. Nested gate
+    /// results retain their own `matched` flag, so `explain` can show why an
+    /// `all`, `any`, or `not` gate passed or failed without exposing compiled
+    /// regex internals.
+    pub evidence: GateEvidence,
+}
+
+/// Match evidence for one manifest gate. This is package-owned diagnostic
+/// data, not a daemon policy type. The full expressions remain on
+/// `RuleExplanation`; these lists contain only the expressions that matched
+/// the supplied region.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct GateEvidence {
+    pub matched: bool,
+    pub contains: Vec<String>,
+    pub regex: Vec<String>,
+    pub line_regex: Vec<String>,
+    pub all: Vec<GateEvidence>,
+    pub any: Vec<GateEvidence>,
+    pub not_gate: Vec<GateEvidence>,
 }
 
 /// Userland diagnostic result for one process and terminal snapshot.
@@ -563,6 +590,62 @@ fn compiled_gate_matches(gate: &CompiledGate, text: &str, lower_text: &str) -> b
         return false;
     }
     true
+}
+
+fn gate_evidence(
+    source: &ManifestGate,
+    compiled: &CompiledGate,
+    text: &str,
+    lower_text: &str,
+) -> GateEvidence {
+    let contains = source
+        .contains
+        .iter()
+        .zip(&compiled.contains)
+        .filter(|(_, needle)| lower_text.contains(needle.as_str()))
+        .map(|(pattern, _)| pattern.clone())
+        .collect();
+    let regex = source
+        .regex
+        .iter()
+        .zip(&compiled.regex)
+        .filter(|(_, pattern)| pattern.is_match(text))
+        .map(|(pattern, _)| pattern.clone())
+        .collect();
+    let line_regex = source
+        .line_regex
+        .iter()
+        .zip(&compiled.line_regex)
+        .filter(|(_, pattern)| text.lines().any(|line| pattern.is_match(line)))
+        .map(|(pattern, _)| pattern.clone())
+        .collect();
+    let all = source
+        .all
+        .iter()
+        .zip(&compiled.all)
+        .map(|(nested, compiled)| gate_evidence(nested, compiled, text, lower_text))
+        .collect();
+    let any = source
+        .any
+        .iter()
+        .zip(&compiled.any)
+        .map(|(nested, compiled)| gate_evidence(nested, compiled, text, lower_text))
+        .collect();
+    let not_gate = source
+        .not_gate
+        .iter()
+        .zip(&compiled.not_gate)
+        .map(|(nested, compiled)| gate_evidence(nested, compiled, text, lower_text))
+        .collect();
+    GateEvidence {
+        matched: compiled_gate_matches(compiled, text, lower_text),
+        contains,
+        regex,
+        line_regex,
+        all,
+        any,
+        not_gate,
+    }
 }
 
 fn normalized_agent_lookup_name(name: &str) -> String {
@@ -1568,9 +1651,9 @@ id = "codex"
 [[rules]]
 id = "working"
 state = "working"
-contains = ["working"]
-regex = ["work\\s+now"]
-line_regex = ["^working$"]
+contains = ["working", "missing literal"]
+regex = ["work\\s+now", "missing regex"]
+line_regex = ["^working$", "^missing line$"]
 "#,
         )
         .unwrap();
@@ -1580,10 +1663,14 @@ line_regex = ["^working$"]
             osc_progress: "",
         });
         let rule = &explanation.evaluated_rules[0];
-        assert_eq!(rule.contains, vec!["working"]);
-        assert_eq!(rule.regex, vec![r"work\s+now"]);
-        assert_eq!(rule.line_regex, vec!["^working$"]);
-        assert!(rule.matched);
+        assert_eq!(rule.contains, vec!["working", "missing literal"]);
+        assert_eq!(rule.regex, vec![r"work\s+now", "missing regex"]);
+        assert_eq!(rule.line_regex, vec!["^working$", "^missing line$"]);
+        assert!(!rule.matched);
+        assert_eq!(rule.evidence.contains, vec!["working"]);
+        assert_eq!(rule.evidence.regex, vec![r"work\s+now"]);
+        assert_eq!(rule.evidence.line_regex, vec!["^working$"]);
+        assert!(!rule.evidence.matched);
     }
 
     #[test]
