@@ -1,4 +1,7 @@
 {
+  "billingRecovery": {
+    "message": "アカウントが見つかった場合は、メールで次の手順をご確認ください"
+  },
   "vmDesktop": {
     "invalidTitle": "このデスクトップリンクは無効です",
     "invalidBody": "リンクにセッションがないか、cmux が表示できない場所を指しています。cmux のマシンパネルで {machine} を右クリックし、「デスクトップを開く」からもう一度開いてください。",
@@ -156,8 +159,8 @@
       "free": {
         "name": "Free",
         "body": "現在はFreeプランです。Proの上限やホスト型機能が必要になったらアップグレードしてください。",
-        "upsellTitle": "クラウドエージェントや共有 CodeRouter が必要になったらアップグレードできます。",
-        "upsellBody": "個人向けクラウド機能には Pro、匿名の集計使用量・コスト分析付き共有 CodeRouter には Team を選択してください。",
+        "upsellTitle": "クラウドエージェントが必要になったらアップグレードできます。",
+        "upsellBody": "個人向けクラウド機能には Pro、チーム全体の一元請求には Team を選択してください。",
         "testflightTitle": "cmux iOSアプリを入手",
         "testflightBody": "iOSベータは、有効な個人向けProサブスクリプションでTestFlightから利用できます。",
         "testflightCta": "iOSベータに参加"
@@ -411,6 +414,7 @@
     "community": "コミュニティ",
     "docs": "ドキュメント",
     "changelog": "変更履歴",
+    "support": "サポート",
     "companyInformation": "会社情報",
     "privacy": "プライバシー",
     "terms": "利用規約",
@@ -429,10 +433,10 @@
   },
   "pricing": {
     "metaTitle": "料金 — cmux",
-    "metaDescription": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では Cloud VM、cmux Vault によるセッションバックアップ、CodeRouter が使えます。Enterprise は SSO とセルフホストに対応します。",
-    "metaDescriptionShort": "cmux は無料・オープンソースの macOS ターミナルです。Pro では Cloud VM、Vault、CodeRouter を利用でき、Enterprise では SSO とセルフホストに対応します。",
-    "metaDescriptionNoVault": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では Cloud VM と CodeRouter が使えます。Enterprise は SSO とセルフホストに対応します。",
-    "metaDescriptionNoVaultShort": "cmux は無料・オープンソースの macOS ターミナルです。Pro では Cloud VM と CodeRouter を利用でき、Enterprise では SSO とセルフホストに対応します。",
+    "metaDescription": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では分離された Cloud VM と cmux Vault によるセッションバックアップが使えます。Enterprise は SSO とセルフホストに対応します。",
+    "metaDescriptionShort": "cmux は無料・オープンソースの macOS ターミナルです。Pro では Cloud VM と Vault を利用でき、Enterprise では SSO とセルフホストに対応します。",
+    "metaDescriptionNoVault": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では分離された Cloud VM が使えます。Enterprise は SSO とセルフホストに対応します。",
+    "metaDescriptionNoVaultShort": "cmux は無料・オープンソースの macOS ターミナルです。Pro では Cloud VM を利用でき、Enterprise では SSO とセルフホストに対応します。",
     "title": "料金",
     "perMonth": "/月",
     "perMonthBilledYearly": "/月（年払い）",
@@ -457,7 +461,7 @@
         "Claude Code、Codex、Gemini など任意の CLI エージェントを自分のキーで実行",
         "縦型タブ、ワークスペース、分割ペイン、完了通知",
         "ブラウザパネル、スクリプト可能なソケット API、カスタムスキル",
-        "ローカルのセッション履歴と Cloud VM の1回限りのトライアル",
+        "ローカルのセッション履歴",
         "Discord と GitHub でのコミュニティサポート"
       ]
     },
@@ -468,8 +472,7 @@
       "featuresLead": "Free のすべてに加えて:",
       "features": [
         "分離されたリモートサンドボックスの Cloud VM 上で動くクラウドエージェント",
-        "4 vCPU / 16 GB の VM で毎月20時間のアクティブ計算時間、超過分は従量課金",
-        "CodeRouter: プロバイダーアカウント間のフェイルオーバー、使用量・コスト分析付きルーティング",
+        "同時に最大5台のアクティブな Cloud VM",
         "cmux iOS アプリとメールサポート"
       ],
       "vaultFeatures": [
@@ -486,7 +489,8 @@
       "cta": "Teams を入手",
       "featuresLead": "Pro のすべてに加えて:",
       "features": [
-        "匿名の集計使用量・コスト分析付きチーム全体 CodeRouter"
+        "チーム全体の一元請求",
+        "優先サポート"
       ]
     },
     "enterprise": {
@@ -496,11 +500,10 @@
       "featuresLead": "Team のすべてに加えて:",
       "features": [
         "セルフホストのクラウド実行とネットワーク、ネットワーク外に何も出ません",
-        "組織全体の使用量・コスト分析を備えたセルフホストの CodeRouter",
         "SSO と SAML サインイン",
         "一元管理と共有チームルール",
         "ターミナルセッション、ネットワークリクエスト、ブラウザ操作の監査ログ",
-        "コミット型のクラウド利用とボリューム価格",
+        "カスタムの VM 上限とボリューム価格",
         "SOC 2 と SLA、専任サポート付き"
       ]
     },
@@ -554,24 +557,17 @@
         },
         {
           "label": "Cloud VM 上のクラウドエージェント",
-          "free": "VM 1台トライアル",
-          "pro": "月20時間、以降従量課金",
-          "team": "20時間/月、以降は従量課金",
-          "enterprise": "コミット利用"
-        },
-        {
-          "label": "同時 Cloud VM 数",
-          "free": "1",
-          "pro": "従量制",
-          "team": "従量制",
-          "enterprise": "カスタム"
-        },
-        {
-          "label": "CodeRouter: ルーティングと使用量分析",
           "free": "false",
           "pro": "true",
           "team": "true",
           "enterprise": "true"
+        },
+        {
+          "label": "同時 Cloud VM 数",
+          "free": "false",
+          "pro": "最大5台",
+          "team": "最大5台",
+          "enterprise": "カスタム"
         },
         {
           "label": "iOS アプリ",
@@ -610,7 +606,7 @@
           "enterprise": "true"
         },
         {
-          "label": "コミット利用とボリューム価格",
+          "label": "ボリューム価格",
           "free": "false",
           "pro": "false",
           "team": "false",
@@ -632,41 +628,17 @@
         }
       ]
     },
-    "sizes": {
-      "title": "Cloud VM サイズ",
-      "body": "エージェントごとに VM サイズを選べます。アクティブな計算時間に対して課金され、アイドルの VM は自動的に一時停止します。Pro には 4 vCPU / 16 GB サイズで毎月20時間が含まれます。",
-      "colSize": "サイズ",
-      "colUse": "おすすめ用途",
-      "colRate": "アクティブ1時間あたり",
-      "rows": [
-        {
-          "size": "2 vCPU / 8 GB",
-          "use": "軽いエージェントと短いタスク",
-          "rate": "$0.20"
-        },
-        {
-          "size": "4 vCPU / 16 GB",
-          "use": "標準的な開発",
-          "rate": "$0.40"
-        },
-        {
-          "size": "8 vCPU / 32 GB",
-          "use": "重いビルドと並列エージェント",
-          "rate": "$0.80"
-        }
-      ]
-    },
     "help": "ご質問は <discord>Discord</discord> へ、<github>GitHub の Issue</github> を立てるか、<email>メール</email>でどうぞ。",
     "faq": {
       "title": "よくある質問",
       "items": [
         {
           "q": "ターミナルは本当に無料ですか?",
-          "a": "はい。macOS アプリはオープンソースで永久に無料です。ローカルエージェントは自分の API キーで動き、追加費用はかかりません。料金が発生するのは Cloud VM でエージェントを実行したときだけです。"
+          "a": "はい。macOS アプリはオープンソースで永久に無料です。ローカルエージェントは自分の API キーで動き、追加費用はかかりません。Cloud VM は有料プランに含まれます。"
         },
         {
           "q": "Cloud VM とは何ですか?",
-          "a": "エージェントがリポジトリをクローンし、コマンドを実行し、プルリクエストをクラウド上で開くためのリモート Linux サンドボックスで、お使いのマシンには触れません。並列作業、バックグラウンドジョブ、PR レビューに対応します。アイドルの VM は自動的に一時停止するため、課金されるのはアクティブな計算時間だけです。"
+          "a": "クラウド上の永続的な Linux マシンで、使い捨て（cattle）ではなくペットです。Zen of cmux のとおり、マシンはソリューションではなくプリミティブです。ファイル、インストールしたツール、状態はそのまま保持され、その上に構築したものはあなたのものです。エージェントはそこでリポジトリをクローンし、コマンドを実行し、プルリクエストを開くため、お使いの Mac には触れません。Pro と Team には最大5台のアクティブなマシンが含まれます。"
         },
         {
           "q": "cmux Vault とは何ですか?",
@@ -674,16 +646,12 @@
           "vault": true
         },
         {
-          "q": "CodeRouterとは何ですか?",
-          "a": "CodeRouter は各リクエストをプロバイダーアカウント間でフェイルオーバー付きでルーティングし、使用量とコストの分析を1か所で提供します。自分のプロバイダーアカウントを持ち込めます。Enterprise では組織全体の管理のために CodeRouter をセルフホストできます。"
-        },
-        {
           "q": "iOS アプリにまだ Tailscale が必要ですか?",
-          "a": "はい、現時点では必要です。どのプランでも Tailscale などお使いのネットワーク経由で iPhone と Mac をペアリングできます。Enterprise ではセルフホストも可能です。設定不要のホスト型ネットワークはロードマップにあります。"
+          "a": "いいえ。iOS アプリは内蔵の cmux iroh ネットワークで Mac とペアリングできます。Tailscale などお使いのネットワークを持ち込むこともできます。Enterprise ではセルフホストも可能です。"
         },
         {
           "q": "課金はどのように行われますか?",
-          "a": "Pro は月払いで $30/月、年払いでは $24/月（20%割引）で、4 vCPU / 16 GB の Cloud VM で毎月20時間のアクティブ計算時間が含まれます。それを超えると、VM サイズに応じてアクティブな計算時間あたりで課金されます（上記の Cloud VM サイズを参照）。アイドルの VM は自動的に一時停止し、エージェントを並列実行するとより多くの時間を使うだけです。ターミナルとローカルエージェントは無料のままです。"
+          "a": "Pro は月払いで $30/月、年払いでは $24/月（20%割引）です。Team は月払いで $35/ユーザー/月、年払いでは $28/ユーザー/月です。有料プランには最大5台のアクティブな Cloud VM が含まれ、従量課金や超過料金はありません。ターミナルとローカルエージェントは無料のままです。"
         },
         {
           "q": "クラウドをセルフホストできますか?",
@@ -691,7 +659,7 @@
         },
         {
           "q": "チームプランはありますか?",
-          "a": "はい。Team は月払いで $35/ユーザー/月、年払いでは $28/ユーザー/月で、匿名の集計使用量・コスト分析付き共有 CodeRouter が追加されます。"
+          "a": "はい。Team は月払いで $35/ユーザー/月、年払いでは $28/ユーザー/月で、チーム全体の一元請求と優先サポートが含まれます。"
         }
       ]
     },
@@ -1758,6 +1726,11 @@
       "exampleConfig": "設定例",
       "metaTitle": "設定",
       "schemaDescriptions": {
+        "computerUse": {
+          "description": "ローカルのコンピュータ操作ツールとメニューバー表示の設定です。",
+          "enabled": "cmux ターミナルで起動した対応エージェントが、ローカルのコンピュータ操作ツールを接続できるようにします。",
+          "showInMenuBar": "実行中のコンピュータ操作セッションとフォーカス操作をメニューバーに表示します。"
+        },
         "agentChat": {
           "description": "Agent Chat GUI サーバーの設定です。組み込みの「新しいエージェントチャット」アクションは、この URL をブラウザワークスペースで開き、先に /healthz を確認し、サーバーが停止している場合は設定した起動コマンドを実行できます。",
           "url": "このマシン上の Agent Chat GUI サーバーのベース URL です。cmux はワークスペースを開く前に <url>/healthz を確認します。",
@@ -2919,7 +2892,7 @@
       },
       "modelGateway": {
         "title": "モデルゲートウェイ",
-        "body": "使用量とコスト分析を見ながらプロバイダー間でルーティングし、毎月 20 コンピュート時間を利用できます。",
+        "body": "接続したプロバイダーアカウントをまたぐホスト型モデルルーティング。",
         "action": "モデルゲートウェイを開く"
       },
       "aiAccounts": {
@@ -4823,6 +4796,52 @@
       "submit": "送信",
       "submitting": "送信中...",
       "success": "ありがとうございます。リクエストを受け付けました。founders@manaflow.com から返信します。",
+      "error": "問題が発生しました。もう一度お試しいただくか、founders@manaflow.com にメールしてください。"
+    }
+  },
+  "support": {
+    "metaTitle": "サポート | cmux",
+    "metaDescription": "cmux のサポートを受けられます。メッセージを送信するとメールで返信します。Discord や GitHub でも問い合わせできます。",
+    "section": "サポート",
+    "title": "cmux のサポートを受けられます。",
+    "body": "メッセージを送信すると、メールで返信します。操作内容、期待した結果、実際の結果を書いていただくと、より早く対応できます。",
+    "channels": {
+      "docs": {
+        "label": "ドキュメント",
+        "description": "はじめ方、設定、トラブルシューティングのガイド。"
+      },
+      "discord": {
+        "label": "Discord",
+        "description": "コミュニティとチームにリアルタイムで質問できます。"
+      },
+      "github": {
+        "label": "GitHub Issues",
+        "description": "バグ報告や機能リクエストを公開の場で送れます。"
+      },
+      "email": {
+        "label": "founders@manaflow.com",
+        "description": "メールでの問い合わせはこちらに直接どうぞ。"
+      }
+    },
+    "formAriaLabel": "サポート問い合わせフォーム",
+    "form": {
+      "name": "名前",
+      "email": "メールアドレス",
+      "topic": "トピック",
+      "message": "お困りの内容",
+      "selectPlaceholder": "選択してください",
+      "topicOptions": [
+        "バグ報告",
+        "請求またはサブスクリプション",
+        "アカウントまたはサインイン",
+        "Cloud VM",
+        "機能リクエスト",
+        "その他"
+      ],
+      "privacy": "メールアドレスはサポートへの返信のみに使用します。連絡先情報を販売することはありません。",
+      "submit": "送信",
+      "submitting": "送信中...",
+      "success": "ありがとうございます。メッセージを受け付けました。founders@manaflow.com からメールで返信します。",
       "error": "問題が発生しました。もう一度お試しいただくか、founders@manaflow.com にメールしてください。"
     }
   },

@@ -1010,7 +1010,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                     onOpenChanges: onOpenChanges,
                     wrapWorkspaceTitles: configuration.wrapWorkspaceTitles,
                     previewLineLimit: configuration.previewLineLimit,
-                    unreadIndicatorLeftShift: configuration.unreadIndicatorLeftShift
+                    unreadIndicatorLeftShift: configuration.unreadIndicatorLeftShift,
+                    unreadBadgeDiameter: configuration.unreadBadgeDiameter
                 )
                 .accessibilityElement(
                     children: onOpenChanges == nil ? .combine : .contain
@@ -1057,7 +1058,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 WorkspaceGroupHeaderRow(
                     value: WorkspaceGroupHeaderRowValue(
                         group: group,
-                        hasUnread: configuration.groupHasUnreadByID[groupID, default: false],
+                        unread: configuration.groupUnreadByID[groupID, default: .read],
                         navigationStyle: configuration.navigationStyle,
                         isAnchorSelected: configuration.navigationStyle == .sidebar
                             && configuration.selectedWorkspaceID == group.liveAnchorWorkspaceID,
@@ -1072,7 +1073,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                         canDeleteWorkspaceGroup: capabilities.supportsGroupActions
                             && configuration.deleteWorkspaceGroup != nil,
                         canToggleCollapsed: configuration.toggleGroupCollapsed != nil,
-                        unreadIndicatorLeftShift: configuration.unreadIndicatorLeftShift
+                        unreadIndicatorLeftShift: configuration.unreadIndicatorLeftShift,
+                        unreadBadgeDiameter: configuration.unreadBadgeDiameter
                     ),
                     actions: WorkspaceGroupHeaderRowActions(
                         selectWorkspace: configuration.selectWorkspace,
@@ -1257,6 +1259,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 || previous.wrapWorkspaceTitles != next.wrapWorkspaceTitles
                 || previous.previewLineLimit != next.previewLineLimit
                 || previous.unreadIndicatorLeftShift != next.unreadIndicatorLeftShift
+                || previous.unreadBadgeDiameter != next.unreadBadgeDiameter
                 || previousConnectionStatus != nextConnectionStatus
                 || workspaceActionAvailabilityChanged(previous: previous, next: next)
         case .groupHeader(let id):
@@ -1267,13 +1270,14 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             let isAnchorSelected = next.navigationStyle == .sidebar
                 && next.selectedWorkspaceID == nextAnchorID
             return previous.groupsByID[id] != next.groupsByID[id]
-                || previous.groupHasUnreadByID[id] != next.groupHasUnreadByID[id]
-                || previousAnchorID.flatMap { previous.workspacesByID[$0]?.hasUnread }
-                    != nextAnchorID.flatMap { next.workspacesByID[$0]?.hasUnread }
+                || previous.groupUnreadByID[id] != next.groupUnreadByID[id]
+                || previousAnchorID.flatMap { previous.workspacesByID[$0]?.unreadState }
+                    != nextAnchorID.flatMap { next.workspacesByID[$0]?.unreadState }
                 || previousAnchorID.map { previous.workspacesByID[$0]?.actionCapabilities }
                     != nextAnchorID.map { next.workspacesByID[$0]?.actionCapabilities }
                 || wasAnchorSelected != isAnchorSelected
                 || previous.unreadIndicatorLeftShift != next.unreadIndicatorLeftShift
+                || previous.unreadBadgeDiameter != next.unreadBadgeDiameter
                 || nativeActionAvailabilityChanged(previous: previous, next: next)
                 || groupActionAvailabilityChanged(previous: previous, next: next)
         case .groupFooter(let id):

@@ -21,7 +21,6 @@ import {
   FeatureList,
   PlanCard,
   PricingCompareTable,
-  PricingSizeTable,
   PrimaryLink,
   SecondaryLink,
   visibleCompareRows,
@@ -29,7 +28,6 @@ import {
   visibleProFeatures,
   type CompareRow,
   type FaqItem,
-  type SizeRow,
 } from "../components/pricing-shared";
 import {
   PricingCheckoutButton,
@@ -92,7 +90,6 @@ export default async function AppPricingPage({
     pricing.compare.rows as CompareRow[],
     featureVisibility,
   );
-  const sizeRows = pricing.sizes.rows as SizeRow[];
   const faqItems = visibleFaqItems(
     pricing.faq.items as FaqItem[],
     featureVisibility,
@@ -295,15 +292,6 @@ export default async function AppPricingPage({
             />
           </section>
           </PricingIntervalProvider>
-
-          <PricingSizeTable
-            rows={sizeRows}
-            title={pricing.sizes.title}
-            body={pricing.sizes.body}
-            colSize={pricing.sizes.colSize}
-            colUse={pricing.sizes.colUse}
-            colRate={pricing.sizes.colRate}
-          />
 
           <section className="mt-16 border-t border-border pt-10">
             <h2 className="mb-3 text-xs font-medium tracking-tight text-muted">

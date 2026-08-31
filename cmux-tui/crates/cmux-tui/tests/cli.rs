@@ -3613,8 +3613,24 @@ fn assert_subscribe_reports_tree_changed(server: &HeadlessServer) {
         }
     });
     writeln!(writer, r#"{{"id":1,"cmd":"subscribe"}}"#).unwrap();
+    writer.flush().unwrap();
 
-    std::thread::sleep(Duration::from_millis(200));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .expect("server did not acknowledge the tree-change subscription");
+        let line = rx
+            .recv_timeout(remaining)
+            .expect("server did not acknowledge the tree-change subscription");
+        let message: serde_json::Value =
+            serde_json::from_str(&line).expect("subscription returned invalid JSON");
+        if message["id"].as_u64() == Some(1) {
+            assert_eq!(message["ok"], true, "tree-change subscription failed: {message}");
+            break;
+        }
+    }
+
     let tab = json_cli(server, &["tab", "create", "terminal"]);
     if !tab.status.success() {
         let mut lines = Vec::new();
