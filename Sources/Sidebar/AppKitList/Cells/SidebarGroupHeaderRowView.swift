@@ -210,7 +210,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             )
             unreadBadgeView.configure(
                 count: model.anchorUnreadCount,
-                fillColor: .controlAccentColor,
+                fillColor: environment.accentColor,
                 textColor: .white,
                 font: unreadBadgeFont
             )

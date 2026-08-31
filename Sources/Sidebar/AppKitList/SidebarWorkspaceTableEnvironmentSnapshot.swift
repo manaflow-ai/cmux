@@ -16,6 +16,10 @@ struct SidebarWorkspaceTableEnvironmentSnapshot {
     /// view's effective appearance during focus or reparenting churn.
     let primaryTextColor: NSColor
     let secondaryTextColor: NSColor
+    /// Concrete system tint used by AppKit unread badges.
+    /// Resolving it at the table boundary makes an accent-color change part of
+    /// the same invalidation contract as the semantic text palette.
+    let accentColor: NSColor
     /// Settable base AppKit appearance matching the table's SwiftUI color scheme.
     /// AppKit's accessibility-high-contrast names are match-only appearances.
     let appKitAppearance: NSAppearance?
@@ -27,29 +31,41 @@ struct SidebarWorkspaceTableEnvironmentSnapshot {
     init(
         environment: EnvironmentValues,
         globalFontMagnificationPercent: Int,
-        lazyContractProbe: SidebarLazyContractProbe
+        lazyContractProbe: SidebarLazyContractProbe,
+        systemAccentColor: NSColor? = nil
     ) {
         let colors = Self.resolvedTextColors(in: environment)
+        let appKitAppearance = Self.appKitAppearance(for: environment.colorScheme)
         self.colorScheme = environment.colorScheme
         self.colorSchemeContrast = environment.colorSchemeContrast
         self.globalFontMagnificationPercent = globalFontMagnificationPercent
         self.primaryTextColor = colors.primary
         self.secondaryTextColor = colors.secondary
-        self.appKitAppearance = Self.appKitAppearance(for: environment.colorScheme)
+        self.accentColor = Self.resolvedSystemAccentColor(
+            systemAccentColor ?? .controlAccentColor,
+            appearance: appKitAppearance
+        )
+        self.appKitAppearance = appKitAppearance
         self.lazyContractProbe = lazyContractProbe
     }
 #else
     init(
         environment: EnvironmentValues,
-        globalFontMagnificationPercent: Int
+        globalFontMagnificationPercent: Int,
+        systemAccentColor: NSColor? = nil
     ) {
         let colors = Self.resolvedTextColors(in: environment)
+        let appKitAppearance = Self.appKitAppearance(for: environment.colorScheme)
         self.colorScheme = environment.colorScheme
         self.colorSchemeContrast = environment.colorSchemeContrast
         self.globalFontMagnificationPercent = globalFontMagnificationPercent
         self.primaryTextColor = colors.primary
         self.secondaryTextColor = colors.secondary
-        self.appKitAppearance = Self.appKitAppearance(for: environment.colorScheme)
+        self.accentColor = Self.resolvedSystemAccentColor(
+            systemAccentColor ?? .controlAccentColor,
+            appearance: appKitAppearance
+        )
+        self.appKitAppearance = appKitAppearance
     }
 #endif
 
@@ -59,6 +75,7 @@ struct SidebarWorkspaceTableEnvironmentSnapshot {
             && globalFontMagnificationPercent == other.globalFontMagnificationPercent
             && primaryTextColor == other.primaryTextColor
             && secondaryTextColor == other.secondaryTextColor
+            && accentColor == other.accentColor
     }
 
     @ViewBuilder
@@ -99,6 +116,20 @@ struct SidebarWorkspaceTableEnvironmentSnapshot {
 
     private static func appKitAppearance(for colorScheme: ColorScheme) -> NSAppearance? {
         NSAppearance(named: colorScheme == .dark ? .darkAqua : .aqua)
+    }
+
+    private static func resolvedSystemAccentColor(
+        _ color: NSColor,
+        appearance: NSAppearance?
+    ) -> NSColor {
+        guard let appearance else {
+            return color.usingColorSpace(.sRGB) ?? color
+        }
+        var resolved = color
+        appearance.performAsCurrentDrawingAppearance {
+            resolved = color.usingColorSpace(.sRGB) ?? color
+        }
+        return resolved
     }
 
     private static func appKitColor(

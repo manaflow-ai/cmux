@@ -2156,6 +2156,47 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
+    func groupHeaderUnreadBadgeRepaintsWhenEnvironmentAccentChanges() throws {
+        let firstAccent = NSColor(srgbRed: 0.9, green: 0.1, blue: 0.2, alpha: 1)
+        let secondAccent = NSColor(srgbRed: 0.1, green: 0.7, blue: 0.25, alpha: 1)
+        let firstEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
+            environment: .sidebarTableTestValues(colorScheme: .light),
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe(),
+            systemAccentColor: firstAccent
+        )
+        let secondEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
+            environment: .sidebarTableTestValues(colorScheme: .light),
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe(),
+            systemAccentColor: secondAccent
+        )
+        #expect(!firstEnvironment.hasEquivalentPresentation(to: secondEnvironment))
+
+        var model = Self.makeGroupHeaderModel(
+            groupId: UUID(),
+            anchorWorkspaceId: UUID(),
+            isAnchorActive: false
+        )
+        model.anchorUnreadCount = 3
+        let header = SidebarGroupHeaderTableCellView()
+        header.configurePresentation(model: model, environment: firstEnvironment)
+        let badge = try #require(
+            header.subviews.compactMap { $0 as? SidebarRowUnreadBadgeView }.first
+        )
+        let firstFill = try #require(badge.layer?.backgroundColor)
+        let firstRenderedColor = try #require(NSColor(cgColor: firstFill))
+
+        header.configurePresentation(model: model, environment: secondEnvironment)
+        let secondFill = try #require(badge.layer?.backgroundColor)
+        let secondRenderedColor = try #require(NSColor(cgColor: secondFill))
+
+        #expect(Self.distance(firstRenderedColor, firstEnvironment.accentColor) < 0.001)
+        #expect(Self.distance(secondRenderedColor, secondEnvironment.accentColor) < 0.001)
+        #expect(Self.distance(firstRenderedColor, secondRenderedColor) > 0.1)
+    }
+
+    @Test
     func shortcutHintMaterialUsesTableAppearanceWhenBackingAppearanceDiffers() throws {
         let tableEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
             environment: .sidebarTableTestValues(colorScheme: .light),
