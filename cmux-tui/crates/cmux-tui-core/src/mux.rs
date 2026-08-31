@@ -6426,9 +6426,20 @@ impl Mux {
                     },
                 );
             }
-            RosterDelta::Remove { terminal_id } => {
+            RosterDelta::Remove { terminal_id, entry } => {
                 if let Ok(terminal_id) = TerminalPublicId::parse(terminal_id) {
-                    records.remove(&terminal_id);
+                    // A delayed reducer row may describe an ended lifecycle
+                    // while a newer direct report already occupies the same
+                    // terminal. Remove only when source, session, and the
+                    // direct timestamp still identify the ended lifecycle.
+                    let remove = records.get(&terminal_id).is_some_and(|existing| {
+                        existing.source.as_str() == entry.source
+                            && existing.session == entry.session
+                            && existing.updated_at_ms <= entry.updated_at_ms
+                    });
+                    if remove {
+                        records.remove(&terminal_id);
+                    }
                 }
             }
         }
@@ -10396,21 +10407,37 @@ impl Mux {
                 (surface, (*terminal_id).clone())
             }
         };
-        let (durable_hook_session, durable_external_session, durable_external_end) = {
+        // Read the roster fence and the authoritative resource projection
+        // while the registry lock is held. The reducer can lag a committed
+        // direct echo behind an unrelated pending row, so the projection is
+        // the durable admission fence until that echo is folded.
+        let durable_external_projection = registry
+            .public_agent_projections(Some(&terminal_id), None)?
+            .into_iter()
+            .find(|agent| {
+                agent.source != AgentSource::Hook.as_str()
+                    && agent.state == AgentState::Done.as_str()
+            });
+        let (durable_hook_session, roster_external_session, roster_external_end) = {
             let roster = self.agent_roster.lock().unwrap();
             if roster.roster.is_retired(terminal_id.as_str()) {
                 anyhow::bail!("terminal {terminal_id} has been retired");
             }
             let durable_hook_session =
                 roster.roster.ended_hook_session(terminal_id.as_str()).map(str::to_owned);
-            let durable_external_session =
+            let roster_external_session =
                 roster.roster.ended_external_session(terminal_id.as_str()).map(str::to_owned);
-            let durable_external_end = roster
+            let roster_external_end = roster
                 .roster
                 .last_external_report(terminal_id.as_str())
                 .is_some_and(|(_, state, _)| state == AgentState::Done.as_str());
-            (durable_hook_session, durable_external_session, durable_external_end)
+            (durable_hook_session, roster_external_session, roster_external_end)
         };
+        let durable_external_session = durable_external_projection
+            .as_ref()
+            .and_then(|agent| agent.source_session.clone())
+            .or(roster_external_session);
+        let durable_external_end = roster_external_end || durable_external_projection.is_some();
         // A caller-held fence is just as authoritative as one acquired in
         // this function. Clone the entry before any later mutable insertion
         // so the validation decision cannot race or borrow the guard.
@@ -10711,10 +10738,9 @@ impl Mux {
         // persisted before the compatibility cache is cleared.
         let mut fences = self.agent_hook_fences.lock().unwrap();
         let _fold = self.agent_roster_fold.lock().unwrap();
-        let (journal_cursor, pending_cleanup) = {
-            let mut registry = self.workspace_registry.lock().unwrap();
-            let pending_cleanup = registry.purge_agent_hook_pending_for_terminal(terminal_id);
-            let journal_cursor = match registry.session_journal_after(0, 1) {
+        let journal_cursor = {
+            let registry = self.workspace_registry.lock().unwrap();
+            match registry.session_journal_after(0, 1) {
                 Ok(page) => page.head_sequence,
                 Err(error) => {
                     self.report_internal_diagnostic(
@@ -10722,13 +10748,8 @@ impl Mux {
                     );
                     return Err(error).context("read journal head before terminal retirement");
                 }
-            };
-            (journal_cursor, pending_cleanup)
+            }
         };
-        let pending_cleanup_error = pending_cleanup.err().map(|error| {
-            self.report_internal_diagnostic("terminal agent hook cleanup deferred");
-            error.context("purge pending agent hook receipts")
-        });
         let retired = {
             let mut host = self.agent_roster.lock().unwrap();
             let previous = host.roster.clone();
@@ -10757,12 +10778,31 @@ impl Mux {
         } else {
             None
         };
+        if let Some(error) = snapshot_error {
+            // Keep every live and pending side table intact until the
+            // retirement fence is durable. Removing pending receipts first
+            // would let an old journal row be projected again after a
+            // transient snapshot failure.
+            drop(_fold);
+            drop(fences);
+            return Err(error);
+        }
+        let pending_cleanup_error = self
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .purge_agent_hook_pending_for_terminal(terminal_id)
+            .err()
+            .map(|error| error.context("purge pending agent hook receipts"));
         fences.remove(terminal_id);
         drop(_fold);
         drop(fences);
         self.agent_records.lock().unwrap().remove(terminal_id);
         self.terminal_notifications.lock().unwrap().remove(terminal_id);
-        snapshot_error.or(pending_cleanup_error).map_or(Ok(()), Err)
+        if pending_cleanup_error.is_some() {
+            self.report_internal_diagnostic("terminal agent hook cleanup deferred");
+        }
+        pending_cleanup_error.map_or(Ok(()), Err)
     }
 
     fn purge_terminal_runtime_side_tables(&self, runtime: &Surface) -> anyhow::Result<()> {
@@ -23897,6 +23937,13 @@ mod tests {
         // remove the newer direct record that now occupies the same terminal.
         mux.apply_roster_delta_to_record_cache(RosterDelta::Remove {
             terminal_id: terminal_id.to_string(),
+            entry: crate::journal_reducers::RosterEntry {
+                state: "done".into(),
+                source: "socket".into(),
+                session: Some("old-session".into()),
+                agent: None,
+                updated_at_ms: 100,
+            },
         });
 
         let record = mux.agent_records.lock().unwrap();

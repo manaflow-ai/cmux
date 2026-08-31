@@ -176,8 +176,17 @@ impl RosterEntry {
 /// only mutates roster state.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum RosterDelta {
-    Upsert { terminal_id: String, entry: RosterEntry },
-    Remove { terminal_id: String },
+    Upsert {
+        terminal_id: String,
+        entry: RosterEntry,
+    },
+    /// Remove only the lifecycle represented by `entry`. A fold may lag a
+    /// newer direct projection, so the host must not delete that newer record
+    /// just because the terminal id matches.
+    Remove {
+        terminal_id: String,
+        entry: RosterEntry,
+    },
 }
 
 /// Live-agent roster: terminal public id to the agent's last reported
@@ -362,11 +371,18 @@ impl AgentRoster {
             // An ended agent leaves the roster entirely; the done state is
             // still committed to the durable projection by the host so
             // history and remote caches converge.
-            return if self.entries.remove(terminal_id).is_some()
-                || source == AgentSource::Hook
-                || external_receipt_changed
-            {
-                vec![RosterDelta::Remove { terminal_id: terminal_id.to_string() }]
+            let removed = self.entries.remove(terminal_id);
+            return if removed.is_some() || source == AgentSource::Hook || external_receipt_changed {
+                vec![RosterDelta::Remove {
+                    terminal_id: terminal_id.to_string(),
+                    entry: RosterEntry {
+                        state: state.as_str().to_string(),
+                        source: source.as_str().to_string(),
+                        session,
+                        agent,
+                        updated_at_ms,
+                    },
+                }]
             } else {
                 Vec::new()
             };
@@ -553,7 +569,19 @@ mod tests {
         assert_eq!(roster.entries["term_a"].state, "blocked");
 
         let deltas = roster.apply(&hook_event(5, "agent.session.ended", &subjects, &payload));
-        assert_eq!(deltas, vec![RosterDelta::Remove { terminal_id: "term_a".into() }]);
+        assert_eq!(
+            deltas,
+            vec![RosterDelta::Remove {
+                terminal_id: "term_a".into(),
+                entry: RosterEntry {
+                    state: "done".into(),
+                    source: "hook".into(),
+                    session: None,
+                    agent: None,
+                    updated_at_ms: 1_005,
+                },
+            }]
+        );
         assert!(roster.entries.is_empty());
     }
 
@@ -669,7 +697,16 @@ mod tests {
 
         assert_eq!(
             roster.apply(&hook_event(1, "agent.state.changed", &subjects, &done)),
-            vec![RosterDelta::Remove { terminal_id: "term_a".into() }]
+            vec![RosterDelta::Remove {
+                terminal_id: "term_a".into(),
+                entry: RosterEntry {
+                    state: "done".into(),
+                    source: "detected".into(),
+                    session: Some("screen-1".into()),
+                    agent: None,
+                    updated_at_ms: 1_001,
+                },
+            }]
         );
         assert!(roster.entries.is_empty());
         assert!(roster.has_terminal_removal_fence("term_a"));
