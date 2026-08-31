@@ -19,6 +19,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let workspaceId = "11111111-1111-1111-1111-111111111111"
         let staleSurfaceId = "22222222-2222-2222-2222-222222222222"
         let focusedSurfaceId = "33333333-3333-3333-3333-333333333333"
+        let ledgerPath = root.appendingPathComponent("codex-turn-ledger.json")
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer {
@@ -26,6 +27,24 @@ extension CLINotifyProcessIntegrationRegressionTests {
             unlink(socketPath)
             try? FileManager.default.removeItem(at: root)
         }
+
+        let ledgerRecord: [String: Any] = [
+            "workspaceID": workspaceId,
+            "surfaceID": staleSurfaceId,
+            "owner": [:],
+            "activeTurnID": "turn-before",
+            "activeChildrenByTurn": [:],
+            "unknownChildrenByTurn": [:],
+            "terminalChildrenByTurn": [:],
+            "pendingTurns": [:],
+            "settledTurnIDs": [],
+            "notifiedTurnIDs": [],
+            "updatedAt": 4_000_000_000,
+        ]
+        try JSONSerialization.data(
+            withJSONObject: ["records": ["codex-stale-no-live": ledgerRecord], "surfaceOwners": [:]],
+            options: [.prettyPrinted]
+        ).write(to: ledgerPath, options: .atomic)
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
             guard let payload = self.jsonObject(line) else {
@@ -90,13 +109,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CODEX_HOME"] = root.appendingPathComponent("codex-home", isDirectory: true).path
+        environment["CMUX_CODEX_TURN_LEDGER_PATH"] = ledgerPath.path
         environment.removeValue(forKey: "CMUX_CODEX_PID")
 
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["hooks", "codex", "prompt-submit"],
             environment: environment,
-            standardInput: #"{"session_id":"codex-stale-no-live","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#,
+            standardInput: #"{"session_id":"codex-stale-no-live","turn_id":"turn-after","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#,
             timeout: 5
         )
 
@@ -113,6 +133,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 $0.unattributedReason == "target-unresolved" && $0.surfaceId == nil
             },
             "Fail-closed target resolution must leave an unattributed journal diagnostic, saw \(state.commands)"
+        )
+        let ledger = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: Data(contentsOf: ledgerPath)) as? [String: Any]
+        )
+        let record = try XCTUnwrap(
+            (ledger["records"] as? [String: Any])?["codex-stale-no-live"] as? [String: Any]
+        )
+        XCTAssertEqual(
+            record["activeTurnID"] as? String,
+            "turn-after",
+            "An unresolved prompt must still advance an existing Codex turn record"
         )
     }
 
