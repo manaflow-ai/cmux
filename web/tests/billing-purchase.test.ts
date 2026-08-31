@@ -801,6 +801,60 @@ describe("recordCheckoutCompletion", () => {
     });
   });
 
+  test("promotes an anonymous checkout account before granting Pro access", async () => {
+    const previousFetch = globalThis.fetch;
+    const update = mock(async () => undefined);
+    const sendMagicLinkEmail = mock(async () => undefined);
+    const user = {
+      id: "anonymous_checkout",
+      isAnonymous: true,
+      isRestricted: true,
+      primaryEmail: null,
+      primaryEmailVerified: false,
+      clientReadOnlyMetadata: {},
+      update,
+    };
+    const fetchMock = mock(async (rawInput: unknown, rawInit?: unknown) => {
+      const request = new Request(rawInput as RequestInfo | URL, rawInit as RequestInit);
+      expect(request.method).toBe("PATCH");
+      expect(request.url).toContain("/api/v1/users/anonymous_checkout");
+      expect(await request.json()).toEqual({
+        primary_email: "buyer@example.com",
+        primary_email_verified: true,
+        primary_email_auth_enabled: true,
+        is_anonymous: false,
+      });
+      return new Response(null, { status: 200 });
+    });
+    globalThis.fetch = fetchMock as typeof globalThis.fetch;
+    try {
+      const input = checkoutInput();
+      input.session.client_reference_id = user.id;
+      input.subscription.metadata.stackUserId = user.id;
+      await recordCheckoutCompletion(input as never, {
+        db: fakeDb() as never,
+        stackApp: {
+          getUser: async () => user,
+          sendMagicLinkEmail,
+        } as never,
+      });
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(user.update).not.toHaveBeenCalledWith({
+      primaryEmail: "buyer@example.com",
+      primaryEmailAuthEnabled: true,
+    });
+    expect(user.update).toHaveBeenCalledWith({
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+    });
+    expect(sendMagicLinkEmail).toHaveBeenCalledWith("buyer@example.com", {
+      callbackUrl: "https://cmux.com/handler/after-sign-in",
+    });
+  });
+
   test("verifies an existing unverified purchase-attached email", async () => {
     const update = mock(async () => undefined);
     const user = {
