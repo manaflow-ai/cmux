@@ -1144,6 +1144,34 @@ final class RemoteTmuxController {
     /// ControlMasters, so quitting cmux closes the ssh connections it opened (the
     /// CLI's `ssh -f` left them persistent). Does NOT kill any remote tmux
     /// server/session — only the local control clients and masters.
+    /// Every mirror that owes tmux a goodbye, in the order the app is about to lose them.
+    var connectionsOwingDeliberateDetach: [RemoteTmuxControlConnection] {
+        let views = multiplexedViewsByHost.values.compactMap(\.connection)
+        return (views + Array(connectionsByHostSession.values)).filter(\.owesDeliberateDetach)
+    }
+
+    /// Detaches every mirror and waits for tmux to acknowledge, before anything is torn down.
+    ///
+    /// Called from the app's deferred-termination phase, which exists precisely so work like
+    /// this can finish. Doing it inside `detachAll()` cannot work: that function goes on to stop
+    /// the transports, and a detach the transport never forwarded dies with it — the app exits,
+    /// the remote half keeps the tmux client, and its per-window size claims pin those windows
+    /// for every other client until someone notices and kills it by hand.
+    ///
+    /// One deadline covers the whole set rather than one each, so a single wedged mirror cannot
+    /// multiply the wait.
+    func detachAllAwaitingExit(timeout: TimeInterval = 2.0) async {
+        let owing = connectionsOwingDeliberateDetach
+        guard !owing.isEmpty else { return }
+        Self.logger.info("terminate: detaching \(owing.count, privacy: .public) mirror(s) before exit")
+        await withTaskGroup(of: Void.self) { group in
+            for connection in owing {
+                group.addTask { @MainActor in await connection.detachAwaitingExit(timeout: timeout) }
+            }
+            await group.waitForAll()
+        }
+    }
+
     func detachAll() {
         // No waiter may outlive the mirrors it was waiting for.
         for key in authWaitTasks.keys { cancelAuthWait(host: key) }

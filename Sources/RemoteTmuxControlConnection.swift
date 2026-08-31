@@ -898,6 +898,70 @@ final class RemoteTmuxControlConnection {
     /// The wait is on tmux's own `%exit`, which is the confirmation that the client is gone.
     /// `timeout` is only a backstop for a stream that has already stopped answering; without one a
     /// wedged stream would keep the transport alive for good.
+    /// State for one bounded wait: the continuation, the observer registration to undo, and the
+    /// deadline to cancel. Held in a box so the exit callback can reach the token it was
+    /// registered under, which does not exist until registration returns.
+    @MainActor private final class ExitWait {
+        var continuation: CheckedContinuation<Void, Never>?
+        var token: ObserverToken?
+        var deadline: DispatchWorkItem?
+        var finished = false
+    }
+
+    /// Whether this connection owes tmux a goodbye before the app exits.
+    ///
+    /// Only a transport whose remote half outlives the local client does: killing an ssh client
+    /// closes the pty and tmux reaps that client itself. For the others — et among them — a
+    /// client that vanishes without detaching stays attached on the server forever, and while it
+    /// is attached its per-window size claims act as a ceiling on every window it claimed, for
+    /// everyone else working there.
+    var owesDeliberateDetach: Bool {
+        transportProfile.remoteHalfSurvivesLocalExit && connectionState == .connected
+    }
+
+    /// Sends `detach-client` and waits for the connection to end, bounded by `timeout`.
+    ///
+    /// The acknowledgement is the point. Handing the bytes to the writer proves nothing: they sit
+    /// on a serial queue, then in a pipe, then inside a transport process the caller is about to
+    /// terminate — each of which can drop them. The end of the connection is the evidence that
+    /// the server let go.
+    ///
+    /// One continuation, resumed by whichever edge arrives first and never twice. An earlier
+    /// version raced these as two children of a task group and hung the app on quit: cancelling
+    /// the group cannot stop a `withCheckedContinuation` that nobody resumes, so the group never
+    /// returned and termination stalled behind it.
+    func detachAwaitingExit(timeout: TimeInterval) async {
+        guard owesDeliberateDetach else { return }
+        let wait = ExitWait()
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            wait.continuation = continuation
+            wait.token = addObserver(onExit: { [weak self] in self?.finishExitWait(wait) })
+            let deadline = DispatchWorkItem { [weak self] in
+                self?.record("detach-exit-not-acknowledged")
+                self?.finishExitWait(wait)
+            }
+            wait.deadline = deadline
+            DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: deadline)
+            detachThenStop(timeout: timeout)
+            // The stop above can end the connection synchronously, before the observer was ever
+            // going to fire; check once so that case is not left waiting out the deadline.
+            if exited { finishExitWait(wait) }
+        }
+    }
+
+    /// Resumes a bounded wait exactly once, whichever edge got there first.
+    private func finishExitWait(_ wait: ExitWait) {
+        guard !wait.finished else { return }
+        wait.finished = true
+        wait.deadline?.cancel()
+        wait.deadline = nil
+        if let token = wait.token { removeObserver(token) }
+        wait.token = nil
+        let continuation = wait.continuation
+        wait.continuation = nil
+        continuation?.resume()
+    }
+
     func detachThenStop(timeout: TimeInterval = RemoteTmuxControlConnection.deliberateDetachBackstopSeconds) {
         guard transportProfile.remoteHalfSurvivesLocalExit,
               connectionState == .connected,
