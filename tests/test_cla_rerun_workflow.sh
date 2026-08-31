@@ -165,6 +165,12 @@ gh() {
       elif [[ "${FAKE_MODE}" == association-validation-error ]]; then
         printf '{"message":"No commit found for SHA: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","status":"422"}\n'
         return 1
+      elif [[ "${FAKE_MODE}" == association-stderr-not-found ]]; then
+        printf 'gh: Not Found (HTTP 404)\n' >&2
+        return 1
+      elif [[ "${FAKE_MODE}" == association-stderr-validation-error ]]; then
+        printf 'gh: No commit found for SHA: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa (HTTP 422)\n' >&2
+        return 1
       elif [[ "${FAKE_MODE}" == association-api-failure ]]; then
         printf '{"message":"API unavailable","status":503}\n'
         return 1
@@ -411,6 +417,8 @@ run_case minimal-run-association 0 "Requested rerun for CLA job 500 in workflow 
 run_case fork-current 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case association-not-found 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case association-validation-error 0 "Requested rerun for CLA job 500 in workflow run 400" 1
+run_case association-stderr-not-found 0 "Requested rerun for CLA job 500 in workflow run 400" 1
+run_case association-stderr-validation-error 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case association-api-failure 1 "Could not query pull request associations" 0
 run_case empty-run-association 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case same-repo-empty 0 "Requested rerun for CLA job 500 in workflow run 400" 1

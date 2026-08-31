@@ -159,24 +159,37 @@ fi
 # an empty association list; every other API failure remains fatal.
 commit_prs_json=""
 commit_association_error=""
-if ! commit_prs_json="$(gh api \
+commit_association_stderr_file="$(mktemp)"
+cleanup_commit_association_stderr() {
+  rm -f -- "${commit_association_stderr_file}"
+}
+trap cleanup_commit_association_stderr EXIT
+if commit_prs_json="$(gh api \
   --method GET \
   --header 'Accept: application/vnd.github+json' \
   --raw-field per_page=100 \
   --raw-field page=1 \
-  "repos/${GH_REPO}/commits/${head_sha}/pulls" 2>/dev/null)"; then
-  commit_association_error="${commit_prs_json}"
+  "repos/${GH_REPO}/commits/${head_sha}/pulls" 2>"${commit_association_stderr_file}")"; then
+  :
+else
+  commit_association_error="${commit_prs_json}"$'\n'"$(cat "${commit_association_stderr_file}")"
   if jq -e '
     ((.status == 404 or .status == "404") and
       (.message == "Not Found" or .message == "Resource not found")) or
     ((.status == 422 or .status == "422") and
       (.message | type == "string" and startswith("No commit found for SHA: ")))
-  ' <<<"${commit_association_error}" >/dev/null 2>&1; then
+  ' <<<"${commit_prs_json}" >/dev/null 2>&1 ||
+     { grep -Eq 'HTTP 404' <<<"${commit_association_error}" &&
+       grep -Eq 'Not Found|Resource not found' <<<"${commit_association_error}"; } ||
+     { grep -Eq 'HTTP 422' <<<"${commit_association_error}" &&
+       grep -Eq 'No commit found for SHA: [0-9a-f]{40}' <<<"${commit_association_error}"; }; then
     commit_prs_json='[]'
   else
     fail "Could not query pull request associations"
   fi
 fi
+cleanup_commit_association_stderr
+trap - EXIT
 jq -e 'type == "array"' <<<"${commit_prs_json}" >/dev/null || fail "Could not validate pull request associations"
 association_count="$(jq -r 'length' <<<"${commit_prs_json}")"
 [[ "${association_count}" =~ ^[0-9]+$ ]] || fail "Could not count pull request associations"
