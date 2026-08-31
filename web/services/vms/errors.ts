@@ -181,22 +181,30 @@ export function isVmProviderOperationError(err: unknown): err is VmProviderOpera
   return (err as { _tag?: string } | null)?._tag === "VmProviderOperationError";
 }
 
-const vmWorkflowErrorTags = new Set([
-  "VmDatabaseError",
-  "VmProviderOperationError",
-  "VmNotFoundError",
-  "VmFreeAccessExpiredError",
-  "VmCreateInProgressError",
-  "VmCreateFailedError",
-  "VmCreateDisabledError",
-  "VmAccountDeletionInProgressError",
-  "VmImageConfigError",
-  "VmLimitExceededError",
-  "VmCreateCreditsInsufficientError",
-  "VmBillingError",
-  "VmAttachTransportUnsupportedError",
-  "VmAccountDeletionIdentityRevocationError",
-]);
+// Derived from the union so the two can never drift again: `satisfies
+// Record<VmWorkflowError["_tag"], true>` makes a missing tag a compile error
+// (VmSnapshotNotFoundError was once omitted here, turning restore-of-unknown-
+// snapshot into a generic 500 instead of 404), and the `const` object rejects
+// tags that are not in the union.
+const vmWorkflowErrorTagRecord = {
+  VmDatabaseError: true,
+  VmProviderOperationError: true,
+  VmNotFoundError: true,
+  VmSnapshotNotFoundError: true,
+  VmFreeAccessExpiredError: true,
+  VmCreateInProgressError: true,
+  VmCreateFailedError: true,
+  VmCreateDisabledError: true,
+  VmAccountDeletionInProgressError: true,
+  VmImageConfigError: true,
+  VmLimitExceededError: true,
+  VmCreateCreditsInsufficientError: true,
+  VmBillingError: true,
+  VmAttachTransportUnsupportedError: true,
+  VmAccountDeletionIdentityRevocationError: true,
+} as const satisfies Record<VmWorkflowError["_tag"], true>;
+
+const vmWorkflowErrorTags: ReadonlySet<string> = new Set(Object.keys(vmWorkflowErrorTagRecord));
 
 export function vmWorkflowErrorCause(err: unknown): VmWorkflowError | null {
   if (!err || typeof err !== "object") return null;
