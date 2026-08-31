@@ -200,6 +200,8 @@ struct RawConfig {
     viewport: RawViewport,
     #[serde(default)]
     server: RawServer,
+    #[serde(default)]
+    notifications: RawNotifications,
     /// Key bindings: `"prefix"` plus one entry per action. Values may be
     /// a chord string, an array of chord strings, `"none"`, or
     /// `"alt_shortcuts": false`, `"super_shortcuts": false`, or the host
@@ -779,6 +781,31 @@ impl From<ConfigBrowserMode> for BrowserMode {
 #[serde(deny_unknown_fields)]
 struct RawScrollbar {
     position: Option<ScrollbarPosition>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawNotifications {
+    /// Alert when an agent turns blocked in an unfocused terminal.
+    agent_blocked: Option<bool>,
+    /// Alert when an agent turns idle in an unfocused terminal (the
+    /// transition the user has not seen yet).
+    agent_idle: Option<bool>,
+}
+
+/// Host-terminal notification policy for agent state transitions. Alerts
+/// are per-client presentation: each attached client applies its own
+/// config, and the currently focused terminal never alerts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Notifications {
+    pub agent_blocked: bool,
+    pub agent_idle: bool,
+}
+
+impl Default for Notifications {
+    fn default() -> Self {
+        Notifications { agent_blocked: true, agent_idle: true }
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -3421,6 +3448,7 @@ pub struct Config {
     pub server: Server,
     pub keys: Keys,
     pub commands: Vec<UserCommandConfig>,
+    pub notifications: Notifications,
 }
 
 /// Configuration resolved once for the process startup path.
@@ -4163,6 +4191,12 @@ pub fn load() -> Config {
     }
     if let Some(position) = raw.scrollbar.position {
         config.scrollbar.position = position;
+    }
+    if let Some(agent_blocked) = raw.notifications.agent_blocked {
+        config.notifications.agent_blocked = agent_blocked;
+    }
+    if let Some(agent_idle) = raw.notifications.agent_idle {
+        config.notifications.agent_idle = agent_idle;
     }
     if let Some(style) = raw.theme.border_style {
         config.theme.border_style = style;

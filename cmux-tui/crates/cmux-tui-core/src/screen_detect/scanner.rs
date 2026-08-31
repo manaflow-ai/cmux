@@ -91,6 +91,12 @@ pub(crate) fn scan(
         let manifest = resolver(&surface).and_then(|name| manifests.identify(&name));
         let identity_edge =
             tracker.note_foreground_agent(terminal_id, manifest.map(|manifest| manifest.id()));
+        // OSC progress capture follows agent identity: only agent panes pay
+        // the byte scan, and an identity edge clears retained evidence so a
+        // new foreground process starts clean.
+        if identity_edge || manifest.is_none() {
+            surface.set_agent_osc_capture(manifest.is_some(), identity_edge);
+        }
         let emission = match manifest {
             None => {
                 // Not an agent (or the agent exited). Closes a live
@@ -104,13 +110,22 @@ pub(crate) fn scan(
                     continue;
                 };
                 let title = surface.title();
-                let detection = manifest.detect(DetectionInput {
+                let progress = surface.agent_osc_progress();
+                let mut detection = manifest.detect(DetectionInput {
                     screen: &screen,
                     osc_title: &title,
-                    // OSC 9;4 progress is not captured server-side yet;
-                    // progress-region rules simply never match.
-                    osc_progress: "",
+                    osc_progress: &progress,
                 });
+                // Flowing PTY output is working authority for the screen
+                // source (herdr parity): it upgrades an otherwise idle read
+                // and never touches blocked screens or hook-owned entries.
+                if !detection.skip_state_update
+                    && detection.state == super::manifest::ScreenState::Idle
+                    && tracker.output_active(terminal_id, now)
+                {
+                    detection.state = super::manifest::ScreenState::Working;
+                    tracker.note_activity_upgrade(terminal_id);
+                }
                 tracker.record_detection(terminal_id, Some((manifest.id(), detection)))
             }
             Some(_) => None,

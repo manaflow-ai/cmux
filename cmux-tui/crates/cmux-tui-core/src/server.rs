@@ -6043,7 +6043,9 @@ fn handle_resource_connection_message(
             let result = resource_session_snapshot(mux, client, &request.selectors);
             send_resource_response(writer, id, operation, result)
         }
-        ResourceOperation::TerminalWait | ResourceOperation::TerminalWaitExit => {
+        ResourceOperation::TerminalWait
+        | ResourceOperation::TerminalWaitExit
+        | ResourceOperation::AgentWait => {
             start_resource_wait(mux.clone(), client, writer.clone(), request, id)
         }
         ResourceOperation::RequestCancel => {
@@ -6236,6 +6238,64 @@ fn run_terminal_resource_wait_exit(
     mux.terminal_exit_state(&terminal_id).map(Some).map_err(resource_wait_runtime_error)
 }
 
+/// Event-driven `agent.wait`: agent projection commits wake the wait, the
+/// predicate re-checks against the durable projections, and a timeout
+/// closes with one final authoritative read. No polling.
+fn run_agent_resource_wait(
+    mux: &Arc<Mux>,
+    writer: &MessageWriter,
+    request: &crate::resource_router::ParsedResourceRequest,
+    canceled: &ResourceWaitCancellation,
+) -> Result<Option<Value>, ResourceError> {
+    let (session_id, terminal, states) =
+        crate::resource_router::resolve_agent_wait_request(mux, request)?;
+    let timeout = resource_wait_timeout(request);
+    let deadline = timeout
+        .map(|timeout| {
+            Instant::now().checked_add(timeout).ok_or_else(|| {
+                ResourceError::validation_invalid(
+                    Some("timeout_ms"),
+                    "agent wait timeout exceeds the platform deadline range",
+                )
+            })
+        })
+        .transpose()?;
+    let check = || -> Result<Option<Value>, ResourceError> {
+        mux.agent_wait_snapshot(&session_id, terminal.as_ref(), &states)
+            .map_err(resource_wait_runtime_error)
+    };
+    loop {
+        if resource_wait_stopped(canceled, writer) {
+            return Ok(None);
+        }
+        // Register every wake source before the read so a commit between
+        // the read and the wait cannot strand this request.
+        let subscription = mux.subscribe_agent_changes();
+        let wake = subscription.wake();
+        canceled.register(&wake);
+        writer.register_wait_wakeup(&wake);
+        if resource_wait_stopped(canceled, writer) {
+            return Ok(None);
+        }
+        if let Some(agent) = check()? {
+            return Ok(Some(json!({"matched": true, "agent": agent})));
+        }
+        if timeout == Some(Duration::ZERO) {
+            return Ok(Some(json!({"matched": false})));
+        }
+        if !subscription.wait_until(deadline) {
+            // Deadline: close the commit/deadline race with one final read.
+            let agent = check()?;
+            let matched = agent.is_some();
+            let mut result = json!({"matched": matched});
+            if let Some(agent) = agent {
+                result["agent"] = agent;
+            }
+            return Ok(Some(result));
+        }
+    }
+}
+
 fn run_resource_wait(
     mux: &Arc<Mux>,
     writer: &MessageWriter,
@@ -6252,7 +6312,8 @@ fn run_resource_wait(
         ResourceOperation::TerminalWaitExit => {
             run_terminal_resource_wait_exit(mux, writer, &request, canceled)
         }
-        _ => unreachable!("only terminal waits use the detached request path"),
+        ResourceOperation::AgentWait => run_agent_resource_wait(mux, writer, &request, canceled),
+        _ => unreachable!("only detachable waits use the detached request path"),
     };
     match result {
         Ok(result) => result.map(Ok),
@@ -6271,7 +6332,8 @@ fn start_resource_wait(
     let name = match operation {
         ResourceOperation::TerminalWait => "terminal.wait",
         ResourceOperation::TerminalWaitExit => "terminal.wait_exit",
-        _ => unreachable!("only terminal waits use the detached request path"),
+        ResourceOperation::AgentWait => "agent.wait",
+        _ => unreachable!("only detachable waits use the detached request path"),
     };
     let (canceled, worker_permit) = match mux.control_clients.install_resource_wait(client, &id) {
         Ok(installed) => installed,
