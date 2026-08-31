@@ -12,6 +12,7 @@ permissions:
   contents: write
   issues: write
   pull-requests: read
+  statuses: write
 
 jobs:
   CLAAssistant:
