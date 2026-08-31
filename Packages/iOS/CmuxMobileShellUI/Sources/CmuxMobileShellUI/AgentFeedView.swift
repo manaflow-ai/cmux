@@ -109,7 +109,10 @@ struct AgentFeedView: View {
                             actions: rowActions
                         )
                         .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
-                        .listRowSeparator(.visible)
+                        // X-style: hairlines run BETWEEN posts only — no
+                        // divider above the first row.
+                        .listRowSeparator(.hidden, edges: .top)
+                        .listRowSeparator(.visible, edges: .bottom)
                         .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
                     }
                 }
