@@ -2896,6 +2896,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             finishStoredMacReconnectAttempt(generation: generation)
             return .failed(.noRoute)
         }
+        // Time attribution (cold launch, measured on device): the reconnect
+        // claim lands at ~0.14s but the first relay dial used to start only at
+        // ~1.09s. The ~0.9s hole was this pre-dial stretch, dominated by the
+        // awaited per-user backup fetch below; the scope snapshot (in-memory
+        // identity + team read) and the SQLite loads are milliseconds.
         guard isSignedIn,
               let scope = await currentScopeSnapshot(userID: stackUserID) else {
             finishStoredMacReconnectAttempt(generation: generation)
@@ -2904,14 +2909,28 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let result = storedMacReconnectInterruptionResult(generation: generation) {
             return result ? .connected : .superseded
         }
-        // Pull the authoritative per-user backup first so saved-Mac routes are
-        // current before we dial: a Mac that relaunched on a new port republishes
-        // to the backup, and LWW by lastSeenAt keeps any live local edit. Without
-        // this a stale port makes the auto-connect fail and the app falls back to
-        // the Mac picker, the screen we want to avoid showing.
+        // Refresh the authoritative per-user backup CONCURRENTLY with the dial
+        // instead of ahead of it. This await was the dominant slice of the
+        // measured 0.9s pre-dial hole (a network round trip to the backup DO
+        // plus the LWW merge), and for a relay-method pairing it is pure
+        // waste before the dial: the relay route is synthesized at connect
+        // time, so nothing the refresh fetches changes the first dial. The
+        // pairings that genuinely need refreshed routes (a non-relay pairing
+        // whose local routes are unusable or stale) wait for this task inside
+        // `loadRefreshSnapshotIfNeeded()` below, so the refresh outcome still
+        // feeds the existing `freshReconnectRoutesAfterLocalFailure` retry
+        // with unchanged semantics. A Mac that relaunched on a new port is
+        // then recovered by that refreshed-route retry (or the next backoff
+        // attempt) instead of taxing every launch with the fetch.
+        // The merge writes straight into the SQLite store, so every later
+        // read (the refreshed-route retry below, the next reconnect, list
+        // loads) observes it without an extra publish step here.
+        var pendingBackupRefresh: Task<Void, Never>?
         if refreshBackupBeforeDial,
            let refresher = pairedMacStore as? any PairedMacBackupRefreshing {
-            await refresher.refreshFromBackup(stackUserID: scope.userID)
+            pendingBackupRefresh = Task {
+                await refresher.refreshFromBackup(stackUserID: scope.userID)
+            }
         }
         if let result = storedMacReconnectInterruptionResult(generation: generation) {
             return result ? .connected : .superseded
@@ -2927,6 +2946,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         func storedReconnectRoutes(_ mac: MobilePairedMac) -> [CmxAttachRoute] {
             orderedReconnectRoutes(for: mac, supportedKinds: supportedKinds)
         }
+        // SQLite reads on the store actor (milliseconds). These stay pre-dial:
+        // the dial cannot start without the persisted candidate rows.
         let loadedActiveMac: MobilePairedMac?
         let loadedMacs: [MobilePairedMac]
         do {
@@ -2953,6 +2974,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let result = storedMacReconnectInterruptionResult(generation: generation) {
             return result ? .connected : .superseded
         }
+        // Cold launch reaches this reconnect before any `loadPairedMacs`, so
+        // the pipelined-subscribe snapshot must be seeded from the same rows
+        // the dial uses.
+        seedPersistedHostCapabilities(from: loadedMacs)
         let hiddenIDs = await hiddenMacDeviceIDs(scope: scope)
         if let result = storedMacReconnectInterruptionResult(generation: generation) {
             return result ? .connected : .superseded
@@ -3001,6 +3026,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         func loadRefreshSnapshotIfNeeded() async -> ReconnectRefreshSnapshot? {
             if didLoadRefreshSnapshot { return refreshSnapshot }
             didLoadRefreshSnapshot = true
+            // The refreshed-route retry must observe the concurrent backup
+            // merge: waiting here (only on the failure path, never before the
+            // first dial) preserves the pre-dial ordering's guarantee that a
+            // backup-published route is visible to the snapshot's store read.
+            await pendingBackupRefresh?.value
             refreshSnapshot = await loadReconnectRefreshSnapshot(scope: scope)
             return refreshSnapshot
         }
@@ -3209,10 +3239,34 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         storedPairedMacs.isEmpty ? pairedMacs : storedPairedMacs
     }
 
+    /// Last-learned host capability sets by canonical Mac device id, seeded
+    /// from the paired-Mac store's persisted snapshots and refreshed whenever
+    /// a live connection learns capabilities. The cold-launch source for the
+    /// connect-time pipelined subscribe; the live connection pool always wins
+    /// when it has an entry. Device-level on purpose: any instance tag's
+    /// snapshot is a valid hint for the same physical Mac (mirroring the
+    /// pool's device-level read).
+    @ObservationIgnored var persistedHostCapabilitiesByDevice: [String: Set<String>] = [:]
+
+    /// Seed the in-memory capability index from freshly loaded store rows.
+    /// The in-memory entry wins when present: it is at least as fresh as any
+    /// persisted row because every learn updates both together.
+    func seedPersistedHostCapabilities(from macs: [MobilePairedMac]) {
+        for mac in macs {
+            let learned = mac.learnedCapabilities
+            guard !learned.isEmpty else { continue }
+            let canonical = cmxCanonicalDeviceID(mac.macDeviceID)
+            if persistedHostCapabilitiesByDevice[canonical] == nil {
+                persistedHostCapabilitiesByDevice[canonical] = learned
+            }
+        }
+    }
+
     private func installStoredPairedMacCache(
         _ macs: [MobilePairedMac],
         scope: MobileShellScopeSnapshot
     ) {
+        seedPersistedHostCapabilities(from: macs)
         storedPairedMacsIncludingHidden = macs
         storedPairedMacsByCanonicalDeviceID = Dictionary(
             grouping: macs,
@@ -3235,6 +3289,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func clearStoredPairedMacCache() {
+        // The capability index is account-scoped data: it must not leak a
+        // previous user's learned snapshots across a sign-out boundary.
+        persistedHostCapabilitiesByDevice = [:]
         storedPairedMacsIncludingHidden = []
         storedPairedMacsByCanonicalDeviceID = [:]
         storedPairedMacAliasCanonicalIDsByCanonicalID = [:]
@@ -9260,6 +9317,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                    == cmxCanonicalDeviceID(requestedMacDeviceID) {
                 return supportedHostCapabilities
             }
+            // Cold launch: no live pool entry exists yet, but the last
+            // authenticated session's capability set is persisted per pairing.
+            // Using it lets the first connect of the process pipeline the
+            // subscribe; a stale persisted set only costs the ordinary
+            // corrective re-subscribe, exactly like a stale pool snapshot.
+            if let persisted = persistedHostCapabilitiesByDevice[
+                cmxCanonicalDeviceID(requestedMacDeviceID)
+            ] {
+                return persisted
+            }
             return []
         }()
         func isConnectCurrent() -> Bool {
@@ -9945,6 +10012,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         foregroundMacDeviceID = resolvedForegroundMacID
                     }
                     supportedHostCapabilities = authenticatedCapabilities
+                    // Post-adoption capability learning: persist the snapshot
+                    // so the next cold launch pipelines its first subscribe.
+                    if !resolvedForegroundMacID.isEmpty {
+                        persistLearnedHostCapabilities(
+                            authenticatedCapabilities,
+                            macDeviceID: resolvedForegroundMacID,
+                            instanceTag: resolvedInstanceTag
+                        )
+                    }
                     phonePushMacStatus = status.phonePush
                     // Publish transport selection with the authenticated
                     // capability snapshot before exposing `.connected`.
@@ -12399,6 +12475,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return .rawBytes
             }
             supportedHostCapabilities = Set(payload.capabilities)
+            // A mid-session capability change (the Mac app updated between
+            // connects or refreshed its flags) refreshes the persisted
+            // snapshot so the next cold launch pipelines the current set.
+            if let learnedMacDeviceID = payload.macDeviceID
+                ?? foregroundMacDeviceID
+                ?? activeTicket?.macDeviceID,
+               !learnedMacDeviceID.isEmpty {
+                persistLearnedHostCapabilities(
+                    Set(payload.capabilities),
+                    macDeviceID: learnedMacDeviceID,
+                    instanceTag: payload.macInstanceTag ?? activeMacInstanceTag
+                )
+            }
             phonePushMacStatus = payload.phonePush
             restartActiveMobileBrowserStreams()
             restartActiveMobileSimulatorStreams()

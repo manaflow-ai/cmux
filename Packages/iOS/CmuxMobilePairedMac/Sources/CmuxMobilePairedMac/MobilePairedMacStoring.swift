@@ -209,6 +209,18 @@ public protocol MobilePairedMacStoring: Sendable {
         teamID: String?
     ) async throws
 
+    /// Persist THIS device's last-learned capability set for one tagged Mac
+    /// (a JSON payload owned by the shell; `nil` clears the snapshot).
+    /// Device-local like the connection method: never syncs, never backs up,
+    /// never bumps LWW freshness.
+    func setLearnedCapabilities(
+        macDeviceID: String,
+        instanceTag: String?,
+        rawJSON: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws
+
     /// Record device-local authorization for Tailscale routes the user entered
     /// as a pairing code from their Mac.
     ///
@@ -230,6 +242,17 @@ extension MobilePairedMacStoring {
     /// Compatibility no-op for stores that predate per-Computer Direct
     /// addresses (test fixtures); the SQLite store and decorators override.
     public func setDirectAddresses(
+        macDeviceID: String,
+        instanceTag: String?,
+        rawJSON: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {}
+
+    /// Compatibility no-op for stores that predate per-Computer learned
+    /// capability snapshots (test fixtures); the SQLite store and decorators
+    /// override.
+    public func setLearnedCapabilities(
         macDeviceID: String,
         instanceTag: String?,
         rawJSON: String?,

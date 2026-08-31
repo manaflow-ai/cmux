@@ -72,6 +72,14 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
     /// stored as JSON. Device-local and excluded from ``CodingKeys`` like the
     /// connection method.
     public var directAddressesRawJSON: String? = nil
+    /// The capability set THIS iPhone last learned from this pairing's
+    /// authenticated host status, stored as JSON. Device-local and excluded
+    /// from ``CodingKeys`` like the connection method: a snapshot negotiated
+    /// by another device proves nothing about this one, so it never rides
+    /// the account backup. Seeds the cold-launch pipelined subscribe; the
+    /// live connection pool's snapshot always wins when present, and a stale
+    /// persisted set only costs the ordinary idempotent re-subscribe.
+    public var learnedCapabilitiesRawJSON: String? = nil
 
     /// Stable identity of this saved app instance.
     ///
@@ -133,7 +141,8 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
         instanceTag: String? = nil,
         legacyTailscaleRoutes: [CmxAttachRoute]? = nil,
         connectionMethodRawValue: String? = nil,
-        directAddressesRawJSON: String? = nil
+        directAddressesRawJSON: String? = nil,
+        learnedCapabilitiesRawJSON: String? = nil
     ) {
         self.macDeviceID = macDeviceID
         self.displayName = displayName
@@ -150,6 +159,7 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
         self.legacyTailscaleRoutes = legacyTailscaleRoutes
         self.connectionMethodRawValue = connectionMethodRawValue
         self.directAddressesRawJSON = directAddressesRawJSON
+        self.learnedCapabilitiesRawJSON = learnedCapabilitiesRawJSON
     }
 }
 
@@ -190,6 +200,26 @@ extension MobilePairedMac {
     ) -> String? {
         guard !addresses.isEmpty,
               let data = try? JSONEncoder().encode(addresses) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    /// Decoded last-learned host capability set (empty when none persisted).
+    public var learnedCapabilities: Set<String> {
+        guard let learnedCapabilitiesRawJSON,
+              let data = learnedCapabilitiesRawJSON.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode(
+                  Set<String>.self, from: data
+              ) else { return [] }
+        return decoded
+    }
+
+    /// Encodes a learned capability set for the store's device-local column
+    /// (sorted so equal sets always persist byte-identically).
+    public static func encodeLearnedCapabilities(
+        _ capabilities: Set<String>
+    ) -> String? {
+        guard !capabilities.isEmpty,
+              let data = try? JSONEncoder().encode(capabilities.sorted()) else { return nil }
         return String(data: data, encoding: .utf8)
     }
 }

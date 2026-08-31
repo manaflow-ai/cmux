@@ -58,13 +58,27 @@ struct cmuxApp: App {
         // session end to end on the Mac; there is no ticket and no web-API
         // call.
         let relayCoordinator = auth.coordinator
+        // ONE URLSession identity for the relay WebSocket transport AND the
+        // TLS pre-warm below. Connection state (DNS cache, TCP, TLS session
+        // tickets) is pooled per URLSession, so the pre-warm only pays off if
+        // the later wss dial runs on this exact session.
+        let relayURLSession = URLSession.shared
         let relayFactory = RelayClientTransportFactory(
             deviceID: { await DeviceRegistryService.deviceID() },
             accessToken: { try await relayCoordinator.accessToken() },
+            makeConnection: RelayConnection.factory(urlSession: relayURLSession),
             // Every connect-lifecycle step lands in the in-app debug log so
             // a failed relay dial is copyable from the computer page.
             log: { MobileDebugLog.anchormux($0) }
         )
+        // Launch-time TLS pre-warm: one fire-and-forget HEAD to the resolved
+        // relay origin's /healthz so the first wss dial reuses the warmed
+        // connection state instead of paying DNS + TCP + TLS on the connect
+        // path. No retries, no error surfacing, bounded timeout. Privacy: the
+        // request carries no token or identifying header; it reveals to the
+        // relay origin (which the app dials anyway) only that a launch
+        // happened.
+        RelayTLSPrewarm.fire(urlSession: relayURLSession)
         let registrations = [
             CmxRouteTransportFactoryRegistration(kind: .websocket, factory: relayFactory),
         ] + fallbackRegistrations
