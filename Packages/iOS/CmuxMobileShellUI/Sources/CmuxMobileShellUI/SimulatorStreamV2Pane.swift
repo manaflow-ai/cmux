@@ -149,15 +149,19 @@ struct SimulatorStreamV2Pane: View {
     }
 
     /// One shared refresh path for every entrypoint (menu item, overlay
-    /// buttons, recovery overlay): ask the Mac to recover the worker first
-    /// when the host reports it dead, then rebuild the local session through
-    /// the store's single reattach flow. Single-flight: extra taps while a
+    /// buttons, recovery overlay): the exact equivalent of the Mac pane's
+    /// Reconnect button. Always asks the Mac to recover the session
+    /// (`mobile.simulator.recover` runs the same `recover()` that button
+    /// does), then rebuilds the local viewer through the store's single
+    /// reattach flow. Unconditional on purpose: the phone cannot always see
+    /// which Mac-side state wedged the pane (renderer stopped, stale
+    /// worker), and refresh is an explicit user action, so a brief restart
+    /// of a healthy stream is acceptable. Single-flight: extra taps while a
     /// refresh is in flight are dropped, so recover RPCs never overlap.
     private func refreshStream() {
         guard let store, refreshTask == nil else { return }
-        let needsHostRecovery = hostNeedsRecovery(store.hostStatus)
         refreshTask = Task {
-            if supportsRecover, needsHostRecovery {
+            if supportsRecover {
                 _ = await recover()
             }
             store.refresh()
