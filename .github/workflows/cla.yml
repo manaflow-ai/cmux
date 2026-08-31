@@ -126,7 +126,7 @@ jobs:
             exit 1
           fi
 
-      - name: "CLA Assistant"
+      - name: "CLA Assistant v2"
         # The action handles signing and status updates. Merged pull requests
         # use the explicit lock step below because the archived action sends
         # an invalid lock request.
