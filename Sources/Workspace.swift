@@ -11534,17 +11534,44 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             config.waitAfterCommand = true
             replacementConfig = config
         }
-        let newPanel = TerminalPanel(
-            workspaceId: id,
-            context: GHOSTTY_SURFACE_CONTEXT_TAB,
+        let tuiProvisionedTerminal = Self.provisionTuiTerminalIfEligible(
             configTemplate: replacementConfig,
-            portOrdinal: portOrdinal,
-            initialCommand: replacementInitialCommand,
-            additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:])
+            startupCommand: replacementInitialCommand,
+            tmuxStartCommand: nil,
+            initialInput: nil,
+            startupRestoreAgent: nil,
+            remotePTYSessionID: nil,
+            isRemoteWorkspace: remoteConfiguration != nil
         )
+        let tuiManualIOTerminalID = TuiTerminalAttachBridge.shared.isManualIOAvailable()
+            ? tuiProvisionedTerminal?.terminalID
+            : nil
+        let newPanel: TerminalPanel
+        if let tuiManualIOTerminalID {
+            newPanel = Self.makeTuiManualIOTerminalPanel(
+                workspaceID: id,
+                context: GHOSTTY_SURFACE_CONTEXT_TAB,
+                configTemplate: replacementConfig,
+                workingDirectory: currentDirectory,
+                portOrdinal: portOrdinal,
+                terminalID: tuiManualIOTerminalID
+            )
+        } else {
+            newPanel = TerminalPanel(
+                workspaceId: id,
+                context: GHOSTTY_SURFACE_CONTEXT_TAB,
+                configTemplate: replacementConfig,
+                portOrdinal: portOrdinal,
+                initialCommand: tuiProvisionedTerminal?.attachCommand ?? replacementInitialCommand,
+                additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:])
+            )
+        }
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
+        if let tuiProvisionedTerminal {
+            tuiTerminalIDsByPanelId[newPanel.id] = tuiProvisionedTerminal.terminalID
+        }
         if pendingRemoteDisconnect != nil {
             remoteDisconnectPlaceholderPanelIds.insert(newPanel.id)
         }
@@ -11559,6 +11586,20 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         ) {
             bindSurface(newTabId, toPanelId: newPanel.id)
             rememberTerminalConfigInheritanceSource(newPanel)
+        } else {
+            panels.removeValue(forKey: newPanel.id)
+            panelTitles.removeValue(forKey: newPanel.id)
+            tuiTerminalIDsByPanelId.removeValue(forKey: newPanel.id)
+            if tuiManualIOTerminalID != nil {
+                TuiManualIOPumpRegistry.shared.stopAndRemove(surfaceID: newPanel.id)
+            }
+            if let tuiProvisionedTerminal {
+                TuiTerminalAttachBridge.shared.closeProvisionedHarborTerminal(
+                    terminalID: tuiProvisionedTerminal.terminalID
+                )
+            }
+            newPanel.surface.teardownSurface()
+            return nil
         }
 
         return newPanel
