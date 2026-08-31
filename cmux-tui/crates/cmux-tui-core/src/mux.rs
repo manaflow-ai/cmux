@@ -26207,6 +26207,24 @@ mod tests {
     fn socket_agent_report_folds_roster_and_coalesces_repeated_state() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
+        let socket_echoes = || {
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .session_journal_after(0, 1024)
+                .unwrap()
+                .records
+                .into_iter()
+                .filter(|record| {
+                    record
+                        .payload
+                        .get("adapter")
+                        .and_then(|adapter| adapter.get("id"))
+                        .and_then(Value::as_str)
+                        == Some(crate::journal_reducers::SOCKET_REPORT_ADAPTER)
+                })
+                .count()
+        };
         let before_cursor = mux.agent_roster.lock().unwrap().cursor;
         let before_head = mux
             .workspace_registry
@@ -26233,6 +26251,7 @@ mod tests {
             .head_sequence;
         assert!(after_first_cursor > before_cursor);
         assert!(after_first_head > before_head);
+        assert_eq!(socket_echoes(), 1);
 
         mux.report_agent(
             surface.id,
@@ -26242,15 +26261,17 @@ mod tests {
         )
         .unwrap();
         assert_eq!(mux.agent_roster.lock().unwrap().cursor, after_first_cursor);
-        assert_eq!(
-            mux.workspace_registry
-                .lock()
-                .unwrap()
-                .session_journal_after(0, 1)
-                .unwrap()
-                .head_sequence,
-            after_first_head
-        );
+        // The direct projection still persists a fresh timestamp, which is
+        // a resource journal record. Only the agent echo is coalesced.
+        let after_second_head = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .session_journal_after(0, 1)
+            .unwrap()
+            .head_sequence;
+        assert!(after_second_head > after_first_head);
+        assert_eq!(socket_echoes(), 1, "the repeated state has one agent echo");
     }
 
     #[test]
