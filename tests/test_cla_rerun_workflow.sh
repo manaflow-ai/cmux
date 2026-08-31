@@ -159,7 +159,16 @@ gh() {
         '{number:123,state:$state,user:{id:300,login:"contributor"},base:{ref:$base,repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",repo:{id:$head_repo_id,full_name:$head_repo}}}'
       ;;
     repos/manaflow-ai/cmux/commits/*/pulls)
-      if [[ "${FAKE_MODE}" == association-overflow ]]; then
+      if [[ "${FAKE_MODE}" == association-not-found ]]; then
+        printf '{"message":"Not Found","status":404}\n'
+        return 1
+      elif [[ "${FAKE_MODE}" == association-validation-error ]]; then
+        printf '{"message":"No commit found for SHA: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","status":"422"}\n'
+        return 1
+      elif [[ "${FAKE_MODE}" == association-api-failure ]]; then
+        printf '{"message":"API unavailable","status":503}\n'
+        return 1
+      elif [[ "${FAKE_MODE}" == association-overflow ]]; then
         jq -nc '[range(0; 100) | {number:(1000 + .),base:{ref:"main",repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",repo:{id:200,full_name:"contributor/cmux"}}}]'
       elif [[ "${FAKE_MODE}" == paginated-associations && "${api_page}" == 1 ]]; then
         jq -nc '[range(0; 100) | {number:(1000 + .),base:{ref:"main",repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"cccccccccccccccccccccccccccccccccccccccc",repo:{id:200,full_name:"contributor/cmux"}}}]'
@@ -391,6 +400,9 @@ run_case() {
 run_case run-association 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case minimal-run-association 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case fork-current 0 "Requested rerun for CLA job 500 in workflow run 400" 1
+run_case association-not-found 0 "Requested rerun for CLA job 500 in workflow run 400" 1
+run_case association-validation-error 0 "Requested rerun for CLA job 500 in workflow run 400" 1
+run_case association-api-failure 1 "Could not query pull request associations" 0
 run_case empty-run-association 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case same-repo-empty 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case association-overflow 1 "Too many pull request associations" 0

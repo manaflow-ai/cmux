@@ -154,12 +154,29 @@ fi
 # used for populated source-head runs. Empty associations are accepted only
 # when the run execution SHA equals the live PR head SHA; a base or merge SHA
 # is not sufficient evidence for a privileged rerun.
-commit_prs_json="$(gh api \
+# GitHub may return a not-found or validation response when the source commit
+# exists only in a fork. Treat only that documented missing-commit response as
+# an empty association list; every other API failure remains fatal.
+commit_prs_json=""
+commit_association_error=""
+if ! commit_prs_json="$(gh api \
   --method GET \
   --header 'Accept: application/vnd.github+json' \
   --raw-field per_page=100 \
   --raw-field page=1 \
-  "repos/${GH_REPO}/commits/${head_sha}/pulls" 2>/dev/null)" || fail "Could not query pull request associations"
+  "repos/${GH_REPO}/commits/${head_sha}/pulls" 2>/dev/null)"; then
+  commit_association_error="${commit_prs_json}"
+  if jq -e '
+    ((.status == 404 or .status == "404") and
+      (.message == "Not Found" or .message == "Resource not found")) or
+    ((.status == 422 or .status == "422") and
+      (.message | type == "string" and startswith("No commit found for SHA: ")))
+  ' <<<"${commit_association_error}" >/dev/null 2>&1; then
+    commit_prs_json='[]'
+  else
+    fail "Could not query pull request associations"
+  fi
+fi
 jq -e 'type == "array"' <<<"${commit_prs_json}" >/dev/null || fail "Could not validate pull request associations"
 association_count="$(jq -r 'length' <<<"${commit_prs_json}")"
 [[ "${association_count}" =~ ^[0-9]+$ ]] || fail "Could not count pull request associations"
