@@ -5331,9 +5331,7 @@ impl Surface {
             // predate cwd sanitization (or hosts from older daemon
             // generations) can still carry a raw OSC 7 URL there; convert
             // rather than trust it, so no caller ever sees a URL cwd.
-            .or_else(|| {
-                self.spawn_cwd().as_deref().and_then(platform::terminal_pwd_to_local_path)
-            })
+            .or_else(|| self.spawn_cwd().as_deref().and_then(platform::terminal_pwd_to_local_path))
             .map(|path| path.to_string_lossy().into_owned())
     }
 

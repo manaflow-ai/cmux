@@ -3706,10 +3706,7 @@ fn foreign_osc7_pwd_never_poisons_spawn_cwd_across_adoption() {
         serde_json::json!({"id":5,"cmd":"process-info","surface":adopted_surface}),
     );
     if let Some(cwd) = info["cwd"].as_str() {
-        assert!(
-            !cwd.starts_with("file://"),
-            "adopted surface reports a URL as its cwd: {cwd}"
-        );
+        assert!(!cwd.starts_with("file://"), "adopted surface reports a URL as its cwd: {cwd}");
     }
 
     // A new spawn in the same workspace inherits the pane cwd. It must not
