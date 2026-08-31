@@ -325,7 +325,9 @@ extension TerminalController {
         }
     }
 
-    /// `vm.workspace_close {id, workspace_id}` → closes the cmux-tui workspace and its terminals.
+    /// `vm.workspace_close {id, workspace_id}` → closes the cmux-tui workspace; its
+    /// terminals KEEP RUNNING and detach into the Terminals pool (the sidebar's "Close
+    /// Workspace (Keep Terminals)"). Use `vm.workspace_delete` to also kill them.
     nonisolated func socketWorkerVMWorkspaceCloseResponse(id: Any?, params: [String: Any]) -> String {
         guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty,
               let remoteWorkspaceID = Self.surfaceString(params["workspace_id"]), !remoteWorkspaceID.isEmpty else {
@@ -339,6 +341,48 @@ extension TerminalController {
             }
             try await provider.closeRemoteWorkspace(id: remoteWorkspaceID)
             return ["machine": machine.rawValue, "remote_workspace_id": remoteWorkspaceID, "closed": true]
+        }
+    }
+
+    /// `vm.workspace_delete {id, workspace_id}` → kills every terminal viewed in the
+    /// workspace, then closes it — the sidebar's "Delete Workspace and Terminals…",
+    /// over the same `CloudTreeNodeActions.deleteWorkspaceAndTerminals` the row runs.
+    nonisolated func socketWorkerVMWorkspaceDeleteResponse(id: Any?, params: [String: Any]) -> String {
+        guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty,
+              let remoteWorkspaceID = Self.surfaceString(params["workspace_id"]), !remoteWorkspaceID.isEmpty else {
+            return v2Error(id: id, code: "invalid_params", message: "vm.workspace_delete requires `id` and `workspace_id`.")
+        }
+        return v2VmCall(id: id, timeoutSeconds: 240) {
+            let machine = SurfaceMachineID.cloud(vmId)
+            let catalog = await SurfaceCatalog.shared
+            guard let provider = try await Self.surfaceProvider(for: machine, catalog: catalog) else {
+                throw SurfaceCatalogError.noProvider(machine)
+            }
+            let closedTerminals = try await CloudTreeNodeActions.deleteWorkspaceAndTerminals(
+                machine: machine, provider: provider, catalog: catalog, workspaceID: remoteWorkspaceID
+            )
+            return ["machine": machine.rawValue, "remote_workspace_id": remoteWorkspaceID, "deleted": true, "terminals_closed": closedTerminals]
+        }
+    }
+
+    /// `vm.workspace_rename {id, workspace_id, name}` → renames the cmux-tui workspace
+    /// (the sidebar's "Rename…", same `provider.renameRemoteWorkspace`).
+    nonisolated func socketWorkerVMWorkspaceRenameResponse(id: Any?, params: [String: Any]) -> String {
+        guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty,
+              let remoteWorkspaceID = Self.surfaceString(params["workspace_id"]), !remoteWorkspaceID.isEmpty else {
+            return v2Error(id: id, code: "invalid_params", message: "vm.workspace_rename requires `id` and `workspace_id`.")
+        }
+        guard let name = Self.surfaceString(params["name"])?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else {
+            return v2Error(id: id, code: "invalid_params", message: "vm.workspace_rename requires a non-empty `name`.")
+        }
+        return v2VmCall(id: id, timeoutSeconds: 120) {
+            let machine = SurfaceMachineID.cloud(vmId)
+            let catalog = await SurfaceCatalog.shared
+            guard let provider = try await Self.surfaceProvider(for: machine, catalog: catalog) else {
+                throw SurfaceCatalogError.noProvider(machine)
+            }
+            try await provider.renameRemoteWorkspace(id: remoteWorkspaceID, name: name)
+            return ["machine": machine.rawValue, "remote_workspace_id": remoteWorkspaceID, "name": name, "renamed": true]
         }
     }
 

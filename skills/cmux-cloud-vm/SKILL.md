@@ -5,7 +5,7 @@ description: Route work to cmux Cloud machines (persistent cloud VMs) from the C
 
 # cmux Cloud Machines
 
-Everything the Cloud sidebar can do, from the CLI — plus agent-only primitives (`route`, `run`, `agent`, `exec`, `push`, `pull`, `wait`). Requires the cmux app running and a signed-in account (`cmux auth status`, `cmux auth login`). All of it is plain CLI, so it works for Claude Code, Codex, OpenCode, Pi, or any harness.
+Everything the Cloud sidebar can do, from the CLI — plus agent-only primitives (`route`, `run`, `agent`, `exec`, `push`, `pull`, `wait`). Requires the cmux app running and a signed-in account (`cmux auth status`, `cmux auth login`). All of it is plain CLI, so it works for Claude Code, Codex, OpenCode, Pi, or any harness — and `cmux vm prompt` bootstraps an agent that has no skill loaded: it installs the app-bundled cmux-cloud skill at `~/.config/cmux/skills/cmux-cloud.md` and prints a kickoff prompt pointing at it (`--open <agent>` starts a local agent terminal with that prompt directly).
 
 ## What a machine is
 
@@ -73,6 +73,7 @@ cmux vm tree <id>                       # live: terminals with title, cwd, agent
 cmux vm open <id>                       # the machine's shell (+ its screen on desktop machines)
 cmux vm open <id>/<ws>/<term>           # one terminal as a pane; reuses the pane already showing it
 cmux vm workspace open <id> <ws> [--here|--tabs|--pane <p> --left]   # a whole workspace: new local workspace, or into this one
+cmux vm workspace rename <id> <ws> <name>   # rename it; `close` keeps its terminals (they detach into the pool), `rm` deletes it AND kills them
 cmux vm open <id>:desktop               # the noVNC screen
 cmux vm open <id>:port/3000 [--print]   # private tokened URL for an HTTP port (--print: URL only)
 cmux surface ls --json                  # every surface (local + cloud) with ids, lifecycle, and which panes show it
@@ -82,6 +83,8 @@ cmux notify --title "Cloud build done" --body "…"
 ```
 
 The user cannot see inside the machine: print URLs, pull artifacts, or open a pane when there is something to look at, and `cmux notify` for long work. Only share URLs minted by `cmux vm open` — never guess raw provider URLs.
+
+A pane showing a machine surface is an ordinary local pane: move, split, reorder, or close it with the local topology verbs (`../cmux/SKILL.md`) and the surface catalog follows the pane; closing a pane never kills the machine's terminal. Rearranging the machine's own cmux-tui topology from inside is what `cmux vm tui <id>` is for.
 
 ## CodeRouter and model credentials
 
