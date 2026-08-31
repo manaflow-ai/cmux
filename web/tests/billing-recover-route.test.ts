@@ -93,8 +93,11 @@ describe("billing recovery route", () => {
       }),
     )(request("deleting@example.com"));
 
-    expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({ error: "recovery_unavailable" });
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({
+      ok: true,
+      message: "If we found an account, check your email for next steps",
+    });
     expect(sendMagicLink).not.toHaveBeenCalled();
     expect(sendVerification).not.toHaveBeenCalled();
   });
@@ -114,8 +117,11 @@ describe("billing recovery route", () => {
       }),
     )(request("buyer@example.com"));
 
-    expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({ error: "recovery_unavailable" });
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({
+      ok: true,
+      message: "If we found an account, check your email for next steps",
+    });
     expect(sendMagicLink).not.toHaveBeenCalled();
     expect(sendVerification).not.toHaveBeenCalled();
   });

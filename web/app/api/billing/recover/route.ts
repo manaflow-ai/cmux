@@ -116,12 +116,10 @@ export function makeBillingRecoveryHandler(
         try {
           const paid = await dependencies.recoverPaid(email);
           if (paid && typeof paid === "object" && "skipped" in paid) {
-            // No authentication message was sent. Keep the response generic,
-            // but make it retryable so account deletion or missing provider
-            // data does not present as a successful recovery.
-            return json({ error: "recovery_unavailable" }, 503);
-          }
-          if (paid) {
+            // Do not expose whether a paid account exists or why delivery was
+            // skipped. Continue with the same generic response as every other
+            // address. No authentication message is sent for this outcome.
+          } else if (paid) {
             const candidateDeliveryEmail =
               typeof paid === "object" ? paid.deliveryEmail : null;
             const deliveryEmail =

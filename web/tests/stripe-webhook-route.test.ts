@@ -415,6 +415,38 @@ describe("Stripe billing webhook route", () => {
     expect(recordCheckoutCompletion).not.toHaveBeenCalled();
   });
 
+  test("skips a stale Founder event when the retrieved checkout is Pro", async () => {
+    retrievedCheckoutSession = {
+      ...paidCheckoutSession,
+      id: "cs_stale_founder_event",
+      metadata: { app: "cmux", plan: "pro" },
+      subscription: {
+        id: "sub_stale_founder_event",
+        status: "active",
+        metadata: { app: "cmux", plan: "pro" },
+      },
+    };
+    currentEvent = {
+      id: "evt_stale_founder_event",
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          id: "cs_stale_founder_event",
+          metadata: { founders_edition: "true" },
+        },
+      },
+    };
+
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      skipped: "conflicting_checkout_metadata",
+    });
+    expect(recordFoundersCheckoutCompletion).not.toHaveBeenCalled();
+    expect(recordCheckoutCompletion).not.toHaveBeenCalled();
+  });
+
   test("leaves the Pro personal welcome to the founders-welcome endpoint", async () => {
     const response = await POST(webhookRequest());
 

@@ -261,7 +261,7 @@ export async function recordCheckoutCompletion(
     throw new Error("Stripe checkout session is missing an expanded subscription");
   }
   if (hasConflictingFounderMetadata(input.session, subscription)) {
-    throw new Error("Stripe checkout has conflicting Founder and Team metadata");
+    throw new Error("Stripe checkout has conflicting product metadata");
   }
   const customerId = customerIdFromSession(input.session, input.customer);
   if (!customerId) {
@@ -517,7 +517,7 @@ export async function recordFoundersCheckoutCompletion(
     throw new Error("Stripe Founder's Edition checkout is not a cmux purchase");
   }
   if (hasConflictingFounderMetadata(input.session, providerSubscription)) {
-    throw new Error("Stripe Founder's Edition checkout has conflicting Team metadata");
+    throw new Error("Stripe Founder's Edition checkout has conflicting product metadata");
   }
   const email = checkoutEmail(input.session, input.customer);
   if (!email) {
@@ -542,10 +542,6 @@ export async function recordFoundersCheckoutCompletion(
   const stackApp = dependencies.stackApp ?? getStackServerApp();
   if (!stackApp) throw new Error("Stack Auth is not configured");
   const db = dependencies.db ?? cloudDb();
-  // Resolve the account without changing Stack state. Verification and
-  // anonymous promotion happen later, after the deletion guard is held by the
-  // metadata sync. A missing account is created as an unverified shell under a
-  // canonical-email lease so concurrent paid webhooks cannot create twins.
   const knownStackUserIds = [
     input.session.client_reference_id,
     input.session.metadata?.stackUserId,
@@ -554,18 +550,58 @@ export async function recordFoundersCheckoutCompletion(
       ? input.customer.metadata?.stackUserId
       : null,
   ].filter((value): value is string => typeof value === "string" && value.length > 0);
-  const user = await findOrCreateCheckoutBillingUser(
-    stackApp,
-    db,
-    email,
-    knownStackUserIds,
-  );
+
+  // A Founder payment-link checkout may not carry a Stack id. Check the
+  // durable Stripe owner and its deletion tombstone before the email lookup
+  // can create a new shell for an account that is being deleted.
+  const mappedCustomerBeforeCreate = await stripeCustomerRowForId(db, customerId);
+  if (mappedCustomerBeforeCreate?.stackTeamId != null) {
+    throw new Error("Stripe Founder's Edition customer belongs to a Team");
+  }
+  let preResolvedOwner: StackBillingUser | null = null;
+  if (mappedCustomerBeforeCreate?.stackUserId) {
+    const mappedOwnerID = mappedCustomerBeforeCreate.stackUserId;
+    if (await hasCheckoutBlockingAccountDeletionTombstone(mappedOwnerID, db)) {
+      return {
+        skipped: "account_deletion_in_progress",
+        stackUserId: mappedOwnerID,
+        subscriptionId: subscription.id,
+      };
+    }
+    const mappedOwner = await loadOptionalStackUser(mappedOwnerID, stackApp);
+    if (!mappedOwner || isAccountDeletionInProgress(mappedOwner)) {
+      if (!mappedOwner) {
+        // A missing provider user with no tombstone is an ownership conflict,
+        // not permission to create a replacement identity.
+        throw new Error("Stripe Founder's Edition customer ownership conflict");
+      }
+      return {
+        skipped: "account_deletion_in_progress",
+        stackUserId: mappedOwnerID,
+        subscriptionId: subscription.id,
+      };
+    }
+    if (!isCompatibleFounderOwner(mappedOwner, email)) {
+      throw new Error("Stripe Founder's Edition customer ownership conflict");
+    }
+    preResolvedOwner = mappedOwner;
+  }
+  // Resolve the account without changing Stack state. Verification and
+  // anonymous promotion happen later, after the deletion guard is held by the
+  // metadata sync. A missing account is created as an unverified shell under a
+  // canonical-email lease so concurrent paid webhooks cannot create twins.
+  const user = preResolvedOwner ?? await findOrCreateCheckoutBillingUser(
+      stackApp,
+      db,
+      email,
+      knownStackUserIds,
+    );
   if (!user) throw new Error("Stack Auth did not return a billing user");
 
   // Resolve the only potentially external owner lookup before taking the
   // database advisory lock. The locked transaction re-checks the row and
   // fails closed if ownership changed while the Stack request was in flight.
-  const mappedCustomerBeforeLock = await stripeCustomerRowForId(db, customerId);
+  const mappedCustomerBeforeLock = mappedCustomerBeforeCreate;
   let mappedOwnerBeforeLock: StackBillingUser | null = null;
   if (mappedCustomerBeforeLock && mappedCustomerBeforeLock.stackUserId !== user.id) {
     if (mappedCustomerBeforeLock.stackTeamId != null) {
@@ -1119,6 +1155,7 @@ export async function findBillingUserByEmail(
       matchingEmail,
       candidateByID,
       STACK_USER_LOOKUP_PAGE_SIZE,
+      true,
     );
   }
   const candidates = [...candidateByID.values()].sort(compareStackUserLookup);
@@ -2089,20 +2126,22 @@ function isFounderCheckoutMetadata(
 export function hasConflictingFounderMetadata(
   session: Pick<Stripe.Checkout.Session, "metadata">,
   subscription?: Pick<Stripe.Subscription, "metadata"> | null,
+  additionalMetadata: readonly (Stripe.Metadata | null | undefined)[] = [],
 ): boolean {
-  const sessionMetadata = session.metadata;
-  const subscriptionMetadata = subscription?.metadata;
-  const isFounder =
-    sessionMetadata?.founders_edition === "true" ||
-    subscriptionMetadata?.founders_edition === "true";
+  const metadataSources = [
+    session.metadata,
+    subscription?.metadata,
+    ...additionalMetadata,
+  ];
+  const isFounder = metadataSources.some(
+    (metadata) => metadata?.founders_edition === "true",
+  );
   if (!isFounder) return false;
-  return Boolean(
-    sessionMetadata?.plan === PRO_PLAN_ID ||
-      subscriptionMetadata?.plan === PRO_PLAN_ID ||
-    sessionMetadata?.plan === TEAM_PLAN_ID ||
-      subscriptionMetadata?.plan === TEAM_PLAN_ID ||
-      sessionMetadata?.stackTeamId ||
-      subscriptionMetadata?.stackTeamId,
+  return metadataSources.some(
+    (metadata) =>
+      metadata?.plan === PRO_PLAN_ID ||
+      metadata?.plan === TEAM_PLAN_ID ||
+      Boolean(metadata?.stackTeamId),
   );
 }
 
@@ -2677,6 +2716,7 @@ export async function findUserIdByEmail(
       normalizedEmail,
       ownersByID,
       STACK_USER_LOOKUP_PAGE_SIZE,
+      true,
     );
   }
   return [...ownersByID.values()].sort(compareStackUserLookup)[0]?.id ?? null;
@@ -2688,9 +2728,11 @@ async function collectBillingUserLookupCandidates(
   matchingEmail: string,
   candidates: Map<string, StackBillingUserLookup>,
   limit: number,
-): Promise<void> {
+  stopOnMatch = false,
+): Promise<boolean> {
   let cursor: string | undefined;
   const seenCursors = new Set<string>();
+  let foundCanonicalMatch = false;
   for (let page = 0; page < MAX_STACK_USER_LOOKUP_PAGES; page += 1) {
     const users = (await listUsers({
       ...(query ? { query } : {}),
@@ -2705,10 +2747,12 @@ async function collectBillingUserLookupCandidates(
         canonicalizeEmailForMatching(candidate.primaryEmail) === matchingEmail
       ) {
         candidates.set(candidate.id, candidate);
+        foundCanonicalMatch = true;
       }
     }
+    if (stopOnMatch && foundCanonicalMatch) return true;
     const nextCursor = users.nextCursor ?? null;
-    if (!nextCursor) return;
+    if (!nextCursor) return foundCanonicalMatch;
     if (seenCursors.has(nextCursor)) {
       throw new Error("Stack Auth user lookup pagination looped");
     }

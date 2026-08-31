@@ -177,7 +177,11 @@ async function processStripeEvent(
       if (!isCmuxCheckoutSession(expanded, subscription)) {
         return { skipped: "foreign_checkout" };
       }
-      if (hasConflictingFounderMetadata(expanded, subscription)) {
+      if (
+        hasConflictingFounderMetadata(expanded, subscription, [
+          session.metadata,
+        ])
+      ) {
         return { skipped: "conflicting_checkout_metadata" };
       }
       if (!checkoutPaymentSettled(expanded)) {

@@ -65,8 +65,13 @@ export function requestEmailVerificationRecovery(
       // undotted spelling (and googlemail.com is a separate search value).
       // Query every bounded provider spelling, then canonicalize locally.
       const usersByLiteralEmail = new Map<string, RecoveryUser>();
-      const collectUsers = async (query: string | undefined, limit: number) => {
+      const collectUsers = async (
+        query: string | undefined,
+        limit: number,
+        stopOnCanonicalMatch = false,
+      ): Promise<boolean> => {
         let cursor: string | undefined;
+        const seenCursors = new Set<string>();
         for (let page = 0; page < MAX_STACK_USER_LOOKUP_PAGES; page += 1) {
           const users = await dependencies.stackApp.listUsers({
             ...(query ? { query } : {}),
@@ -80,8 +85,18 @@ export function requestEmailVerificationRecovery(
             if (!literalEmail) continue;
             usersByLiteralEmail.set(literalEmail, user);
           }
+          const foundCanonicalMatch = [...users].some(
+            (user) =>
+              canonicalizeEmailForMatching(user.primaryEmail ?? "") ===
+              normalizedEmail,
+          );
+          if (stopOnCanonicalMatch && foundCanonicalMatch) return true;
           const nextCursor = users.nextCursor ?? null;
-          if (!nextCursor || nextCursor === cursor) return;
+          if (!nextCursor) return foundCanonicalMatch;
+          if (seenCursors.has(nextCursor)) {
+            throw new Error("Stack Auth user lookup pagination looped");
+          }
+          seenCursors.add(nextCursor);
           cursor = nextCursor;
         }
         throw new Error("Stack Auth user lookup exceeded its bounded page budget");
@@ -100,7 +115,7 @@ export function requestEmailVerificationRecovery(
       ) {
         // Stack searches literal contact-channel text. A full, bounded list
         // fallback is required to find a differently dotted Gmail spelling.
-        await collectUsers(undefined, STACK_USER_LOOKUP_PAGE_SIZE);
+        await collectUsers(undefined, STACK_USER_LOOKUP_PAGE_SIZE, true);
       }
       for (const user of usersByLiteralEmail.values()) {
         if (
