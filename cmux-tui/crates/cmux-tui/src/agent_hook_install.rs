@@ -1435,31 +1435,81 @@ fn codex_event_state_label(event: &str) -> anyhow::Result<&'static str> {
     })
 }
 
-/// codex clamps SessionEnd timeouts to 3 seconds before hashing, so the
-/// trusted hash must cover the clamped value, not the configured one
+/// codex clamps SessionEnd timeouts (default 1s, cap 3s) and floors all other
+/// timeouts (default 600s) before hashing, so the trusted hash must cover the
+/// normalized value, not the configured one
 /// (codex-rs/hooks/src/engine/discovery.rs `normalize_command_hook`).
-fn codex_normalized_timeout(state_label: &str, timeout: u64) -> u64 {
-    if state_label == "session_end" { timeout.clamp(1, 3) } else { timeout.max(1) }
+fn codex_normalized_timeout(state_label: &str, timeout: Option<u64>) -> u64 {
+    if state_label == "session_end" {
+        timeout.unwrap_or(1).clamp(1, 3)
+    } else {
+        timeout.unwrap_or(600).max(1)
+    }
+}
+
+/// codex forces the matcher to None for events that do not support one
+/// (codex-rs/hooks/src/events/common.rs `matcher_pattern_for_event`).
+fn codex_normalized_matcher<'a>(state_label: &str, matcher: Option<&'a str>) -> Option<&'a str> {
+    match state_label {
+        "user_prompt_submit" | "stop" => None,
+        _ => matcher,
+    }
+}
+
+/// codex keeps `additionalContextLimit` only for events that can emit
+/// additional context, and drops the explicit default before hashing
+/// (codex-rs/hooks/src/engine/discovery.rs, DEFAULT_HOOK_OUTPUT_TOKEN_LIMIT
+/// in codex-rs/hooks/src/output_spill.rs).
+fn codex_normalized_context_limit(state_label: &str, limit: Option<u64>) -> Option<u64> {
+    const DEFAULT_HOOK_OUTPUT_TOKEN_LIMIT: u64 = 2_500;
+    match state_label {
+        "pre_tool_use" | "post_tool_use" | "session_start" | "user_prompt_submit"
+        | "subagent_start" => limit.filter(|limit| *limit != DEFAULT_HOOK_OUTPUT_TOKEN_LIMIT),
+        _ => None,
+    }
 }
 
 /// Reproduces codex's per-hook trust hash: sha256 over sorted-key compact JSON
 /// of the normalized hook identity (codex-rs/hooks/src/engine/discovery.rs
 /// `hook_hash` plus codex-rs/config/src/fingerprint.rs `version_for_toml`).
-/// The identity omits absent optional fields (matcher, commandWindows,
-/// statusMessage, additionalContextLimit), which the installer never writes.
-fn codex_trust_hash(state_label: &str, command: &str, timeout: u64) -> String {
+/// Absent optional fields (matcher, commandWindows, statusMessage,
+/// additionalContextLimit) are omitted, exactly as codex's TOML round trip
+/// omits them. Keys are inserted in sorted order to match the canonical form.
+fn codex_identity_trust_hash(
+    state_label: &str,
+    matcher: Option<&str>,
+    command: &str,
+    timeout: Option<u64>,
+    asynchronous: bool,
+    status_message: Option<&str>,
+    additional_context_limit: Option<u64>,
+) -> String {
     use sha2::Digest as _;
-    let identity = json!({
-        "event_name": state_label,
-        "hooks": [{
-            "async": false,
-            "command": command,
-            "timeout": codex_normalized_timeout(state_label, timeout),
-            "type": "command",
-        }],
-    });
-    let encoded = serde_json::to_vec(&identity).expect("codex hook identity serializes to JSON");
+    let mut handler = Map::new();
+    if let Some(limit) = codex_normalized_context_limit(state_label, additional_context_limit) {
+        handler.insert("additionalContextLimit".into(), Value::from(limit));
+    }
+    handler.insert("async".into(), Value::Bool(asynchronous));
+    handler.insert("command".into(), Value::String(command.into()));
+    if let Some(message) = status_message {
+        handler.insert("statusMessage".into(), Value::String(message.into()));
+    }
+    handler.insert("timeout".into(), Value::from(codex_normalized_timeout(state_label, timeout)));
+    handler.insert("type".into(), Value::String("command".into()));
+    let mut identity = Map::new();
+    identity.insert("event_name".into(), Value::String(state_label.into()));
+    identity.insert("hooks".into(), Value::Array(vec![Value::Object(handler)]));
+    if let Some(matcher) = codex_normalized_matcher(state_label, matcher) {
+        identity.insert("matcher".into(), Value::String(matcher.into()));
+    }
+    let encoded = serde_json::to_vec(&Value::Object(identity))
+        .expect("codex hook identity serializes to JSON");
     format!("sha256:{:x}", sha2::Sha256::digest(encoded))
+}
+
+/// Trust hash of the canonical hook shape the installer writes.
+fn codex_trust_hash(state_label: &str, command: &str, timeout: u64) -> String {
+    codex_identity_trust_hash(state_label, None, command, Some(timeout), false, None, None)
 }
 
 /// codex canonicalizes `CODEX_HOME` when the environment variable is set and
@@ -1479,21 +1529,33 @@ fn codex_state_key_hooks_path(path: &Path, from_env_override: bool) -> PathBuf {
     }
 }
 
-/// Position of the cmux-owned handler as (group index, hook index within that
-/// group's hooks array). codex keys trust by BOTH positions, so a foreign
-/// entry before ours in the same group shifts the key just like a preceding
-/// group does.
-fn codex_owned_hook_position(root: &Map<String, Value>, event: &str) -> Option<(usize, usize)> {
+/// The cmux-owned handler as (group index, hook index, group, handler). codex
+/// keys trust by BOTH positions, so a foreign entry before ours in the same
+/// group shifts the key just like a preceding group does.
+fn codex_owned_hook_entry<'a>(
+    root: &'a Map<String, Value>,
+    event: &str,
+) -> Option<(usize, usize, &'a Value, &'a Value)> {
     let groups = root.get("hooks")?.get(event)?.as_array()?;
     groups.iter().enumerate().find_map(|(group_index, group)| {
         let hooks = group.get("hooks").and_then(Value::as_array)?;
         let handler_index = hooks.iter().position(|hook| {
             hook.get("command").and_then(Value::as_str).is_some_and(is_owned_command)
         })?;
-        Some((group_index, handler_index))
+        Some((group_index, handler_index, group, &hooks[handler_index]))
     })
 }
 
+fn codex_owned_hook_position(root: &Map<String, Value>, event: &str) -> Option<(usize, usize)> {
+    codex_owned_hook_entry(root, event)
+        .map(|(group_index, handler_index, _, _)| (group_index, handler_index))
+}
+
+/// The trust entries codex requires for the hooks ACTUALLY present in `root`:
+/// keyed by the owned handler's real position and hashed over that handler's
+/// real fields. For a freshly rewritten install this equals the canonical
+/// shape; for status it reflects any hand edits, so a user-modified command
+/// or timeout (which codex would hash differently and skip) fails to verify.
 fn codex_expected_trust_entries(
     key_hooks_path: &Path,
     root: &Map<String, Value>,
@@ -1501,11 +1563,27 @@ fn codex_expected_trust_entries(
     let mut entries = BTreeMap::new();
     for event in CODEX_EVENTS {
         let label = codex_event_state_label(event)?;
-        let (group_index, handler_index) = codex_owned_hook_position(root, event)
+        let (group_index, handler_index, group, handler) = codex_owned_hook_entry(root, event)
             .with_context(|| format!("installed codex hook for {event} is missing"))?;
         let key = format!("{}:{label}:{group_index}:{handler_index}", key_hooks_path.display());
-        let hash =
-            codex_trust_hash(label, &hook_command("codex", event), COMMAND_HOOK_TIMEOUT_SECONDS);
+        let command = if cfg!(windows) {
+            handler
+                .get("commandWindows")
+                .and_then(Value::as_str)
+                .or_else(|| handler.get("command").and_then(Value::as_str))
+        } else {
+            handler.get("command").and_then(Value::as_str)
+        }
+        .with_context(|| format!("installed codex hook for {event} has no command"))?;
+        let hash = codex_identity_trust_hash(
+            label,
+            group.get("matcher").and_then(Value::as_str),
+            command,
+            handler.get("timeout").and_then(Value::as_u64),
+            handler.get("async").and_then(Value::as_bool).unwrap_or(false),
+            handler.get("statusMessage").and_then(Value::as_str),
+            handler.get("additionalContextLimit").and_then(Value::as_u64),
+        );
         entries.insert(key, hash);
     }
     Ok(entries)
@@ -1540,49 +1618,49 @@ fn resolve_codex_config_path(config_path: PathBuf) -> anyhow::Result<PathBuf> {
     }
 }
 
-/// Size gate shared by every config.toml consumer, checked against metadata
-/// before any read so an oversized file is rejected without loading it.
-/// Gate shared by every config.toml consumer, checked from metadata (of the
-/// symlink-resolved target) before any open: the file must be a regular file
-/// within the size limit, so a FIFO or other special file can never block a
-/// read and an oversized file is rejected without being loaded.
-fn check_codex_config_readable(config_path: &Path) -> anyhow::Result<()> {
-    match fs::metadata(config_path) {
-        Ok(metadata) => {
-            anyhow::ensure!(
-                metadata.is_file(),
-                "{} is not a regular file; refusing to read it",
-                config_path.display()
-            );
-            anyhow::ensure!(
-                metadata.len() <= MAX_CONFIG_BYTES,
-                "{} exceeds 16 MiB",
-                config_path.display()
-            );
-            Ok(())
-        }
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error).with_context(|| format!("inspect {}", config_path.display())),
-    }
-}
-
+/// The ONE way every config.toml consumer (status, preflight, commit re-read)
+/// loads the file. A separate stat-then-read would race a concurrent
+/// replacement with a FIFO or huge file, so this opens the file once, fstats
+/// the OPENED descriptor (regular file, size cap), and does a bounded read
+/// from that same descriptor. The open itself is safe: `O_NONBLOCK` is a
+/// no-op for regular files and stops a FIFO open from blocking on a missing
+/// writer, and a FIFO descriptor opened that way is rejected by the fstat
+/// before anything reads it.
 fn read_codex_config_text(config_path: &Path) -> anyhow::Result<Option<String>> {
-    check_codex_config_readable(config_path)?;
-    match fs::read(config_path) {
-        Ok(bytes) => {
-            anyhow::ensure!(
-                bytes.len() as u64 <= MAX_CONFIG_BYTES,
-                "{} exceeds 16 MiB",
-                config_path.display()
-            );
-            Ok(Some(
-                String::from_utf8(bytes)
-                    .with_context(|| format!("{} is not valid UTF-8", config_path.display()))?,
-            ))
-        }
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error).with_context(|| format!("read {}", config_path.display())),
+    let mut options = fs::File::options();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.custom_flags(libc::O_NONBLOCK);
     }
+    let file = match options.open(config_path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(error).with_context(|| format!("open {}", config_path.display()));
+        }
+    };
+    let metadata = file.metadata().with_context(|| format!("inspect {}", config_path.display()))?;
+    anyhow::ensure!(
+        metadata.is_file(),
+        "{} is not a regular file; refusing to read it",
+        config_path.display()
+    );
+    anyhow::ensure!(metadata.len() <= MAX_CONFIG_BYTES, "{} exceeds 16 MiB", config_path.display());
+    let mut bytes = Vec::new();
+    file.take(MAX_CONFIG_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .with_context(|| format!("read {}", config_path.display()))?;
+    anyhow::ensure!(
+        bytes.len() as u64 <= MAX_CONFIG_BYTES,
+        "{} exceeds 16 MiB",
+        config_path.display()
+    );
+    Ok(Some(
+        String::from_utf8(bytes)
+            .with_context(|| format!("{} is not valid UTF-8", config_path.display()))?,
+    ))
 }
 
 fn read_codex_config_document(
@@ -1942,13 +2020,9 @@ fn codex_trust_state_verified(
         return false;
     };
     let config_path = parent.join(CODEX_CONFIG_FILE);
-    // Same gate as install/uninstall, checked against metadata before the
-    // read: an oversized config cannot stall status, and a FIFO or other
-    // special file is never opened (an open alone would block forever).
-    if check_codex_config_readable(&config_path).is_err() {
-        return false;
-    }
-    let Ok(text) = fs::read_to_string(&config_path) else {
+    // The shared open-once/fstat/bounded-read helper, so status can never be
+    // stalled by a FIFO or oversized file, even one swapped in concurrently.
+    let Ok(Some(text)) = read_codex_config_text(&config_path) else {
         return false;
     };
     let Ok(config) = text.parse::<toml_edit::DocumentMut>() else {
@@ -2257,6 +2331,35 @@ mod tests {
             "reinstall must key trust by the hook's new position: {state:?}"
         );
         assert!(!state.contains_key(&format!("{}:stop:0:0", hooks_path.display())));
+        let result = run_with_context(&status, &context);
+        assert_eq!(result.value["providers"][0]["state"], "installed", "{}", result.value);
+    }
+
+    #[test]
+    fn codex_status_detects_a_user_edited_hook_entry() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let install = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        assert!(!run_with_context(&install, &context).failed);
+        let status = Plan { action: Action::Status, providers: vec!["codex".into()] };
+        let result = run_with_context(&status, &context);
+        assert_eq!(result.value["providers"][0]["state"], "installed", "{}", result.value);
+
+        // A user edit to the installed entry changes codex's normalized
+        // identity hash, so codex marks the hook Modified and skips it.
+        // Status must hash the entry ACTUALLY on disk, not the canonical
+        // shape, or it would keep claiming installed here.
+        let hooks_path = context.home.join(".codex/hooks.json");
+        let mut edited: Value = serde_json::from_slice(&fs::read(&hooks_path).unwrap()).unwrap();
+        edited["hooks"]["Stop"][0]["hooks"][0]["timeout"] = json!(60);
+        atomic_write(&hooks_path, &serde_json::to_vec_pretty(&edited).unwrap(), Some(0o600))
+            .unwrap();
+        let result = run_with_context(&status, &context);
+        assert_eq!(result.value["providers"][0]["state"], "partial", "{}", result.value);
+
+        // Reinstall rewrites the canonical entry, whose hash matches the
+        // stored trust state again.
+        assert!(!run_with_context(&install, &context).failed);
         let result = run_with_context(&status, &context);
         assert_eq!(result.value["providers"][0]["state"], "installed", "{}", result.value);
     }
