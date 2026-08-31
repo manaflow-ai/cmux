@@ -446,7 +446,7 @@ struct SignInView: View {
             try await authManager.requestBillingRecovery(for: normalizedEmail)
             billingRecoveryMessage = L10n.string(
                 "mobile.signIn.billingRecoverySent",
-                defaultValue: "Check your email for next steps."
+                defaultValue: "Request accepted. If you do not receive an email, try again later."
             )
         } catch {
             if case AuthError.cancelled = error {

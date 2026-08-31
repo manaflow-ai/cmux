@@ -1169,14 +1169,13 @@ export async function findBillingUserByEmail(
   const queries = emailVariantsForMatching(literalEmail);
   const candidateByID = new Map<string, StackBillingUserLookup>();
   for (const query of queries) {
-    const found = await collectBillingUserLookupCandidates(
+    await collectBillingUserLookupCandidates(
       boundListUsers,
       query,
       matchingEmail,
       candidateByID,
       20,
     );
-    if (found) break;
   }
   if (candidateByID.size === 0 && isGmailAddress(literalEmail)) {
     // Stack's free-text query is literal and does not understand Gmail's
@@ -2774,14 +2773,13 @@ export async function findUserIdByEmail(
   const queries = emailVariantsForMatching(literalEmail);
   const ownersByID = new Map<string, StackBillingUserLookup>();
   for (const query of queries) {
-    const found = await collectBillingUserLookupCandidates(
+    await collectBillingUserLookupCandidates(
       boundListUsers,
       query,
       normalizedEmail,
       ownersByID,
       20,
     );
-    if (found) break;
   }
   if (ownersByID.size === 0 && isGmailAddress(literalEmail)) {
     await collectBillingUserLookupCandidates(
@@ -2822,7 +2820,6 @@ async function collectBillingUserLookupCandidates(
         foundCanonicalMatch = true;
       }
     }
-    if (foundCanonicalMatch) return true;
     const nextCursor = users.nextCursor ?? null;
     if (!nextCursor) return foundCanonicalMatch;
     if (seenCursors.has(nextCursor)) {
@@ -2842,19 +2839,29 @@ function compareStackUserLookup(
   const rightEmail = right.primaryEmail ?? "";
   const leftCanonical = canonicalizeEmailForMatching(leftEmail);
   const rightCanonical = canonicalizeEmailForMatching(rightEmail);
+  const leftIsVerifiedOrdinary =
+    left.primaryEmailVerified === true &&
+    left.isAnonymous !== true &&
+    left.isRestricted !== true;
+  const rightIsVerifiedOrdinary =
+    right.primaryEmailVerified === true &&
+    right.isAnonymous !== true &&
+    right.isRestricted !== true;
+  if (leftIsVerifiedOrdinary !== rightIsVerifiedOrdinary) {
+    return leftIsVerifiedOrdinary ? -1 : 1;
+  }
+  const leftIsOrdinary = left.isAnonymous !== true && left.isRestricted !== true;
+  const rightIsOrdinary = right.isAnonymous !== true && right.isRestricted !== true;
+  if (leftIsOrdinary !== rightIsOrdinary) return leftIsOrdinary ? -1 : 1;
+  const leftIsVerified = left.primaryEmailVerified === true;
+  const rightIsVerified = right.primaryEmailVerified === true;
+  if (leftIsVerified !== rightIsVerified) return leftIsVerified ? -1 : 1;
   const leftDotCount = gmailLocalDotCount(leftEmail);
   const rightDotCount = gmailLocalDotCount(rightEmail);
-  // Alias spelling is the strongest signal for duplicate Gmail accounts: the
-  // undotted literal is the canonical account even if it still needs email
-  // verification. This prevents a verified dotted duplicate from winning a
-  // canonical Gmail recovery.
+  // After verified ownership, prefer the undotted Gmail spelling as the
+  // canonical duplicate. Verification is ranked first so an unverified alias
+  // cannot take billing ownership from a verified account.
   if (leftDotCount !== rightDotCount) return leftDotCount - rightDotCount;
-  const leftIsVerified = left.primaryEmailVerified === true ? 0 : 1;
-  const rightIsVerified = right.primaryEmailVerified === true ? 0 : 1;
-  if (leftIsVerified !== rightIsVerified) return leftIsVerified - rightIsVerified;
-  const leftIsOrdinary = left.isAnonymous === true || left.isRestricted === true ? 1 : 0;
-  const rightIsOrdinary = right.isAnonymous === true || right.isRestricted === true ? 1 : 0;
-  if (leftIsOrdinary !== rightIsOrdinary) return leftIsOrdinary - rightIsOrdinary;
   if (leftEmail.toLowerCase() === leftCanonical && rightEmail.toLowerCase() !== rightCanonical) return -1;
   if (rightEmail.toLowerCase() === rightCanonical && leftEmail.toLowerCase() !== leftCanonical) return 1;
   return left.id.localeCompare(right.id);

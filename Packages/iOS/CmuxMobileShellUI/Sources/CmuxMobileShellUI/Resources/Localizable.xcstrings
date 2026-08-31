@@ -24,13 +24,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Check your email for next steps."
+            "value" : "Request accepted. If you do not receive an email, try again later."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "メールで次の手順をご確認ください。"
+            "value" : "リクエストを受け付けました。メールが届かない場合は、しばらくしてからもう一度お試しください。"
           }
         }
       }

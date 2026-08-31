@@ -306,6 +306,45 @@ describe("billing email matching", () => {
     expect(getUser).not.toHaveBeenCalled();
   });
 
+  test("checks every Gmail spelling before choosing a verified owner", async () => {
+    const unverified = {
+      id: "unverified-canonical",
+      primaryEmail: "billingfixture@gmail.com",
+      primaryEmailVerified: false,
+      isAnonymous: false,
+      isRestricted: true,
+    };
+    const verified = {
+      id: "verified-dotted",
+      primaryEmail: "billing.fixture@gmail.com",
+      primaryEmailVerified: true,
+      isAnonymous: false,
+      isRestricted: false,
+    };
+    const listUsers = mock(async (...args: unknown[]) => {
+      const query = (args[0] as { query?: string }).query;
+      if (query === "billingfixture@gmail.com") return [unverified];
+      if (query === "billing.fixture@gmail.com") return [verified];
+      return [];
+    });
+    const getUser = mock(async (...args: unknown[]) =>
+      (args[0] as string) === verified.id ? verified : unverified,
+    );
+
+    const user = await findBillingUserByEmail(
+      { listUsers, getUser } as never,
+      "billing.fixture@gmail.com",
+    );
+
+    expect(user?.id).toBe(verified.id);
+    expect(listUsers).toHaveBeenCalledWith({
+      query: "billing.fixture@gmail.com",
+      limit: 20,
+      includeAnonymous: true,
+      includeRestricted: true,
+    });
+  });
+
   test("finds a dotted Gmail account through the paginated canonical fallback", async () => {
     const dotted = {
       id: "dotted-only",
