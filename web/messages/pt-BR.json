@@ -1,4 +1,22 @@
 {
+  "vmErrors": {
+    "unsupported": {
+      "title": "Operação de Cloud VM indisponível",
+      "reason": "Este tipo de máquina não oferece esta operação.",
+      "message": {
+        "snapshot": "Esta Cloud VM não é compatível com o estado salvo da VM.",
+        "restore": "Este tipo de Cloud VM não é compatível com a restauração do estado salvo da VM.",
+        "fork": "Esta Cloud VM não é compatível com a cópia para uma nova VM.",
+        "default": "Esta Cloud VM não é compatível com a operação solicitada."
+      },
+      "action": {
+        "snapshot": "Não tente novamente. O trabalho neste tipo de máquina é mantido no volume inicial persistente.",
+        "restore": "Não tente novamente. O trabalho neste tipo de máquina é mantido no volume inicial persistente.",
+        "fork": "Não tente novamente. Crie uma nova VM com `cmux vm new`.",
+        "default": "Não tente novamente. Execute `cmux vm ls` ou entre em contato com o suporte se achar que isso está errado."
+      }
+    }
+  },
   "billingRecovery": {
     "message": "Se encontramos uma conta, verifique seu e-mail para saber os próximos passos"
   },

@@ -38,7 +38,7 @@ function scriptedFetch(script: Array<Response | Error>): { calls: number } {
     const step = script[Math.min(state.calls, script.length - 1)];
     state.calls += 1;
     if (step instanceof Error) throw step;
-    return step.clone();
+    return typeof step.clone === "function" ? step.clone() : step;
   }) as typeof fetch;
   return state;
 }
@@ -90,16 +90,16 @@ describe("blaxelFetch retry", () => {
     expect(state.calls).toBe(1);
   });
 
-  test("POST is retried on 429 and honors Retry-After", async () => {
-    const state = scriptedFetch([
-      jsonResponse(429, {}, { "retry-after": "2" }),
-      jsonResponse(200, { created: true }),
-    ]);
-    const sleeps: number[] = [];
-    const result = await blaxelFetch<{ created: boolean }>("POST", URL_UNDER_TEST, { spec: {} }, seams(sleeps));
-    expect(result).toEqual({ created: true });
-    expect(state.calls).toBe(2);
-    expect(sleeps).toEqual([2000]);
+  test("POST is not replayed on 429 without idempotency protection", async () => {
+    const state = scriptedFetch([jsonResponse(429, {}, { "retry-after": "2" })]);
+    const err = await blaxelFetch("POST", URL_UNDER_TEST, { spec: {} }, seams([])).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(ProviderError);
+    expect(err).not.toBeInstanceOf(BlaxelRetryExhaustedError);
+    expect(String((err as Error).message)).toMatch(/-> 429/);
+    expect(state.calls).toBe(1);
   });
 
   test("POST network failures propagate without replay", async () => {
@@ -118,6 +118,68 @@ describe("blaxelFetch retry", () => {
     const result = await blaxelFetch<{ ok: boolean }>("GET", URL_UNDER_TEST, undefined, seams([]));
     expect(result).toEqual({ ok: true });
     expect(state.calls).toBe(2);
+  });
+
+  test("missing configuration is not treated as a retryable network failure", async () => {
+    delete process.env.BL_API_KEY;
+    const state = scriptedFetch([jsonResponse(200, { ok: true })]);
+    const err = await blaxelFetch("GET", URL_UNDER_TEST, undefined, seams([])).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(ProviderError);
+    expect(String((err as Error).message)).toContain("BL_API_KEY is not configured");
+    expect(state.calls).toBe(0);
+  });
+
+  test("idempotent requests retry a response-body transport failure", async () => {
+    const brokenResponse = {
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+      text: async () => { throw new TypeError("body stream failed"); },
+    } as unknown as Response;
+    const state = scriptedFetch([brokenResponse, jsonResponse(200, { recovered: true })]);
+    const result = await blaxelFetch<{ recovered: boolean }>("GET", URL_UNDER_TEST, undefined, seams([]));
+    expect(result).toEqual({ recovered: true });
+    expect(state.calls).toBe(2);
+  });
+
+  test("abort during backoff stops before the next attempt", async () => {
+    const controller = new AbortController();
+    const state = scriptedFetch([jsonResponse(503)]);
+    const sleeps: number[] = [];
+    const err = await blaxelFetch("GET", URL_UNDER_TEST, undefined, {
+      ...seams(sleeps),
+      signal: controller.signal,
+      sleep: async (ms: number) => {
+        sleeps.push(ms);
+        controller.abort(new Error("request cancelled"));
+      },
+    }).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(Error);
+    expect(String((err as Error).message)).toBe("request cancelled");
+    expect(state.calls).toBe(1);
+    expect(sleeps).toEqual([250]);
+  });
+
+  test("already-aborted requests do not read configuration or call fetch", async () => {
+    const controller = new AbortController();
+    const reason = new Error("request already cancelled");
+    controller.abort(reason);
+    const state = scriptedFetch([jsonResponse(200, { unexpected: true })]);
+    const err = await blaxelFetch("GET", URL_UNDER_TEST, undefined, {
+      signal: controller.signal,
+      sleep: async () => undefined,
+    }).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(err).toBe(reason);
+    expect(state.calls).toBe(0);
   });
 
   test("4xx keeps the historical message shape the create collision loop matches", async () => {

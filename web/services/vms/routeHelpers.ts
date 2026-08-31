@@ -32,6 +32,8 @@ import {
 import { recordSpanTiming } from "./timings";
 import { authProviderErrorResponse } from "./authErrors";
 import { reportVmErrorResponse, VM_ERROR_CODE_HEADER } from "./observability";
+import { vmRequestLocale, vmUnsupportedCopy } from "./vmErrorMessages";
+import type { Locale } from "../../i18n/routing";
 
 /** Bearer + refresh token pair the mac app stashes in keychain. */
 export type StackBearer = { accessToken: string; refreshToken: string };
@@ -94,7 +96,7 @@ export async function withAuthedVmApiRoute(
       } catch (err) {
         recordSpanError(span, err);
         console.error(failureLog, err);
-        const workflowError = vmWorkflowErrorResponse(err);
+        const workflowError = await vmWorkflowErrorResponse(err, { locale: vmRequestLocale(request) });
         if (workflowError) return finalize(workflowError);
         return finalize(vmErrorResponse({
           error: "vm_internal_error",
@@ -432,7 +434,11 @@ export function vmCreateLikeErrorResponse(
   return null;
 }
 
-export function vmWorkflowErrorResponse(err: unknown): Response | null {
+/** Translate a normalized workflow failure into the public VM error contract. */
+export async function vmWorkflowErrorResponse(
+  err: unknown,
+  options: { readonly locale?: Locale } = {},
+): Promise<Response | null> {
   const workflowError = vmWorkflowErrorCause(err) ?? err;
   if (isVmAccountDeletionInProgressError(workflowError)) {
     return vmErrorResponse({
@@ -513,16 +519,20 @@ export function vmWorkflowErrorResponse(err: unknown): Response | null {
       // snapshot/restore on the current workspace tier). Telling the caller
       // "temporarily unavailable, retry" would be a lie, so this is an honest
       // 501: not retryable, with guidance that does not suggest waiting.
+      const copy = await vmUnsupportedCopy(
+        phase === "snapshot" || phase === "restore" || phase === "fork" ? phase : "default",
+        options.locale ?? "en",
+      );
       return vmErrorResponse({
         error: "vm_operation_unsupported",
         status: 501,
-        message: vmUnsupportedMessage(phase),
-        reason: "This machine kind's provider does not implement the requested operation.",
-        action: vmUnsupportedAction(phase),
+        message: copy.message,
+        reason: copy.reason,
+        action: copy.action,
         phase,
         retryable: false,
-        displayTitle: "Cloud VM operation unavailable",
-        displayMessage: vmUnsupportedMessage(phase),
+        displayTitle: copy.title,
+        displayMessage: copy.message,
         severity: "error",
         details: {
           operation: workflowError.operation,
@@ -531,18 +541,31 @@ export function vmWorkflowErrorResponse(err: unknown): Response | null {
         },
       });
     }
+    const retryExhausted = providerRetryExhausted(workflowError.cause);
+    if (retryExhausted) {
+      // Keep the provider and operation in operator logs only. The response
+      // below deliberately contains no URL, status, or upstream body.
+      console.error("[vm-provider-retry-exhausted]", {
+        provider: workflowError.provider,
+        operation: workflowError.operation,
+      });
+    }
     const retryAfterSeconds = retryAfterForOperation(workflowError.operation);
-    const providerMessage = providerCause?.message
+    const providerMessage = !retryExhausted && providerCause?.message
       ? sanitizedProviderMessage(providerCause.message)
       : null;
-    const providerCode = providerCause?.code
-      ? sanitizedProviderCode(providerCause.code)
-      : inferredProviderCode(providerMessage);
+    const providerCode = retryExhausted
+      ? "provider_retry_exhausted"
+      : providerCause?.code
+        ? sanitizedProviderCode(providerCause.code)
+        : inferredProviderCode(providerMessage);
     return vmErrorResponse({
       error: "vm_cloud_service_unavailable",
       status: 502,
       message: vmUnavailableMessage(phase),
-      reason: providerMessage
+      reason: retryExhausted
+        ? "The Cloud VM service is temporarily unavailable."
+        : providerMessage
         ? `Cloud VM service is temporarily unavailable: ${providerMessage}`
         : "Cloud VM service is temporarily unavailable.",
       action: cloudServiceAction(workflowError.operation, retryAfterSeconds),
@@ -594,11 +617,10 @@ export function vmWorkflowErrorResponse(err: unknown): Response | null {
 }
 
 /**
- * True when the provider reported the operation as permanently unsupported (a
- * driver NotImplementedError, or the provider gateway's "not supported by this
- * provider" refusal), as opposed to transiently failing. Deliberately narrow:
- * a provider message like "unsupported in the current state" stays on the
- * retryable 502 path, because retrying such a request can succeed.
+ * Detect provider errors that represent a permanent capability limitation (a
+ * driver NotImplementedError or the gateway's explicit refusal). A message
+ * like "unsupported in the current state" stays retryable because it can
+ * succeed after the provider state changes.
  */
 function providerOperationUnsupported(cause: unknown): boolean {
   let current: unknown = cause;
@@ -612,31 +634,15 @@ function providerOperationUnsupported(cause: unknown): boolean {
   return false;
 }
 
-function vmUnsupportedMessage(phase: VmLifecyclePhase): string {
-  switch (phase) {
-    case "snapshot":
-      return "This Cloud VM does not support snapshots.";
-    case "restore":
-      return "This Cloud VM kind does not support restoring from a snapshot.";
-    case "fork":
-      return "This Cloud VM does not support forking.";
-    default:
-      return "This Cloud VM does not support the requested operation.";
+/** Identify a retry wrapper whose provider details must stay in operator logs. */
+function providerRetryExhausted(cause: unknown): boolean {
+  let current: unknown = cause;
+  for (let depth = 0; depth < 8 && current; depth += 1) {
+    const record = current as { name?: unknown; cause?: unknown };
+    if (record.name === "BlaxelRetryExhaustedError") return true;
+    current = record.cause;
   }
-}
-
-function vmUnsupportedAction(phase: VmLifecyclePhase): string {
-  switch (phase) {
-    case "snapshot":
-    case "restore":
-      return "Do not retry: this machine kind has no snapshot support. " +
-        "Work on this machine kind is kept on its persistent home volume instead.";
-    case "fork":
-      return "Do not retry: this machine kind cannot be forked. Create a new VM with `cmux vm new`.";
-    default:
-      return "Do not retry: this machine kind does not offer this operation. " +
-        "Run `cmux vm ls` to see your machines, or contact support if you believe this is wrong.";
-  }
+  return false;
 }
 
 /** True when the provider reported that the requested image/template does not exist. */

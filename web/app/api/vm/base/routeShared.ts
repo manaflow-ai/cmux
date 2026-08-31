@@ -34,7 +34,9 @@ import {
   vmWorkflowErrorResponse,
   vmRequiresProResponse,
 } from "../../../../services/vms/routeHelpers";
-import { VmTimingRecorder } from "../../../../services/vms/timings";
+import { vmRequestLocale } from "../../../../services/vms/vmErrorMessages";
+import type { VmTimingRecorder } from "../../../../services/vms/timings";
+import type { Locale } from "../../../../i18n/routing";
 import {
   openBaseVm,
   resetBaseVm,
@@ -131,7 +133,12 @@ export async function runBaseRoute(input: {
         : openBaseVm(programInput),
     );
   } catch (err) {
-    const response = baseWorkflowErrorResponse(err, input.operation, entitlements.planId);
+    const response = await baseWorkflowErrorResponse(
+      err,
+      input.operation,
+      entitlements.planId,
+      vmRequestLocale(input.request),
+    );
     if (response) return response;
     throw err;
   }
@@ -153,7 +160,12 @@ export async function runBaseRoute(input: {
   });
 }
 
-function baseWorkflowErrorResponse(err: unknown, operation: BaseOperation, planId: string): Response | null {
+async function baseWorkflowErrorResponse(
+  err: unknown,
+  operation: BaseOperation,
+  planId: string,
+  locale: Locale,
+): Promise<Response | null> {
   if (isVmCreateInProgressError(err)) {
     return vmErrorResponse({
       error: "vm_base_create_in_progress",
@@ -200,7 +212,7 @@ function baseWorkflowErrorResponse(err: unknown, operation: BaseOperation, planI
       phase: "billing",
     });
   }
-  return vmWorkflowErrorResponse(err);
+  return vmWorkflowErrorResponse(err, { locale });
 }
 
 async function parseBaseRequest(

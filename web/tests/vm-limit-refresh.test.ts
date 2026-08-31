@@ -9,9 +9,9 @@ import { VmRepository, type CloudVmRow, type VmRepositoryShape } from "../servic
 import { createVm } from "../services/vms/workflows";
 
 type ObservedStatusUpdate = Parameters<VmRepositoryShape["markProviderObservedStatus"]>[0];
+const FIXTURE_NOW = new Date("2026-01-01T00:00:00.000Z");
 
 function row(overrides: Partial<CloudVmRow>): CloudVmRow {
-  const now = new Date();
   return {
     id: "00000000-0000-4000-8000-000000000101",
     userId: "user-limit-refresh",
@@ -24,8 +24,8 @@ function row(overrides: Partial<CloudVmRow>): CloudVmRow {
     imageVersion: null,
     status: "provisioning",
     idempotencyKey: "limit-refresh",
-    createdAt: now,
-    updatedAt: now,
+    createdAt: FIXTURE_NOW,
+    updatedAt: FIXTURE_NOW,
     destroyedAt: null,
     failureCode: null,
     failureMessage: null,
@@ -95,7 +95,7 @@ describe("lazy active-limit provider refresh", () => {
         providerVmId: "provider-vm-limit-refresh-new",
         status: "running" as const,
         image: "snapshot-test",
-        createdAt: Date.now(),
+        createdAt: FIXTURE_NOW.getTime(),
       }),
       destroy: () => Effect.void,
       getStatus: (provider: string, vmId: string) => {
