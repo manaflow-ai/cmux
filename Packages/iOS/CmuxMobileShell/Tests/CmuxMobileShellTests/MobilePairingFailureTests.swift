@@ -342,13 +342,13 @@ import Testing
     @Test func unrecognizedVersionTellsUserToUpdateTheApp() {
         // A real cmux QR from a newer Mac whose grammar this build predates: the
         // user must be told to update, not that the code is invalid.
-        let message = MobilePairingFailureCategory.unrecognizedVersion.message
+        let message = MobilePairingFailureCategory.unrecognizedVersion.message(buildType: .prod)
         #expect(message.lowercased().contains("newer"))
         #expect(!message.localizedCaseInsensitiveContains("update cmux"))
-        let guidance = MobilePairingFailureCategory.unrecognizedVersion.guidance
+        let guidance = MobilePairingFailureCategory.unrecognizedVersion.guidance(buildType: .prod)
         #expect(guidance?.localizedCaseInsensitiveContains("latest") == true)
         #expect(guidance?.localizedCaseInsensitiveContains("iPhone") == true)
-        #expect(guidance?.localizedCaseInsensitiveContains("App Store") != true)
+        #expect(guidance?.localizedCaseInsensitiveContains("App Store") == true)
         #expect(guidance?.localizedCaseInsensitiveContains("TestFlight") != true)
         #expect(MobilePairingFailureCategory.unrecognizedVersion.analyticsReason == "unrecognized_version")
     }

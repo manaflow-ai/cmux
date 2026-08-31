@@ -483,7 +483,7 @@ extension MobilePairingFailureCategory {
             }
             return L10n.string(
                 "mobile.pairing.guidance.updateApp",
-                defaultValue: "Update cmux to the latest version on your iPhone, then scan again."
+                defaultValue: "Update cmux to the latest version on your iPhone from the App Store (or TestFlight), then scan again."
             )
         case .externalCodeRequiresInAppScan:
             return L10n.string(
