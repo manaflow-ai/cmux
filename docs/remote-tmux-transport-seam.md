@@ -97,17 +97,32 @@ therefore correct and cmux notices nothing, which is the goal. What it must not 
 treat a *stall* as death and respawn on a timer, because that discards a session the
 transport was about to recover.
 
-So the failure mode moves from "stream ended" to "stream is alive but wedged", and a
-transport that reconnects internally needs a liveness check instead:
+So the tempting next step is a liveness check: probe the stream on a timer and respawn it
+when a probe goes unanswered. cmux shipped that and then removed it, because the cure was
+worse than the disease.
 
-1. the transport process is still alive, and
-2. a control-mode round-trip completes.
+An unanswered probe cannot be the verdict. A real network interruption looks identical from
+the stream's side — the transport is reconnecting underneath and cannot answer either — and
+recovering there kills the process that was about to recover on its own. Asking the question
+somewhere else does not save it: the out-of-band answer says whether the HOST is reachable,
+not whether this client is wedged, and a host that answers while a client is mid-reconnect
+reads as "the stream is the broken part" when it is not.
 
-cmux already has the round-trip primitive: a bounded `display-message -p ok` query, used as
-`awaitCommandBarrier` in `RemoteTmuxViewConnection`. Reuse it rather than inventing a
-heartbeat, and give the probe a deadline: measured against 6.2.11+7, et can accept stdin while
-producing no control output, so an unanswered probe is the stall. The next probe's due time is
-that deadline, which needs no second clock.
+Measured overnight against a real host: the timer respawned a healthy et client twice, and
+because a new et session bootstraps over ssh, each replacement hit an interactive second
+factor with nobody there to answer it. The mirror came back dead with two orphaned client
+trees behind it. A transport that reconnects internally is therefore left alone; its own exit
+is the only trigger, the same end-of-stream signal ssh uses.
+
+That is safe because death is loud. Measured on a local et rig: killing the tmux server
+emitted `%exit`, then `Session terminated`, and the et client process exited — every link
+holds a descriptor on the one below it, so an ordinary death propagates all the way up. The
+one case with no signal is a far end that is suspended rather than dead: a `SIGSTOP`ped
+`etterminal` keeps its descriptors open, keepalives cover only client↔etserver, and nothing
+reports anything. That case is left uncovered on purpose. A suspended process resumes with
+its session intact, so respawning would destroy work that was coming back; if it ever needs
+covering, the treatment is a visible stale state with a manual reconnect, never an automatic
+respawn.
 
 A transport exit does **not** mean the session is over, tempting as the symmetry is. Restarting
 only `etserver` ends the stream while `tmux has-session` still succeeds, so acting on it discarded
@@ -299,8 +314,8 @@ than rediscovering it after a transport swap.
    behavior change, so the existing suites are the regression gate.
 3. Add the fuzz harness against the mock transport, with the invariants above. It should
    pass for `SSHTransport` before any new transport exists.
-4. Add the persistent-session transport behind per-host opt-in, with the liveness check and
-   a fallback to `SSHTransport` when the transport binary is missing. Turn on the
-   internally-reconnecting arm of the fuzz.
+4. Add the persistent-session transport behind per-host opt-in, recovering only on its
+   client's exit, with a fallback to `SSHTransport` when the transport binary is missing.
+   Turn on the internally-reconnecting arm of the fuzz.
 5. Add the real sshd plus upstream-ET end-to-end fixture, including a real network drop.
 6. Add the pre-connect hook, with the race and timeout cases in the fuzz.

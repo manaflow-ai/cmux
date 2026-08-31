@@ -39,7 +39,7 @@ BASELINE_FILE="scripts/remote-tmux-polling-baseline.txt"
 
 # Exceptions introduced deliberately, with the reason no edge exists.
 ALLOW=(
-  "Sources/RemoteTmuxControlConnection.swift:startLivenessMonitorIfNeeded|A transport that reconnects internally emits NO EOF for a network drop: its process stays up and the stream pauses, so a wedged transport is indistinguishable from an idle one. There is no event for 'still carrying the protocol' — the only way to know is to ask, so this probes rather than waits."
+  "Sources/RemoteTmuxControlConnection.swift:terminateProcessTree|SIGKILL escalation after SIGTERM. The edge would be 'the process handled the signal', and a process that IGNORES SIGTERM emits nothing at all — the absence of an exit is only observable by giving it a moment and looking again."
   "Sources/RemoteTmuxControlConnection.swift:scheduleReconnectAttempt|Reconnect backoff for a host that is unreachable. The edge would be 'the host came back', which nothing local can observe; retrying IS the observation."
 
   # Deadline arms, not polls: each of these races `await <edge>` against a sleep inside the same task
