@@ -112,10 +112,17 @@ import Testing
             source: "agent-hook",
             launchFlavor: .local
         )
+        let remoteSnapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: sessionID,
+            workingDirectory: "/home/remote/project",
+            launchCommand: remoteBinding.launchCommand,
+            restoreWorkingDirectorySelection: .exact("/home/remote/project")
+        )
 
         let snapshot = try #require(
             localRefresh.managedRestorableAgentSnapshot(
-                replacing: remoteBinding,
+                replacing: remoteSnapshot,
                 previousBinding: remoteBinding
             )
         )
