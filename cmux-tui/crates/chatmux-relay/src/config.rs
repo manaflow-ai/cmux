@@ -1,12 +1,17 @@
-//! Local pairing config: `~/.config/chatmux-relay/config.json` (0600).
+//! Local pairing config: `~/.config/chatmux-relay/config.json` (owner-readable,
+//! normally 0600).
 //!
 //! Byte-level contract mirror of the JS relay (`packages/relay/bin/
 //! cmux-relay.mjs` `loadConfig`/`saveConfig`): pretty-printed JSON with a
 //! trailing newline, written with mode 0600. Unknown fields written by other
 //! (newer or older) relay builds are preserved across load/save.
 
+use std::fs::OpenOptions;
 use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
+
+#[cfg(unix)]
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -107,17 +112,52 @@ fn home_dir() -> PathBuf {
 }
 
 fn read_config(path: &Path) -> std::io::Result<Vec<u8>> {
-    // Do not accept a config symlink. `metadata` follows links, which could
-    // make a compromised config path read credentials from an unrelated file.
-    // `symlink_metadata` performs the check on the directory entry itself.
-    let metadata = std::fs::symlink_metadata(path)?;
-    if !metadata.file_type().is_file() {
+    // Open first and validate the descriptor. On Unix, O_NOFOLLOW closes the
+    // pathname-swap window between a metadata check and the read.
+    #[cfg(not(unix))]
+    {
+        let metadata = std::fs::symlink_metadata(path)?;
+        if !metadata.file_type().is_file() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "relay config is not a regular file",
+            ));
+        }
+    }
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        // A malicious replacement with a FIFO must not make startup wait for
+        // a writer before the descriptor can be validated as a regular file.
+        // O_NONBLOCK makes read-only FIFO opens return immediately; regular
+        // files continue to use normal blocking reads.
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK);
+    }
+    let file = options.open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             "relay config is not a regular file",
         ));
     }
-    let file = std::fs::File::open(path)?;
+    #[cfg(unix)]
+    {
+        if metadata.uid() != unsafe { libc::geteuid() } {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "relay config is not owned by the current user",
+            ));
+        }
+        let mode = metadata.mode();
+        if mode & 0o077 != 0 || mode & 0o400 == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "relay config is not owner-readable and private",
+            ));
+        }
+    }
     let mut bytes = Vec::new();
     file.take(MAX_CONFIG_BYTES + 1).read_to_end(&mut bytes)?;
     Ok(bytes)
@@ -271,6 +311,9 @@ mod tests {
             std::fs::create_dir_all(parent).unwrap();
         }
         std::fs::write(&path, serde_json::to_string(&raw).unwrap()).unwrap();
+        #[cfg(unix)]
+        std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o600))
+            .unwrap();
         let mut config = load_config(&path).expect("valid config loads");
         assert_eq!(config.device_id, "dev_abc");
         assert_eq!(config.extra.get("futureField"), raw.get("futureField"));
@@ -308,6 +351,60 @@ mod tests {
         symlink(&target, &path).unwrap();
         assert!(load_config(&path).is_none());
         assert!(load_config_checked(&path).is_err());
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fifo_config_is_rejected_without_blocking() {
+        use std::ffi::CString;
+        use std::os::unix::ffi::OsStrExt as _;
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let path = scratch("fifo/config.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let c_path = CString::new(path.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) }, 0);
+
+        let (sender, receiver) = mpsc::channel();
+        let worker_path = path.clone();
+        let worker = std::thread::spawn(move || {
+            sender.send(load_config_checked(&worker_path)).unwrap();
+        });
+        let result = receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("FIFO config validation must not block");
+        worker.join().expect("FIFO config worker should exit");
+        assert!(result.is_err(), "FIFO must be rejected as non-regular");
+
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn loose_config_permissions_are_rejected_before_credentials_load() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let path = scratch("loose-perms/config.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, r#"{"deviceId":"dev_loose","token":"tok_loose"}"#).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(load_config(&path).is_none());
+        assert!(load_config_checked(&path).is_err());
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn owner_read_only_config_is_accepted() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let path = scratch("owner-read-only/config.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, r#"{"deviceId":"dev_read_only","token":"tok_read_only"}"#).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o400)).unwrap();
+        let config = load_config(&path).expect("owner-only read config loads");
+        assert_eq!(config.device_id, "dev_read_only");
+        assert!(load_config_checked(&path).unwrap().is_some());
         std::fs::remove_dir_all(path.parent().unwrap()).ok();
     }
 

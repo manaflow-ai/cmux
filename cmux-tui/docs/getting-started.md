@@ -16,14 +16,53 @@ cargo run -p cmux-tui -- --session agents
 
 The default session is `main`. Quitting a local TUI shuts down that in-process session and removes its socket.
 
+Use one command for the common interactive case. The owner lifecycle stays
+explicit when you split it across terminals:
+
+| Command | Behavior |
+| --- | --- |
+| `cmux` | Create or attach the interactive default `main` session. |
+| `cmux --session NAME` | Create or attach the named interactive session. |
+| `cmux server start --session NAME` | Start a headless owner only. |
+| `cmux attach --session NAME` | Attach an existing owner; it does not create one. |
+
+This differs from tmux or Zellij attach-or-create shortcuts by keeping server
+ownership and stop behavior explicit. Use the first two forms unless another
+terminal must own the server lifecycle.
+
+When migrating a script that used an attach-or-create command, keep one owner
+and one client. Run the owner in one terminal:
+
+```bash
+cmux server start --session agents
+```
+
+Then attach from another terminal:
+
+```bash
+cmux attach --session agents
+```
+
+The owner must stay supervised by the caller. Do not replace this with a blind
+`attach` retry, because a retry cannot distinguish a missing owner from an
+owner that is still becoming ready.
+
 Press `Ctrl-b` to reveal the active prefix commands in the bottom bar. Press `Ctrl-b ?` for the full scrollable shortcut list. Right-click a pane for pane actions, or anywhere in the sidebar for sidebar actions; hold Shift while right-clicking when an inner terminal app owns mouse input.
 
 Use `--term <value>` to set `TERM` for child PTYs. Without it, children get `xterm-256color`; the terminal runtime also honors `CMUX_TUI_TERM` when no CLI value is supplied, with `CMUX_MUX_TERM` retained as a legacy fallback.
 
 ## Durable server and attach
 
-`server start` starts only the mux backend and control socket. `server status`
-checks it, `server stop` stops it, and `attach` opens a TUI on the session.
+A plain `cmux` run starts (or reuses) a detached headless owner for the
+session and attaches to it as a client, so several `cmux` runs for the same
+session share one live session and detaching never ends it. `server ensure`
+does the same start-or-reuse without attaching. Set
+`{"server":{"detached_owner":false}}` to host the session inside the first
+TUI process instead.
+
+`server start` starts only the mux backend and control socket, in the
+foreground. `server status` checks it, `server stop` stops it, and `attach`
+opens a TUI on the session.
 
 ```bash
 cd cmux-tui

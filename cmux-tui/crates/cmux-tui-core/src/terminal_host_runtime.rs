@@ -1795,9 +1795,7 @@ mod unix {
             rows: options.rows,
             cell_pixels,
             scrollback: options.scrollback,
-            cwd: options.cwd.clone().or_else(|| {
-                crate::platform::home_dir().map(|path| path.to_string_lossy().into_owned())
-            }),
+            cwd: options.cwd.clone().or_else(crate::platform::default_terminal_cwd),
             command,
             extra_env: options.extra_env.clone(),
             default_colors,

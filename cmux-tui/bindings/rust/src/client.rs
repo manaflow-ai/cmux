@@ -538,7 +538,8 @@ pub(crate) fn hashed_socket_legacy_path(path: &Path) -> Option<PathBuf> {
             {
                 continue;
             }
-            if std::os::unix::fs::FileTypeExt::is_socket(&entry.file_type().ok()?) {
+            let Ok(file_type) = entry.file_type() else { continue };
+            if std::os::unix::fs::FileTypeExt::is_socket(&file_type) {
                 return Some(entry.path());
             }
         }
