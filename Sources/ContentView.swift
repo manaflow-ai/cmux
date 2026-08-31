@@ -15562,57 +15562,6 @@ struct TabItemView: View, Equatable {
         (showsModifierShortcutHints || alwaysShowShortcutHints) && workspaceShortcutLabel != nil
     }
 
-    private func compactWorkspaceStatusMenu(
-        status: WorkspaceTaskStatus,
-        model: SidebarWorkspaceCompactStatusMenuModel
-    ) -> some View {
-        let title = String(localized: "sidebar.status.compactLabel", defaultValue: "Status: \(status.displayName)")
-        return Menu {
-            let lanes = WorkspaceTodoStatusLane.lanes(
-                inferred: model.inferred,
-                activeOverride: model.activeOverride,
-                isHidden: false
-            )
-            ForEach(lanes) { lane in
-                if lane.isNone {
-                    Divider()
-                }
-                Button {
-                    if lane.isNone {
-                        actions.hideTodoStatus([workspaceId])
-                    } else {
-                        actions.applyTodoStatus(lane.status, [workspaceId])
-                    }
-                } label: {
-                    if lane.isSelected {
-                        Label(lane.title, systemImage: "checkmark")
-                    } else {
-                        Text(lane.title)
-                    }
-                }
-                if lane.status == nil, !lane.isNone {
-                    Divider()
-                }
-            }
-        } label: {
-            HStack(spacing: 4) {
-                CmuxSystemSymbolImage(magnified: "flag", pointSize: scaledFontSize(8))
-                    .foregroundColor(activeSecondaryColor(0.65))
-                Text(title)
-                    .font(magnifiedFont(scaledFontSize(10), weight: .semibold))
-                    .foregroundColor(activeSecondaryColor(0.9))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Spacer(minLength: 0)
-            }
-            .contentShape(Rectangle())
-        }
-        .menuStyle(.borderlessButton)
-        .fixedSize(horizontal: false, vertical: true)
-        .safeHelp(String(localized: "sidebar.status.compactTooltip", defaultValue: "Change workspace status"))
-        .accessibilityIdentifier("SidebarWorkspaceCompactStatusMenu")
-    }
-
     @ViewBuilder
     private func remoteWorkspaceSection(
         snapshot workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot
@@ -15843,21 +15792,8 @@ struct TabItemView: View, Equatable {
                 itemCount: workspaceSnapshot.checklistItems.count,
                 addFieldActivationToken: checklistAddFieldActivationToken,
                 isPopoverPresented: isChecklistPopoverPresented,
-                canAddItems: todoControlsEnabled,
-                hidesAllDetails: settings.hidesAllDetails,
-                taskStatus: workspaceSnapshot.taskStatus,
-                featureEnabled: todoControlsEnabled
+                canAddItems: todoControlsEnabled
             )
-            if minimalTodoVisibility.showsCompactStatus,
-               let taskStatus = workspaceSnapshot.taskStatus,
-               let compactStatusModel = workspaceSnapshot.todoStatusMenuModel {
-                compactWorkspaceStatusMenu(
-                    status: taskStatus,
-                    model: compactStatusModel
-                )
-                .transition(.opacity)
-            }
-
             remoteWorkspaceSection(snapshot: workspaceSnapshot)
 
             if detailVisibility.showsMetadata {
