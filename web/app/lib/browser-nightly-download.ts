@@ -6,6 +6,9 @@ import { BROWSER_RELEASE_REPOSITORY_URL } from "./download";
 export const BROWSER_NIGHTLY_FEED_URL =
   `${BROWSER_RELEASE_REPOSITORY_URL}/releases/download/nightly/update.json`;
 
+/** Immutable public R2 origin used by signed production feed entries. */
+export const BROWSER_PUBLIC_ASSET_ORIGIN = "https://browser-assets.cmux.com";
+
 /**
  * P-256 update public key compiled into cmux Browser's updater.
  *
@@ -118,13 +121,15 @@ export async function resolveBrowserNightlyDownload(
     throw new BrowserNightlyDownloadError("unavailable");
   }
 
-  const releaseTag = verifiedReleaseTag(
+  const assetLocation = verifiedAssetLocation(
     rawEntry,
     target.config.signedArchive,
     payload.version,
   );
-  const url = `${BROWSER_RELEASE_REPOSITORY_URL}/releases/download/${releaseTag}/${target.assetName}`;
-  await requirePublishedAsset(fetchImplementation, url);
+  const url = assetLocation.kind === "r2"
+    ? `${BROWSER_PUBLIC_ASSET_ORIGIN}/nightly/${encodeURIComponent(payload.version)}/${encodeURIComponent(target.assetName)}`
+    : `${BROWSER_RELEASE_REPOSITORY_URL}/releases/download/${assetLocation.releaseTag}/${target.assetName}`;
+  await requirePublishedAsset(fetchImplementation, url, assetLocation);
 
   return { url, version: payload.version };
 }
@@ -208,11 +213,19 @@ export function verifyFeedEnvelope(
   }
 }
 
-function verifiedReleaseTag(
+type VerifiedAssetLocation =
+  | { readonly kind: "github"; readonly releaseTag: string }
+  | {
+      readonly kind: "r2";
+      readonly sha256: string;
+      readonly size: string;
+    };
+
+function verifiedAssetLocation(
   rawEntry: unknown,
   expectedArchive: string,
   version: string,
-): string {
+): VerifiedAssetLocation {
   if (!isRecord(rawEntry)) throw invalidFeed();
   if (
     typeof rawEntry.sha256 !== "string" ||
@@ -234,14 +247,39 @@ function verifiedReleaseTag(
   }
   if (
     signedUrl.protocol !== "https:" ||
-    signedUrl.host !== "github.com" ||
     signedUrl.username !== "" ||
     signedUrl.password !== "" ||
+    signedUrl.port !== "" ||
     signedUrl.search !== "" ||
     signedUrl.hash !== ""
   ) {
     throw invalidFeed();
   }
+
+  if (signedUrl.host === "browser-assets.cmux.com") {
+    const r2Path = signedUrl.pathname.match(
+      /^\/nightly\/([^/]+)\/([^/]+)$/u,
+    );
+    if (!r2Path) throw invalidFeed();
+    let r2Version: string;
+    let r2Archive: string;
+    try {
+      r2Version = decodeURIComponent(r2Path[1]);
+      r2Archive = decodeURIComponent(r2Path[2]);
+    } catch {
+      throw invalidFeed();
+    }
+    if (r2Version !== version || r2Archive !== expectedArchive) {
+      throw invalidFeed();
+    }
+    return {
+      kind: "r2",
+      sha256: rawEntry.sha256,
+      size: rawEntry.size,
+    };
+  }
+
+  if (signedUrl.host !== "github.com") throw invalidFeed();
 
   const releasePath = signedUrl.pathname.match(
     /^\/manaflow-ai\/cmux-v2\/releases\/download\/([^/]+)\/([^/]+)$/u,
@@ -251,12 +289,13 @@ function verifiedReleaseTag(
   if (releaseTag !== "nightly" && releaseTag !== `nightly-${version}`) {
     throw invalidFeed();
   }
-  return releaseTag;
+  return { kind: "github", releaseTag };
 }
 
 async function requirePublishedAsset(
   fetchImplementation: typeof globalThis.fetch,
   url: string,
+  location: VerifiedAssetLocation,
 ): Promise<void> {
   let response: Response;
   try {
@@ -278,6 +317,14 @@ async function requirePublishedAsset(
     ![301, 302, 303, 307, 308].includes(response.status)
   ) {
     throw new BrowserNightlyDownloadError("upstream_unavailable");
+  }
+  if (location.kind === "r2" && response.status === 200) {
+    if (
+      response.headers.get("x-cmux-sha256") !== location.sha256 ||
+      response.headers.get("x-cmux-size") !== location.size
+    ) {
+      throw new BrowserNightlyDownloadError("unavailable");
+    }
   }
 }
 

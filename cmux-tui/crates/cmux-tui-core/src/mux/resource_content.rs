@@ -8,7 +8,7 @@ use crate::browser::{BrowserSource, BrowserStatus};
 use crate::model::{Node, State};
 use crate::resource::{
     ContentPublicId, PanePublicId, SplitPublicId, TabPublicId, TabResourceIdentity,
-    WorkspacePublicId,
+    TerminalPublicId, WorkspacePublicId,
 };
 use crate::resource_api::{public_terminal_snapshot, terminal_tab_ids_in_canonical_order};
 use crate::workspace_registry::{
@@ -17,7 +17,7 @@ use crate::workspace_registry::{
     RegistryViewportColumn, RegistryWorkspace, ResourceChange, ResourcePatch, ResourcePatchCommit,
     WorkspaceMutation, WorkspaceRegistry,
 };
-use crate::{ResourceSelectors, ResourceTarget};
+use crate::{ResourceSelectors, ResourceTarget, SurfaceId};
 
 impl Mux {
     pub(crate) fn resource_project_terminal_selected(
@@ -585,6 +585,64 @@ pub(crate) struct ResourceEffectProjection {
     pub(crate) result: Value,
 }
 
+impl ResourceEffectProjection {
+    /// Explicit terminal close is the only operation that retires an exited
+    /// receipt. Full tree projection cannot infer that intent because exited
+    /// terminals have no runtime or views, so their tombstone and public
+    /// delete never fall out of the detached-tab diff.
+    pub(super) fn ensure_terminal_close(
+        &mut self,
+        terminal_id: &TerminalPublicId,
+        expected_incarnation: Option<&str>,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            !self.patch.changes.iter().any(|change| matches!(
+                change,
+                ResourceChange::UpsertTerminal { public_id, .. } if public_id == terminal_id
+            )),
+            "terminal close projection retained {terminal_id}"
+        );
+        if let Some(existing) = self.patch.changes.iter_mut().find_map(|change| match change {
+            ResourceChange::TombstoneTerminal { public_id, expected_incarnation }
+                if public_id == terminal_id =>
+            {
+                Some(expected_incarnation)
+            }
+            _ => None,
+        }) {
+            if existing.is_none() {
+                *existing = expected_incarnation.map(ToOwned::to_owned);
+            }
+        } else {
+            self.patch.changes.push(ResourceChange::TombstoneTerminal {
+                public_id: terminal_id.clone(),
+                expected_incarnation: expected_incarnation.map(ToOwned::to_owned),
+            });
+        }
+
+        let changes = self
+            .changes
+            .as_array_mut()
+            .context("terminal close topology changes are not an array")?;
+        anyhow::ensure!(
+            !changes.iter().any(|change| {
+                change["kind"] == "upsert"
+                    && change["resource"] == "terminal"
+                    && change["id"].as_str() == Some(terminal_id.as_str())
+            }),
+            "terminal close public projection retained {terminal_id}"
+        );
+        if !changes.iter().any(|change| {
+            change["kind"] == "delete"
+                && change["resource"] == "terminal"
+                && change["id"].as_str() == Some(terminal_id.as_str())
+        }) {
+            push_delete_delta(changes, "terminal", terminal_id.as_str());
+        }
+        Ok(())
+    }
+}
+
 impl Mux {
     /// Project the complete live tree into one durable patch while the caller
     /// holds the registry -> state writer fence. The matching effect receipt
@@ -606,6 +664,7 @@ impl Mux {
         // their reverse indexes are populated. Full projection is the
         // reconciliation boundary, so rebuild from the live tree first.
         state.rebuild_resource_indexes();
+        state.ensure_tab_identity_coverage()?;
         ensure_split_public_ids(state)?;
         let terminal_tab_order = ordered_terminal_tab_ids(state)?;
 
@@ -693,15 +752,10 @@ impl Mux {
                         .get(&pane_slot)
                         .with_context(|| format!("screen references missing pane {pane_slot}"))?;
                     live_panes.insert(pane.public_id.clone());
-                    let active_tab = pane.tabs.get(pane.active_tab).and_then(|surface| {
-                        state.resource_indexes.tab_ids.get(surface).cloned().or_else(|| {
-                            state
-                                .surfaces
-                                .get(surface)
-                                .and_then(|surface| surface.resource_identity())
-                                .map(|identity| identity.tab_id.clone())
-                        })
-                    });
+                    let active_tab = pane
+                        .tabs
+                        .get(pane.active_tab)
+                        .and_then(|slot| state.resource_indexes.tab_ids.get(slot).cloned());
                     let creation_ordinal =
                         before_pane_ordinals.get(&pane.public_id).copied().unwrap_or(pane.id);
                     changes.push(ResourceChange::UpsertPane(RegistryPane {
@@ -727,20 +781,9 @@ impl Mux {
 
                     let mut tab_order = Vec::with_capacity(pane.tabs.len());
                     for (position, surface_slot) in pane.tabs.iter().enumerate() {
-                        // Restored terminal tabs exist in the topology before
-                        // their host runtime is adopted. A structural commit
-                        // must preserve those durable views instead of making
-                        // unrelated host adoption a precondition.
                         let surface = state.surfaces.get(surface_slot);
-                        let identity = surface
-                            .and_then(|surface| surface.resource_identity().cloned())
-                            .or_else(|| {
-                                Some(TabResourceIdentity::new(
-                                    state.resource_indexes.tab_ids.get(surface_slot)?.clone(),
-                                    state.resource_indexes.content_ids.get(surface_slot)?.clone(),
-                                ))
-                            })
-                            .with_context(|| {
+                        let identity =
+                            tab_resource_identity(state, *surface_slot).with_context(|| {
                                 format!("pane surface {surface_slot} has no resource identity")
                             })?;
                         let before_tab = before_tabs.get(&identity.tab_id);
@@ -773,29 +816,33 @@ impl Mux {
                                 (None, Some(host_id), first_terminal_placement)
                             }
                             ContentPublicId::Browser(browser_id) => {
-                                let surface = surface.with_context(|| {
-                                    format!("browser tab {surface_slot} has no live surface")
-                                })?;
+                                // A browser view can also outlive its runtime,
+                                // so the durable row is the fallback rather
+                                // than a hard requirement.
                                 live_browsers.insert(browser_id.clone());
+                                let durable = before_browsers.get(browser_id).cloned();
                                 let url = surface
-                                    .browser_url()
-                                    .or_else(|| {
-                                        before_browsers
-                                            .get(browser_id)
-                                            .map(|browser| browser.url.clone())
-                                    })
+                                    .and_then(|surface| surface.browser_url())
+                                    .or_else(|| durable.as_ref().map(|browser| browser.url.clone()))
+                                    .or_else(|| before_tab.and_then(|tab| tab.browser_url.clone()))
                                     .unwrap_or_else(|| "about:blank".to_string());
-                                let (cols, rows) = surface.size();
-                                let live_status = surface.browser_status();
-                                let mut browser =
-                                    before_browsers.get(browser_id).cloned().unwrap_or_else(|| {
-                                        RegistryBrowser::recreate(
-                                            browser_id.clone(),
-                                            url.clone(),
-                                            cols.max(1),
-                                            rows.max(1),
-                                        )
-                                    });
+                                let (cols, rows) = match surface {
+                                    Some(surface) => surface.size(),
+                                    None => durable
+                                        .as_ref()
+                                        .map(|browser| (browser.cols, browser.rows))
+                                        .unwrap_or((1, 1)),
+                                };
+                                let live_status =
+                                    surface.and_then(|surface| surface.browser_status());
+                                let mut browser = durable.unwrap_or_else(|| {
+                                    RegistryBrowser::recreate(
+                                        browser_id.clone(),
+                                        url.clone(),
+                                        cols.max(1),
+                                        rows.max(1),
+                                    )
+                                });
                                 browser.url = url.clone();
                                 browser.cols = cols.max(1);
                                 browser.rows = rows.max(1);
@@ -805,10 +852,14 @@ impl Mux {
                                     }
                                     Some(BrowserStatus::Live) => RegistryBrowserStatus::Live,
                                     Some(BrowserStatus::Failed(_)) => RegistryBrowserStatus::Failed,
-                                    None if surface.is_dead() => RegistryBrowserStatus::Failed,
+                                    None if surface.is_some_and(|surface| surface.is_dead()) => {
+                                        RegistryBrowserStatus::Failed
+                                    }
                                     None => browser.status,
                                 };
-                                if let Some(source) = surface.browser_source() {
+                                if let Some(source) =
+                                    surface.and_then(|surface| surface.browser_source())
+                                {
                                     browser.source = match source {
                                         BrowserSource::External => RegistryBrowserSource::External,
                                         BrowserSource::Launched => RegistryBrowserSource::Launched,
@@ -868,15 +919,28 @@ impl Mux {
                             }
                             ContentPublicId::Terminal(_) => {}
                             ContentPublicId::Browser(id) => {
-                                let surface = surface.expect("browser surface validated above");
-                                let (cols, rows) = surface.size();
-                                let status = surface.browser_status();
+                                let durable = before_browsers.get(id);
+                                let (cols, rows) = match surface {
+                                    Some(surface) => surface.size(),
+                                    None => durable
+                                        .map(|browser| (browser.cols, browser.rows))
+                                        .unwrap_or((1, 1)),
+                                };
+                                let status = surface.and_then(|surface| surface.browser_status());
                                 let status_name = status
                                     .as_ref()
                                     .map(|status| status.as_str())
-                                    .unwrap_or(if surface.is_dead() { "failed" } else { "live" });
+                                    .unwrap_or(match surface {
+                                        Some(surface) if surface.is_dead() => "failed",
+                                        Some(_) => "live",
+                                        None => match durable.map(|browser| &browser.status) {
+                                            Some(RegistryBrowserStatus::Starting) => "starting",
+                                            Some(RegistryBrowserStatus::Live) => "live",
+                                            Some(RegistryBrowserStatus::Failed) | None => "failed",
+                                        },
+                                    });
                                 let source = surface
-                                    .browser_source()
+                                    .and_then(|surface| surface.browser_source())
                                     .map(|source| source.as_str())
                                     .or_else(|| {
                                         before_browsers.get(id).map(|browser| {
@@ -902,12 +966,13 @@ impl Mux {
                                         "id":id,
                                         "tab_id":tab.public_id,
                                         "url":tab.browser_url,
-                                        "title":surface.title(),
+                                        "title":surface.map(|surface| surface.title()),
                                         "loading":status_name == "starting",
                                         "source":source,
                                         "status":status_name,
                                         "error":status.and_then(|status| status.error()),
-                                        "frames_stalled":surface.browser_frames_stalled()
+                                        "frames_stalled":surface
+                                            .and_then(|surface| surface.browser_frames_stalled())
                                             .unwrap_or(false),
                                         "size":{
                                             "cols":cols.max(1),
@@ -1072,18 +1137,24 @@ impl Mux {
     }
 }
 
+/// Durable identity of one pane tab. The topology owns this, written once by
+/// `State::register_tab_identity`. Restored tabs exist before their host is
+/// adopted and an unadoptable host never gets a surface at all, so identity
+/// must never be read back out of live runtime state.
+fn tab_resource_identity(state: &State, surface_slot: SurfaceId) -> Option<TabResourceIdentity> {
+    Some(TabResourceIdentity::new(
+        state.resource_indexes.tab_ids.get(&surface_slot)?.clone(),
+        state.resource_indexes.content_ids.get(&surface_slot)?.clone(),
+    ))
+}
+
 fn ordered_terminal_tab_ids(
     state: &State,
 ) -> anyhow::Result<HashMap<crate::resource::TerminalPublicId, Vec<TabPublicId>>> {
     let mut tabs = Vec::new();
     for pane in state.panes.values() {
         for (position, surface_slot) in pane.tabs.iter().enumerate() {
-            let surface = state
-                .surfaces
-                .get(surface_slot)
-                .with_context(|| format!("pane references missing surface {surface_slot}"))?;
-            let identity = surface
-                .resource_identity()
+            let identity = tab_resource_identity(state, *surface_slot)
                 .with_context(|| format!("pane surface {surface_slot} has no resource identity"))?;
             if let ContentPublicId::Terminal(terminal_id) = &identity.content_id {
                 tabs.push((

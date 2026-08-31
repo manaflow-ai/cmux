@@ -219,6 +219,46 @@ final class TerminalCmdClickUITests: XCTestCase {
         )
     }
 
+    func testCmdClickOsc8FileHyperlinkOpensExactlyOneHandler() throws {
+        let fileName = "Cmd Click Fixture.txt"
+        let app = launchApp(
+            displayMode: .raw,
+            lineFormat: .osc8,
+            fileName: fileName,
+            captureOpenPaths: true,
+            captureHoverDiagnostics: false
+        )
+        defer { app.terminate() }
+
+        let setup = try waitForReadySetup()
+        let expectedURL = URL(fileURLWithPath: setup.expectedPath).absoluteString
+
+        let result = try runCommand(action: "cmd_click_token")
+
+        let openedURLs = waitForCapturedOpenPaths(timeout: 5.0, path: openURLCapturePath)
+        XCTAssertEqual(
+            openedURLs,
+            [expectedURL],
+            "Expected Ghostty's open-url action to route the OSC 8 file link exactly once. result=\(result)"
+        )
+
+        // Issue #10222: when Ghostty consumes the click and dispatches its
+        // open-url action, the cmd-click word-path fallback must not ALSO open
+        // the same file through the preferred-editor/system path — that is the
+        // double-open (e.g. Preview and the preferred editor at once).
+        XCTAssertTrue(
+            waitForOpenCountToStay(0, timeout: 1.5),
+            "Cmd-click dispatched a second open for the same click: the word-path fallback ran even though Ghostty already routed the link. opened=\(loadCapturedOpenPaths()) result=\(result)"
+        )
+        // The open-url route itself must also stay at exactly one dispatch
+        // through the settle window — never a duplicate primary open either.
+        XCTAssertEqual(
+            loadCapturedOpenPaths(path: openURLCapturePath),
+            [expectedURL],
+            "Expected exactly one open-url dispatch for the click after settling. result=\(result)"
+        )
+    }
+
     func testCmdClickRawLsStylePathPrefersSnapshotWhenQuicklookDisagrees() throws {
         let app = launchApp(
             displayMode: .raw,

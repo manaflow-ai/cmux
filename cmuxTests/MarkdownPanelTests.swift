@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAgentChat
 import Combine
 import WebKit
 import XCTest
@@ -11,6 +12,30 @@ import XCTest
 
 @MainActor
 final class MarkdownPanelTests: XCTestCase {
+    @MainActor
+    private final class RenderingActionRecorder {
+        typealias Action = MarkdownWebRenderingCoordinator.Action
+
+        let stream: AsyncStream<Action>
+        private let continuation: AsyncStream<Action>.Continuation
+        private(set) var actions: [Action] = []
+
+        init() {
+            let events = AsyncStream<Action>.makeStream()
+            stream = events.stream
+            continuation = events.continuation
+        }
+
+        func record(_ action: Action) {
+            actions.append(action)
+            continuation.yield(action)
+        }
+
+        func reset() {
+            actions.removeAll()
+        }
+    }
+
     func testMarkdownThemeUsesTransparentPageAndOverlayTintsForTranslucentBackgrounds() throws {
         let theme = MarkdownWebTheme.resolve(
             backgroundColor: NSColor(
@@ -195,6 +220,53 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(panel.fontFamily, "Avenir Next")
     }
 
+    func testMarkdownPanelFindLifecycle() throws {
+        let fileManager = FileManager.default
+        let directoryURL = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-find-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        let fileURL = directoryURL.appendingPathComponent("README.md")
+        try "# hello needle".write(to: fileURL, atomically: true, encoding: .utf8)
+        defer { try? fileManager.removeItem(at: directoryURL) }
+
+        let panel = MarkdownPanel(workspaceId: UUID(), filePath: fileURL.path)
+        defer { panel.close() }
+
+        XCTAssertNil(panel.searchState)
+
+        panel.startFind()
+        let firstState = try XCTUnwrap(panel.searchState)
+        firstState.needle = "needle"
+        let generationAfterStart = panel.searchFocusRequestGeneration
+        XCTAssertTrue(panel.canApplySearchFocusRequest(generationAfterStart))
+
+        // A second Cmd+F refocuses the existing bar instead of replacing it.
+        panel.startFind()
+        XCTAssertTrue(panel.searchState === firstState)
+        XCTAssertFalse(panel.canApplySearchFocusRequest(generationAfterStart))
+
+        // Hiding clears the bar and invalidates pending focus requests.
+        panel.hideFind()
+        XCTAssertNil(panel.searchState)
+        XCTAssertFalse(panel.canApplySearchFocusRequest(panel.searchFocusRequestGeneration))
+
+        // Reopening recovers the last needle so Cmd+F resumes the search.
+        panel.startFind()
+        XCTAssertEqual(panel.searchState?.needle, "needle")
+
+        // The find bar belongs to the preview surface: switching to text
+        // mode closes it, and Cmd+F in text mode is left to the editor's
+        // native find panel.
+        panel.setDisplayMode(.text)
+        XCTAssertNil(panel.searchState)
+        panel.startFind()
+        XCTAssertNil(panel.searchState)
+
+        panel.setDisplayMode(.preview)
+        panel.startFind()
+        XCTAssertNotNil(panel.searchState)
+    }
+
     func testFileOpenRoutesMarkdownFilesToPreviewMarkdownPanel() throws {
         let fileManager = FileManager.default
         let directoryURL = fileManager.temporaryDirectory
@@ -353,6 +425,7 @@ final class MarkdownPanelTests: XCTestCase {
             markdown: "# Existing\n",
             theme: theme,
             backgroundColor: .windowBackgroundColor,
+            isVisibleInUI: true,
             panelId: panelId,
             workspaceId: workspaceId,
             filePath: filePath,
@@ -368,6 +441,7 @@ final class MarkdownPanelTests: XCTestCase {
             markdown: "# Existing\n",
             theme: theme,
             backgroundColor: .windowBackgroundColor,
+            isVisibleInUI: true,
             panelId: panelId,
             workspaceId: workspaceId,
             filePath: filePath,
@@ -414,6 +488,159 @@ final class MarkdownPanelTests: XCTestCase {
         discardedWebView.onPointerDown?()
 
         XCTAssertEqual(discardedPointerDownCount, 0)
+    }
+
+    func testMarkdownWebViewReattachDoesNotRefreshInsideHostCallback() async {
+        var isActuallyVisible = true
+        let recorder = RenderingActionRecorder()
+        var events = recorder.stream.makeAsyncIterator()
+        var reentryCount = 0
+        let coordinator = MarkdownWebRenderingCoordinator(
+            initialBoundsSize: CGSize(width: 640, height: 360),
+            isActuallyVisible: { isActuallyVisible },
+            applyAction: recorder.record,
+            onReenterWindow: { reentryCount += 1 }
+        )
+
+        // Establish the attached state, then model Bonsplit's remove/add
+        // transition before the deferred action gets a chance to run.
+        coordinator.viewDidMoveToWindow(isAttached: true)
+        _ = await events.next()
+        recorder.reset()
+        isActuallyVisible = false
+        coordinator.viewDidMoveToWindow(isAttached: false)
+        isActuallyVisible = true
+        coordinator.viewDidMoveToWindow(isAttached: true)
+
+        XCTAssertTrue(
+            recorder.actions.isEmpty,
+            "A markdown viewer re-entry must not flush WebKit while the host layout callback is active"
+        )
+
+        // The repair still has to happen once the originating callback has
+        // returned. A MainActor yield is the production scheduling boundary;
+        // no wall-clock delay is needed.
+        _ = await events.next()
+        XCTAssertEqual(recorder.actions.count, 1)
+        XCTAssertEqual(
+            recorder.actions.first,
+            .refresh(reason: "viewDidMoveToWindow.visible", forceLifecycleRefresh: true)
+        )
+        XCTAssertEqual(reentryCount, 2, "The initial attach and reattach each complete once")
+    }
+
+    func testMarkdownWebViewResizeRefreshCoalescesOutsideLayoutCallback() async {
+        let recorder = RenderingActionRecorder()
+        var events = recorder.stream.makeAsyncIterator()
+        let coordinator = MarkdownWebRenderingCoordinator(
+            initialBoundsSize: CGSize(width: 640, height: 360),
+            isActuallyVisible: { true },
+            applyAction: recorder.record
+        )
+        coordinator.viewDidMoveToWindow(isAttached: true)
+        _ = await events.next()
+        recorder.reset()
+        // Both changes are smaller than the old half-point tolerance. Each is
+        // still real divider geometry and must leave a deferred repair queued.
+        coordinator.layoutDidChange(to: CGSize(width: 639.75, height: 359.75))
+        coordinator.layoutDidChange(to: CGSize(width: 639.5, height: 359.5))
+
+        XCTAssertTrue(
+            recorder.actions.isEmpty,
+            "A markdown resize must not flush WebKit synchronously from AppKit layout"
+        )
+
+        _ = await events.next()
+        XCTAssertEqual(recorder.actions.count, 1)
+        XCTAssertEqual(
+            recorder.actions.first,
+            .refresh(reason: "boundsChanged", forceLifecycleRefresh: false),
+            "Repeated geometry callbacks should coalesce into one deferred repaint"
+        )
+    }
+
+    func testMarkdownWebViewVisibilityRevealRepairsAfterHiddenTabLifecycle() async {
+        let recorder = RenderingActionRecorder()
+        var events = recorder.stream.makeAsyncIterator()
+        var isActuallyVisible = true
+        let visibilityGateReached = expectation(description: "hidden reveal reaches visibility gate")
+        visibilityGateReached.assertForOverFulfill = false
+        var didObserveHiddenVisibilityGate = false
+        let coordinator = MarkdownWebRenderingCoordinator(
+            initialBoundsSize: CGSize(width: 640, height: 360),
+            isActuallyVisible: {
+                if !isActuallyVisible, !didObserveHiddenVisibilityGate {
+                    didObserveHiddenVisibilityGate = true
+                    visibilityGateReached.fulfill()
+                }
+                return isActuallyVisible
+            },
+            applyAction: recorder.record
+        )
+        coordinator.viewDidMoveToWindow(isAttached: true)
+        _ = await events.next()
+        recorder.reset()
+        coordinator.setVisibleInUI(false)
+        _ = await events.next()
+        XCTAssertEqual(recorder.actions, [.hide(reason: "visibility.hidden")])
+
+        recorder.reset()
+        isActuallyVisible = false
+        coordinator.setVisibleInUI(true)
+        XCTAssertTrue(recorder.actions.isEmpty, "A visibility reveal must cross the deferred boundary")
+        await fulfillment(of: [visibilityGateReached], timeout: 1)
+        XCTAssertTrue(
+            didObserveHiddenVisibilityGate,
+            "A hidden reveal must wait for the actual AppKit visibility boundary"
+        )
+        XCTAssertTrue(recorder.actions.isEmpty, "A hidden reveal must not paint while its ancestor is hidden")
+
+        isActuallyVisible = true
+        coordinator.viewDidMoveToWindow(isAttached: true)
+        XCTAssertTrue(recorder.actions.isEmpty, "The visibility retry remains deferred")
+        _ = await events.next()
+        XCTAssertEqual(
+            recorder.actions,
+            [.refresh(reason: "viewDidMoveToWindow.visible", forceLifecycleRefresh: true)],
+            "A revealed markdown tab must receive a repaint pass"
+        )
+    }
+
+    func testMarkdownRenderingCoordinatorRetriesWhenVisibilitySettles() async {
+        var isActuallyVisible = false
+        let recorder = RenderingActionRecorder()
+        var events = recorder.stream.makeAsyncIterator()
+        let visibilityGateReached = expectation(description: "visibility settle reaches visibility gate")
+        visibilityGateReached.assertForOverFulfill = false
+        var didObserveHiddenVisibilityGate = false
+        let coordinator = MarkdownWebRenderingCoordinator(
+            initialBoundsSize: CGSize(width: 640, height: 360),
+            isActuallyVisible: {
+                if !isActuallyVisible, !didObserveHiddenVisibilityGate {
+                    didObserveHiddenVisibilityGate = true
+                    visibilityGateReached.fulfill()
+                }
+                return isActuallyVisible
+            },
+            applyAction: recorder.record
+        )
+
+        coordinator.viewDidMoveToWindow(isAttached: true)
+        // Await the scheduler's actual visibility gate rather than guessing
+        // how many executor turns its queued task needs.
+        await fulfillment(of: [visibilityGateReached], timeout: 1)
+        XCTAssertTrue(recorder.actions.isEmpty, "A hidden ancestor must defer the first paint")
+
+        // SwiftUI can call updateNSView with the same visible value after the
+        // ancestor becomes visible. That callback must retry pending work.
+        isActuallyVisible = true
+        coordinator.setVisibleInUI(true)
+        XCTAssertTrue(recorder.actions.isEmpty, "The visibility retry remains deferred")
+        _ = await events.next()
+        XCTAssertEqual(
+            recorder.actions,
+            [.refresh(reason: "visibility.visible", forceLifecycleRefresh: true)]
+        )
     }
 
     func testMarkdownRendererKeepsRecoveryBudgetAfterShellReload() {

@@ -126,6 +126,7 @@ struct CmxIrohRelayPolicyBrokerTests {
                     CmxIrohBrokerCredentials(accessToken: "access", refreshToken: "refresh")
                 }
             ),
+            clientNamespace: "legacy",
             transport: transport
         )
     }

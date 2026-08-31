@@ -163,8 +163,7 @@ struct TitlebarNewWorkspaceCloudSplitButton: View {
     var body: some View {
         HStack(spacing: 0) {
             Button(action: onNewTab) {
-                Image(systemName: "plus")
-                    .font(.system(size: config.iconSize, weight: .medium))
+                CmuxSystemSymbolImage(systemName: "plus", pointSize: config.iconSize, weight: .medium)
                     .padding(plusIconPadding)
                     .frame(width: primaryWidth, height: config.buttonSize)
             }
@@ -200,11 +199,11 @@ struct TitlebarNewWorkspaceCloudSplitButton: View {
                 ZStack {
                     Rectangle()
                         .fill(Color.clear)
-                    Image(systemName: "chevron.down")
-                        .font(.system(
-                            size: TitlebarNewWorkspaceCloudSplitButtonMetrics.dropdownIconSize(config: config),
-                            weight: .bold
-                        ))
+                    CmuxSystemSymbolImage(
+                        systemName: "chevron.down",
+                        pointSize: TitlebarNewWorkspaceCloudSplitButtonMetrics.dropdownIconSize(config: config),
+                        weight: .bold
+                    )
                         .padding(caretIconPadding)
                 }
                 .frame(width: dropdownWidth, height: config.buttonSize)
@@ -354,8 +353,7 @@ struct TitlebarCloudVMButton: View {
                 Self.showCloudVMMenu(anchorView: anchorView, event: event)
             }
         ) {
-            Image(systemName: "cloud")
-                .font(.system(size: config.iconSize, weight: .medium))
+            CmuxSystemSymbolImage(systemName: "cloud", pointSize: config.iconSize, weight: .medium)
                 .frame(width: config.buttonSize, height: config.buttonSize)
         }
         .safeHelp(String(localized: "titlebar.cloudVM.tooltip", defaultValue: "Open Base"))
@@ -363,13 +361,13 @@ struct TitlebarCloudVMButton: View {
 
     @MainActor
     static func showCloudVMMenu(anchorView: NSView, event: NSEvent) {
-        guard CmuxFeatureFlags.shared.isCloudVMUIEnabled else { return }
+        guard CloudMachinesFeature.isEnabled else { return }
         NSMenu.popUpContextMenu(makeCloudVMMenu(), with: event, for: anchorView)
     }
 
     @MainActor
     static func showCloudVMMenu(anchorView: NSView) {
-        guard CmuxFeatureFlags.shared.isCloudVMUIEnabled else { return }
+        guard CloudMachinesFeature.isEnabled else { return }
         let menu = makeCloudVMMenu()
         menu.popUp(
             positioning: nil,

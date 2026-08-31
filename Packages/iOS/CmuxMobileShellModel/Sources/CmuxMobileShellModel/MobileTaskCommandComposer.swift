@@ -15,12 +15,14 @@ public struct MobileTaskCommandComposer: Sendable {
     ///   - template: The selected task template.
     ///   - prompt: User-entered task prompt.
     ///   - modelID: Optional CLI model identifier to apply to a known provider.
+    ///   - effortID: Optional effort reported by the selected exact model.
     ///   - attachmentPaths: Absolute Mac paths produced by attachment uploads.
     /// - Returns: The command, environment, and prompt-derived title.
     public func compose(
         template: MobileTaskTemplate,
         prompt rawPrompt: String,
         modelID: String? = nil,
+        effortID: String? = nil,
         attachmentPaths: [String] = []
     ) -> MobileTaskComposition {
         let prompt = rawPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -29,8 +31,13 @@ public struct MobileTaskCommandComposer: Sendable {
             return MobileTaskComposition(initialCommand: nil, initialEnv: [:], title: title)
         }
         let initialCommand: String
-        if let modelID, let provider = MobileTaskAgentProvider(command: template.command) {
-            initialCommand = provider.command(applying: modelID, to: template.command)
+        if let provider = MobileTaskAgentProvider(command: template.command) {
+            let commandWithModel = modelID.map {
+                provider.command(applying: $0, to: template.command)
+            } ?? template.command
+            initialCommand = effortID.map {
+                provider.command(applyingEffort: $0, to: commandWithModel)
+            } ?? commandWithModel
         } else {
             initialCommand = template.command
         }

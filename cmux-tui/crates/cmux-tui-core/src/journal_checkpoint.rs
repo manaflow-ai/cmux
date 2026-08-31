@@ -40,9 +40,13 @@ pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
     // Per-terminal epochs below reject a parser snapshot taken while its
     // corresponding journal frame is still being enqueued.
     mux.flush_terminal_journal()?;
-    let head_before = mux.session_journal_after(0, 1)?.head_sequence;
-    let snapshot = crate::resource_api::public_session_snapshot(mux)
-        .map_err(|error| anyhow::anyhow!("capture public session snapshot: {error:?}"))?;
+    // The snapshot and the journal head form one consistency cut, read under
+    // a single registry + state lock hold. A journal record committed before
+    // the cut is covered by the snapshot; the fence below only has to reject
+    // writes that land after it, while terminal content is being captured.
+    let (snapshot, head_before) =
+        crate::resource_api::public_session_snapshot_with_journal_head(mux)
+            .map_err(|error| anyhow::anyhow!("capture public session snapshot: {error:?}"))?;
     let producers = mux.journal_producer_manifests()?;
     let hooks = mux
         .journal_hook_states()?
@@ -70,84 +74,24 @@ pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
     let mut blobs = Vec::new();
     for terminal_id in terminal_ids {
         let Some(surface) = mux.terminal_resource_surface(&terminal_id) else { continue };
-        let epoch_before = surface
-            .terminal_journal_capture_epoch()
-            .context("checkpoint terminal is not a PTY surface")?;
-        anyhow::ensure!(
-            epoch_before & 1 == 0,
-            "terminal journal ingress is unsettled during checkpoint capture"
-        );
-        let (cols, rows, replay) = surface.try_with_terminal(|terminal| {
-            terminal
-                .vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES)
-                .map(|replay| (terminal.cols(), terminal.rows(), replay))
-        })??;
-        let epoch_after = surface
-            .terminal_journal_capture_epoch()
-            .context("checkpoint terminal is not a PTY surface")?;
-        anyhow::ensure!(
-            epoch_before == epoch_after && epoch_after & 1 == 0,
-            "terminal changed during checkpoint capture"
-        );
-        let replay_value = json!({
-            "format":"cmux.vt-replay.v1",
-            "cols":cols,
-            "rows":rows,
-            "bytes_base64":base64::engine::general_purpose::STANDARD.encode(&replay.bytes),
-            "kitty_image_aliases":replay.kitty_image_aliases.iter().map(|alias| json!({
-                "image_id":alias.image_id,
-                "image_number":alias.image_number,
-            })).collect::<Vec<_>>(),
-            "kitty_state":{
-                "limits":{
-                    "image_bytes":replay.kitty_state.limits.image_bytes.to_string(),
-                    "inflight_bytes":replay.kitty_state.limits.inflight_bytes.to_string(),
-                    "images":replay.kitty_state.limits.images.to_string(),
-                    "placements":replay.kitty_state.limits.placements.to_string(),
-                },
-                "replay_cursor_offset":replay.kitty_state.replay_cursor_offset,
-                "replay_next_image_ids":{
-                    "primary":replay.kitty_state.replay_next_image_ids.primary,
-                    "alternate":replay.kitty_state.replay_next_image_ids.alternate,
-                },
-                "next_image_ids":{
-                    "primary":replay.kitty_state.next_image_ids.primary,
-                    "alternate":replay.kitty_state.next_image_ids.alternate,
-                },
-            },
-        });
-        let uncompressed = serde_json::to_vec(&replay_value)?;
-        let uncompressed_bytes = u64::try_from(uncompressed.len())?;
+        let blob = terminal_replay_blob(&surface, &terminal_id)?;
         total_bytes = total_bytes
-            .checked_add(uncompressed_bytes)
+            .checked_add(blob.reference.uncompressed_bytes)
             .context("checkpoint content byte count overflow")?;
         anyhow::ensure!(
             total_bytes <= MAX_CHECKPOINT_UNCOMPRESSED_BYTES,
             "checkpoint terminal content exceeds {MAX_CHECKPOINT_UNCOMPRESSED_BYTES} bytes"
         );
-        let digest = Sha256::digest(&uncompressed);
-        let digest_hex = encode_hex(digest.as_slice());
-        let compressed = gzip_deterministic(&uncompressed)?;
-        blobs.push(JournalContentBlob::verified(
-            JournalContentRef {
-                content_id: format!("jcontent_{digest_hex}"),
-                terminal_id: terminal_id.as_str().into(),
-                format: "cmux.vt-replay.v1".into(),
-                codec: "gzip".into(),
-                sha256: digest_hex,
-                uncompressed_bytes,
-                cols,
-                rows,
-            },
-            compressed,
-        )?);
+        blobs.push(blob);
     }
 
     mux.flush_terminal_journal()?;
-    let head_after = mux.session_journal_after(0, 1)?.head_sequence;
-    let cursor_after = crate::resource_api::public_session_snapshot(mux)
-        .map_err(|error| anyhow::anyhow!("verify public session snapshot: {error:?}"))?["cursor"]
-        .clone();
+    // Verify against one cut as well, so a write landing between two separate
+    // head and cursor reads cannot fail a capture that was in fact stable.
+    let (verify_snapshot, head_after) =
+        crate::resource_api::public_session_snapshot_with_journal_head(mux)
+            .map_err(|error| anyhow::anyhow!("verify public session snapshot: {error:?}"))?;
+    let cursor_after = verify_snapshot["cursor"].clone();
     anyhow::ensure!(
         head_before == head_after && snapshot["cursor"] == cursor_after,
         "session changed during checkpoint capture"
@@ -163,6 +107,80 @@ pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
         }),
         blobs,
     })
+}
+
+/// Capture one terminal's bounded `cmux.vt-replay.v1` blob from its live
+/// runtime surface. The terminal's journal ingress must be settled (flush
+/// first) so the replay and the journaled output stream describe the same
+/// byte prefix; a torn capture is rejected through the per-terminal epoch.
+pub(crate) fn terminal_replay_blob(
+    surface: &crate::Surface,
+    terminal_id: &TerminalPublicId,
+) -> anyhow::Result<JournalContentBlob> {
+    let epoch_before = surface
+        .terminal_journal_capture_epoch()
+        .context("captured terminal is not a PTY surface")?;
+    anyhow::ensure!(
+        epoch_before & 1 == 0,
+        "terminal journal ingress is unsettled during replay capture"
+    );
+    let (cols, rows, replay) = surface.try_with_terminal(|terminal| {
+        terminal
+            .vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES)
+            .map(|replay| (terminal.cols(), terminal.rows(), replay))
+    })??;
+    let epoch_after = surface
+        .terminal_journal_capture_epoch()
+        .context("captured terminal is not a PTY surface")?;
+    anyhow::ensure!(
+        epoch_before == epoch_after && epoch_after & 1 == 0,
+        "terminal changed during replay capture"
+    );
+    let replay_value = json!({
+        "format":"cmux.vt-replay.v1",
+        "cols":cols,
+        "rows":rows,
+        "bytes_base64":base64::engine::general_purpose::STANDARD.encode(&replay.bytes),
+        "kitty_image_aliases":replay.kitty_image_aliases.iter().map(|alias| json!({
+            "image_id":alias.image_id,
+            "image_number":alias.image_number,
+        })).collect::<Vec<_>>(),
+        "kitty_state":{
+            "limits":{
+                "image_bytes":replay.kitty_state.limits.image_bytes.to_string(),
+                "inflight_bytes":replay.kitty_state.limits.inflight_bytes.to_string(),
+                "images":replay.kitty_state.limits.images.to_string(),
+                "placements":replay.kitty_state.limits.placements.to_string(),
+            },
+            "replay_cursor_offset":replay.kitty_state.replay_cursor_offset,
+            "replay_next_image_ids":{
+                "primary":replay.kitty_state.replay_next_image_ids.primary,
+                "alternate":replay.kitty_state.replay_next_image_ids.alternate,
+            },
+            "next_image_ids":{
+                "primary":replay.kitty_state.next_image_ids.primary,
+                "alternate":replay.kitty_state.next_image_ids.alternate,
+            },
+        },
+    });
+    let uncompressed = serde_json::to_vec(&replay_value)?;
+    let uncompressed_bytes = u64::try_from(uncompressed.len())?;
+    let digest = Sha256::digest(&uncompressed);
+    let digest_hex = encode_hex(digest.as_slice());
+    let compressed = gzip_deterministic(&uncompressed)?;
+    JournalContentBlob::verified(
+        JournalContentRef {
+            content_id: format!("jcontent_{digest_hex}"),
+            terminal_id: terminal_id.as_str().into(),
+            format: "cmux.vt-replay.v1".into(),
+            codec: "gzip".into(),
+            sha256: digest_hex,
+            uncompressed_bytes,
+            cols,
+            rows,
+        },
+        compressed,
+    )
 }
 
 #[cfg(test)]
@@ -871,6 +889,74 @@ mod tests {
         let first = restore_preview(&checkpoint, &[make(b"alpha")], 4).unwrap();
         let second = restore_preview(&checkpoint, &[make(b"bravo")], 4).unwrap();
         assert_ne!(first["state_sha256"], second["state_sha256"]);
+    }
+
+    /// A terminal-host reconnect creates its checkpoint while the rest of the
+    /// session keeps journaling. Capture reads the journal head and the public
+    /// session snapshot as its consistency cut; a record committed between
+    /// those two reads is a normal concurrent write, not a torn capture, and
+    /// must not abort the checkpoint with "session changed during checkpoint
+    /// capture". On a busy session that spurious abort made every reconnect
+    /// checkpoint fail and surfaced as repeated status toasts.
+    #[test]
+    fn reconnect_checkpoint_capture_tolerates_a_racing_journal_write() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-capture-race-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent("checkpoint-race", crate::SurfaceOptions::default(), &root)
+            .unwrap();
+
+        let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel::<()>(0);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel::<()>(0);
+        let capture_mux = mux.clone();
+        let capture = std::thread::spawn(move || {
+            crate::resource_api::set_snapshot_before_projection_hook(move || {
+                entered_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+            });
+            capture_mux.create_journal_checkpoint("terminal_host_reconnect", "capture_race_1")
+        });
+        entered_rx.recv().unwrap();
+
+        // The capture thread is paused inside its snapshot cut. Commit a
+        // journal record from another writer before letting it proceed.
+        mux.put_journal_producer(
+            &JournalProducerManifest {
+                producer_id: "capture_race".into(),
+                namespace: "plugin.capture_race".into(),
+                manifest_version: 1,
+                max_sensitivity: JournalSensitivity::Metadata,
+                permissions: vec!["journal.append.plugin.capture_race".into()],
+                events: vec![JournalEventSchema {
+                    kind: "plugin.capture_race.event".into(),
+                    schema_version: 1,
+                    class: JournalClass::Observation,
+                    replay: JournalReplayPolicy::Advisory,
+                    sensitivity: JournalSensitivity::Metadata,
+                    payload_schema: json!({"type":"object"}),
+                }],
+            },
+            "client_test",
+            "capture_race_producer",
+        )
+        .unwrap();
+        let head_after_write = mux.session_journal_after(0, 1).unwrap().head_sequence;
+        release_tx.send(()).unwrap();
+
+        let commit = capture
+            .join()
+            .unwrap()
+            .expect("a journal write racing the snapshot cut must not abort checkpoint capture");
+        assert_eq!(
+            commit.checkpoint.source_sequence, head_after_write,
+            "the checkpoint cut must cover the racing journal write"
+        );
+        let preview = mux.journal_restore_preview("latest").unwrap();
+        assert_eq!(preview["fully_reducible"], true);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

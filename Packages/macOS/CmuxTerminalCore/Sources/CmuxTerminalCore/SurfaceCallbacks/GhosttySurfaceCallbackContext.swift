@@ -63,8 +63,14 @@ public final class GhosttySurfaceCallbackContext {
     /// The stable identity of the surface this context was created for.
     public let surfaceId: UUID
 
+    /// The model identity used to authenticate callbacks from this runtime.
+    public let sourceSurfaceIdentifier: ObjectIdentifier
+
     /// The terminal process generation that owns this callback context.
     public let terminalLifecycleID: UUID
+
+    /// The immutable title that overrides runtime OSC title updates, if any.
+    public let titleOverride: String?
 
     /// Runs after renderer activity consumes an armed presentation repair.
     private let rendererMailboxDidDrainHandler: @Sendable (UUID) -> Void
@@ -87,6 +93,8 @@ public final class GhosttySurfaceCallbackContext {
     ///   - surfaceController: The surface model owning the runtime surface.
     ///   - terminalLifecycleID: The terminal process generation that owns the
     ///     native runtime surface.
+    ///   - titleOverride: An immutable title derived from the runtime's launch
+    ///     metadata, or `nil` to use Ghostty's OSC title updates.
     ///   - rendererMailboxDidDrain: Called with only the stable surface id after
     ///     an armed repair observes renderer activity following a mailbox drain.
     ///   - maximumRuntimeClipboardRequests: Maximum simultaneous native
@@ -95,13 +103,16 @@ public final class GhosttySurfaceCallbackContext {
         surfaceHost: any TerminalSurfaceHosting,
         surfaceController: any TerminalSurfaceControlling,
         terminalLifecycleID: UUID,
+        titleOverride: String? = nil,
         rendererMailboxDidDrain: @escaping @Sendable (UUID) -> Void = { _ in },
         maximumRuntimeClipboardRequests: Int = 32
     ) {
         self.surfaceHost = surfaceHost
         self.surfaceController = surfaceController
         self.surfaceId = surfaceController.surfaceId
+        self.sourceSurfaceIdentifier = ObjectIdentifier(surfaceController)
         self.terminalLifecycleID = terminalLifecycleID
+        self.titleOverride = titleOverride
         self.rendererMailboxDidDrainHandler = rendererMailboxDidDrain
         self.maximumRuntimeClipboardRequests = max(
             0,

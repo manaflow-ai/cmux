@@ -150,6 +150,24 @@ button, [role="button"], .menu-item, .model-row, .row-control { cursor: default 
 .static-provider:hover { background: transparent; color: color-mix(in srgb, var(--fg) 70%, var(--bg)); }
 .select-trigger[data-popup-open] .chev { transform: rotate(180deg); }
 .row-control .chev { display: inline-flex; opacity: .55; margin-left: 1px; }
+.model-picker-trigger-loading {
+  width: 0; height: 18px; flex: none; display: inline-flex; align-items: center; justify-content: center;
+  color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); border-radius: 999px;
+  opacity: 0; transform: scale(.72); overflow: hidden; visibility: hidden;
+  transition: width 110ms ease-out, opacity 90ms ease-out, transform 110ms ease-out, visibility 0s linear 110ms;
+}
+.model-picker-trigger-loading[data-visible="true"] {
+  width: 18px; opacity: 1; transform: scale(1); visibility: visible;
+  transition-delay: 80ms;
+  transition-timing-function: cubic-bezier(.16, 1, .3, 1);
+}
+.effort-picker-loading {
+  height: 24px; max-width: 150px; display: inline-flex; align-items: center; gap: 6px; padding: 0 7px;
+  color: var(--text-dim); background: color-mix(in srgb, var(--accent) 8%, transparent); border-radius: 6px;
+  font: 500 calc(var(--font-size-base) - 3px) var(--font-sans);
+  animation: loadingControlIn 130ms 80ms cubic-bezier(.16, 1, .3, 1) both;
+}
+@keyframes loadingControlIn { from { opacity: 0; transform: translateY(1px) scale(.96); } }
 .dot {
   width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--text-faint);
   box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 12%, transparent);
@@ -218,6 +236,7 @@ button, [role="button"], .menu-item, .model-row, .row-control { cursor: default 
 }
 .model-picker-rail-top, .model-picker-rail-bottom { display: flex; flex-direction: column; gap: 4px; align-items: center; }
 .rail-btn {
+  position: relative;
   width: 30px; height: 30px; border: 0; border-radius: 8px; background: transparent; color: var(--text-faint);
   display: inline-flex; align-items: center; justify-content: center; padding: 0; cursor: default;
 }
@@ -225,8 +244,12 @@ button, [role="button"], .menu-item, .model-row, .row-control { cursor: default 
 .rail-btn.active { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 26%, transparent); }
 .rail-btn.missing { opacity: .36; }
 .rail-btn.missing:hover { opacity: .7; }
+.rail-loading-indicator {
+  position: absolute; right: 1px; bottom: 1px; width: 12px; height: 12px; display: inline-flex; align-items: center; justify-content: center;
+  color: var(--accent); background: var(--bg-raised); border-radius: 999px; box-shadow: 0 0 0 1px var(--bg-raised);
+}
 .model-picker-main {
-  min-width: 0; flex: 1; display: flex; flex-direction: column;
+  position: relative; min-width: 0; flex: 1; display: flex; flex-direction: column;
   border-left: 1px solid var(--border);
 }
 .model-picker-search {
@@ -241,6 +264,24 @@ button, [role="button"], .menu-item, .model-row, .row-control { cursor: default 
 .model-picker-list {
   flex: 1; min-height: 0; overflow-y: auto; padding: 6px; display: flex; flex-direction: column; gap: 1px;
   mask-image: linear-gradient(to bottom, transparent 0, #000 10px, #000 calc(100% - 10px), transparent 100%);
+}
+.model-picker-loading {
+  flex: none; display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 34px;
+  color: var(--text-dim); background: color-mix(in srgb, var(--accent) 5%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  font: 500 calc(var(--font-size-base) - 1px) var(--font-sans);
+}
+.model-picker-loading .pinwheel-spinner { color: var(--accent); }
+.model-picker-loading-full {
+  position: absolute; inset: 39px 0 0; z-index: 2; min-height: 0; flex-direction: column; gap: 11px; border-bottom: 0;
+  background: radial-gradient(circle at center, color-mix(in srgb, var(--accent) 9%, transparent), transparent 58%);
+  opacity: 0; transform: scale(.985); visibility: hidden; pointer-events: none;
+  transition: opacity 110ms ease-out, transform 130ms ease-out, visibility 0s linear 130ms;
+}
+.model-picker-loading-full[data-visible="true"] {
+  opacity: 1; transform: scale(1); visibility: visible;
+  transition-delay: 80ms;
+  transition-timing-function: cubic-bezier(.16, 1, .3, 1);
 }
 .model-row {
   width: 100%; min-height: 42px; display: flex; align-items: center; gap: 9px; border: 0; border-radius: 8px;
@@ -632,9 +673,12 @@ details.thinking .t-body { white-space: pre-wrap; font-size: calc(var(--font-siz
   .activity-label { animation: none; opacity: .68; }
   .provider-running .provider-icon,
   .provider-running .provider-icon-img,
-  .pinwheel-spinner {
+  .pinwheel-spinner,
+  .effort-picker-loading {
     animation: none;
   }
+  .model-picker-trigger-loading,
+  .model-picker-loading-full { transition: none; }
   .disclosure-motion,
   .activity-caret-icon {
     transition: none !important;

@@ -18,6 +18,7 @@ ios/Config/AppStoreConnect.local.plist
 # Swift Package Manager
 .swiftpm/
 .ci-source-packages/
+.ci-reload-derived-data/
 
 # GhosttyKit binary (built from ghostty submodule via scripts/setup.sh)
 GhosttyKit.xcframework
@@ -73,3 +74,7 @@ artifacts/
 
 # tmux verbose debug logs (tmux -v) that land in the cwd
 tmux-*.log
+
+# Remote-only Blacksmith cmux-tui benchmark output
+/testbox-benchmark/
+/.cmux-scratch/

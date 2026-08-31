@@ -352,11 +352,16 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
 
         // Pinned keyboard dismiss button on the left
         let dismissButton = UIButton(type: .system)
-        dismissButton.setImage(UIImage(systemName: "keyboard.chevron.compact.down", withConfiguration: Self.accessoryButtonSymbolConfig), for: .normal)
+        // Constructed in the SHOW state (keyboard down): `setKeyboardShown`
+        // only fires on visibility TRANSITIONS, so a surface that opens with
+        // the keyboard down would otherwise keep whatever glyph was built
+        // here — a workspace used to open showing "hide" while nothing was
+        // up. The host syncs the real state right after the toolbar installs.
+        dismissButton.setImage(UIImage(systemName: "keyboard", withConfiguration: Self.accessoryButtonSymbolConfig), for: .normal)
         dismissButton.tintColor = themeChromeColor.withAlphaComponent(0.78)
         dismissButton.addTarget(self, action: #selector(handleHideKeyboard), for: .touchUpInside)
         dismissButton.accessibilityIdentifier = "terminal.inputAccessory.hideKeyboard"
-        dismissButton.accessibilityLabel = String(localized: "terminal.input_accessory.hideKeyboard", defaultValue: "Hide Keyboard")
+        dismissButton.accessibilityLabel = String(localized: "terminal.input_accessory.showKeyboard", defaultValue: "Show Keyboard")
         dismissButton.translatesAutoresizingMaskIntoConstraints = false
         self.dismissButton = dismissButton
 
@@ -423,7 +428,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
 
         // A short fixed-height strip pinned to the container's BOTTOM (minus
         // ``dockedBottomPadding``) that holds the button row. The host pins that
-        // bottom edge through the composer to `keyboardLayoutGuide.topAnchor`, so
+        // bottom edge through the composer to its keyboard-driven dock edge, so
         // bottom-pinning the controls keeps them glued to the system keyboard edge.
         // `dockedBottomPadding` lifts the strip off the very bottom edge so the
         // controls have breathing room.
@@ -698,8 +703,8 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         // keyboard's `inputAccessoryView`; `GhosttySurfaceView` docks
         // `toolbarView` persistently at the bottom so it survives keyboard
         // dismissal. Leaving `inputAccessoryView` nil means the keyboard shows
-        // without its own accessory (the docked bar rides above it via
-        // `keyboardLayoutGuide`).
+        // without its own accessory (the docked bar rides above it on the
+        // host's notification-driven keyboard edge).
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleAccessoryConfigurationChanged),

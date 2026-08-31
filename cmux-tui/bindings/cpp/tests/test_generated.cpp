@@ -84,7 +84,7 @@ static_assert(std::is_same_v<
 static_assert(!std::is_copy_constructible_v<cmux::raw::EventStream>);
 static_assert(std::is_move_constructible_v<cmux::raw::EventStream>);
 
-constexpr std::size_t kExpectedRawCommandCount = 101U;
+constexpr std::size_t kExpectedRawCommandCount = 103U;
 constexpr std::array<std::string_view, 4> kViewportHistoryCommandNames{
     "clear-history",
     "new-pane-right",

@@ -79,7 +79,7 @@ struct PairingView: View {
                         .accessibilityIdentifier("MobileAddDeviceNameField")
 
                         TextField(
-                            L10n.string("mobile.addDevice.hostPlaceholder", defaultValue: "127.0.0.1 (simulator only)"),
+                            L10n.string("mobile.addDevice.hostPlaceholder", defaultValue: "100.x.x.x (Tailscale IP; 127.0.0.1 in Simulator)"),
                             text: $host
                         )
                         .focused($focusedField, equals: .host)
@@ -96,13 +96,13 @@ struct PairingView: View {
                         .addDeviceInputBehavior(.number)
                         .accessibilityIdentifier("MobileAddDevicePortField")
                     } header: {
-                        Text(L10n.string("mobile.addDevice.title", defaultValue: "Add Computer"))
+                        Text(L10n.string("mobile.connections.add", defaultValue: "Add Computer"))
                     } footer: {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(MobilePairingScannerSheet.guidanceText)
                             Text(L10n.string(
                                 "mobile.addDevice.help",
-                                defaultValue: "Manual host and port entry is an advanced fallback for reconnecting an already paired Mac."
+                                defaultValue: "Scan the Mac's pairing QR, or enter its numeric Tailscale IP and port. In the Simulator, 127.0.0.1 can connect to a local Mac. MagicDNS names and local or LAN hosts aren't supported for account-authenticated pairing."
                             ))
                         }
                     }
@@ -112,7 +112,7 @@ struct PairingView: View {
                             Color.clear
                                 .frame(width: 1, height: 1)
                                 .accessibilityElement(children: .ignore)
-                                .accessibilityLabel(L10n.string("mobile.addDevice.formAccessibilityLabel", defaultValue: "Add Computer form"))
+                                .accessibilityLabel(L10n.string("mobile.connections.addFormAccessibilityLabel", defaultValue: "Add Computer form"))
                                 .accessibilityIdentifier("MobileAddDeviceForm")
                         }
                         #endif
@@ -136,7 +136,7 @@ struct PairingView: View {
                                     .textSelection(.enabled)
                                     .accessibilityIdentifier("MobileAddDeviceSignedInAccount")
 
-                                Text(L10n.string("mobile.addDevice.accountHelp", defaultValue: "Manual pairing uses this account. If it does not match the Mac, scan a QR/link from the Mac."))
+                                Text(L10n.string("mobile.addDevice.accountHelp", defaultValue: "Pairing uses this account. If it does not match the Mac, sign in to the same account, then scan the Mac QR or enter its numeric Tailscale IP."))
                                     .font(.footnote)
                                     .foregroundStyle(.secondary)
                             }
@@ -288,8 +288,14 @@ struct PairingView: View {
     }
 
     private var navigationTitle: String {
+        if initialPresentation == .tailscaleSetup {
+            return L10n.string(
+                "mobile.connections.tailscale.add",
+                defaultValue: "Add Tailscale Connection"
+            )
+        }
         if initialPresentation.showsManualPairingControls {
-            return L10n.string("mobile.addDevice.title", defaultValue: "Add Computer")
+            return L10n.string("mobile.connections.add", defaultValue: "Add Computer")
         }
         return L10n.string(
             "mobile.pairing.versionWarningTitle",
@@ -364,13 +370,13 @@ struct PairingView: View {
     private var manualRouteWarningText: String? {
         let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedHost.isEmpty,
-              !CmxPairingURLScheme.hasPairingScheme(trimmedHost),
+              CmxPairingURLScheme(urlString: trimmedHost) == nil,
               MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning(trimmedHost) else {
             return nil
         }
         return L10n.string(
             "mobile.addDevice.manualRouteWarning",
-            defaultValue: "Manual credentials work only in the simulator. On a device, choose Tailscale and scan the Mac QR."
+            defaultValue: "For account-authenticated pairing, enter the Mac's numeric Tailscale IP or scan its QR. MagicDNS names and local or LAN hosts aren't supported."
         )
     }
 
@@ -402,7 +408,7 @@ struct PairingView: View {
             validationError = L10n.string("mobile.addDevice.invalidHost", defaultValue: "Enter a host or IP address, without spaces or URL paths.")
             return
         }
-        if CmxPairingURLScheme.hasPairingScheme(trimmedHost) {
+        if CmxPairingURLScheme(urlString: trimmedHost) != nil {
             pairingCode = trimmedHost
             startPairingTask {
                 await connectPairingCode()

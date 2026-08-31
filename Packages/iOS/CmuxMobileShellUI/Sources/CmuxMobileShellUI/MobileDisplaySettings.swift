@@ -27,9 +27,9 @@ public final class MobileDisplaySettings {
     private static let showAltScreenNoticeKey = "cmux.mobile.showAltScreenNotice"
     private static let showMissingFilesKey = "cmux.mobile.showMissingFiles"
     private static let terminalFolderTapEnabledKey = "cmux.mobile.terminalFolderTapEnabled"
-    private static let taskComposerEnabledKey = "cmux.mobile.taskComposerEnabled"
     private static let workspacePreviewLineCountKey = "cmux.mobile.workspacePreviewLineCount"
     private static let unreadIndicatorLeftShiftKey = "cmux.mobile.debug.unreadIndicatorLeftShift.v2"
+    private static let unreadBadgeDiameterKey = "cmux.mobile.debug.unreadBadgeDiameter.v1"
     #if DEBUG
     private static let taskComposerShellIconVariantKey = "cmux.mobile.debug.taskComposerShellIconVariant.v1"
     #endif
@@ -44,6 +44,12 @@ public final class MobileDisplaySettings {
     /// With the workspace list's 12pt leading row inset, 10pt unread gutter, and
     /// 11pt unread dot, this places the dot's leading edge 10pt from the screen.
     public static let defaultUnreadIndicatorLeftShift = 1.5
+    /// Debug slider range for the unread count badge's circle diameter, in
+    /// points.
+    public static let unreadBadgeDiameterRange: ClosedRange<Double> = 8...28
+    /// The shipping badge diameter, picked by dogfood in the Unread Indicator
+    /// lab (the Mac sidebar badge is 16pt; the phone reads better at 20pt).
+    public static let defaultUnreadBadgeDiameter = 20.0
 
     /// Whether workspace-list row titles wrap onto multiple lines instead of
     /// truncating to a single line. Defaults to `false` (single-line). Mutating
@@ -79,15 +85,6 @@ public final class MobileDisplaySettings {
     public var hapticFeedbackEnabled: Bool {
         didSet {
             defaults.set(hapticFeedbackEnabled, forKey: MobileHapticFeedback.enabledDefaultsKey)
-        }
-    }
-
-    /// Whether the beta New Task composer is available from the workspace list.
-    /// Defaults to `false`. Mutating this writes through to the injected
-    /// ``UserDefaults``.
-    public var taskComposerEnabled: Bool {
-        didSet {
-            defaults.set(taskComposerEnabled, forKey: Self.taskComposerEnabledKey)
         }
     }
 
@@ -127,6 +124,18 @@ public final class MobileDisplaySettings {
         }
     }
 
+    /// DEBUG-only layout tuning value, exposed in the Unread Indicator lab:
+    /// the count badge's circle diameter. Rows reserve rail spacing from it,
+    /// so growing the circle pushes the rail/text column right instead of
+    /// overlapping it.
+    public var unreadBadgeDiameter: Double {
+        didSet {
+            let clamped = Self.clamped(unreadBadgeDiameter, to: Self.unreadBadgeDiameterRange)
+            if clamped != unreadBadgeDiameter { unreadBadgeDiameter = clamped }
+            defaults.set(clamped, forKey: Self.unreadBadgeDiameterKey)
+        }
+    }
+
     #if DEBUG
     /// Persisted selection for the debug-only Shell icon lab.
     var taskComposerShellIconVariant: TaskComposerShellIconVariant {
@@ -134,6 +143,22 @@ public final class MobileDisplaySettings {
             defaults.set(
                 taskComposerShellIconVariant.rawValue,
                 forKey: Self.taskComposerShellIconVariantKey
+            )
+        }
+    }
+
+    /// DEBUG-only override forcing the rebuilt keyboard dock path on this
+    /// device (iOS ≤26; legacy is the shipping default), exposed in
+    /// Settings > Developer for keyboard-pinning A/B dogfood. Terminal hosts
+    /// snapshot the flag when they mount, so a change applies after the
+    /// workspace is reopened. Writes through to the shared
+    /// `UserDefaults.cmuxForceRebuildKeyboardDockKey` that
+    /// `GhosttySurfaceHostView` reads.
+    public var forceRebuildKeyboardDock: Bool {
+        didSet {
+            defaults.set(
+                forceRebuildKeyboardDock,
+                forKey: UserDefaults.cmuxForceRebuildKeyboardDockKey
             )
         }
     }
@@ -157,7 +182,6 @@ public final class MobileDisplaySettings {
         self.showMissingFiles = defaults.bool(forKey: Self.showMissingFilesKey)
         self.terminalFolderTapEnabled = defaults.object(forKey: Self.terminalFolderTapEnabledKey) as? Bool ?? true
         self.hapticFeedbackEnabled = haptics.isEnabled
-        self.taskComposerEnabled = defaults.bool(forKey: Self.taskComposerEnabledKey)
         self.terminalScrollbackRows = MobileTerminalScrollbackPreference.resolve(from: defaults)
         let storedPreviewLines = defaults.object(forKey: Self.workspacePreviewLineCountKey) as? Int
         self.workspacePreviewLineCount = Self.clampedWorkspacePreviewLineCount(
@@ -168,10 +192,16 @@ public final class MobileDisplaySettings {
             storedUnreadLeftShift ?? Self.defaultUnreadIndicatorLeftShift,
             to: Self.unreadIndicatorLeftShiftRange
         )
+        let storedUnreadBadgeDiameter = defaults.object(forKey: Self.unreadBadgeDiameterKey) as? Double
+        self.unreadBadgeDiameter = Self.clamped(
+            storedUnreadBadgeDiameter ?? Self.defaultUnreadBadgeDiameter,
+            to: Self.unreadBadgeDiameterRange
+        )
         #if DEBUG
         self.taskComposerShellIconVariant = defaults.string(
             forKey: Self.taskComposerShellIconVariantKey
         ).flatMap(TaskComposerShellIconVariant.init(rawValue:)) ?? .current
+        self.forceRebuildKeyboardDock = defaults.cmuxForceRebuildKeyboardDock
         #endif
     }
 

@@ -296,10 +296,47 @@ pub(crate) struct JournalIngressSender {
     durable_sender: Option<SyncSender<QueuedJournalEvent>>,
     wake_sender: Option<SyncSender<()>>,
     state: Arc<JournalIngressState>,
-    writer: Mutex<Option<JournalWriter>>,
+    writer: Mutex<JournalWriterOwner>,
 }
 
-pub(crate) struct JournalWriter {
+enum JournalWriterOwner {
+    Vacant,
+    Reserved,
+    Running(JournalWriter),
+    Joining(Arc<JournalWriterCompletion>),
+    Closed,
+}
+
+#[derive(Default)]
+struct JournalWriterCompletion {
+    result: Mutex<Option<Result<(), String>>>,
+    changed: Condvar,
+}
+
+impl JournalWriterCompletion {
+    fn finish(&self, result: Result<(), String>) {
+        *self.result.lock().unwrap() = Some(result);
+        self.changed.notify_all();
+    }
+
+    fn wait_until(&self, deadline: Instant) -> anyhow::Result<()> {
+        let mut result = self.result.lock().unwrap();
+        while result.is_none() {
+            let wait = deadline.saturating_duration_since(Instant::now());
+            if wait.is_zero() {
+                anyhow::bail!("session journal writer did not stop before the shutdown deadline");
+            }
+            let (next, timeout) = self.changed.wait_timeout(result, wait).unwrap();
+            result = next;
+            if timeout.timed_out() && result.is_none() {
+                anyhow::bail!("session journal writer did not stop before the shutdown deadline");
+            }
+        }
+        result.clone().unwrap().map_err(anyhow::Error::msg)
+    }
+}
+
+struct JournalWriter {
     thread: std::thread::JoinHandle<()>,
     finished: Receiver<()>,
 }
@@ -314,19 +351,46 @@ impl JournalWriter {
         Ok(Self { thread, finished })
     }
 
-    fn join_until(self, deadline: Instant) -> anyhow::Result<()> {
+    fn join_until(
+        self,
+        deadline: Instant,
+        completion: Arc<JournalWriterCompletion>,
+    ) -> anyhow::Result<()> {
+        let Self { thread, finished } = self;
+        if thread.thread().id() == std::thread::current().id() {
+            let reaper_completion = completion.clone();
+            let spawn = std::thread::Builder::new()
+                .name("mux-session-journal-writer-reaper".into())
+                .spawn(move || {
+                    let result = thread.join().map_err(|_| {
+                        eprintln!(
+                            "cmux-tui: session journal writer panicked during self-join handoff"
+                        );
+                        "session journal writer panicked during self-join handoff".to_string()
+                    });
+                    reaper_completion.finish(result);
+                });
+            if let Err(error) = spawn {
+                let error =
+                    format!("hand off session journal writer self-join to reaper thread: {error}");
+                completion.finish(Err(error.clone()));
+                anyhow::bail!(error);
+            }
+            return Ok(());
+        }
         let wait = deadline.saturating_duration_since(Instant::now());
-        match self.finished.recv_timeout(wait) {
-            Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => self
-                .thread
+        let result = match finished.recv_timeout(wait) {
+            Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => thread
                 .join()
-                .map_err(|_| anyhow::anyhow!("session journal writer panicked during shutdown")),
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(anyhow::anyhow!(
+                .map_err(|_| "session journal writer panicked during shutdown".to_string()),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(format!(
                 "session journal writer did not stop within {} ms; an admitted commit remains \
                  owned by the detached writer and its idempotency receipt will resolve recovery",
                 wait.as_millis()
             )),
-        }
+        };
+        completion.finish(result.clone());
+        result.map_err(anyhow::Error::msg)
     }
 }
 
@@ -469,7 +533,7 @@ impl JournalIngressSender {
                     durable_sender: None,
                     wake_sender: None,
                     state,
-                    writer: Mutex::new(None),
+                    writer: Mutex::new(JournalWriterOwner::Vacant),
                 },
                 None,
             );
@@ -483,7 +547,7 @@ impl JournalIngressSender {
                 durable_sender: Some(durable_sender),
                 wake_sender: Some(wake_sender),
                 state: state.clone(),
-                writer: Mutex::new(None),
+                writer: Mutex::new(JournalWriterOwner::Vacant),
             },
             Some(JournalIngressReceivers { terminal, durable, wake, state }),
         )
@@ -642,6 +706,20 @@ impl JournalIngressSender {
         self.terminal_sender.is_some()
     }
 
+    pub(crate) fn is_current_writer_thread(&self) -> bool {
+        self.writer.lock().is_ok_and(|owner| {
+            matches!(
+                &*owner,
+                JournalWriterOwner::Running(writer)
+                    if writer.thread.thread().id() == std::thread::current().id()
+            )
+        })
+    }
+
+    pub(crate) fn is_closed(&self) -> bool {
+        self.state.closed.load(Ordering::Acquire)
+    }
+
     pub(crate) fn close_and_join(&self) -> anyhow::Result<()> {
         self.close_and_join_until(Instant::now() + JOURNAL_WRITER_SHUTDOWN_WAIT)
     }
@@ -654,15 +732,57 @@ impl JournalIngressSender {
                 Err(TrySendError::Disconnected(())) => {}
             }
         }
-        let Some(writer) = self.writer.lock().unwrap().take() else { return Ok(()) };
-        writer.join_until(deadline)
+        enum CloseAction {
+            Join(JournalWriter, Arc<JournalWriterCompletion>),
+            Wait(Arc<JournalWriterCompletion>),
+            Done,
+        }
+        let action = {
+            let mut owner = self.writer.lock().unwrap();
+            match std::mem::replace(&mut *owner, JournalWriterOwner::Closed) {
+                JournalWriterOwner::Running(writer) => {
+                    let completion = Arc::new(JournalWriterCompletion::default());
+                    *owner = JournalWriterOwner::Joining(completion.clone());
+                    CloseAction::Join(writer, completion)
+                }
+                JournalWriterOwner::Joining(completion) => {
+                    *owner = JournalWriterOwner::Joining(completion.clone());
+                    CloseAction::Wait(completion)
+                }
+                JournalWriterOwner::Vacant | JournalWriterOwner::Closed => CloseAction::Done,
+                JournalWriterOwner::Reserved => {
+                    unreachable!("journal writer reservation escaped its owner lock")
+                }
+            }
+        };
+        match action {
+            CloseAction::Join(writer, completion) => writer.join_until(deadline, completion),
+            CloseAction::Wait(completion) => completion.wait_until(deadline),
+            CloseAction::Done => Ok(()),
+        }
     }
 
-    pub(crate) fn install_writer(&self, writer: JournalWriter) -> anyhow::Result<()> {
-        let mut installed = self.writer.lock().unwrap();
-        anyhow::ensure!(installed.is_none(), "session journal writer is already installed");
-        *installed = Some(writer);
-        Ok(())
+    pub(crate) fn spawn_writer(
+        &self,
+        name: &str,
+        task: impl FnOnce() + Send + 'static,
+    ) -> anyhow::Result<()> {
+        let mut owner = self.writer.lock().unwrap();
+        anyhow::ensure!(
+            matches!(*owner, JournalWriterOwner::Vacant),
+            "session journal writer is already installed"
+        );
+        *owner = JournalWriterOwner::Reserved;
+        match JournalWriter::spawn(name, task) {
+            Ok(writer) => {
+                *owner = JournalWriterOwner::Running(writer);
+                Ok(())
+            }
+            Err(error) => {
+                *owner = JournalWriterOwner::Vacant;
+                Err(error.into())
+            }
+        }
     }
 
     #[cfg(test)]
@@ -826,8 +946,7 @@ pub(crate) fn start(
 ) -> anyhow::Result<()> {
     let Some(receivers) = receivers else { return Ok(()) };
     let weak = Arc::downgrade(mux);
-    let writer = JournalWriter::spawn("mux-session-journal-writer", move || run(weak, receivers))?;
-    mux.install_journal_writer(writer)
+    mux.spawn_journal_writer("mux-session-journal-writer", move || run(weak, receivers))
 }
 
 fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
@@ -1905,27 +2024,69 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn shutdown_is_bounded_when_a_descendant_keeps_the_pty_open() {
+        use std::os::unix::fs::OpenOptionsExt as _;
+
         let root = std::env::temp_dir().join(format!(
             "cmux-terminal-descendant-shutdown-{}-{}",
             std::process::id(),
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
         ));
         let descendant_pid_path = root.join("descendant.pid");
+        let release_gate_path = root.join("descendant.release");
+        let release_ready_path = root.join("descendant.release-ready");
+        let release_ready_signal_path = root.join("descendant.release-signal");
         let mux = Mux::open_persistent(
             "terminal-descendant-shutdown",
             crate::SurfaceOptions::default(),
             &root,
         )
         .unwrap();
+        let release_gate_path_c = std::ffi::CString::new(std::os::unix::ffi::OsStrExt::as_bytes(
+            release_gate_path.as_os_str(),
+        ))
+        .unwrap();
+        assert_eq!(
+            unsafe { libc::mkfifo(release_gate_path_c.as_ptr(), 0o600) },
+            0,
+            "failed to create descendant release gate: {}",
+            io::Error::last_os_error()
+        );
+        let release_gate_reader = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NONBLOCK)
+            .open(&release_gate_path)
+            .unwrap();
+        let mut release_gate =
+            std::fs::OpenOptions::new().write(true).open(&release_gate_path).unwrap();
+        let release_ready_signal_path_c = std::ffi::CString::new(
+            std::os::unix::ffi::OsStrExt::as_bytes(release_ready_signal_path.as_os_str()),
+        )
+        .unwrap();
+        assert_eq!(
+            unsafe { libc::mkfifo(release_ready_signal_path_c.as_ptr(), 0o600) },
+            0,
+            "failed to create descendant readiness signal: {}",
+            io::Error::last_os_error()
+        );
+        let release_ready_signal_reader = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NONBLOCK)
+            .open(&release_ready_signal_path)
+            .unwrap();
+        let release_ready_signal_writer =
+            std::fs::OpenOptions::new().write(true).open(&release_ready_signal_path).unwrap();
         let surface = crate::Surface::spawn(
             1,
             crate::SurfaceOptions {
                 command: Some(vec![
                     "/bin/sh".into(),
                     "-c".into(),
-                    "stty -echo; printf input-ready; read ready; sleep 30 & echo $! > \"$1\"; printf detached-ready; exit 0".into(),
+                    "stty -echo; printf input-ready; read ready; /bin/sh -c 'exec 3<\"$1\" || exit 1; : > \"$2\" || exit 1; printf \"\\n\" > \"$3\" || exit 1; read release <&3' cmux-descendant \"$2\" \"$3\" \"$4\" & echo $! > \"$1\"; read ready_signal < \"$4\" || exit 1; printf detached-ready; exit 0".into(),
                     "cmux-shutdown-test".into(),
                     descendant_pid_path.to_string_lossy().into_owned(),
+                    release_gate_path.to_string_lossy().into_owned(),
+                    release_ready_path.to_string_lossy().into_owned(),
+                    release_ready_signal_path.to_string_lossy().into_owned(),
                 ]),
                 ..crate::SurfaceOptions::default()
             },
@@ -1968,11 +2129,11 @@ mod tests {
                 "descendant fixture did not publish its pid"
             );
         }
-        let descendant_pid = std::fs::read_to_string(&descendant_pid_path)
-            .unwrap()
-            .trim()
-            .parse::<libc::pid_t>()
-            .unwrap();
+        assert!(
+            !std::fs::read_to_string(&descendant_pid_path).unwrap().trim().is_empty(),
+            "descendant fixture did not publish its pid"
+        );
+        assert!(release_ready_path.exists(), "descendant did not open the release gate");
 
         let started = Instant::now();
         mux.shutdown();
@@ -1981,16 +2142,14 @@ mod tests {
             "shutdown waited without a bound for a descendant-held PTY"
         );
 
-        if unsafe { libc::kill(descendant_pid, libc::SIGKILL) } != 0 {
-            assert_eq!(
-                io::Error::last_os_error().raw_os_error(),
-                Some(libc::ESRCH),
-                "descendant cleanup failed"
-            );
-        }
+        io::Write::write_all(&mut release_gate, b"release\n").unwrap();
+        drop(release_gate);
+        drop(release_gate_reader);
+        drop(release_ready_signal_writer);
+        drop(release_ready_signal_reader);
         assert!(
             surface.wait_for_terminal_reader_for_test(Instant::now() + Duration::from_secs(5)),
-            "terminal reader did not signal descendant cleanup"
+            "terminal reader did not finish after the descendant release"
         );
         assert!(surface.is_dead(), "terminal reader did not stop after descendant cleanup");
         drop(surface);
@@ -2262,7 +2421,7 @@ mod tests {
             completed.send(()).unwrap();
         })
         .unwrap();
-        sender.install_writer(writer).unwrap();
+        *sender.writer.lock().unwrap() = JournalWriterOwner::Running(writer);
         entered_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
 
         let deadline = Instant::now() + Duration::from_millis(100);
@@ -2273,6 +2432,118 @@ mod tests {
         assert!(started.elapsed() < Duration::from_secs(1));
         release.send(()).unwrap();
         completion_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+    }
+
+    #[test]
+    fn concurrent_writer_close_waits_for_the_shared_join_result() {
+        let (sender, _receivers) = JournalIngressSender::new(true);
+        let sender = Arc::new(sender);
+        let (entered, entered_receiver) = sync_channel(1);
+        let (release, release_receiver) = sync_channel(1);
+        sender
+            .spawn_writer("shared-journal-close-test", move || {
+                entered.send(()).unwrap();
+                release_receiver.recv().unwrap();
+            })
+            .unwrap();
+        entered_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let start = Arc::new(std::sync::Barrier::new(3));
+        let (completed, completion_receiver) = sync_channel(2);
+        let closers = (0..2)
+            .map(|_| {
+                let sender = sender.clone();
+                let start = start.clone();
+                let completed = completed.clone();
+                std::thread::spawn(move || {
+                    start.wait();
+                    completed.send(sender.close_and_join()).unwrap();
+                })
+            })
+            .collect::<Vec<_>>();
+        start.wait();
+
+        assert!(
+            completion_receiver.recv_timeout(Duration::from_millis(100)).is_err(),
+            "a concurrent closer returned before the journal writer stopped"
+        );
+        release.send(()).unwrap();
+        for _ in 0..2 {
+            completion_receiver.recv_timeout(Duration::from_secs(1)).unwrap().unwrap();
+        }
+        for closer in closers {
+            closer.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn duplicate_writer_is_rejected_before_its_thread_starts() {
+        let (sender, _receivers) = JournalIngressSender::new(true);
+        let (release, release_receiver) = sync_channel(1);
+        sender
+            .spawn_writer("owned-journal-writer-test", move || {
+                release_receiver.recv().unwrap();
+            })
+            .unwrap();
+
+        let duplicate_started = Arc::new(AtomicBool::new(false));
+        let duplicate_observer = duplicate_started.clone();
+        let error = sender
+            .spawn_writer("duplicate-journal-writer-test", move || {
+                duplicate_observer.store(true, Ordering::Release);
+            })
+            .unwrap_err();
+
+        assert!(error.to_string().contains("already installed"));
+        assert!(
+            !duplicate_started.load(Ordering::Acquire),
+            "a rejected writer must not start and detach"
+        );
+        release.send(()).unwrap();
+        sender.close_and_join().unwrap();
+    }
+
+    #[test]
+    fn mux_drop_joins_its_journal_writer() {
+        let mux = Mux::new("journal-writer-drop-owner", crate::SurfaceOptions::default());
+        let weak = Arc::downgrade(&mux);
+        let writer_finished = Arc::new(AtomicBool::new(false));
+        let writer_observer = writer_finished.clone();
+        mux.spawn_journal_writer("mux-drop-journal-writer-test", move || {
+            while weak.upgrade().is_some() {
+                std::thread::yield_now();
+            }
+            writer_observer.store(true, Ordering::Release);
+        })
+        .unwrap();
+
+        drop(mux);
+
+        assert!(
+            writer_finished.load(Ordering::Acquire),
+            "Mux::drop returned before its journal writer stopped"
+        );
+    }
+
+    #[test]
+    fn writer_that_drops_the_last_mux_owner_hands_off_its_self_join() {
+        let mux = Mux::new("journal-writer-self-drop", crate::SurfaceOptions::default());
+        let writer_mux = mux.clone();
+        let (release, release_receiver) = sync_channel(1);
+        let (completed, completion_receiver) = sync_channel(1);
+        mux.spawn_journal_writer("mux-self-drop-journal-writer-test", move || {
+            release_receiver.recv().unwrap();
+            drop(writer_mux);
+            completed.send(()).unwrap();
+        })
+        .unwrap();
+
+        drop(mux);
+        release.send(()).unwrap();
+
+        completion_receiver
+            .recv_timeout(Duration::from_millis(500))
+            .expect("journal writer waited for its own completion during Mux::drop");
     }
 
     #[test]

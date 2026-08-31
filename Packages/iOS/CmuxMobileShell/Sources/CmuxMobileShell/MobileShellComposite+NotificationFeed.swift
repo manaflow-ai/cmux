@@ -295,10 +295,15 @@ extension MobileShellComposite {
         defer { finishNotificationFeedOpenOperation(operationToken) }
         // Compare the exact pairing: a sibling build's notification on the
         // foreground DEVICE still needs a switch to that build.
-        let isForegroundPairing = item.macDeviceID == normalizedForegroundNotificationFeedMacID()
-            && macInstanceTagAuthority.sameStoredAuthority(
-                item.macInstanceTag, activeMacInstanceTag
+        let isForegroundPairing = normalizedForegroundNotificationFeedMacID().map {
+            MacPairingKey(
+                macDeviceID: item.macDeviceID,
+                instanceTag: item.macInstanceTag
+            ) == MacPairingKey(
+                macDeviceID: $0,
+                instanceTag: activeMacInstanceTag
             )
+        } ?? false
         if !isForegroundPairing {
             guard await switchToMac(
                 macDeviceID: item.macDeviceID,
@@ -385,7 +390,7 @@ extension MobileShellComposite {
         // The agent feed shares this connection-ready trigger and applies its
         // own capability gate.
         scheduleForegroundAgentFeedRefresh(client: client)
-        guard let macDeviceID = normalizedForegroundNotificationFeedMacID(),
+        guard let macDeviceID = normalizedForegroundNotificationFeedOwnerKey(),
               supportedHostCapabilities.contains(Self.notificationFeedCapability),
               remoteClient === client else { return }
         if notificationFeedStatus == .idle {
@@ -554,7 +559,11 @@ extension MobileShellComposite {
               !macInstanceTagAuthority.sameStoredAuthority(previousTag, newTag) else {
             return
         }
-        removeNotificationFeedSnapshot(macDeviceID: newDeviceID)
+        let pairingID = MobilePairedMac.pairingID(
+            macDeviceID: newDeviceID,
+            instanceTag: newTag
+        )
+        removeNotificationFeedSnapshot(macDeviceID: pairingID)
     }
 
     /// Removes one hidden Mac's content and cancels work that could restore it.
@@ -583,7 +592,7 @@ extension MobileShellComposite {
 
     /// Retains only a team-switch-safe foreground snapshot.
     func retainForegroundNotificationFeedSnapshot() {
-        guard let foregroundMacDeviceID = normalizedForegroundNotificationFeedMacID() else {
+        guard let foregroundMacDeviceID = normalizedForegroundNotificationFeedOwnerKey() else {
             resetNotificationFeed()
             return
         }
@@ -623,7 +632,7 @@ extension MobileShellComposite {
 
     /// Resolves the foreground Mac id for event routing without exposing RPC state to UI.
     func normalizedForegroundNotificationFeedMacIDForEvent() -> String? {
-        normalizedForegroundNotificationFeedMacID()
+        normalizedForegroundNotificationFeedOwnerKey()
     }
 
     /// Resolves a foreground Mac label for event-derived snapshots.
@@ -1047,13 +1056,13 @@ extension MobileShellComposite {
     private func notificationFeedTargets() -> [NotificationFeedClientTarget] {
         var targets: [NotificationFeedClientTarget] = []
         if let client = remoteClient,
-           let macDeviceID = normalizedForegroundNotificationFeedMacID(),
+           let ownerKey = normalizedForegroundNotificationFeedOwnerKey(),
            supportedHostCapabilities.contains(Self.notificationFeedCapability) {
             targets.append(NotificationFeedClientTarget(
-                macDeviceID: macDeviceID,
+                macDeviceID: MobilePairedMac.pairingIdentity(from: ownerKey).macDeviceID,
                 instanceTag: activeMacInstanceTag,
-                displayName: notificationFeedDisplayName(for: macDeviceID),
-                ownerKey: macDeviceID,
+                displayName: notificationFeedDisplayName(for: ownerKey),
+                ownerKey: ownerKey,
                 client: client
             ))
         }
@@ -1090,7 +1099,7 @@ extension MobileShellComposite {
     /// key: the foreground's normalized device id, or a secondary
     /// subscription's pairing id.
     private func notificationFeedInstanceTag(forOwnerKey ownerKey: String) -> String? {
-        if normalizedForegroundNotificationFeedMacID() == ownerKey {
+        if normalizedForegroundNotificationFeedOwnerKey() == ownerKey {
             return activeMacInstanceTag
         }
         return secondaryMacSubscriptions[MacPairingKey(pairingID: ownerKey)]?.storedInstanceTag
@@ -1100,8 +1109,11 @@ extension MobileShellComposite {
     /// the foreground pairing's, else the owning secondary's pairing id, else
     /// the item's device id (legacy rows).
     private func notificationFeedOwnerKey(for item: MobileNotificationFeedItem) -> String {
-        if let foreground = normalizedForegroundNotificationFeedMacID(),
-           foreground == item.macDeviceID,
+        if let foreground = normalizedForegroundNotificationFeedOwnerKey(),
+           foreground == MobilePairedMac.pairingID(
+               macDeviceID: item.macDeviceID,
+               instanceTag: item.macInstanceTag
+           ),
            macInstanceTagAuthority.sameStoredAuthority(
                item.macInstanceTag, activeMacInstanceTag
            ) {
@@ -1113,16 +1125,15 @@ extension MobileShellComposite {
         if secondaryMacSubscriptions[MacPairingKey(pairingID: pairingKey)] != nil {
             return pairingKey
         }
-        // A tagged item whose exact pairing is offline must NOT fall back to
-        // the bare device key: that can resolve a sibling build's client and
-        // mutate a colliding notification id on the wrong build. Returning the
-        // pairing key fails closed (no client -> the mutation no-ops).
-        guard item.macInstanceTag == nil else { return pairingKey }
-        return item.macDeviceID
+        // Always retain the item's canonical pairing id, including when its
+        // Mac is offline. A bare wire device id can resolve a sibling build's
+        // client after teardown and mutate notification state on the wrong
+        // app instance.
+        return pairingKey
     }
 
     private func notificationFeedClient(for macDeviceID: String) -> MobileCoreRPCClient? {
-        if normalizedForegroundNotificationFeedMacID() == macDeviceID {
+        if normalizedForegroundNotificationFeedOwnerKey() == macDeviceID {
             return remoteClient
         }
         guard let subscription =
@@ -1134,7 +1145,7 @@ extension MobileShellComposite {
     }
 
     private func notificationFeedClientSupportsCapability(macDeviceID: String) -> Bool {
-        if normalizedForegroundNotificationFeedMacID() == macDeviceID {
+        if normalizedForegroundNotificationFeedOwnerKey() == macDeviceID {
             return supportedHostCapabilities.contains(Self.notificationFeedCapability)
         }
         return secondaryMacSubscriptions[MacPairingKey(pairingID: macDeviceID)]?
@@ -1142,7 +1153,7 @@ extension MobileShellComposite {
     }
 
     private func notificationFeedConnectionStatus(for macDeviceID: String) -> MobileMacConnectionStatus {
-        if normalizedForegroundNotificationFeedMacID() == macDeviceID {
+        if normalizedForegroundNotificationFeedOwnerKey() == macDeviceID {
             return remoteClient == nil ? .unavailable : macConnectionStatus
         }
         if secondaryMacSubscriptions[MacPairingKey(pairingID: macDeviceID)] != nil {
@@ -1156,9 +1167,22 @@ extension MobileShellComposite {
         return normalizedOptionalIdentifier(raw)
     }
 
+    /// Exact feed owner key for the foreground app instance. The feed maps use
+    /// this key, never a bare physical device id, so a Stable snapshot cannot
+    /// be reused by Nightly after a foreground switch.
+    private func normalizedForegroundNotificationFeedOwnerKey() -> String? {
+        guard let deviceID = normalizedForegroundNotificationFeedMacID() else {
+            return nil
+        }
+        return MobilePairedMac.pairingID(
+            macDeviceID: deviceID,
+            instanceTag: activeMacInstanceTag
+        )
+    }
+
     private func notificationFeedDisplayName(for macDeviceID: String) -> String {
         let raw: String?
-        if normalizedForegroundNotificationFeedMacID() == macDeviceID {
+        if normalizedForegroundNotificationFeedOwnerKey() == macDeviceID {
             raw = activeTicket?.macDisplayName ?? connectedHostName
         } else {
             let ownerKey = MacPairingKey(pairingID: macDeviceID)

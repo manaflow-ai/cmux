@@ -23,12 +23,14 @@ public struct StackAuthClient: AuthClient {
     ///   - config: The resolved auth configuration (project id + publishable key).
     ///   - tokenStore: Where Stack persists tokens. Pass `.memory` for the
     ///     simulator DEBUG flow and `.keychain` for real devices/release.
+    ///   - oauthBrowserSessionPrivacy: Whether OAuth may reuse Safari cookies.
     ///   - baseURL: Stack API origin. Defaults to Stack's production API.
     ///   - noAutomaticPrefetch: Disables Stack project prefetch when the host
     ///     owns startup sequencing.
     public init(
         config: AuthConfig,
         tokenStore: TokenStoreInit,
+        oauthBrowserSessionPrivacy: OAuthBrowserSessionPrivacy = .shared,
         baseURL: String = "https://api.stack-auth.com",
         noAutomaticPrefetch: Bool = false
     ) {
@@ -38,7 +40,8 @@ public struct StackAuthClient: AuthClient {
                 publishableClientKey: config.stack.publishableClientKey,
                 baseUrl: baseURL,
                 tokenStore: tokenStore,
-                noAutomaticPrefetch: noAutomaticPrefetch
+                noAutomaticPrefetch: noAutomaticPrefetch,
+                oauthBrowserSessionPrivacy: oauthBrowserSessionPrivacy
             )
         )
     }

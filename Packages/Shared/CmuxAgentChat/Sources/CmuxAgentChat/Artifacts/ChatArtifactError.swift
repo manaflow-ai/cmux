@@ -65,4 +65,9 @@ public enum ChatArtifactError: Error, Sendable, Equatable {
     case macUnreachable
     /// The file exceeds the inline preview size limit.
     case tooLarge(limitBytes: Int64)
+    /// The Mac answered with an error this client does not recognize.
+    ///
+    /// Distinct from ``macUnreachable``: the connection worked and the Mac
+    /// replied, so messaging must not blame connectivity.
+    case unknown(code: String?)
 }

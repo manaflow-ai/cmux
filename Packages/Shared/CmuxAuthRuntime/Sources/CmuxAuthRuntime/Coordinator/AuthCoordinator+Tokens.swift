@@ -284,7 +284,7 @@ extension AuthCoordinator {
     /// - the refresh token changed across the reads (a rotation crossed the
     ///   window) or the session generation/identity moved.
     private func storedSessionSnapshot() async -> AuthenticatedSessionSnapshot? {
-        guard !launch.clearStaleAuthOnLaunch else { return nil }
+        guard !launch.shouldClearStoredSessionBeforePriming else { return nil }
         guard activeSignInFlows.isEmpty, !isCapturingSignOutCredentials else { return nil }
         guard isAuthenticated,
               let accountID = currentUser?.id,

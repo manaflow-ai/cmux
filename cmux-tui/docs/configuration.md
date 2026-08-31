@@ -1,6 +1,19 @@
 # Configuration
 
-`cmux-tui` reads `~/.config/cmux/cmux-tui.json`, or `$XDG_CONFIG_HOME/cmux/cmux-tui.json` when `XDG_CONFIG_HOME` is set. Existing `mux.json` files are still used when `cmux-tui.json` is absent, and `cmux-tui.json` wins when both exist. Set `CMUX_TUI_CONFIG` to use another file; legacy `CMUX_MUX_CONFIG` is still accepted as a fallback. Every documented key is optional. Unknown keys in the typed sections make the raw config invalid, so the TUI logs an error and falls back to defaults.
+`cmux-tui` reads `~/.config/cmux/cmux-tui.json`, or `$XDG_CONFIG_HOME/cmux/cmux-tui.json` when `XDG_CONFIG_HOME` is set. Existing `mux.json` files are still used when `cmux-tui.json` is absent, and `cmux-tui.json` wins when both exist. Set `CMUX_TUI_CONFIG` to use another file; legacy `CMUX_MUX_CONFIG` is still accepted as a fallback. Every documented key is optional. Unknown top-level keys are rejected, logged, and cause the whole file to use defaults. Known sections are validated independently, so an invalid section is logged and replaced with that section's defaults while valid sections remain active. Section objects reject unknown keys. Action names are strict: an unknown action does not run and is ignored.
+
+## Executable fields and transport rules
+
+These fields are argv arrays. They are executed directly, without shell parsing or interpolation; include the shell explicitly when a shell is needed.
+
+| Field | Shape | Notes |
+| --- | --- | --- |
+| `commands[].run` | non-empty string array | User command program and arguments; empty arguments are preserved |
+| `status_bar.left[].run`, `status_bar.right[].run` | non-empty string array | Periodic status command; the last non-empty stdout line is displayed |
+| `sidebar.plugin.command` | non-empty string array | Sidebar plugin program and arguments, hosted in a PTY |
+| `machine_provider.command` | non-empty string array | Dynamic provider program and arguments; no shell |
+
+Transport choices are mutually exclusive. A machine uses either `transport: "unix"` with `socket`, or `transport: "ssh"` with `host` and its SSH options. A dynamic provider uses one of `machine_provider.command` or `machine_provider.cloud.enabled`; do not combine provider transports with each other, static `machines`, `attach`, server listener or socket flags, `--headless`, or `--term`. Invalid combinations disable that provider configuration rather than merging transports.
 
 Colors accept `#rrggbb`, `#rgb`, an xterm-256 number, or a numeric string.
 
@@ -8,8 +21,11 @@ Colors accept `#rrggbb`, `#rgb`, an xterm-256 number, or a numeric string.
 
 Selection colors are resolved in this order: explicit cmux-tui config, Ghostty config keys `selection-background` and `selection-foreground`, then built-in defaults. Ghostty configs are read from `$XDG_CONFIG_HOME/ghostty/config` (when set), `~/.config/ghostty/config`, and on macOS `~/Library/Application Support/com.mitchellh.ghostty/config`; later entries in the file win.
 
+`theme.chrome` controls cmux-owned interface colors. `auto` selects light or dark chrome from this client's host background reported by OSC 11, then the configured Ghostty terminal background when the host does not report one, and uses dark when neither is available. `light` and `dark` select a fixed chrome theme. Host OSC 10/11 replies are local compatibility input for the attaching frontend; they do not replace shared session or application-authored terminal defaults.
+
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
+| `theme.chrome` | `auto`, `light`, or `dark` | `auto` | cmux-owned chrome theme for this client |
 | `theme.selection_background` | color | `#3a3a3a`, seeded from Ghostty when present | Selection background in PTY panes |
 | `theme.selection_foreground` | color or null | `null`, seeded from Ghostty when present | Selection foreground; `null` keeps each cell's foreground |
 | `theme.sidebar_rail` | color | `110` | Rail color for the active workspace rows |
@@ -22,6 +38,12 @@ Selection colors are resolved in this order: explicit cmux-tui config, Ghostty c
 | `theme.notification_info` | color | `110` | Info notification attention dot and border |
 | `theme.notification_warning` | color | `179` | Warning notification attention dot and border |
 | `theme.notification_error` | color | `167` | Error notification attention dot and border |
+| `theme.border_style` | `"single"`, `"rounded"`, `"thick"`, `"double"`, or `"none"` | `"single"` | Pane border glyph set; `"none"` leaves the border cells blank so panes separate by empty space |
+| `theme.status_bg` | color | chrome default | Status bar background |
+| `theme.status_fg` | color | chrome default | Status bar foreground |
+| `theme.sidebar_fg` | color | terminal default | Sidebar row foreground |
+| `theme.sidebar_selected_fg` | color | chrome default | Selected sidebar row foreground |
+| `theme.dim_inactive` | boolean | `false` | Renders unfocused terminal panes with the DIM attribute |
 
 ## Tabs
 
@@ -31,6 +53,10 @@ Selection colors are resolved in this order: explicit cmux-tui config, Ghostty c
 | `tabs.solid_background` | boolean | `true` | Renders tab chips with solid backgrounds |
 | `tabs.show_titles` | boolean | `false` | Shows full process titles after tab numbers |
 | `tabs.agents` | string array | `["claude","codex","opencode","pi"]` | Agent names surfaced in tab labels when `show_titles` is false |
+| `tabs.style` | `"block"`, `"pill"`, or `"slant"` | `"block"` | Cap glyphs around solid tab chips (Nerd Font powerline glyphs, catppuccin-tmux style) |
+| `tabs.plus.label` | string | `" + "` | Text of the tab bar's `+` button |
+| `tabs.plus.action` | action name or `command:<id>` | new tab | Left-click override for the `+` button |
+| `tabs.plus.menu` | action array | `[]` | Right-click menu on the `+` button; entries use the sidebar action grammar including labels and `command:<id>` |
 
 Tabs are numbered by default. A recognized agent program can appear after the number. A user-assigned tab name replaces the generated label.
 
@@ -42,7 +68,7 @@ The built-in sidebar defaults to the workspace list. Set `"sidebar": {"view": "f
 
 `sidebar.profiles` names multiple view lists, and `sidebar.profile` selects the startup layout. Right-click anywhere and open **Sidebar → Layouts** to switch profiles without reconnecting machines. The same menu can hide or restore an individual view for the current session. Runtime visibility changes are keyed by profile and view ID, so switching away and back restores that profile's session-local choices.
 
-Actions use the same stable IDs and execution path as keyboard commands, including `new-workspace`, `new-tab`, and `new-pane-smart`. A view rooted at `workspaces` inherits `new-workspace`, including provider-specific isolated and shared choices. Set `"actions": []` to hide every pinned action, or provide an ordered list to replace the preset. Machine creation and connection actions remain capability-driven by the selected provider.
+Actions use the same stable IDs and execution path as keyboard commands, including `new-workspace`, `new-tab`, and `new-pane-smart`. An entry may also be an object `{"action": "new-workspace", "label": "new"}` to rename its button, and `"command:<id>"` pins a user command from the top-level `commands` section as a button. `actions_position: "top"` mounts the buttons at the view's top instead of the bottom edge. A view rooted at `workspaces` inherits `new-workspace`, including provider-specific isolated and shared choices. Set `"actions": []` to hide every pinned action, or provide an ordered list to replace the preset. Machine creation and connection actions remain capability-driven by the selected provider.
 
 Every view has an independent width and drag handle. Lower `collapse_priority` values hide first when the terminal must preserve 40 pane columns. A hidden view needs four additional columns before it returns, which prevents resize-boundary flicker. `sidebar.columns` remains a compatibility alias for one-level machine, workspace, and tab views; `sidebar.views` wins when both are present.
 
@@ -64,6 +90,11 @@ Every view has an independent width and drag handle. Lower `collapse_priority` v
 | `sidebar.views[].width` | integer | resource default | Initial width, clamped to 10 through 60 |
 | `sidebar.views[].max_width` | integer | `0` | Maximum live drag width; `0` means no configured maximum |
 | `sidebar.views[].collapse_priority` | integer | resource default | Lower priorities hide first on narrow terminals |
+| `sidebar.views[].actions_position` | `"top"` or `"bottom"` | `"bottom"` | Where the view's pinned action buttons render |
+| `sidebar.row_height` | `1` or `2` | `2` | Rows per rail entry; `1` drops the subtitle line |
+| `sidebar.row_gap` | integer | `1` | Blank rows between rail entries, `0` through `2` |
+| `sidebar.rail_glyph` | string | `"▎"` | Accent glyph on active rail rows; `"none"` removes it |
+| `sidebar.workspace_label` | string | `"{name}"` | Workspace row template with `{index}` and `{name}` |
 | `sidebar.columns` | array of column objects | unset | Compatibility form for one-level `machines`, `workspaces`, and `tabs` views |
 | `sidebar.plugin.command` | array of strings | unset | External sidebar plugin argv; when set, the sidebar hosts this program in a PTY instead of the built-in list |
 | `sidebar.plugin.cwd` | string | unset | Working directory for the sidebar plugin process |
@@ -105,7 +136,7 @@ The machine rail is optional. Its position comes from a `sidebar.views` entry wh
 | `machine_sidebar.create_sources` | array | `[]` | Prototype-only native creation choices; no provider command is executed |
 | `machines` | array | `[]` | Static Unix-socket and SSH connection targets |
 
-Each prototype creation source has a unique `id`, a `name`, and an optional `subtitle`. Selecting `+ new machine` opens the native source picker. The current prototype adds a session-local catalog entry backed by the current mux socket, so Docker, E2B, Firecracker, and other labels exercise the full UI without provisioning or billing. Production providers remain responsible for real lifecycle and transport operations.
+Each prototype creation source has a unique `id`, a `name`, and an optional `subtitle`. Selecting `+ new vm` opens the native source picker. The current prototype adds a session-local catalog entry backed by the current mux socket, so Docker, E2B, Firecracker, and other labels exercise the full UI without provisioning or billing. Production providers remain responsible for real lifecycle and transport operations.
 
 Try the tracked prototype configuration with:
 
@@ -173,6 +204,7 @@ Dynamic provider startup is disabled by default. Persistent configuration curren
 
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
+| `machine_provider.command` | array of strings or null | `null` | Argv of a provider process to spawn, like `--machine-provider-command program arg --` (no shell). Explicit CLI provider modes override it |
 | `machine_provider.cloud.enabled` | boolean | `false` | Starts the dynamic provider through SSH |
 | `machine_provider.cloud.host` | string | `"cmux.cloud"` | SSH host |
 | `machine_provider.cloud.user` | string or null | `null` | Optional SSH user |
@@ -193,7 +225,7 @@ Dynamic provider startup is disabled by default. Persistent configuration curren
 }
 ```
 
-`--cloud-host`, `--cloud-user`, `--cloud-port`, and `--cloud-identity` override their matching config values and imply `--cloud`. A local Cloud client composes the static `machines` array with the provider catalog. Static entries stay client-local. `+ Connect machine` is provider-owned when `connect-external-machine-v1` and the current snapshot bit are both enabled; otherwise its temporary `host` or `user@host` targets stay client-local and use local SSH credentials. Explicit `--machine-provider <socket>` or `--machine-provider-command <argv...> --` overrides an enabled cloud config; those provider-only modes reject a nonempty `machines` array. Every dynamic provider rejects another provider transport, `attach`, server socket/listener flags, `--headless`, and `--term`.
+`--cloud-host`, `--cloud-user`, `--cloud-port`, and `--cloud-identity` override their matching config values and imply `--cloud`. A local Cloud client composes the static `machines` array with the provider catalog. Static entries stay client-local. `+ ssh host` is provider-owned when `connect-external-machine-v1` and the current snapshot bit are both enabled; otherwise its temporary `host` or `user@host` targets stay client-local and use local SSH credentials. Explicit `--machine-provider <socket>` or `--machine-provider-command <argv...> --` overrides an enabled cloud config; those provider-only modes reject a nonempty `machines` array. Every dynamic provider rejects another provider transport, `attach`, server socket/listener flags, `--headless`, and `--term`.
 
 The cloud connector runs `cmux provider control` and `cmux provider stream` remotely. These are provider service commands, not cmux-tui control-socket verbs. See [Machines](machines.md#dynamic-providers).
 
@@ -206,6 +238,49 @@ The cloud connector runs `cmux provider control` and `cmux provider stream` remo
 | `browser.capture_scale` | number or null | `null` | Maximum capture scale from 0.0 through 1.0, reduced further when needed to stay under the megapixel limit |
 
 The compatibility keys `browser.chrome_binary`, `browser.mode`, `browser.discover`, `browser.discover_ports`, `browser.user_data_dir`, and `browser.ephemeral` are still accepted when reading older config files but no longer select or launch a browser. Production browser tabs wait for cmux-browser's connection-scoped provider lease. `browser.cdp_url` and `CMUX_MUX_CDP_URL` bypass that lease only for explicit development harnesses; neither path performs discovery or process launch.
+
+## Pane
+
+| Key | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `pane.padding` | integer | `0` | Blank cells between the pane border and the terminal content, on every side, clamped to 0 through 4 |
+
+Padding shrinks the PTY size accordingly and never pads a pane below one content cell. Border geometry, the tab bar, and the scrollbar keep their positions, so `{"theme":{"border_style":"none"},"pane":{"padding":1}}` renders borderless panes separated by whitespace.
+
+## Status bar
+
+| Key | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `status_bar.visible` | boolean | `true` | Shows the bottom screens bar |
+| `status_bar.show_screens` | boolean | `true` | Renders the clickable screens strip |
+| `status_bar.show_session` | boolean | `true` | Renders the right-aligned `[session]` label |
+| `status_bar.left` | array of segments | `[]` | Segments before the screens strip |
+| `status_bar.right` | array of segments | `[]` | Segments right-aligned before the session label |
+| `status_bar.left[].text` | string | one of text/run | Literal text with `{variable}` interpolation |
+| `status_bar.left[].run` | string array | one of text/run | Argv run on an interval; the last nonempty stdout line becomes the segment text, escape sequences stripped, capped at 200 characters |
+| `status_bar.left[].interval` | integer seconds | `5` | Refresh interval for `run` segments, clamped to 1 through 3600 |
+| `status_bar.left[].fg` / `bg` | color | bar colors | Segment colors |
+| `status_bar.left_separator` | string | unset | Powerline separator between left segments; its foreground takes the previous segment's background and its background the next one's (e.g. `"\ue0b0"`) |
+| `status_bar.right_separator` | string | unset | Mirrored separator drawn left of each right segment (e.g. `"\ue0b2"`) |
+| `status_bar.screens_style` | `"block"`, `"pill"`, or `"slant"` | `"block"` | Cap glyphs around the active screen chip |
+| `status_bar.screens_plus.label` / `.action` / `.menu` | as `tabs.plus` | `" + "` / new screen / `[]` | The screens strip's `+` button |
+
+Text segments interpolate `{session}`, `{workspace}`, `{screen}`, `{screens}`, `{title}`, and `{user}`; unknown braces stay literal. `run` segments are the tmux `#()` equivalent: each is executed on its own interval with a five-second runtime bound, so a battery, git, or clock widget is one script. At most 8 segments per side. Transient status messages keep priority over the session label.
+
+```json
+{
+  "theme": {"status_bg": "#1c1c1c", "status_fg": "#87d787"},
+  "status_bar": {
+    "left": [{"text": " {session} · {workspace} ", "fg": "#87d787"}],
+    "right": [
+      {"run": ["sh", "-lc", "git -C \"$HOME/src\" branch --show-current"], "interval": 30},
+      {"run": ["date", "+%H:%M"], "interval": 30, "fg": "#d7af5f"}
+    ]
+  }
+}
+```
+
+Hiding the bar gives its row back to the panes. Transient status messages still overlay the bottom row until dismissed, single-surface style. The screens strip, the session label, and the horizontal viewport track are not rendered while hidden; screens stay reachable through `prev-screen`, `next-screen`, `select-screen-N`, and the sidebar.
 
 ## Scrollbar
 
@@ -229,8 +304,32 @@ Terminal panes, the workspace sidebar, and the shortcut modal share the same `�
 | --- | --- | --- | --- |
 | `server.ws` | socket address string | unset | Enables the WebSocket control listener, for example `127.0.0.1:7681` |
 | `server.ws_token` | string | unset | Adds a static-token bypass for interactive TUI pairing |
+| `server.detached_owner` | boolean | `true` | Plain `cmux` starts or reuses a detached headless session owner and attaches as a client, so the session survives every client detaching. `false` hosts the session inside the first TUI process |
 
 WebSocket clients pair through a six-digit browser/TUI comparison by default. WebSocket binds must be loopback unless cmux-tui is started with `--ws-insecure-bind`. The listener has no TLS; use an authenticated TLS reverse proxy for remote access. See the [transport contract](../spec/transports.md#websocket).
+
+## Commands
+
+`commands` is an ordered list of user commands, the cmux-tui equivalent of tmux `bind-key ... command`. Each command names an argv program and optionally binds key chords to it. Pressing a bound chord runs the argv as a new PTY tab in the active pane, exactly like `cmux run`. The child inherits `CMUX_TUI_SOCKET`, so a command script can immediately drive the public CLI against its own session: create workspaces, apply splits, rename tabs, then close its own tab. The working directory defaults to the active pane's current directory; `cwd` values pass through without shell expansion, so use absolute paths or a shell argv for `~`.
+
+| Key | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `commands[].id` | string | required | Stable unique identity; duplicates and empty ids are ignored |
+| `commands[].name` | string | the id | Display name in the shortcut modal |
+| `commands[].run` | string array | required | Argv executed directly, without a shell; the program must be nonempty, later arguments pass through verbatim (empty ones included) |
+| `commands[].keys` | chord string or array | unset | Chords that run the command; Alt- and Super-modified chords are modeless, other chords run after the prefix |
+| `commands[].cwd` | string | active pane cwd | Working directory for the child process |
+
+Try the tracked example with `CMUX_TUI_CONFIG=examples/user-commands.json cargo run -p cmux-tui -- --session commands`. At most 32 commands are honored; extra entries are ignored with a warning. A command chord replaces whatever action previously held that chord, matching the last-write-wins behavior of the `keys` section, and the prefix chord stays reserved. Shell pipelines need an explicit shell argv, for example `["zsh", "-lc", "git diff | delta"]`.
+
+```json
+{
+  "commands": [
+    {"id": "lazygit", "name": "LazyGit", "keys": "g", "run": ["lazygit"]},
+    {"id": "scratch", "keys": ["alt+s"], "run": ["sh", "-lc", "cd \"$HOME/notes\" && exec \"${EDITOR:-vi}\" scratch.md"]}
+  ]
+}
+```
 
 ## Keys
 
@@ -288,6 +387,7 @@ WebSocket clients pair through a six-digit browser/TUI comparison by default. We
 | `keys.browser-reload` | chord string or array or `"none"` | `"r"` | Browser reload |
 | `keys.browser-edit-url` | chord string or array or `"none"` | `"u"` | Browser URL prompt |
 | `keys.show-shortcuts` | chord string or array or `"none"` | `"?"` | Open the resolved keyboard shortcut modal |
+| `keys.provider-menu` | chord string or array or `"none"` | `"m"` | Open the machine provider menu when the machine rail is focused |
 | `keys.detach` | chord string or array or `"none"` | `"d"` | Quit local TUI or detach attached TUI |
 
 Each action override replaces all default chords for that action. Values may be a string, an array of strings, or `"none"`. Non-string array entries are ignored. Changing `keys.prefix` also moves the default `send-prefix` chord so pressing the configured prefix twice continues to pass it through. An explicit `keys.send-prefix` override takes precedence. Set `keys.alt_shortcuts` or `keys.super_shortcuts` to `false` to remove that modeless default layer before applying user overrides; explicitly configured chords still work.
@@ -305,6 +405,7 @@ Chord strings can be single characters or a key name with optional `ctrl`, `cont
 ```json
 {
   "theme": {
+    "chrome": "dark",
     "selection_background": "#355c7d",
     "selection_foreground": null,
     "sidebar_rail": "#87afd7",
@@ -348,13 +449,7 @@ Chord strings can be single characters or a key name with optional `ctrl`, `cont
     }
   ],
   "browser": {
-    "chrome_binary": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    "mode": "headful",
-    "cdp_url": "http://127.0.0.1:9222",
-    "discover": false,
-    "discover_ports": [9222, 9223],
-    "user_data_dir": "/Users/me/Library/Application Support/cmux-tui/chrome-profile",
-    "ephemeral": false,
+    "cdp_url": null,
     "max_capture_megapixels": 2.0,
     "capture_scale": null
   },
@@ -398,3 +493,9 @@ Chord strings can be single characters or a key name with optional `ctrl`, `cont
   }
 }
 ```
+
+## Client log
+
+The client appends every user-visible warning (bottom-bar status messages, provider notices, toasts) and its own stderr diagnostics to a rolling log so problems seen in the TUI can be diagnosed after the session. While the TUI owns the terminal, process stderr (including panics) is routed into the same file instead of corrupting the raw-mode screen, and is restored on exit. Each launch writes one startup line with the build commit so log stretches are attributable.
+
+The file lives at the cmux-tui state root: `~/Library/Application Support/cmux-tui/client.log` on macOS, `$XDG_STATE_HOME/cmux-tui/client.log` (or `~/.local/state/cmux-tui/client.log`) on Linux, `%LOCALAPPDATA%\cmux-tui\client.log` on Windows. `CMUX_TUI_LOG_FILE` overrides the path. The active file rolls to `client.log.1` at 2 MiB and one rollover is kept, so the log never grows past roughly 4 MiB. Several cmux-tui processes may share the file: writes and rotation take an exclusive advisory lock, rotation by one process is followed by the others, and the size cap counts every writer.

@@ -6,6 +6,7 @@ import UIKit
 
 /// A full-screen prompt canvas with compact task controls above the keyboard.
 struct TaskComposerLayout: View {
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @Binding var prompt: String
     let genericPromptPlaceholder: String
     let workspaceName: String
@@ -16,9 +17,17 @@ struct TaskComposerLayout: View {
     let selectedTemplateID: MobileTaskTemplate.ID?
     let models: [MobileTaskAgentModel]
     let selectedModelID: String?
+    let efforts: [MobileTaskAgentEffort]
+    let selectedEffortID: String?
+    let modelErrorText: String?
+    let effortErrorText: String?
+    let agentErrorText: String?
     let isModelLoading: Bool
     let isSubmitting: Bool
     let isSubmitEnabled: Bool
+    /// Rendered as a non-blocking orange banner when no Mac connection is
+    /// live; `nil` while at least one Mac is connected.
+    let connectionWarningText: String?
     let failureTitle: String
     let failureText: String?
     let completedOperationRecovery: TaskComposerCompletedOperationRecovery?
@@ -28,9 +37,12 @@ struct TaskComposerLayout: View {
     /// directory candidates, so it must not run on every keystroke's body
     /// rebuild, only when Task Options is actually presented.
     let optionsSheet: () -> TaskComposerOptionsSheet
+    /// Presents the saved-drafts list; `nil` hides the drafts button.
+    let openDrafts: (() -> Void)?
     let endEditing: () -> Void
     let selectTemplate: (MobileTaskTemplate.ID) -> Void
     let selectModel: (MobileTaskAgentModel?) -> Void
+    let selectEffort: (MobileTaskAgentEffort?) -> Void
     let editTemplates: () -> Void
     let cancel: () -> Void
     let submit: () -> Void
@@ -38,6 +50,11 @@ struct TaskComposerLayout: View {
     let requestStartAgain: () -> Void
     let chooseAttachmentPhotos: () -> Void
     let chooseAttachmentFiles: () -> Void
+    /// Stages pasted images/files as attachments; `true` consumes the paste.
+    /// Shared by the prompt editor's system Paste action and the attachment
+    /// menu's Paste item (which ignores the result — text-only pasteboards
+    /// simply stage nothing there).
+    let pasteAttachments: () -> Bool
     let removeAttachment: (UUID) -> Void
 
     @State private var isPromptFocused = false
@@ -66,6 +83,19 @@ struct TaskComposerLayout: View {
                     defaultValue: "Cancel"
                 ))
                 .accessibilityIdentifier("MobileTaskComposerCancelButton")
+            }
+            if let openDrafts {
+                ToolbarItem(placement: .primaryAction) {
+                    Button(action: openDrafts) {
+                        Image(systemName: "tray.full")
+                    }
+                    .disabled(locksDismissal)
+                    .accessibilityLabel(L10n.string(
+                        "mobile.taskComposer.drafts.title",
+                        defaultValue: "Drafts"
+                    ))
+                    .accessibilityIdentifier("MobileTaskComposerDraftsButton")
+                }
             }
         }
         .sheet(isPresented: $isOptionsPresented) {
@@ -96,7 +126,8 @@ struct TaskComposerLayout: View {
                     "mobile.taskComposer.prompt",
                     defaultValue: "Prompt"
                 ),
-                accessibilityHint: promptPlaceholder
+                accessibilityHint: promptPlaceholder,
+                pasteAttachments: pasteAttachments
             )
                 .padding(.horizontal, 20)
                 .padding(.vertical, 18)
@@ -109,6 +140,11 @@ struct TaskComposerLayout: View {
 
     private var accessoryBar: some View {
         VStack(spacing: 10) {
+            if let connectionWarningText {
+                TaskComposerConnectionWarningBanner(message: connectionWarningText)
+                    .padding(.horizontal, 16)
+            }
+
             if failureText != nil || completedOperationRecovery != nil {
                 TaskComposerFailureRecoveryContent(
                     isSubmitting: isSubmitting,
@@ -138,27 +174,32 @@ struct TaskComposerLayout: View {
                 ScrollView(.horizontal) {
                     HStack(spacing: 8) {
                         agentPill
-                            // Keep the provider readable before compressing
-                            // the model label on compact rows.
-                            .layoutPriority(1)
+                            .fixedSize(horizontal: true, vertical: false)
 
-                        if !models.isEmpty {
-                            modelPill
-                        } else if isModelLoading {
+                        if isModelLoading {
                             modelLoadingPill
+                                .fixedSize(horizontal: true, vertical: false)
+                                .transition(modelLoadingTransition)
+                        } else if !models.isEmpty || !efforts.isEmpty || modelErrorText != nil {
+                            if models.isEmpty, modelErrorText != nil {
+                                modelErrorPill
+                                    .fixedSize(horizontal: true, vertical: false)
+                            } else {
+                                modelPill
+                                    .fixedSize(horizontal: true, vertical: false)
+                            }
+
+                            if !efforts.isEmpty || effortErrorText != nil {
+                                effortPill
+                                    .fixedSize(horizontal: true, vertical: false)
+                            }
                         }
                     }
-                    // Give the pills the viewport's finite width so their
-                    // one-line labels compress inside their own capsules.
-                    // Without this, ScrollView proposes infinite width and a
-                    // long selected model extends beneath the fixed submit
-                    // control before clipping at the viewport edge.
-                    .containerRelativeFrame(.horizontal, alignment: .leading)
                 }
                 .scrollIndicators(.hidden)
-                // The pills are the row's only compressible region. A zero
-                // minimum lets the fixed 44pt edge controls claim their space
-                // before this viewport receives the remaining width.
+                // The shared picker strip owns overflow. Pills keep their
+                // readable intrinsic widths while the fixed edge controls
+                // claim their space outside this clipped viewport.
                 .frame(minWidth: 0, maxWidth: .infinity)
                 .layoutPriority(0)
                 .clipped()
@@ -192,7 +233,8 @@ struct TaskComposerLayout: View {
                     style: .circularPlus,
                     isDisabled: isDisabled,
                     choosePhotos: chooseAttachmentPhotos,
-                    chooseFiles: chooseAttachmentFiles
+                    chooseFiles: chooseAttachmentFiles,
+                    pasteAttachments: { _ = pasteAttachments() }
                 )
             }
         }
@@ -234,7 +276,7 @@ struct TaskComposerLayout: View {
                     TaskTemplateIcon(value: selectedTemplate.icon, size: 16)
                         .frame(width: 18, height: 18)
 
-                    Text(agentPillTitle(for: selectedTemplate))
+                    Text(agentErrorText ?? agentPillTitle(for: selectedTemplate))
                         .lineLimit(1)
                 } else {
                     Image(systemName: "person.crop.circle.badge.exclamationmark")
@@ -253,7 +295,7 @@ struct TaskComposerLayout: View {
                     .accessibilityHidden(true)
             }
             .font(.caption.weight(.semibold))
-            .foregroundStyle(.primary)
+            .foregroundStyle(agentErrorText == nil ? Color.primary : Color.red)
             .padding(.horizontal, 12)
             .frame(minHeight: 38)
             .background(Color.primary.opacity(0.07), in: Capsule())
@@ -263,13 +305,13 @@ struct TaskComposerLayout: View {
         .tint(Color.primary)
         .disabled(isDisabled)
         .accessibilityLabel(L10n.string("mobile.taskComposer.agent", defaultValue: "Agent"))
-        .accessibilityValue(selectedTemplate?.name ?? "")
+        .accessibilityValue(agentErrorText ?? selectedTemplate?.name ?? "")
         .accessibilityHint(TaskComposerSheet.templateAccessibilityHint)
         .accessibilityIdentifier("MobileTaskComposerAgentPill")
         // Recreate the whole Menu when the title changes: the UIKit menu
         // button otherwise animates its frame to the new width on iOS 26 and
         // clips the label against the stale bounds until it settles.
-        .id(selectedTemplate.map(agentPillTitle(for:)))
+        .id((selectedTemplate.map(agentPillTitle(for:)) ?? "") + (agentErrorText ?? ""))
     }
 
     private var modelPill: some View {
@@ -278,7 +320,7 @@ struct TaskComposerLayout: View {
                 .font(.caption.weight(.semibold))
                 .accessibilityHidden(true)
 
-            Text(selectedModelName)
+            Text(modelErrorText ?? selectedModelName)
                 .lineLimit(1)
 
             Image(systemName: "chevron.down")
@@ -287,7 +329,7 @@ struct TaskComposerLayout: View {
                 .accessibilityHidden(true)
         }
         .font(.caption.weight(.semibold))
-        .foregroundStyle(.primary)
+        .foregroundStyle(modelErrorText == nil ? Color.primary : Color.red)
         .padding(.horizontal, 12)
         .frame(minHeight: 38)
         .background(Color.primary.opacity(0.07), in: Capsule())
@@ -306,7 +348,33 @@ struct TaskComposerLayout: View {
         }
         // See agentPill: identity-swap the pill so the new title cannot be
         // clipped by the old frame mid-animation.
-        .id(selectedModelName)
+        .id((modelErrorText ?? "") + selectedModelName)
+    }
+
+    private var modelErrorPill: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.caption.weight(.semibold))
+                .accessibilityHidden(true)
+
+            Text(modelErrorText ?? L10n.string(
+                "mobile.taskComposer.model.error.queryFailed",
+                defaultValue: "Couldn’t load models"
+            ))
+                .lineLimit(1)
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(Color.red)
+        .padding(.horizontal, 12)
+        .frame(minHeight: 38)
+        .background(Color.red.opacity(0.12), in: Capsule())
+        .frame(minHeight: 44)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(modelErrorText ?? L10n.string(
+            "mobile.taskComposer.model.error.queryFailed",
+            defaultValue: "Couldn’t load models"
+        ))
+        .accessibilityIdentifier("MobileTaskComposerModelErrorPill")
     }
 
     private var modelLoadingPill: some View {
@@ -336,6 +404,55 @@ struct TaskComposerLayout: View {
             defaultValue: "Loading models"
         ))
         .accessibilityIdentifier("MobileTaskComposerModelLoadingPill")
+    }
+
+    private var modelLoadingTransition: AnyTransition {
+        guard !accessibilityReduceMotion else { return .identity }
+        return .asymmetric(
+            insertion: .opacity
+                .combined(with: .scale(scale: 0.96)),
+            removal: .opacity
+                .combined(with: .scale(scale: 0.98))
+        )
+    }
+
+    private var effortPill: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "gauge.with.dots.needle.33percent")
+                .font(.caption.weight(.semibold))
+                .accessibilityHidden(true)
+
+            Text(effortErrorText ?? selectedEffortName)
+                .lineLimit(1)
+
+            Image(systemName: "chevron.down")
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(
+            effortErrorText != nil
+                ? Color.red
+                : (efforts.isEmpty ? Color.secondary : Color.primary)
+        )
+        .padding(.horizontal, 12)
+        .frame(minHeight: 38)
+        .background(Color.primary.opacity(0.07), in: Capsule())
+        .frame(minHeight: 44)
+        .contentShape(Rectangle())
+        .accessibilityHidden(true)
+        .overlay {
+            TaskComposerEffortMenuContent(
+                efforts: efforts,
+                selectedEffortID: selectedEffortID,
+                selectedEffortName: selectedEffortName,
+                isEnabled: !isDisabled && !efforts.isEmpty,
+                selectEffort: selectEffort
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .id((effortErrorText ?? "") + selectedEffortName)
     }
 
     private var submitButton: some View {
@@ -379,6 +496,17 @@ struct TaskComposerLayout: View {
 
     private var selectedModelName: String {
         models.displayName(forSelected: selectedModelID)
+    }
+
+    private var selectedEffortName: String {
+        guard let selectedEffortID,
+              let effort = efforts.first(where: { $0.id == selectedEffortID }) else {
+            return L10n.string(
+                "mobile.taskComposer.effort",
+                defaultValue: "Effort"
+            )
+        }
+        return effort.displayName
     }
 
     private var navigationTitle: String {

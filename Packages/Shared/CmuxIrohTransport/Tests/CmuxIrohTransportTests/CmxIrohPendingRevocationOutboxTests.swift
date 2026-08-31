@@ -94,6 +94,26 @@ struct CmxIrohPendingRevocationOutboxTests {
         )
     }
 
+    @Test("reconciliation removes a re-registered binding without revoking it")
+    func reconciliationDoesNotRevokeActiveBinding() async throws {
+        let store = TestSecureCredentialStore()
+        let outbox = CmxIrohPendingRevocationOutbox(secureStore: store)
+        let pending = try revocation()
+        try await outbox.enqueue(pending)
+        let broker = PendingRevocationBroker()
+
+        let revoked = try await outbox.reconcilePending(
+            accountID: accountID,
+            beforeRegisteringTag: tag,
+            activeBindingID: pending.bindingID,
+            using: broker
+        )
+
+        #expect(!revoked)
+        #expect(await broker.revokedBindingIDs().isEmpty)
+        #expect(try await outbox.pending(accountID: accountID).isEmpty)
+    }
+
     private func revocation() throws -> CmxIrohPendingRevocation {
         try CmxIrohPendingRevocation(
             accountID: accountID,
@@ -114,6 +134,10 @@ private actor PendingRevocationBroker: CmxIrohBindingRevoking {
     func revoke(bindingID: String) throws {
         bindingIDs.append(bindingID)
         if let error { throw error }
+    }
+
+    func revokeStale(bindingID: String) throws {
+        try revoke(bindingID: bindingID)
     }
 
     func revokedBindingIDs() -> [String] { bindingIDs }

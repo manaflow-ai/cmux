@@ -221,6 +221,34 @@ import Testing
         #expect(try await store.activeMac(stackUserID: "user-1")?.legacyTailscaleRoutes == nil)
     }
 
+    @Test func registryIrohRefreshPreservesGrandfatheredDestination() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let databaseURL = directory.appendingPathComponent("paired-macs.sqlite3")
+        let tailscale = try tailscaleRoute(host: "100.64.0.251")
+
+        try seedVersionSevenDatabase(at: databaseURL, routes: [tailscale])
+        let store = try MobilePairedMacStore(databaseURL: databaseURL)
+        let updatedRoutes = [tailscale, try irohRoute()]
+        let wrote = try await store.upsertRoutesIfAuthorized(
+            macDeviceID: "legacy-mac",
+            displayName: "Legacy Mac",
+            routes: updatedRoutes,
+            condition: .matchingInstanceTag(nil),
+            markActive: nil,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date()
+        )
+
+        #expect(wrote)
+        let mac = try #require(await store.activeMac(stackUserID: "user-1"))
+        #expect(mac.routes == updatedRoutes)
+        #expect(mac.legacyTailscaleRoutes == [tailscale])
+    }
+
     @Test func userEnteredPairingCodeMintsDeviceLocalGrant() async throws {
         let (store, directory) = try makeStore()
         defer { try? FileManager.default.removeItem(at: directory) }

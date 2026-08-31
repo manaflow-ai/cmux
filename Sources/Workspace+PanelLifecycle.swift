@@ -450,9 +450,12 @@ extension Workspace {
         discardBrowserPanelSubscription(panelId: panelId, panel: panel)
         removeBrowserOpenTabSuggestionIfNeeded(panel: panel, panelId: panelId)
         if cleanupControllerSurfaceState {
-            TerminalController.shared.cleanupSurfaceState(surfaceIds: [panelId, tabId?.uuid].compactMap { $0 })
+            TerminalController.shared.cleanupSurfaceState(
+                surfaceIds: [panelId, tabId?.uuid].compactMap { $0 }
+            )
         }
         if !preservesTerminalForTransfer {
+            removeDeferredAgentResumeRestore(panelId: panelId)
             terminalStartupRestoreCoordinator.discardPendingRestoreForPanelTeardown(
                 panelID: panelId
             )
@@ -523,6 +526,10 @@ extension Workspace {
         surfaceTTYNames.removeValue(forKey: panelId)
         discardRemotePTYSessionID(panelId: panelId)
         surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+        surfaceResumeRestoreClaimsByPanelId.removeValue(forKey: panelId)
+        pendingPlainSSHRestorePanelIds.remove(panelId)
+        observedPlainSSHPanelIds.remove(panelId)
+        plainSSHDetectionMissesByPanelId.removeValue(forKey: panelId)
         surfaceListeningPorts.removeValue(forKey: panelId)
         restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
 #if DEBUG

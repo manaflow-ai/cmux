@@ -4,6 +4,8 @@ public struct MobileTaskModelAvailability: Sendable {
     public let provider: MobileTaskAgentProvider?
     /// Models shown by the composer.
     public let models: [MobileTaskAgentModel]
+    /// Metadata for the provider's implicit Default selection.
+    public let defaultModel: MobileTaskAgentModel?
 
     /// Resolves only runtime-supplied models.
     ///
@@ -12,12 +14,14 @@ public struct MobileTaskModelAvailability: Sendable {
     ///   - discoveredModels: Cached models returned by the selected Mac.
     public init(
         template: MobileTaskTemplate?,
-        discoveredModels: [MobileTaskAgentModel]?
+        discoveredModels: [MobileTaskAgentModel]?,
+        defaultModel: MobileTaskAgentModel? = nil
     ) {
         provider = template.flatMap {
             MobileTaskAgentProvider(command: $0.command)
         }
         models = discoveredModels ?? []
+        self.defaultModel = defaultModel
     }
 
     /// Validates an identifier against the same list the composer displays.

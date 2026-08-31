@@ -60,11 +60,14 @@ extension SessionEntry {
     }
 
     /// Builds the explicit compatibility launch for an unsupported registration.
+    /// The legacy command is a POSIX one-liner typed into the user's shell, so
+    /// it goes through the typed-boundary dialect wrap (nushell cannot parse
+    /// POSIX; the `restoreVerb` strategy types only bare words and needs none).
     private var legacyResumeLaunch: SessionEntryResumeLaunch? {
         guard let legacyCommand = copyResumeCommand else { return nil }
         return SessionEntryResumeLaunch(
             strategy: .legacyCommand,
-            initialInput: legacyCommand + "\n",
+            initialInput: TerminalStartupTypedShellCommand().typedInput(posixCommand: legacyCommand) + "\n",
             workingDirectory: resumeWorkingDirectory,
             startupRestoreAgent: nil
         )

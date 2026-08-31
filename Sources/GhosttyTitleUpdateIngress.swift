@@ -15,7 +15,6 @@ final class GhosttyTitleUpdateIngress {
     /// Ghostty serializes action callbacks for a view; no other context reads
     /// or writes this duplicate-rejection snapshot.
     private var lastSubmittedUpdate: GhosttyTitleUpdate?
-
     init(
         center: NotificationCenter = .default,
         titleChurnFilter: TerminalTitleChurnFilter = TerminalTitleChurnFilter(),
@@ -73,18 +72,24 @@ final class GhosttyTitleUpdateIngress {
     func submit(
         tabId: UUID,
         surfaceId: UUID,
-        sourceSurface: AnyObject,
+        sourceSurfaceIdentifier: ObjectIdentifier,
         terminalLifecycleID: UUID,
-        title: String
+        title: String,
+        titleOverride: String? = nil
     ) -> Bool {
-        guard let stableTitle = titleChurnFilter.stableTitle(for: title) else {
+        let stableTitle: String
+        if let titleOverride {
+            stableTitle = titleOverride
+        } else if let churnStableTitle = titleChurnFilter.stableTitle(for: title) {
+            stableTitle = churnStableTitle
+        } else {
             return false
         }
         let update = GhosttyTitleUpdate(
             tabId: tabId,
             surfaceId: surfaceId,
             title: stableTitle,
-            sourceSurfaceIdentifier: ObjectIdentifier(sourceSurface),
+            sourceSurfaceIdentifier: sourceSurfaceIdentifier,
             terminalLifecycleID: terminalLifecycleID,
             attachmentGeneration: attachmentGeneration.loadRelaxed()
         )

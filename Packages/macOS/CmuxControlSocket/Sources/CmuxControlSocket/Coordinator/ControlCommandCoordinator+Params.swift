@@ -94,6 +94,8 @@ extension ControlCommandCoordinator {
             return value != 0
         case .double(let value):
             return value != 0
+        case .decimal(let value):
+            return NSDecimalNumber(string: value).compare(NSDecimalNumber(string: "0")) != .orderedSame
         case .string(let value):
             switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
             case "1", "true", "yes", "on":
@@ -119,6 +121,8 @@ extension ControlCommandCoordinator {
             return Int(value)
         case .double(let value):
             return NSNumber(value: value).intValue
+        case .decimal(let value):
+            return NSDecimalNumber(string: value).intValue
         case .bool(let value):
             // Legacy `as? NSNumber` caught a JSON boolean and `.intValue` → 1/0.
             return NSNumber(value: value).intValue
@@ -138,6 +142,8 @@ extension ControlCommandCoordinator {
             return value
         case .int(let value):
             return Double(value)
+        case .decimal(let value):
+            return NSDecimalNumber(string: value).doubleValue
         case .bool(let value):
             return NSNumber(value: value).doubleValue
         case .string(let value):
@@ -161,6 +167,8 @@ extension ControlCommandCoordinator {
         case .double(let value):
             guard value.isFinite, floor(value) == value else { return nil }
             return Int(exactly: value)
+        case .decimal(let value):
+            return Int(value.trimmingCharacters(in: .whitespacesAndNewlines))
         case .string(let value):
             return Int(value.trimmingCharacters(in: .whitespacesAndNewlines))
         default:

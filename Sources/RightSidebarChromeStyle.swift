@@ -1,3 +1,4 @@
+import AppKit
 import CmuxFoundation
 import CmuxAppKitSupportUI
 import CmuxSettings
@@ -17,7 +18,7 @@ enum HeaderChromeIconStyle {
     static let pressedOpacity = 1.0
     static let disabledOpacity = 0.34
     static let weight: Font.Weight = .regular
-    static let foregroundColor = Color(nsColor: .secondaryLabelColor)
+    static let foregroundColor = Color.secondary
     static let sidebarGlyphStrokeWidth: CGFloat = 1
 
     static func iconFrameSize(forIconSize iconSize: CGFloat) -> CGFloat {
@@ -168,13 +169,14 @@ struct RightSidebarChromePillModifier: ViewModifier {
 }
 
 struct RightSidebarChromeBottomBorderModifier: ViewModifier {
+    let backgroundColor: NSColor
+
     func body(content: Content) -> some View {
         content.overlay(alignment: .bottom) {
             WindowChromeBorder(
                 orientation: .horizontal,
                 ignoresSafeArea: false,
-                refreshNotificationName: .ghosttyDefaultBackgroundDidChange,
-                backgroundColorProvider: { GhosttyBackgroundTheme.currentColor() }
+                backgroundColor: backgroundColor
             )
         }
     }
@@ -274,8 +276,8 @@ extension View {
         )
     }
 
-    func rightSidebarChromeBottomBorder() -> some View {
-        modifier(RightSidebarChromeBottomBorderModifier())
+    func rightSidebarChromeBottomBorder(backgroundColor: NSColor) -> some View {
+        modifier(RightSidebarChromeBottomBorderModifier(backgroundColor: backgroundColor))
     }
 
     func rightSidebarHeaderControlAlignment() -> some View {

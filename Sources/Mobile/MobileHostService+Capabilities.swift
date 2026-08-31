@@ -49,6 +49,9 @@ extension MobileHostService {
         "mobile.events.unsubscribe",
         "mobile.host.status",
         "mobile.rpc.methods",
+        "mobile.simulator.device.select",
+        "mobile.simulator.devices.list",
+        "mobile.simulator.recover",
         "mobile.simulator.input.button",
         "mobile.simulator.input.pointer",
         "mobile.simulator.input.text",
@@ -114,6 +117,8 @@ extension MobileHostService {
     nonisolated static let phonePushSettingsCapability = "phone_push.settings.v1"
     /// Authenticated request to enqueue a truthful, correlated test alert.
     nonisolated static let phonePushTestCapability = "phone_push.test.v1"
+    /// Read and mutate cmux's process-scoped idle-sleep assertion.
+    nonisolated static let caffeineControlCapability = "caffeine.control.v1"
     nonisolated static let taskCreateCapability = "workspace.task_create.v1"
     nonisolated static let taskAttachmentCapability = "task.attachments.v1"
     nonisolated static let taskModelsCapability = "task.models.v1"
@@ -144,7 +149,12 @@ extension MobileHostService {
             ),
             includingTaskComposer: CmuxFeatureFlags.offMainEffectiveValue(
                 for: CmuxFeatureFlags.mobileTaskComposerFlag
-            )
+            ),
+            // Managed policy only: under it every browser pane is closed, so
+            // no browser affordance can work. A user-level disable keeps live
+            // panes (session restore re-materializes them), and iOS must
+            // still be able to view/stream those, so keep advertising then.
+            includingBrowser: !BrowserAvailabilitySettings.isManagedByPolicy
         )
     }
 
@@ -162,7 +172,8 @@ extension MobileHostService {
     nonisolated static func mobileHostCapabilities(
         includingWorkspaceChanges: Bool,
         includingSimulator: Bool = true,
-        includingTaskComposer: Bool = true
+        includingTaskComposer: Bool = true,
+        includingBrowser: Bool = true
     ) -> [String] {
         var capabilities = [
             Self.irohPrivatePathsCapability,
@@ -174,6 +185,9 @@ extension MobileHostService {
             MobileSimulatorStreamCapability.current.inputIdentifier,
             MobileSimulatorStreamCapability.current.ownershipIdentifier,
             MobileSimulatorStreamCapability.current.keepaliveIdentifier,
+            MobileSimulatorStreamCapability.current.streamV2Identifier,
+            MobileSimulatorStreamCapability.current.devicesIdentifier,
+            MobileSimulatorStreamCapability.current.recoverIdentifier,
             "events.v1",
             // The agent workstream feed: `feed.list` + the three reply verbs,
             // with `feed.changed` revision invalidations. iOS shows the Feed
@@ -196,7 +210,11 @@ extension MobileHostService {
             "terminal.viewport.v1",
             "terminal.artifact.v1",
             "terminal.artifact.list.v1",
+            "panel.artifact.v1",
             "workspace.actions.v1",
+            "workspace.surfaces.v1",
+            "surface.focus.v1",
+            "todo.v1",
             Self.workspaceChangesCapability,
             "workspace.metadata.v1",
             "workspace.read_state.v1",
@@ -217,6 +235,7 @@ extension MobileHostService {
             Self.taskDirectoryBrowseCapability,
             Self.taskDirectorySearchCapability,
             Self.taskDirectorySearchV2Capability,
+            Self.caffeineControlCapability,
             "chat.artifact.v1",
             "chat.artifact.folders.v1",
             "chat.artifact.gallery.v1",
@@ -236,6 +255,9 @@ extension MobileHostService {
                 MobileSimulatorStreamCapability.current.inputIdentifier,
                 MobileSimulatorStreamCapability.current.ownershipIdentifier,
                 MobileSimulatorStreamCapability.current.keepaliveIdentifier,
+                MobileSimulatorStreamCapability.current.streamV2Identifier,
+                MobileSimulatorStreamCapability.current.devicesIdentifier,
+                MobileSimulatorStreamCapability.current.recoverIdentifier,
             ]
             capabilities.removeAll { simulatorCapabilities.contains($0) }
         }
@@ -249,6 +271,18 @@ extension MobileHostService {
                 Self.taskDirectorySearchV2Capability,
             ]
             capabilities.removeAll { taskComposerCapabilities.contains($0) }
+        }
+        if !includingBrowser {
+            // The embedded browser is disabled by MDM policy: every pane is
+            // closed and none can be created, so stop advertising browser
+            // streaming/creation and iOS feature-detects the affordances away.
+            let browserCapabilities: Set<String> = [
+                MobileBrowserStreamCapability.identifier,
+                MobileBrowserStreamCapability.viewportIdentifier,
+                MobileBrowserStreamCapability.dialogIdentifier,
+                MobileBrowserStreamCapability.createIdentifier,
+            ]
+            capabilities.removeAll { browserCapabilities.contains($0) }
         }
         return applyingDebugCapabilitySuppressions(capabilities)
     }

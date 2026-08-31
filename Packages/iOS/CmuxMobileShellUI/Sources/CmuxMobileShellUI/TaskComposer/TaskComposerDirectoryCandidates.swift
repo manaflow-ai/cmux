@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileShell
+import CmuxMobilePairedMac
 import CmuxMobileShellModel
 import Foundation
 
@@ -7,9 +8,14 @@ import Foundation
 struct TaskComposerDirectoryCandidates {
     let store: CMUXMobileShellStore
     let selectedMacDeviceID: String
+    let selectedMacInstanceTag: String?
     let selectedTemplate: MobileTaskTemplate?
 
     func make() -> [MobileTaskDirectoryCandidate] {
+        let selectedPairingID = MobilePairedMac.pairingID(
+            macDeviceID: selectedMacDeviceID,
+            instanceTag: selectedMacInstanceTag
+        )
         var candidates: [MobileTaskDirectoryCandidate] = []
         append(
             selectedTemplate?.defaultDirectory,
@@ -18,12 +24,12 @@ struct TaskComposerDirectoryCandidates {
             to: &candidates
         )
         append(
-            store.taskTemplateStore?.lastDirectory(macDeviceID: selectedMacDeviceID),
+            store.taskTemplateStore?.lastDirectory(macDeviceID: selectedPairingID),
             source: .lastSuccessful,
             context: nil,
             to: &candidates
         )
-        for recent in store.taskTemplateStore?.recentDirectories(macDeviceID: selectedMacDeviceID) ?? [] {
+        for recent in store.taskTemplateStore?.recentDirectories(macDeviceID: selectedPairingID) ?? [] {
             append(
                 recent.path,
                 source: .recentSuccessful,
@@ -34,8 +40,23 @@ struct TaskComposerDirectoryCandidates {
             )
         }
 
-        let includeUnscoped = selectedMacDeviceID == store.connectedMacDeviceID
-        for workspace in store.workspaces where workspace.macDeviceID == selectedMacDeviceID
+        let includeUnscoped = !selectedMacDeviceID.isEmpty
+            && store.connectedMacDeviceID != nil
+            && MobilePairedMac.pairingID(
+            macDeviceID: selectedMacDeviceID,
+            instanceTag: selectedMacInstanceTag
+            ) == MobilePairedMac.pairingID(
+                macDeviceID: store.connectedMacDeviceID ?? "",
+                instanceTag: store.connectedMacInstanceTag
+            )
+        for workspace in store.workspaces where
+            (workspace.macDeviceID.map {
+                MobileWorkspaceListFilter.machineEntryMatches(
+                    selectedPairingID,
+                    deviceID: $0,
+                    rowTag: workspace.macInstanceTag
+                )
+            } ?? false)
             || (workspace.macDeviceID == nil && includeUnscoped) {
             let isActiveWorkspace = workspace.id == store.selectedWorkspaceID
             append(

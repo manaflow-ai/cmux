@@ -184,6 +184,56 @@ cmux_attach_mac_socket_ready() {
   [[ -S "$sock" ]]
 }
 
+# Return the normalized email currently authenticated on one exact tagged Mac.
+# The tagged socket and bundled CLI are selected by cmux-debug-cli.sh, so this
+# can never read the stable app or another agent's tag.
+cmux_attach_mac_auth_account() {
+  local tag="$1" repo_root="$2" slug status
+  slug="$(cmux_attach__slug "$tag")"
+  status="$(CMUX_TAG="$slug" "$repo_root/scripts/cmux-debug-cli.sh" auth status --json 2>/dev/null)" \
+    || return 1
+  AUTH_STATUS="$status" /usr/bin/python3 - <<'PY'
+import json
+import os
+
+try:
+    status = json.loads(os.environ["AUTH_STATUS"])
+except (KeyError, TypeError, ValueError):
+    raise SystemExit(1)
+user = status.get("user")
+email = user.get("email") if isinstance(user, dict) else None
+if status.get("signed_in") is not True or not isinstance(email, str) or not email.strip():
+    raise SystemExit(1)
+print(email.strip().lower(), end="")
+PY
+}
+
+# Ask the tagged Mac for its authoritative post-bootstrap auth status. The
+# `auth.status` RPC awaits AuthCoordinator bootstrap, which includes session
+# restore and DEBUG auto-login, so this is one lifecycle-owned check rather
+# than a shell polling loop.
+cmux_attach_wait_for_mac_auth_account() {
+  local tag="$1" repo_root="$2" expected="$3" actual=""
+  expected="$(printf '%s' "$expected" | tr '[:upper:]' '[:lower:]')"
+  expected="${expected#"${expected%%[![:space:]]*}"}"
+  expected="${expected%"${expected##*[![:space:]]}"}"
+  if [[ -z "$expected" ]]; then
+    echo "error: tagged Mac auth check requires a non-empty expected account" >&2
+    return 1
+  fi
+  actual="$(cmux_attach_mac_auth_account "$tag" "$repo_root" 2>/dev/null || true)"
+  if [[ "$actual" == "$expected" ]]; then
+    echo "==> tagged Mac auth profile verified ($expected)" >&2
+    return 0
+  fi
+  if [[ -n "$actual" ]]; then
+    echo "error: tagged Mac '$tag' authenticated as '$actual', expected '$expected'" >&2
+  else
+    echo "error: tagged Mac '$tag' did not reach signed-in auth status for '$expected'" >&2
+  fi
+  return 1
+}
+
 # Opens the tagged Mac's event stream. The stream itself is the readiness
 # contract, so launch tooling does not infer connection state from diagnostics.
 cmux_attach_events() {
@@ -334,6 +384,12 @@ receipt = {
     "stream_id": payload["stream_id"],
     "transport": payload["transport"],
 }
+auth_profile = os.environ.get("CMUX_DEV_AUTH_PROFILE", "")
+auth_account = os.environ.get("CMUX_DEV_AUTH_ACCOUNT", "")
+if auth_profile and auth_account:
+    receipt["auth_profile"] = auth_profile
+    receipt["auth_account"] = auth_account
+    receipt["auth_proof"] = "stack_same_account_rpc"
 parent = os.path.dirname(path) or "."
 os.makedirs(parent, mode=0o700, exist_ok=True)
 parent_status = os.lstat(parent)
@@ -370,6 +426,52 @@ print(time.clock_gettime_ns(time.CLOCK_MONOTONIC) // 1_000_000)
 '
 }
 
+# Terminate one exact tagged Mac bundle through LaunchServices. The helper uses
+# NSRunningApplication plus NSWorkspace termination notifications, so callers
+# never infer process identity from a command-line regex or a sleep loop.
+# Tests can replace this function with a deterministic fake; production callers
+# must provide the repository root so the helper source is unambiguous.
+cmux_attach_terminate_bundle_app() {
+  local bundle_id="$1" repo_root="$2" timeout="${3:-5}"
+  local helper="${CMUX_ATTACH_TERMINATE_BUNDLE_HELPER:-}"
+  if [[ -z "$helper" ]]; then
+    [[ -n "$repo_root" ]] || {
+      echo "error: tagged Mac termination requires the repository root" >&2
+      return 1
+    }
+    helper="$repo_root/scripts/terminate-bundle-app.swift"
+  fi
+  [[ -f "$helper" ]] || {
+    echo "error: tagged Mac termination helper is missing: $helper" >&2
+    return 1
+  }
+  /usr/bin/swift "$helper" "$bundle_id" "$timeout"
+}
+
+# Launch one tagged bundle with its own LSEnvironment plus the selected
+# non-secret auth contract. NSWorkspace.OpenConfiguration is the supported
+# environment propagation path for LaunchServices; unlike `open --env`, it
+# reports launch errors to the caller.
+cmux_attach_launch_bundle_app() {
+  local app="$1" repo_root="$2" auth_profile="${3:-}" credentials_file="${4:-}"
+  local helper="${CMUX_ATTACH_LAUNCH_BUNDLE_HELPER:-}"
+  if [[ -z "$helper" ]]; then
+    [[ -n "$repo_root" ]] || {
+      echo "error: tagged Mac launch requires the repository root" >&2
+      return 1
+    }
+    helper="$repo_root/scripts/launch-bundle-app.swift"
+  fi
+  [[ -f "$helper" ]] || {
+    echo "error: tagged Mac launch helper is missing: $helper" >&2
+    return 1
+  }
+  local launch_args=("$app")
+  [[ -n "$auth_profile" ]] && launch_args+=(--auth-profile "$auth_profile")
+  [[ -n "$credentials_file" ]] && launch_args+=(--credentials-file "$credentials_file")
+  /usr/bin/swift "$helper" "${launch_args[@]}"
+}
+
 # Ensure the tagged Mac app is running AND its iOS pairing listener
 # is actually bound, so a ticket can be minted. Enables the pairing host, then:
 #   - socket down  -> launch the local tagged build and wait for the socket.
@@ -384,32 +486,60 @@ print(time.clock_gettime_ns(time.CLOCK_MONOTONIC) // 1_000_000)
 # Never force-kills a running app by default.
 cmux_attach_ensure_mac() {
   local tag="$1" repo_root="${2:-}" target="${3:?attach target is required}" force_relaunch="${4:-0}"
-  local sock app slug mint_attempts _i
+  local auth_profile="${5:-}" credentials_file="${6:-}" expected_account="${7:-}"
+  local sock app mint_attempts _i current_account="" stopped_exact_tagged_app=0
   sock="$(cmux_attach_socket_path "$tag")"
   app="$(cmux_attach_mac_app_path "$tag")"
-  slug="$(cmux_attach__slug "$tag")"
   cmux_attach_enable_pairing_host "$tag" || true
+
+  stop_exact_tagged_app() {
+    [[ -d "$app" ]] || return 0
+    local bundle_id
+    bundle_id="$(cmux_attach_mac_bundle_id "$tag")"
+    echo "==> stopping exact tagged Mac app before applying the auth contract ($tag)" >&2
+    # The bundle id is derived from the same sanitized tag used by the app and
+    # socket. This is required even when the socket is down: `open` reuses an
+    # existing process and cannot apply a new profile to it.
+    cmux_attach_terminate_bundle_app "$bundle_id" "$repo_root" 5 || {
+      echo "error: tagged Mac app '$tag' did not stop before applying a new auth profile" >&2
+      return 1
+    }
+    stopped_exact_tagged_app=1
+    return 0
+  }
+
+  # A caller that explicitly requests force-relaunch needs a clean process,
+  # regardless of whether the old process still publishes its socket.
+  if [[ "$force_relaunch" == "1" ]]; then
+    stop_exact_tagged_app || return 1
+  fi
 
   if [[ -S "$sock" ]]; then
     if [[ "$force_relaunch" != "1" ]]; then
-      # Quick probe (2 attempts ~1s): if pairing already mints, done.
-      if [[ -n "$repo_root" ]] && [[ -n "$(cmux_attach_mint_url "$tag" 60 "$repo_root" "$target" 2)" ]]; then
+      if [[ -n "$expected_account" ]]; then
+        current_account="$(cmux_attach_mac_auth_account "$tag" "$repo_root" 2>/dev/null || true)"
+      fi
+      # Quick probe (2 attempts ~1s): reuse only a listener whose selected
+      # account already matches this launch contract.
+      if [[ -n "$repo_root" ]] \
+          && { [[ -z "$expected_account" ]] || [[ "$current_account" == "$expected_account" ]]; } \
+          && [[ -n "$(cmux_attach_mint_url "$tag" 60 "$repo_root" "$target" 2)" ]]; then
         return 0
       fi
     fi
     # A tagged app is running but its pairing listener is not ready (launched
     # before the startup-only default was set, prompt pending, or briefly
     # busy). `cmux_attach_ensure_mac` is itself the explicit authorization to
-    # relaunch this tag. The process match includes the sanitized app basename,
-    # so stable cmux and every other DEV tag remain untouched.
+    # relaunch this tag. Bundle identity keeps stable cmux and every other DEV
+    # tag untouched.
     if [[ ! -d "$app" ]]; then
       echo "warning: tagged Mac app for '$tag' is running but not ready, and there is no local build to relaunch; auto-pair unavailable. Re-run without --attach for an intentionally unpaired launch." >&2
       return 1
     fi
-    echo "==> relaunching exact tagged Mac app to bind the pairing listener ($tag)" >&2
-    # Scoped to this tag's executable only (never the stable app or other tags).
-    pkill -f "cmux DEV ${slug}.app/Contents/MacOS/cmux DEV" 2>/dev/null || true
-    for _i in $(seq 1 25); do [[ -S "$sock" ]] || break; sleep 0.2; done
+    if [[ "$stopped_exact_tagged_app" -eq 0 ]]; then
+      echo "==> relaunching exact tagged Mac app to bind the pairing listener ($tag)" >&2
+      stop_exact_tagged_app || return 1
+    fi
   fi
 
   if [[ ! -d "$app" ]]; then
@@ -417,13 +547,24 @@ cmux_attach_ensure_mac() {
     return 1
   fi
   echo "==> launching tagged Mac app to arm pairing ($tag)" >&2
-  # The tagged app derives its socket from its baked CMUXDevTag, so a plain launch
-  # binds /tmp/cmux-debug-<slug>.sock without extra env.
-  open -g "$app" >/dev/null 2>&1 || open "$app" >/dev/null 2>&1 || true
+  if [[ -n "$auth_profile" || -n "$credentials_file" || -n "$expected_account" ]]; then
+    [[ -n "$auth_profile" && -n "$expected_account" ]] || {
+      echo "error: selected Mac auth launch requires profile and expected account" >&2
+      return 1
+    }
+  fi
+  cmux_attach_launch_bundle_app "$app" "$repo_root" "$auth_profile" "$credentials_file" || {
+    echo "error: tagged Mac app '$tag' could not be launched" >&2
+    return 1
+  }
   for _i in $(seq 1 60); do
     if [[ -S "$sock" ]]; then
       if [[ -z "$repo_root" ]]; then
         return 0
+      fi
+      if [[ -n "$expected_account" ]] \
+          && ! cmux_attach_wait_for_mac_auth_account "$tag" "$repo_root" "$expected_account"; then
+        return 1
       fi
       mint_attempts="${CMUX_ATTACH_MINT_MAX_ATTEMPTS:-20}"
       if [[ -n "$(cmux_attach_mint_url "$tag" 60 "$repo_root" "$target" "$mint_attempts")" ]]; then

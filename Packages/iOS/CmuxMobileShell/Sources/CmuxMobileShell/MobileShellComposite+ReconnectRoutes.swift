@@ -1,5 +1,5 @@
 import CMUXMobileCore
-import CmuxMobilePairedMac
+public import CmuxMobilePairedMac
 import CmuxMobileShellModel
 import Foundation
 import os
@@ -148,9 +148,17 @@ extension MobileShellComposite {
     /// Whether any paired Mac retains a current route matching an exact local
     /// Tailscale grant. A grant for an old endpoint is not usable after the Mac
     /// changes address, so both route sets must still agree.
-    nonisolated static func hasUsableTailscaleAuthorization(
+    public nonisolated static func hasUsableTailscaleAuthorization(
         in macs: [MobilePairedMac]
     ) -> Bool {
+        // An Iroh-identified pairing with a numeric Tailscale address dials
+        // the Iroh lane pinned to that address: admission authenticates it,
+        // so no device-local legacy grant is required.
+        for mac in macs where mac.routes.contains(where: { $0.kind == .iroh }) {
+            if !irohTailscaleDialCandidates(for: mac).isEmpty {
+                return true
+            }
+        }
         var authorizedEndpoints: Set<MobileTailscaleAuthorizationEndpoint> = []
         for mac in macs {
             for route in mac.legacyTailscaleRoutes ?? [] {
@@ -200,9 +208,12 @@ extension MobileShellComposite {
         return .pairingRequired
     }
 
-    /// Readiness of the currently selected Tailscale connection method.
+    /// Readiness of the Tailscale connection method wherever it is selected:
+    /// as the app default or as any stored Computer's per-pairing choice.
     public var tailscaleSetupStatus: MobileTailscaleSetupStatus {
-        guard connectionMethodStore?.method == .tailscale else {
+        guard connectionMethodStore?.method == .tailscale
+            || pairedMacs.contains(where: { connectionMethod(for: $0) == .tailscale })
+        else {
             return .notSelected
         }
         return tailscaleSetupStatusWhenSelected
@@ -250,7 +261,6 @@ extension MobileShellComposite {
         if preferNonLoopback {
             ordered.removeAll { $0.kind == .debugLoopback }
         }
-        let irohRoutes = ordered.filter { $0.kind == .iroh }
         if let tailscaleRequirement {
             let authorizedTailscale = ordered.filter { route in
                 legacyTailscaleAuthorizationEvidence(
@@ -261,10 +271,13 @@ extension MobileShellComposite {
             }
             return authorizedTailscale
         }
-        if !irohRoutes.isEmpty {
-            return irohRoutes
-        }
-        return ordered
+        // The Iroh method never falls back to raw host/port routes: a pairing
+        // without an Iroh identity stays disconnected until the user either
+        // upgrades the Mac or selects Tailscale for it. Debug loopback rides
+        // alongside Iroh as the dev-build convenience — same-machine lane,
+        // not a cross-method fallback — so an Iroh endpoint that advertises
+        // no relays and no direct addresses cannot starve it.
+        return ordered.filter { $0.kind == .iroh || $0.kind == .debugLoopback }
     }
 
     /// The dial order for one stored Mac, honoring the user's connection-method
@@ -275,17 +288,30 @@ extension MobileShellComposite {
         for mac: MobilePairedMac,
         supportedKinds: [CmxAttachTransportKind]
     ) -> [CmxAttachRoute] {
-        Self.storedReconnectRoutes(
+        let method = connectionMethod(for: mac)
+        // Tailscale Only on an Iroh-identified pairing rides the Iroh lane
+        // pinned to the pairing's numeric Tailscale addresses; the raw
+        // grant-gated host lane remains only for legacy pairings without an
+        // Iroh identity, so admission stays the single auth authority.
+        let tailscaleRidesPinnedIroh = method == .tailscale
+            && mac.routes.contains { $0.kind == .iroh }
+        let routes = Self.storedReconnectRoutes(
             mac.routes,
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes,
-            tailscaleRequirement: connectionMethodStore?.method == .tailscale
+            tailscaleRequirement: method == .tailscale && !tailscaleRidesPinnedIroh
                 ? TailscaleRouteRequirement(
                     macDeviceID: mac.macDeviceID,
                     grantRoutes: mac.legacyTailscaleRoutes ?? []
                 )
                 : nil
         )
+        // A pinned method rides the Iroh lane EXCLUSIVELY: the transport
+        // dials only the method's allowlisted addresses, and no dev-loopback
+        // or host/port lane may substitute when they are unreachable.
+        return method == .direct || tailscaleRidesPinnedIroh
+            ? routes.filter { $0.kind == .iroh }
+            : routes
     }
 
     /// Refresh the active row only while its account, device, and authenticated
@@ -426,8 +452,7 @@ extension MobileShellComposite {
         // but the other Macs are a read-only snapshot. Re-aggregate them on
         // foreground so workspaces created on another Mac while backgrounded
         // appear without a manual pull-to-refresh.
-        if multiMacAggregationEnabled,
-           connectionState == .connected,
+        if connectionState == .connected,
            remoteClient != nil {
             self.scheduleSecondaryAggregation(discoverLivePeers: true)
         }

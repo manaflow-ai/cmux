@@ -426,7 +426,9 @@ extension MobileShellComposite {
                 cmxCanonicalDeviceID($0.macDeviceID)
                     == cmxCanonicalDeviceID(macDeviceID)
             }
-            guard storedSiblings.count <= 1 else { return nil }
+            guard entry.key.normalizedInstanceTag == nil,
+                  storedSiblings.count == 1,
+                  storedSiblings[0].instanceTag == nil else { return nil }
         }
         return entry.key
     }
@@ -695,6 +697,7 @@ extension MobileShellComposite {
             workspacesByMac[foregroundMacKey] = promotedState
         }
         supportedHostCapabilities = sub.supportedHostCapabilities
+        adoptSecondaryCaffeineStatusForPromotedForeground(ownerKey: ownerKey)
         // Promotion has already authenticated this capability snapshot on the
         // control connection. Publish its terminal mode synchronously so input
         // can use the warm connection immediately while the render listener

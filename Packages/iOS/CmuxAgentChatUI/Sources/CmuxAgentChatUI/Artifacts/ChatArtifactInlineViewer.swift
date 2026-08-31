@@ -165,6 +165,8 @@ public struct ChatArtifactInlineViewer: View {
             .chat
         case .terminal:
             .terminal
+        case .panel:
+            .panel
         case .workspaceChanges:
             .workspaceChanges
         case .unsupported:

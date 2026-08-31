@@ -8,7 +8,11 @@ public struct WorkspaceChangesListView: View {
     private let files: [ChangedFileItem]
     private let state: WorkspaceChangesListState
     private let actions: WorkspaceChangesListActions
+    /// Built once per snapshot; collapse toggles only re-flatten it.
+    private let tree: ChangedFilesTree
     @Environment(\.colorScheme) private var colorScheme
+    /// Directory paths the user folded shut; everything starts expanded.
+    @State private var collapsedDirectories: Set<String> = []
 
     /// Creates a workspace changes list from immutable snapshots.
     /// - Parameters:
@@ -32,6 +36,7 @@ public struct WorkspaceChangesListView: View {
         self.files = files
         self.state = state
         self.actions = actions
+        tree = ChangedFilesTree.build(from: files)
     }
 
     public var body: some View {
@@ -65,12 +70,25 @@ public struct WorkspaceChangesListView: View {
                 case .notARepository:
                     notARepositoryView
                 case .loaded(let truncated):
-                    ForEach(rowSnapshots) { snapshot in
-                        WorkspaceChangedFileRow(
-                            snapshot: snapshot,
-                            theme: theme,
-                            onSelect: actions.onSelectFile
-                        )
+                    ForEach(treeRows) { row in
+                        switch row {
+                        case .directory(let directory):
+                            WorkspaceChangedDirectoryRow(row: directory) { path in
+                                withAnimation(.snappy(duration: 0.2)) {
+                                    if !collapsedDirectories.insert(path).inserted {
+                                        collapsedDirectories.remove(path)
+                                    }
+                                }
+                            }
+                        case .file(let file):
+                            WorkspaceChangedFileRow(
+                                snapshot: file.snapshot,
+                                theme: theme,
+                                indentationDepth: file.depth,
+                                showsDirectoryPrefix: false,
+                                onSelect: actions.onSelectFile
+                            )
+                        }
                     }
                     if truncated {
                         Text(String(
@@ -103,8 +121,8 @@ public struct WorkspaceChangesListView: View {
         .refreshable { await actions.onRefresh() }
     }
 
-    private var rowSnapshots: [ChangedFileRowSnapshot] {
-        files.enumerated().map { ChangedFileRowSnapshot(index: $0.offset, file: $0.element) }
+    private var treeRows: [ChangedFilesTreeRow] {
+        tree.rows(collapsedDirectories: collapsedDirectories)
     }
 
     private var failureView: some View {

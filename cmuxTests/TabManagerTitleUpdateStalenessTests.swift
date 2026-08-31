@@ -154,7 +154,7 @@ struct TabManagerTitleUpdateStalenessTests {
         #expect(ingress.submit(
             tabId: workspace.id,
             surfaceId: panelId,
-            sourceSurface: retainedSurface,
+            sourceSurfaceIdentifier: ObjectIdentifier(retainedSurface),
             terminalLifecycleID: callbackLifecycleID,
             title: staleTitle
         ))

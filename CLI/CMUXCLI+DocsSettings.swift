@@ -40,6 +40,18 @@ extension CMUXCLI {
             ]
         ),
         DocsReference(
+            topic: "managed-policies",
+            aliases: ["mdm", "managed", "policy", "policies", "enterprise", "managed-device-policies"],
+            summary: "MDM-enforceable managed policies: disable the embedded browser and iOS remote control on managed Macs.",
+            webURL: "https://cmux.com/docs/managed-policies",
+            rawResources: [
+                DocsResource(label: "managed device policies", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/managed-device-policies.md"),
+            ],
+            commands: [
+                "cmux browser status --json",
+            ]
+        ),
+        DocsReference(
             topic: "shortcuts",
             aliases: ["keyboard", "keybindings", "keys"],
             summary: "cmux-owned keyboard shortcuts and two-step chord syntax.",
@@ -151,7 +163,7 @@ extension CMUXCLI {
         }
 
         guard args.count == 1 else {
-            throw CLIError(message: "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock]")
+            throw CLIError(message: "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies]")
         }
 
         if topic == "list" || topic == "all" {
@@ -176,7 +188,7 @@ extension CMUXCLI {
 
     func docsUsage() -> String {
         return """
-        Usage: cmux docs [settings|shortcuts|api|browser|agents|dock]
+        Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies]
 
         Print the canonical docs URL, raw GitHub resources, and useful commands for a cmux topic.
         This command does not require a running cmux app or socket.

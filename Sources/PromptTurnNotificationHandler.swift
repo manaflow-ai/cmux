@@ -140,7 +140,11 @@ actor PromptTurnNotificationHandler {
                 defaultValue: "Task completed"
             ),
             category: .turnComplete,
-            pending: false
+            pending: false,
+            // Prompt-line detection verifies the pane's foreground agent
+            // process itself, so this is always a top-level session.
+            agentKind: definition.id,
+            isSubagent: false
         )
     }
 

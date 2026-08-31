@@ -5,8 +5,13 @@ final class PushReadinessUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    /// The app's one OS notification prompt belongs to the onboarding push
+    /// page: nothing earlier in the flow may raise it, and tapping Enable
+    /// Notifications is what presents the system alert. (The workspace list
+    /// never auto-prompts anymore; that contract is unit-tested in
+    /// `MobilePushCoordinatorLifecycleTests`.)
     @MainActor
-    func testAuthorizationPromptWaitsForAuthenticatedWorkspaceList() {
+    func testAuthorizationPromptFiresOnlyFromOnboardingPushEnable() {
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         let app = XCUIApplication()
         app.launchArguments = [
@@ -14,34 +19,42 @@ final class PushReadinessUITests: XCTestCase {
             "-AppleLocale", "en_US",
             "-dev.cmux.mobile.onboarding.redesign.progress.v1", "welcome",
         ]
-        app.launchEnvironment = [
-            "CMUX_UITEST_MOCK_DATA": "1",
-            "CMUX_UITEST_ONBOARDING_PREVIEW": "1",
-        ]
         app.launch()
-        XCTAssertTrue(
-            app.descendants(matching: .any)["MobileOnboardingAgentsScene"]
-                .waitForExistence(timeout: 8)
-        )
-        XCTAssertFalse(springboard.buttons["Allow"].waitForExistence(timeout: 1))
+        defer { app.terminate() }
 
-        app.terminate()
-        app.launchArguments = [
-            "-AppleLanguages", "(en)",
-            "-AppleLocale", "en_US",
-        ]
-        app.launchEnvironment = ["CMUX_UITEST_MOCK_DATA": "1"]
-        app.launch()
+        func element(_ identifier: String) -> XCUIElement {
+            app.descendants(matching: .any)[identifier]
+        }
+
+        let primaryButton = app.buttons["MobileOnboardingPrimaryButton"]
+        XCTAssertTrue(element("MobileOnboardingAgentsScene").waitForExistence(timeout: 8))
+        XCTAssertFalse(springboard.buttons["Allow"].waitForExistence(timeout: 1))
+        XCTAssertTrue(primaryButton.waitForExistence(timeout: 4))
+        primaryButton.tap()
+
         XCTAssertTrue(
-            app.descendants(matching: .any)["MobileWorkspaceShell"]
-                .waitForExistence(timeout: 8)
+            element("MobileOnboardingNotificationsScene").waitForExistence(timeout: 4)
         )
+        primaryButton.tap()
+
+        XCTAssertTrue(element("MobileOnboardingPushScene").waitForExistence(timeout: 4))
+        // Reaching the page itself must not ask the system.
+        XCTAssertFalse(springboard.buttons["Allow"].waitForExistence(timeout: 2))
+
+        XCTAssertTrue(primaryButton.label.contains("Enable Notifications"))
+        primaryButton.tap()
+
         let allow = springboard.buttons["Allow"]
         XCTAssertTrue(
             allow.waitForExistence(timeout: 5),
-            "Notification authorization must wait until the workspace list is visible"
+            "Enable Notifications must present the system permission alert"
         )
         allow.tap()
+
+        XCTAssertTrue(
+            element("MobileOnboardingConnectScene").waitForExistence(timeout: 8),
+            "The tour must advance to Connect after the alert resolves"
+        )
     }
 
     @MainActor
@@ -113,6 +126,68 @@ final class PushReadinessUITests: XCTestCase {
         waitForEnabled(forwarding)
         tapSwitch(forwarding)
         waitForValue(forwarding, "0")
+    }
+
+    @MainActor
+    func testPhonePushToggleUpdatesImmediatelyAndKeepsLatestIntent() {
+        let app = launchPreview(
+            "healthy",
+            extraEnvironment: ["CMUX_UITEST_PUSH_PHONE_MUTATION_DELAY": "1"]
+        )
+        defer { app.terminate() }
+
+        let phone = app.switches["MobileSettingsNotifications"]
+        XCTAssertTrue(phone.waitForExistence(timeout: 8))
+        XCTAssertEqual(phone.value as? String, "1")
+
+        tapSwitch(phone)
+
+        waitForValue(
+            phone,
+            "0",
+            timeout: 1,
+            message: "The toggle must reflect opt-out before cleanup finishes"
+        )
+        XCTAssertTrue(phone.isEnabled)
+
+        tapSwitch(phone)
+        waitForValue(
+            phone,
+            "1",
+            timeout: 1,
+            message: "The toggle must reflect the latest intent"
+        )
+
+        let completeEnable = app.buttons[
+            "MobilePushReadinessCompletePhoneMutation-on"
+        ]
+        XCTAssertTrue(completeEnable.waitForExistence(timeout: 2))
+        XCTAssertFalse(
+            app.buttons["MobilePushReadinessCompletePhoneMutation-off"]
+                .exists,
+            "A later intent must replace pending work from the older choice"
+        )
+        waitForValue(
+            phone,
+            "1",
+            timeout: 1,
+            message: "Pending work must not replace the latest intent"
+        )
+        completeEnable.tap()
+        waitForValue(phone, "1")
+
+        tapSwitch(phone)
+        waitForValue(phone, "0")
+        let finalDisable = app.buttons[
+            "MobilePushReadinessCompletePhoneMutation-off"
+        ]
+        XCTAssertTrue(finalDisable.waitForExistence(timeout: 2))
+        finalDisable.tap()
+        waitForValue(
+            phone,
+            "0",
+            message: "Completed cleanup must preserve the opt-out"
+        )
     }
 
     @MainActor
@@ -190,7 +265,8 @@ final class PushReadinessUITests: XCTestCase {
     private func waitForValue(
         _ element: XCUIElement,
         _ expected: String,
-        timeout: TimeInterval = 4
+        timeout: TimeInterval = 4,
+        message: String? = nil
     ) {
         let predicate = NSPredicate(format: "value == %@", expected)
         let expectation = XCTNSPredicateExpectation(
@@ -200,7 +276,7 @@ final class PushReadinessUITests: XCTestCase {
         XCTAssertEqual(
             XCTWaiter.wait(for: [expectation], timeout: timeout),
             .completed,
-            "Expected '\(expected)', got '\(String(describing: element.value))'"
+            message ?? "Expected '\(expected)', got '\(String(describing: element.value))'"
         )
     }
 

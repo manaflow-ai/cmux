@@ -194,7 +194,7 @@ import Testing
         #expect(category == .buildIncompatible)
         #expect(category.analyticsReason == "build_incompatible")
         #expect(category.message.contains("cannot connect"))
-        #expect(category.guidance?.contains("same DEV tag") == true)
+        #expect(category.guidance?.contains("any DEV Mac build") == true)
         #expect(!category.isAuthorizationFailure)
     }
 
@@ -209,7 +209,7 @@ import Testing
         #expect(category.message != MobilePairingFailureCategory.authFailed.message)
         #expect(!category.message.contains("Make sure both devices are signed in"))
         #expect(category.guidance?.contains("BETA") == true)
-        #expect(category.guidance?.contains("same DEV tag") == true)
+        #expect(category.guidance?.contains("any DEV Mac build") == true)
         // Signing out cannot move the account to another Stack project, so this
         // must not drive the re-auth (Sign Out) prompt.
         #expect(!category.isAuthorizationFailure)

@@ -238,9 +238,9 @@ final class MobileWorkspaceListObserver {
         symbols.reserveCapacity(groups.count)
         let controller = TerminalController.shared
         for group in groups {
-            let anchorCwd = currentDirectoryByWorkspaceID[
-                group.anchorWorkspaceId
-            ] ?? nil
+            let anchorCwd = group.liveAnchorWorkspaceId.flatMap {
+                currentDirectoryByWorkspaceID[$0]
+            }
             symbols[group.id] = controller.mobileWorkspaceGroupEffectiveIconSymbol(
                 group,
                 anchorCwd: anchorCwd,
@@ -259,12 +259,14 @@ final class MobileWorkspaceListObserver {
 
     /// A per-workspace signature of the notification-store state the mobile
     /// payload serializes: the latest-notification preview (its id + timestamp)
-    /// and the workspace's unread flag. The hash changes when a new notification
-    /// arrives, the latest one is cleared, or the workspace flips between read
-    /// and unread (mark-read, manual mark-unread, panel-derived or restored
-    /// indicators). A workspace with no notification and no unread state is
-    /// absent from the map. Empty when no store is attached (tests, or a build
-    /// with notifications unavailable).
+    /// and the workspace's unread count and flag. The hash changes when a new
+    /// notification arrives, the latest one is cleared, the workspace flips
+    /// between read and unread (mark-read, manual mark-unread, panel-derived
+    /// or restored indicators), or the unread count moves while staying
+    /// nonzero (dismissing one of several notifications must refresh the
+    /// phone's badge number). A workspace with no notification and no unread
+    /// state is absent from the map. Empty when no store is attached (tests,
+    /// or a build with notifications unavailable).
     static func previewSignatures(
         for tabs: [Workspace],
         unreadSnapshot: SidebarUnreadSnapshot?
@@ -280,6 +282,7 @@ final class MobileWorkspaceListObserver {
             hasher.combine(summary.latestNotificationId)
             hasher.combine(summary.latestNotificationCreatedAt)
             hasher.combine(isUnread)
+            hasher.combine(summary.unreadCount)
             signatures[workspace.id] = hasher.finalize()
         }
         return signatures
@@ -345,6 +348,7 @@ final class MobileWorkspaceListObserver {
                 // sub-model, so a pure todo mutation would otherwise never
                 // re-emit to external listeners.
                 workspace.todoState.$statusOverride.map { _ in () }.eraseToAnyPublisher(),
+                workspace.todoState.$statusHidden.map { _ in () }.eraseToAnyPublisher(),
                 workspace.todoState.$checklist.map { _ in () }.eraseToAnyPublisher(),
                 workspace.currentDirectoryChangeRevisionPublisher()
                     .map { _ in () }
@@ -485,7 +489,8 @@ final class MobileWorkspaceListObserver {
             hasher.combine(group.isCollapsed)
             hasher.combine(group.isPinned)
             hasher.combine(groupIconSymbols[group.id] ?? group.iconSymbol)
-            hasher.combine(group.anchorWorkspaceId)
+            hasher.combine(group.liveAnchorWorkspaceId)
+            hasher.combine(group.isEmpty)
         }
         for workspace in tabs {
             hasher.combine(workspace.id)
@@ -519,6 +524,7 @@ final class MobileWorkspaceListObserver {
             // Todo mutations change the list-facing shape; without these the
             // hash-diff would suppress the re-emit the publishers above fire.
             hasher.combine(workspace.todoState.statusOverride)
+            hasher.combine(workspace.todoState.statusHidden)
             hasher.combine(workspace.todoState.checklist)
             // Hash every panelDirectories entry (including ids not yet in
             // `panels`) so a directory update is detected even before its panel

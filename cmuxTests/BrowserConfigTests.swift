@@ -1822,6 +1822,32 @@ final class BrowserThemeSettingsTests: XCTestCase {
     }
 }
 
+final class BrowserDefaultZoomRegressionTests: XCTestCase {
+    private let key = "browserDefaultZoomLevel"
+
+    private func makeIsolatedDefaults() -> UserDefaults {
+        let suiteName = "BrowserDefaultZoomRegressionTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            fatalError("Failed to create defaults suite")
+        }
+        defaults.removePersistentDomain(forName: suiteName)
+        addTeardownBlock {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        return defaults
+    }
+
+    @MainActor
+    func testOutOfRangeConfiguredZoomIsNormalized() {
+        let defaults = makeIsolatedDefaults()
+        defaults.set(99.0, forKey: key)
+
+        BrowserPanel.normalizeBrowserDefaults(defaults: defaults)
+
+        XCTAssertEqual(defaults.double(forKey: key), 5.0)
+    }
+}
+
 
 final class BrowserDeveloperToolsShortcutDefaultsTests: XCTestCase {
     func testSafariDefaultShortcutForToggleDeveloperTools() {

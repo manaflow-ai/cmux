@@ -63,6 +63,9 @@ class GeneratedClientMixin:
     def clear_window_title(self) -> EmptyResult:
         return self._invoke_command('clear-window-title', ClearWindowTitleRequest())
 
+    def client_focus(self, client_id: str) -> ClientFocusResult:
+        return self._invoke_command('client-focus', ClientFocusRequest(client_id=client_id))
+
     def close_pane(self, pane: Id) -> EmptyResult:
         return self._invoke_command('close-pane', ClosePaneRequest(pane=pane))
 
@@ -228,6 +231,9 @@ class GeneratedClientMixin:
     def report_agent(self, surface: Id, state: AgentState, source: AgentReportSource, *, session: Union[str, None, MissingType] = MISSING) -> ReportAgentResult:
         return self._invoke_command('report-agent', ReportAgentRequest(surface=surface, state=state, source=source, session=session))
 
+    def report_focus(self, pane: Id, client_id: str, *, tab: Union[int, None, MissingType] = MISSING) -> EmptyResult:
+        return self._invoke_command('report-focus', ReportFocusRequest(pane=pane, client_id=client_id, tab=tab))
+
     def resize_attached_view(self, surface: Id, cols: int, lease: str, rows: int) -> AttachedViewResizeResult:
         return self._invoke_command('resize-attached-view', ResizeAttachedViewRequest(surface=surface, cols=cols, lease=lease, rows=rows))
 
@@ -333,6 +339,7 @@ GeneratedClientMixin.browser_wheel.__cmux_command__ = COMMANDS['browser-wheel']
 GeneratedClientMixin.browser_wheel_guarded.__cmux_command__ = COMMANDS['browser-wheel-guarded']
 GeneratedClientMixin.clear_history.__cmux_command__ = COMMANDS['clear-history']
 GeneratedClientMixin.clear_window_title.__cmux_command__ = COMMANDS['clear-window-title']
+GeneratedClientMixin.client_focus.__cmux_command__ = COMMANDS['client-focus']
 GeneratedClientMixin.close_pane.__cmux_command__ = COMMANDS['close-pane']
 GeneratedClientMixin.close_provider_managed_workspace.__cmux_command__ = COMMANDS['close-provider-managed-workspace']
 GeneratedClientMixin.close_screen.__cmux_command__ = COMMANDS['close-screen']
@@ -388,6 +395,7 @@ GeneratedClientMixin.rename_screen.__cmux_command__ = COMMANDS['rename-screen']
 GeneratedClientMixin.rename_surface.__cmux_command__ = COMMANDS['rename-surface']
 GeneratedClientMixin.rename_workspace.__cmux_command__ = COMMANDS['rename-workspace']
 GeneratedClientMixin.report_agent.__cmux_command__ = COMMANDS['report-agent']
+GeneratedClientMixin.report_focus.__cmux_command__ = COMMANDS['report-focus']
 GeneratedClientMixin.resize_attached_view.__cmux_command__ = COMMANDS['resize-attached-view']
 GeneratedClientMixin.resize_surface.__cmux_command__ = COMMANDS['resize-surface']
 GeneratedClientMixin.resolve_terminal.__cmux_command__ = COMMANDS['resolve-terminal']

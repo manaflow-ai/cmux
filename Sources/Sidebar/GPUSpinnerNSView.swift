@@ -1,5 +1,6 @@
 import AppKit
 import QuartzCore
+import SwiftUI
 
 final class GPUSpinnerNSView: NSView {
     static let animationKey = "cmux.gpuSpinner.rotation"
@@ -27,6 +28,14 @@ final class GPUSpinnerNSView: NSView {
 
     var color: NSColor = .secondaryLabelColor {
         didSet { applyColor() }
+    }
+
+    /// Concrete cmux scheme used to resolve semantic spinner colors.
+    var colorScheme: ColorScheme = .light {
+        didSet {
+            guard colorScheme != oldValue else { return }
+            applyColor()
+        }
     }
 
     override init(frame frameRect: NSRect) {
@@ -131,9 +140,10 @@ final class GPUSpinnerNSView: NSView {
 
     private func applyColor() {
         var cg = CGColor(gray: 0.6, alpha: 1)
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            cg = Self.resolvedCGColor(color)
-        }
+        cg = Self.resolvedCGColor(
+            SidebarAppearanceColorResolver().resolvedColor(color, for: colorScheme),
+            colorScheme: colorScheme
+        )
         switch style {
         case .macOSSpokes:
             for spoke in spokeLayers {
@@ -173,12 +183,6 @@ final class GPUSpinnerNSView: NSView {
     @objc private func visibilityChanged() {
         layoutContent()
         updateAnimationState()
-    }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        // Re-resolve snapshotted semantic colors on light/dark switches.
-        applyColor()
     }
 
     private var shouldAnimate: Bool {
@@ -235,9 +239,11 @@ final class GPUSpinnerNSView: NSView {
         }
     }
 
-    private static func resolvedCGColor(_ color: NSColor) -> CGColor {
+    private static func resolvedCGColor(_ color: NSColor, colorScheme: ColorScheme) -> CGColor {
         color.usingColorSpace(.deviceRGB)?.cgColor
-            ?? NSColor.secondaryLabelColor.usingColorSpace(.deviceRGB)?.cgColor
+            ?? SidebarAppearanceColorResolver()
+                .resolvedColor(.secondaryLabelColor, for: colorScheme)
+                .usingColorSpace(.deviceRGB)?.cgColor
             ?? CGColor(gray: 0.6, alpha: 1)
     }
 }
