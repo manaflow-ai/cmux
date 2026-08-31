@@ -637,8 +637,7 @@ extension Workspace {
                         }
                         return true
                     }
-                    guard let effectiveRestorableAgent,
-                          let matchingObservation else {
+                    guard let matchingObservation else {
                         return false
                     }
                     return matchingObservation.processLiveness
