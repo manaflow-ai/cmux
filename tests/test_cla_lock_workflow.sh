@@ -75,6 +75,12 @@ gh() {
       local opener_login=contributor
       case "${FAKE_MODE:-}" in
         reopened) state=open; merged=false ;;
+        reopen-after-lock)
+          if [[ -f "${FAKE_LOCK_FILE}" ]] && [[ "$(<"${FAKE_LOCK_FILE}")" == true ]]; then
+            state=open
+            merged=false
+          fi
+          ;;
         retargeted) base_ref=release ;;
         changed-head) head_sha=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb ;;
         changed-head-repo) head_repo=attacker/cmux; head_repo_id=201 ;;
@@ -120,6 +126,9 @@ gh() {
         printf '%s\n' "$endpoint" >>"${FAKE_POST_FILE}"
         if [[ "${FAKE_MODE:-}" == lock-failure ]]; then return 1; fi
         printf 'true\n' >"${FAKE_LOCK_FILE}"
+      elif [[ " $* " == *" --method DELETE "* ]]; then
+        printf '%s\n' "$endpoint" >>"${FAKE_POST_FILE}"
+        printf 'false\n' >"${FAKE_LOCK_FILE}"
       fi
       ;;
     *)
@@ -188,3 +197,4 @@ run_case deleted-fork 0 "Pull request 123 is locked" 1
 run_case deleted-fork-metadata-mismatch 0 "Pull request 123 is locked" 1
 run_case api-failure 1 "Could not query the merged pull request" 0
 run_case lock-failure 1 "Could not lock the merged pull request" 1
+run_case reopen-after-lock 1 "changed after locking; the stale lock was removed" 2

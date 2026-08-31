@@ -638,12 +638,47 @@ jobs:
             echo "::error::Could not lock the merged pull request"
             exit 1
           fi
+
+          unlock_after_state_change() {
+            if ! gh api --method DELETE \
+              --header 'Accept: application/vnd.github+json' \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              "${lock_endpoint}" \
+              >/dev/null 2>&1; then
+              echo "::error::The pull request changed after locking and the stale lock could not be removed"
+              exit 1
+            fi
+            if ! unlocked="$(gh api "${issue_endpoint}" --jq '.locked' 2>/dev/null)"; then
+              echo "::error::The stale pull request lock was removed, but its state could not be verified"
+              exit 1
+            fi
+            [[ "${unlocked}" == "false" ]] || {
+              echo "::error::The stale pull request lock could not be removed"
+              exit 1
+            }
+          }
+
           if ! locked="$(gh api "${issue_endpoint}" --jq '.locked' 2>/dev/null)"; then
             echo "::error::Could not verify the pull request lock state"
+            unlock_after_state_change
             exit 1
           fi
           if [[ "${locked}" != "true" ]]; then
             echo "::error::The merged pull request is not locked"
+            unlock_after_state_change
             exit 1
+          fi
+
+          # There is no conditional lock endpoint. Re-read the live pull
+          # request after the PUT and remove the lock if an administrator
+          # reopened or retargeted it during the request. The final read is
+          # the recovery boundary for the API's unavoidable TOCTOU window.
+          if ! live_pr_json="$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}" 2>/dev/null)"; then
+            unlock_after_state_change
+            fail "Could not verify the merged pull request after locking"
+          fi
+          if ! validate_live_merged_pr "${live_pr_json}"; then
+            unlock_after_state_change
+            fail "The pull request changed after locking; the stale lock was removed"
           fi
           echo "Pull request ${PR_NUMBER} is locked"
