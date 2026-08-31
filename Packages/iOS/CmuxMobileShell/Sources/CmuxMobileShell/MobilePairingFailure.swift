@@ -78,8 +78,8 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
     /// this build understands (the Mac is on a newer cmux). The fix is updating
     /// the phone app, not re-scanning.
     case unrecognizedVersion
-    /// A tokenless Tailscale URL was opened by the system camera or another
-    /// app. It must be entered through cmux's scanner to authorize the route.
+    /// A Tailscale URL was opened by the system camera or another app. It must
+    /// be entered through cmux's scanner to authorize the route.
     case externalCodeRequiresInAppScan
     /// The scanned/pasted code only points back at the Mac itself (loopback),
     /// which the phone can never dial.

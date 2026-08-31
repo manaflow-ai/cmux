@@ -8,9 +8,7 @@ struct MobilePairingURLAuthorizationPolicy {
         userEnteredPairingCode: Bool,
         externalURL: Bool
     ) -> Bool {
-        guard externalURL,
-              !userEnteredPairingCode,
-              ticket.authToken == nil else {
+        guard externalURL, !userEnteredPairingCode else {
             return false
         }
         return ticket.routes.contains { $0.kind == .tailscale }

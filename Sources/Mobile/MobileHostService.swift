@@ -410,7 +410,14 @@ final class MobileHostService {
     /// degrades to identity-free and the phone's identity-recovery retry
     /// picks it up later). A flood of unique garbage tokens therefore cannot
     /// queue unbounded Stack lookups behind this verb.
-    nonisolated static func networkStatusResult(for request: MobileHostRPCRequest) async -> MobileHostStatusResolution {
+    /// Backward-compatible status API for callers that only need the wire
+    /// response. The connection dispatcher uses ``networkStatusResolution``
+    /// so it can retain the verified account snapshot for persistence.
+    nonisolated static func networkStatusResult(for request: MobileHostRPCRequest) async -> MobileHostRPCResult {
+        await networkStatusResolution(for: request).result
+    }
+
+    nonisolated static func networkStatusResolution(for request: MobileHostRPCRequest) async -> MobileHostStatusResolution {
         let trimmedToken = request.auth?.stackAccessToken?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmedToken?.isEmpty == false else {
             return MobileHostStatusResolution(
@@ -1444,7 +1451,7 @@ final class MobileHostService {
                         authorization: authorization,
                         supportsArtifactLane: artifactTransfers != nil,
                         stackStatusResolution: { request in
-                            await MobileHostService.networkStatusResult(for: request)
+                            await MobileHostService.networkStatusResolution(for: request)
                         }
                     )
                 }
