@@ -71,12 +71,17 @@ struct BrowserExternalURLPolicyTests {
             forKey: BrowserExternalURLPolicy.userDefaultsKey
         )
 
-        let store = UserDefaultsSettingsStore(defaults: defaults)
+        // Pass a separate suite handle into the actor. The original handle
+        // remains local to this test, avoiding a Swift 6 sending-risk when we
+        // inspect and mutate it after the actor is initialized.
+        let storeDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let store = UserDefaultsSettingsStore(defaults: storeDefaults)
         let key = SettingCatalog().browser.urlsToAlwaysOpenExternally
         #expect(await store.value(for: key) == "example.com\nother.test")
-        #expect(defaults.object(forKey: key.userDefaultsKey) as? [String] == [" example.com ", "# ignored", "other.test"])
 
-        defaults.set(["third.test"], forKey: key.userDefaultsKey)
+        let updatedDefaults = try #require(UserDefaults(suiteName: suiteName))
+        #expect(updatedDefaults.object(forKey: key.userDefaultsKey) as? [String] == [" example.com ", "# ignored", "other.test"])
+        updatedDefaults.set(["third.test"], forKey: key.userDefaultsKey)
         #expect(await store.value(for: key) == "third.test")
     }
 

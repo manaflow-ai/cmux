@@ -9,7 +9,9 @@ final class BrowserExternalURLPolicyCache {
     private let maximumInputValueCount = 512
     private let maximumTotalPatternLength = 65_536
     private var cachedSignature: String?
-    private var cachedRawObject: AnyObject?
+    // Weak identity avoids retaining an arbitrarily large legacy array/string;
+    // when the snapshot is gone, the bounded normalized signature is used.
+    private weak var cachedRawObject: AnyObject?
     private var cachedPolicy: BrowserExternalURLPolicy?
 
     init(defaults: UserDefaults) {
