@@ -24,6 +24,29 @@ extension TerminalSurface {
         return remoteOutputLane.enqueueTextInput(frame, to: surface)
     }
 
+    /// Notifies the pane host that explicit terminal input is about to be sent.
+    ///
+    /// The return value reports whether this input admitted a deferred startup
+    /// restore. Actual user events also cancel pending context recovery through
+    /// the same shared input boundary.
+    ///
+    /// - Parameter isUserInitiated: Whether this input came from a user event.
+    /// - Returns: Whether a deferred startup restore was cancelled.
+    @MainActor
+    @discardableResult
+    public func didReceiveExplicitInput(isUserInitiated: Bool = false) -> Bool {
+        var cancelledDeferredAdmission = false
+        if cancelsStartupRestoreAdmissionOnExplicitInput,
+           startupRestoreAdmissionPhase == .awaitingAdmission {
+            cancelledDeferredAdmission = cancelStartupRestoreAdmissionForExplicitInput()
+        }
+        paneHost.terminalSurfaceDidReceiveExplicitInput()
+        if isUserInitiated {
+            didObserveUserInitiatedInput()
+        }
+        return cancelledDeferredAdmission
+    }
+
     /// Routes programmatic input through the view-owned clipboard sequencer.
     @MainActor
     func deferInputDuringRuntimeClipboardRead(
@@ -140,10 +163,28 @@ extension TerminalSurface {
         ) {
             return true
         }
+        guard surface != nil else {
+            guard allowsRuntimeSurfaceCreation() else { return false }
+            let queued = enqueuePendingSocketInput(.keyText(text))
+            if queued {
+                requestInputDemandSurfaceStartIfNeeded()
+                didAcceptExplicitInput()
+            }
+            return queued
+        }
         guard let liveSurface = liveSurfaceForSocketWrite(reason: "socket.sendKeyText") else {
             return false
         }
         guard !ghostty_surface_process_exited(liveSurface) else { return false }
+
+        return sendKeyText(text, to: liveSurface)
+    }
+
+    @MainActor
+    private func sendKeyText(
+        _ text: String,
+        to liveSurface: ghostty_surface_t
+    ) -> Bool {
 
         var keyEvent = ghostty_input_key_s()
         keyEvent.action = GHOSTTY_ACTION_PRESS
@@ -941,6 +982,8 @@ extension TerminalSurface {
                 keycode: event.keycode,
                 mods: event.mods
             )
+        case .keyText(let text):
+            _ = sendKeyText(text, to: surface)
         }
         return false
     }

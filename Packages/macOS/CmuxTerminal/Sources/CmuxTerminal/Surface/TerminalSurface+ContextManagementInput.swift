@@ -26,26 +26,17 @@ extension TerminalSurface {
         mobileByteTeeLease?.setContextPressureMonitoringEnabled(enabled)
     }
 
-    /// Notifies the pane host that explicit terminal input is about to be sent.
-    ///
-    /// `isUserInitiated` is reserved for input that originated in an actual
-    /// user event. Socket/API callers and cmux-authored recovery writes keep
-    /// the legacy pane-host notification without cancelling pending
-    /// automation for the same surface.
-    ///
-    /// - Parameter isUserInitiated: Whether to cancel pending context recovery.
-    @MainActor
-    public func didReceiveExplicitInput(isUserInitiated: Bool = false) {
-        paneHost.terminalSurfaceDidReceiveExplicitInput()
-        if isUserInitiated {
-            onUserExplicitInput?()
-        }
-    }
-
     /// Notifies the current panel owner after explicit terminal input is accepted.
     @MainActor
     public func didAcceptExplicitInput() {
         onExplicitInput?()
+    }
+
+    /// Cancels pending context recovery for a real user event whose terminal
+    /// write is deliberately delivered later by another sequencer.
+    @MainActor
+    public func didObserveUserInitiatedInput() {
+        onUserExplicitInput?()
     }
 
     /// Publishes accepted user intent without duplicating the pane-host input
@@ -53,7 +44,7 @@ extension TerminalSurface {
     @MainActor
     func didAcceptUserInitiatedInput(_ isUserInitiated: Bool, accepted: Bool) {
         if isUserInitiated, accepted {
-            onUserExplicitInput?()
+            didObserveUserInitiatedInput()
         }
     }
 

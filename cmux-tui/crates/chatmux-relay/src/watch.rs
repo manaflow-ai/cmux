@@ -7,12 +7,16 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
+use tokio::sync::Notify;
+use tokio::sync::mpsc::{Receiver, Sender, channel};
 
+use crate::actions::{RootLists, ensure_scoped_file_roots_available};
 use crate::relay_wire as wire;
+use crate::session::OutboundSink;
 use crate::workspace::{Refusal, Scope, WORKSPACE_FRAME_VERSION, slash_path};
 
 /// Concurrent watch sessions per machine (WORKSPACE_WATCH_MAX_SESSIONS).
@@ -25,12 +29,14 @@ pub const WATCH_MAX_CHANGES: usize = 256;
 /// behind the first change in its burst.
 const DEBOUNCE_QUIET: Duration = Duration::from_millis(150);
 const DEBOUNCE_MAX_LATENCY: Duration = Duration::from_millis(500);
+const MAX_PENDING_NOTIFY_EVENTS: usize = 1024;
 
-type Sessions = Arc<Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>;
+type Sessions = Arc<Mutex<HashMap<String, (u64, Option<tokio::task::JoinHandle<()>>)>>>;
 
 pub struct WatchRegistry {
-    outbound: UnboundedSender<String>,
+    outbound: OutboundSink,
     sessions: Sessions,
+    next_generation: Arc<AtomicU64>,
 }
 
 impl Drop for WatchRegistry {
@@ -38,8 +44,10 @@ impl Drop for WatchRegistry {
         // The socket died with this registry; the Worker re-opens watches
         // on the next connection.
         if let Ok(mut sessions) = self.sessions.lock() {
-            for (_, task) in sessions.drain() {
-                task.abort();
+            for (_, (_, task)) in sessions.drain() {
+                if let Some(task) = task {
+                    task.abort();
+                }
             }
         }
     }
@@ -57,17 +65,22 @@ fn watch_error_frame(watch_id: &str, code: wire::WorkspaceErrorCode, message: &s
 }
 
 impl WatchRegistry {
-    pub fn new(outbound: UnboundedSender<String>) -> WatchRegistry {
-        WatchRegistry { outbound, sessions: Arc::new(Mutex::new(HashMap::new())) }
+    pub(crate) fn new(outbound: OutboundSink) -> WatchRegistry {
+        WatchRegistry {
+            outbound,
+            sessions: Arc::new(Mutex::new(HashMap::new())),
+            next_generation: Arc::new(AtomicU64::new(0)),
+        }
     }
 
     pub fn refuse(&self, watch_id: &str, code: wire::WorkspaceErrorCode, message: &str) {
-        let _ = self.outbound.send(watch_error_frame(watch_id, code, message));
+        let text = watch_error_frame(watch_id, code, message);
+        let _ = self.outbound.try_critical_text(text);
     }
 
     pub fn close(&self, watch_id: &str) {
         if let Ok(mut sessions) = self.sessions.lock()
-            && let Some(task) = sessions.remove(watch_id)
+            && let Some((_, Some(task))) = sessions.remove(watch_id)
         {
             task.abort();
         }
@@ -84,19 +97,6 @@ impl WatchRegistry {
                 return;
             }
         };
-        let at_capacity = self
-            .sessions
-            .lock()
-            .map(|sessions| sessions.len() >= WATCH_MAX_SESSIONS)
-            .unwrap_or(true);
-        if at_capacity {
-            self.refuse(
-                &watch_id,
-                wire::WorkspaceErrorCode::WatchLimit,
-                &format!("this machine already streams {WATCH_MAX_SESSIONS} watches"),
-            );
-            return;
-        }
         let opened = serde_json::to_string(&wire::RelayFsWatchOpened {
             version: WORKSPACE_FRAME_VERSION,
             r#type: wire::TagFsWatchOpened::FsWatchOpened,
@@ -104,19 +104,62 @@ impl WatchRegistry {
             root: root.to_string_lossy().into_owned(),
         })
         .unwrap_or_else(|_| String::new());
-        let _ = self.outbound.send(opened);
+        let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
+        let previous = match self.sessions.lock() {
+            Ok(mut sessions)
+                if sessions.contains_key(&watch_id) || sessions.len() < WATCH_MAX_SESSIONS =>
+            {
+                Ok(sessions.insert(watch_id.clone(), (generation, None)))
+            }
+            Ok(_) | Err(_) => Err(()),
+        };
+        let previous = match previous {
+            Ok(previous) => previous,
+            Err(()) => {
+                self.refuse(
+                    &watch_id,
+                    wire::WorkspaceErrorCode::WatchLimit,
+                    &format!("this machine already streams {WATCH_MAX_SESSIONS} watches"),
+                );
+                return;
+            }
+        };
+        let _ = self.outbound.try_critical_text(opened);
         let outbound = self.outbound.clone();
         let sessions = Arc::clone(&self.sessions);
         let task_id = watch_id.clone();
-        let task = tokio::spawn(async move {
+        let mut task = Some(tokio::spawn(async move {
             run_watch(&task_id, &root, &outbound).await;
             if let Ok(mut sessions) = sessions.lock() {
-                sessions.remove(&task_id);
+                // `tokio::spawn` starts the task immediately, so a watcher
+                // that fails during startup can finish before its handle is
+                // installed in the registry. Remove our generation's
+                // placeholder regardless of whether the handle is present;
+                // a replacement watch has a different generation and is
+                // therefore preserved.
+                if sessions.get(&task_id).is_some_and(|entry| entry.0 == generation) {
+                    sessions.remove(&task_id);
+                }
             }
-        });
-        if let Ok(mut sessions) = self.sessions.lock()
-            && let Some(previous) = sessions.insert(watch_id, task)
-        {
+        }));
+        let installed = if let Ok(mut sessions) = self.sessions.lock() {
+            if let Some(entry) = sessions.get_mut(&watch_id) {
+                if entry.0 == generation {
+                    entry.1 = task.take();
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        if !installed && let Some(task) = task {
+            task.abort();
+        }
+        if let Some((_, Some(previous))) = previous {
             previous.abort();
         }
     }
@@ -126,6 +169,17 @@ fn watch_root(
     frame: &wire::RelayFsWatchOpen,
     local_roots: Option<&[String]>,
 ) -> Result<PathBuf, Refusal> {
+    watch_root_with_capabilities(frame, local_roots, cfg!(unix))
+}
+
+fn watch_root_with_capabilities(
+    frame: &wire::RelayFsWatchOpen,
+    local_roots: Option<&[String]>,
+    supports_descriptor_scoping: bool,
+) -> Result<PathBuf, Refusal> {
+    let roots: RootLists<'_> = [local_roots, frame.allowed_roots.as_deref()];
+    ensure_scoped_file_roots_available(supports_descriptor_scoping, &roots)
+        .map_err(|message| Refusal::new(wire::WorkspaceErrorCode::UnsupportedVerb, message))?;
     let scope = Scope::build(frame.allowed_roots.as_deref(), local_roots)?;
     let root = match &frame.root {
         Some(raw) => scope.resolve(raw, false)?,
@@ -145,37 +199,73 @@ fn watch_root(
 // The watch task: notify events -> debounce -> gitignore filter -> frames
 // ---------------------------------------------------------------------------
 
-async fn run_watch(watch_id: &str, root: &Path, outbound: &UnboundedSender<String>) {
+async fn run_watch(watch_id: &str, root: &Path, outbound: &OutboundSink) {
     use notify::Watcher as _;
-    let (event_tx, mut event_rx) = unbounded_channel::<Result<notify::Event, notify::Error>>();
-    let mut watcher = match notify::recommended_watcher(move |event| {
-        let _ = event_tx.send(event);
-    }) {
-        Ok(watcher) => watcher,
-        Err(error) => {
-            let _ = outbound.send(watch_error_frame(
+    let (event_tx, mut event_rx) =
+        channel::<Result<notify::Event, notify::Error>>(MAX_PENDING_NOTIFY_EVENTS);
+    let overflowed = Arc::new(AtomicBool::new(false));
+    let overflow_notify = Arc::new(Notify::new());
+    let latched_error = Arc::new(Mutex::new(None::<String>));
+    let callback_overflowed = Arc::clone(&overflowed);
+    let callback_notify = Arc::clone(&overflow_notify);
+    let callback_error = Arc::clone(&latched_error);
+    let mut watcher =
+        match notify::recommended_watcher(move |event: Result<notify::Event, notify::Error>| {
+            match event {
+                Ok(event) => try_enqueue_notify_event(
+                    &event_tx,
+                    &callback_overflowed,
+                    &callback_notify,
+                    Ok(event),
+                ),
+                Err(error) => {
+                    if let Ok(mut latched) = callback_error.lock() {
+                        *latched = Some(error.to_string());
+                    }
+                    callback_notify.notify_one();
+                }
+            }
+        }) {
+            Ok(watcher) => watcher,
+            Err(error) => {
+                let _ = outbound
+                    .critical_text(watch_error_frame(
+                        watch_id,
+                        wire::WorkspaceErrorCode::Failed,
+                        &format!("could not start the watcher: {error}"),
+                    ))
+                    .await;
+                return;
+            }
+        };
+    if let Err(error) = watcher.watch(root, notify::RecursiveMode::Recursive) {
+        let _ = outbound
+            .critical_text(watch_error_frame(
                 watch_id,
                 wire::WorkspaceErrorCode::Failed,
-                &format!("could not start the watcher: {error}"),
-            ));
-            return;
-        }
-    };
-    if let Err(error) = watcher.watch(root, notify::RecursiveMode::Recursive) {
-        let _ = outbound.send(watch_error_frame(
-            watch_id,
-            wire::WorkspaceErrorCode::Failed,
-            &format!("could not watch {}: {error}", root.display()),
-        ));
+                &format!("could not watch {}: {error}", root.display()),
+            ))
+            .await;
         return;
     }
     let mut matcher = build_ignore_matcher(root);
-    loop {
-        let Some(first) = event_rx.recv().await else { break };
-        let mut burst = vec![first];
+    'watch: loop {
+        let notified = overflow_notify.notified();
+        let first = tokio::select! {
+            event = event_rx.recv() => event,
+            _ = notified => None,
+        };
+        let mut burst = first.into_iter().collect::<Vec<_>>();
+        let has_latched_error = latched_error.lock().map(|error| error.is_some()).unwrap_or(false);
+        if burst.is_empty() && !overflowed.load(Ordering::Acquire) && !has_latched_error {
+            break;
+        }
         drain_burst(&mut event_rx, &mut burst).await;
         let mut fatal: Option<notify::Error> = None;
-        let mut overflow = false;
+        let mut overflow = overflowed.swap(false, Ordering::AcqRel);
+        // Include drops that happened while the quiet-window drain was
+        // collecting this burst. A later burst must not hide this loss.
+        overflow |= overflowed.swap(false, Ordering::AcqRel);
         let mut changes: Vec<wire::FsWatchChange> = Vec::new();
         let mut change_index: HashMap<String, usize> = HashMap::new();
         let mut saw_ignore_file = false;
@@ -201,6 +291,16 @@ async fn run_watch(watch_id: &str, root: &Path, outbound: &UnboundedSender<Strin
             changes.truncate(WATCH_MAX_CHANGES);
             overflow = true;
         }
+        if overflow {
+            let _ = outbound
+                .critical_text(watch_error_frame(
+                    watch_id,
+                    wire::WorkspaceErrorCode::Failed,
+                    "watch event burst overflowed; refresh the tree",
+                ))
+                .await;
+        }
+        let latched_error = latched_error.lock().ok().and_then(|mut error| error.take());
         if !changes.is_empty() || overflow {
             let frame = serde_json::to_string(&wire::RelayFsWatchEvent {
                 version: WORKSPACE_FRAME_VERSION,
@@ -210,19 +310,35 @@ async fn run_watch(watch_id: &str, root: &Path, outbound: &UnboundedSender<Strin
                 overflow: overflow.then_some(true),
             })
             .unwrap_or_else(|_| String::new());
-            if outbound.send(frame).is_err() {
-                break;
+            if outbound.try_watch_text(frame).is_err() {
+                // The outbound sink is saturated or closed. Retrying by
+                // latching overflow would wake this loop immediately and
+                // spin forever while producing no observable frame. The
+                // event is explicitly lost, so terminate this watch task.
+                break 'watch;
             }
         }
         if saw_ignore_file {
             matcher = build_ignore_matcher(root);
         }
         if let Some(error) = fatal {
-            let _ = outbound.send(watch_error_frame(
-                watch_id,
-                wire::WorkspaceErrorCode::Failed,
-                &format!("the watcher died: {error}"),
-            ));
+            let _ = outbound
+                .critical_text(watch_error_frame(
+                    watch_id,
+                    wire::WorkspaceErrorCode::Failed,
+                    &format!("the watcher died: {error}"),
+                ))
+                .await;
+            break;
+        }
+        if let Some(error) = latched_error {
+            let _ = outbound
+                .critical_text(watch_error_frame(
+                    watch_id,
+                    wire::WorkspaceErrorCode::Failed,
+                    &format!("the watcher reported an error: {error}"),
+                ))
+                .await;
             break;
         }
     }
@@ -230,7 +346,7 @@ async fn run_watch(watch_id: &str, root: &Path, outbound: &UnboundedSender<Strin
 }
 
 async fn drain_burst(
-    event_rx: &mut UnboundedReceiver<Result<notify::Event, notify::Error>>,
+    event_rx: &mut Receiver<Result<notify::Event, notify::Error>>,
     burst: &mut Vec<Result<notify::Event, notify::Error>>,
 ) {
     let flush_at = tokio::time::Instant::now() + DEBOUNCE_MAX_LATENCY;
@@ -244,6 +360,18 @@ async fn drain_burst(
             Ok(Some(event)) => burst.push(event),
             Ok(None) | Err(_) => return,
         }
+    }
+}
+
+fn try_enqueue_notify_event<T>(
+    sender: &Sender<T>,
+    overflowed: &AtomicBool,
+    notify: &Notify,
+    event: T,
+) {
+    if sender.try_send(event).is_err() {
+        overflowed.store(true, Ordering::Release);
+        notify.notify_one();
     }
 }
 
@@ -391,6 +519,7 @@ fn collect_changes(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::session::{OutboundFrame, OutboundSink};
     use serde_json::Value;
 
     fn scratch(name: &str) -> PathBuf {
@@ -413,22 +542,29 @@ mod tests {
         }
     }
 
-    async fn next_frame(rx: &mut UnboundedReceiver<String>, what: &str) -> Value {
-        let text = tokio::time::timeout(Duration::from_secs(10), rx.recv())
+    async fn next_frame(
+        critical: &mut Receiver<OutboundFrame>,
+        watch: &mut Receiver<OutboundFrame>,
+        what: &str,
+    ) -> Value {
+        let frame = tokio::time::timeout(Duration::from_secs(10), async {
+            tokio::select! { biased; frame = critical.recv() => frame, frame = watch.recv() => frame }
+        })
             .await
             .unwrap_or_else(|_| panic!("no {what} frame within 10s"))
             .expect("channel open");
-        serde_json::from_str(&text).expect("valid frame json")
+        serde_json::from_str(&frame.text).expect("valid frame json")
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn watch_streams_debounced_changes_for_a_write() {
         let root = scratch("stream");
         std::fs::write(root.join("seed.txt"), "seed\n").expect("seed");
-        let (tx, mut rx) = unbounded_channel::<String>();
-        let registry = WatchRegistry::new(tx);
+        let (sink, mut critical, mut watch) = OutboundSink::channels();
+        let registry = WatchRegistry::new(sink);
         registry.open(open_frame("w1", &root), None);
-        let opened = next_frame(&mut rx, "opened").await;
+        let opened = next_frame(&mut critical, &mut watch, "opened").await;
         assert_eq!(opened["type"], "fs_watch_opened");
         assert_eq!(opened["watchId"], "w1");
         assert_eq!(opened["root"].as_str(), root.to_str());
@@ -436,7 +572,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(400)).await;
         std::fs::write(root.join("fresh.txt"), "hello\n").expect("write");
         let event = loop {
-            let frame = next_frame(&mut rx, "change").await;
+            let frame = next_frame(&mut critical, &mut watch, "change").await;
             assert_eq!(frame["type"], "fs_watch_event");
             let changes = frame["changes"].as_array().expect("changes").clone();
             if changes.iter().any(|change| change["path"] == "fresh.txt") {
@@ -447,28 +583,44 @@ mod tests {
         registry.close("w1");
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn watch_refuses_typed_and_respects_the_session_cap() {
         let root = scratch("refuse");
-        let (tx, mut rx) = unbounded_channel::<String>();
-        let registry = WatchRegistry::new(tx);
+        let (sink, mut critical, mut watch) = OutboundSink::channels();
+        let registry = WatchRegistry::new(sink);
         // A root outside the allowed list refuses path_forbidden.
         let mut outside = open_frame("w-out", &root);
         outside.root = Some("/etc".to_owned());
         registry.open(outside, None);
-        let refusal = next_frame(&mut rx, "refusal").await;
+        let refusal = next_frame(&mut critical, &mut watch, "refusal").await;
         assert_eq!(refusal["type"], "fs_watch_error");
         assert_eq!(refusal["code"], "path_forbidden");
         // Session cap: the 17th watch refuses watch_limit.
         for index in 0..WATCH_MAX_SESSIONS {
             registry.open(open_frame(&format!("w{index}"), &root), None);
-            let opened = next_frame(&mut rx, "opened").await;
+            let opened = next_frame(&mut critical, &mut watch, "opened").await;
             assert_eq!(opened["type"], "fs_watch_opened", "watch {index}");
         }
-        registry.open(open_frame("w-past-cap", &root), None);
-        let capped = next_frame(&mut rx, "watch_limit").await;
+        let mut over_cap = open_frame("w-past-cap", &root);
+        over_cap.root = Some(root.to_string_lossy().into_owned());
+        registry.open(over_cap, None);
+        let capped = next_frame(&mut critical, &mut watch, "watch_limit").await;
         assert_eq!(capped["type"], "fs_watch_error");
         assert_eq!(capped["code"], "watch_limit");
+    }
+
+    #[cfg(not(unix))]
+    #[tokio::test]
+    async fn scoped_watch_answers_typed_unsupported() {
+        let root = scratch("unsupported-scope");
+        let (sink, mut critical, mut watch) = OutboundSink::channels();
+        let registry = WatchRegistry::new(sink);
+        registry.open(open_frame("w-unsupported", &root), None);
+        let refusal = next_frame(&mut critical, &mut watch, "unsupported refusal").await;
+        assert_eq!(refusal["type"], "fs_watch_error");
+        assert_eq!(refusal["watchId"], "w-unsupported");
+        assert_eq!(refusal["code"], "unsupported_verb");
     }
 
     #[test]
@@ -536,5 +688,19 @@ mod tests {
         );
         assert_eq!(changes.len(), 1, "the ignore file itself reports");
         assert!(saw_ignore, "and schedules a matcher rebuild");
+    }
+
+    #[test]
+    fn bounded_notify_queue_marks_overflow_without_losing_the_marker() {
+        let (sender, mut receiver) = channel::<u8>(1);
+        let overflowed = AtomicBool::new(false);
+        let notify = Notify::new();
+        try_enqueue_notify_event(&sender, &overflowed, &notify, 1);
+        try_enqueue_notify_event(&sender, &overflowed, &notify, 2);
+        assert!(overflowed.load(Ordering::Acquire));
+        assert_eq!(receiver.try_recv().expect("first event"), 1);
+        assert!(receiver.try_recv().is_err());
+        assert!(overflowed.swap(false, Ordering::AcqRel));
+        assert!(!overflowed.load(Ordering::Acquire));
     }
 }

@@ -23,6 +23,7 @@ extension DockSplitStore {
         agentNeedsInputAttention.replace(with: [])
         restoredTerminalScrollbackByPanelId.removeAll()
         terminalStartupRestoreCoordinator.removeAllRestores()
+        clearDeferredAgentResumeRestores()
         let removedBindingPanelIds = Set(surfaceResumeBindingsByPanelId.keys)
             .union(managedAgentResumeBindingsByPanelId.keys)
         // Remove the managed fallback before publishing effective binding

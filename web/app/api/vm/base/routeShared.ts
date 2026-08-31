@@ -22,6 +22,7 @@ import {
   jsonResponse,
   requestedVmTeamIdFromRequest,
   vmBillingTeamErrorResponse,
+  vmActiveLimitExceededResponse,
   vmErrorResponse,
   vmWorkflowErrorResponse,
   vmRequiresProResponse,
@@ -114,7 +115,7 @@ export async function runBaseRoute(input: {
         : openBaseVm(programInput),
     );
   } catch (err) {
-    const response = baseWorkflowErrorResponse(err, input.operation);
+    const response = baseWorkflowErrorResponse(err, input.operation, entitlements.planId);
     if (response) return response;
     throw err;
   }
@@ -135,7 +136,7 @@ export async function runBaseRoute(input: {
   });
 }
 
-function baseWorkflowErrorResponse(err: unknown, operation: BaseOperation): Response | null {
+function baseWorkflowErrorResponse(err: unknown, operation: BaseOperation, planId: string): Response | null {
   if (isVmCreateInProgressError(err)) {
     return vmErrorResponse({
       error: "vm_base_create_in_progress",
@@ -160,15 +161,12 @@ function baseWorkflowErrorResponse(err: unknown, operation: BaseOperation): Resp
     });
   }
   if (isVmLimitExceededError(err)) {
-    return vmErrorResponse({
-      error: "vm_active_limit_exceeded",
-      status: 402,
-      message: `This plan allows ${err.limit} active Cloud VM${err.limit === 1 ? "" : "s"} at a time.`,
-      action: operation === "reset"
+    return vmActiveLimitExceededResponse({
+      limit: err.limit,
+      planId,
+      retryAction: operation === "reset"
         ? "Stop or delete another active Cloud VM, then retry Base reset. The current Base is still retained."
         : "Stop or delete another active Cloud VM, then retry opening Base.",
-      extra: { limit: err.limit },
-      details: { limit: err.limit },
       phase: "create",
     });
   }
@@ -248,7 +246,7 @@ async function parseBaseRequest(
     }
   }
   const provider = typeof candidate.provider === "string" ? candidate.provider.trim() : undefined;
-  if (provider && provider !== "e2b" && provider !== "freestyle" && provider !== "daytona") {
+  if (provider && provider !== "e2b" && provider !== "freestyle" && provider !== "daytona" && provider !== "blaxel") {
     return {
       ok: false,
       response: vmErrorResponse({

@@ -156,7 +156,7 @@ extension TerminalSurface {
             into: (keyEvents: 0, pasteTextItems: 0, inputTextItems: 0, processOutputItems: 0)
         ) { counts, item in
             switch item {
-            case .key:
+            case .key, .keyText:
                 counts.keyEvents += 1
             case .pasteText:
                 counts.pasteTextItems += 1

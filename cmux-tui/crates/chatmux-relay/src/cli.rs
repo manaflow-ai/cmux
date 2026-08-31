@@ -37,6 +37,7 @@ pub struct ParsedArgs {
     command_flag: Option<String>,
     pub backend: Option<String>,
     pub enrollment_file: Option<String>,
+    pub config_path: Option<String>,
     pub allow_root: Vec<String>,
     pub no_onboard: bool,
     pub code_mode: bool,
@@ -59,7 +60,7 @@ fn missing_value(flag: &str) -> CliUsageError {
 }
 
 fn is_value_flag(argument: &str) -> bool {
-    matches!(argument, "--backend" | "--allow-root" | "--enrollment-file")
+    matches!(argument, "--backend" | "--allow-root" | "--enrollment-file" | "--config")
 }
 
 fn is_mode_flag(argument: &str) -> bool {
@@ -91,7 +92,8 @@ where
             match argument {
                 "--allow-root" => parsed.allow_root.push(value),
                 "--backend" => parsed.backend = Some(value),
-                _ => parsed.enrollment_file = Some(value),
+                "--enrollment-file" => parsed.enrollment_file = Some(value),
+                _ => parsed.config_path = Some(value),
             }
             index += 2;
             continue;
@@ -202,6 +204,14 @@ mod tests {
         assert!(parsed.managed_mode);
         assert_eq!(parsed.enrollment_file.as_deref(), Some("/var/run/enroll.json"));
         assert_eq!(parsed.command, None);
+    }
+
+    #[test]
+    fn accepts_explicit_config_path_for_autostart_services() {
+        let parsed = parse(&["--config", "/srv/chatmux/config.json", "--no-onboard"])
+            .expect("config path parses");
+        assert_eq!(parsed.config_path.as_deref(), Some("/srv/chatmux/config.json"));
+        assert!(parsed.no_onboard);
     }
 
     #[test]
