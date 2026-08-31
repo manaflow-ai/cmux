@@ -104,7 +104,8 @@ extension DockSplitStore {
             restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
         }
         if let restorableAgent = binding.managedRestorableAgentSnapshot(
-            replacing: previousRestorableAgent
+            replacing: previousRestorableAgent,
+            previousBinding: effectivePreviousBinding
         ) {
             restoredAgentLifecycle.setSnapshot(restorableAgent, panelId: panelId)
             restoredAgentLifecycle.invalidatedFingerprintsByPanelId.removeValue(forKey: panelId)

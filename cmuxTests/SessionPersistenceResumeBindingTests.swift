@@ -114,7 +114,10 @@ import Testing
         )
 
         let snapshot = try #require(
-            localRefresh.managedRestorableAgentSnapshot(replacing: remoteBinding)
+            localRefresh.managedRestorableAgentSnapshot(
+                replacing: remoteBinding,
+                previousBinding: remoteBinding
+            )
         )
         #expect(snapshot.workingDirectory == nil)
         #expect(snapshot.launchCommand == nil)

@@ -2172,7 +2172,8 @@ extension Workspace {
                     surfaceResumeBindingsByPanelId[terminalPanel.id] = restoredBinding
                 }
                 if let restoredAgent = restoredBinding.managedRestorableAgentSnapshot(
-                    replacing: restorableAgentForContinuation
+                    replacing: restorableAgentForContinuation,
+                    previousBinding: resumeBinding
                 ) {
                     restoredAgentLifecycle.setSnapshot(restoredAgent, panelId: terminalPanel.id)
                     invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: terminalPanel.id)
@@ -6228,7 +6229,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         if !bindingContinuesPreviousAgent,
            let restorableAgent = constrainedBinding.managedRestorableAgentSnapshot(
-               replacing: previousRestorableAgent
+               replacing: previousRestorableAgent,
+               previousBinding: previousBinding
            ) {
             restoredAgentLifecycle.setSnapshot(restorableAgent, panelId: panelId)
             invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)

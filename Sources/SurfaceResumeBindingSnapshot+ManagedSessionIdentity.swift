@@ -90,8 +90,11 @@ extension SurfaceResumeBindingSnapshot {
     /// checkpoint may reuse only kind-level registration metadata from the
     /// previous snapshot; cwd, launch capture, permission mode, and identity
     /// must come from the new binding so a fork cannot retain its parent.
+    /// - Parameter previousBinding: The prior binding, when available, used to
+    ///   ensure inherited session state stays within the same execution location.
     func managedRestorableAgentSnapshot(
-        replacing previous: SessionRestorableAgentSnapshot?
+        replacing previous: SessionRestorableAgentSnapshot?,
+        previousBinding: SurfaceResumeBindingSnapshot?
     ) -> SessionRestorableAgentSnapshot? {
         guard let identity = managedSessionIdentity else { return nil }
         let previousForKind = previous.flatMap {
@@ -110,19 +113,21 @@ extension SurfaceResumeBindingSnapshot {
                 rhs: identity.checkpointId
             )
         } == true
+        let canInheritPreviousSessionState = continuesPreviousSession &&
+            previousBinding?.launchFlavor == launchFlavor
         return SessionRestorableAgentSnapshot(
             kind: kind,
             sessionId: identity.checkpointId,
             workingDirectory: cwd
                 ?? launchCommand?.workingDirectory
-                ?? (continuesPreviousSession ? previousForKind?.workingDirectory : nil),
+                ?? (canInheritPreviousSessionState ? previousForKind?.workingDirectory : nil),
             launchCommand: launchCommand
-                ?? (continuesPreviousSession ? previousForKind?.launchCommand : nil),
+                ?? (canInheritPreviousSessionState ? previousForKind?.launchCommand : nil),
             registration: previousForKind?.registration,
             permissionMode: permissionMode
-                ?? (continuesPreviousSession ? previousForKind?.permissionMode : nil),
+                ?? (canInheritPreviousSessionState ? previousForKind?.permissionMode : nil),
             restoreWorkingDirectorySelection: restoreWorkingDirectorySelection
-                ?? (continuesPreviousSession ? previousForKind?.restoreWorkingDirectorySelection : nil)
+                ?? (canInheritPreviousSessionState ? previousForKind?.restoreWorkingDirectorySelection : nil)
         )
     }
 
