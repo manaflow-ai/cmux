@@ -151,6 +151,47 @@ struct SurfaceResumeAgentBindingGenerationTests {
         #expect(snapshot.panels.first?.terminal?.wasAgentRunning == true)
     }
 
+    @Test("A contradictory panel-only observation blocks remote shell evidence")
+    func contradictoryPanelObservationBlocksRemoteShellEvidence() throws {
+        try withFixture { source, _, index in
+            let panelID = try #require(source.focusedPanelId)
+            let sessionID = "codex-current-remote-session"
+            source.activeRemoteTerminalSurfaceIds.insert(panelID)
+            source.updatePanelShellActivityState(
+                panelId: panelID,
+                state: .commandRunning
+            )
+            source.setRestoredAgentSnapshotForTesting(
+                SessionRestorableAgentSnapshot(
+                    kind: .codex,
+                    sessionId: sessionID,
+                    workingDirectory: "/tmp/current-remote",
+                    launchCommand: nil
+                ),
+                panelId: panelID
+            )
+            // Keep the retained snapshot as the queued restore identity so
+            // the panel-only observation below is genuinely contradictory,
+            // rather than being allowed to replace it during projection.
+            source.restoredAgentLifecycle.setResumeState(
+                .awaitingAutoResumeCommand,
+                panelId: panelID
+            )
+
+            let snapshot = source.sessionSnapshot(
+                includeScrollback: false,
+                restorableAgentIndex: index,
+                surfaceResumeBindingIndex: codexBindingIndex(
+                    sessionID: sessionID,
+                    workspaceID: source.id,
+                    panelID: panelID
+                )
+            )
+
+            #expect(snapshot.panels.first?.terminal?.wasAgentRunning == false)
+        }
+    }
+
     @Test("An exact live runtime generation authorizes a newer binding")
     func exactLiveRuntimeGenerationAuthorizesNewerBinding() throws {
         try withFixture { source, defaults, index in
