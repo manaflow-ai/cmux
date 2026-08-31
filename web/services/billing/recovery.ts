@@ -352,7 +352,7 @@ function billingEmailPredicate(
 ) {
   const variants = [...new Set([matchingEmail, literalEmail])].filter(Boolean);
   const exact = variants.map((value) => eq(column, value));
-  return or(...exact, sql`lower(${column}) = ${literalEmail}`) ??
+  return or(...exact, sql`btrim(lower(${column})) = ${literalEmail}`) ??
     eq(column, matchingEmail);
 }
 

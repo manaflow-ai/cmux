@@ -808,7 +808,7 @@ async function resolveBillingEmailClaimsForCustomer(
         or(
           eq(billingEmailClaims.email, matchingEmail),
           eq(billingEmailClaims.email, literalEmail),
-          sql`lower(${billingEmailClaims.email}) = ${literalEmail}`,
+          sql`btrim(lower(${billingEmailClaims.email})) = ${literalEmail}`,
         ),
       ),
     )
@@ -1064,7 +1064,7 @@ function makeBillingOwnershipRepository(
             or(
               eq(billingEmailClaims.email, matchingEmail),
               eq(billingEmailClaims.email, literalEmail),
-              sql`lower(${billingEmailClaims.email}) = ${literalEmail}`,
+              sql`btrim(lower(${billingEmailClaims.email})) = ${literalEmail}`,
             ),
           ),
         )
