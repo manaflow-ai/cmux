@@ -66,6 +66,13 @@ struct ShortcutEventFocusContextCache {
     let context: ShortcutEventFocusContext
 }
 
+/// Distinguishes "resolved to no sidebar" from "not resolved yet" so the
+/// per-event shortcut snapshot never repeats responder-chain work for a nil
+/// mode.
+struct ShortcutSidebarModeResolution {
+    let mode: RightSidebarMode?
+}
+
 extension Notification.Name {
     static let debugBrowserReloadShortcutInvoked = Notification.Name("cmux.debugBrowserReloadShortcutInvoked")
     static let debugBrowserHardReloadShortcutInvoked = Notification.Name("cmux.debugBrowserHardReloadShortcutInvoked")
@@ -108,14 +115,19 @@ extension AppDelegate {
         // context construction runs on every key event; re-walking the
         // responder/portal ownership chain for each derived atom adds visible
         // typing latency in windows with several sidebar hosts.
-        let sidebarMode = !simulatorFocused
-            ? shortcutWindow.flatMap { focusedSidebarModeForShortcutContext(for: $0) }
-            : nil
+        let sidebarModeResolution = ShortcutSidebarModeResolution(
+            mode: !simulatorFocused
+                ? shortcutWindow.flatMap {
+                    focusedSidebarModeForShortcutContext(for: $0)
+                }
+                : nil
+        )
+        let sidebarMode = sidebarModeResolution.mode
         let browserPanel = simulatorFocused
             ? nil
             : shortcutEventFocusedBrowserPanel(
                 event,
-                resolvedSidebarMode: sidebarMode
+                resolvedSidebarMode: sidebarModeResolution
             ) ?? shortcutWebInspectorFocusedBrowserPanel(in: shortcutWindow)
         // Only treat a markdown panel as focused when no browser panel owns the
         // event, so a focused browser never routes markdown shortcuts.
@@ -142,7 +154,7 @@ extension AppDelegate {
             shortcutContext: buildShortcutContext(
                 focusState: focusState,
                 window: shortcutWindow,
-                sidebarMode: sidebarMode
+                sidebarMode: sidebarModeResolution
             )
         )
         shortcutEventFocusContextCache = ShortcutEventFocusContextCache(event: event, context: context)
@@ -156,7 +168,7 @@ extension AppDelegate {
     private func buildShortcutContext(
         focusState: ShortcutFocusState,
         window: NSWindow?,
-        sidebarMode: RightSidebarMode?
+        sidebarMode: ShortcutSidebarModeResolution
     ) -> ShortcutContext {
         var context = focusState.context
         context.setBool(
@@ -174,14 +186,14 @@ extension AppDelegate {
                 )
             }
         }
-        if let mode = sidebarMode {
+        if let mode = sidebarMode.mode {
             context.setString(ShortcutContextKnownKey.sidebarMode.rawValue, mode.rawValue)
         }
         context.setBool(
             ShortcutContextKnownKey.dockFocus.rawValue,
             dockFocusForShortcutContext(
                 preferredWindow: window,
-                resolvedSidebarMode: sidebarMode
+                resolvedSidebarMode: sidebarMode.mode
             )
         )
         return context
@@ -305,7 +317,7 @@ extension AppDelegate {
 
     func shortcutEventFocusedBrowserPanel(
         _ event: NSEvent,
-        resolvedSidebarMode: RightSidebarMode? = nil
+        resolvedSidebarMode: ShortcutSidebarModeResolution? = nil
     ) -> BrowserPanel? {
         guard let shortcutWindow = shortcutResolvedEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow else {
             return nil
@@ -411,7 +423,7 @@ extension AppDelegate {
 
     private func shortcutFocusedBrowserPanel(
         in window: NSWindow?,
-        resolvedSidebarMode: RightSidebarMode? = nil
+        resolvedSidebarMode: ShortcutSidebarModeResolution? = nil
     ) -> BrowserPanel? {
         if let window {
             guard let context = shortcutMainWindowContext(in: window) else {
@@ -426,8 +438,10 @@ extension AppDelegate {
                 .dockBrowserPanel(owning: window.firstResponder, in: window) {
                 return panel
             }
-            if (resolvedSidebarMode
-                ?? focusedSidebarModeForShortcutContext(for: window)) == .dock {
+            if resolvedShortcutSidebarMode(
+                resolvedSidebarMode,
+                in: window
+            ) == .dock {
                 guard let windowDock = existingWindowDock(
                     forWindowId: context.windowId
                 ),
@@ -448,16 +462,28 @@ extension AppDelegate {
     /// Dock browser from browser commands.
     private func shortcutActiveWindowDockBrowserPanel(
         in window: NSWindow,
-        resolvedSidebarMode: RightSidebarMode? = nil
+        resolvedSidebarMode: ShortcutSidebarModeResolution? = nil
     ) -> BrowserPanel? {
         guard let context = shortcutMainWindowContext(in: window),
-              (resolvedSidebarMode
-                  ?? focusedSidebarModeForShortcutContext(for: window)) == .dock,
+              resolvedShortcutSidebarMode(
+                  resolvedSidebarMode,
+                  in: window
+              ) == .dock,
               let dock = existingWindowDock(forWindowId: context.windowId),
               let panelId = dock.focusedPanelId else {
             return nil
         }
         return dock.browserPanel(for: panelId)
+    }
+
+    private func resolvedShortcutSidebarMode(
+        _ resolution: ShortcutSidebarModeResolution?,
+        in window: NSWindow
+    ) -> RightSidebarMode? {
+        if let resolution {
+            return resolution.mode
+        }
+        return focusedSidebarModeForShortcutContext(for: window)
     }
 
     private func shortcutFocusedSimulatorPanel(in window: NSWindow?) -> SimulatorPanel? {

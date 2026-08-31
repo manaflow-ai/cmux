@@ -318,7 +318,7 @@ extension AppDelegate {
     func focusedDockStoreForSurfaceCommand(
         preferredWindow: NSWindow?
     ) -> DockSplitStore? {
-        focusedDockStoreForMenu(preferredWindow: preferredWindow)
+        focusedDockStoreForShortcut(preferredWindow: preferredWindow)
     }
 
     /// Creates a New Terminal / New Browser surface in the focused Dock pane.
@@ -389,18 +389,12 @@ extension AppDelegate {
                 ) ? preferredDock : nil
             }
         } else {
-            if action == nil {
-                // Menu/compatibility callers have no event-scoped binding;
-                // use the delivered menu snapshot. Configured shortcuts use
-                // the responder-aware resolver below.
-                store = focusedDockStoreForSurfaceCommand(
-                    preferredWindow: preferredWindow
-                )
-            } else {
-                store = focusedDockStoreForShortcut(
-                    preferredWindow: preferredWindow
-                )
-            }
+            // Action execution (menu or shortcut) always uses the same
+            // responder-aware resolver. The Commands body separately reads a
+            // bounded delivered-focus snapshot for enablement only.
+            store = focusedDockStoreForSurfaceCommand(
+                preferredWindow: preferredWindow
+            )
         }
         guard let store else {
             return false
@@ -476,7 +470,7 @@ extension AppDelegate {
         guard case .dockScoped = action.dockShortcutRoutingDisposition else {
             return false
         }
-        guard let store = focusedDockStoreForMenu(
+        guard let store = focusedDockStoreForShortcut(
             preferredWindow: preferredWindow
         ) else {
             return false

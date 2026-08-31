@@ -2625,6 +2625,36 @@ struct DockShortcutRoutingTests {
         }
     }
 
+    @Test("Validated Dock metadata actions do not focus or invert unread state")
+    @MainActor
+    func dockMetadataValidationStaysFocusNeutral() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let focused = try harness.dock.seedShortcutTestPanel(
+                    inPane: harness.rootPane
+                )
+                let background = try harness.dock.seedShortcutTestPanel(
+                    inPane: harness.rootPane
+                )
+                harness.dock.focusPanel(focused.id)
+                #expect(harness.dock.togglePanelUnread(background.id))
+                #expect(harness.dock.panelIsUnread(background.id))
+
+                #expect(
+                    harness.appDelegate.isCurrentCommandPaletteDockTarget(
+                        harness.dock,
+                        panelId: background.id,
+                        preferredWindow: harness.window
+                    )
+                )
+                #expect(harness.dock.togglePanelUnread(background.id))
+
+                #expect(!harness.dock.panelIsUnread(background.id))
+                #expect(harness.dock.focusedPanelId == focused.id)
+            }
+        }
+    }
+
     @Test("A single Dock tab can move to a new workspace")
     @MainActor
     func singleDockTabOffersNewWorkspaceDestination() async throws {
