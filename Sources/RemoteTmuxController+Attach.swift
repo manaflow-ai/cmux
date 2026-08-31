@@ -432,9 +432,6 @@ extension RemoteTmuxController {
     ///   left a dismissed host parked with no retry and no waiter.
     @discardableResult
     func presentReconnectAuthentication(host: RemoteTmuxHost, sshArgv: [String]) -> Bool {
-        #if DEBUG
-        cmuxDebugLog("remote-tmux: reconnect-auth host=\(host.destination) argv=\(sshArgv.count)")
-        #endif
         guard !sshArgv.isEmpty else {
             Self.logger.error("reconnect-auth: empty sshArgv for \(host.destination, privacy: .public)")
             return false
