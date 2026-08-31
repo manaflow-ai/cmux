@@ -18,10 +18,11 @@ internal import Foundation
 /// - `ackTask`: the single claim of the pipelined response. Retried
 ///   workspace-list requests and the post-adoption listener all reuse this
 ///   one settlement; the session forbids a second await of the same request.
-/// - `params`: exactly what was requested, so the post-adoption path can
-///   prove the acknowledged registration equals what it would have requested
-///   and skip the redundant re-subscribe, or fall back to the ordinary
-///   idempotent `mobile.events.subscribe` when the guess was wrong.
+/// - `topics` + `requestedScreenAnchor`: exactly what was requested, so the
+///   post-adoption path can prove the acknowledged registration equals what
+///   it would have requested and skip the redundant re-subscribe, or fall
+///   back to the ordinary idempotent `mobile.events.subscribe` when the
+///   guess was wrong.
 @MainActor
 final class OptimisticTerminalEventSubscription {
     let client: MobileCoreRPCClient
@@ -66,17 +67,20 @@ extension MobileShellComposite {
     /// for the TARGETED Mac (the live store value is cleared when the
     /// previous client is released for replacement, before the route loop
     /// runs). A reconnect therefore requests exactly what the post-adoption
-    /// path will request and the extra re-subscribe round trip disappears. A
-    /// first pairing knows nothing: it requests the hybrid superset (both
-    /// terminal output topics) with no anchor negotiation, which every host
-    /// serves, and lets the ordinary idempotent post-adoption re-subscribe
-    /// narrow topics and negotiate the anchor once capabilities are
-    /// authenticated.
+    /// path will request and the extra re-subscribe round trip disappears.
+    ///
+    /// `nil` (no snapshot) means DO NOT pipeline: a guessed topic set is not
+    /// safe to install even briefly. Guessing wide would put `terminal.bytes`
+    /// on a verified-replay host, letting primary-screen bytes bypass
+    /// render-grid verification during the correction window; guessing narrow
+    /// would silently drop a legacy host's only terminal output topic. A
+    /// first pairing keeps today's sequential post-adoption subscribe, whose
+    /// request is built from the authenticated capabilities.
     static func optimisticTerminalEventSubscriptionPlan(
         learnedCapabilities: Set<String>
-    ) -> (topics: [String], usesScreenAnchor: Bool) {
+    ) -> (topics: [String], usesScreenAnchor: Bool)? {
         guard !learnedCapabilities.isEmpty else {
-            return (TerminalOutputTransport.hybrid.eventTopics, false)
+            return nil
         }
         let transport = fallbackTerminalOutputTransport(
             learnedCapabilities: learnedCapabilities
@@ -103,13 +107,13 @@ extension MobileShellComposite {
         timeoutNanoseconds: UInt64
     ) async {
         guard runtime?.supportsServerPushEvents ?? false,
-              client.supportsPipelinedInitialEventSubscribe else {
+              client.supportsPipelinedInitialEventSubscribe,
+              let plan = Self.optimisticTerminalEventSubscriptionPlan(
+                  learnedCapabilities: learnedCapabilities
+              ) else {
             return
         }
         discardOptimisticTerminalSubscription()
-        let plan = Self.optimisticTerminalEventSubscriptionPlan(
-            learnedCapabilities: learnedCapabilities
-        )
         let params = terminalEventSubscribeParams(
             topics: plan.topics,
             usesScreenAnchor: plan.usesScreenAnchor

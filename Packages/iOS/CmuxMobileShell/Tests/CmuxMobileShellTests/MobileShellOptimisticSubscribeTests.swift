@@ -5,11 +5,14 @@ import Testing
 @testable import CmuxMobileShell
 
 // Connect-time pipelined `mobile.events.subscribe` (the "optimistic
-// subscribe"): the connect route loop enqueues the subscribe on the same
-// FIFO transport write queue immediately before the workspace-list exchange,
-// so both requests ride one held pre-admission batch and live events cost a
-// single round trip after admission. These tests drive the REAL connect
-// sequence over the scripted transport and count requests/round trips.
+// subscribe"): once a Mac's capabilities are learned, a reconnect enqueues
+// the exact subscribe on the same FIFO transport write queue immediately
+// before the workspace-list exchange, so both requests ride one held
+// pre-admission batch and live events cost a single round trip after
+// admission. A first pairing has no learned capabilities and keeps today's
+// sequential post-adoption subscribe. These tests drive the REAL connect
+// sequence over the scripted LivenessHostRouter transport and count
+// requests/round trips.
 
 @MainActor
 private func makeSignedInStore(
@@ -24,6 +27,12 @@ private func makeSignedInStore(
     let store = MobileShellComposite.preview(runtime: runtime)
     store.signIn()
     return store
+}
+
+/// Ticket whose non-UUID workspace id yields exactly ONE (unscoped)
+/// workspace-list request per candidate, keeping request counts exact.
+private func makeUnscopedTicket(clock: TestClock) throws -> CmxAttachTicket {
+    try makeTicket(clock: clock)
 }
 
 private func makeAttachTokenTicket(clock: TestClock) throws -> CmxAttachTicket {
@@ -47,86 +56,120 @@ private func makeAttachTokenTicket(clock: TestClock) throws -> CmxAttachTicket {
     )
 }
 
-/// The subscribe must ride the same transport batch as the first
-/// workspace-list request: it is on the wire BEFORE any connect response has
-/// been released (zero completed round trips), it precedes the
-/// workspace-list frame in arrival order, and the whole connect performs
-/// exactly ONE subscribe round trip (the post-adoption re-subscribe is
-/// replaced by the pipelined acknowledgement).
+/// Prime the store with one ordinary connect so the Mac's capabilities are
+/// learned (the precondition for the pipelined reconnect subscribe).
 @MainActor
-@Test func connectSubscribeRidesTheInitialRequestBatch() async throws {
+private func primeConnectedStore(
+    store: MobileShellComposite,
+    ticket: CmxAttachTicket
+) async throws {
+    let failure = try await store.connect(ticket: ticket)
+    #expect(failure == nil, "the priming connect must succeed")
+    let healthy = try await pollUntil(attempts: 1_000) {
+        store.macConnectionStatus == .connected
+    }
+    #expect(healthy, "the priming connect must complete its subscription")
+}
+
+/// A first pairing must NOT pipeline: the sequential subscribe follows the
+/// exchange, built from authenticated capabilities. A reconnect that knows
+/// those capabilities pipelines the subscribe onto the same batch as the
+/// workspace-list request: it is on the wire BEFORE any of the reconnect's
+/// responses is released (zero completed round trips), it precedes the
+/// workspace-list frame in arrival order, and the whole reconnect performs
+/// exactly ONE subscribe round trip (the pipelined ack replaces the
+/// post-adoption re-subscribe).
+@MainActor
+@Test func reconnectSubscribeRidesTheInitialRequestBatch() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
     let box = TransportBox()
-    await router.holdWorkspaceListRequest(number: 1)
     let store = makeSignedInStore(router: router, box: box, clock: clock)
-    let url = try attachURL(for: makeTicket(clock: clock))
-    let connectTask = Task { await store.connectPairingURL(url) }
+    let ticket = try makeUnscopedTicket(clock: clock)
+    try await primeConnectedStore(store: store, ticket: ticket)
+
+    // First pairing: exactly one subscribe, sent sequentially AFTER the
+    // exchange settled (it follows host.status in arrival order).
+    #expect(await router.count(of: "mobile.events.subscribe") == 1)
+    let primeMethods = await router.recordedMethods()
+    let primeSubscribeIndex = try #require(
+        primeMethods.firstIndex(of: "mobile.events.subscribe")
+    )
+    let primeStatusIndex = try #require(
+        primeMethods.firstIndex(of: "mobile.host.status")
+    )
+    #expect(
+        primeSubscribeIndex > primeStatusIndex,
+        "a first pairing keeps the sequential post-adoption subscribe"
+    )
+    let hostStatusCountAfterPrime = await router.count(of: "mobile.host.status")
+
+    // Reconnect with the workspace-list response parked: no reconnect round
+    // trip has completed, yet the pipelined subscribe is already on the wire,
+    // AHEAD of the workspace-list frame.
+    await router.holdNextWorkspaceListRequests(count: 1)
+    let reconnectTask = Task { try await store.connect(ticket: ticket) }
     defer {
         Task { await router.releaseAllHeld() }
     }
-
-    // The workspace-list response is parked, so no request round trip has
-    // completed, yet the subscribe request must already be on the wire.
     #expect(
-        await router.waitForCount(of: "mobile.events.subscribe", atLeast: 1),
-        "the subscribe must be sent without waiting for any connect response"
+        await router.waitForCount(of: "mobile.events.subscribe", atLeast: 2),
+        "the reconnect subscribe must be sent without waiting for any response"
     )
-    #expect(
-        await router.waitForCount(of: "workspace.list", atLeast: 1),
-        "the workspace-list request follows in the same batch"
-    )
+    #expect(await router.waitForCount(of: "workspace.list", atLeast: 2))
     let methods = await router.recordedMethods()
     let subscribeIndex = try #require(
-        methods.firstIndex(of: "mobile.events.subscribe")
+        methods.lastIndex(of: "mobile.events.subscribe")
     )
     let workspaceListIndex = try #require(
-        methods.firstIndex(of: "workspace.list")
+        methods.lastIndex(of: "workspace.list")
     )
     #expect(
         subscribeIndex < workspaceListIndex,
         "the pipelined subscribe rides AHEAD of the workspace-list request in the same batch"
     )
     #expect(
-        await router.count(of: "mobile.host.status") == 0,
+        await router.count(of: "mobile.host.status") == hostStatusCountAfterPrime,
         "the exchange's host-status probe must still wait on the workspace-list response"
     )
 
     await router.releaseAllHeld()
-    #expect(await connectTask.value, "scripted connect must succeed")
+    let reconnectFailure = try await reconnectTask.value
+    #expect(reconnectFailure == nil, "the scripted reconnect must succeed")
     let healthy = try await pollUntil(attempts: 1_000) {
         store.macConnectionStatus == .connected
     }
     #expect(healthy, "the pipelined acknowledgement must complete the subscription handshake")
-    // One subscribe round trip for the entire connect: the pipelined ack
-    // replaced the post-adoption re-subscribe (the scripted host resolves to
-    // the same topic set the optimistic request guessed).
-    #expect(await router.count(of: "mobile.events.subscribe") == 1)
+    // One subscribe round trip for the entire reconnect: the pipelined ack
+    // replaced the post-adoption re-subscribe (learned capabilities made the
+    // optimistic request exactly the resolved request).
+    #expect(await router.count(of: "mobile.events.subscribe") == 2)
 }
 
-/// Events the Mac pushes AFTER registering the subscription but BEFORE the
-/// phone finishes route adoption must be buffered by the pre-registered
-/// listener and consumed once the listener generation starts, not dropped by
-/// the session's listener dispatch.
+/// Events the Mac pushes AFTER registering the pipelined subscription but
+/// BEFORE the phone finishes route adoption must be buffered by the
+/// pre-registered listener and consumed once the listener generation starts,
+/// not dropped by the session's listener dispatch.
 @MainActor
 @Test func eventsPushedBeforeRouteAdoptionAreConsumed() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
     let box = TransportBox()
-    // Park the exchange's host-status response: the subscribe has been
-    // acknowledged (registration installed, events flowing) while route
-    // adoption cannot complete yet.
-    await router.delayHostStatusRequest(number: 1)
     let store = makeSignedInStore(router: router, box: box, clock: clock)
-    let url = try attachURL(for: makeTicket(clock: clock))
-    let connectTask = Task { await store.connectPairingURL(url) }
+    let ticket = try makeUnscopedTicket(clock: clock)
+    try await primeConnectedStore(store: store, ticket: ticket)
+    #expect(store.caffeineStatus == nil)
+
+    // Park the reconnect exchange's host-status response: the pipelined
+    // subscribe has been acknowledged (registration installed, events
+    // flowing) while route adoption cannot complete yet.
+    await router.delayHostStatusRequest(number: 2)
+    let reconnectTask = Task { try await store.connect(ticket: ticket) }
     defer {
         Task { await router.releaseAllHeld() }
     }
-
-    #expect(await router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
-    #expect(await router.waitForCount(of: "mobile.host.status", atLeast: 1))
-    #expect(await router.count(of: "workspace.list") == 1)
+    #expect(await router.waitForCount(of: "mobile.events.subscribe", atLeast: 2))
+    #expect(await router.waitForCount(of: "mobile.host.status", atLeast: 2))
 
     // The Mac pushes a state change into the pre-adoption window. Nothing
     // else in this scripted flow writes `caffeineStatus`, so its value is a
@@ -144,7 +187,8 @@ private func makeAttachTokenTicket(clock: TestClock) throws -> CmxAttachTicket {
     #expect(store.caffeineStatus == nil, "the event is buffered, not yet consumed")
 
     await router.releaseAllHeld()
-    #expect(await connectTask.value, "scripted connect must succeed")
+    let reconnectFailure = try await reconnectTask.value
+    #expect(reconnectFailure == nil, "the scripted reconnect must succeed")
     let consumed = try await pollUntil {
         store.caffeineStatus?.enabled == true
     }
@@ -155,33 +199,46 @@ private func makeAttachTokenTicket(clock: TestClock) throws -> CmxAttachTicket {
 }
 
 /// When route adoption fails AFTER the pipelined subscribe was acknowledged,
-/// the candidate client's transport must close (the Mac host removes every
-/// subscription in its connection-close path) and the pending optimistic
-/// subscription must be discarded with the candidate.
+/// every candidate client's transport must close (the Mac host removes every
+/// subscription in its connection-close path) and no pending optimistic
+/// subscription may outlive its candidate.
 @MainActor
 @Test func adoptionFailureAfterPipelinedSubscribeClosesTheCandidateTransport() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
     let box = TransportBox()
-    // The host authenticates as a DIFFERENT Mac than the ticket's pairing:
-    // the route is rejected after the exchange (identity mismatch), which is
-    // exactly the "adoption fails after subscribe succeeded" window.
+    let store = makeSignedInStore(router: router, box: box, clock: clock)
+    let ticket = try makeUnscopedTicket(clock: clock)
+    try await primeConnectedStore(store: store, ticket: ticket)
+    let subscribesAfterPrime = await router.count(of: "mobile.events.subscribe")
+    let listsAfterPrime = await router.count(of: "workspace.list")
+
+    // The host now authenticates as a DIFFERENT Mac than the ticket's
+    // pairing: every reconnect route is rejected after its exchange
+    // (identity mismatch), which is exactly the "adoption fails after the
+    // subscribe succeeded" window.
     await router.setHostIdentity(
         deviceID: "other-mac",
         instanceTag: "default",
         displayName: "Other Mac"
     )
-    let store = makeSignedInStore(router: router, box: box, clock: clock)
-    let url = try attachURL(for: makeTicket(clock: clock))
-    let connected = await store.connectPairingURL(url)
-    #expect(!connected, "an identity-mismatched route must be rejected")
+    var rejected = false
+    do {
+        let failure = try await store.connect(ticket: ticket)
+        rejected = failure != nil
+    } catch {
+        // Exhausting every route rethrows the last route error.
+        rejected = true
+    }
+    #expect(rejected, "an identity-mismatched route must be rejected")
 
-    // One subscribe per candidate client (each rejected route makes one
-    // exchange, so workspace-list count == candidate count), never zero and
-    // never more than one per candidate.
-    let subscribeCount = await router.count(of: "mobile.events.subscribe")
-    let candidateCount = await router.count(of: "workspace.list")
-    #expect(subscribeCount >= 1, "the rejected candidate had already pipelined its subscribe")
+    // One pipelined subscribe per candidate client (each rejected candidate
+    // makes one workspace-list exchange), never more.
+    let candidateCount =
+        await router.count(of: "workspace.list") - listsAfterPrime
+    let subscribeCount =
+        await router.count(of: "mobile.events.subscribe") - subscribesAfterPrime
+    #expect(candidateCount >= 1)
     #expect(
         subscribeCount == candidateCount,
         "every rejected candidate pipelines exactly one subscribe"
@@ -200,27 +257,29 @@ private func makeAttachTokenTicket(clock: TestClock) throws -> CmxAttachTicket {
     )
 }
 
-/// The multi-request workspace-list loop (unscoped first for an
-/// attach-token ticket, then the scoped retry) subscribes once per CLIENT:
-/// a failed list request reuses the already-pipelined subscribe instead of
-/// enqueueing another.
+/// The multi-request workspace-list loop (unscoped first for an attach-token
+/// ticket, then the scoped retry) subscribes once per CLIENT: a failed list
+/// request reuses the already-pipelined subscribe instead of enqueueing
+/// another.
 @MainActor
 @Test func workspaceListRetryReusesTheSinglePipelinedSubscribe() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
     let box = TransportBox()
-    await router.failWorkspaceListRequest(number: 1)
     let store = makeSignedInStore(router: router, box: box, clock: clock)
-    // Direct ticket connect: a pairing-URL round trip strips the attach
-    // token, and only an attach-token ticket issues the unscoped-then-scoped
-    // request pair whose retry semantics this test pins down.
-    let failure = try await store.connect(
-        ticket: makeAttachTokenTicket(clock: clock)
-    )
+    let ticket = try makeAttachTokenTicket(clock: clock)
+    try await primeConnectedStore(store: store, ticket: ticket)
+    let subscribesAfterPrime = await router.count(of: "mobile.events.subscribe")
+    let listsAfterPrime = await router.count(of: "workspace.list")
+
+    // Fail the reconnect's FIRST (unscoped) list request; the scoped retry
+    // on the same candidate client must succeed.
+    await router.failWorkspaceListRequest(number: listsAfterPrime + 1)
+    let failure = try await store.connect(ticket: ticket)
     #expect(failure == nil, "the scoped retry must succeed")
 
     #expect(
-        await router.waitForCount(of: "workspace.list", atLeast: 2),
+        await router.count(of: "workspace.list") - listsAfterPrime >= 2,
         "the first list failure must retry with the next request"
     )
     let healthy = try await pollUntil(attempts: 1_000) {
@@ -228,7 +287,7 @@ private func makeAttachTokenTicket(clock: TestClock) throws -> CmxAttachTicket {
     }
     #expect(healthy)
     #expect(
-        await router.count(of: "mobile.events.subscribe") == 1,
+        await router.count(of: "mobile.events.subscribe") - subscribesAfterPrime == 1,
         "one subscribe per client: the retried list request reuses the pending pipelined subscribe"
     )
 }
@@ -240,32 +299,49 @@ private func makeAttachTokenTicket(clock: TestClock) throws -> CmxAttachTicket {
     let clock = TestClock()
     let router = LivenessHostRouter()
     let box = TransportBox()
-    await router.failSubscribeRequest(number: 1)
     let store = makeSignedInStore(router: router, box: box, clock: clock)
-    let url = try attachURL(for: makeTicket(clock: clock))
-    #expect(await store.connectPairingURL(url), "connect must survive a failed pipelined subscribe")
+    let ticket = try makeUnscopedTicket(clock: clock)
+    try await primeConnectedStore(store: store, ticket: ticket)
+    let subscribesAfterPrime = await router.count(of: "mobile.events.subscribe")
 
+    await router.failSubscribeRequest(number: subscribesAfterPrime + 1)
+    let failure = try await store.connect(ticket: ticket)
+    #expect(failure == nil, "connect must survive a failed pipelined subscribe")
+
+    #expect(
+        await router.waitForCount(
+            of: "mobile.events.subscribe",
+            atLeast: subscribesAfterPrime + 2
+        ),
+        "the sequential post-adoption subscribe must follow the failed pipelined one"
+    )
     let healthy = try await pollUntil(attempts: 1_000) {
         store.macConnectionStatus == .connected
     }
     #expect(healthy, "the fallback subscribe must complete the handshake")
     #expect(
-        await router.count(of: "mobile.events.subscribe") == 2,
-        "the sequential post-adoption subscribe must follow the failed pipelined one"
+        await router.count(of: "mobile.events.subscribe") - subscribesAfterPrime == 2
     )
 }
 
-/// A host that resolves to a DIFFERENT subscription request than the
-/// optimistic guess (here: a verified-replay host narrowing the first
-/// pairing's hybrid-superset guess to render-grid topics) must be corrected
-/// by the ordinary idempotent re-subscribe, and a reconnect that knows the
-/// learned capabilities must then pipeline the exact request and skip the
+/// Capabilities learned from an OLDER host generation can mislead the
+/// pipelined request when the Mac upgrades between connects; the ordinary
+/// idempotent re-subscribe must correct the registration, and the next
+/// reconnect must pipeline the newly learned exact request with no
 /// correction.
 @MainActor
-@Test func topicMismatchReassertsAndReconnectPipelinesExactly() async throws {
+@Test func staleLearnedCapabilitiesReassertAndNextReconnectPipelinesExactly() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
     let box = TransportBox()
+    let store = makeSignedInStore(router: router, box: box, clock: clock)
+    let ticket = try makeUnscopedTicket(clock: clock)
+    // Prime against the legacy hybrid host: learned topics include
+    // `terminal.bytes`.
+    try await primeConnectedStore(store: store, ticket: ticket)
+    #expect(await router.count(of: "mobile.events.subscribe") == 1)
+
+    // The Mac "upgrades" to verified replay between connects.
     await router.setCapabilities([
         "events.v1",
         "terminal.bytes.v1",
@@ -273,41 +349,36 @@ private func makeAttachTokenTicket(clock: TestClock) throws -> CmxAttachTicket {
         "terminal.render_grid.verified_replay.v1",
         "terminal.replay.v1",
     ])
-    let store = makeSignedInStore(router: router, box: box, clock: clock)
-    let url = try attachURL(for: makeTicket(clock: clock))
-    #expect(await store.connectPairingURL(url), "scripted connect must succeed")
-
+    let firstReconnectFailure = try await store.connect(ticket: ticket)
+    #expect(firstReconnectFailure == nil)
     let healthy = try await pollUntil(attempts: 1_000) {
         store.macConnectionStatus == .connected
     }
     #expect(healthy)
-    // First pairing: hybrid-superset guess, then the corrective narrow.
-    #expect(await router.waitForCount(of: "mobile.events.subscribe", atLeast: 2))
-    let firstConnectTopics = await router.topics(for: "mobile.events.subscribe")
-    #expect(firstConnectTopics.count == 2)
-    #expect(firstConnectTopics.first?.contains("terminal.bytes") == true)
+    // Stale-guess pipelined subscribe (hybrid topics), then the corrective
+    // narrow to the resolved render-grid request.
+    #expect(await router.waitForCount(of: "mobile.events.subscribe", atLeast: 3))
+    let topicsAfterUpgrade = await router.topics(for: "mobile.events.subscribe")
+    #expect(topicsAfterUpgrade.count == 3)
+    #expect(topicsAfterUpgrade[1].contains("terminal.bytes"))
     #expect(
-        firstConnectTopics.last.map { Set($0) }
+        Set(topicsAfterUpgrade[2])
             == Set(MobileShellComposite.TerminalOutputTransport.renderGrid.eventTopics),
         "the corrective re-subscribe must narrow to the resolved render-grid topics"
     )
 
-    // Reconnect (the production recovery path connects with the ticket
-    // directly; a fresh pairing URL clears the learned per-Mac state first):
-    // learned capabilities make the pipelined request exact, so the whole
-    // reconnect performs ONE subscribe round trip.
-    let reconnectFailure = try await store.connect(
-        ticket: makeTicket(clock: clock)
-    )
-    #expect(reconnectFailure == nil, "scripted reconnect must succeed")
+    // Next reconnect: the refreshed capabilities make the pipelined request
+    // exact, so the whole reconnect performs ONE subscribe round trip.
+    let secondReconnectFailure = try await store.connect(ticket: ticket)
+    #expect(secondReconnectFailure == nil)
     let healthyAgain = try await pollUntil(attempts: 1_000) {
         store.macConnectionStatus == .connected
     }
     #expect(healthyAgain)
     let allTopics = await router.topics(for: "mobile.events.subscribe")
     #expect(
-        allTopics.count == 3,
-        "the reconnect must add exactly one subscribe (no corrective re-subscribe)"
+        allTopics.count == 4,
+        "the second reconnect must add exactly one subscribe (no corrective re-subscribe)"
     )
     #expect(
         allTopics.last.map { Set($0) }
