@@ -94,23 +94,82 @@ enum TuiManualIOPumpPolicy {
         Data(#"{"resize":{"cols":\#(max(1, cols)),"rows":\#(max(1, rows))}}"#.utf8 + [0x0A])
     }
 
-    /// Relay argv (no shell, no quoting: the pump spawns the binary
-    /// directly, so the exec-wrapper and env(1) classes of the exec bridge
-    /// cannot exist here).
+    /// What the relay connects to. The bridge's own daemon is addressed by
+    /// session name; Harbor addresses foreign local daemons by socket path
+    /// and remote daemons by session name over ssh stdio (the pipe-io
+    /// protocol is plain stdio, so ssh transports it unchanged).
+    enum RelayTarget: Equatable, Sendable {
+        case session(String)
+        case socket(String)
+        case sshSession(destination: String, sessionName: String)
+    }
+
+    /// The executable the relay process runs for `target`.
+    static func relayExecutablePath(binaryPath: String, target: RelayTarget) -> String {
+        switch target {
+        case .session, .socket:
+            return binaryPath
+        case .sshSession:
+            return "/usr/bin/ssh"
+        }
+    }
+
+    /// Relay argv (no shell for local targets; the ssh remote command is one
+    /// argument the remote login shell parses, so its fields are quoted).
+    static func relayArguments(
+        target: RelayTarget,
+        terminalID: String,
+        cols: Int,
+        rows: Int
+    ) -> [String] {
+        let cols = String(max(1, cols))
+        let rows = String(max(1, rows))
+        switch target {
+        case .session(let sessionName):
+            return [
+                "attach",
+                "--session", sessionName,
+                "--terminal", terminalID,
+                "--pipe-io",
+                "--cols", cols,
+                "--rows", rows,
+            ]
+        case .socket(let socketPath):
+            return [
+                "attach",
+                "--socket", socketPath,
+                "--terminal", terminalID,
+                "--pipe-io",
+                "--cols", cols,
+                "--rows", rows,
+            ]
+        case .sshSession(let destination, let sessionName):
+            let remote = [
+                "cmux-tui", "attach",
+                "--session", shellQuote(sessionName),
+                "--terminal", shellQuote(terminalID),
+                "--pipe-io",
+                "--cols", cols,
+                "--rows", rows,
+            ].joined(separator: " ")
+            // BatchMode: a relay respawn loop must fail fast, never wedge on
+            // an interactive auth prompt it has no TTY to show.
+            return ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "--", destination, remote]
+        }
+    }
+
+    /// Back-compat argv builder for the bridge's own daemon session.
     static func relayArguments(
         sessionName: String,
         terminalID: String,
         cols: Int,
         rows: Int
     ) -> [String] {
-        [
-            "attach",
-            "--session", sessionName,
-            "--terminal", terminalID,
-            "--pipe-io",
-            "--cols", String(max(1, cols)),
-            "--rows", String(max(1, rows)),
-        ]
+        relayArguments(target: .session(sessionName), terminalID: terminalID, cols: cols, rows: rows)
+    }
+
+    private static func shellQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     /// Emitted into the surface before a respawned relay's replay: the
@@ -253,7 +312,7 @@ final class TuiManualIOPump {
 
     let terminalID: String
     private let binaryPath: String
-    private let sessionName: String
+    private let target: TuiManualIOPumpPolicy.RelayTarget
     private let environment: [String: String]
     private let inputChannel = TuiManualIOInputChannel()
     /// Injected so tests can run the backoff deterministically. Production
@@ -279,15 +338,32 @@ final class TuiManualIOPump {
     private var lastKnownGrid: (cols: Int, rows: Int)?
     private var lastSentGrid: (cols: Int, rows: Int)?
 
-    init(
+    convenience init(
         binaryPath: String,
         sessionName: String,
         terminalID: String,
         environment: [String: String],
         sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     ) {
+        self.init(
+            binaryPath: binaryPath,
+            target: .session(sessionName),
+            terminalID: terminalID,
+            environment: environment,
+            sleep: sleep
+        )
+    }
+
+    /// Harbor: relay to a foreign daemon (local socket or ssh session).
+    init(
+        binaryPath: String,
+        target: TuiManualIOPumpPolicy.RelayTarget,
+        terminalID: String,
+        environment: [String: String],
+        sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+    ) {
         self.binaryPath = binaryPath
-        self.sessionName = sessionName
+        self.target = target
         self.terminalID = terminalID
         self.environment = environment
         self.sleep = sleep
@@ -396,7 +472,8 @@ final class TuiManualIOPump {
         // back to reconnecting first) or teardown; a straggler retry task
         // or sizing sample must not resurrect the relay.
         if state == .ended || state == .failed { return }
-        guard FileManager.default.isExecutableFile(atPath: binaryPath) else {
+        let executablePath = TuiManualIOPumpPolicy.relayExecutablePath(binaryPath: binaryPath, target: target)
+        guard FileManager.default.isExecutableFile(atPath: executablePath) else {
             noteUnexplainedFailureThenRetryOrFail()
             return
         }
@@ -413,9 +490,9 @@ final class TuiManualIOPump {
         }
 
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: binaryPath)
+        process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = TuiManualIOPumpPolicy.relayArguments(
-            sessionName: sessionName,
+            target: target,
             terminalID: terminalID,
             cols: grid.cols,
             rows: grid.rows

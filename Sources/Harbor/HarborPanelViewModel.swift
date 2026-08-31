@@ -1,7 +1,8 @@
 import Foundation
 import SwiftUI
 
-/// One source's discovery state in the Harbor panel.
+/// Compatibility section used by old callers while the panel moves to the
+/// hierarchical snapshot model. New UI should consume `snapshots`.
 struct HarborSourceSection: Identifiable, Equatable {
     enum Status: Equatable {
         case loading
@@ -13,12 +14,7 @@ struct HarborSourceSection: Identifiable, Equatable {
     var status: Status
     var sessions: [HarborSession]
 
-    var id: String {
-        switch source {
-        case .local: return "local"
-        case .ssh(let destination): return "ssh:\(destination)"
-        }
-    }
+    var id: String { source.key }
 }
 
 /// Persisted list of user-added SSH destinations Harbor scans.
@@ -32,21 +28,19 @@ enum HarborHostStore {
     static func add(_ rawDestination: String, defaults: UserDefaults = .standard) -> Bool {
         let destination = rawDestination.trimmingCharacters(in: .whitespacesAndNewlines)
         guard isPlausibleDestination(destination) else { return false }
-        var hosts = hosts(defaults: defaults)
-        guard !hosts.contains(destination) else { return false }
-        hosts.append(destination)
-        defaults.set(hosts, forKey: defaultsKey)
+        var stored = hosts(defaults: defaults)
+        guard !stored.contains(destination) else { return false }
+        stored.append(destination)
+        defaults.set(stored, forKey: defaultsKey)
         return true
     }
 
     static func remove(_ destination: String, defaults: UserDefaults = .standard) {
-        let hosts = hosts(defaults: defaults).filter { $0 != destination }
-        defaults.set(hosts, forKey: defaultsKey)
+        defaults.set(hosts(defaults: defaults).filter { $0 != destination }, forKey: defaultsKey)
     }
 
-    /// `user@host`, `host`, or an ssh-config alias; rejects strings that
-    /// would be parsed as ssh options or extra words, since the destination
-    /// is passed to `ssh` as one argument after `--`.
+    /// Accept one ssh-config destination. Reject options and shell syntax
+    /// before the value reaches either discovery or the attach command.
     static func isPlausibleDestination(_ destination: String) -> Bool {
         guard !destination.isEmpty,
               !destination.hasPrefix("-"),
@@ -57,50 +51,90 @@ enum HarborHostStore {
     }
 }
 
-/// Owns Harbor discovery: probes this Mac plus every saved SSH destination,
-/// publishing each source's result as it lands.
+/// Owns Harbor discovery. One probe runs per host and publishes each host as
+/// soon as it completes. A short cancellable polling task keeps agent state and
+/// newly created panes visible without rebuilding the outline on every frame.
 @MainActor
 final class HarborPanelViewModel: ObservableObject {
+    @Published private(set) var snapshots: [HarborHostSnapshot] = []
+    /// Kept for source compatibility with the first session-only panel.
     @Published private(set) var sections: [HarborSourceSection] = []
     @Published private(set) var isRefreshing = false
 
     private var refreshGeneration = 0
+    private var pollingTask: Task<Void, Never>?
 
-    var sources: [HarborSource] {
-        [.local] + HarborHostStore.hosts().map { .ssh(destination: $0) }
+    deinit {
+        pollingTask?.cancel()
+    }
+
+    var sources: [HarborHostRef] {
+        var result: [HarborHostRef] = [.local]
+        for destination in HarborHostStore.hosts() {
+            let host = HarborHostRef.ssh(destination: destination)
+            if !result.contains(host) { result.append(host) }
+        }
+        return result
+    }
+
+    /// Starts live discovery. Calling this more than once is harmless.
+    func start() {
+        guard pollingTask == nil else { return }
+        refresh()
+        pollingTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .seconds(2))
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled else { return }
+                self?.refresh()
+            }
+        }
+    }
+
+    func stop() {
+        pollingTask?.cancel()
+        pollingTask = nil
+        // In-flight host probes may finish after the panel disappears. Move
+        // the generation forward so their results cannot repopulate a stopped
+        // model or race the next appearance's first refresh.
+        refreshGeneration += 1
     }
 
     func refresh() {
         refreshGeneration += 1
         let generation = refreshGeneration
-        let sources = sources
+        let hosts = sources
         let ownSessionName = TuiTerminalAttachBridge.shared.currentSessionName
-        isRefreshing = true
-        sections = sources.map { source in
-            // Keep the previous listing visible while its rescan runs.
-            let previous = sections.first { $0.source == source }
-            return HarborSourceSection(
-                source: source,
-                status: .loading,
-                sessions: previous?.sessions ?? []
-            )
+        let previous = Dictionary(uniqueKeysWithValues: snapshots.map { ($0.host.key, $0) })
+        isRefreshing = !hosts.isEmpty
+        snapshots = hosts.map { host in
+            var snapshot = previous[host.key] ?? HarborHostSnapshot(host: host, status: .loading, sessions: [])
+            snapshot.status = .loading
+            return snapshot
         }
-        for source in sources {
+        publishSections()
+
+        guard !hosts.isEmpty else {
+            isRefreshing = false
+            return
+        }
+
+        for host in hosts {
             Task { [weak self] in
-                let outcome: Result<[HarborSession], Error>
+                let result: Result<[HarborSessionInfo], Error>
                 do {
-                    outcome = .success(try await HarborSessionProbe.discoverSessions(
-                        source: source,
+                    result = .success(try await HarborSessionProbe.discoverSessions(
+                        host: host,
                         ownSessionName: ownSessionName
                     ))
                 } catch {
-                    outcome = .failure(error)
+                    result = .failure(error)
                 }
-                self?.applyOutcome(outcome, source: source, generation: generation)
+                self?.apply(result, host: host, generation: generation)
             }
-        }
-        if sources.isEmpty {
-            isRefreshing = false
         }
     }
 
@@ -115,23 +149,46 @@ final class HarborPanelViewModel: ObservableObject {
         refresh()
     }
 
-    private func applyOutcome(
-        _ outcome: Result<[HarborSession], Error>,
-        source: HarborSource,
+    private func apply(
+        _ result: Result<[HarborSessionInfo], Error>,
+        host: HarborHostRef,
         generation: Int
     ) {
         guard generation == refreshGeneration,
-              let index = sections.firstIndex(where: { $0.source == source }) else { return }
-        switch outcome {
+              let index = snapshots.firstIndex(where: { $0.host == host }) else { return }
+        switch result {
         case .success(let sessions):
-            sections[index].sessions = sessions
-            sections[index].status = .loaded
+            snapshots[index].sessions = sessions
+            snapshots[index].status = .loaded
         case .failure(let error):
-            sections[index].sessions = []
-            sections[index].status = .unreachable(Self.shortDescription(for: error))
+            snapshots[index].sessions = []
+            snapshots[index].status = .unreachable(Self.shortDescription(for: error))
         }
-        if !sections.contains(where: { $0.status == .loading }) {
-            isRefreshing = false
+        isRefreshing = snapshots.contains { snapshot in
+            if case .loading = snapshot.status { return true }
+            return false
+        }
+        publishSections()
+    }
+
+    private func publishSections() {
+        sections = snapshots.map { snapshot in
+            let status: HarborSourceSection.Status
+            switch snapshot.status {
+            case .loading: status = .loading
+            case .loaded: status = .loaded
+            case .unreachable(let reason): status = .unreachable(reason)
+            }
+            let sessions = snapshot.sessions.map { info in
+                HarborSession(
+                    source: snapshot.host,
+                    tool: info.tool,
+                    name: info.name,
+                    state: info.state,
+                    detail: info.detail
+                )
+            }
+            return HarborSourceSection(source: snapshot.host, status: status, sessions: sessions)
         }
     }
 

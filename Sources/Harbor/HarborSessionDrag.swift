@@ -10,32 +10,49 @@ import SwiftUI
 final class HarborSessionDragRegistry {
     private enum State {
         case idle
-        case active(id: UUID, session: HarborSession)
+        case active(id: UUID, item: HarborDragItem)
     }
 
     private var state: State = .idle
 
-    func register(_ session: HarborSession) -> UUID {
+    func register(_ item: HarborDragItem) -> UUID {
         let id = UUID()
         // AppKit permits only one process-local drag at a time; replacing an
         // abandoned registration also invalidates its residual payload.
-        state = .active(id: id, session: session)
+        state = .active(id: id, item: item)
         return id
     }
 
-    func session(id: UUID) -> HarborSession? {
-        guard case .active(let activeID, let session) = state,
+    func item(id: UUID) -> HarborDragItem? {
+        guard case .active(let activeID, let item) = state,
               activeID == id else { return nil }
-        return session
+        return item
+    }
+
+    func register(_ session: HarborSession) -> UUID {
+        register(.legacySession(session))
+    }
+
+    func session(id: UUID) -> HarborSession? {
+        guard let item = item(id: id) else { return nil }
+        if case .legacySession(let session) = item { return session }
+        switch item {
+        case .sessionTUI(let host, let tool, let name, let state):
+            return HarborSession(source: host, tool: tool, name: name, state: state, detail: "")
+        case .leaf, .legacySession:
+            return nil
+        }
     }
 
     func discard(id: UUID) {
-        guard session(id: id) != nil else { return }
+        guard item(id: id) != nil else { return }
         state = .idle
     }
 }
 
-/// Retained native source owning one Harbor drag's completion.
+/// Retained native source owning one Harbor drag's completion. The payload is
+/// an opaque in-process capability, so a stale pasteboard cannot attach a
+/// session after the registry has discarded it.
 @MainActor
 private final class HarborDragSessionSource: NSObject, NSDraggingSource {
     private var finished = false
@@ -59,25 +76,16 @@ private final class HarborDragSessionSource: NSObject, NSDraggingSource {
         self.onFinish = onFinish
     }
 
-    func draggingSession(
-        _ session: NSDraggingSession,
-        sourceOperationMaskFor context: NSDraggingContext
-    ) -> NSDragOperation {
+    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
         context == .withinApplication ? .move : []
     }
 
-    func draggingSession(
-        _ session: NSDraggingSession,
-        endedAt screenPoint: NSPoint,
-        operation: NSDragOperation
-    ) {
+    func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
         guard !finished else { return }
         finished = true
         transferRegistry.end(transferRegistration)
         registry.discard(id: dragID)
         onFinish(dragID)
-        // AppKit can retain the tab-transfer UTI after the source ends. Clear
-        // only this registration's capability so a newer drag is untouched.
         transferRegistration.clearResidualCapability(from: NSPasteboard(name: .drag))
     }
 }
@@ -85,11 +93,7 @@ private final class HarborDragSessionSource: NSObject, NSDraggingSource {
 /// Single main-actor owner for native Harbor drag sessions.
 @MainActor
 final class HarborDragCoordinator {
-    private enum Phase {
-        case idle
-        case dragging(id: UUID)
-    }
-
+    private enum Phase { case idle, dragging(id: UUID) }
     private var phase: Phase = .idle
     private var activeSource: HarborDragSessionSource?
 
@@ -102,51 +106,54 @@ final class HarborDragCoordinator {
         frame: NSRect,
         image: NSImage
     ) -> Bool {
-        guard case .idle = phase, frame.width > 0, frame.height > 0 else {
-            return false
-        }
-        let dragID = registry.register(session)
-        guard let transferRegistration = tabDragTransferRegistry.register(TabDragTransfer(
-            tab: Bonsplit.Tab(
-                id: TabID(uuid: dragID),
-                title: session.name,
-                icon: "terminal.fill",
-                kind: "terminal"
-            ),
-            // External source: this identity intentionally never names a live pane.
+        beginDrag(
+            .legacySession(session), registry: registry,
+            tabDragTransferRegistry: tabDragTransferRegistry,
+            title: session.name, from: sourceView, event: event, frame: frame, image: image
+        )
+    }
+
+    func beginDrag(
+        _ item: HarborDragItem,
+        registry: HarborSessionDragRegistry,
+        tabDragTransferRegistry: TabDragTransferRegistry,
+        title: String,
+        from sourceView: NSView,
+        event: NSEvent,
+        frame: NSRect,
+        image: NSImage
+    ) -> Bool {
+        guard case .idle = phase, frame.width > 0, frame.height > 0 else { return false }
+        let dragID = registry.register(item)
+        guard let registration = tabDragTransferRegistry.register(TabDragTransfer(
+            tab: Bonsplit.Tab(id: TabID(uuid: dragID), title: title, icon: "terminal.fill", kind: "terminal"),
             sourcePaneId: PaneID(id: dragID)
         )) else {
             registry.discard(id: dragID)
             return false
         }
-        let dragPasteboard = NSPasteboard(name: .drag)
-        dragPasteboard.clearContents()
-        guard transferRegistration.write(to: dragPasteboard) else {
-            tabDragTransferRegistry.end(transferRegistration)
+        let pasteboard = NSPasteboard(name: .drag)
+        pasteboard.clearContents()
+        guard registration.write(to: pasteboard) else {
+            tabDragTransferRegistry.end(registration)
             AppDelegate.shared?.liveTabDragCapabilityResolver.invalidate()
             registry.discard(id: dragID)
             return false
         }
         let source = HarborDragSessionSource(
-            dragID: dragID,
-            registry: registry,
-            transferRegistration: transferRegistration,
+            dragID: dragID, registry: registry, transferRegistration: registration,
             transferRegistry: tabDragTransferRegistry,
-            onFinish: { [weak self] finishedID in
-                guard let self, case .dragging(let activeID) = self.phase,
-                      activeID == finishedID else { return }
+            onFinish: { [weak self] id in
+                guard let self, case .dragging(let activeID) = self.phase, activeID == id else { return }
                 self.phase = .idle
                 self.activeSource = nil
             }
         )
         phase = .dragging(id: dragID)
         activeSource = source
-        let item = NSDraggingItem(pasteboardWriter: transferRegistration.pasteboardItem)
-        item.setDraggingFrame(frame, contents: image)
-#if DEBUG
-        cmuxDebugLog("harbor.drag.begin drag=\(dragID.uuidString.prefix(5)) session=\(session.id)")
-#endif
-        sourceView.beginDraggingSession(with: [item], event: event, source: source)
+        let dragItem = NSDraggingItem(pasteboardWriter: registration.pasteboardItem)
+        dragItem.setDraggingFrame(frame, contents: image)
+        sourceView.beginDraggingSession(with: [dragItem], event: event, source: source)
         return true
     }
 }
@@ -159,7 +166,7 @@ typealias HarborDragBeginAction = @MainActor (
     _ image: NSImage
 ) -> Bool
 
-/// Places one native drag source over one rendered Harbor row.
+/// Places one native drag source over one rendered session row.
 struct HarborDragSource: NSViewRepresentable {
     let session: HarborSession
     let beginDrag: HarborDragBeginAction
@@ -174,48 +181,33 @@ struct HarborDragSource: NSViewRepresentable {
     }
 }
 
-/// Native pointer source whose bounds exactly match one rendered Harbor row.
-/// Mirrors `SessionDragSourceView` (Vault); kept separate so the experiment
-/// does not reshape the Vault drag path.
 @MainActor
 final class HarborDragSourceView: NSView {
     private struct PendingDrag {
         let session: HarborSession
-        let mouseDownEvent: NSEvent
-        let startPoint: NSPoint
+        let event: NSEvent
+        let point: NSPoint
     }
-
     private var session: HarborSession
     private var beginDrag: HarborDragBeginAction
     private var onDoubleClick: @MainActor () -> Void
-    private var pendingDrag: PendingDrag?
-    private let dragThresholdSquared: CGFloat = 16
+    private var pending: PendingDrag?
+    private let thresholdSquared: CGFloat = 16
 
     override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { false }
 
-    init(
-        frame frameRect: NSRect = .zero,
-        session: HarborSession,
-        beginDrag: @escaping HarborDragBeginAction,
-        onDoubleClick: @escaping @MainActor () -> Void
-    ) {
+    init(frame: NSRect = .zero, session: HarborSession, beginDrag: @escaping HarborDragBeginAction, onDoubleClick: @escaping @MainActor () -> Void) {
         self.session = session
         self.beginDrag = beginDrag
         self.onDoubleClick = onDoubleClick
-        super.init(frame: frameRect)
+        super.init(frame: frame)
     }
 
     @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    func update(
-        session: HarborSession,
-        beginDrag: @escaping HarborDragBeginAction,
-        onDoubleClick: @escaping @MainActor () -> Void
-    ) {
+    func update(session: HarborSession, beginDrag: @escaping HarborDragBeginAction, onDoubleClick: @escaping @MainActor () -> Void) {
         self.session = session
         self.beginDrag = beginDrag
         self.onDoubleClick = onDoubleClick
@@ -224,77 +216,48 @@ final class HarborDragSourceView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard bounds.contains(point), let event = NSApp.currentEvent else { return nil }
         switch event.type {
-        case .leftMouseDown:
-            return event.modifierFlags.contains(.control) ? nil : self
-        case .leftMouseDragged, .leftMouseUp:
-            return self
-        default:
-            // Hover, help, and contextual-menu events remain owned by the
-            // SwiftUI row underneath this transparent source view.
-            return nil
+        case .leftMouseDown: return event.modifierFlags.contains(.control) ? nil : self
+        case .leftMouseDragged, .leftMouseUp: return self
+        default: return nil
         }
     }
 
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-        true
-    }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func mouseDown(with event: NSEvent) {
-        pendingDrag = nil
-        guard !event.modifierFlags.contains(.control),
-              let window,
-              event.windowNumber == window.windowNumber else {
-            return
-        }
+        pending = nil
+        guard !event.modifierFlags.contains(.control), let window, event.windowNumber == window.windowNumber else { return }
         let point = convert(event.locationInWindow, from: nil)
         guard bounds.contains(point) else { return }
-        pendingDrag = PendingDrag(session: session, mouseDownEvent: event, startPoint: point)
+        pending = PendingDrag(session: session, event: event, point: point)
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard let pendingDrag,
-              let window,
-              event.windowNumber == window.windowNumber else {
-            self.pendingDrag = nil
-            return
-        }
+        guard let pending, let window, event.windowNumber == window.windowNumber else { self.pending = nil; return }
         let point = convert(event.locationInWindow, from: nil)
-        let deltaX = point.x - pendingDrag.startPoint.x
-        let deltaY = point.y - pendingDrag.startPoint.y
-        guard (deltaX * deltaX) + (deltaY * deltaY) >= dragThresholdSquared else {
-            return
-        }
-        self.pendingDrag = nil
-        let image = dragImage() ?? NSImage(size: bounds.size)
-        _ = beginDrag(pendingDrag.session, self, pendingDrag.mouseDownEvent, bounds, image)
+        let dx = point.x - pending.point.x
+        let dy = point.y - pending.point.y
+        guard dx * dx + dy * dy >= thresholdSquared else { return }
+        self.pending = nil
+        _ = beginDrag(pending.session, self, pending.event, bounds, dragImage() ?? NSImage(size: bounds.size))
     }
 
     override func mouseUp(with event: NSEvent) {
-        guard let pendingDrag else { return }
-        self.pendingDrag = nil
-        guard pendingDrag.mouseDownEvent.clickCount == 2 else { return }
-        onDoubleClick()
+        guard let pending else { return }
+        self.pending = nil
+        if pending.event.clickCount == 2 { onDoubleClick() }
     }
 
-    override func cancelOperation(_ sender: Any?) {
-        pendingDrag = nil
-        super.cancelOperation(sender)
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        pendingDrag = nil
-    }
+    override func cancelOperation(_ sender: Any?) { pending = nil; super.cancelOperation(sender) }
+    override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); pending = nil }
 
     private func dragImage() -> NSImage? {
         guard let contentView = window?.contentView else { return nil }
-        let contentFrame = convert(bounds, to: contentView)
-        guard let representation = contentView.bitmapImageRepForCachingDisplay(in: contentFrame) else {
-            return nil
-        }
-        contentView.cacheDisplay(in: contentFrame, to: representation)
+        let frame = convert(bounds, to: contentView)
+        guard let rep = contentView.bitmapImageRepForCachingDisplay(in: frame) else { return nil }
+        contentView.cacheDisplay(in: frame, to: rep)
         let image = NSImage(size: bounds.size)
-        image.addRepresentation(representation)
+        image.addRepresentation(rep)
         return image
     }
 }

@@ -78,6 +78,18 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+---
+
+## Herdr interoperability
+
+Harbor can invoke an independently installed Herdr CLI and uses its public
+session, pane, agent, and terminal-control interfaces. cmux does not bundle or
+redistribute Herdr code or binaries.
+
+- **License:** Apache License 2.0
+- **Source:** https://github.com/herdrdev/herdr
+- **API reference:** https://github.com/herdrdev/herdr/blob/master/docs/next/website/src/content/docs/cli-reference.mdx
+
 ## PostHog iOS
 
 - **License:** MIT License

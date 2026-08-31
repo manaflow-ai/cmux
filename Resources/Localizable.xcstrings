@@ -124072,13 +124072,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Manual IO beta is off. Dropped sessions open in a plain terminal instead of a daemon-backed pane."
+            "value": "Manual IO beta is off. Harbor drops open in a plain terminal instead of a daemon-backed pane."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "手動IOベータが無効です。ドロップしたセッションはデーモン管理のペインではなく通常のターミナルで開きます。"
+            "value": "手動IOベータが無効です。Harborからドロップした項目はデーモン管理のペインではなく通常のターミナルで開きます。"
           }
         }
       }
@@ -124217,6 +124217,90 @@
             "value": "不明"
           }
         }
+      }
+    },
+    "harbor.agent.state.blocked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "blocked" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブロック" } }
+      }
+    },
+    "harbor.agent.state.done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "done" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "完了" } }
+      }
+    },
+    "harbor.agent.state.idle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "idle" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "待機中" } }
+      }
+    },
+    "harbor.agent.state.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "unknown" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明" } }
+      }
+    },
+    "harbor.agent.state.working": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "working" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "作業中" } }
+      }
+    },
+    "harbor.host.ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Ready" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "準備完了" } }
+      }
+    },
+    "harbor.menu.attachSession": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Attach Session" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "セッションに接続" } }
+      }
+    },
+    "harbor.menu.copyCommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Copy Attach Command" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "接続コマンドをコピー" } }
+      }
+    },
+    "harbor.menu.refresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Refresh" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "更新" } }
+      }
+    },
+    "harbor.refreshing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Scanning…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "スキャン中…" } }
+      }
+    },
+    "harbor.session.terminalCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%d terminals · %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%d個のターミナル · %@" } }
+      }
+    },
+    "harbor.terminal.active": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Active" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アクティブ" } }
       }
     },
     "historyPane.clearClosed": {

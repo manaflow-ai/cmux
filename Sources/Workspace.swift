@@ -8946,6 +8946,16 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             if tracksRemoteTerminalSurface {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
+            if tuiManualIOTerminalID != nil {
+                TuiManualIOPumpRegistry.shared.stopAndRemove(surfaceID: newPanel.id)
+            }
+            if let tuiProvisionedTerminal {
+                // The daemon terminal was created before Bonsplit accepted
+                // the tab. Roll it back when tab creation rejects the panel.
+                TuiTerminalAttachBridge.shared.closeProvisionedHarborTerminal(
+                    terminalID: tuiProvisionedTerminal.terminalID
+                )
+            }
             return nil
         }
 
@@ -12504,16 +12514,20 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         workingDirectory: String?,
         initialInput: String?,
         startupRestoreAgent: SessionRestorableAgentSnapshot? = nil,
+        initialCommand: String? = nil,
         remoteStartupCommand: String? = nil,
         tuiManualIOReattachTerminalID: String? = nil
     ) -> TerminalPanel? {
         guard !isRetiredFromOwningTabManager else { return nil }
         var inheritedConfig = inheritedTerminalConfig(inPane: paneId)
+        let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let localStartupCommand = requestedInitialCommand?.isEmpty == false ? requestedInitialCommand : nil
         let requestedRemoteStartupCommand = remoteStartupCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let startupCommand = requestedRemoteStartupCommand?.isEmpty == false ? requestedRemoteStartupCommand : nil
+        let remoteCommand = requestedRemoteStartupCommand?.isEmpty == false ? requestedRemoteStartupCommand : nil
+        let startupCommand = localStartupCommand ?? remoteCommand
         let effectiveStartupEnvironment = terminalStartupEnvironment(
             base: startupEnvironmentMergingWorkspaceEnvironment([:]),
-            remoteStartupCommand: startupCommand
+            remoteStartupCommand: remoteCommand
         )
         if startupCommand != nil {
             var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
@@ -12566,7 +12580,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         if let tuiManualIOReattachTerminalID {
             tuiTerminalIDsByPanelId[newPanel.id] = tuiManualIOReattachTerminalID
         }
-        if startupCommand != nil {
+        if remoteCommand != nil {
             trackRemoteTerminalSurface(newPanel.id)
         }
 
@@ -12585,7 +12599,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
             removeSurfaceMapping(forSurfaceId: newTab.id)
-            if startupCommand != nil {
+            if remoteCommand != nil {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
             if tuiManualIOReattachTerminalID != nil {

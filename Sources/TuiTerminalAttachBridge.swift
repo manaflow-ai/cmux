@@ -59,6 +59,12 @@ final class TuiTerminalAttachBridge {
         return trimmed.isEmpty ? key.defaultValue : trimmed
     }
 
+    /// The selected binary used by Harbor's local discovery probe. Keep this
+    /// read-only accessor separate from the bridge's process-launch details so
+    /// discovery can use the same configured executable without duplicating
+    /// settings decoding.
+    nonisolated static var configuredBinaryPath: String { binaryPath }
+
     private var cachedTerminalIDs: (ids: Set<String>, fetchedAt: Date)?
     private var cachedCloseConfirmations: [String: (required: Bool, fetchedAt: Date)] = [:]
 
@@ -321,6 +327,13 @@ final class TuiTerminalAttachBridge {
             let output = TuiTerminalAttachBridge.runCLI(binary: binary, arguments: arguments, timeout: 10)
             Self.logSpikeStatic("surfaceClose.done terminal=\(terminalID) ok=\(output != nil ? 1 : 0)")
         }
+    }
+
+    /// Rolls back a Harbor terminal when pane creation fails after the daemon
+    /// already created it. Without this cleanup, a rejected drop leaves an
+    /// unreachable terminal in the daemon's durable catalog.
+    func closeProvisionedHarborTerminal(terminalID: String) {
+        closeTerminalForClosedSurface(terminalID: terminalID)
     }
 
     /// The attach command for a terminal id this bridge (or a previous app

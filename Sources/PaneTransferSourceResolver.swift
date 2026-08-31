@@ -12,6 +12,9 @@ struct PaneTransferSourceResolver {
         case surfaceResources(SurfaceResourceGroup)
         /// A Harbor row: an attachable multiplexer session (local or SSH).
         case harborSession(HarborSession)
+        /// A Harbor terminal row: a direct leaf or an explicit session-level
+        /// fallback. This keeps each tree leaf independently draggable.
+        case harborItem(HarborDragItem)
         case surface
     }
 
@@ -20,6 +23,7 @@ struct PaneTransferSourceResolver {
     typealias FilePreviewLookup = @MainActor (UUID) -> FilePreviewDragEntry?
     typealias SurfaceResourceLookup = @MainActor (UUID) -> SurfaceResourceGroup?
     typealias HarborSessionLookup = @MainActor (UUID) -> HarborSession?
+    typealias HarborItemLookup = @MainActor (UUID) -> HarborDragItem?
     typealias LivenessLookup = @MainActor (UUID) -> Bool
 
     private let vaultSessionRegistry: VaultSessionRegistry
@@ -27,6 +31,7 @@ struct PaneTransferSourceResolver {
     private let filePreview: FilePreviewLookup
     private let surfaceResource: SurfaceResourceLookup
     private let harborSession: HarborSessionLookup
+    private let harborItem: HarborItemLookup
     private let surfaceIsLive: LivenessLookup
 
     init(
@@ -45,6 +50,9 @@ struct PaneTransferSourceResolver {
         harborSession: @escaping HarborSessionLookup = { id in
             AppDelegate.shared?.harborSessionDragRegistry.session(id: id)
         },
+        harborItem: @escaping HarborItemLookup = { id in
+            AppDelegate.shared?.harborSessionDragRegistry.item(id: id)
+        },
         surfaceIsLive: @escaping LivenessLookup = { id in
             AppDelegate.shared?.locateContainerSurface(tabId: id) != nil
         }
@@ -54,6 +62,7 @@ struct PaneTransferSourceResolver {
         self.filePreview = filePreview
         self.surfaceResource = surfaceResource
         self.harborSession = harborSession
+        self.harborItem = harborItem
         self.surfaceIsLive = surfaceIsLive
     }
 
@@ -99,6 +108,10 @@ struct PaneTransferSourceResolver {
         }
         if let entry = filePreview(id) { return .filePreview(entry) }
         if let group = surfaceResource(id) { return .surfaceResources(group) }
+        if let item = harborItem(id) {
+            if case .legacySession(let session) = item { return .harborSession(session) }
+            return .harborItem(item)
+        }
         if let session = harborSession(id) { return .harborSession(session) }
         return nil
     }
@@ -115,6 +128,8 @@ struct PaneTransferSourceResolver {
             SurfaceResourceDragRegistry.shared.discard(id: id)
         case .harborSession:
             AppDelegate.shared?.harborSessionDragRegistry.discard(id: id)
+        case .harborItem:
+            AppDelegate.shared?.harborSessionDragRegistry.discard(id: id)
         case .surface:
             break
         }
@@ -130,7 +145,7 @@ struct PaneTransferSourceResolver {
         switch source {
         case .surface:
             tabTransferRegistry()?.finish(from: pasteboard)
-        case .vaultSession, .filePreview, .surfaceResources, .harborSession:
+        case .vaultSession, .filePreview, .surfaceResources, .harborSession, .harborItem:
             finish(source, id: id)
         }
     }

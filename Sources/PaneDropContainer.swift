@@ -45,6 +45,13 @@ protocol PaneDropContainer: AnyObject {
         destination: BonsplitController.ExternalTabDropRequest.Destination
     ) -> Bool
 
+    /// Creates the terminal represented by one Harbor tree leaf at this
+    /// destination. Containers that cannot host a terminal return `false`.
+    func performPortalHarborItemDrop(
+        item: HarborDragItem,
+        destination: BonsplitController.ExternalTabDropRequest.Destination
+    ) -> Bool
+
     /// Projects a Cloud tree row (one resource, or a workspace's collection) at this destination.
     func performPortalSurfaceResourceDrop(
         group: SurfaceResourceGroup,
@@ -109,6 +116,8 @@ extension PaneDropContainer {
             handled = performPortalSurfaceResourceDrop(group: group, destination: request.destination)
         case .harborSession(let session):
             handled = performPortalHarborSessionDrop(session: session, destination: request.destination)
+        case .harborItem(let item):
+            handled = performPortalHarborItemDrop(item: item, destination: request.destination)
         case .surface:
             return nil
         }
@@ -124,7 +133,7 @@ extension PaneDropContainer {
         source: PaneTransferSourceResolver.Source
     ) -> Bool {
         switch source {
-        case .vaultSession, .filePreview, .surfaceResources, .harborSession:
+        case .vaultSession, .filePreview, .surfaceResources, .harborSession, .harborItem:
             return true
         case .surface:
             return canPerformPortalSurfaceDrop(transfer)
@@ -158,6 +167,8 @@ extension PaneDropContainer {
             return performPortalSurfaceResourceDrop(group: group, destination: destination)
         case .harborSession(let session):
             return performPortalHarborSessionDrop(session: session, destination: destination)
+        case .harborItem(let item):
+            return performPortalHarborItemDrop(item: item, destination: destination)
         case .surface:
             return performPortalSurfaceDrop(
                 tabId: tabId,
@@ -187,6 +198,13 @@ extension PaneDropContainer {
     /// Declines Harbor rows for containers that cannot host a terminal pane (the Dock).
     func performPortalHarborSessionDrop(
         session _: HarborSession,
+        destination _: BonsplitController.ExternalTabDropRequest.Destination
+    ) -> Bool {
+        false
+    }
+
+    func performPortalHarborItemDrop(
+        item _: HarborDragItem,
         destination _: BonsplitController.ExternalTabDropRequest.Destination
     ) -> Bool {
         false
@@ -308,6 +326,13 @@ extension Workspace: PaneDropContainer {
         destination: BonsplitController.ExternalTabDropRequest.Destination
     ) -> Bool {
         handleHarborSessionDrop(session: session, destination: destination)
+    }
+
+    func performPortalHarborItemDrop(
+        item: HarborDragItem,
+        destination: BonsplitController.ExternalTabDropRequest.Destination
+    ) -> Bool {
+        handleHarborItemDrop(item: item, destination: destination)
     }
 
     /// Projects a dragged Cloud row through the surface catalog.

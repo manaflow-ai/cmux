@@ -30,6 +30,24 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
         return "/usr/bin/ssh"
     }
 
+    /// Reserved destination naming this Mac's own tmux server. `@local` is
+    /// not a valid ssh destination, so it can never collide with a real
+    /// alias. A local host runs `tmux -CC` directly under `script(1)` for
+    /// the controlling tty control mode requires (the same trick the
+    /// remote-tmux e2e shim uses), instead of through ssh.
+    static let localMachineDestination = "@local"
+
+    static var localMachine: RemoteTmuxHost {
+        RemoteTmuxHost(destination: localMachineDestination)
+    }
+
+    var isLocalMachine: Bool { destination == Self.localMachineDestination }
+
+    /// The executable the control process runs for this host.
+    func controlProcessExecutablePath() -> String {
+        isLocalMachine ? "/usr/bin/script" : Self.defaultSSHExecutablePath()
+    }
+
     /// The SSH destination: a `~/.ssh/config` alias or `user@host`.
     let destination: String
 
@@ -341,6 +359,19 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
         createIfMissing: Bool,
         controlPersistSeconds: Int = 180
     ) -> [String] {
+        if isLocalMachine {
+            // `tmux -CC` needs a controlling tty (bare pipes fail with
+            // tcgetattr); script(1) provides one while keeping plain stdio
+            // on our side. Login shell so Homebrew's tmux resolves.
+            let quotedName = "'" + sessionName.replacingOccurrences(of: "'", with: "'\\''") + "'"
+            // stty raw -echo: the pty must not echo our command lines back
+            // into the control stream (commands are written only after the
+            // attach block, so the stty has always run by then).
+            let command = createIfMissing
+                ? "stty raw -echo 2>/dev/null; exec tmux -CC new-session -A -s \(quotedName)"
+                : "stty raw -echo 2>/dev/null; exec tmux -CC attach-session -t \(quotedName)"
+            return ["-q", "/dev/null", "/bin/sh", "-lc", command]
+        }
         var args = ["-tt"]
         args.append(contentsOf: sshControlArguments(
             controlPersistSeconds: controlPersistSeconds,
