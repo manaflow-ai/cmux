@@ -7,6 +7,9 @@ struct AccessoryEdgeFadeTests {
     @Test("edge stays fully opaque at rest and during leading bounce")
     func opaqueAtRest() {
         #expect(AccessoryEdgeFadeScrollView.leadingEdgeAlpha(contentOffsetX: 0) == 1)
+        // Rest position when the host carries the 4pt inter-button gap as a
+        // leading content inset: still no fade until a key reaches the edge.
+        #expect(AccessoryEdgeFadeScrollView.leadingEdgeAlpha(contentOffsetX: -4) == 1)
         #expect(AccessoryEdgeFadeScrollView.leadingEdgeAlpha(contentOffsetX: -30) == 1)
     }
 

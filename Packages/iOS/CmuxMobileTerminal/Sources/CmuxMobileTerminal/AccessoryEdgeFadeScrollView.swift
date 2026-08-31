@@ -28,8 +28,11 @@ final class AccessoryEdgeFadeScrollView: UIScrollView {
     /// fade) while the row rests at its origin, ramping linearly to 0 (fully
     /// faded) once the content has scrolled a full ``fadeWidth`` past the
     /// edge. The ramp is what makes the fade INCREMENTAL: a 1pt scroll barely
-    /// dims the edge instead of snapping a full gradient on, and rubber-band
-    /// bounce (negative offsets) stays fully opaque.
+    /// dims the edge instead of snapping a full gradient on. Negative offsets
+    /// stay fully opaque, which covers both rubber-band bounce and the at-rest
+    /// position when the host carries the inter-button gap as a leading
+    /// content inset (rest offset -gap): the fade begins only once a key
+    /// actually reaches the viewport's leading edge.
     nonisolated static func leadingEdgeAlpha(contentOffsetX: CGFloat, fadeWidth: CGFloat = fadeWidth) -> CGFloat {
         guard fadeWidth > 0 else { return 0 }
         return 1 - min(1, max(0, contentOffsetX / fadeWidth))
