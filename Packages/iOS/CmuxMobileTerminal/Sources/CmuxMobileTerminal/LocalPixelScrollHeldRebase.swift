@@ -50,6 +50,14 @@ extension GhosttySurfaceView.LocalPixelScrollState {
         maxPositionPx: Double
     ) -> Double {
         if rebaseFromHeldPosition, let held {
+            // A docked hold is bottom-anchored: the tail is the tail in every
+            // row space, so it needs no revision match and no content rebase.
+            // The gesture undocks it by actually moving up (the batch's dock
+            // check stores dockedAtTail=false the moment the resolved
+            // position leaves the tail).
+            if held.dockedAtTail {
+                return maxPositionPx
+            }
             if held.revision == scrollbarRevision {
                 return min(held.positionPx, maxPositionPx)
             }
