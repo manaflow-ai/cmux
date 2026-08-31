@@ -340,13 +340,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         /// hijacking the gesture. Cleared on dock/typing snaps and surface
         /// replacement, where the live viewport becomes the truth again.
         var lastApplied: Held?
-        /// Device pixels of scroll-top reveal: how far past scrollback-top
-        /// the gesture has pulled, realized by the host sliding the
+        /// Device pixels of scroll-top reveal: how far the gesture has pulled
+        /// into the clipped-top zone, realized by the host sliding the
         /// bottom-pinned render back down to uncover the rows the keyboard-up
-        /// presentation clips above the screen. Only ever nonzero while the
-        /// grid sits at scrollback top; cleared everywhere `lastApplied` is,
-        /// plus on every keyboard leg (the budget it was granted against
-        /// changes with the keyboard).
+        /// presentation clips above the screen. On the primary screen it is
+        /// the pixel axis's continuation past scrollback-top (only nonzero at
+        /// position 0); on the line path (alt screens) it resolves before
+        /// wheel dispatch. Presentation-space, so the line path's routing
+        /// clear preserves it while dropping `lastApplied`; bottom snaps,
+        /// surface replacement, and every keyboard leg (the budget it was
+        /// granted against changes with the keyboard) still zero it.
         var topRevealPx: Double = 0
         #if DEBUG
         /// Rate-limits slow-batch perf log lines (scroll-hitch investigation).
@@ -2419,12 +2422,32 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 // carry a held anchor or re-assert into the TUI's screen.
                 pendingLocalScrollPixels = 0
                 pendingLocalPixelScrollReassert = false
+                // The keyboard-up bottom-pin clips the render's top above the
+                // screen on alt screens too, and wheel lines cannot reach it:
+                // a short TUI transcript has nothing to scroll, and a long one
+                // exhausts its history with the grid's top rows still hidden.
+                // Resolve the same top-reveal zone the pixel path owns before
+                // dispatching wheel lines (reveal-first in both directions —
+                // see `lineScrollTopRevealResolution`); the host's content cap
+                // follows the reveal on its display link, exactly as it does
+                // for the pixel path. The reveal is presentation-space, so
+                // unlike the held anchor it survives the routing flip.
+                let revealBudgetPx = hostedScrollTopRevealBudgetPx
+                let deltaPixels = pixels
+                var wheelDeltaPixels = deltaPixels
                 localPixelScrollState.withLock {
                     $0.epoch &+= 1
                     $0.remainderPx = 0
                     $0.lastApplied = nil
-                    $0.topRevealPx = 0
+                    let resolved = TerminalLetterboxGeometry.lineScrollTopRevealResolution(
+                        currentRevealPx: $0.topRevealPx,
+                        deltaPixels: deltaPixels,
+                        maxRevealPx: revealBudgetPx
+                    )
+                    $0.topRevealPx = resolved.revealPx
+                    wheelDeltaPixels = resolved.leftoverDeltaPixels
                 }
+                let wheelFraction = deltaPixels != 0 ? wheelDeltaPixels / deltaPixels : 1
                 // TUI scroll feel: dispatch whole lines only, carrying the
                 // fraction in its own accumulator, so the app sees clean
                 // steps instead of a 120Hz fragment stream; and cap the
@@ -2432,7 +2455,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 // full-screen app for seconds. The carry lives OUTSIDE
                 // pendingScrollLines so a sub-line leftover cannot re-trigger
                 // the flush every frame and churn interaction generations.
-                let totalLines = linePathFractionCarry + lines
+                let totalLines = linePathFractionCarry + lines * wheelFraction
                 let wholeLines = totalLines < 0
                     ? totalLines.rounded(.up)
                     : totalLines.rounded(.down)
