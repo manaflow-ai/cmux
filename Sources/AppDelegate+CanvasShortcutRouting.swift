@@ -13,23 +13,7 @@ extension AppDelegate {
             return false
         }
 
-        let action: KeyboardShortcutSettings.Action? = switch direction {
-        case .right: .splitBrowserRight
-        case .down: .splitBrowserDown
-        // There are no configurable left/up split actions; use the
-        // direction-agnostic surface-command gate.
-        case .left, .up: nil
-        }
         _ = synchronizeActiveMainWindowContext(preferredWindow: shortcutRoutingActiveWindow)
-
-        if routeSplitToFocusedDock(
-            kind: .browser,
-            direction: direction,
-            action: action,
-            preferredWindow: shortcutRoutingActiveWindow
-        ) {
-            return true
-        }
 
         if let workspace = tabManager?.selectedWorkspace, workspace.layoutMode == .canvas {
             guard let panelId = workspace.openNewCanvasPane(

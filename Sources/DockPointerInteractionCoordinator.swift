@@ -115,8 +115,13 @@ final class DockPointerInteractionEventRouter {
 
     private func route(_ event: NSEvent) {
         guard let window = event.window else { return }
-        guard let host = hostsByWindow[ObjectIdentifier(window)]?
-            .last(where: { $0.host != nil })?.host else {
+        let windowID = ObjectIdentifier(window)
+        guard let entries = hostsByWindow[windowID] else {
+            // An event from a window without a Dock host cannot tell us
+            // anything about the liveness of registered hosts elsewhere.
+            return
+        }
+        guard let host = entries.last(where: { $0.host != nil })?.host else {
             // Dead weak entries are pruned lazily only when a lookup finds no
             // live host. The normal click path therefore performs no
             // collection rebuild or allocation.

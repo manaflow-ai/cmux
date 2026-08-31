@@ -2577,6 +2577,54 @@ struct DockShortcutRoutingTests {
         }
     }
 
+    @Test("Dock close-other-tabs preserves pinned siblings")
+    @MainActor
+    func dockCloseOtherTabsPreservesPinnedSibling() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let selected = try harness.dock.seedShortcutTestPanel(
+                    inPane: harness.rootPane
+                )
+                let pinned = try harness.dock.seedShortcutTestPanel(
+                    inPane: harness.rootPane
+                )
+                let unpinned = try harness.dock.seedShortcutTestPanel(
+                    inPane: harness.rootPane
+                )
+                #expect(
+                    harness.dock.setDockPanelPinned(
+                        panelId: pinned.id,
+                        pinned: true
+                    )
+                )
+                harness.dock.focusPanel(selected.id)
+                harness.dock.refreshDockMenuCapabilities()
+                #expect(harness.dock.menuCapabilities.canCloseOtherTabs)
+
+                let defaults = UserDefaults.standard
+                let warningKey = "warnBeforeClosingTabShortcut"
+                let previousWarning = defaults.object(forKey: warningKey)
+                defaults.set(false, forKey: warningKey)
+                defer {
+                    if let previousWarning {
+                        defaults.set(previousWarning, forKey: warningKey)
+                    } else {
+                        defaults.removeObject(forKey: warningKey)
+                    }
+                }
+
+                #expect(
+                    harness.dock.performShortcutCommand(
+                        .closeOtherTabsInPane
+                    )
+                )
+                #expect(harness.dock.containsPanel(pinned.id))
+                #expect(!harness.dock.containsPanel(unpinned.id))
+                #expect(!harness.dock.menuCapabilities.canCloseOtherTabs)
+            }
+        }
+    }
+
     @Test("A single Dock tab can move to a new workspace")
     @MainActor
     func singleDockTabOffersNewWorkspaceDestination() async throws {
