@@ -61,6 +61,12 @@ def main() -> int:
 
         claude_log = tmp / "claude.log"
         codex_log = tmp / "codex.log"
+        login_shell = tmp / "login-shell"
+
+        make_executable(
+            login_shell,
+            "#!/bin/sh\nprintf '%s' \"$PATH\"\n",
+        )
 
         make_executable(
             fallback_bin / "claude-node-helper",
@@ -94,6 +100,7 @@ exit 86
         env = os.environ.copy()
         env["HOME"] = str(home)
         env["PATH"] = "/usr/bin:/bin"
+        env["SHELL"] = str(login_shell)
         env["TMPDIR"] = str(tmp)
         env["CMUX_CLAUDE_WRAPPER_SHIM"] = str(managed_bin / "claude")
         env["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"] = str(managed_bin)
