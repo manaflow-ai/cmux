@@ -6377,11 +6377,22 @@ impl Mux {
                     && previous_session.as_deref() == session
             },
         );
+        // Done closes a lifecycle independently of which external adapter
+        // observed it. Coalesce a repeated terminal session even when the
+        // next poll comes from the other adapter, so the source-neutral fence
+        // does not accumulate redundant echo rows.
+        let repeated_external_done =
+            previous.as_ref().is_some_and(|(previous_state, _, previous_session, _)| {
+                source != AgentSource::Hook
+                    && state == AgentState::Done
+                    && previous_state == AgentState::Done.as_str()
+                    && previous_session.as_deref() == session
+            });
         let hook_owned_external_report =
             previous.as_ref().is_some_and(|(_, previous_source, _, _)| {
                 previous_source == AgentSource::Hook.as_str() && source != AgentSource::Hook
             });
-        if unchanged || hook_owned_external_report {
+        if unchanged || repeated_external_done || hook_owned_external_report {
             return None;
         }
         let previous = previous
