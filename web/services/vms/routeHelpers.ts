@@ -508,6 +508,29 @@ export function vmWorkflowErrorResponse(err: unknown): Response | null {
         },
       });
     }
+    if (providerOperationUnsupported(workflowError.cause)) {
+      // The provider cannot perform this operation at all (e.g. Blaxel has no
+      // snapshot/restore on the current workspace tier). Telling the caller
+      // "temporarily unavailable, retry" would be a lie, so this is an honest
+      // 501: not retryable, with guidance that does not suggest waiting.
+      return vmErrorResponse({
+        error: "vm_operation_unsupported",
+        status: 501,
+        message: vmUnsupportedMessage(phase),
+        reason: "This machine kind's provider does not implement the requested operation.",
+        action: vmUnsupportedAction(phase),
+        phase,
+        retryable: false,
+        displayTitle: "Cloud VM operation unavailable",
+        displayMessage: vmUnsupportedMessage(phase),
+        severity: "error",
+        details: {
+          operation: workflowError.operation,
+          retryable: false,
+          providerCode: "provider_operation_unsupported",
+        },
+      });
+    }
     const retryAfterSeconds = retryAfterForOperation(workflowError.operation);
     const providerMessage = providerCause?.message
       ? sanitizedProviderMessage(providerCause.message)
@@ -568,6 +591,52 @@ export function vmWorkflowErrorResponse(err: unknown): Response | null {
   }
 
   return null;
+}
+
+/**
+ * True when the provider reported the operation as permanently unsupported (a
+ * driver NotImplementedError, or the provider gateway's "not supported by this
+ * provider" refusal), as opposed to transiently failing. Deliberately narrow:
+ * a provider message like "unsupported in the current state" stays on the
+ * retryable 502 path, because retrying such a request can succeed.
+ */
+function providerOperationUnsupported(cause: unknown): boolean {
+  let current: unknown = cause;
+  for (let depth = 0; depth < 8 && current; depth += 1) {
+    const record = current as { name?: unknown; message?: unknown; cause?: unknown };
+    if (record.name === "NotImplementedError") return true;
+    const message = typeof record.message === "string" ? record.message : "";
+    if (/not supported by this provider/i.test(message)) return true;
+    current = record.cause;
+  }
+  return false;
+}
+
+function vmUnsupportedMessage(phase: VmLifecyclePhase): string {
+  switch (phase) {
+    case "snapshot":
+      return "This Cloud VM does not support snapshots.";
+    case "restore":
+      return "This Cloud VM kind does not support restoring from a snapshot.";
+    case "fork":
+      return "This Cloud VM does not support forking.";
+    default:
+      return "This Cloud VM does not support the requested operation.";
+  }
+}
+
+function vmUnsupportedAction(phase: VmLifecyclePhase): string {
+  switch (phase) {
+    case "snapshot":
+    case "restore":
+      return "Do not retry: this machine kind has no snapshot support. " +
+        "Work on this machine kind is kept on its persistent home volume instead.";
+    case "fork":
+      return "Do not retry: this machine kind cannot be forked. Create a new VM with `cmux vm new`.";
+    default:
+      return "Do not retry: this machine kind does not offer this operation. " +
+        "Run `cmux vm ls` to see your machines, or contact support if you believe this is wrong.";
+  }
 }
 
 /** True when the provider reported that the requested image/template does not exist. */
