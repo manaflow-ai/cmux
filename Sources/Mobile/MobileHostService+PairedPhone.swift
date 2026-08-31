@@ -30,7 +30,7 @@ extension MobileHostService {
         guard let handshakeIdentity = Self.authenticatedHandshakeIdentity(
             authorization: authorization,
             request: request,
-            accountID: accountID
+            sessionIdentity: verifiedSessionIdentity
         ) else {
             return
         }
@@ -103,14 +103,17 @@ extension MobileHostService {
     private nonisolated static func authenticatedHandshakeIdentity(
         authorization: MobileHostConnectionAuthorizationContext,
         request: MobileHostRPCRequest,
-        accountID: String
+        sessionIdentity: AuthenticatedSessionIdentity
     ) -> String? {
         switch authorization {
         case .stackBearer:
             guard request.auth?.stackAccessToken?.isEmpty == false else {
                 return nil
             }
-            return "stack:\(accountID)"
+            // Include the auth-session generation so a later sign-in or
+            // variant re-pair may replace the target, while repeated status
+            // responses within one authenticated session cannot switch it.
+            return "stack:\(sessionIdentity.accountID):\(sessionIdentity.generation)"
         case let .irohAdmission(peer):
             let bindingID = peer.bindingID.trimmingCharacters(in: .whitespacesAndNewlines)
             let endpointID = peer.endpointID.endpointID
