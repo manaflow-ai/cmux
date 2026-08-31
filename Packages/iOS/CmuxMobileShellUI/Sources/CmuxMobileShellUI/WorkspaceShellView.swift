@@ -255,9 +255,7 @@ struct WorkspaceShellView: View {
                 selection: $selectedPrimaryTab,
                 searchCoordinator: primarySearchCoordinator,
                 notificationUnreadCount: presentation.notificationUnreadCount,
-                taskComposerAction: usesCompactStack && !compactNavigationPath.isEmpty
-                    ? nil
-                    : taskComposerAction
+                taskComposerAction: scaffoldTaskComposerAction
             ) {
                 workspaceTabContent(
                     canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
@@ -655,6 +653,21 @@ struct WorkspaceShellView: View {
         return openTaskComposer
     }
 
+    /// The scaffold's screen-corner compose button serves the compact stack
+    /// (list root only) and the collapsed-sidebar split. With the sidebar
+    /// visible, compose belongs to the sidebar column (`splitLayout`), where
+    /// the pre-iOS-26 list host also anchored it, instead of floating over
+    /// the terminal.
+    private var scaffoldTaskComposerAction: (() -> Void)? {
+        if usesCompactStack {
+            return compactNavigationPath.isEmpty ? taskComposerAction : nil
+        }
+        if #available(iOS 26.0, *) {
+            return splitColumnVisibility == .detailOnly ? taskComposerAction : nil
+        }
+        return taskComposerAction
+    }
+
     private func splitLayout(canCreateWorkspaceForSelection: Bool) -> some View {
         NavigationSplitView(columnVisibility: $splitColumnVisibility) {
             MobilePrimaryWorkspaceSearchHost(
@@ -666,6 +679,17 @@ struct WorkspaceShellView: View {
                     searchText: searchText,
                     canCreateWorkspaceForSelection: canCreateWorkspaceForSelection
                 )
+            }
+            .overlay(alignment: .bottomTrailing) {
+                // iOS 26 keeps the compose button over the sidebar column,
+                // matching the pre-26 list-host overlay; earlier systems
+                // still get it from WorkspaceListSearchHost.
+                if #available(iOS 26.0, *), let taskComposerAction {
+                    TaskComposerButton(action: taskComposerAction)
+                        .padding(.trailing, 20)
+                        .padding(.bottom, 12)
+                        .ignoresSafeArea(.keyboard, edges: .bottom)
+                }
             }
             .toolbar {
                 rootToolbarContent
