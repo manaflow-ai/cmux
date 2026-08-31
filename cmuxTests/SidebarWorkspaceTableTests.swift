@@ -221,9 +221,9 @@ struct SidebarWorkspaceTableTests {
             isGroupHeader: false,
             isPinned: false,
             environment: accentEnvironment,
-            equivalenceValue: TestRowContent()
+            equivalenceValue: TestRowContent(token: 0, fixedHeight: nil)
         ) { _, _ in
-            AnyView(TestRowContent())
+            AnyView(TestRowContent(token: 0, fixedHeight: nil))
         }
 
         _ = cache.prepare(rows: [original], columnWidth: 200, measure: measure)

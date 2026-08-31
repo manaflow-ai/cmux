@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import Testing
 @testable import cmux_DEV
 
@@ -150,7 +151,7 @@ struct SidebarWorkspaceRowHeightCacheRegressionTests {
             groupId: nil,
             isPinned: false,
             environment: SidebarWorkspaceTableEnvironmentSnapshot(
-                colorScheme: .light,
+                environment: .sidebarTableTestValues(colorScheme: .light),
                 globalFontMagnificationPercent: 100,
                 lazyContractProbe: SidebarLazyContractProbe()
             )
