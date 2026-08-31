@@ -23286,19 +23286,48 @@ struct CMUXCLI {
         return root
     }
 
-    private func createClaudeNodeOptionsRestoreModule() throws -> URL {
-        let rawTemporaryDirectory = ProcessInfo.processInfo.environment["TMPDIR"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let temporaryDirectory: String
-        if let rawTemporaryDirectory, !rawTemporaryDirectory.isEmpty {
-            temporaryDirectory = rawTemporaryDirectory
-        } else {
-            temporaryDirectory = NSTemporaryDirectory()
+    /// A `--require` for a cmux-written restore module, including one an older build left under
+    /// `$TMPDIR`. That path may already be reaped, so it must never be carried forward into
+    /// `NODE_OPTIONS` or into the saved original.
+    private func isClaudeNodeOptionsRestoreModuleRequire(_ token: String) -> Bool {
+        for prefix in ["--require=", "-r="] where token.hasPrefix(prefix) {
+            return ClaudeNodeOptionsRestoreModule.isCmuxOwnedPath(String(token.dropFirst(prefix.count)))
         }
-        let root = URL(fileURLWithPath: temporaryDirectory, isDirectory: true)
-            .appendingPathComponent("cmux-claude-node-options", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: nil)
-        let restoreModuleURL = root.appendingPathComponent("restore-node-options.cjs", isDirectory: false)
+        return false
+    }
+
+    private func claudeNodeOptionsDirectory() -> URL {
+        let override = ProcessInfo.processInfo.environment["CMUX_NODE_OPTIONS_DIR"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let override, !override.isEmpty {
+            return URL(fileURLWithPath: override, isDirectory: true)
+        }
+        // Not $TMPDIR: macOS reaps files there after a few days of no access, while a session
+        // that outlives the reaper keeps --require pointing at the deleted module, so every
+        // child node exits with MODULE_NOT_FOUND before running any user code. The CLI is a
+        // composition root, so it names the concrete FileManager.default here.
+        return CmuxStateDirectory.url(homeDirectory: FileManager.default.homeDirectoryForCurrentUser)
+            .appendingPathComponent(ClaudeNodeOptionsRestoreModule.directoryName, isDirectory: true)
+    }
+
+    private func createClaudeNodeOptionsRestoreModule() throws -> URL {
+        let root = claudeNodeOptionsDirectory()
+        let restoreModuleURL = root.appendingPathComponent(ClaudeNodeOptionsRestoreModule.fileName, isDirectory: false)
+        // node splits NODE_OPTIONS on whitespace, so a path holding a space or a double quote
+        // cannot be expressed there. Fail so the caller skips the injection entirely.
+        let unexpressible = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "\""))
+        guard restoreModuleURL.path.rangeOfCharacter(from: unexpressible) == nil else {
+            throw CLIError(message: "Claude NODE_OPTIONS restore module path is not expressible in NODE_OPTIONS: \(restoreModuleURL.path)")
+        }
+        // 0700, matching SocketControlPasswordStore: whichever component creates
+        // ~/.local/state/cmux sets its mode, and createDirectory does not re-apply attributes to
+        // a directory that already exists. Creating it 0755 here would leave the socket control
+        // password sitting in a world-readable directory.
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
         try writeShimIfChanged(Self.claudeNodeOptionsRestoreModule, to: restoreModuleURL)
         return restoreModuleURL
     }
@@ -30810,7 +30839,7 @@ struct CMUXCLI {
 
     private func mergedNodeOptions(existing: String?, restoreModulePath: String) -> String {
         let requireOption = "--require=\(restoreModulePath)"
-        let memoryOption = "--max-old-space-size=4096"
+        let memoryOption = "--max-old-space-size=\(ClaudeNodeOptionsRestoreModule.injectedHeapCapMB)"
         let cleanedExisting = cleanedNodeOptions(existing)
         guard !cleanedExisting.isEmpty else {
             return "\(requireOption) \(memoryOption)"
@@ -30836,6 +30865,10 @@ struct CMUXCLI {
                 index += 1
                 continue
             }
+            if isClaudeNodeOptionsRestoreModuleRequire(token) {
+                index += 1
+                continue
+            }
             filtered.append(token)
             index += 1
         }
@@ -30850,11 +30883,23 @@ struct CMUXCLI {
 
         var normalized: [String] = []
         var index = 0
+        var shouldDropInjectedHeapCap = false
         while index < tokens.count {
             let token = tokens[index]
+            if shouldDropInjectedHeapCap, ClaudeNodeOptionsRestoreModule.isInjectedHeapCap(tokens, index: index) {
+                index += ClaudeNodeOptionsRestoreModule.heapCapTokenWidth(tokens, index: index)
+                shouldDropInjectedHeapCap = false
+                continue
+            }
+            shouldDropInjectedHeapCap = false
             if token == "--max-old-space-size", index + 1 < tokens.count {
                 normalized.append("--max-old-space-size=\(tokens[index + 1])")
                 index += 2
+                continue
+            }
+            if isClaudeNodeOptionsRestoreModuleRequire(token) {
+                index += 1
+                shouldDropInjectedHeapCap = true
                 continue
             }
             normalized.append(token)

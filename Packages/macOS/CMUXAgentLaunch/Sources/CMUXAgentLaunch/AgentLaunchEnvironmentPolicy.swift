@@ -30,6 +30,70 @@ public struct ClaudeConfigDirectoryPath: Sendable {
     }
 }
 
+/// The preload module cmux injects via `NODE_OPTIONS=--require=…` so that child node processes
+/// get the caller's original `NODE_OPTIONS` back instead of cmux's own heap cap.
+///
+/// The claude wrapper, the CLI, and this policy each handle the module from a different side —
+/// two write it, one strips it back out — so the rule for "is this path ours" lives here once.
+public struct ClaudeNodeOptionsRestoreModule: Sendable {
+    private init() {}
+
+    /// The module's file name, identical in every directory cmux has written it to.
+    public static let fileName = "restore-node-options.cjs"
+
+    /// The directory holding the module under the cmux state directory.
+    public static let directoryName = "node-options"
+
+    /// The `$TMPDIR` directory older builds used. The remote daemon still appends a random suffix
+    /// to it, so both the exact name and the `<name>-<random>` form count as cmux's.
+    private static let legacyDirectoryName = "cmux-claude-node-options"
+
+    /// The V8 heap cap, in MB, that cmux injects alongside the module. Named because unwinding an
+    /// injected `NODE_OPTIONS` has to tell cmux's own value apart from one the caller chose.
+    public static let injectedHeapCapMB = "4096"
+
+    /// Name of the cmux state directory. Duplicated from `CmuxStateDirectory` because this target
+    /// has no dependencies; it is the leaf of `~/.local/state/cmux`.
+    private static let stateDirectoryName = "cmux"
+
+    /// Whether a `--require` path points at a cmux-written copy of the module.
+    ///
+    /// The file name alone is not enough: a caller may legitimately preload their own module of
+    /// the same name, and dropping that would silently change their runtime. Ownership is the file
+    /// name plus a directory cmux actually writes to, matched by name — a substring test would
+    /// also claim an unrelated path that merely happens to sit under, say, `~/Code/cmux-foo/`.
+    public static func isCmuxOwnedPath(_ path: String) -> Bool {
+        let unquoted = path.trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
+        let moduleURL = URL(fileURLWithPath: unquoted)
+        guard moduleURL.lastPathComponent == fileName else { return false }
+
+        let parent = moduleURL.deletingLastPathComponent()
+        let parentName = parent.lastPathComponent
+        if parentName == legacyDirectoryName || parentName.hasPrefix("\(legacyDirectoryName)-") {
+            return true
+        }
+        return parentName == directoryName
+            && parent.deletingLastPathComponent().lastPathComponent == stateDirectoryName
+    }
+
+    /// Whether the token at `index` is the heap cap cmux injects, rather than one the caller chose.
+    public static func isInjectedHeapCap(_ tokens: [String], index: Int) -> Bool {
+        guard index < tokens.count else { return false }
+        let token = tokens[index]
+        if token == "--max-old-space-size" {
+            return index + 1 < tokens.count && tokens[index + 1] == injectedHeapCapMB
+        }
+        return token == "--max-old-space-size=\(injectedHeapCapMB)"
+    }
+
+    /// How many tokens the heap cap at `index` occupies: two for the space-separated form, one for
+    /// the `=` form.
+    public static func heapCapTokenWidth(_ tokens: [String], index: Int) -> Int {
+        guard index < tokens.count else { return 1 }
+        return tokens[index] == "--max-old-space-size" ? min(2, tokens.count - index) : 1
+    }
+}
+
 /// Selects the non-secret launch environment values that are safe to replay when restoring agents.
 public struct AgentLaunchEnvironmentPolicy: Sendable {
     /// Creates a launch environment policy.
@@ -210,21 +274,21 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         while index < tokens.count {
             let token = tokens[index]
 
-            if shouldDropInjectedHeapCap, isInjectedNodeHeapCap(tokens, index: index) {
-                index += nodeHeapCapWidth(tokens, index: index)
+            if shouldDropInjectedHeapCap, ClaudeNodeOptionsRestoreModule.isInjectedHeapCap(tokens, index: index) {
+                index += ClaudeNodeOptionsRestoreModule.heapCapTokenWidth(tokens, index: index)
                 shouldDropInjectedHeapCap = false
                 continue
             }
             shouldDropInjectedHeapCap = false
 
             if isRequireOption(token), index + 1 < tokens.count,
-               isCmuxNodeOptionsRestoreModulePath(tokens[index + 1]) {
+               ClaudeNodeOptionsRestoreModule.isCmuxOwnedPath(tokens[index + 1]) {
                 index += 2
                 shouldDropInjectedHeapCap = true
                 continue
             }
             if let path = inlineRequireOptionPath(token),
-               isCmuxNodeOptionsRestoreModulePath(path) {
+               ClaudeNodeOptionsRestoreModule.isCmuxOwnedPath(path) {
                 index += 1
                 shouldDropInjectedHeapCap = true
                 continue
@@ -258,25 +322,4 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         return nil
     }
 
-    private func isCmuxNodeOptionsRestoreModulePath(_ value: String) -> Bool {
-        let trimmed = value.trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
-        guard URL(fileURLWithPath: trimmed).lastPathComponent == "restore-node-options.cjs" else {
-            return false
-        }
-        return trimmed.contains("/cmux-")
-    }
-
-    private func isInjectedNodeHeapCap(_ tokens: [String], index: Int) -> Bool {
-        guard index < tokens.count else { return false }
-        let token = tokens[index]
-        if token == "--max-old-space-size" {
-            return index + 1 < tokens.count && tokens[index + 1] == "4096"
-        }
-        return token == "--max-old-space-size=4096"
-    }
-
-    private func nodeHeapCapWidth(_ tokens: [String], index: Int) -> Int {
-        guard index < tokens.count else { return 1 }
-        return tokens[index] == "--max-old-space-size" ? min(2, tokens.count - index) : 1
-    }
 }

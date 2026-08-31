@@ -3,6 +3,44 @@ import Testing
 
 @Suite("AgentLaunchEnvironmentPolicy")
 struct AgentLaunchEnvironmentPolicyTests {
+    @Test(
+        "Drops the cmux NODE_OPTIONS restore preload from every directory it has shipped in",
+        arguments: [
+            "/var/folders/ab/T/cmux-claude-node-options/restore-node-options.cjs",
+            "/tmp/cmux-claude-node-options-9f3a/restore-node-options.cjs",
+            "/Users/someone/.local/state/cmux/node-options/restore-node-options.cjs",
+        ]
+    )
+    func dropsCmuxNodeOptionsRestorePreload(modulePath: String) {
+        let selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(
+            from: ["NODE_OPTIONS": "--require=\(modulePath) --max-old-space-size=4096 --trace-warnings"],
+            kind: "claude"
+        )
+
+        #expect(selected == ["NODE_OPTIONS": "--trace-warnings"])
+    }
+
+    @Test("Keeps a user's own preload that merely shares the module name")
+    func keepsUnrelatedPreloadWithTheSameModuleName() {
+        let selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(
+            from: ["NODE_OPTIONS": "--require=/opt/vendor/restore-node-options.cjs --max-old-space-size=4096"],
+            kind: "claude"
+        )
+
+        #expect(selected == ["NODE_OPTIONS": "--require=/opt/vendor/restore-node-options.cjs --max-old-space-size=4096"])
+    }
+
+    @Test("Keeps a heap cap the caller chose while dropping the one cmux injected")
+    func keepsCallerHeapCapAndDropsInjectedOne() {
+        let modulePath = "/Users/someone/.local/state/cmux/node-options/restore-node-options.cjs"
+        let selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(
+            from: ["NODE_OPTIONS": "--require=\(modulePath) --max-old-space-size=4096 --max-old-space-size=2048"],
+            kind: "claude"
+        )
+
+        #expect(selected == ["NODE_OPTIONS": "--max-old-space-size=2048"])
+    }
+
     @Test("Preserves OMP config roots without persisting secrets")
     func preservesOmpConfigRootsWithoutPersistingSecrets() {
         let selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(
