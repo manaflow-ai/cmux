@@ -2541,6 +2541,113 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
     }
 
     @MainActor
+    @Test func persistentSSHExactBindingDoesNotReplayWhenAutoResumeIsDisabled() throws {
+        let defaultsName = "cmux-remote-disabled-auto-resume-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        defaults.set(false, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+        let capturedDirectory = "/Users/alice/persistent-agent-cwd"
+        let trustedRemoteDirectory = "/home/remote/persistent-project"
+        let agentSessionID = "persistent-codex-disabled-auto-resume"
+        let remoteCommand = SSHPTYAttachStartupCommandBuilder.command()
+        let source = Workspace(agentSessionAutoResumeDefaults: defaults)
+        defer { source.teardownAllPanels() }
+        source.configureRemoteConnection(
+            remoteWorkspaceConfiguration(
+                command: remoteCommand,
+                preserveAfterTerminalExit: true,
+                persistentDaemonSlot: "remote-disabled-auto-resume"
+            ),
+            autoConnect: false
+        )
+        let sourcePanelID = try #require(source.focusedPanelId)
+        let persistentSessionID = Workspace.defaultSSHPTYSessionID(
+            workspaceId: source.id,
+            panelId: sourcePanelID
+        )
+        #expect(source.updateRemotePanelDirectory(
+            panelId: sourcePanelID,
+            directory: trustedRemoteDirectory
+        ))
+        source.updatePanelShellActivityState(panelId: sourcePanelID, state: .commandRunning)
+
+        let launchCommand = AgentLaunchCommandSnapshot(
+            launcher: "codex",
+            executablePath: "codex",
+            arguments: ["codex", "-C", capturedDirectory],
+            workingDirectory: capturedDirectory
+        )
+        source.setRestoredAgentSnapshotForTesting(
+            SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: agentSessionID,
+                workingDirectory: capturedDirectory,
+                launchCommand: launchCommand
+            ),
+            panelId: sourcePanelID
+        )
+        #expect(source.setSurfaceResumeBinding(
+            SurfaceResumeBindingSnapshot(
+                kind: "codex",
+                command: "codex resume \(agentSessionID) -C '\(capturedDirectory)'",
+                cwd: capturedDirectory,
+                checkpointId: agentSessionID,
+                source: "agent-hook",
+                launchCommand: launchCommand,
+                restoreWorkingDirectorySelection: .exact(trustedRemoteDirectory),
+                autoResume: true,
+                launchFlavor: .persistentSSH(SurfaceResumeRemoteContext(
+                    workspaceID: source.id,
+                    surfaceID: sourcePanelID,
+                    persistentPTYSessionID: persistentSessionID
+                ))
+            ),
+            panelId: sourcePanelID
+        ))
+
+        var snapshot = source.sessionSnapshot(includeScrollback: false)
+        let panelIndex = try #require(snapshot.panels.firstIndex { $0.id == sourcePanelID })
+        var terminalSnapshot = try #require(snapshot.panels[panelIndex].terminal)
+        // Simulate a clean shell at quit while keeping the exact binding and
+        // retained agent available for a later explicit manual restore.
+        terminalSnapshot.wasAgentRunning = false
+        snapshot.panels[panelIndex].terminal = terminalSnapshot
+
+        try withRestoredRemoteSurfaceSnapshot(
+            snapshot,
+            sourcePanelId: sourcePanelID,
+            autoResumeAgentSessions: false
+        ) { restored, _, panel, _ in
+            let attachCommand = try #require(panel.surface.debugInitialCommand())
+            #expect(attachCommand.contains("--require-existing"), Comment(rawValue: attachCommand))
+
+            let outerWords = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(attachCommand)
+            let script = if let shellIndex = outerWords.firstIndex(where: { $0.value == "-c" }),
+                            outerWords.indices.contains(outerWords.index(after: shellIndex)) {
+                outerWords[outerWords.index(after: shellIndex)].value
+            } else {
+                attachCommand
+            }
+            let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(script).map(\.value)
+            // Reattach the authenticated PTY, but do not resurrect the agent
+            // command after the auto-resume decision explicitly denied it.
+            if let commandIndex = words.firstIndex(of: "--command-b64") {
+                let commandPayloadIndex = words.index(after: commandIndex)
+                try #require(words.indices.contains(commandPayloadIndex))
+                let commandPayload = words[commandPayloadIndex]
+                    .trimmingCharacters(in: CharacterSet(charactersIn: ";"))
+                let remoteCommandData = try #require(Data(base64Encoded: commandPayload))
+                let decodedRemoteCommand = try #require(String(data: remoteCommandData, encoding: .utf8))
+                #expect(!decodedRemoteCommand.contains(agentSessionID), Comment(rawValue: decodedRemoteCommand))
+                #expect(!decodedRemoteCommand.contains(capturedDirectory), Comment(rawValue: decodedRemoteCommand))
+                #expect(!decodedRemoteCommand.contains(trustedRemoteDirectory), Comment(rawValue: decodedRemoteCommand))
+            }
+            #expect(restored.restoredAgentSnapshotsByPanelId.values.contains { $0.sessionId == agentSessionID })
+        }
+    }
+
+    @MainActor
     @Test func persistentSSHExactSelectionEmbedsOnlyConstrainedAgentStartupInput() throws {
         let capturedDirectory = "/Users/alice/persistent-agent-cwd"
         let trustedRemoteDirectory = "/home/remote/persistent-project"
