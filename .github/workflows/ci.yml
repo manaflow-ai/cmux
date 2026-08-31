@@ -12,7 +12,9 @@ on:
       - scripts/ghosttykit-checksums.txt
       - tests/test_ci_ghosttykit_release_check.sh
       - tests/test_ci_change_areas.py
+      - .github/workflows/cla.yml
       - .github/workflows/ci.yml
+      - tests/test_cla_rerun_workflow.sh
   workflow_dispatch:
 
 permissions:
@@ -142,6 +144,9 @@ jobs:
 
       - name: Validate macOS runner guards
         run: ./tests/test_ci_self_hosted_guard.sh
+
+      - name: Validate CLA rerun workflow guard
+        run: ./tests/test_cla_rerun_workflow.sh
 
       - name: Validate release SDK build lane
         run: ./tests/test_ci_release_sdk_lane.sh
