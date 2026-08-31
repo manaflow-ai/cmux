@@ -511,6 +511,9 @@ public struct CMUXMobileRootScene: View {
             feedbackEmailSubmitter: feedbackEmailSubmitter,
             feedbackStampProvider: feedbackStampProvider,
             draftStore: draftStore,
+            // Persistent, unlike the composite's in-memory default: opening a
+            // workspace must restore its last opened tab across app relaunches.
+            lastTabStore: MobileWorkspaceLastTabStore(defaults: .standard),
             taskTemplateStore: UserDefaultsMobileTaskTemplateStore(
                 defaults: .standard,
                 diagnosticLog: diagnosticLog

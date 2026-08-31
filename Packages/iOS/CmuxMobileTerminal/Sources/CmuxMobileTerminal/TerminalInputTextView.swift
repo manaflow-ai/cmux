@@ -365,12 +365,24 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         dismissButton.translatesAutoresizingMaskIntoConstraints = false
         self.dismissButton = dismissButton
 
-        // Scrollable action buttons
-        let scrollView = UIScrollView()
+        // Scrollable action buttons. The fade subclass dissolves keys under
+        // the leading edge (against the pinned composer button) incrementally
+        // as the row scrolls, instead of hard-clipping them.
+        let scrollView = AccessoryEdgeFadeScrollView()
         scrollView.showsHorizontalScrollIndicator = false
         scrollView.showsVerticalScrollIndicator = false
         scrollView.alwaysBounceHorizontal = true
         scrollView.translatesAutoresizingMaskIntoConstraints = false
+        // The scroll view's FRAME starts flush at the composer button's
+        // trailing edge; the 4pt visual gap the frame constant used to carry
+        // lives INSIDE the scroll view as a leading content inset. At rest the
+        // bar reads identically (first key sits 4pt after the composer, offset
+        // -4), but a scrolled key now travels through that gap and dissolves
+        // AT the composer's edge, fading into the empty gap instead of
+        // clipping against an invisible line 4pt short of the button.
+        scrollView.contentInsetAdjustmentBehavior = .never
+        scrollView.contentInset.left = 4
+        scrollView.contentOffset = CGPoint(x: -4, y: 0)
 
         let stack = UIStackView()
         stack.axis = .horizontal
@@ -467,13 +479,13 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
 
             // Pinned composer toggle: directly after the nub (same 6pt gap the
             // scroll view used to take), centered on the shared strip line. The
-            // scroll view starts after it with the 4pt inter-button spacing the
-            // stack uses, so the bar reads identically to before — only now the
-            // composer can never scroll away.
+            // scroll view starts FLUSH after it; the 4pt inter-button gap is a
+            // leading content inset (see above) so scrolled keys fade out at
+            // the composer's edge rather than at a line 4pt short of it.
             composerButton.leadingAnchor.constraint(equalTo: nub.trailingAnchor, constant: 6),
             composerButton.centerYAnchor.constraint(equalTo: buttonRow.centerYAnchor),
 
-            scrollView.leadingAnchor.constraint(equalTo: composerButton.trailingAnchor, constant: 4),
+            scrollView.leadingAnchor.constraint(equalTo: composerButton.trailingAnchor),
             scrollTrailingConstraint,
             scrollView.topAnchor.constraint(equalTo: buttonRow.topAnchor),
             scrollView.bottomAnchor.constraint(equalTo: buttonRow.bottomAnchor),
