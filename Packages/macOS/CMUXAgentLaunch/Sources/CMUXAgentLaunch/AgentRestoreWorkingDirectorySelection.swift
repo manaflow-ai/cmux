@@ -62,7 +62,7 @@ public enum AgentRestoreWorkingDirectorySelection: Codable, Equatable, Hashable,
     /// `unavailable` and exact `nil` always remain restrictive. A stored exact non-empty
     /// directory also remains authoritative over a different proposed directory.
     /// Two recorded-fallback selections merge their preferred values, retaining the stored
-    /// value when the proposed selection has no preferred directory.
+    /// value when the proposed selection has no preferred directory (including blank text).
     ///
     /// - Parameter proposed: A call-site restriction to combine with this stored selection.
     /// - Returns: The stricter effective selection.
@@ -80,7 +80,13 @@ public enum AgentRestoreWorkingDirectorySelection: Codable, Equatable, Hashable,
             guard case .recordedFallback(let proposedPreferred) = proposed else {
                 return proposed
             }
-            return .recordedFallback(preferred: proposedPreferred ?? storedPreferred)
+            let normalizedProposedPreferred = proposedPreferred?.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            let mergedPreferred = normalizedProposedPreferred?.isEmpty == false
+                ? proposedPreferred
+                : storedPreferred
+            return .recordedFallback(preferred: mergedPreferred)
         case .unavailable:
             return .unavailable
         }

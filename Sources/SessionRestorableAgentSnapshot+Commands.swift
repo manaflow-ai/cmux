@@ -265,12 +265,14 @@ extension SurfaceResumeBindingSnapshot {
         }
         var structuredLaunchCommand = launchCommand
         if let bindingEnvironment = environment, !bindingEnvironment.isEmpty {
-            if var launch = structuredLaunchCommand {
-                var mergedEnvironment = launch.environment ?? [:]
-                mergedEnvironment.merge(bindingEnvironment) { _, bindingValue in bindingValue }
-                launch.environment = mergedEnvironment.isEmpty ? nil : mergedEnvironment
-                structuredLaunchCommand = launch
-            }
+            // Keep binding-only environment captures on the same builder path even when the
+            // hook did not provide structured argv; an empty argv lets the agent kind supply
+            // its normal executable while preserving the replay-safe environment.
+            var launch = structuredLaunchCommand ?? AgentLaunchCommandSnapshot(arguments: [])
+            var mergedEnvironment = launch.environment ?? [:]
+            mergedEnvironment.merge(bindingEnvironment) { _, bindingValue in bindingValue }
+            launch.environment = mergedEnvironment.isEmpty ? nil : mergedEnvironment
+            structuredLaunchCommand = launch
         }
         let agent = SessionRestorableAgentSnapshot(
             kind: agentKind,
