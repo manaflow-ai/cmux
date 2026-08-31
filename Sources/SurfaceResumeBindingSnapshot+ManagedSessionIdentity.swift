@@ -75,14 +75,16 @@ extension SurfaceResumeBindingSnapshot {
 
     /// Whether an incoming hook refresh belongs to a claimed restore session.
     ///
-    /// A same-session refresh consumes the claim; a different checkpoint or
-    /// kind remains blocked until the claim expires or is explicitly cleared.
+    /// A same-session refresh from the same execution location consumes the
+    /// claim; a different checkpoint, kind, or location remains blocked until
+    /// the claim expires or is explicitly cleared.
     func acceptsRestoreBindingClaim(
         from incoming: SurfaceResumeBindingSnapshot
     ) -> Bool {
         isAgentHookBinding
             && incoming.isAgentHookBinding
             && isSameManagedSession(as: incoming)
+            && launchFlavor == incoming.launchFlavor
     }
 
     /// Projects an authoritative agent-hook binding into the structured

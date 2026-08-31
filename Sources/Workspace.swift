@@ -6345,7 +6345,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         guard let currentBinding = surfaceResumeBindingsByPanelId[panelId],
               currentBinding.checkpointId == claim.binding.checkpointId,
               currentBinding.source == claim.binding.source,
-              currentBinding.updatedAt == claim.binding.updatedAt else {
+              currentBinding.updatedAt == claim.binding.updatedAt,
+              currentBinding.launchFlavor == claim.binding.launchFlavor else {
             // A direct lifecycle mutation replaced the claimed generation
             // without going through the hook setter. Do not let that old claim
             // block a later, legitimate binding.
