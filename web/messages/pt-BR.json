@@ -46,6 +46,7 @@
     "blog": "Blog",
     "changelog": "Changelog",
     "community": "Comunidade",
+    "jobs": "Vagas",
     "github": "GitHub"
   },
   "footer": {
@@ -55,6 +56,7 @@
     "social": "Social",
     "blog": "Blog",
     "community": "Comunidade",
+    "jobs": "Vagas",
     "docs": "Documentação",
     "changelog": "Changelog",
     "support": "Suporte",
@@ -72,6 +74,79 @@
     "openSource": "Código aberto",
     "guides": "Guias",
     "compare": "Comparar"
+  },
+  "jobs": {
+    "metaTitle": "Founding Engineer na cmux",
+    "metaDescription": "Junte-se à cmux como Founding Engineer e construa o futuro da programação com IA em macOS, Windows, Linux, iOS e Cloud.",
+    "section": "Vagas",
+    "eyebrow": "Estamos contratando",
+    "title": "Founding Engineer",
+    "tagline": "Construa o futuro da programação com IA.",
+    "intro": "cmux é um terminal nativo para macOS baseado no Ghostty, criado para executar vários agentes de programação com IA em paralelo. Centenas de milhares de desenvolvedores usam o cmux em seus fluxos de programação com agentes.",
+    "hiring": "Estamos procurando engenheiros talentosos para construir conosco o futuro da programação com IA.",
+    "whatYoullDo": "O que você fará",
+    "whatYoullDoItems": [
+      "Constrói ferramentas de desenvolvimento de ponta em toda a stack: cmux macOS (Swift/AppKit), cmux Windows/Linux (C++/Chromium), cmux iOS, cmux Cloud, sub-router (Go), chatmux e muito mais.",
+      "Ajuda a inventar o produto mais útil para desenvolvedores trabalharem com IA.",
+      "Assume produtos e recursos de ponta a ponta, incluindo os ciclos de feedback dos usuários.",
+      "Usa, testa e verifica o cmux constantemente; usa o cmux para construir o cmux."
+    ],
+    "excitedLead": "Ficamos especialmente animados se você:",
+    "excitedItems": [
+      "Usa mais de 10B tokens por dia.",
+      "É generalista e resolve problemas de forma criativa.",
+      "Tem ótimo gosto para design e atenção ao acabamento.",
+      "Tem experiência com Swift/AppKit, C++, Rust, Go ou Chromium.",
+      "É mantenedor de open source, ex-fundador ou já lançou produtos completos.",
+      "Envia PRs do cmux para revisão ou demonstra plugins e fluxos personalizados."
+    ],
+    "details": "Detalhes",
+    "roleTitle": "Founding Engineer",
+    "compensationLabel": "Remuneração",
+    "compensation": "$130k–$170k + 0,5%–1,5% de participação",
+    "benefitsLabel": "Benefícios",
+    "benefits": "Seguro de saúde, odontológico e oftalmológico",
+    "locationLabel": "Localização",
+    "location": "São Francisco",
+    "applyAriaLabel": "Candidatar-se por e-mail à vaga de Founding Engineer",
+    "applyEmailSubject": "Candidatura para Founding Engineer na cmux",
+    "applyCta": "Enviar e-mail",
+    "foundingDesigner": {
+      "metaTitle": "Founding Designer na cmux",
+      "metaDescription": "Junte-se à cmux como Founding Designer e projete o futuro da programação com IA em macOS, TUI, Windows, Linux, iOS, Cloud, cmux.com e chatmux.",
+      "section": "Vagas",
+      "eyebrow": "Sobre a vaga",
+      "title": "Founding Designer",
+      "tagline": "Projete o futuro da programação com IA.",
+      "intro": "cmux é um terminal nativo para macOS baseado no Ghostty, criado para executar vários agentes de programação com IA em paralelo. Centenas de milhares de desenvolvedores usam o cmux em seus fluxos de programação com agentes.",
+      "hiring": "Estamos procurando um designer talentoso para projetar conosco o futuro da programação com IA.",
+      "whatYoullDo": "O que você fará",
+      "whatYoullDoItems": [
+        "Projeta ferramentas de desenvolvimento de ponta em toda a stack: cmux macOS, cmux TUI, cmux Windows/Linux, cmux iOS, cmux Cloud, cmux.com, chatmux e muito mais.",
+        "Ajuda a projetar o produto mais útil para desenvolvedores trabalharem com IA.",
+        "Assume o visual, a sensação e o modelo de interação de ponta a ponta, incluindo os ciclos de feedback.",
+        "Usa o cmux, cria protótipos e entrega continuamente."
+      ],
+      "excitedLead": "Ficamos especialmente animados se você:",
+      "excitedItems": [
+        "É uma enciclopédia viva de componentes de design de todos os tipos de apps.",
+        "As pessoas sempre pedem referências de design a você.",
+        "Tem gosto apurado por apps nativos do macOS e ferramentas para desenvolvedores.",
+        "Prototipa em código e entrega UI de verdade.",
+        "Cuida de tipografia, movimento e pensamento sistêmico, até cada detalhe de 1 px e espaçamento."
+      ],
+      "details": "Detalhes",
+      "roleTitle": "Founding Designer",
+      "compensationLabel": "Remuneração",
+      "compensation": "$130k–$170k + 0,5%–1,5% de participação",
+      "benefitsLabel": "Benefícios",
+      "benefits": "Seguro de saúde, odontológico e oftalmológico",
+      "locationLabel": "Localização",
+      "location": "São Francisco",
+      "applyAriaLabel": "Candidatar-se por e-mail à vaga de Founding Designer",
+      "applyEmailSubject": "Candidatura para Founding Designer na cmux",
+      "applyCta": "Enviar e-mail"
+    }
   },
   "home": {
     "taglinePrefix": "O terminal feito para ",
