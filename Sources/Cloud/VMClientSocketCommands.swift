@@ -334,6 +334,10 @@ extension TerminalController {
             return socketWorkerVMWorkspaceOpenResponse(id: id, params: params)
         case "vm.workspace_close":
             return socketWorkerVMWorkspaceCloseResponse(id: id, params: params)
+        case "vm.workspace_delete":
+            return socketWorkerVMWorkspaceDeleteResponse(id: id, params: params)
+        case "vm.workspace_rename":
+            return socketWorkerVMWorkspaceRenameResponse(id: id, params: params)
         case "vm.terminal_close":
             return socketWorkerVMTerminalCloseResponse(id: id, params: params)
         default:
