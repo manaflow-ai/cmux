@@ -1883,6 +1883,85 @@ describe("recordCheckoutCompletion", () => {
     expect(target.update).not.toHaveBeenCalled();
   });
 
+  test("does not grant Pro metadata when recovery creates an unverified account", async () => {
+    const targetUpdate = mock(async () => undefined);
+    const target = {
+      id: "new_unverified_recovery_target",
+      isAnonymous: false,
+      isRestricted: true,
+      primaryEmail: "buyer@example.com",
+      primaryEmailVerified: false,
+      clientReadOnlyMetadata: {},
+      update: targetUpdate,
+    };
+    const sendMagicLinkEmail = mock(async () => undefined);
+    const result = await recordProCheckoutCompletionByEmail(
+      {
+        session: {
+          id: "cs_new_unverified_recovery",
+          customer: "cus_new_unverified_recovery",
+          customer_details: { email: "buyer@example.com" },
+          metadata: { app: "cmux", plan: "pro" },
+          subscription: "sub_new_unverified_recovery",
+        } as never,
+        subscription: {
+          id: "sub_new_unverified_recovery",
+          customer: "cus_new_unverified_recovery",
+          status: "active",
+          metadata: { app: "cmux", plan: "pro" },
+          cancel_at_period_end: false,
+          items: { data: [] },
+        } as never,
+        customer: {
+          id: "cus_new_unverified_recovery",
+          deleted: false,
+          email: "buyer@example.com",
+        } as never,
+      },
+      {
+        db: fakeDb() as never,
+        magicLinkDelivery: {
+          deliverOnce: async (_input, deliver) => {
+            await deliver();
+            return "sent";
+          },
+        } as never,
+        stackApp: {
+          getUser: async () => target,
+          listUsers: async () => [
+            {
+              id: target.id,
+              primaryEmail: target.primaryEmail,
+              primaryEmailVerified: false,
+              isAnonymous: false,
+              isRestricted: true,
+              update: targetUpdate,
+            },
+          ],
+          sendMagicLinkEmail,
+        } as never,
+      },
+    );
+
+    expect(result).toEqual({
+      deferred: "email_verification",
+      stackUserId: target.id,
+      subscriptionId: "sub_new_unverified_recovery",
+      deliveryEmail: "buyer@example.com",
+    });
+    expect(targetUpdate).not.toHaveBeenCalledWith({
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+    });
+    expect(
+      inserts.some(
+        (insert) =>
+          insert.table === billingEmailClaims &&
+          insert.values.stackUserId === target.id &&
+          insert.values.stripeCustomerId === "cus_new_unverified_recovery",
+      ),
+    ).toBe(true);
+  });
+
   test("does not remap a parked customer to an unverified target", async () => {
     const source = {
       id: "parked_unverified_source",

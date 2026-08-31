@@ -76,6 +76,59 @@ describe("email verification recovery", () => {
     expect(result).toEqual({ delivery: "accepted" });
   });
 
+  test("continues duplicate-email pages until a usable channel is found", async () => {
+    const sendVerificationEmail = mock(async () => undefined);
+    const listUsers = mock(async (...args: unknown[]) => {
+      const options = (args[0] ?? {}) as { cursor?: string };
+      if (!options.cursor) {
+        return Object.assign(
+          [
+            {
+              primaryEmail: "buyer@example.com",
+              listContactChannels: async () => [],
+            },
+          ],
+          { nextCursor: "page-2" },
+        );
+      }
+      return [
+        {
+          primaryEmail: "buyer@example.com",
+          listContactChannels: async () => [
+            {
+              value: "buyer@example.com",
+              isVerified: false,
+              usedForAuth: true,
+              sendVerificationEmail,
+            },
+          ],
+        },
+      ];
+    }) as unknown as Parameters<
+      typeof requestEmailVerificationRecovery
+    >[1]["stackApp"]["listUsers"];
+
+    const result = await Effect.runPromise(
+      requestEmailVerificationRecovery(
+        {
+          email: "buyer@example.com",
+          callbackURL: "https://cmux.test/handler/email-verification",
+        },
+        { stackApp: { listUsers } },
+      ),
+    );
+
+    expect(result).toEqual({ delivery: "sent" });
+    expect(sendVerificationEmail).toHaveBeenCalledTimes(1);
+    expect(listUsers).toHaveBeenCalledWith({
+      query: "buyer@example.com",
+      cursor: "page-2",
+      limit: 20,
+      includeAnonymous: true,
+      includeRestricted: true,
+    });
+  });
+
   test("queries literal Gmail spellings before declaring recovery unavailable", async () => {
     const sendVerificationEmail = mock(async () => undefined);
     const listContactChannels = mock(async () => [

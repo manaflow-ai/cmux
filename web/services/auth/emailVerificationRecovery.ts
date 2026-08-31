@@ -65,7 +65,6 @@ export function requestEmailVerificationRecovery(
       // ownership, but a dotted account is not returned by a query for its
       // undotted spelling (and googlemail.com is a separate search value).
       // Query every bounded provider spelling, then canonicalize locally.
-      const usersByLiteralEmail = new Map<string, RecoveryUser>();
       const lookupDeadlineAt = Date.now() + STACK_USER_LOOKUP_DEADLINE_MS;
       const listUsers = async (
         options: Parameters<EmailVerificationRecoveryStackApp["listUsers"]>[0],
@@ -103,19 +102,31 @@ export function requestEmailVerificationRecovery(
             includeAnonymous: true,
             includeRestricted: true,
           });
+          // A matching primary email is only a candidate. Keep scanning until
+          // a matching account exposes a usable unverified auth channel. This
+          // handles duplicate Stack accounts where the first result is stale,
+          // anonymous, or missing the channel needed for recovery.
           for (const user of users) {
-            const literalEmail = user.primaryEmail?.trim().toLowerCase();
-            if (!literalEmail) continue;
-            usersByLiteralEmail.set(literalEmail, user);
+            if (
+              canonicalizeEmailForMatching(user.primaryEmail ?? "") !==
+              normalizedEmail
+            ) {
+              continue;
+            }
+            const channels = await user.listContactChannels();
+            const channel = channels.find(
+              (candidate) =>
+                canonicalizeEmailForMatching(candidate.value) ===
+                  normalizedEmail &&
+                candidate.usedForAuth &&
+                !candidate.isVerified,
+            );
+            if (!channel) continue;
+            await channel.sendVerificationEmail({ callbackUrl: input.callbackURL });
+            return true;
           }
-          const foundCanonicalMatch = [...users].some(
-            (user) =>
-              canonicalizeEmailForMatching(user.primaryEmail ?? "") ===
-              normalizedEmail,
-          );
-          if (foundCanonicalMatch) return true;
           const nextCursor = users.nextCursor ?? null;
-          if (!nextCursor) return foundCanonicalMatch;
+          if (!nextCursor) return false;
           if (seenCursors.has(nextCursor)) {
             throw new Error("Stack Auth user lookup pagination looped");
           }
@@ -136,25 +147,9 @@ export function requestEmailVerificationRecovery(
       ) {
         // Stack searches literal contact-channel text. A full, bounded list
         // fallback is required to find a differently dotted Gmail spelling.
-        await collectUsers(undefined, STACK_USER_LOOKUP_PAGE_SIZE);
+        foundCanonicalMatch = await collectUsers(undefined, STACK_USER_LOOKUP_PAGE_SIZE);
       }
-      for (const user of usersByLiteralEmail.values()) {
-        if (
-          canonicalizeEmailForMatching(user.primaryEmail ?? "") !==
-          normalizedEmail
-        ) continue;
-        const channels = await user.listContactChannels();
-        const channel = channels.find(
-          (candidate) =>
-            canonicalizeEmailForMatching(candidate.value) === normalizedEmail &&
-            candidate.usedForAuth &&
-            !candidate.isVerified,
-        );
-        if (!channel) continue;
-        await channel.sendVerificationEmail({ callbackUrl: input.callbackURL });
-        return { delivery: "sent" as const };
-      }
-      return { delivery: "accepted" as const };
+      return { delivery: foundCanonicalMatch ? "sent" : "accepted" };
     },
     catch: () => new EmailVerificationRecoveryUnavailable({}),
   });

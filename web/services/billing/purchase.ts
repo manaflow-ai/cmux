@@ -208,6 +208,8 @@ export type CheckoutCompletionInput = {
    * only after Stack verifies the destination mailbox.
    */
   deferAnonymousCanonicalOwnerResolution?: boolean;
+  /** Keep Pro metadata disabled until the destination mailbox is verified. */
+  deferProMetadataUntilVerification?: boolean;
 };
 
 export type CheckoutCompletionResult =
@@ -238,6 +240,7 @@ type UserCheckoutPostCommitSync = {
   stripeCustomerId: string;
   stackUserId: string;
   stackApp: StackBillingApp | null | undefined;
+  deferProMetadataUntilVerification?: boolean;
 };
 
 type CheckoutCompletionLockedResult = {
@@ -447,6 +450,8 @@ export async function recordCheckoutCompletion(
           stripeCustomerId: customerId,
           stackUserId,
           stackApp: checkoutStackApp,
+          deferProMetadataUntilVerification:
+            input.deferProMetadataUntilVerification,
         },
         result: { scope: "user", stackUserId, subscriptionId: subscription.id },
       };
@@ -921,9 +926,19 @@ export async function recordProCheckoutCompletionByEmail(
       },
       customer: input.customer,
       allowCanonicalOwnershipRecovery: true,
+      deferProMetadataUntilVerification:
+        existingUser.primaryEmailVerified !== true,
     },
     dependencies,
   );
+  if (!("skipped" in result) && existingUser.primaryEmailVerified !== true) {
+    return {
+      deferred: "email_verification",
+      stackUserId: existingUser.id,
+      subscriptionId: subscription.id,
+      deliveryEmail: email,
+    };
+  }
   if (!("skipped" in result)) {
     await resolveBillingEmailClaimsForCustomer(
       db,
@@ -1687,6 +1702,20 @@ async function syncUserCheckoutAfterCommit(
           mutationLease,
           dependencies,
         );
+      }
+      if (input.deferProMetadataUntilVerification) {
+        // Keep a durable claim even when the provisional rows already belong
+        // to this unverified account. The post-verification callback can then
+        // atomically mark the claim, repair Stripe metadata, and enable Pro.
+        if (input.email) {
+          await mutationLease.refresh();
+          await recordBillingEmailClaim(db, {
+            email: input.email,
+            stripeCustomerId: input.stripeCustomerId,
+            stackUserId: input.stackUserId,
+          });
+        }
+        return;
       }
       await syncProPlanMetadata(user, true, mutationLease);
     },
