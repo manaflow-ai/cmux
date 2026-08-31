@@ -1409,6 +1409,11 @@ pub struct PtyTerminalRuntime {
     reader_completion: Arc<ReaderCompletion>,
     term: Mutex<Box<Terminal>>,
     stream_progress: Box<TerminalStreamProgress>,
+    /// Passive OSC 9 progress capture for screen detection, scanned only
+    /// while the scanner marks this pane's foreground process as a known
+    /// agent so ordinary shells never pay the per-byte cost.
+    agent_osc_enabled: AtomicBool,
+    agent_osc: Mutex<crate::screen_detect::osc::AgentOscProgressTracker>,
     mouse_encoders: Mutex<Box<MouseEncoders>>,
     runtime: Mutex<PtyRuntime>,
     /// Explicit lifecycle authority for this process. Session content may
@@ -2289,7 +2294,11 @@ impl Surface {
         for (k, v) in &opts.extra_env {
             cmd.env(k, v);
         }
-        let cwd = opts.cwd.clone().or_else(platform::default_terminal_cwd);
+        // Degrade a bad requested cwd (deleted directory, unconvertible
+        // OSC 7 report inherited from another tab) to the default directory
+        // instead of failing the spawn.
+        let cwd = platform::safe_spawn_cwd(opts.cwd.as_deref())
+            .map(|path| path.to_string_lossy().into_owned());
         if let Some(cwd) = cwd.as_deref() {
             cmd.cwd(cwd);
         }
@@ -2370,6 +2379,8 @@ impl Surface {
                 reader_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
+                agent_osc_enabled: AtomicBool::new(false),
+                agent_osc: Mutex::new(Default::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
                 runtime: Mutex::new(PtyRuntime::Local { writer, master: Some(master), killer }),
                 lifetime,
@@ -2493,6 +2504,7 @@ impl Surface {
                                 != cursor_activity;
                             pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
                             let after = terminal_scroll_position(&term);
+                            pty.observe_agent_osc(normalized.as_ref());
                             let has_attach_taps = pty.broadcast_attach_output(normalized.as_ref());
                             if has_attach_taps
                                 && (term.color_revision() != color_revision || cursor_changed)
@@ -2842,6 +2854,8 @@ impl Surface {
                 reader_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
+                agent_osc_enabled: AtomicBool::new(false),
+                agent_osc: Mutex::new(Default::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
                 runtime: Mutex::new(PtyRuntime::Hosted(Box::new(attachment))),
                 lifetime,
@@ -2853,7 +2867,16 @@ impl Surface {
                 host_exit_record_path: Some(host_exit_record_path),
                 pid: snapshot.pid,
                 command: snapshot.command,
-                cwd: snapshot.cwd,
+                // The host reports a local path here, but a host binary from
+                // an older daemon generation still sends its raw OSC 7 pwd
+                // (`file://<host>/...`). Hosts outlive daemon upgrades, so
+                // sanitize on intake: this field is the spawn cwd every later
+                // inheritance falls back to.
+                cwd: snapshot
+                    .cwd
+                    .as_deref()
+                    .and_then(platform::terminal_pwd_to_local_path)
+                    .map(|path| path.to_string_lossy().into_owned()),
                 exit: Mutex::new(None),
                 local_pty_drained: AtomicBool::new(true),
                 exit_notified: AtomicBool::new(false),
@@ -3053,6 +3076,7 @@ impl Surface {
                                         // violated the producer's iff contract.
                                         break 'host_stream;
                                     }
+                                    pty.observe_agent_osc(&output);
                                     pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
                                     let after = terminal_scroll_position(&term);
                                     // The parser already contains the complete
@@ -3885,6 +3909,8 @@ impl Surface {
                 reader_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
+                agent_osc_enabled: AtomicBool::new(false),
+                agent_osc: Mutex::new(Default::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
                 runtime: Mutex::new(PtyRuntime::ExitedHosted),
                 lifetime: PtyLifetime::SessionOwned,
@@ -4110,6 +4136,8 @@ impl Surface {
                 reader_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
+                agent_osc_enabled: AtomicBool::new(false),
+                agent_osc: Mutex::new(Default::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
                 runtime: Mutex::new(PtyRuntime::Local {
                     writer: Box::new(std::io::sink()),
@@ -4412,6 +4440,25 @@ impl Surface {
     /// viewport-text transition is applied. Callers can snapshot terminal
     /// state after reading this value, then wait on the same revision without
     /// losing an intervening update.
+    /// Enable or disable passive OSC progress capture for this terminal
+    /// (the scanner flips it as agents come and go). Disabling or an agent
+    /// identity change clears retained evidence so a new foreground process
+    /// cannot inherit a previous agent's progress payload.
+    pub(crate) fn set_agent_osc_capture(&self, enabled: bool, clear_retained: bool) {
+        let Some(pty) = self.as_pty() else { return };
+        pty.agent_osc_enabled.store(enabled, Ordering::Relaxed);
+        if clear_retained {
+            pty.agent_osc.lock().unwrap().clear_retained();
+        }
+    }
+
+    /// The latest retained OSC 9 progress payload for this terminal.
+    pub(crate) fn agent_osc_progress(&self) -> String {
+        self.as_pty()
+            .map(|pty| pty.agent_osc.lock().unwrap().latest_progress().to_string())
+            .unwrap_or_default()
+    }
+
     pub(crate) fn terminal_stream_revision(&self) -> ghostty_vt::Result<u64> {
         let Some(pty) = self.as_pty() else {
             return Err(ghostty_vt::Error::InvalidValue);
@@ -5280,8 +5327,12 @@ impl Surface {
         self.pwd()
             .as_deref()
             .and_then(platform::terminal_pwd_to_local_path)
+            // The spawn cwd is normally a plain path, but sessions that
+            // predate cwd sanitization (or hosts from older daemon
+            // generations) can still carry a raw OSC 7 URL there; convert
+            // rather than trust it, so no caller ever sees a URL cwd.
+            .or_else(|| self.spawn_cwd().as_deref().and_then(platform::terminal_pwd_to_local_path))
             .map(|path| path.to_string_lossy().into_owned())
-            .or_else(|| self.spawn_cwd())
     }
 
     pub fn process_id(&self) -> Option<u32> {
@@ -6231,6 +6282,16 @@ impl PtySurface {
     /// touching the shared renderer or consuming its damage.
     fn terminal_colors_locked(&self, term: &Terminal, defaults: DefaultColors) -> TerminalColors {
         TerminalColors::from_terminal(term, defaults)
+    }
+
+    /// Feed output into the passive OSC 9 progress tracker when this pane
+    /// currently hosts a known agent. One relaxed load on the hot path for
+    /// non-agent panes.
+    fn observe_agent_osc(&self, bytes: &[u8]) {
+        if !self.agent_osc_enabled.load(Ordering::Relaxed) {
+            return;
+        }
+        self.agent_osc.lock().unwrap().observe(bytes);
     }
 
     fn broadcast_attach_output(&self, bytes: &[u8]) -> bool {

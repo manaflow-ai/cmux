@@ -4,6 +4,7 @@
 //! embedded as the one validation source so transport handlers cannot drift.
 
 mod auxiliary;
+pub(crate) use auxiliary::resolve_agent_wait_request;
 mod content;
 mod effects;
 mod session;
@@ -989,6 +990,8 @@ const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
         | ResourceOperation::BrowserInputWheel
         | ResourceOperation::BrowserClose => OperationOwner::Content,
         ResourceOperation::AgentList
+        | ResourceOperation::AgentWait
+        | ResourceOperation::AgentResumePlan
         | ResourceOperation::AgentReport
         | ResourceOperation::FrontendProjectionGet
         | ResourceOperation::FrontendProjectionPut
@@ -1630,7 +1633,7 @@ mod tests {
     #[test]
     fn every_catalog_operation_has_one_concrete_owner() {
         let operations = operation_catalog()["operations"].as_object().unwrap();
-        assert_eq!(operations.len(), 125);
+        assert_eq!(operations.len(), 127);
         for name in operations.keys() {
             let operation: ResourceOperation =
                 serde_json::from_value(Value::String(name.clone())).unwrap();
@@ -1649,7 +1652,7 @@ mod tests {
     #[test]
     fn every_catalog_operation_accepts_its_result_and_declared_error_fixtures() {
         let operations = operation_catalog()["operations"].as_object().unwrap();
-        assert_eq!(operations.len(), 125);
+        assert_eq!(operations.len(), 127);
         for (name, descriptor) in operations {
             let operation: ResourceOperation =
                 serde_json::from_value(Value::String(name.clone())).unwrap();

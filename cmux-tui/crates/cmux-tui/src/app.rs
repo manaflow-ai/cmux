@@ -6919,6 +6919,9 @@ pub struct App {
     pub(crate) tabs_rail_scroll: usize,
     pub(crate) tabs_footer_scroll: usize,
     projection_rails: HashMap<String, ProjectionRailState>,
+    /// Last alerted agent state per surface, for edge-triggered host
+    /// terminal notifications (presentation state, per client).
+    agent_alert_states: HashMap<SurfaceId, String>,
     pub(crate) machine_rail_follow_selection: bool,
     pub(crate) workspace_rail_follow_selection: bool,
     pub(crate) tabs_rail_follow_selection: bool,
@@ -9007,7 +9010,8 @@ fn run_with_machine_updates_inner(
     let sidebar_view = config.sidebar.view;
     let fallback_cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let initial_machine_notice = initial_workspace_error
-        .or_else(|| machine_ui.as_ref().and_then(|machine| machine.notice.clone()));
+        .or_else(|| machine_ui.as_ref().and_then(|machine| machine.notice.clone()))
+        .or_else(|| config.startup_warnings.first().cloned());
     let machine_selection_intent = machine_ui.as_ref().and_then(|machine| machine.snapshot.active);
     let machine_presented = machine_ui.as_ref().and_then(|machine| machine.snapshot.active);
     let owner_machine = owner_mux
@@ -9118,6 +9122,7 @@ fn run_with_machine_updates_inner(
         tabs_rail_scroll: 0,
         tabs_footer_scroll: 0,
         projection_rails: HashMap::new(),
+        agent_alert_states: HashMap::new(),
         machine_rail_follow_selection: true,
         workspace_rail_follow_selection: true,
         tabs_rail_follow_selection: true,
@@ -9857,6 +9862,45 @@ impl App {
 
     pub(crate) fn projection_sidebar_focused(&self, index: usize) -> bool {
         self.focus == FocusTarget::ProjectionRail(index)
+    }
+
+    /// Decide whether an agent transition alerts through this client's
+    /// host terminal, and with which title. Alerts are presentation: each
+    /// attached client applies its own config and focus, so two clients
+    /// can alert differently, deliberately. Edge-triggered on the state
+    /// string (recency refreshes re-emit the same state), the currently
+    /// focused terminal never alerts, blocked alerts on any entry into
+    /// blocked, and idle alerts only when it ends a run (working or
+    /// blocked before), never for a freshly spawned agent.
+    fn agent_alert_title(
+        &mut self,
+        surface: SurfaceId,
+        state: &str,
+        agent: Option<&str>,
+    ) -> Option<String> {
+        let previous = if state == "done" {
+            self.agent_alert_states.remove(&surface)
+        } else {
+            self.agent_alert_states.insert(surface, state.to_string())
+        };
+        if previous.as_deref() == Some(state) {
+            return None;
+        }
+        if self.tree.active_surface() == Some(surface) {
+            return None;
+        }
+        let messages = &localization::catalog().sidebar;
+        let phrase = match state {
+            "blocked" if self.config.notifications.agent_blocked => messages.agent_blocked_alert,
+            "idle"
+                if self.config.notifications.agent_idle
+                    && matches!(previous.as_deref(), Some("working" | "blocked")) =>
+            {
+                messages.agent_idle_alert
+            }
+            _ => return None,
+        };
+        Some(format!("{} {phrase}", agent.unwrap_or(messages.agent_generic)))
     }
 
     pub(crate) fn projection_rows(&self, index: usize) -> Vec<ProjectionRow> {
@@ -13677,6 +13721,9 @@ impl App {
         };
         let mut config = crate::config::load();
         config.apply_chrome_defaults(self.chrome);
+        if let Some(warning) = config.startup_warnings.first() {
+            self.status_message = Some(warning.clone());
+        }
         let shortcut_rows = self
             .shortcut_help
             .as_ref()
@@ -15073,6 +15120,13 @@ impl App {
                 | MuxEvent::ClientListInvalidated,
             ) => {
                 self.session.refresh_clients_background();
+                Ok(RenderAction::Draw)
+            }
+            AppEvent::Mux(MuxEvent::AgentChanged { surface, ref state, ref agent, .. }) => {
+                let agent = agent.clone();
+                if let Some(title) = self.agent_alert_title(surface, state, agent.as_deref()) {
+                    let _ = crate::terminal_notify::show_notification(&title, None);
+                }
                 Ok(RenderAction::Draw)
             }
             AppEvent::Mux(_) => Ok(RenderAction::Draw),
@@ -41825,6 +41879,48 @@ mod tests {
     }
 
     #[test]
+    fn agent_signals_alert_unfocused_blocked_and_completed_runs_once() {
+        let (mux, first) = test_mux("agent-alert-decision-test", None);
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        let focused = app.tree.active_surface().expect("a focused surface");
+        let unfocused = if focused == first.id { second.id } else { first.id };
+
+        // Blocked in an unfocused terminal alerts once, edge-triggered.
+        assert_eq!(
+            app.agent_alert_title(unfocused, "blocked", Some("claude")),
+            Some("claude needs input".to_string())
+        );
+        assert_eq!(app.agent_alert_title(unfocused, "blocked", Some("claude")), None);
+
+        // Ending the run alerts; a repeat stays silent; done clears state.
+        assert_eq!(
+            app.agent_alert_title(unfocused, "idle", Some("claude")),
+            Some("claude finished".to_string())
+        );
+        assert_eq!(app.agent_alert_title(unfocused, "idle", Some("claude")), None);
+        assert_eq!(app.agent_alert_title(unfocused, "done", Some("claude")), None);
+
+        // A freshly spawned idle agent never alerts.
+        assert_eq!(app.agent_alert_title(unfocused, "idle", Some("codex")), None);
+
+        // The focused terminal never alerts, but the edge is still recorded.
+        assert_eq!(app.agent_alert_title(focused, "blocked", Some("codex")), None);
+
+        // Config kill switches.
+        app.config.notifications.agent_blocked = false;
+        app.agent_alert_states.clear();
+        assert_eq!(app.agent_alert_title(unfocused, "blocked", Some("claude")), None);
+        app.config.notifications.agent_idle = false;
+        app.agent_alert_states.insert(unfocused, "working".into());
+        assert_eq!(app.agent_alert_title(unfocused, "idle", Some("claude")), None);
+
+        mux.close_surface(second.id).unwrap();
+    }
+
+    #[test]
     fn projection_agent_rows_hide_finished_reports() {
         let (mux, surface) = test_mux("projection-finished-agent-test", None);
         mux.report_agent(
@@ -42865,7 +42961,6 @@ mod tests {
         );
     }
 
-    #[test]
     #[test]
     fn replaced_session_ignores_old_surface_lane_completion() {
         let first = Mux::new("surface-lane-generation-first", SurfaceOptions::default());
@@ -43999,6 +44094,7 @@ mod tests {
             tabs_rail_scroll: 0,
             tabs_footer_scroll: 0,
             projection_rails: HashMap::new(),
+            agent_alert_states: HashMap::new(),
             machine_rail_follow_selection: true,
             workspace_rail_follow_selection: true,
             tabs_rail_follow_selection: true,

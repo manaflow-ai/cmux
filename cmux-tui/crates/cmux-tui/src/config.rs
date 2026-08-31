@@ -81,6 +81,10 @@
 //!     "ws": "127.0.0.1:7681",
 //!     "ws_token": "replace-with-a-secret"
 //!   },
+//!   "notifications": {
+//!     "agent_blocked": true,
+//!     "agent_idle": true
+//!   },
 //!   "keys": {
 //!     "prefix": "ctrl+b",
 //!     "alt_shortcuts": true,
@@ -199,6 +203,8 @@ struct RawConfig {
     viewport: RawViewport,
     #[serde(default)]
     server: RawServer,
+    #[serde(default)]
+    notifications: RawNotifications,
     /// Key bindings: `"prefix"` plus one entry per action. Values may be
     /// a chord string, an array of chord strings, `"none"`, or
     /// `"alt_shortcuts": false`, `"super_shortcuts": false`, or the host
@@ -763,6 +769,31 @@ impl From<ConfigBrowserMode> for BrowserMode {
 #[serde(deny_unknown_fields)]
 struct RawScrollbar {
     position: Option<ScrollbarPosition>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawNotifications {
+    /// Alert when an agent turns blocked in an unfocused terminal.
+    agent_blocked: Option<bool>,
+    /// Alert when an agent turns idle in an unfocused terminal (the
+    /// transition the user has not seen yet).
+    agent_idle: Option<bool>,
+}
+
+/// Host-terminal notification policy for agent state transitions. Alerts
+/// are per-client presentation: each attached client applies its own
+/// config, and the currently focused terminal never alerts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Notifications {
+    pub agent_blocked: bool,
+    pub agent_idle: bool,
+}
+
+impl Default for Notifications {
+    fn default() -> Self {
+        Notifications { agent_blocked: true, agent_idle: true }
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -3038,6 +3069,12 @@ pub struct Config {
     pub server: Server,
     pub keys: Keys,
     pub commands: Vec<UserCommandConfig>,
+    pub notifications: Notifications,
+    /// User-visible problems found while loading the config file (currently
+    /// unknown top-level fields, which are ignored without discarding the
+    /// rest of the file). The client surfaces the first one in its status
+    /// bar so a typo never degrades silently.
+    pub startup_warnings: Vec<String>,
 }
 
 /// Configuration resolved once for the process startup path.
@@ -3285,7 +3322,8 @@ pub fn load() -> Config {
     config.cursor_style = defaults.cursor_style;
     config.cursor_blink = defaults.cursor_blink;
 
-    let raw = load_raw_config();
+    let (raw, startup_warnings) = load_raw_config();
+    config.startup_warnings = startup_warnings;
     let t = &raw.theme;
     if let Some(chrome) = t.chrome {
         config.chrome = chrome;
@@ -3771,6 +3809,12 @@ pub fn load() -> Config {
     if let Some(position) = raw.scrollbar.position {
         config.scrollbar.position = position;
     }
+    if let Some(agent_blocked) = raw.notifications.agent_blocked {
+        config.notifications.agent_blocked = agent_blocked;
+    }
+    if let Some(agent_idle) = raw.notifications.agent_idle {
+        config.notifications.agent_idle = agent_idle;
+    }
     if let Some(style) = raw.theme.border_style {
         config.theme.border_style = style;
     }
@@ -3977,9 +4021,14 @@ fn agent_in_title(tabs: &Tabs, title: &str) -> Option<String> {
     tabs.agents.iter().find(|agent| words.contains(&agent.as_str())).cloned()
 }
 
-fn load_raw_config() -> RawConfig {
-    let Some(path) = platform::config_path() else { return RawConfig::default() };
-    let Ok(text) = std::fs::read_to_string(&path) else { return RawConfig::default() };
+/// Reads and validates the config file. The second element is the
+/// user-visible warnings a client should surface (unknown top-level fields);
+/// each is also logged here.
+fn load_raw_config() -> (RawConfig, Vec<String>) {
+    let Some(path) = platform::config_path() else { return (RawConfig::default(), Vec::new()) };
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return (RawConfig::default(), Vec::new());
+    };
     let value: Value = match serde_json::from_str(&text) {
         Ok(value) => value,
         Err(e) => {
@@ -3989,7 +4038,7 @@ fn load_raw_config() -> RawConfig {
                 config_diagnostic(&e),
                 path.display(),
             );
-            return RawConfig::default();
+            return (RawConfig::default(), Vec::new());
         }
     };
     let Some(object) = value.as_object() else {
@@ -3998,7 +4047,7 @@ fn load_raw_config() -> RawConfig {
             "cmux-tui: ignoring invalid config {}: root must be an object",
             path.display()
         );
-        return RawConfig::default();
+        return (RawConfig::default(), Vec::new());
     };
     const KNOWN: &[&str] = &[
         "theme",
@@ -4014,15 +4063,18 @@ fn load_raw_config() -> RawConfig {
         "status_bar",
         "viewport",
         "server",
+        "notifications",
         "keys",
     ];
-    if let Some(unknown) = object.keys().find(|key| !KNOWN.contains(&key.as_str())) {
-        crate::client_log::stderr_log!(
-            "config",
-            "cmux-tui: ignoring invalid config {}: unknown top-level field `{unknown}`",
-            path.display()
-        );
-        return RawConfig::default();
+    // An unknown top-level field is ignored on its own: the config likely
+    // came from a newer cmux-tui (or has a typo), and dropping the user's
+    // whole layout over one key is worse than skipping the key. The warning
+    // is returned so the client can show it, not just log it.
+    let mut warnings = Vec::new();
+    for unknown in object.keys().filter(|key| !KNOWN.contains(&key.as_str())) {
+        let warning = catalog().config.unknown_field(unknown);
+        crate::client_log::stderr_log!("config", "{} ({})", warning, path.display());
+        warnings.push(warning);
     }
     let mut raw = RawConfig::default();
     macro_rules! section {
@@ -4054,8 +4106,9 @@ fn load_raw_config() -> RawConfig {
     section!(status_bar, "status_bar");
     section!(viewport, "viewport");
     section!(server, "server");
+    section!(notifications, "notifications");
     section!(keys, "keys");
-    raw
+    (raw, warnings)
 }
 
 fn config_diagnostic(error: &serde_json::Error) -> String {
@@ -6548,6 +6601,74 @@ mod tests {
         assert_eq!(config.theme.selection_fg, Some(Color::Rgb(0xdd, 0xee, 0xff)));
     }
 
+    fn load_from_json(name: &str, json: &str) -> Config {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_tui_config = std::env::var_os("CMUX_TUI_CONFIG");
+        let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
+        let dir =
+            std::env::temp_dir().join(format!("mux-config-test-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cmux-tui.json");
+        std::fs::write(&path, json).unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("CMUX_TUI_CONFIG", &path) };
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::remove_var("CMUX_MUX_CONFIG") };
+        let config = load();
+        restore_env_var("CMUX_TUI_CONFIG", old_tui_config);
+        restore_env_var("CMUX_MUX_CONFIG", old_mux_config);
+        let _ = std::fs::remove_dir_all(&dir);
+        config
+    }
+
+    #[test]
+    fn notifications_section_parses_and_keeps_the_rest_of_the_config() {
+        let config = load_from_json(
+            "notifications-section",
+            r#"{
+                "sidebar": {"views": [
+                    {"id": "workspaces-main", "levels": ["workspaces"]},
+                    {"id": "agents-all", "levels": ["agents"], "width": 34}
+                ]},
+                "notifications": {"agent_blocked": false, "agent_idle": false}
+            }"#,
+        );
+        assert!(!config.notifications.agent_blocked);
+        assert!(!config.notifications.agent_idle);
+        let ids: Vec<&str> = config.sidebar.views.iter().map(|view| view.id.as_str()).collect();
+        assert_eq!(ids, ["workspaces-main", "agents-all"]);
+    }
+
+    #[test]
+    fn unknown_top_level_key_keeps_configured_sidebar_views() {
+        let config = load_from_json(
+            "unknown-top-level-key",
+            r#"{
+                "sidebar": {"views": [
+                    {"id": "workspaces-main", "levels": ["workspaces"]},
+                    {"id": "agents-all", "levels": ["agents"], "width": 34}
+                ]},
+                "a_key_from_a_newer_version": {"enabled": true}
+            }"#,
+        );
+        let ids: Vec<&str> = config.sidebar.views.iter().map(|view| view.id.as_str()).collect();
+        assert_eq!(ids, ["workspaces-main", "agents-all"]);
+        assert_eq!(
+            config.startup_warnings,
+            [catalog().config.unknown_field("a_key_from_a_newer_version")],
+            "the skipped key must surface as a client-visible warning"
+        );
+    }
+
+    #[test]
+    fn known_config_yields_no_startup_warnings() {
+        let config =
+            load_from_json("no-warnings", r#"{"notifications": {"agent_blocked": false}}"#);
+        assert!(!config.notifications.agent_blocked);
+        assert!(config.notifications.agent_idle);
+        assert_eq!(config.startup_warnings, Vec::<String>::new());
+    }
+
     #[test]
     fn ghostty_defaults_survive_light_chrome_defaults() {
         let _guard = CONFIG_ENV_LOCK.lock().unwrap();
@@ -8585,10 +8706,10 @@ mod tests {
     }
 
     #[test]
-    fn unknown_top_level_field_keeps_strict_rejection() {
+    fn unknown_top_level_field_is_skipped_with_a_warning() {
         let _guard = CONFIG_ENV_LOCK.lock().unwrap();
         let dir =
-            std::env::temp_dir().join(format!("cmux-tui-top-level-strict-{}", std::process::id()));
+            std::env::temp_dir().join(format!("cmux-tui-top-level-skip-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("cmux-tui.json");
         std::fs::write(&path, r##"{"theme":{"sidebar_rail":42},"future":true}"##).unwrap();
@@ -8597,7 +8718,8 @@ mod tests {
         let config = load();
         restore_env_var("CMUX_TUI_CONFIG", old);
         let _ = std::fs::remove_dir_all(&dir);
-        assert_eq!(config.theme.sidebar_rail, Theme::default().sidebar_rail);
+        assert_eq!(config.theme.sidebar_rail, Color::Indexed(42));
+        assert_eq!(config.startup_warnings, [catalog().config.unknown_field("future")]);
     }
 
     #[test]

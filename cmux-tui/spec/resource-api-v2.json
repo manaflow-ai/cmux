@@ -4,10 +4,18 @@
   "title": "cmux.protocol/2 envelope",
   "description": "This endpoint describes exactly one local mux session. Cross-machine aggregation requires a later broker protocol.",
   "oneOf": [
-    {"$ref": "#/$defs/request"},
-    {"$ref": "#/$defs/response"},
-    {"$ref": "#/$defs/streamItem"},
-    {"$ref": "#/$defs/streamEnd"}
+    {
+      "$ref": "#/$defs/request"
+    },
+    {
+      "$ref": "#/$defs/response"
+    },
+    {
+      "$ref": "#/$defs/streamItem"
+    },
+    {
+      "$ref": "#/$defs/streamEnd"
+    }
   ],
   "$defs": {
     "requestId": {
@@ -40,6 +48,8 @@
       "enum": [
         "agent.list",
         "agent.report",
+        "agent.resume_plan",
+        "agent.wait",
         "browser.activate",
         "browser.attach",
         "browser.back",
@@ -167,6 +177,8 @@
       "x-operation-classes": {
         "read": [
           "agent.list",
+          "agent.resume_plan",
+          "agent.wait",
           "browser.get",
           "browser.list",
           "client.get",
@@ -303,14 +315,32 @@
     "request": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["protocol", "type", "id", "operation", "params"],
+      "required": [
+        "protocol",
+        "type",
+        "id",
+        "operation",
+        "params"
+      ],
       "properties": {
-        "protocol": {"const": "cmux.protocol/2"},
-        "type": {"const": "request"},
-        "id": {"$ref": "#/$defs/requestId"},
-        "operation": {"$ref": "#/$defs/operation"},
-        "params": {"type": "object"},
-        "idempotency_key": {"$ref": "#/$defs/idempotencyKey"}
+        "protocol": {
+          "const": "cmux.protocol/2"
+        },
+        "type": {
+          "const": "request"
+        },
+        "id": {
+          "$ref": "#/$defs/requestId"
+        },
+        "operation": {
+          "$ref": "#/$defs/operation"
+        },
+        "params": {
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/idempotencyKey"
+        }
       },
       "allOf": [
         {
@@ -389,83 +419,187 @@
               }
             }
           },
-          "then": {"required": ["idempotency_key"]},
-          "else": {"not": {"required": ["idempotency_key"]}}
+          "then": {
+            "required": [
+              "idempotency_key"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "idempotency_key"
+              ]
+            }
+          }
         }
       ]
     },
     "response": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["protocol", "type", "id", "ok"],
+      "required": [
+        "protocol",
+        "type",
+        "id",
+        "ok"
+      ],
       "properties": {
-        "protocol": {"const": "cmux.protocol/2"},
-        "type": {"const": "response"},
-        "id": {"$ref": "#/$defs/requestId"},
-        "ok": {"type": "boolean"},
+        "protocol": {
+          "const": "cmux.protocol/2"
+        },
+        "type": {
+          "const": "response"
+        },
+        "id": {
+          "$ref": "#/$defs/requestId"
+        },
+        "ok": {
+          "type": "boolean"
+        },
         "result": {},
-        "error": {"$ref": "#/$defs/error"}
+        "error": {
+          "$ref": "#/$defs/error"
+        }
       },
       "oneOf": [
         {
-          "properties": {"ok": {"const": true}},
-          "required": ["result"],
-          "not": {"required": ["error"]}
+          "properties": {
+            "ok": {
+              "const": true
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "not": {
+            "required": [
+              "error"
+            ]
+          }
         },
         {
-          "properties": {"ok": {"const": false}},
-          "required": ["error"],
-          "not": {"required": ["result"]}
+          "properties": {
+            "ok": {
+              "const": false
+            }
+          },
+          "required": [
+            "error"
+          ],
+          "not": {
+            "required": [
+              "result"
+            ]
+          }
         }
       ]
     },
     "cursor": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["generation", "revision"],
+      "required": [
+        "generation",
+        "revision"
+      ],
       "properties": {
-        "generation": {"type": "string", "minLength": 1, "maxLength": 128},
-        "revision": {"$ref": "#/$defs/decimal"}
+        "generation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "revision": {
+          "$ref": "#/$defs/decimal"
+        }
       }
     },
     "streamItem": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["protocol", "type", "stream_id", "sequence", "item"],
+      "required": [
+        "protocol",
+        "type",
+        "stream_id",
+        "sequence",
+        "item"
+      ],
       "properties": {
-        "protocol": {"const": "cmux.protocol/2"},
-        "type": {"const": "stream_item"},
-        "stream_id": {"$ref": "#/$defs/streamId"},
-        "sequence": {"$ref": "#/$defs/decimal"},
-        "cursor": {"$ref": "#/$defs/cursor"},
+        "protocol": {
+          "const": "cmux.protocol/2"
+        },
+        "type": {
+          "const": "stream_item"
+        },
+        "stream_id": {
+          "$ref": "#/$defs/streamId"
+        },
+        "sequence": {
+          "$ref": "#/$defs/decimal"
+        },
+        "cursor": {
+          "$ref": "#/$defs/cursor"
+        },
         "item": {}
       }
     },
     "streamEnd": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["protocol", "type", "stream_id", "reason"],
+      "required": [
+        "protocol",
+        "type",
+        "stream_id",
+        "reason"
+      ],
       "properties": {
-        "protocol": {"const": "cmux.protocol/2"},
-        "type": {"const": "stream_end"},
-        "stream_id": {"$ref": "#/$defs/streamId"},
-        "reason": {
-          "enum": ["completed", "canceled", "closed", "gap", "error"]
+        "protocol": {
+          "const": "cmux.protocol/2"
         },
-        "cursor": {"$ref": "#/$defs/cursor"},
-        "error": {"$ref": "#/$defs/error"},
-        "recovery": {"type": "string"}
+        "type": {
+          "const": "stream_end"
+        },
+        "stream_id": {
+          "$ref": "#/$defs/streamId"
+        },
+        "reason": {
+          "enum": [
+            "completed",
+            "canceled",
+            "closed",
+            "gap",
+            "error"
+          ]
+        },
+        "cursor": {
+          "$ref": "#/$defs/cursor"
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        },
+        "recovery": {
+          "type": "string"
+        }
       }
     },
     "error": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["code", "message", "details", "retryable"],
+      "required": [
+        "code",
+        "message",
+        "details",
+        "retryable"
+      ],
       "properties": {
-        "code": {"type": "string"},
-        "message": {"type": "string"},
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
         "details": {},
-        "retryable": {"type": "boolean"}
+        "retryable": {
+          "type": "boolean"
+        }
       }
     }
   }

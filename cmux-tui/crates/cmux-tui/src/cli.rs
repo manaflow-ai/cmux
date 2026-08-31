@@ -629,9 +629,21 @@ USAGE
 const AGENT_HELP: &str = "\
 USAGE
   cmux agent list [OPTIONS]
+  cmux agent wait (--state <value> | --any-of <a,b,...>) [--terminal <id>] [--timeout-ms <n>]
+  cmux agent resume [--terminal <id>]
   cmux agent report --terminal <selector> --state <value> --source <value>
   cmux agent hook install|uninstall|status [provider...]
   cmux agent hook emit --source <agent> --event <native-event> [--terminal <id>]
+
+`agent wait` blocks until an agent reaches one of the given states and
+prints the matching agent snapshot (matched=false on timeout; exit code
+stays 0 with the result payload). Event-driven agent-to-agent
+coordination: roster commits wake the wait; there is no polling.
+
+`agent resume` prints journal-derived relaunch plans (exact argv such as
+`claude --resume <id>`) for agents that were alive at shutdown, skipping
+sessions that are still running. Apply one with
+`cmux workspace current run -- <argv...>`.
 ";
 
 const SIDEBAR_HELP: &str = "\

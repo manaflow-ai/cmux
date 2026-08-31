@@ -335,7 +335,9 @@ fn terminal_process_get(
     if let Some(executable) = executable {
         value["executable"] = json!(executable);
     }
-    if let Some(cwd) = surface.pwd().or_else(|| surface.spawn_cwd()) {
+    // `local_cwd` converts the raw OSC 7 report; a `file://host/...` URL is
+    // not a cwd and must never appear as one in any API surface.
+    if let Some(cwd) = surface.local_cwd() {
         value["cwd"] = json!(cwd);
     }
     Ok(value)

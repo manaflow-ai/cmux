@@ -761,8 +761,87 @@ fn process_name(pid: u32) -> Option<String> {
 }
 
 #[cfg(target_os = "macos")]
-fn process_name(pid: u32) -> Option<String> {
+fn process_argv0(pid: u32) -> Option<String> {
     let pid = libc::c_int::try_from(pid).ok()?;
+    let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid];
+    let mut size: libc::size_t = 0;
+    // SAFETY: a null buffer queries the required size for this sysctl.
+    let queried = unsafe {
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            mib.len() as libc::c_uint,
+            std::ptr::null_mut(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if queried != 0 || size < size_of::<libc::c_int>() {
+        return None;
+    }
+    let mut buffer = vec![0u8; size];
+    // SAFETY: the buffer spans `size` bytes and sysctl updates `size` to
+    // the bytes actually written.
+    let fetched = unsafe {
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            mib.len() as libc::c_uint,
+            buffer.as_mut_ptr().cast(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if fetched != 0 {
+        return None;
+    }
+    buffer.truncate(size);
+    // Layout: argc (c_int), exec_path NUL-terminated, NUL padding, then
+    // argv[0] NUL-terminated.
+    let rest = buffer.get(size_of::<libc::c_int>()..)?;
+    let exec_end = rest.iter().position(|&byte| byte == 0)?;
+    let mut offset = exec_end;
+    while rest.get(offset) == Some(&0) {
+        offset += 1;
+    }
+    let argv0_end = rest.get(offset..)?.iter().position(|&byte| byte == 0)? + offset;
+    let argv0 = std::str::from_utf8(rest.get(offset..argv0_end)?).ok()?.trim();
+    (!argv0.is_empty()).then(|| argv0.to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn process_name(pid: u32) -> Option<String> {
+    // argv[0] is the only identity that survives version-named launcher
+    // binaries: claude execs `.../versions/2.1.251`, so both the kernel
+    // comm and the executable path read as the version while argv[0] still
+    // says `claude` (herdr reads argv the same way, via KERN_PROCARGS2).
+    // The kernel name and the executable path remain the fallbacks.
+    if let Some(argv0) = process_argv0(pid) {
+        return Some(argv0);
+    }
+    let pid = libc::c_int::try_from(pid).ok()?;
+    let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::zeroed();
+    let size = libc::c_int::try_from(size_of::<libc::proc_bsdinfo>()).ok()?;
+    // SAFETY: proc_pidinfo writes at most `size` bytes into `info` and
+    // returns the initialized byte count.
+    let written = unsafe {
+        libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, info.as_mut_ptr().cast(), size)
+    };
+    if written == size {
+        // SAFETY: proc_pidinfo initialized the full structure; pbi_name and
+        // pbi_comm are fixed NUL-padded byte buffers.
+        let info = unsafe { info.assume_init() };
+        for field in [&info.pbi_name[..], &info.pbi_comm[..]] {
+            let bytes: Vec<u8> =
+                field.iter().take_while(|&&byte| byte != 0).map(|&byte| byte as u8).collect();
+            if let Ok(name) = std::str::from_utf8(&bytes)
+                && !name.is_empty()
+                && name.len() + 1 < field.len()
+            {
+                return Some(name.to_string());
+            }
+        }
+    }
     let mut path = [0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
     // SAFETY: proc_pidpath writes at most `path.len()` bytes and returns
     // the written byte count (0 on failure).
@@ -906,6 +985,28 @@ fn default_terminal_cwd_from(launch: Option<&Path>) -> Option<String> {
         return Some(dir.to_string_lossy().into_owned());
     }
     home_dir().map(|path| path.to_string_lossy().into_owned())
+}
+
+/// Resolve a requested spawn working directory to an existing local
+/// directory, degrading instead of failing. A terminal-reported OSC 7 URL
+/// (Ghostty shell integration emits `file://<dhcp-name>/...`), a path on
+/// another host, or a directory that no longer exists must never abort a
+/// spawn: one tab's weird pwd report must not make every new tab fail with
+/// ENOENT. Falls back to the process launch directory, then home; `None`
+/// (spawn inherits the parent process cwd) only when even those are gone.
+pub fn safe_spawn_cwd(requested: Option<&str>) -> Option<PathBuf> {
+    if let Some(requested) = requested {
+        if let Some(path) = terminal_pwd_to_local_path(requested)
+            && path.is_dir()
+        {
+            return Some(path);
+        }
+        eprintln!(
+            "cmux-tui: requested terminal cwd {requested:?} is not a usable local directory; \
+             spawning in the default directory instead"
+        );
+    }
+    default_terminal_cwd().map(PathBuf::from).filter(|path| path.is_dir())
 }
 
 /// Convert a terminal-reported OSC 7 working directory into a local path.
@@ -1354,5 +1455,31 @@ mod tests {
     fn local_hostname_decoder_accepts_non_utf8_os_bytes() {
         assert_eq!(decode_local_hostname(b"host\xff"), Some("host�".to_string()));
         assert_eq!(decode_local_hostname(b""), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn safe_spawn_cwd_degrades_bad_requests_and_keeps_good_directories() {
+        let dir = std::env::temp_dir();
+        let dir_text = dir.to_string_lossy().into_owned();
+        // A real local directory passes through unchanged.
+        assert_eq!(safe_spawn_cwd(Some(&dir_text)), Some(dir.clone()));
+        // A foreign-host OSC 7 URL, a nonexistent directory, and a URL whose
+        // path does not exist all degrade to a usable default, never None on
+        // a machine with a launch directory or home.
+        for bad in [
+            "file://someweirdhost/tmp",
+            "/definitely/not/a/real/dir-cmux-test",
+            "file://localhost/definitely/not/a/real/dir-cmux-test",
+        ] {
+            let fallback = safe_spawn_cwd(Some(bad));
+            assert_ne!(fallback.as_deref(), Some(Path::new(bad)), "{bad}");
+            assert!(fallback.as_ref().is_some_and(|path| path.is_dir()), "{bad} -> {fallback:?}");
+        }
+        // No request keeps the plain default.
+        assert_eq!(
+            safe_spawn_cwd(None).map(|path| path.to_string_lossy().into_owned()),
+            default_terminal_cwd()
+        );
     }
 }

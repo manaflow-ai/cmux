@@ -3641,6 +3641,141 @@ fn daemon_restart_prunes_every_dead_host_behind_one_pane() {
     assert!(first_tab(workspace).is_none(), "Exited terminals were rematerialized after restart");
 }
 
+#[test]
+fn foreign_osc7_pwd_never_poisons_spawn_cwd_across_adoption() {
+    let mut harness = RecoveryHarness::start("osc7-foreign-pwd");
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":1,"cmd":"run","argv":["/bin/sh","-i"],"new_workspace":true,
+            "cols":80,"rows":24,
+        }),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+
+    // Ghostty-style shell integration reports the working directory over
+    // OSC 7 using a host name the locality check cannot verify (DHCP names
+    // like `mac.lan`), and the reported path need not exist locally.
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id":2,"cmd":"send","surface":surface,
+            // The marker is computed so it can only match executed output,
+            // never the shell's echo of this input line.
+            "text":"printf '\\033]7;file://someweirdhost/definitely/not/a/dir\\033\\\\'; echo OSC7-$((40+2))\n",
+        }),
+    );
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    loop {
+        let screen = request(
+            &harness.socket,
+            serde_json::json!({"id":3,"cmd":"read-screen","surface":surface}),
+        )["text"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        if screen.contains("OSC7-42") {
+            break;
+        }
+        assert!(Instant::now() < deadline, "shell never echoed the OSC 7 marker");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    // A daemon restart adopts the surviving host. The host snapshot used to
+    // hand the raw OSC 7 URL back as the adopted surface's spawn cwd, which
+    // then poisoned every cwd consumer.
+    harness.sigkill();
+    harness.restart();
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    let adopted_surface = loop {
+        let resolved = request(
+            &harness.socket,
+            serde_json::json!({"id":4,"cmd":"resolve-terminal","terminal_id":terminal_id}),
+        );
+        if let Some(surface) = resolved["surface"].as_u64() {
+            break surface;
+        }
+        assert!(Instant::now() < deadline, "restart never re-adopted the shell terminal");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+
+    // No API may report the URL as a cwd.
+    let info = request(
+        &harness.socket,
+        serde_json::json!({"id":5,"cmd":"process-info","surface":adopted_surface}),
+    );
+    if let Some(cwd) = info["cwd"].as_str() {
+        assert!(!cwd.starts_with("file://"), "adopted surface reports a URL as its cwd: {cwd}");
+    }
+
+    // A new spawn in the same workspace inherits the pane cwd. It must not
+    // fail, and it must land in a real local directory.
+    let inherited = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":6,"cmd":"run","argv":["/bin/sh","-c","pwd; sleep 60"],
+            "cols":80,"rows":24,
+        }),
+    );
+    let inherited_surface = inherited["surface"].as_u64().unwrap();
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    loop {
+        let screen = request(
+            &harness.socket,
+            serde_json::json!({"id":7,"cmd":"read-screen","surface":inherited_surface}),
+        )["text"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let pwd_line = screen.lines().find(|line| line.starts_with('/'));
+        if let Some(pwd_line) = pwd_line {
+            assert!(!pwd_line.contains("definitely/not"), "spawned in the phantom dir: {pwd_line}");
+            assert!(Path::new(pwd_line.trim()).is_dir(), "spawned in a missing dir: {pwd_line}");
+            break;
+        }
+        assert!(Instant::now() < deadline, "inherited spawn never printed its pwd");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let info = request(
+        &harness.socket,
+        serde_json::json!({"id":8,"cmd":"process-info","surface":inherited_surface}),
+    );
+    if let Some(cwd) = info["cwd"].as_str() {
+        assert!(!cwd.starts_with("file://"), "inherited spawn reports a URL cwd: {cwd}");
+    }
+}
+
+#[test]
+fn missing_requested_cwd_degrades_to_default_instead_of_failing_the_spawn() {
+    let harness = RecoveryHarness::start("missing-cwd-degrades");
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":1,"cmd":"run","argv":["/bin/sh","-c","pwd; sleep 60"],"new_workspace":true,
+            "cwd":"/definitely/not/a/real/dir-osc7","cols":80,"rows":24,
+        }),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    loop {
+        let screen = request(
+            &harness.socket,
+            serde_json::json!({"id":2,"cmd":"read-screen","surface":surface}),
+        )["text"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        if let Some(pwd_line) = screen.lines().find(|line| line.starts_with('/')) {
+            assert!(!pwd_line.contains("definitely/not"), "spawned in the phantom dir");
+            assert!(Path::new(pwd_line.trim()).is_dir(), "degraded to a missing dir: {pwd_line}");
+            break;
+        }
+        assert!(Instant::now() < deadline, "spawn with a missing cwd never produced output");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
 fn request(path: &Path, value: serde_json::Value) -> serde_json::Value {
     let response = request_response(path, value);
     assert_eq!(response["ok"], true, "request failed: {response}");
