@@ -395,9 +395,7 @@ mod tests {
 
         // A short-lived companion codex (spawned inside the same PTY) runs
         // a turn and ends its session. None of it may touch claude's entry.
-        for kind in
-            ["agent.session.started", "agent.turn.started", "agent.turn.completed"]
-        {
+        for kind in ["agent.session.started", "agent.turn.started", "agent.turn.completed"] {
             let deltas = roster.apply(&hook_event(3, kind, &subjects, &codex));
             assert!(deltas.is_empty(), "{kind} must not overwrite the live owner");
         }
@@ -424,17 +422,30 @@ mod tests {
         roster.apply(&stamped_event(1_000, "agent.turn.started", &subjects, &claude));
 
         // Fresh owner: a different adapter cannot claim the slot.
-        let deltas =
-            roster.apply(&stamped_event(1_000 + STALE_HOOK_MS - 1, "agent.turn.started", &subjects, &codex));
+        let deltas = roster.apply(&stamped_event(
+            1_000 + STALE_HOOK_MS - 1,
+            "agent.turn.started",
+            &subjects,
+            &codex,
+        ));
         assert!(deltas.is_empty());
         assert_eq!(roster.entries["term_a"].agent.as_deref(), Some("claude"));
 
         // Stale owner (died without SessionEnd): a live takeover applies,
         // but a done still never removes someone else's entry.
-        let deltas = roster
-            .apply(&stamped_event(1_000 + STALE_HOOK_MS, "agent.session.ended", &subjects, &codex));
+        let deltas = roster.apply(&stamped_event(
+            1_000 + STALE_HOOK_MS,
+            "agent.session.ended",
+            &subjects,
+            &codex,
+        ));
         assert!(deltas.is_empty(), "cross-adapter done never removes the entry");
-        roster.apply(&stamped_event(1_000 + STALE_HOOK_MS, "agent.turn.started", &subjects, &codex));
+        roster.apply(&stamped_event(
+            1_000 + STALE_HOOK_MS,
+            "agent.turn.started",
+            &subjects,
+            &codex,
+        ));
         assert_eq!(roster.entries["term_a"].agent.as_deref(), Some("codex"));
         assert_eq!(roster.entries["term_a"].state, "working");
     }
