@@ -41,6 +41,10 @@ extension AuthCoordinator {
             if let devToken = await devAuthAccessTokenFallback() {
                 return devToken
             }
+            // Definitive token death without the sign-out flow: hand the
+            // last-known pair to the invalidation backstop before the clear
+            // routes the UI to sign-in.
+            notifySessionInvalidated()
             clearAuthState(preservePendingCode: true)
             throw AuthError.unauthorized
         }
@@ -122,6 +126,9 @@ extension AuthCoordinator {
         guard let refresh = await client.refreshToken(), !refresh.isEmpty else {
             throw emptyTokenReadError(storageWasAvailable: storageWasAvailable)
         }
+        // Remember the pair for the invalidation backstop; the periodic
+        // registry/presence callers keep this fresh throughout the session.
+        lastKnownTokenPair = (access, refresh)
         return (access, refresh)
     }
 
@@ -173,6 +180,8 @@ extension AuthCoordinator {
             // The bracket: an unchanged refresh across the access resolution
             // proves no rotation crossed the window, so the pair is coherent.
             if await client.refreshToken() == refresh {
+                // Remember the pair for the invalidation backstop.
+                lastKnownTokenPair = (access, refresh)
                 return (access, refresh)
             }
         }
@@ -301,6 +310,8 @@ extension AuthCoordinator {
               currentUser?.id == accountID,
               activeSignInFlows.isEmpty,
               !isCapturingSignOutCredentials else { return nil }
+        // Remember the pair for the invalidation backstop.
+        lastKnownTokenPair = (access, refresh)
         return AuthenticatedSessionSnapshot(
             generation: generation,
             accountID: accountID,
@@ -367,6 +378,9 @@ extension AuthCoordinator {
             if sessionTokenTransitionIsActive {
                 throw AuthError.networkError
             }
+            // Same definitive token death as `accessToken()`: fire the
+            // invalidation backstop before the clear.
+            notifySessionInvalidated()
             clearAuthState(preservePendingCode: true)
             throw AuthError.unauthorized
         }

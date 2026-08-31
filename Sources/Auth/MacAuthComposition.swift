@@ -146,6 +146,18 @@ struct MacAuthComposition {
             },
             onSignedIn: {
                 await browserAppSessionSignInRelay.signedIn()
+            },
+            onSessionInvalidated: { accessToken, refreshToken in
+                // Token-death backstop: the session died WITHOUT the sign-out
+                // flow (definitive refresh rejection, vanished user), so the
+                // flow's onSignedOut teardown below never runs. Run the same
+                // discovery teardown with the coordinator's last-known pair;
+                // the access token usually outlives the refresh rejection, so
+                // this best-effort removal still tends to land.
+                await Self.tearDownDiscovery(
+                    accessToken: accessToken,
+                    refreshToken: refreshToken
+                )
             }
         )
         self.coordinator = coordinator
@@ -201,6 +213,14 @@ struct MacAuthComposition {
                     accessToken: accessToken,
                     refreshToken: refreshToken
                 )
+                // Discovery teardown: pull this Mac out of the team device
+                // registry and announce the sign-out to presence, so paired
+                // phones drop it from their lists live instead of showing a
+                // stale signed-out host.
+                await Self.tearDownDiscovery(
+                    accessToken: accessToken,
+                    refreshToken: refreshToken
+                )
             }
         )
         self.browserSignIn = browserSignIn
@@ -214,6 +234,27 @@ struct MacAuthComposition {
     /// the composition root.
     func start() {
         coordinator.start()
+    }
+
+    /// The discovery half of session teardown, shared by interactive sign-out
+    /// (`onSignedOut`) and the coordinator's token-death backstop
+    /// (`onSessionInvalidated`): deregister this instance from the team device
+    /// registry and send the presence sign-out goodbye. Both legs are
+    /// best-effort with short timeouts and run concurrently so the sign-out
+    /// flow's bounded teardown deadline covers them alongside the revocations.
+    private static func tearDownDiscovery(
+        accessToken: String?,
+        refreshToken: String?
+    ) async {
+        async let deregistration: Void = DeviceRegistryClient.shared.deregisterForSignOut(
+            accessToken: accessToken,
+            refreshToken: refreshToken
+        )
+        async let goodbye: Void = PresenceHeartbeatClient.shared.goodbyeForSignOut(
+            accessToken: accessToken,
+            refreshToken: refreshToken
+        )
+        _ = await (deregistration, goodbye)
     }
 
     /// Where the file-fallback token store persists, namespaced by bundle id

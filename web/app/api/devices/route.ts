@@ -425,9 +425,12 @@ export async function GET(request: Request): Promise<Response> {
 }
 
 /**
- * Unregister a device (e.g. when the user forgets/decommissions a Mac). Removes
- * the machine row and cascades its app instances. Team-scoped so a caller can
- * only delete devices in a team they belong to.
+ * Unregister a device or a single app instance. Without `tag` (forget /
+ * decommission a Mac) the machine row is removed and its app instances cascade.
+ * With `tag` (a Mac signing out removes only its own build's registration) just
+ * the `(deviceUuid, tag)` instance row is removed, plus the device row itself
+ * once no instances remain, so a fully signed-out Mac disappears from GET.
+ * Team-scoped so a caller can only delete devices in a team they belong to.
  */
 export async function DELETE(request: Request): Promise<Response> {
   const rateLimitResponse = await enforceDeviceRegistryIngressLimit(request);
@@ -454,12 +457,79 @@ export async function DELETE(request: Request): Promise<Response> {
     return jsonResponse({ error: "invalid_device_id" }, 400);
   }
 
+  // An explicit `tag` narrows the delete to one app instance. A present-but-
+  // blank tag is rejected rather than coerced (POST maps blank to "default"),
+  // because silently widening a scoped delete into the whole-device path would
+  // remove registrations the signing-out build does not own.
+  const hasTag = body.value.tag !== undefined && body.value.tag !== null;
+  const tag = trimmedString(body.value.tag);
+  if (hasTag && (tag.length === 0 || tag.length > MAX_TAG_LENGTH)) {
+    return jsonResponse({ error: "invalid_tag" }, 400);
+  }
+
   // Delete only the caller's own row for this device in this team. Scoping by
   // userId (not just team) mirrors the POST ownership guard, so a co-member who
   // sees the device UUID via GET cannot remove another member's registered Mac
   // and break their phone reconnect. Never touches another team's row for the
   // same physical Mac.
   const db = cloudDb();
+
+  if (hasTag) {
+    // Tag-scoped path. One transaction under the same per-team advisory lock
+    // as POST, so a concurrent registration cannot insert an instance between
+    // the zero-instances check and the device-row delete (which would either
+    // strand the new instance on a dropped FK target or resurrect a row this
+    // delete just decided was empty).
+    const scoped = await db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${team.teamId}, 7))`);
+
+      const [deviceRow] = await tx
+        .select({ id: devices.id, labels: devices.labels })
+        .from(devices)
+        .where(
+          and(
+            eq(devices.deviceUuid, deviceUuid),
+            eq(devices.teamId, team.teamId),
+            eq(devices.userId, user.id),
+          ),
+        )
+        .limit(1);
+      // Unknown or non-owned device: idempotent no-op with `deleted: 0`, same
+      // contract as the whole-device path below.
+      if (!deviceRow) return { deleted: 0, deviceDeleted: false };
+
+      const deletedInstances = await tx
+        .delete(deviceAppInstances)
+        .where(
+          and(
+            eq(deviceAppInstances.deviceId, deviceRow.id),
+            eq(deviceAppInstances.tag, tag),
+          ),
+        )
+        .returning({ id: deviceAppInstances.id });
+
+      const [{ remaining }] = await tx
+        .select({ remaining: sql<number>`count(*)::int` })
+        .from(deviceAppInstances)
+        .where(eq(deviceAppInstances.deviceId, deviceRow.id));
+      // An instance-less device row offers a phone nothing to attach to, so
+      // drop it with the last instance. Manual remotes (`cmux remotes add`) are
+      // exempt: they never carry instance heartbeats and must survive an
+      // instance-less state until the user removes them explicitly.
+      let deviceDeleted = false;
+      if (Number(remaining) === 0 && deviceRow.labels.manual !== true) {
+        await tx.delete(devices).where(eq(devices.id, deviceRow.id));
+        deviceDeleted = true;
+      }
+      // `deleted` counts the targeted instance rows (mirroring the whole-device
+      // path, where it counts the targeted device row); `deviceDeleted` reports
+      // the cascade so a signing-out Mac can drop its persisted registered-team
+      // entry only after the registry row is truly gone.
+      return { deleted: deletedInstances.length, deviceDeleted };
+    });
+    return jsonResponse({ ok: true, ...scoped });
+  }
+
   const deletedRows = await db
     .delete(devices)
     .where(

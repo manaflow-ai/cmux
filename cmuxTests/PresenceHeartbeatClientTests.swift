@@ -114,7 +114,43 @@ import Testing
             stopping: true
         )
         #expect(body["stopping"] as? Bool == true)
+        // A plain goodbye (quit, presence disabled) is NOT a sign-out: the
+        // instance flips offline but stays in the team's list.
+        #expect(body["signout"] == nil)
         #expect((body["routes"] as? [[String: Any]])?.count == 1)
+    }
+
+    @Test func signoutGoodbyeCarriesBothMarkers() throws {
+        // The sign-out goodbye upgrades "went offline" to "left the account":
+        // the service removes the instance instead of tombstoning it offline.
+        let body = PresenceHeartbeatClient.heartbeatBody(
+            deviceID: "11111111-2222-4333-8444-555555555555",
+            tag: "presvc",
+            bundleID: "com.cmuxterm.app.nightly",
+            displayName: nil,
+            routes: [],
+            stopping: true,
+            signout: true
+        )
+        #expect(body["stopping"] as? Bool == true)
+        #expect(body["signout"] as? Bool == true)
+    }
+
+    @Test func signoutIsNeverEmittedWithoutStopping() throws {
+        // `signout` is only meaningful on a goodbye. A live beat must never
+        // carry it, whatever a caller passes, so old workers that ignore the
+        // unknown field see byte-identical live traffic.
+        let body = PresenceHeartbeatClient.heartbeatBody(
+            deviceID: "11111111-2222-4333-8444-555555555555",
+            tag: "presvc",
+            bundleID: "com.cmuxterm.app.nightly",
+            displayName: nil,
+            routes: [],
+            stopping: false,
+            signout: true
+        )
+        #expect(body["stopping"] == nil)
+        #expect(body["signout"] == nil)
     }
 
     @Test func bodySerializesToJSON() throws {
