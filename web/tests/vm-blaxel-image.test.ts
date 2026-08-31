@@ -123,8 +123,14 @@ describe("Blaxel baked image template", () => {
     expect(dockerfile).toContain("/etc/cmux/blesh-cache-seed");
     expect(dockerfile).toContain("/usr/local/share/blesh/cache.d/0");
     expect(dockerfile).toContain("/usr/local/share/blesh/cache.d/1000");
-    expect(bashrc).toContain("/etc/cmux/blesh-cache-seed/blesh");
-    expect(bashrc).toContain('cp -R /etc/cmux/blesh-cache-seed/blesh "$__cmux_cache_base/"');
+    // The bake must prove every seeded TERM generated, not just the first two.
+    for (const term of ["xterm-256color", "screen-256color", "tmux-256color", "linux"]) {
+      expect(dockerfile).toContain(`test -s /etc/cmux/blesh-cache-seed/blesh/*/term.${term}`);
+    }
+    // Per-file seeding with the same freshness rule ble.sh applies, so durable
+    // homes from older images (stale or missing entries) reseed too.
+    expect(bashrc).toContain("/etc/cmux/blesh-cache-seed/blesh/*/term.*");
+    expect(bashrc).toContain('[ /usr/local/share/blesh/lib/init-term.sh -nt "$__cmux_dst" ]');
     expect(bashrc.indexOf("blesh-cache-seed")).toBeLessThan(
       bashrc.indexOf("source /usr/local/share/blesh/ble.sh"),
     );

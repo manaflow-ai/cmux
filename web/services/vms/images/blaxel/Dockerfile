@@ -223,6 +223,8 @@ RUN mkdir -p /etc/cmux/blesh-cache-seed \
   && rm -rf /tmp/blesh-seed-home \
   && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-256color \
   && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.screen-256color \
+  && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.tmux-256color \
+  && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.linux \
   && mkdir -p /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 \
   && chmod a+rwxt /usr/local/share/blesh/cache.d \
   && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/0/ \
