@@ -179,10 +179,12 @@ export async function findPaidBillingPurchaseByEmail(
     // Payment-link checkouts can omit a persisted Stripe customer. Inspect a
     // bounded recent session page as a final fallback so a paid Founder's
     // session remains recoverable by email.
-    const sessions = await budget.read((requestOptions) =>
-      client.checkout.sessions.list({ limit: 100 }, requestOptions),
+    const sessions = await listStripeCheckoutSessionsForCustomer(
+      client,
+      null,
+      budget,
     );
-    const session = sessions.data.find((candidate) => {
+    const session = sessions.find((candidate) => {
       const sessionEmail = candidate.customer_details?.email;
       if (
         !sessionEmail ||
@@ -592,7 +594,7 @@ async function listStripeSubscriptionsForCustomer(
 /** Walk all checkout-session pages for one customer, with a cursor guard. */
 async function listStripeCheckoutSessionsForCustomer(
   client: RecoveryStripeClient,
-  customerId: string,
+  customerId: string | null,
   budget: RecoveryReadBudget,
 ): Promise<readonly Stripe.Checkout.Session[]> {
   const sessions: Stripe.Checkout.Session[] = [];
@@ -601,7 +603,7 @@ async function listStripeCheckoutSessionsForCustomer(
     const response = await budget.read((requestOptions) =>
       client.checkout.sessions.list(
         {
-          customer: customerId,
+          ...(customerId ? { customer: customerId } : {}),
           limit: 100,
           ...(startingAfter ? { starting_after: startingAfter } : {}),
         },

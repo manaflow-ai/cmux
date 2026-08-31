@@ -15,9 +15,6 @@ export const DEFAULT_FROM_EMAIL = "austin@manaflow.ai";
 export const FOUNDER_CC = ["austin@manaflow.ai", "lawrence@manaflow.ai"];
 export const REPLY_TO = "austin@manaflow.ai";
 export const EMAIL_SUBJECT = "cmux Founder's Edition";
-export const PRO_EMAIL_SUBJECT = (
-  englishMessages as { emails: { proWelcome: { subject: string } } }
-).emails.proWelcome.subject;
 
 // Custom header that defeats Gmail's subject-based conversation grouping.
 // Gmail collapses messages that share a normalized subject among the same
@@ -92,6 +89,31 @@ type ProWelcomeCopy = {
   signoff: string;
 };
 
+const ENGLISH_PRO_WELCOME_FALLBACK: ProWelcomeCopy = {
+  subject: "Welcome to cmux Pro 🎉",
+  fallbackName: "there",
+  greeting: "Hey {name},",
+  thanks:
+    "Thanks for joining cmux Pro! We’re still putting the full Pro experience together, and cloud access is on the way.",
+  cloudStatus:
+    "When cloud access launches, we’ll add usage credits to your account based on how many months you’ve been subscribed.",
+  currentBenefit:
+    "In the meantime, your Pro benefit is early access to cmux on iOS. Sign up through the link below, and Apple will send your TestFlight invitation once you’re registered.",
+  testflightLink: "Sign up for TestFlight: {url}",
+  signoff: "Glad to have you here!\nThe cmux team",
+};
+
+const DEFAULT_PRO_WELCOME_COPY: ProWelcomeCopy = {
+  ...ENGLISH_PRO_WELCOME_FALLBACK,
+  ...readProWelcomeCopy(
+    isRecord(englishMessages) && isRecord(englishMessages.emails)
+      ? englishMessages.emails.proWelcome
+      : undefined,
+  ),
+};
+
+export const PRO_EMAIL_SUBJECT = DEFAULT_PRO_WELCOME_COPY.subject;
+
 // Build the personal Founder's Edition payload. Per-subscription threading is
 // carried by X-Entity-Ref-ID.
 export function buildFoundersWelcomeEmail(params: {
@@ -136,10 +158,17 @@ export async function buildProWelcomeEmail(params: {
   sessionRef: string;
   locale?: Locale;
 }): Promise<FoundersWelcomeEmail> {
-  const catalog = (await loadMessages(params.locale ?? "en")) as {
-    emails: { proWelcome: ProWelcomeCopy };
-  };
-  const copy = catalog.emails.proWelcome;
+  let localizedCopy: Partial<ProWelcomeCopy> = {};
+  try {
+    const catalog = await loadMessages(params.locale ?? "en");
+    if (isRecord(catalog) && isRecord(catalog.emails)) {
+      localizedCopy = readProWelcomeCopy(catalog.emails.proWelcome);
+    }
+  } catch {
+    // Email delivery must continue with the English catalog when a locale is
+    // unavailable or has incomplete data.
+  }
+  const copy = { ...DEFAULT_PRO_WELCOME_COPY, ...localizedCopy };
   const name = firstName(params.customerName) || copy.fallbackName;
   const greeting = copy.greeting.replace("{name}", name);
   const testflightLink = copy.testflightLink.replace(
@@ -165,4 +194,22 @@ export async function buildProWelcomeEmail(params: {
       copy.signoff,
     ].join("\n"),
   });
+}
+
+function readProWelcomeCopy(value: unknown): Partial<ProWelcomeCopy> {
+  if (!isRecord(value)) return {};
+  const copy: Partial<ProWelcomeCopy> = {};
+  if (typeof value.subject === "string") copy.subject = value.subject;
+  if (typeof value.fallbackName === "string") copy.fallbackName = value.fallbackName;
+  if (typeof value.greeting === "string") copy.greeting = value.greeting;
+  if (typeof value.thanks === "string") copy.thanks = value.thanks;
+  if (typeof value.cloudStatus === "string") copy.cloudStatus = value.cloudStatus;
+  if (typeof value.currentBenefit === "string") copy.currentBenefit = value.currentBenefit;
+  if (typeof value.testflightLink === "string") copy.testflightLink = value.testflightLink;
+  if (typeof value.signoff === "string") copy.signoff = value.signoff;
+  return copy;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
