@@ -217,6 +217,41 @@ struct CmxIrohRelayPolicyServiceTests {
     }
 
     @Test
+    func expiryYieldsToAnInFlightPolicyOperation() async throws {
+        let fixture = RelayPolicyServiceTestFixture()
+        let trustRoot = try fixture.firstTrustRoot
+        let secureStore = RelayPolicyServiceSuspendedSecureStore()
+        let service = CmxIrohRelayPolicyService(
+            policyCache: CmxIrohRelayPolicyCache(
+                secureStore: TestSecureCredentialStore()
+            ),
+            preferenceStore: CmxIrohRelayPreferenceStore(
+                secureStore: secureStore
+            ),
+            credentialStore: CmxIrohCustomRelayCredentialStore(
+                secureStore: TestSecureCredentialStore()
+            )
+        )
+        let restoreTask = Task {
+            await service.restore(
+                accountID: "account-a",
+                trustRoot: trustRoot,
+                relayCredential: nil,
+                now: fixture.now
+            )
+        }
+
+        await secureStore.waitUntilReadStarts()
+        // The suspended restore owns the service operation. Expiry yields
+        // instead of publishing an unavailable snapshot that could supersede
+        // the operation when its persistence call resumes.
+        #expect(await service.expireManagedPolicy(accountID: "account-a") == nil)
+
+        await secureStore.resumeRead()
+        _ = await restoreTask.value
+    }
+
+    @Test
     func rollbackKeepsCurrentEffectivePolicyAndReportsFailure() async throws {
         let fixture = RelayPolicyServiceTestFixture()
         let service = makeStores().service

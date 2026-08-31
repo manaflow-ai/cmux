@@ -65,7 +65,7 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
             trustRoot: context.trustRoot,
             now: Date()
         )
-        try await applyRelayPolicy(effective)
+        try await applyRelayPolicy(effective, expectedServicePolicy: effective)
         await refreshRelayPolicyAfterMutation(context)
     }
 
@@ -106,7 +106,7 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
             trustRoot: context.trustRoot,
             now: Date()
         )
-        try await applyRelayPolicy(effective)
+        try await applyRelayPolicy(effective, expectedServicePolicy: effective)
         if definition.authMode == .staticToken, let deviceSecret {
             effective = try await context.service.setStaticCredential(
                 deviceSecret,
@@ -116,7 +116,7 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                 trustRoot: context.trustRoot,
                 now: Date()
             )
-            try await applyRelayPolicy(effective)
+            try await applyRelayPolicy(effective, expectedServicePolicy: effective)
         }
         await refreshRelayPolicyAfterMutation(context)
     }
@@ -134,7 +134,7 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
             trustRoot: context.trustRoot,
             now: Date()
         )
-        try await applyRelayPolicy(effective)
+        try await applyRelayPolicy(effective, expectedServicePolicy: effective)
         await refreshRelayPolicyAfterMutation(context)
     }
 
@@ -421,6 +421,11 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                         )
                         guard didApply else {
                             guard self.ownsRelayPolicyRefreshTask(taskID) else { return }
+                            self.armRelayPolicyDeactivationRetry(
+                                now: clock.now(),
+                                failureCount: &deactivationFailureCount,
+                                retryAt: &deactivationRetryAt
+                            )
                             continue
                         }
                         guard self.ownsRelayPolicyRefreshTask(taskID) else { return }
@@ -432,18 +437,11 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                         // replacement is transiently rejected. The retry is a
                         // bounded deadline, not a network poll.
                         guard self.ownsRelayPolicyRefreshTask(taskID) else { return }
-                        let retryDelay = CmxIrohRetrySchedule.macHostRelayPolicy.delay(
-                            failureCount: deactivationFailureCount,
-                            retryAfterSeconds: nil,
-                            jitterUnitInterval: self.relayPolicyRetryJitter()
+                        self.armRelayPolicyDeactivationRetry(
+                            now: clock.now(),
+                            failureCount: &deactivationFailureCount,
+                            retryAt: &deactivationRetryAt
                         )
-                        deactivationFailureCount = min(deactivationFailureCount + 1, 20)
-                        deactivationRetryAt = clock.now().addingTimeInterval(retryDelay)
-                        self.diagnosticLog.record(DiagnosticEvent(
-                            .retryScheduled,
-                            ms: UInt32(clamping: Int(retryDelay * 1_000)),
-                            a: DiagnosticTransportKind.iroh.rawValue
-                        ))
                         continue
                     }
                     guard self.relayPolicyNetworkReachable == true else { return }
@@ -477,15 +475,29 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                         // offline expiry branch own the next local action.
                         continue
                     }
+                    guard await service.effectivePolicy() == effective else {
+                        guard self.ownsRelayPolicyRefreshTask(taskID) else { return }
+                        retryAt = clock.now().addingTimeInterval(
+                            CmxIrohRetrySchedule.macHostRelayPolicy.initialDelay
+                        )
+                        continue
+                    }
                     let didApply = try await self.applyRelayPolicy(
                         effective,
-                        refreshTaskID: taskID
+                        refreshTaskID: taskID,
+                        expectedServicePolicy: effective
                     )
                     guard didApply else {
                         // A path transition can invalidate an otherwise valid
                         // broker result while the local replacement suspends.
                         // Re-enter the loop so the offline expiry deadline is
-                        // still honored instead of dropping the task.
+                        // still honored instead of dropping the task. Keep a
+                        // bounded retry deadline so an invalidated result
+                        // cannot spin the main actor.
+                        guard self.ownsRelayPolicyRefreshTask(taskID) else { return }
+                        retryAt = clock.now().addingTimeInterval(
+                            CmxIrohRetrySchedule.macHostRelayPolicy.initialDelay
+                        )
                         continue
                     }
                     guard self.ownsRelayPolicyRefreshTask(taskID) else { return }
@@ -538,6 +550,11 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                             )
                             guard didApply else {
                                 guard self.ownsRelayPolicyRefreshTask(taskID) else { return }
+                                self.armRelayPolicyDeactivationRetry(
+                                    now: clock.now(),
+                                    failureCount: &deactivationFailureCount,
+                                    retryAt: &deactivationRetryAt
+                                )
                                 continue
                             }
                             guard self.ownsRelayPolicyRefreshTask(taskID) else { return }
@@ -550,13 +567,11 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                             // so an offline/expired endpoint cannot keep its
                             // old relay profile indefinitely.
                             guard self.ownsRelayPolicyRefreshTask(taskID) else { return }
-                            let retryDelay = CmxIrohRetrySchedule.macHostRelayPolicy.delay(
-                                failureCount: deactivationFailureCount,
-                                retryAfterSeconds: nil,
-                                jitterUnitInterval: self.relayPolicyRetryJitter()
+                            self.armRelayPolicyDeactivationRetry(
+                                now: failureDate,
+                                failureCount: &deactivationFailureCount,
+                                retryAt: &deactivationRetryAt
                             )
-                            deactivationFailureCount = min(deactivationFailureCount + 1, 20)
-                            deactivationRetryAt = failureDate.addingTimeInterval(retryDelay)
                             continue
                         }
                     } else {
@@ -603,6 +618,27 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
               let refreshService = relayPolicyRefreshService,
               let currentService = relayPolicyService else { return false }
         return refreshService === currentService
+    }
+
+    /// Arms the bounded local retry used when expiry application is
+    /// invalidated by a concurrent path or policy generation change.
+    private func armRelayPolicyDeactivationRetry(
+        now: Date,
+        failureCount: inout Int,
+        retryAt: inout Date?
+    ) {
+        let retryDelay = CmxIrohRetrySchedule.macHostRelayPolicy.delay(
+            failureCount: failureCount,
+            retryAfterSeconds: nil,
+            jitterUnitInterval: relayPolicyRetryJitter()
+        )
+        failureCount = min(failureCount + 1, 20)
+        retryAt = now.addingTimeInterval(retryDelay)
+        diagnosticLog.record(DiagnosticEvent(
+            .retryScheduled,
+            ms: UInt32(clamping: Int(retryDelay * 1_000)),
+            a: DiagnosticTransportKind.iroh.rawValue
+        ))
     }
 
     /// Produces and installs the empty managed profile used at endpoint-policy
@@ -762,8 +798,14 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                 trustRoot: context.trustRoot,
                 now: Date()
             )
-            try await applyRelayPolicy(effective)
+            guard await context.service.effectivePolicy() == effective else { return }
+            _ = try await applyRelayPolicy(
+                effective,
+                expectedServicePolicy: effective
+            )
         } catch {
+            guard relayPolicyService === context.service,
+                  activeAccountID == context.accountID else { return }
             relayPolicyDiagnostics = await context.service.diagnosticsSnapshot()
             publishIrohSettingsUpdate()
         }

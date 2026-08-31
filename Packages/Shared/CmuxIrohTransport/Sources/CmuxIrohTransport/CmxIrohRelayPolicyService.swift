@@ -14,6 +14,11 @@ public actor CmxIrohRelayPolicyService {
     private var currentDiagnostics = CmxIrohRelayDiagnosticsSnapshot.inactive
     private var continuations: [UUID: AsyncStream<CmxIrohRelayDiagnosticsSnapshot>.Continuation] = [:]
     private var operationRevision: UInt64 = 0
+    /// Operations that have claimed a revision and are suspended in an
+    /// injected persistence or broker call. Expiry must yield while any such
+    /// operation is in flight so it cannot publish an unavailable snapshot
+    /// ahead of a committed preference mutation.
+    private var activeOperations: Set<UInt64> = []
 
     /// Creates an inactive relay policy service with injected persistence boundaries.
     public init(
@@ -88,6 +93,7 @@ public actor CmxIrohRelayPolicyService {
         now: Date = Date()
     ) async throws -> CmxIrohEffectiveRelayPolicy {
         let operation = beginOperation()
+        defer { endOperation(operation) }
         do {
             try await Resolver.validatePreferenceRevision(
                 response.preferenceRevision,
@@ -147,6 +153,7 @@ public actor CmxIrohRelayPolicyService {
         now: Date = Date()
     ) async -> CmxIrohEffectiveRelayPolicy {
         let operation = beginOperation()
+        defer { endOperation(operation) }
         let persisted: CmxIrohPersistedRelayPreference
         do {
             guard let stored = try await preferenceStore.load(accountID: accountID) else {
@@ -257,6 +264,10 @@ public actor CmxIrohRelayPolicyService {
     public func expireManagedPolicy(
         accountID: String
     ) async -> CmxIrohEffectiveRelayPolicy? {
+        // A preference refresh/update already owns the service state. Let it
+        // finish and publish its authoritative result instead of advancing
+        // the operation revision with a competing expiry decision.
+        guard activeOperations.isEmpty else { return nil }
         // Custom profiles can retain the managed catalog as metadata, but its
         // expiry must never disable a valid custom endpoint profile. Returning
         // nil is an explicit no-op: callers must not carry this snapshot into
@@ -268,6 +279,7 @@ public actor CmxIrohRelayPolicyService {
             return nil
         }
         let operation = beginOperation()
+        defer { endOperation(operation) }
         let configuration: CmxIrohAccountRelayConfiguration?
         let revision: Int64?
         if let currentEffective {
@@ -328,6 +340,7 @@ public actor CmxIrohRelayPolicyService {
         now: Date = Date()
     ) async throws -> CmxIrohEffectiveRelayPolicy {
         let operation = beginOperation()
+        defer { endOperation(operation) }
         guard let broker else { throw CmxIrohRelayPolicyServiceError.brokerUnavailable }
         _ = try JSONEncoder().encode(configuration)
         let expectedRevision: Int64?
@@ -521,7 +534,12 @@ public actor CmxIrohRelayPolicyService {
 
     private func beginOperation() -> UInt64 {
         operationRevision &+= 1
+        activeOperations.insert(operationRevision)
         return operationRevision
+    }
+
+    private func endOperation(_ operation: UInt64) {
+        activeOperations.remove(operation)
     }
 
     private func requireCurrent(_ operation: UInt64) throws {
