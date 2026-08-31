@@ -1675,6 +1675,121 @@ describe("recordCheckoutCompletion", () => {
     ).toBe(true);
   });
 
+  test("defers recovery ownership until an unverified destination confirms email", async () => {
+    const source = {
+      id: "deferred_source",
+      isAnonymous: true,
+      primaryEmail: null,
+      primaryEmailVerified: false,
+      clientReadOnlyMetadata: {},
+      update: mock(async (options: unknown) => {
+        if ("primaryEmail" in (options as Record<string, unknown>)) {
+          throw new Error("CONTACT_CHANNEL_ALREADY_USED_FOR_AUTH_BY_SOMEONE_ELSE");
+        }
+      }),
+    };
+    const target = {
+      id: "deferred_target",
+      isAnonymous: false,
+      isRestricted: true,
+      primaryEmail: "billingfixture@gmail.com",
+      primaryEmailVerified: false,
+      clientReadOnlyMetadata: {},
+      update: mock(async () => undefined),
+    };
+    const getUser = mock(async (rawID: unknown) =>
+      (rawID as string) === source.id ? source : target,
+    );
+    const sendMagicLinkEmail = mock(async () => undefined);
+    const magicLinkDelivery = {
+      deliverOnce: async (
+        _input: unknown,
+        deliver: () => Promise<void>,
+      ) => {
+        await deliver();
+        return "sent" as const;
+      },
+    };
+    selectResults = [
+      [{ stackUserId: source.id, stackTeamId: null }],
+      [{ stackUserId: source.id, stackTeamId: null }],
+      [],
+      [],
+    ];
+    tombstoneSelectResults = [[], []];
+
+    const result = await recordProCheckoutCompletionByEmail(
+      {
+        session: {
+          id: "cs_deferred_recovery",
+          client_reference_id: source.id,
+          customer: "cus_deferred_recovery",
+          customer_details: { email: "billing.fixture@gmail.com" },
+          metadata: { app: "cmux", plan: "pro" },
+          subscription: "sub_deferred_recovery",
+        } as never,
+        subscription: {
+          id: "sub_deferred_recovery",
+          customer: "cus_deferred_recovery",
+          status: "active",
+          metadata: { app: "cmux", plan: "pro", stackUserId: source.id },
+          cancel_at_period_end: false,
+          items: { data: [] },
+        } as never,
+        customer: {
+          id: "cus_deferred_recovery",
+          deleted: false,
+          email: "billing.fixture@gmail.com",
+        } as never,
+      },
+      {
+        db: fakeDb() as never,
+        magicLinkDelivery: magicLinkDelivery as never,
+        stackApp: {
+          getUser,
+          listUsers: async () => [
+            {
+              id: target.id,
+              primaryEmail: target.primaryEmail,
+              primaryEmailVerified: target.primaryEmailVerified,
+              isAnonymous: target.isAnonymous,
+              isRestricted: target.isRestricted,
+              update: target.update,
+            },
+          ],
+          sendMagicLinkEmail,
+        } as never,
+      },
+    );
+
+    expect(result).toEqual({
+      deferred: "email_verification",
+      stackUserId: source.id,
+      subscriptionId: "sub_deferred_recovery",
+      deliveryEmail: "billing.fixture@gmail.com",
+    });
+    expect(sendMagicLinkEmail).toHaveBeenCalledWith(
+      "billing.fixture@gmail.com",
+      { callbackUrl: "https://cmux.com/handler/after-sign-in" },
+    );
+    expect(
+      inserts.some(
+        (insert) =>
+          insert.table === billingEmailClaims &&
+          insert.values.stackUserId === source.id &&
+          insert.values.email === "billingfixture@gmail.com",
+      ),
+    ).toBe(true);
+    expect(
+      updates.some(
+        (update) =>
+          update.table === stripeCustomers &&
+          update.values.stackUserId === target.id,
+      ),
+    ).toBe(false);
+    expect(target.update).not.toHaveBeenCalled();
+  });
+
   test("does not remap a parked customer to an unverified target", async () => {
     const source = {
       id: "parked_unverified_source",

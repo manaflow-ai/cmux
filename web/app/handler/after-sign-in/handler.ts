@@ -66,6 +66,8 @@ type AfterSignInHandlerDependencies = {
   getCookieStore: () => Promise<CookieStore>;
   /** Promote an anonymous account only after Stack reports a verified email. */
   promoteVerifiedAnonymousUser?: (userId: string, email: string) => Promise<void>;
+  /** Resolve paid claims after Stack has verified the mailbox. */
+  claimVerifiedBilling?: (userId: string, email: string) => Promise<void>;
 };
 
 function findStackCookie(
@@ -372,6 +374,7 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
         (await authApp.getUser({ or: "return-null" })) ??
         (await authApp.getUser({ or: ANONYMOUS_IF_EXISTS }));
       if (user) {
+        let promotedAnonymousUser = false;
         if (
           user.isAnonymous === true &&
           user.primaryEmailVerified === true &&
@@ -386,6 +389,7 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
               user.id,
               user.primaryEmail,
             );
+            promotedAnonymousUser = true;
           } catch {
             console.error("auth.after_sign_in.anonymous_promotion_failed", {
               failure: "provider_unavailable",
@@ -398,6 +402,26 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
               localizedMessages,
               switchAccountHref(request),
             );
+          }
+        }
+        if (
+          dependencies.claimVerifiedBilling &&
+          user.id &&
+          user.primaryEmail &&
+          (promotedAnonymousUser ||
+            (user.isAnonymous !== true && user.primaryEmailVerified === true))
+        ) {
+          try {
+            // The callback re-reads the user after any anonymous promotion, so
+            // claim resolution sees Stack's committed verification state.
+            await dependencies.claimVerifiedBilling(user.id, user.primaryEmail);
+          } catch {
+            // Authentication must remain available if billing storage or
+            // Stripe is temporarily unavailable. Billing reads and the next
+            // sign-in retry the idempotent claim transfer.
+            console.error("billing.after_sign_in.claim_failed", {
+              failure: "provider_unavailable",
+            });
           }
         }
         const session = await user.createSession({ expiresInMillis: 30 * 24 * 60 * 60 * 1000 });

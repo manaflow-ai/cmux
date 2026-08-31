@@ -23,6 +23,7 @@ let rawRefreshCookie: string;
 let rawAccessCookie: string;
 let getUserResponses: Array<TestStackAuthUser | null> = [];
 let promotionShouldFail = false;
+const claimVerifiedBilling = mock(async () => undefined);
 const getUser = mock(async (): Promise<TestStackAuthUser | null> => getUserResponses.shift() ?? null);
 const signOut = mock((options?: unknown) => {
   void options;
@@ -41,6 +42,7 @@ const GET = makeAfterSignInHandler({
   projectId: "test-project",
   stackServerApp: { getUser },
   promoteVerifiedAnonymousUser,
+  claimVerifiedBilling,
   getCookieStore: async () => ({
     get: (name: string) => {
       if (name === HANDOFF_COOKIE && handoffCookie) return { value: handoffCookie };
@@ -95,6 +97,7 @@ describe("after sign-in native handoff", () => {
     getUser.mockClear();
     signOut.mockClear();
     promoteVerifiedAnonymousUser.mockClear();
+    claimVerifiedBilling.mockClear();
   });
 
   test("issues and clears the handoff nonce with one cookie contract", async () => {
@@ -292,12 +295,44 @@ describe("after sign-in native handoff", () => {
       "anonymous-verified",
       "buyer@example.com",
     );
+    expect(claimVerifiedBilling).toHaveBeenCalledWith(
+      "anonymous-verified",
+      "buyer@example.com",
+    );
     expect(createSession).toHaveBeenCalledWith({
       expiresInMillis: 30 * 24 * 60 * 60 * 1000,
     });
     expect(response.status).toBe(200);
     const callbackURL = new URL(returnHref(await response.text()));
     expect(callbackURL.searchParams.get("stack_refresh")).toBe("promoted-refresh");
+  });
+
+  test("resolves pending billing claims for a verified existing account", async () => {
+    const createSession = mock(async () => ({
+      getTokens: async () => ({
+        refreshToken: "verified-refresh",
+        accessToken: "verified-access",
+      }),
+    }));
+    const user = {
+      id: "verified-account",
+      primaryEmail: "buyer@example.com",
+      primaryEmailVerified: true,
+      isAnonymous: false,
+      createSession,
+    };
+    getUserResponses = [user];
+
+    const response = await GET(
+      signInRequest("cmux://auth-callback", "unused"),
+    );
+
+    expect(claimVerifiedBilling).toHaveBeenCalledWith(
+      "verified-account",
+      "buyer@example.com",
+    );
+    expect(response.status).toBe(200);
+    expect(createSession).toHaveBeenCalledTimes(1);
   });
 
   test("does not mint a session when anonymous promotion fails", async () => {

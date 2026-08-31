@@ -194,12 +194,29 @@ export type CheckoutCompletionInput = {
   enrollmentEmail?: string | null;
   /** Internal recovery seam allowing a verified email owner to remap parked rows. */
   allowCanonicalOwnershipRecovery?: boolean;
+  /**
+   * Keep an anonymous source as the billing owner while recovery creates or
+   * selects an unverified destination account. The source claim is transferred
+   * only after Stack verifies the destination mailbox.
+   */
+  deferAnonymousCanonicalOwnerResolution?: boolean;
 };
 
 export type CheckoutCompletionResult =
   | { scope: "user"; stackUserId: string; subscriptionId: string }
   | { scope: "team"; stackTeamId: string; subscriptionId: string }
   | { skipped: "account_deletion_in_progress"; stackUserId: string; subscriptionId: string };
+
+/**
+ * A recovery checkout whose Stripe rows remain on an anonymous source until
+ * the destination mailbox completes Stack verification.
+ */
+export type DeferredCheckoutCompletionResult = {
+  readonly deferred: "email_verification";
+  readonly stackUserId: string;
+  readonly subscriptionId: string;
+  readonly deliveryEmail: string;
+};
 
 export type FoundersCheckoutCompletionResult =
   | { scope: "user"; stackUserId: string; subscriptionId: string }
@@ -314,7 +331,11 @@ export async function recordCheckoutCompletion(
   // purchased mailbox already belongs to a canonical Stack account (including
   // a dotted Gmail alias), write the purchase directly to that account instead
   // of creating a permanent unresolved claim.
-  if (user?.isAnonymous === true && checkoutEmailValue) {
+  if (
+    user?.isAnonymous === true &&
+    checkoutEmailValue &&
+    !input.deferAnonymousCanonicalOwnerResolution
+  ) {
     try {
       const ownerId = await findUserIdByEmail(
         checkoutStackApp,
@@ -722,7 +743,11 @@ export async function recordFoundersCheckoutCompletion(
 export async function recordProCheckoutCompletionByEmail(
   input: CheckoutCompletionInput,
   dependencies: BillingPurchaseDependencies = {},
-): Promise<CheckoutCompletionResult | FoundersCheckoutCompletionResult> {
+): Promise<
+  | CheckoutCompletionResult
+  | FoundersCheckoutCompletionResult
+  | DeferredCheckoutCompletionResult
+> {
   const session = input.session;
   const subscription = input.subscription ?? expandedSubscription(session);
   if (!isCmuxCheckoutSession(session, subscription)) {
@@ -742,6 +767,7 @@ export async function recordProCheckoutCompletionByEmail(
   if (!subscription) throw new Error("Stripe Pro checkout is missing a subscription");
   const stackApp = dependencies.stackApp ?? getStackServerApp();
   if (!stackApp) throw new Error("Stack Auth is not configured");
+  const db = dependencies.db ?? cloudDb();
   const knownStackUserIds = [
     session.client_reference_id,
     session.metadata?.stackUserId,
@@ -752,11 +778,76 @@ export async function recordProCheckoutCompletionByEmail(
   ].filter((value): value is string => typeof value === "string" && value.length > 0);
   const existingUser = await findOrCreateCheckoutBillingUser(
     stackApp,
-    dependencies.db ?? cloudDb(),
+    db,
     email,
     knownStackUserIds,
   );
   if (!existingUser) throw new Error("Stack Auth did not return a billing user");
+
+  // Recovery may need to create a destination account before the mailbox is
+  // verified. If Stripe still belongs to an anonymous checkout account, keep
+  // the paid rows on that source and create a claim. Moving them to an
+  // unverified destination would either fail closed or grant ownership before
+  // the recipient proves control of the address.
+  if (existingUser.primaryEmailVerified !== true) {
+    const mappedCustomer = await stripeCustomerRowForId(db, customerId);
+    if (mappedCustomer?.stackTeamId != null) {
+      throw new Error("Stripe checkout customer belongs to a Team");
+    }
+    if (
+      mappedCustomer &&
+      mappedCustomer.stackUserId !== existingUser.id
+    ) {
+      const source = await loadOptionalStackUser(mappedCustomer.stackUserId, stackApp);
+      if (
+        !source ||
+        source.isAnonymous !== true ||
+        isAccountDeletionInProgress(source) ||
+        (await hasCheckoutBlockingAccountDeletionTombstone(source.id, db))
+      ) {
+        throw new Error("Stripe checkout customer ownership conflict");
+      }
+      const sourceSession = {
+        ...session,
+        client_reference_id: source.id,
+        metadata: {
+          ...(session.metadata ?? {}),
+          app: "cmux",
+          plan: PRO_PLAN_ID,
+          stackUserId: source.id,
+        },
+      } as Stripe.Checkout.Session;
+      const sourceSubscription = {
+        ...subscription,
+        metadata: {
+          ...subscription.metadata,
+          app: "cmux",
+          plan: PRO_PLAN_ID,
+          stackUserId: source.id,
+        },
+      } as Stripe.Subscription;
+      const parked = await recordCheckoutCompletion(
+        {
+          ...input,
+          session: sourceSession,
+          subscription: sourceSubscription,
+          allowCanonicalOwnershipRecovery: false,
+          deferAnonymousCanonicalOwnerResolution: true,
+        },
+        dependencies,
+      );
+      if ("skipped" in parked) return parked;
+      if (parked.scope !== "user") {
+        throw new Error("Stripe checkout customer ownership conflict");
+      }
+      return {
+        deferred: "email_verification",
+        stackUserId: source.id,
+        subscriptionId: subscription.id,
+        deliveryEmail: email,
+      };
+    }
+  }
 
   const rewrittenSession = {
     ...session,
@@ -789,7 +880,7 @@ export async function recordProCheckoutCompletionByEmail(
   );
   if (!("skipped" in result)) {
     await resolveBillingEmailClaimsForCustomer(
-      dependencies.db ?? cloudDb(),
+      db,
       customerId,
       existingUser.id,
       email,
