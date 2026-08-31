@@ -14,6 +14,22 @@ if [ ! -f "$HOME/.bash_history" ] && [ -f /etc/cmux/seed-history ]; then
   cp /etc/cmux/seed-history "$HOME/.bash_history" 2>/dev/null || true
 fi
 
+# Seed ble.sh's per-TERM tput caches (baked by the Dockerfile for the TERMs
+# cmux uses) so no shell prints "ble/term.sh: updating tput cache ... done"
+# into the pane before its first prompt. ble.sh uses ~/.cache only when it
+# already exists (else it falls back to <blesh>/cache.d/<uid>, seeded in the
+# image), so create it and copy the XDG layout; plain cp (not -a) stamps now,
+# satisfying ble.sh's "cache newer than lib/init-term.sh" freshness test.
+if [ -d /etc/cmux/blesh-cache-seed/blesh ]; then
+  __cmux_cache_base="${XDG_CACHE_HOME:-$HOME/.cache}"
+  if [ ! -d "$__cmux_cache_base/blesh" ]; then
+    mkdir -p "$__cmux_cache_base" 2>/dev/null \
+      && cp -R /etc/cmux/blesh-cache-seed/blesh "$__cmux_cache_base/" 2>/dev/null \
+      || true
+  fi
+  unset __cmux_cache_base
+fi
+
 if [ -f /usr/local/share/blesh/ble.sh ] && [ -z "${BLE_VERSION:-}" ]; then
   source /usr/local/share/blesh/ble.sh --noattach
   bleopt prompt_eol_mark= exec_errexit_mark= exec_elapsed_mark= exec_exit_mark=

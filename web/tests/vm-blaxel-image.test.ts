@@ -113,6 +113,21 @@ describe("Blaxel baked image template", () => {
     expect(read("seed-history")).toBe("claude --dangerously-skip-permissions\ncodex --yolo\n");
     expect(bashrc).toContain("source /usr/local/share/blesh/ble.sh --noattach");
     expect(bashrc).toContain("ble-attach");
+    // ble.sh tput caches are baked and seeded, so no pane ever opens on
+    // "ble/term.sh: updating tput cache ... done". Both cache homes are
+    // covered: <blesh>/cache.d/<uid> (what a shell uses while ~/.cache does
+    // not exist yet) bakes in the image; the XDG copy seeds per HOME from
+    // /etc/cmux/blesh-cache-seed. The runtime copy must NOT preserve seed
+    // mtimes (ble.sh loads the cache only when it is newer than
+    // lib/init-term.sh), so it is a plain cp -R.
+    expect(dockerfile).toContain("/etc/cmux/blesh-cache-seed");
+    expect(dockerfile).toContain("/usr/local/share/blesh/cache.d/0");
+    expect(dockerfile).toContain("/usr/local/share/blesh/cache.d/1000");
+    expect(bashrc).toContain("/etc/cmux/blesh-cache-seed/blesh");
+    expect(bashrc).toContain('cp -R /etc/cmux/blesh-cache-seed/blesh "$__cmux_cache_base/"');
+    expect(bashrc.indexOf("blesh-cache-seed")).toBeLessThan(
+      bashrc.indexOf("source /usr/local/share/blesh/ble.sh"),
+    );
     // half-life prompt with the machine name kept (\h): machines are addressed by name.
     expect(bashrc).toContain("PS1='\\[\\e[38;5;135m\\]\\u@\\h");
     expect(dockerfile).toContain("echo 'set -g default-shell /bin/bash' >> /etc/tmux.conf");
