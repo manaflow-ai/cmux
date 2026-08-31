@@ -30,21 +30,40 @@ pub(crate) fn backend() -> Option<TerminalNotificationBackend> {
 }
 
 fn detect_backend() -> Option<TerminalNotificationBackend> {
-    let term_program = std::env::var("TERM_PROGRAM").ok();
-    let term = std::env::var("TERM").ok();
-    match term_program.as_deref() {
+    detect_backend_from(
+        std::env::var("TERM_PROGRAM").ok().as_deref(),
+        std::env::var("TERM").ok().as_deref(),
+        std::env::var_os("KITTY_WINDOW_ID").is_some(),
+        std::env::var_os("TMUX").is_some(),
+    )
+}
+
+fn detect_backend_from(
+    term_program: Option<&str>,
+    term: Option<&str>,
+    kitty: bool,
+    tmux: bool,
+) -> Option<TerminalNotificationBackend> {
+    match term_program {
         Some("ghostty") => return Some(TerminalNotificationBackend::Ghostty),
         Some("iTerm.app") => return Some(TerminalNotificationBackend::Iterm2),
         Some("WezTerm") => return Some(TerminalNotificationBackend::WezTerm),
         _ => {}
     }
-    if std::env::var_os("KITTY_WINDOW_ID").is_some() {
+    if kitty {
         return Some(TerminalNotificationBackend::Kitty);
     }
-    match term.as_deref() {
+    match term {
         Some("xterm-ghostty") => Some(TerminalNotificationBackend::Ghostty),
         Some("xterm-kitty") => Some(TerminalNotificationBackend::Kitty),
         Some(term) if term.contains("wezterm") => Some(TerminalNotificationBackend::WezTerm),
+        // tmux 3.4+ rewrites TERM_PROGRAM to "tmux" and TERM to
+        // tmux-256color inside panes, hiding the outer terminal entirely
+        // (herdr's detection goes silent here too). OSC 9 is the de facto
+        // notification sequence across Ghostty, iTerm2, WezTerm, and
+        // Windows Terminal, and unknown terminals ignore it, so inside
+        // tmux the passthrough-wrapped OSC 9 is the right default.
+        _ if tmux => Some(TerminalNotificationBackend::Ghostty),
         _ => None,
     }
 }
@@ -166,6 +185,17 @@ mod tests {
             None,
         );
         assert_eq!(sequence, b"\x1b]9;a  bc\x1b\\\x07");
+    }
+
+    #[test]
+    fn agent_signals_alert_defaults_to_osc9_inside_tmux() {
+        // tmux 3.4+ hides the outer terminal (TERM_PROGRAM=tmux,
+        // TERM=tmux-256color); the alert must still emit OSC 9 through
+        // the passthrough rather than going silent.
+        let detected = detect_backend_from(Some("tmux"), Some("tmux-256color"), false, true);
+        assert_eq!(detected, Some(TerminalNotificationBackend::Ghostty));
+        let outside = detect_backend_from(Some("tmux"), Some("tmux-256color"), false, false);
+        assert_eq!(outside, None, "no tmux, no known terminal: stay silent");
     }
 
     #[test]
