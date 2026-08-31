@@ -999,7 +999,13 @@ function refreshActiveLimitProviderStatuses(
     });
     yield* Effect.forEach(candidates, (vm) => {
       const providerVmId = vm.providerVmId;
-      if (vm.provider !== "freestyle" || !providerVmId) return Effect.void;
+      if (!providerVmId) return Effect.void;
+      // Provider-agnostic on purpose: the cron reconcile path already refreshes
+      // every provider, and this lazy refresh used to skip everything except
+      // Freestyle, so a stale `running` row blocked Blaxel creates for up to a
+      // full cron interval. Candidates are `running` rows only, so the
+      // gateway's "running" fallback for a driver without getStatus is a
+      // harmless no-op rather than a wrong transition.
       return reconcileObservedProviderStatus(repo, getStatus, vm, "provider_status_refresh").pipe(
         Effect.asVoid,
       );
