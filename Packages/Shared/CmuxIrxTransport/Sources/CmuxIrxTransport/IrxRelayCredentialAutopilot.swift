@@ -121,7 +121,7 @@ public actor IrxRelayCredentialAutopilot {
         loop?.cancel()
         loop = Task {
             defer { self.clearLoopIfCurrent(generation: generation) }
-            let outcome = await self.refreshHint(initialFailureCount: 0)
+            let outcome = await self.refreshHint()
             guard outcome != .stopped else { return }
             guard !Task.isCancelled else { return }
             await self.run(generation: generation)
@@ -159,7 +159,7 @@ public actor IrxRelayCredentialAutopilot {
                 guard !Task.isCancelled else { return }
                 await endpoint.rotateCredentials(minted)
                 guard !Task.isCancelled else { return }
-                guard await refreshHint(initialFailureCount: 0) != .stopped else { return }
+                guard await refreshHint() != .stopped else { return }
                 failureCounts = FailureCounts()
             } catch is CancellationError {
                 return
@@ -195,8 +195,11 @@ public actor IrxRelayCredentialAutopilot {
 
     /// Retries a failed hint registration without minting another credential.
     /// A hint outage must not turn a healthy credential into a mint loop.
-    private func refreshHint(initialFailureCount: Int) async -> HintRefreshOutcome {
-        var failureCount = initialFailureCount
+    private func refreshHint() async -> HintRefreshOutcome {
+        // Each invocation is one bounded, caller-requested hint probe. The
+        // ladder is local to that probe; the caller's next kick is a fresh
+        // observation rather than a continuation of stale work.
+        var failureCount = 0
         var unauthorizedFailureCount = 0
         var missingAuthenticationFailureCount = 0
         for _ in 0 ..< Self.maximumHintRetryAttempts {

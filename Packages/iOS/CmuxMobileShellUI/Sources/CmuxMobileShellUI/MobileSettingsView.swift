@@ -68,39 +68,7 @@ struct MobileSettingsView: View {
                 MobileSettingsAccountSection(signOut: signOut)
 
                 if irxAuthenticationState == .reauthenticationRequired {
-                    Section {
-                        Label {
-                            Text(L10n.string(
-                                "mobile.settings.iroh.reauth.message",
-                                defaultValue: "Sign in again to reconnect this device."
-                            ))
-                        } icon: {
-                            Image(systemName: "person.crop.circle.badge.exclamationmark")
-                                .foregroundStyle(.orange)
-                        }
-                        if let signOut {
-                            Button(L10n.string(
-                                "mobile.settings.iroh.reauth.action",
-                                defaultValue: "Sign Out and Sign In Again"
-                            )) {
-                                signOut()
-                            }
-                            .buttonStyle(.borderedProminent)
-                        } else {
-                            Text(L10n.string(
-                                "mobile.settings.iroh.reauth.fallback",
-                                defaultValue: "Open the account section above and sign in again to reconnect."
-                            ))
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        }
-                    } header: {
-                        Text(L10n.string(
-                            "mobile.settings.iroh.reauth.title",
-                            defaultValue: "Networking Needs Sign-In"
-                        ))
-                    }
-                    .accessibilityIdentifier("MobileSettingsIrohReauthentication")
+                    MobileSettingsIrxReauthenticationSection(signOut: signOut)
                 }
 
                 // Directly under the account card so release notices stay

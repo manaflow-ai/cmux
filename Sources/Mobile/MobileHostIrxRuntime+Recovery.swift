@@ -114,39 +114,51 @@ extension MobileHostIrxRuntime {
         )
     }
 
-    /// Chooses the generic backoff count or the independent post-recovery
-    /// 401 count, then advances only the counter that belongs to this failure.
-    /// This prevents unrelated outages from escalating a later auth race.
-    private func activationDecision(
-        for failure: IrxBrokerFailure,
-        jitterUnitInterval: Double
-    ) -> IrxHostActivationPolicy.Decision {
-        let isPostRecoveryUnauthorized = failure.statusCode == 401
-            && !failure.requiresReauthentication
-        let isMissingAuthentication = failure.errorCode == "missing_authentication"
-        let count: Int
-        if isPostRecoveryUnauthorized {
-            count = activationUnauthorizedFailureCount
-        } else if isMissingAuthentication {
-            count = activationMissingAuthenticationFailureCount
-        } else {
-            count = activationRetryFailureCount
+    /// Chooses the counter that belongs to this failure without mutating it.
+    /// The caller advances that counter only after a retry is actually chosen,
+    /// so the same pre-increment value drives both policy classification and
+    /// expiry-aware delay calculation.
+    private func activationFailureCount(for failure: IrxBrokerFailure) -> Int {
+        if failure.statusCode == 401, !failure.requiresReauthentication {
+            return activationUnauthorizedFailureCount
         }
-        if isPostRecoveryUnauthorized {
+        if failure.errorCode == "missing_authentication" {
+            return activationMissingAuthenticationFailureCount
+        }
+        return activationRetryFailureCount
+    }
+
+    /// Advances only the counter associated with a retryable failure. Keeping
+    /// this beside ``activationFailureCount(for:)`` prevents auth and generic
+    /// outages from consuming one another's escalation budgets.
+    private func advanceActivationFailureCount(for failure: IrxBrokerFailure) {
+        if failure.statusCode == 401, !failure.requiresReauthentication {
             activationUnauthorizedFailureCount = min(
                 activationUnauthorizedFailureCount + 1,
                 20
             )
-        } else if isMissingAuthentication {
+        } else if failure.errorCode == "missing_authentication" {
             activationMissingAuthenticationFailureCount = min(
                 activationMissingAuthenticationFailureCount + 1,
                 20
             )
+        } else {
+            activationRetryFailureCount = min(activationRetryFailureCount + 1, 20)
         }
-        return activationRetryPolicy.decision(
-            for: failure,
-            failureCount: count,
-            jitterUnitInterval: jitterUnitInterval
+    }
+
+    private func activationDecision(
+        for failure: IrxBrokerFailure,
+        jitterUnitInterval: Double
+    ) -> (decision: IrxHostActivationPolicy.Decision, failureCount: Int) {
+        let failureCount = activationFailureCount(for: failure)
+        return (
+            decision: activationRetryPolicy.decision(
+                for: failure,
+                failureCount: failureCount,
+                jitterUnitInterval: jitterUnitInterval
+            ),
+            failureCount: failureCount
         )
     }
 
@@ -174,7 +186,7 @@ extension MobileHostIrxRuntime {
             for: failure,
             jitterUnitInterval: Double.random(in: 0 ... 1)
         )
-        switch decision {
+        switch decision.decision {
         case .reauthenticationRequired:
             cancelActivationRetry()
             cancelAutopilotRecovery()
@@ -189,11 +201,7 @@ extension MobileHostIrxRuntime {
                 now: Date(),
                 policyDelay: policyDelay,
                 retryAfterSeconds: retryAfterSeconds,
-                failureCount: failure.statusCode == 401
-                    ? activationUnauthorizedFailureCount
-                    : (failure.errorCode == "missing_authentication"
-                        ? activationMissingAuthenticationFailureCount
-                        : activationRetryFailureCount)
+                failureCount: decision.failureCount
             )
             setActivationState(.retrying, failure: failure)
             attributes["delay_s"] = String(Int(delay.rounded()))
@@ -203,10 +211,7 @@ extension MobileHostIrxRuntime {
             Self.journal.record("host-runtime", "activation-retry-scheduled", attributes)
             await cleanupActivationResources(invalidateGeneration: true)
             let retryToken = generationToken
-            if failure.statusCode != 401,
-               failure.errorCode != "missing_authentication" {
-                activationRetryFailureCount = min(activationRetryFailureCount + 1, 20)
-            }
+            advanceActivationFailureCount(for: failure)
             let clock = activationRetryClock
             let deadline = clock.now().addingTimeInterval(delay)
             cancelActivationRetry()
