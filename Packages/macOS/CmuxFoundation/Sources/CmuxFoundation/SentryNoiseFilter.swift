@@ -26,6 +26,7 @@ public struct SentryNoiseFilter: Sendable {
             return false
         }
         return isExpectedCLISocketTransportMessage(message) ||
+            isExpectedCLISocketLifecycleRaceMessage(message) ||
             (allowSandboxPolicyDenial && isSocketConnectPolicyDenial(message))
     }
 
@@ -60,6 +61,16 @@ public struct SentryNoiseFilter: Sendable {
             containsErrno(2, in: t) ||           // ENOENT
             t.contains("connection refused") ||
             containsErrno(61, in: t)              // ECONNREFUSED
+    }
+
+    /// Matches the CLI's bare "Not connected" failure: the app's socket went
+    /// away between a successful connect and the request write, typically the
+    /// app quitting or restarting mid-hook. The same lifecycle race as the
+    /// muted broken-pipe/ENOENT cases, but its rendered message carries no
+    /// socket wording, so it is matched exactly and, via the guard above, only
+    /// inside a proven CLI socket transport context.
+    private func isExpectedCLISocketLifecycleRaceMessage(_ text: String) -> Bool {
+        text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "not connected"
     }
 
     private func isSocketConnectPolicyDenial(_ text: String) -> Bool {
