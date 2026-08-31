@@ -16,7 +16,10 @@ permissions:
   actions: read
   contents: write
   issues: write
-  pull-requests: read
+  # GitHub's pull_request_target token denied issue comments for fork PRs with
+  # this set to read, despite the endpoint documentation allowing issues:write.
+  # Keep write until that live behavior changes.
+  pull-requests: write
   statuses: write
 
 jobs:
@@ -25,15 +28,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: "CLA Assistant"
-        # The action locks every `closed` event, so only run that path for a
-        # merged pull request. This keeps declined pull requests unlockable.
+        # The action handles signing and status updates. Merged pull requests
+        # use the explicit lock step below because the archived action sends
+        # an invalid lock request.
         if: >-
           (
             github.event_name == 'pull_request_target' &&
-            (
-              github.event.action != 'closed' ||
-              github.event.pull_request.merged == true
-            )
+            github.event.action != 'closed'
           ) ||
           (
             github.event_name == 'issue_comment' &&
@@ -49,8 +50,36 @@ jobs:
         with:
           path-to-signatures: 'signatures/version1/cla.json'
           path-to-document: 'https://github.com/manaflow-ai/cmux/blob/main/CLA.md'
+          # The archived action calls the lock endpoint without the required
+          # lock_reason. Disable that broken path and use the explicit step
+          # below, which supplies a valid reason and fails on API errors.
+          lock-pullrequest-aftermerge: 'false'
           # signatures live on the unprotected cla-signatures branch so required checks on main don't block the bot's signature commits
           branch: 'cla-signatures'
           # Keep this list explicit. A username prefix is not proof that an
           # account is a GitHub bot and would let a human bypass the CLA.
           allowlist: lawrencecchen,github-actions[bot],chatmux-connections[bot]
+
+      - name: "Lock merged pull request"
+        if: >-
+          github.event_name == 'pull_request_target' &&
+          github.event.action == 'closed' &&
+          github.event.pull_request.merged == true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          issue_endpoint="repos/${GH_REPO}/issues/${PR_NUMBER}"
+          lock_endpoint="${issue_endpoint}/lock"
+          if [[ "$(gh api "${issue_endpoint}" --jq '.locked')" == "true" ]]; then
+            echo "Pull request ${PR_NUMBER} is already locked"
+            exit 0
+          fi
+          gh api --method PUT \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "${lock_endpoint}" \
+            --field lock_reason=resolved
+          [[ "$(gh api "${issue_endpoint}" --jq '.locked')" == "true" ]]
