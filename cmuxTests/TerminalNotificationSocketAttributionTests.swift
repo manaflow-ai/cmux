@@ -36,6 +36,34 @@ extension TerminalNotificationSocketActionTests {
         XCTAssertFalse(fixture.store.hasUnreadNotification(forTabId: foreignWorkspace.id, surfaceId: foreignSurfaceId))
     }
 
+    func testNotificationCreateForCallerRehomesSurfacePastAmbientWorkspaceClaim() async throws {
+        let fixture = try makeSocketFixture(name: "notify-ambient-rehome")
+        defer { fixture.cleanup() }
+
+        let movedWorkspace = fixture.manager.addWorkspace(title: "Moved Surface", select: false)
+        let movedSurfaceId = try XCTUnwrap(movedWorkspace.focusedPanelId)
+        let response = try await sendV2RequestAsync(
+            method: "notification.create_for_caller",
+            params: [
+                "preferred_workspace_id": fixture.workspace.id.uuidString,
+                "preferred_workspace_is_explicit": false,
+                "preferred_surface_id": movedSurfaceId.uuidString,
+                "prefer_tty": false,
+                "title": "Ambient rehome",
+                "subtitle": "Evidence",
+                "body": "Follow the stable pane"
+            ],
+            to: fixture.socketPath
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "\(response)")
+        let result = try XCTUnwrap(response["result"] as? [String: Any])
+        XCTAssertEqual(result["workspace_id"] as? String, movedWorkspace.id.uuidString)
+        XCTAssertEqual(result["surface_id"] as? String, movedSurfaceId.uuidString)
+        XCTAssertTrue(fixture.store.hasUnreadNotification(forTabId: movedWorkspace.id, surfaceId: movedSurfaceId))
+        XCTAssertFalse(fixture.store.hasUnreadNotification(forTabId: fixture.workspace.id, surfaceId: fixture.surfaceId))
+    }
+
     func testNotificationCreateForCallerPrefersPreferredSurfaceOverConflictingTTY() async throws {
         let fixture = try makeSocketFixture(name: "notify-surface-over-tty")
         defer { fixture.cleanup() }

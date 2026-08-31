@@ -81,6 +81,7 @@ extension TerminalController {
         }
 
         let preferredWorkspaceId = v2UUID(params, "preferred_workspace_id")
+        let preferredWorkspaceIsExplicit = boolParam(params, "preferred_workspace_is_explicit") ?? true
         let preferredSurfaceId = v2UUID(params, "preferred_surface_id")
         let callerTTY = stringParam(params, "caller_tty")
         let preferTTY = boolParam(params, "prefer_tty") ?? false
@@ -95,7 +96,8 @@ extension TerminalController {
                 preferredWorkspaceId: preferredWorkspaceId,
                 preferredSurfaceId: preferredSurfaceId,
                 callerTTY: callerTTY,
-                preferTTY: preferTTY
+                preferTTY: preferTTY,
+                preferredWorkspaceIsExplicit: preferredWorkspaceIsExplicit
             )
             guard let target else {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
@@ -127,7 +129,8 @@ extension TerminalController {
         preferredWorkspaceId: UUID?,
         preferredSurfaceId: UUID?,
         callerTTY: String?,
-        preferTTY: Bool
+        preferTTY: Bool,
+        preferredWorkspaceIsExplicit: Bool = true
     ) -> TerminalCallerNotificationTarget? {
         guard let fallback = activeTabManagerForCallerNotification() else { return nil }
         guard let target = Self.callerNotificationTarget(
@@ -135,7 +138,8 @@ extension TerminalController {
             preferredWorkspaceId: preferredWorkspaceId,
             preferredSurfaceId: preferredSurfaceId,
             callerTTY: Self.normalizedTTYName(callerTTY),
-            preferTTY: preferTTY
+            preferTTY: preferTTY,
+            preferredWorkspaceIsExplicit: preferredWorkspaceIsExplicit
         ) else { return nil }
         return TerminalCallerNotificationTarget(
             workspaceId: target.workspace.id,
@@ -148,7 +152,8 @@ extension TerminalController {
         preferredWorkspaceId: UUID?,
         preferredSurfaceId: UUID?,
         callerTTY: String?,
-        preferTTY: Bool
+        preferTTY: Bool,
+        preferredWorkspaceIsExplicit: Bool
     ) -> TerminalCallerTarget? {
         let managers = candidateManagers(
             fallback: fallback,
@@ -179,7 +184,7 @@ extension TerminalController {
             // A surface identity still outranks TTY evidence when it resolves
             // inside the requested workspace.
             if let preferredSurfaceTarget,
-               preferredSurfaceTarget.workspace.id == workspace.id {
+               (!preferredWorkspaceIsExplicit || preferredSurfaceTarget.workspace.id == workspace.id) {
                 return preferredSurfaceTarget
             }
             let ttyTarget = resolveTTYTarget()

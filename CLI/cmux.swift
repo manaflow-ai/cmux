@@ -7411,6 +7411,9 @@ struct CMUXCLI {
                     let workspaceArg = explicitWorkspaceArg ?? (windowRaw == nil ? env["CMUX_WORKSPACE_ID"] : nil)
                     if let workspaceArg, isUUID(workspaceArg) || explicitWorkspaceArg != nil {
                         params["preferred_workspace_id"] = isUUID(workspaceArg) ? workspaceArg : try resolveWorkspaceId(workspaceArg, client: client)
+                        if explicitWorkspaceArg == nil {
+                            params["preferred_workspace_is_explicit"] = false
+                        }
                     }
                     if windowRaw == nil, let surfaceId = env["CMUX_SURFACE_ID"], isUUID(surfaceId) {
                         params["preferred_surface_id"] = surfaceId
@@ -34560,7 +34563,8 @@ export default CMUXSessionRestore;
                 surfaceId: surfaceId,
                 unattributedReason: target == nil ? "target-unresolved" : nil,
                 isSubagent: true,
-                detail: decision.ownership == .foreground ? nil : "child-lifecycle-nested"
+                detail: decision.ownership == .foreground ? nil : "child-lifecycle-nested",
+                responseTimeout: target == nil ? 0.5 : nil
             )
             if case .codexSubagentStop = action,
                decision.ownership == .foreground,
@@ -38781,8 +38785,11 @@ export default CMUXSessionRestore;
                       isUUID(workspaceId),
                       let rawSurfaceId = firstString(in: stdinObj, keys: ["surface_id", "surfaceId"])
                           ?? env["CMUX_SURFACE_ID"],
-                      let activeClient = client ?? makeLifecycleProbeClient(),
-                      let listed = try? activeClient.sendV2(
+                      let activeClient = client ?? makeLifecycleProbeClient() else {
+                    return nil
+                }
+                func resolveFromSurfaceList() -> (workspaceId: String, surfaceId: String)? {
+                    guard let listed = try? activeClient.sendV2(
                           method: "surface.list",
                           params: ["workspace_id": workspaceId],
                           responseTimeout: max(0.01, lifecycleProbeDeadline.timeIntervalSinceNow),
@@ -38795,9 +38802,37 @@ export default CMUXSessionRestore;
                       }),
                       let surfaceId = surface["id"] as? String,
                       isUUID(surfaceId) else {
+                        return nil
+                    }
+                    return (workspaceId, surfaceId)
+                }
+
+                guard isUUID(rawSurfaceId) else {
+                    return resolveFromSurfaceList()
+                }
+                do {
+                    var params: [String: Any] = ["surface_id": rawSurfaceId]
+                    params["workspace_id"] = workspaceId
+                    let target = try activeClient.sendV2(
+                        method: "agent.resolve_delivery_target",
+                        params: params,
+                        responseTimeout: max(0.01, lifecycleProbeDeadline.timeIntervalSinceNow),
+                        deadline: lifecycleProbeDeadline
+                    )
+                    guard (target["source"] as? String) == "surface",
+                          let liveWorkspaceId = normalizedHandleValue(target["workspace_id"] as? String),
+                          isUUID(liveWorkspaceId),
+                          let liveSurfaceId = normalizedHandleValue(target["surface_id"] as? String),
+                          isUUID(liveSurfaceId) else {
+                        return nil
+                    }
+                    return (liveWorkspaceId, liveSurfaceId)
+                } catch let error as CLIError where error.v2Code == "method_not_found"
+                        || error.v2Code == "unrecognized_method" {
+                    return resolveFromSurfaceList()
+                } catch {
                     return nil
                 }
-                return (workspaceId, surfaceId)
             }()
             validatedCodexFeedTarget = feedLifecycleTarget
             let decision = lifecycle.recordFeedLifecycle(

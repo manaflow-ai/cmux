@@ -33,7 +33,8 @@ extension TerminalController {
             preferredWorkspaceId: v2UUID(params, "preferred_workspace_id"),
             preferredSurfaceId: v2UUID(params, "preferred_surface_id"),
             callerTTY: notificationDebugStringParam(params, "caller_tty"),
-            preferTTY: notificationDebugBoolParam(params, "prefer_tty") ?? false
+            preferTTY: notificationDebugBoolParam(params, "prefer_tty") ?? false,
+            preferredWorkspaceIsExplicit: true
         ) else { return nil }
         return NotificationDebugTarget(
             workspaceId: target.workspaceId,
