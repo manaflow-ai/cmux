@@ -24,7 +24,14 @@ public struct AgentWorkingDirectoryOptionPolicy: Sendable {
             "--work-dir",
             "--workspace",
         ]
-        var unconditionallyRemovableValueOptions = valueOptions
+        // `--workspace` is intentionally omitted here: its meaning varies by
+        // agent (and custom agents may use it as a profile/workspace selector).
+        // It is still value-matched when a captured cwd is known below.
+        var unconditionallyRemovableValueOptions: Set<String> = [
+            "--cd",
+            "--cwd",
+            "--work-dir",
+        ]
         var attachedShortValueOptions: Set<String> = []
 
         switch agentKind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {

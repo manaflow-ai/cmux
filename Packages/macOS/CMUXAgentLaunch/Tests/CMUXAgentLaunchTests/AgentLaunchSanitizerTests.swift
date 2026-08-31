@@ -763,7 +763,7 @@ struct AgentLaunchSanitizerTests {
                 workingDirectory: nil,
                 agentKind: "custom-agent",
                 removeAllWorkingDirectoryOptions: true
-            ) == customWorkspaceConfig
+            ) == ["custom-agent", "--workspace", "profile-a"]
         )
     }
 
