@@ -166,10 +166,6 @@ export const env = createEnv({
     // Rate-limit rule ids are all optional: an unset id means that route runs
     // without rate limiting (the operator removed the limits deliberately).
     CMUX_FEEDBACK_RATE_LIMIT_ID: z.string().min(1).optional(),
-    // Billing recovery is intentionally protected by a dedicated, aggressive
-    // rule when configured; it falls back to the feedback rule for older
-    // deployments so the endpoint never ships unthrottled by accident.
-    CMUX_BILLING_RECOVERY_RATE_LIMIT_ID: z.string().min(1).optional(),
     CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: z.string().min(1).optional(),
     CMUX_ANALYTICS_RATE_LIMIT_ID: z.string().min(1).optional(),
     // Native ingress gates run before Stack verification, so provider outages
@@ -347,9 +343,6 @@ export const env = createEnv({
     RESEND_API_KEY: trimEnv(process.env.RESEND_API_KEY),
     CMUX_FEEDBACK_FROM_EMAIL: trimEnv(process.env.CMUX_FEEDBACK_FROM_EMAIL),
     CMUX_FEEDBACK_RATE_LIMIT_ID: trimEnv(process.env.CMUX_FEEDBACK_RATE_LIMIT_ID),
-    CMUX_BILLING_RECOVERY_RATE_LIMIT_ID: trimEnv(
-      process.env.CMUX_BILLING_RECOVERY_RATE_LIMIT_ID,
-    ),
     CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: trimEnv(process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID),
     CMUX_ANALYTICS_RATE_LIMIT_ID: trimEnv(process.env.CMUX_ANALYTICS_RATE_LIMIT_ID),
     CMUX_PUSH_RATE_LIMIT_ID: trimEnv(process.env.CMUX_PUSH_RATE_LIMIT_ID),

@@ -75,8 +75,9 @@ const productionDependencies: BillingRecoveryRouteDependencies = {
       ),
     ),
   checkRateLimit: checkVercelRateLimit,
-  rateLimitRuleID: () =>
-    env.CMUX_BILLING_RECOVERY_RATE_LIMIT_ID ?? env.CMUX_FEEDBACK_RATE_LIMIT_ID,
+  // Reuse the existing feedback rule; the endpoint has the same abuse profile
+  // and this avoids introducing a second deployment-only configuration knob.
+  rateLimitRuleID: () => env.CMUX_FEEDBACK_RATE_LIMIT_ID,
   isVercel: () => process.env.VERCEL === "1",
 };
 
