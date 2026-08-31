@@ -756,6 +756,15 @@ struct AgentLaunchSanitizerTests {
                 removeAllWorkingDirectoryOptions: true
             ) == unknownAgentConfig
         )
+        let customWorkspaceConfig = ["custom-agent", "--workspace", "profile-a", "--cwd", "/tmp/local"]
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: customWorkspaceConfig,
+                workingDirectory: nil,
+                agentKind: "custom-agent",
+                removeAllWorkingDirectoryOptions: true
+            ) == customWorkspaceConfig
+        )
     }
 
     @Test(
