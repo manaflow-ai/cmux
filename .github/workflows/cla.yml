@@ -54,7 +54,7 @@ jobs:
           )
         )
       )
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     # Bound issue-comment fanout to one running and one pending admission per
     # pull request. GitHub expression equality is case-insensitive, so a
@@ -137,7 +137,7 @@ jobs:
       # persisted a new signature. A comment by itself is not authorization
       # for a job with actions:write.
       signature_recorded: ${{ steps.cla_action.outputs.signature_recorded }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     # Filter before concurrency admission. Untrusted recheck comments cannot
     # consume the signature queue or invoke the write-capable action. Every
@@ -331,7 +331,7 @@ jobs:
         github.event.action == 'reopened' ||
         github.event.action == 'synchronize'
       )
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions: {}
     steps:
@@ -381,7 +381,7 @@ jobs:
           needs.CLAAssistant.outputs.signature_recorded == 'true'
         )
       )
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     # A contributor can submit more than one valid comment while the signing
     # job is running. Serialize reruns per PR so two comments cannot race the
@@ -457,7 +457,7 @@ jobs:
       github.event_name == 'pull_request_target' &&
       github.event.action == 'closed' &&
       github.event.pull_request.merged == true
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     # Keep merge locks in a stable per-PR queue that is separate from the
     # signer's signature queue. A later sign/comment event must not replace a

@@ -28,8 +28,8 @@ grep -Fq 'cancel-in-progress: false' "$WORKFLOW"
 grep -Fq "group: cla-signatures-\${{ github.repository }}-\${{ github.event.pull_request.number || github.event.issue.number }}" "$WORKFLOW"
 for job in CLACommentGate CLAAssistant CLACompatibility RerunFailedCLA LockMergedPullRequest; do
   job_block="$(awk -v job="$job" '$0 == "  " job ":" { in_job=1; next } in_job && /^  [A-Za-z0-9_]+:/ { exit } in_job { print }' "$WORKFLOW")"
-  if [[ "$job_block" != *$'    runs-on: ubuntu-latest'* ]]; then
-    echo "FAIL: $job must run on a GitHub-hosted runner" >&2
+  if [[ "$job_block" != *"    runs-on: \${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"* ]]; then
+    echo "FAIL: $job must use the configured Linux runner" >&2
     exit 1
   fi
 done
