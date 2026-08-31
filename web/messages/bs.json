@@ -1,4 +1,7 @@
 {
+  "billingRecovery": {
+    "message": "Ako smo pronašli nalog, provjerite e-poštu za sljedeće korake"
+  },
   "cloudBillingReturn": {
     "eyebrow": "cmux Cloud",
     "returnTitle": "Nastavite u terminalu",

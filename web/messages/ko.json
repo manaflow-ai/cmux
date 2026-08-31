@@ -1,4 +1,7 @@
 {
+  "billingRecovery": {
+    "message": "계정을 찾았다면 이메일에서 다음 단계를 확인해 주세요"
+  },
   "cloudBillingReturn": {
     "eyebrow": "cmux Cloud",
     "returnTitle": "터미널에서 계속하기",

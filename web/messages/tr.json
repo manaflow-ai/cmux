@@ -1,4 +1,7 @@
 {
+  "billingRecovery": {
+    "message": "Bir hesap bulduysak, sonraki adımlar için e-postanı kontrol et"
+  },
   "cloudBillingReturn": {
     "eyebrow": "cmux Cloud",
     "returnTitle": "Terminalde devam edin",
