@@ -793,6 +793,12 @@ pub(crate) struct SidebarMessages {
     pub panes: &'static str,
     pub tabs: &'static str,
     pub agents: &'static str,
+    /// Generic agent noun for alerts when the roster has no adapter id.
+    pub agent_generic: &'static str,
+    /// Host-terminal alert phrase: an agent entered blocked.
+    pub agent_blocked_alert: &'static str,
+    /// Host-terminal alert phrase: an agent finished its run.
+    pub agent_idle_alert: &'static str,
     pub projection_path_separator: &'static str,
     pub new_machine: &'static str,
     pub connect_machine: &'static str,
@@ -1649,6 +1655,9 @@ OPTIONS:
         panes: "panes",
         tabs: "tabs",
         agents: "agents",
+        agent_generic: "agent",
+        agent_blocked_alert: "needs input",
+        agent_idle_alert: "finished",
         projection_path_separator: " › ",
         new_machine: "new vm",
         connect_machine: "ssh host",
@@ -2293,6 +2302,9 @@ ID とセッション:
         panes: "ペイン",
         tabs: "タブ",
         agents: "エージェント",
+        agent_generic: "エージェント",
+        agent_blocked_alert: "の入力待ちです",
+        agent_idle_alert: "が完了しました",
         projection_path_separator: " › ",
         new_machine: "新規VM",
         connect_machine: "SSHホスト",
