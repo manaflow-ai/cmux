@@ -71,6 +71,10 @@ actor MobileCoreRPCSession {
     let taskTimeout = RPCTaskTimeout()
     private let connectAttemptKey: MobileRPCConnectAttemptKey?
     let connectAttemptRegistry: MobileRPCConnectAttemptRegistry
+    /// Make-before-break: this session's dial may coexist with the ONE
+    /// installed same-route session it is about to displace, instead of being
+    /// gated `.busy` behind that session's still-live route lease.
+    private let admitsReplacementDialAlongsideInstalledSession: Bool
     let abandonedConnectCleanupTimeoutNanoseconds: UInt64
     let lateAbandonedConnectCloseTimeoutNanoseconds: UInt64
     let cancelledWriteCompletionGraceNanoseconds: UInt64
@@ -127,6 +131,7 @@ actor MobileCoreRPCSession {
     init(
         connectAttemptKey: MobileRPCConnectAttemptKey? = nil,
         connectAttemptRegistry: MobileRPCConnectAttemptRegistry = MobileRPCConnectAttemptRegistry(),
+        admitsReplacementDialAlongsideInstalledSession: Bool = false,
         abandonedConnectCleanupTimeoutNanoseconds: UInt64 = 1_000_000_000,
         lateAbandonedConnectCloseTimeoutNanoseconds: UInt64 = 5_000_000_000,
         cancelledWriteCompletionGraceNanoseconds: UInt64 =
@@ -141,6 +146,8 @@ actor MobileCoreRPCSession {
     ) {
         self.connectAttemptKey = connectAttemptKey
         self.connectAttemptRegistry = connectAttemptRegistry
+        self.admitsReplacementDialAlongsideInstalledSession =
+            admitsReplacementDialAlongsideInstalledSession
         self.abandonedConnectCleanupTimeoutNanoseconds = abandonedConnectCleanupTimeoutNanoseconds
         self.lateAbandonedConnectCloseTimeoutNanoseconds = lateAbandonedConnectCloseTimeoutNanoseconds
         self.cancelledWriteCompletionGraceNanoseconds =
@@ -504,7 +511,9 @@ actor MobileCoreRPCSession {
             connectionTask?.waiters.insert(waiterID)
         } else {
             switch await connectAttemptRegistry.beginConnect(
-                key: connectAttemptKey
+                key: connectAttemptKey,
+                allowsReplacementAlongsideActiveLease:
+                    admitsReplacementDialAlongsideInstalledSession
             ) {
             case .granted(let lease):
                 connectLease = lease
