@@ -200,7 +200,10 @@ describe("notifications push route", () => {
     expect(cloudDb).not.toHaveBeenCalled();
   });
 
-  test("rejects a missing target namespace before DB access", async () => {
+  test("a missing target namespace is treated as legacy, not rejected", async () => {
+    // Macs older than the namespace rollout (0.64.x) never send the header.
+    // Rejecting them kills phone push forwarding for the whole legacy fleet,
+    // so a header-less request must proceed to delivery instead of 400ing.
     checkRateLimit.mockResolvedValue({ rateLimited: false, error: null });
     const response = await pushRoute.POST(
       new Request("https://cmux.test/api/notifications/push", {
@@ -213,9 +216,83 @@ describe("notifications push route", () => {
       }),
     );
 
+    expect(response.status).not.toBe(400);
+    expect(cloudDb).toHaveBeenCalled();
+  });
+
+  dbTest("a header-less legacy Mac fans out to every registered iOS token", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    useStubDb = false;
+    await sql`
+      truncate device_tokens, notification_send_events restart identity cascade
+    `;
+    await sql`
+      insert into device_tokens (
+        user_id, device_token, platform, bundle_id, environment
+      ) values
+        ('user-1', ${"a".repeat(64)}, 'ios', 'com.cmux.app', 'production'),
+        ('user-1', ${"b".repeat(64)}, 'ios', 'dev.cmux.app.beta', 'production'),
+        ('user-1', ${"c".repeat(64)}, 'ios', 'dev.cmux.ios.tsgate', 'sandbox')
+    `;
+
+    const response = await pushRoute.sendPushWithTransport(
+      new Request("https://cmux.test/api/notifications/push", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+        body: JSON.stringify({
+          title: "agent",
+          body: "done",
+          correlationId: "7f1f7a48-9f38-4a0f-9a71-a4c14f0f6d59",
+        }),
+      }),
+      sendApnsNotificationReliably as Parameters<
+        typeof pushRoute.sendPushWithTransport
+      >[1],
+    );
+
+    expect(response.status).toBe(200);
+    const targets = (
+      (sendApnsNotificationReliably as unknown as {
+        mock: { calls: unknown[][] };
+      }).mock.calls[0]?.[1] as Array<{
+        deviceToken: string;
+        bundleId: string;
+        environment: string;
+      }>
+    );
+    // Pre-namespace reach: every token the account registered, each keeping
+    // its own bundle topic AND environment, exactly like delivery before the
+    // namespace header existed.
+    expect(targets).toHaveLength(3);
+    expect(
+      new Set(targets.map((target) => `${target.bundleId}|${target.environment}`)),
+    ).toEqual(new Set([
+      "com.cmux.app|production",
+      "dev.cmux.app.beta|production",
+      "dev.cmux.ios.tsgate|sandbox",
+    ]));
+  });
+
+  test("an explicitly empty target namespace is rejected, not legacy", async () => {
+    checkRateLimit.mockResolvedValue({ rateLimited: false, error: null });
+    const response = await pushRoute.POST(
+      new Request("https://cmux.test/api/notifications/push", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+          "x-cmux-ios-target-namespace": "",
+        },
+        body: JSON.stringify({ title: "Agent", body: "Done" }),
+      }),
+    );
+
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({
-      error: "missing_target_namespace",
+      error: "invalid_target_namespace",
     });
     expect(cloudDb).not.toHaveBeenCalled();
   });

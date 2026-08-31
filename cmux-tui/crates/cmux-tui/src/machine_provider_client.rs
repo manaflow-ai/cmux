@@ -19,7 +19,7 @@ use std::path::Path;
 #[cfg(unix)]
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 #[cfg(unix)]
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender, TrySendError};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError};
 #[cfg(unix)]
 use std::sync::{Arc, Condvar, Mutex, Weak};
 #[cfg(unix)]
@@ -28,19 +28,19 @@ use std::time::{Duration, Instant};
 #[cfg(unix)]
 use cmux_tui_machine_protocol::{
     AcknowledgeNoticeParams, AcknowledgeNoticeResult, ActionValue, BearerToken,
-    CLIENT_CAPABILITY_NEGOTIATION_CAPABILITY, ClientDescriptor, CloseMachineParams,
-    CloseMachineResult, ConnectExternalMachineParams, ConnectExternalMachineResult,
-    CreateMachineParams, CreateMachineResult, CreateWorkspaceParams, CreateWorkspaceResult,
-    DURABLE_NOTICES_CAPABILITY, EXTERNAL_MACHINE_CONNECT_CAPABILITY, EventEnvelope,
-    ExternalMachineSpecifier, HelloParams, HelloResult, InvokeActionParams, InvokeActionResult,
-    MACHINE_LIFECYCLE_CAPABILITY, MachineLifecycleSnapshotParams, MachineLifecycleSnapshotResult,
-    MachineMutationParams, MachineMutationResult, NegotiateClientCapabilitiesParams,
-    NegotiateClientCapabilitiesResult, NoticeDelivery, OpaqueId, OpenMachineParams,
-    OpenMachineResult, PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY, Protocol, ProviderError,
-    ProviderEvent, ProviderRequest, ProviderResponse, RenameMachineParams, RenameWorkspaceParams,
-    RequestEnvelope, ResponseEnvelope, SelectScopeParams, SelectScopeResult, SnapshotParams,
-    SnapshotResult, SubscribeNoticesParams, SubscribeNoticesResult, TransportDescriptor,
-    TransportHandshake, TransportHandshakeResult, TransportRole, Version,
+    CLIENT_CAPABILITY_NEGOTIATION_CAPABILITY, CONNECTION_PROGRESS_CLIENT_CAPABILITY,
+    ClientDescriptor, CloseMachineParams, CloseMachineResult, ConnectExternalMachineParams,
+    ConnectExternalMachineResult, CreateMachineParams, CreateMachineResult, CreateWorkspaceParams,
+    CreateWorkspaceResult, DURABLE_NOTICES_CAPABILITY, EXTERNAL_MACHINE_CONNECT_CAPABILITY,
+    EventEnvelope, ExternalMachineSpecifier, HelloParams, HelloResult, InvokeActionParams,
+    InvokeActionResult, MACHINE_LIFECYCLE_CAPABILITY, MachineLifecycleSnapshotParams,
+    MachineLifecycleSnapshotResult, MachineMutationParams, MachineMutationResult,
+    NegotiateClientCapabilitiesParams, NegotiateClientCapabilitiesResult, NoticeDelivery, OpaqueId,
+    OpenMachineParams, OpenMachineResult, PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY, Protocol,
+    ProviderError, ProviderEvent, ProviderRequest, ProviderResponse, RenameMachineParams,
+    RenameWorkspaceParams, RequestEnvelope, ResponseEnvelope, SelectScopeParams, SelectScopeResult,
+    SnapshotParams, SnapshotResult, SubscribeNoticesParams, SubscribeNoticesResult,
+    TransportDescriptor, TransportHandshake, TransportHandshakeResult, TransportRole, Version,
     WORKSPACE_LIFECYCLE_CAPABILITY, WorkspaceCreateMode, WorkspaceMutationParams,
     WorkspaceMutationResult, WorkspaceSnapshotParams, WorkspaceSnapshotResult,
 };
@@ -362,7 +362,7 @@ struct ProviderClientInner {
     writer: Mutex<Box<dyn Write + Send>>,
     control_guard: ProviderIoGuard,
     streams: Arc<dyn MachineStreamConnector>,
-    pending: Mutex<HashMap<String, Sender<PendingResponse>>>,
+    pending: Mutex<HashMap<String, SyncSender<PendingResponse>>>,
     events: Mutex<ProviderEventHubState>,
     snapshot_subscribers: Mutex<Vec<SyncSender<u64>>>,
     next_request_id: AtomicU64,
@@ -381,7 +381,7 @@ impl ProviderClientInner {
             return;
         };
         for (_, response) in pending.drain() {
-            let _ = response.send(Err(failure.clone()));
+            let _ = response.try_send(Err(failure.clone()));
         }
     }
 
@@ -553,7 +553,8 @@ impl ProviderClientInner {
         }
         events.acknowledged_sequence = sequence;
         events.durable_subscription = DurableSubscriptionState::Active;
-        for event in events.retained_durable.iter().cloned().collect::<Vec<_>>() {
+        for index in 0..events.retained_durable.len() {
+            let event = events.retained_durable[index].clone();
             Self::publish_to_event_subscribers(&mut events, event)?;
         }
         Ok(())
@@ -1058,7 +1059,10 @@ impl ProviderClient {
         if !self.advertises_capability(CLIENT_CAPABILITY_NEGOTIATION_CAPABILITY)? {
             return Ok(());
         }
-        let requested = vec![PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY.to_string()];
+        let requested = vec![
+            PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY.to_string(),
+            CONNECTION_PROGRESS_CLIENT_CAPABILITY.to_string(),
+        ];
         let result: NegotiateClientCapabilitiesResult =
             self.request(ProviderRequest::NegotiateClientCapabilities(
                 NegotiateClientCapabilitiesParams { capabilities: requested.clone() },
@@ -1114,7 +1118,9 @@ impl ProviderClient {
             .map_err(|error| ProviderClientError::Protocol(error.to_string()))?;
         let id_key = id.as_str().to_string();
         let envelope = RequestEnvelope::new(id.clone(), request);
-        let (sender, receiver) = mpsc::channel();
+        // A request has exactly one response. Keep one slot so a late or
+        // duplicated response cannot accumulate memory after cancellation.
+        let (sender, receiver) = mpsc::sync_channel(1);
         {
             let mut pending = self
                 .inner
@@ -1300,10 +1306,11 @@ fn dispatch_control_frame(
                 .remove(&id);
             zeroize_json_strings(&mut value);
             if let Some(response) = response {
-                if let Err(error) = response.send(Ok(frame))
-                    && let Ok(mut frame) = error.0
-                {
-                    frame.zeroize();
+                match response.try_send(Ok(frame)) {
+                    Ok(()) => {}
+                    Err(TrySendError::Full(Ok(mut frame)))
+                    | Err(TrySendError::Disconnected(Ok(mut frame))) => frame.zeroize(),
+                    Err(TrySendError::Full(Err(_))) | Err(TrySendError::Disconnected(Err(_))) => {}
                 }
             } else {
                 frame.zeroize();
@@ -1872,16 +1879,18 @@ mod tests {
                     ref consumer_id
                 }) if consumer_id == &id("cmux-process-1")
             ));
-            write_test_frame(
-                &mut stream,
-                &EventEnvelope::with_delivery(
-                    ProviderEvent::Notice(ProviderNotice {
-                        level: NoticeLevel::Warning,
-                        message: "trial has ten minutes remaining".into(),
-                    }),
-                    NoticeDelivery { notice_id: id("usage-warning-90"), sequence: 42 },
-                ),
-            );
+            for (notice_id, sequence) in [("usage-warning-90", 42), ("usage-warning-91", 43)] {
+                write_test_frame(
+                    &mut stream,
+                    &EventEnvelope::with_delivery(
+                        ProviderEvent::Notice(ProviderNotice {
+                            level: NoticeLevel::Warning,
+                            message: format!("trial warning {sequence}"),
+                        }),
+                        NoticeDelivery { notice_id: id(notice_id), sequence },
+                    ),
+                );
+            }
             write_test_frame(
                 &mut stream,
                 &ResponseEnvelope::success(subscribe.id, SubscribeNoticesResult { sequence: 41 }),
@@ -1895,19 +1904,36 @@ mod tests {
             client_descriptor(),
         )
         .expect("authenticate provider");
+        // Install the receiver before the cursor response so this assertion
+        // exercises complete_notice_subscription's ordered replay path.
+        let events = provider.subscribe_events().expect("subscribe to replay events");
         assert_eq!(
             provider.subscribe_notices(id("cmux-process-1")).expect("resume durable subscription"),
             SubscribeNoticesResult { sequence: 41 }
         );
         assert!(provider.is_live(), "valid replay closed the provider connection");
-        let events = provider.subscribe_events().expect("subscribe to retained events");
+        let first = events
+            .recv_timeout(Duration::from_secs(2))
+            .expect("receive first replay after cursor initialization");
         assert_eq!(
-            events
-                .recv_timeout(Duration::from_secs(2))
-                .expect("receive replay after cursor initialization")
-                .delivery,
+            first.delivery,
             Some(NoticeDelivery { notice_id: id("usage-warning-90"), sequence: 42 })
         );
+        assert!(matches!(
+            first.event,
+            ProviderEvent::Notice(ProviderNotice { ref message, .. }) if message == "trial warning 42"
+        ));
+        let second = events
+            .recv_timeout(Duration::from_secs(2))
+            .expect("receive second replay after cursor initialization");
+        assert_eq!(
+            second.delivery,
+            Some(NoticeDelivery { notice_id: id("usage-warning-91"), sequence: 43 })
+        );
+        assert!(matches!(
+            second.event,
+            ProviderEvent::Notice(ProviderNotice { ref message, .. }) if message == "trial warning 43"
+        ));
 
         finish.send(()).expect("finish provider server");
         drop(provider);

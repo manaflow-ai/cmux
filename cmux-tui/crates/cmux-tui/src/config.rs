@@ -127,11 +127,13 @@
 //! deliberate non-goal because they conflict with shell/editor control
 //! keys.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::fs::OpenOptions;
 use std::io::{Read, Write};
+use std::ops::Deref;
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::Child;
 use std::process::Command;
 use std::process::Stdio;
@@ -140,14 +142,17 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::BrowserMode;
 use cmux_tui_core::SidebarPluginOptions;
-use cmux_tui_core::SurfaceOptions;
 use cmux_tui_core::TRANSPORT_SAFE_CAPTURE_MEGAPIXELS;
 use cmux_tui_core::platform;
 use cmux_tui_core::{CursorShape, DefaultColors, Rgb};
+use cmux_tui_core::{DEFAULT_SCROLLBACK_LIMIT_BYTES, SurfaceOptions};
+
+const MAX_SCROLLBACK_LIMIT_BYTES: usize = 1_000_000_000;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::style::Color;
 use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
+use unicode_width::UnicodeWidthStr;
 use wait_timeout::ChildExt;
 
 use crate::localization::catalog;
@@ -207,6 +212,7 @@ struct RawConfig {
 struct RawServer {
     ws: Option<String>,
     ws_token: Option<String>,
+    detached_owner: Option<bool>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -224,6 +230,10 @@ struct RawStatusBar {
     show_session: Option<bool>,
     left: Option<Vec<RawStatusSegment>>,
     right: Option<Vec<RawStatusSegment>>,
+    left_separator: Option<String>,
+    right_separator: Option<String>,
+    screens_style: Option<ChipStyle>,
+    screens_plus: Option<RawPlusButton>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -259,6 +269,11 @@ struct RawUserCommand {
 struct RawMachineProvider {
     #[serde(default)]
     cloud: RawCloudProvider,
+    /// Config parity with `--machine-provider-command`: the argv of a
+    /// provider process to spawn, no shell. The CLI flag wins when both are
+    /// given.
+    #[serde(default)]
+    command: Option<Vec<String>>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -294,6 +309,8 @@ struct RawTheme {
     border_style: Option<BorderStyle>,
     status_bg: Option<ColorValue>,
     status_fg: Option<ColorValue>,
+    sidebar_fg: Option<ColorValue>,
+    sidebar_selected_fg: Option<ColorValue>,
     dim_inactive: Option<bool>,
 }
 
@@ -495,6 +512,8 @@ struct RawTabs {
     solid_background: Option<bool>,
     show_titles: Option<bool>,
     agents: Option<Vec<String>>,
+    style: Option<ChipStyle>,
+    plus: Option<RawPlusButton>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -509,6 +528,15 @@ struct RawSidebar {
     views: Option<Vec<RawSidebarView>>,
     columns: Option<Vec<RawSidebarColumn>>,
     plugin: Option<RawSidebarPlugin>,
+    /// Rows per rail entry: 2 (default) keeps the subtitle line, 1 is a
+    /// dense name-only list.
+    row_height: Option<u16>,
+    /// Blank rows between rail entries: 1 (default) or 0 for no padding.
+    row_gap: Option<u16>,
+    /// Accent glyph on active rail rows; `"none"` removes it.
+    rail_glyph: Option<String>,
+    /// Workspace row label template with `{index}` and `{name}`.
+    workspace_label: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -524,10 +552,56 @@ struct RawSidebarProfile {
 struct RawSidebarView {
     id: String,
     levels: Vec<String>,
-    actions: Option<Vec<String>>,
+    actions: Option<Vec<RawSidebarAction>>,
+    actions_position: Option<ActionsPosition>,
     width: Option<u16>,
     max_width: Option<u16>,
     collapse_priority: Option<u16>,
+}
+
+/// One pinned action: an action name, or an object that also renames its
+/// button. `"command:<id>"` references a user command from `commands`.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum RawSidebarAction {
+    Name(String),
+    Detailed { action: String, label: Option<String> },
+}
+
+impl RawSidebarAction {
+    fn action(&self) -> &str {
+        match self {
+            RawSidebarAction::Name(name) => name,
+            RawSidebarAction::Detailed { action, .. } => action,
+        }
+    }
+
+    fn label(&self) -> Option<&str> {
+        match self {
+            RawSidebarAction::Name(_) => None,
+            RawSidebarAction::Detailed { label, .. } => label.as_deref(),
+        }
+    }
+}
+
+/// Raw form of a configurable `+` button.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawPlusButton {
+    label: Option<String>,
+    /// Left-click action override; action name or `command:<id>`.
+    action: Option<String>,
+    /// Right-click menu entries; same grammar as sidebar view actions.
+    menu: Option<Vec<RawSidebarAction>>,
+}
+
+/// Where a view's pinned action buttons render.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ActionsPosition {
+    Top,
+    #[default]
+    Bottom,
 }
 
 #[derive(Debug, Deserialize)]
@@ -756,6 +830,30 @@ pub enum BorderStyle {
     None,
 }
 
+/// Chip cap style for tab labels and the active screen chip: `pill` wraps
+/// solid chips in rounded caps, `slant` in angled caps, `block` (default)
+/// keeps the flat rectangle. Cap glyphs come from the Nerd Font powerline
+/// range, the same glyphs tmux and zellij themes use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ChipStyle {
+    #[default]
+    Block,
+    Pill,
+    Slant,
+}
+
+impl ChipStyle {
+    /// Left and right cap glyphs, or `None` for the flat block style.
+    pub fn caps(self) -> Option<(&'static str, &'static str)> {
+        match self {
+            ChipStyle::Block => None,
+            ChipStyle::Pill => Some(("\u{e0b6}", "\u{e0b4}")),
+            ChipStyle::Slant => Some(("\u{e0be}", "\u{e0b8}")),
+        }
+    }
+}
+
 /// The six glyphs a pane box is drawn with.
 #[derive(Debug, Clone, Copy)]
 pub struct BorderGlyphs {
@@ -835,6 +933,9 @@ pub struct Theme {
     /// Status bar background/foreground; `None` follows the chrome theme.
     pub status_bg: Option<Color>,
     pub status_fg: Option<Color>,
+    /// Sidebar row foregrounds; `None` follows terminal/chrome defaults.
+    pub sidebar_fg: Option<Color>,
+    pub sidebar_selected_fg: Option<Color>,
     /// Render unfocused terminal panes with the DIM attribute.
     pub dim_inactive: bool,
 }
@@ -858,6 +959,8 @@ impl Default for Theme {
             border_style: BorderStyle::Single,
             status_bg: None,
             status_fg: None,
+            sidebar_fg: None,
+            sidebar_selected_fg: None,
             dim_inactive: false,
         }
     }
@@ -876,6 +979,10 @@ pub struct Tabs {
     /// Program names worth surfacing in the tab label even when
     /// `show_titles` is off (matched as words in the reported title).
     pub agents: Vec<String>,
+    /// Cap style for solid tab chips.
+    pub style: ChipStyle,
+    /// The tab bar's `+` button: label, click override, right-click menu.
+    pub plus: PlusButton,
 }
 
 impl Default for Tabs {
@@ -885,6 +992,8 @@ impl Default for Tabs {
             solid_background: true,
             show_titles: false,
             agents: ["claude", "codex", "opencode", "pi"].map(String::from).to_vec(),
+            style: ChipStyle::Block,
+            plus: PlusButton::default(),
         }
     }
 }
@@ -910,6 +1019,14 @@ pub struct Sidebar {
     pub profiles: Vec<SidebarProfileSpec>,
     pub active_profile: String,
     pub plugin: Option<SidebarPluginOptions>,
+    /// Rows per rail entry: 2 keeps the subtitle line, 1 is name-only.
+    pub row_height: u16,
+    /// Blank rows between rail entries.
+    pub row_gap: u16,
+    /// Accent glyph on active rail rows; empty removes it.
+    pub rail_glyph: String,
+    /// Workspace row label template with `{index}` and `{name}`.
+    pub workspace_label: String,
 }
 
 impl Default for Sidebar {
@@ -937,6 +1054,10 @@ impl Default for Sidebar {
             }],
             active_profile: "default".to_string(),
             plugin: None,
+            row_height: 2,
+            row_gap: 1,
+            rail_glyph: "\u{258e}".to_string(),
+            workspace_label: "{name}".to_string(),
         }
     }
 }
@@ -975,12 +1096,85 @@ pub enum SidebarResourceKind {
 pub struct SidebarViewSpec {
     pub id: String,
     pub levels: Vec<SidebarResourceKind>,
-    /// Canonical native commands pinned below this view's resource rows.
-    pub actions: Vec<Action>,
+    /// Canonical native commands pinned to this view, with optional
+    /// user-facing button labels.
+    pub actions: Vec<SidebarActionSpec>,
+    /// Whether the pinned actions render above or below the resource rows.
+    pub actions_position: ActionsPosition,
     pub width: u16,
     pub max_width: u16,
     /// Lower values collapse first when pane space becomes constrained.
     pub collapse_priority: u16,
+}
+
+/// One pinned sidebar action and its optional label override.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SidebarActionSpec {
+    pub action: Action,
+    pub label: Option<String>,
+}
+
+impl SidebarActionSpec {
+    pub fn plain(action: Action) -> Self {
+        Self { action, label: None }
+    }
+}
+
+/// A configurable `+` button: its rendered label, an optional left-click
+/// action override, and an optional right-click menu of actions.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlusButton {
+    pub label: String,
+    pub action: Option<Action>,
+    pub menu: Vec<SidebarActionSpec>,
+}
+
+impl Default for PlusButton {
+    fn default() -> Self {
+        Self { label: " + ".to_string(), action: None, menu: Vec::new() }
+    }
+}
+
+fn resolve_plus_button(raw: RawPlusButton, command_ids: &[String], owner: &str) -> PlusButton {
+    let mut plus = PlusButton::default();
+    if let Some(label) = raw.label {
+        // Keep at least one visible cell so the button stays clickable.
+        if !label.trim().is_empty() {
+            plus.label = label;
+        }
+    }
+    if let Some(action) = raw.action.as_deref() {
+        match parse_sidebar_action(action.trim(), command_ids) {
+            Ok(action) => plus.action = Some(action),
+            Err(warning) => {
+                crate::client_log::stderr_log!("config", "{warning} in {owner} plus button");
+            }
+        }
+    }
+    if let Some(menu) = raw.menu {
+        let mut seen = HashSet::new();
+        for raw_action in &menu {
+            match parse_sidebar_action(raw_action.action().trim(), command_ids) {
+                Ok(action) if seen.insert(action) => plus.menu.push(SidebarActionSpec {
+                    action,
+                    label: raw_action
+                        .label()
+                        .map(str::trim)
+                        .filter(|label| !label.is_empty())
+                        .map(str::to_string),
+                }),
+                Ok(_) => crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring duplicate {owner} plus menu action {:?}",
+                    raw_action.action().trim()
+                ),
+                Err(warning) => {
+                    crate::client_log::stderr_log!("config", "{warning} in {owner} plus menu");
+                }
+            }
+        }
+    }
+    plus
 }
 
 impl SidebarViewSpec {
@@ -992,7 +1186,15 @@ impl SidebarViewSpec {
         };
         let levels = vec![level];
         let actions = default_sidebar_actions(&levels);
-        Self { id: id.to_string(), levels, actions, width, max_width, collapse_priority }
+        Self {
+            id: id.to_string(),
+            levels,
+            actions,
+            actions_position: ActionsPosition::Bottom,
+            width,
+            max_width,
+            collapse_priority,
+        }
     }
 
     pub fn legacy_kind(&self) -> Option<SidebarColumnKind> {
@@ -1031,6 +1233,10 @@ pub struct MachineCreationSourceConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct MachineProviderConfig {
     pub cloud: CloudProviderConfig,
+    /// Argv of a machine-provider process to spawn, exactly like
+    /// `--machine-provider-command program arg -- `. CLI provider modes
+    /// override it.
+    pub command: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1177,15 +1383,26 @@ fn default_sidebar_collapse_priority(levels: &[SidebarResourceKind]) -> u16 {
     }
 }
 
-fn default_sidebar_actions(levels: &[SidebarResourceKind]) -> Vec<Action> {
+fn default_sidebar_actions(levels: &[SidebarResourceKind]) -> Vec<SidebarActionSpec> {
     if levels.first() == Some(&SidebarResourceKind::Workspaces) {
-        vec![Action::NewWorkspace]
+        vec![SidebarActionSpec::plain(Action::NewWorkspace)]
     } else {
         Vec::new()
     }
 }
 
-fn parse_sidebar_action(value: &str) -> Result<Action, String> {
+/// Parse one pinned action name: an action catalog key, or `command:<id>`
+/// referencing a user command from the top-level `commands` section.
+fn parse_sidebar_action(value: &str, command_ids: &[String]) -> Result<Action, String> {
+    if let Some(command_id) = value.strip_prefix("command:") {
+        return command_ids
+            .iter()
+            .position(|id| id == command_id)
+            .and_then(Action::user_command)
+            .ok_or_else(|| {
+                format!("cmux-tui: ignoring sidebar action for unknown command {command_id:?}")
+            });
+    }
     action_definitions()
         .iter()
         .find(|definition| definition.config_key == value)
@@ -1200,6 +1417,7 @@ fn resolve_sidebar_view_specs(
     workspace_width: u16,
     workspace_max_width: u16,
     owner: &str,
+    command_ids: &[String],
 ) -> Vec<SidebarViewSpec> {
     let mut ids = HashSet::new();
     let mut legacy_kinds = HashSet::new();
@@ -1207,7 +1425,10 @@ fn resolve_sidebar_view_specs(
     for view in views {
         let id = view.id.trim();
         if id.is_empty() || ids.contains(id) {
-            eprintln!("cmux-tui: ignoring {owner} view with an empty or duplicate id");
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring {owner} view with an empty or duplicate id"
+            );
             continue;
         }
         let mut levels = Vec::with_capacity(view.levels.len());
@@ -1216,7 +1437,7 @@ fn resolve_sidebar_view_specs(
             match parse_sidebar_resource_kind(level.trim()) {
                 Ok(level) => levels.push(level),
                 Err(warning) => {
-                    eprintln!("{warning}");
+                    crate::client_log::stderr_log!("config", "{warning}");
                     valid = false;
                     break;
                 }
@@ -1226,20 +1447,25 @@ fn resolve_sidebar_view_specs(
             continue;
         }
         if let Err(reason) = validate_sidebar_levels(&levels) {
-            eprintln!("cmux-tui: ignoring {owner} view {id:?}: {reason}");
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring {owner} view {id:?}: {reason}"
+            );
             continue;
         }
         let legacy_kind = SidebarViewSpec {
             id: id.to_string(),
             levels: levels.clone(),
             actions: Vec::new(),
+            actions_position: ActionsPosition::Bottom,
             width: 0,
             max_width: 0,
             collapse_priority: 0,
         }
         .legacy_kind();
         if legacy_kind.is_some_and(|kind| !legacy_kinds.insert(kind)) {
-            eprintln!(
+            crate::client_log::stderr_log!(
+                "config",
                 "cmux-tui: ignoring {owner} view {id:?}: a one-level view for that resource already exists"
             );
             continue;
@@ -1253,7 +1479,8 @@ fn resolve_sidebar_view_specs(
         let actions = if levels == [SidebarResourceKind::Machines]
             && view.actions.as_ref().is_some_and(|actions| !actions.is_empty())
         {
-            eprintln!(
+            crate::client_log::stderr_log!(
+                "config",
                 "cmux-tui: ignoring sidebar actions in {owner} machine view {id:?}; machine actions come from provider capabilities"
             );
             Vec::new()
@@ -1261,18 +1488,27 @@ fn resolve_sidebar_view_specs(
             let mut seen = HashSet::new();
             raw_actions
                 .iter()
-                .filter_map(|raw_action| match parse_sidebar_action(raw_action.trim()) {
-                    Ok(action) if seen.insert(action) => Some(action),
-                    Ok(_) => {
-                        eprintln!(
-                            "cmux-tui: ignoring duplicate sidebar action {:?} in {owner} view {id:?}",
-                            raw_action.trim()
-                        );
-                        None
-                    }
-                    Err(warning) => {
-                        eprintln!("{warning} in {owner} view {id:?}");
-                        None
+                .filter_map(|raw_action| {
+                    match parse_sidebar_action(raw_action.action().trim(), command_ids) {
+                        Ok(action) if seen.insert(action) => Some(SidebarActionSpec {
+                            action,
+                            label: raw_action
+                                .label()
+                                .map(str::trim)
+                                .filter(|label| !label.is_empty())
+                                .map(str::to_string),
+                        }),
+                        Ok(_) => {
+                            crate::client_log::stderr_log!("config",
+                                "cmux-tui: ignoring duplicate sidebar action {:?} in {owner} view {id:?}",
+                                raw_action.action().trim()
+                            );
+                            None
+                        }
+                        Err(warning) => {
+                            crate::client_log::stderr_log!("config", "{warning} in {owner} view {id:?}");
+                            None
+                        }
                     }
                 })
                 .collect()
@@ -1286,6 +1522,7 @@ fn resolve_sidebar_view_specs(
                 .unwrap_or_else(|| default_sidebar_collapse_priority(&levels)),
             levels,
             actions,
+            actions_position: view.actions_position.unwrap_or_default(),
             width: view.width.unwrap_or(default_width).clamp(10, 60),
             max_width: view.max_width.unwrap_or(default_max_width),
         });
@@ -1389,6 +1626,7 @@ pub enum Action {
     ToggleSidebarCompact,
     ToggleSidebarView,
     FocusSidebar,
+    ProviderMenu,
     NewPaneRight,
     UndoLayout,
     FocusLeft,
@@ -1445,6 +1683,7 @@ pub(crate) enum ActionExecution {
     ToggleSidebarCompact,
     ToggleSidebarView,
     FocusSidebar,
+    ProviderMenu,
     NewPaneRight,
     UndoLayout,
     FocusLeft,
@@ -1669,6 +1908,7 @@ define_named_action_definitions! {
     TOGGLE_SIDEBAR_COMPACT_DEFINITION => (Action::ToggleSidebarCompact, "toggle-sidebar-compact", "Compact or expand sidebar", "サイドバーの幅を切り替え");
     TOGGLE_SIDEBAR_VIEW_DEFINITION => (Action::ToggleSidebarView, "toggle-sidebar-view", "Switch sidebar view", "サイドバー表示を切り替え");
     FOCUS_SIDEBAR_DEFINITION => (Action::FocusSidebar, "focus-sidebar", "Focus sidebar", "サイドバーにフォーカス");
+    PROVIDER_MENU_DEFINITION => (Action::ProviderMenu, "provider-menu", "Machine provider menu", "マシンプロバイダーメニュー");
     NEW_PANE_RIGHT_DEFINITION => (Action::NewPaneRight, "new-pane-right", "New column to the right", "右に新しい列");
     UNDO_LAYOUT_DEFINITION => (Action::UndoLayout, "undo-layout", "Undo layout", "レイアウトを元に戻す");
     FOCUS_LEFT_DEFINITION => (Action::FocusLeft, "focus-left", "Focus left", "左へフォーカス");
@@ -1821,7 +2061,7 @@ static SELECT_SCREEN_DEFINITIONS: [ActionDefinition; 10] = [
 /// The canonical action catalog. Presentation surfaces derive their labels
 /// and ordering from these named definitions instead of positional offsets.
 pub fn action_definitions() -> &'static [&'static ActionDefinition] {
-    static DEFINITIONS: [&ActionDefinition; 66] = [
+    static DEFINITIONS: [&ActionDefinition; 67] = [
         &SEND_PREFIX_DEFINITION,
         &NEW_TAB_DEFINITION,
         &NEW_BROWSER_TAB_DEFINITION,
@@ -1867,6 +2107,7 @@ pub fn action_definitions() -> &'static [&'static ActionDefinition] {
         &TOGGLE_SIDEBAR_COMPACT_DEFINITION,
         &TOGGLE_SIDEBAR_VIEW_DEFINITION,
         &FOCUS_SIDEBAR_DEFINITION,
+        &PROVIDER_MENU_DEFINITION,
         &NEW_PANE_RIGHT_DEFINITION,
         &UNDO_LAYOUT_DEFINITION,
         &FOCUS_LEFT_DEFINITION,
@@ -2078,6 +2319,12 @@ impl Action {
                 "frontend action adapter",
                 ActionExecution::FocusSidebar,
             ),
+            Action::ProviderMenu => ActionMetadata::new(
+                "provider-menu",
+                ActionClassification::PresentationOnly,
+                "frontend machine provider menu",
+                ActionExecution::ProviderMenu,
+            ),
             Action::NewPaneRight => ActionMetadata::new(
                 "new-pane-right",
                 ActionClassification::Direct,
@@ -2244,6 +2491,7 @@ impl Action {
             Action::ToggleSidebarCompact => &TOGGLE_SIDEBAR_COMPACT_DEFINITION,
             Action::ToggleSidebarView => &TOGGLE_SIDEBAR_VIEW_DEFINITION,
             Action::FocusSidebar => &FOCUS_SIDEBAR_DEFINITION,
+            Action::ProviderMenu => &PROVIDER_MENU_DEFINITION,
             Action::NewPaneRight => &NEW_PANE_RIGHT_DEFINITION,
             Action::UndoLayout => &UNDO_LAYOUT_DEFINITION,
             Action::FocusLeft => &FOCUS_LEFT_DEFINITION,
@@ -2408,6 +2656,7 @@ pub struct Keys {
     /// macOS Option mode instead of guessing from each event.
     pub macos_option_as_alt: bool,
     bindings: Vec<(Chord, Action)>,
+    pub(crate) provider_menu_overridden: bool,
 }
 
 impl Default for Keys {
@@ -2495,6 +2744,7 @@ impl Default for Keys {
                 bind(KeyCode::Char('?'), Action::ShowShortcuts),
                 bind(KeyCode::Char('d'), Action::Detach),
             ],
+            provider_menu_overridden: false,
         }
     }
 }
@@ -2583,7 +2833,8 @@ impl Keys {
     /// Returns whether the chord was bound.
     fn bind_user_command_chord(&mut self, id: &str, action: Action, chord: Chord) -> bool {
         if chord == self.prefix {
-            eprintln!(
+            crate::client_log::stderr_log!(
+                "config",
                 "cmux-tui: ignoring command binding {id:?} because it conflicts with the prefix"
             );
             return false;
@@ -2601,7 +2852,11 @@ impl Keys {
                 self.macos_option_as_alt = value;
             } else {
                 let value = format!("{value:?}");
-                eprintln!("{}", catalog().config.invalid_macos_option_as_alt(&value));
+                crate::client_log::stderr_log!(
+                    "config",
+                    "{}",
+                    catalog().config.invalid_macos_option_as_alt(&value)
+                );
             }
         }
         if raw.get("alt_shortcuts").and_then(Value::as_bool) == Some(false) {
@@ -2625,9 +2880,15 @@ impl Keys {
                     *send_prefix = chord;
                 }
             } else if value.as_str().is_some() {
-                eprintln!("cmux-tui: ignoring unparseable key binding prefix = {value:?}");
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring unparseable key binding prefix = {value:?}"
+                );
             } else {
-                eprintln!("cmux-tui: ignoring non-string prefix binding {value:?}");
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring non-string prefix binding {value:?}"
+                );
             }
         }
         for (name, value) in raw {
@@ -2653,27 +2914,44 @@ impl Keys {
             }) {
                 Some(definition) => {
                     self.bindings.retain(|(_, action)| *action != definition.action);
+                    let mut provider_menu_override_valid = definition.action
+                        == Action::ProviderMenu
+                        && matches!(value, Value::Array(values) if values.is_empty());
                     for raw_chord in key_values(value) {
                         if raw_chord.eq_ignore_ascii_case("none") {
+                            if definition.action == Action::ProviderMenu {
+                                provider_menu_override_valid = true;
+                            }
                             continue;
                         }
                         let Some(chord) = parse_chord(raw_chord) else {
-                            eprintln!(
+                            crate::client_log::stderr_log!(
+                                "config",
                                 "cmux-tui: ignoring unparseable key binding {name} = {raw_chord:?}"
                             );
                             continue;
                         };
                         if chord == self.prefix && definition.action != Action::SendPrefix {
-                            eprintln!(
+                            crate::client_log::stderr_log!(
+                                "config",
                                 "cmux-tui: ignoring key binding {name} = {raw_chord:?} because it conflicts with the prefix"
                             );
                             continue;
                         }
+                        if definition.action == Action::ProviderMenu {
+                            provider_menu_override_valid = true;
+                        }
                         self.bindings.retain(|(existing, _)| existing != &chord);
                         self.bindings.push((chord, definition.action));
                     }
+                    if definition.action == Action::ProviderMenu {
+                        self.provider_menu_overridden = provider_menu_override_valid;
+                    }
                 }
-                None => eprintln!("cmux-tui: ignoring unknown key action {name:?}"),
+                None => crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring unknown key action {name:?}"
+                ),
             }
         }
         let prefix = self.prefix;
@@ -2745,6 +3023,7 @@ pub struct Config {
     pub terminal_defaults: DefaultColors,
     pub cursor_style: Option<CursorShape>,
     pub cursor_blink: Option<bool>,
+    scrollback_limit_bytes: Option<usize>,
     pub chrome: ChromeMode,
     pub tabs: Tabs,
     pub sidebar: Sidebar,
@@ -2759,6 +3038,35 @@ pub struct Config {
     pub server: Server,
     pub keys: Keys,
     pub commands: Vec<UserCommandConfig>,
+}
+
+/// Configuration resolved once for the process startup path.
+///
+/// The snapshot is consumed by the selected startup mode. Interactive reloads
+/// intentionally call [`load`] again after startup and replace the app state.
+#[derive(Debug)]
+pub(crate) struct StartupConfigSnapshot(Config);
+
+impl StartupConfigSnapshot {
+    pub(crate) fn load() -> Self {
+        Self::from_loader(load)
+    }
+
+    fn from_loader(loader: impl FnOnce() -> Config) -> Self {
+        Self(loader())
+    }
+
+    pub(crate) fn into_config(self) -> Config {
+        self.0
+    }
+}
+
+impl Deref for StartupConfigSnapshot {
+    type Target = Config;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
 /// The maximum configurable pane padding, in cells per side.
@@ -2785,6 +3093,16 @@ pub struct StatusBarOptions {
     pub left: Vec<StatusSegment>,
     /// Segments right-aligned before the session label.
     pub right: Vec<StatusSegment>,
+    /// Powerline-style separator drawn between left segments and after the
+    /// last one; its foreground takes the previous segment's background and
+    /// its background the next segment's, tmux `status-left` style.
+    pub left_separator: Option<String>,
+    /// Mirror of `left_separator` for the right-aligned segments.
+    pub right_separator: Option<String>,
+    /// Cap style for the active screen chip in the screens strip.
+    pub screens_style: ChipStyle,
+    /// The screens strip's `+` button.
+    pub screens_plus: PlusButton,
 }
 
 impl Default for StatusBarOptions {
@@ -2795,6 +3113,10 @@ impl Default for StatusBarOptions {
             show_session: true,
             left: Vec::new(),
             right: Vec::new(),
+            left_separator: None,
+            right_separator: None,
+            screens_style: ChipStyle::Block,
+            screens_plus: PlusButton::default(),
         }
     }
 }
@@ -2841,14 +3163,16 @@ fn resolve_status_segments(raw: Vec<RawStatusSegment>, side: &str) -> Vec<Status
     let mut segments = Vec::new();
     for segment in raw {
         if segments.len() >= MAX_STATUS_SEGMENTS {
-            eprintln!(
+            crate::client_log::stderr_log!(
+                "config",
                 "cmux-tui: ignoring status_bar.{side} segments beyond the {MAX_STATUS_SEGMENTS}-segment limit"
             );
             break;
         }
         let content = match (segment.text, segment.run) {
             (Some(_), Some(_)) | (None, None) => {
-                eprintln!(
+                crate::client_log::stderr_log!(
+                    "config",
                     "cmux-tui: ignoring status_bar.{side} segment: exactly one of text or run is required"
                 );
                 continue;
@@ -2859,7 +3183,10 @@ fn resolve_status_segments(raw: Vec<RawStatusSegment>, side: &str) -> Vec<Status
             }
             (None, Some(run)) => {
                 if run.first().is_none_or(|program| program.is_empty()) {
-                    eprintln!("cmux-tui: ignoring status_bar.{side} segment without a run program");
+                    crate::client_log::stderr_log!(
+                        "config",
+                        "cmux-tui: ignoring status_bar.{side} segment without a run program"
+                    );
                     continue;
                 }
                 let interval = segment.interval.unwrap_or(5).clamp(1, 3600);
@@ -2888,10 +3215,20 @@ pub struct UserCommandConfig {
     pub cwd: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Server {
     pub ws: Option<String>,
     pub ws_token: Option<String>,
+    /// Plain interactive launches connect through a detached headless
+    /// session owner so the session survives every client detaching.
+    /// `false` restores hosting the session inside the first TUI process.
+    pub detached_owner: bool,
+}
+
+impl Default for Server {
+    fn default() -> Self {
+        Self { ws: None, ws_token: None, detached_owner: true }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -2904,6 +3241,15 @@ pub struct ThemeOverrides {
 }
 
 impl Config {
+    /// Effective Ghostty scrollback storage limit in bytes. Ghostty's VT
+    /// surface API uses bytes, so this value must never be interpreted as a
+    /// line count by callers.
+    pub fn scrollback_limit_bytes(&self) -> usize {
+        self.scrollback_limit_bytes
+            .unwrap_or(DEFAULT_SCROLLBACK_LIMIT_BYTES)
+            .min(MAX_SCROLLBACK_LIMIT_BYTES)
+    }
+
     pub fn apply_chrome_defaults(&mut self, chrome: ChromeTheme) {
         if !self.theme_overrides.selection {
             self.theme.selection_bg = chrome.selection_bg;
@@ -2923,8 +3269,10 @@ pub struct SidebarPluginConfig {
 pub fn load() -> Config {
     let mut config = Config::default();
 
-    let defaults = ghostty_defaults();
+    let application_defaults = ghostty_application_defaults();
+    let defaults = application_defaults.colors;
     config.terminal_defaults = defaults;
+    config.scrollback_limit_bytes = application_defaults.scrollback_limit_bytes;
     if let Some(bg) = defaults.selection_bg {
         config.theme.selection_bg = Color::Rgb(bg.r, bg.g, bg.b);
         config.theme_overrides.selection = true;
@@ -3005,6 +3353,9 @@ pub fn load() -> Config {
     if let Some(agents) = raw.tabs.agents {
         config.tabs.agents = agents.into_iter().map(|a| a.to_lowercase()).collect();
     }
+    if let Some(style) = raw.tabs.style {
+        config.tabs.style = style;
+    }
     if let Some(w) = raw.sidebar.width {
         config.sidebar.width = w.clamp(10, 60);
     }
@@ -3015,11 +3366,36 @@ pub fn load() -> Config {
     if let Some(view) = raw.sidebar.view {
         match parse_sidebar_view(&view) {
             Ok(view) => config.sidebar.view = view,
-            Err(warning) => eprintln!("{warning}"),
+            Err(warning) => crate::client_log::stderr_log!("config", "{warning}"),
         }
     }
     if let Some(w) = raw.sidebar.max_width {
         config.sidebar.max_width = w;
+    }
+    if let Some(height) = raw.sidebar.row_height {
+        config.sidebar.row_height = height.clamp(1, 2);
+    }
+    if let Some(gap) = raw.sidebar.row_gap {
+        config.sidebar.row_gap = gap.min(2);
+    }
+    if let Some(glyph) = raw.sidebar.rail_glyph {
+        if glyph.eq_ignore_ascii_case("none") {
+            config.sidebar.rail_glyph = String::new();
+        } else if glyph.chars().count() == 1 && glyph.width() == 1 {
+            // The renderer reserves exactly one cell for the glyph.
+            config.sidebar.rail_glyph = glyph;
+        } else {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring sidebar.rail_glyph {glyph:?}: one single-width character or \"none\""
+            );
+        }
+    }
+    if let Some(template) = raw.sidebar.workspace_label {
+        let template = template.trim().to_string();
+        if !template.is_empty() {
+            config.sidebar.workspace_label = template;
+        }
     }
     if let Some(plugin) = raw.sidebar.plugin {
         let command = plugin
@@ -3029,7 +3405,10 @@ pub fn load() -> Config {
             .filter(|arg| !arg.is_empty())
             .collect::<Vec<_>>();
         if command.is_empty() {
-            eprintln!("cmux-tui: ignoring sidebar.plugin with empty command");
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring sidebar.plugin with empty command"
+            );
         } else {
             config.sidebar.plugin = Some(SidebarPluginOptions {
                 command,
@@ -3052,7 +3431,8 @@ pub fn load() -> Config {
             let id = source.id.trim().to_string();
             let name = source.name.trim().to_string();
             if id.is_empty() || name.is_empty() || !source_ids.insert(id.clone()) {
-                eprintln!(
+                crate::client_log::stderr_log!(
+                    "config",
                     "cmux-tui: ignoring machine creation source with an empty or duplicate id/name"
                 );
                 continue;
@@ -3073,12 +3453,16 @@ pub fn load() -> Config {
             let kind = match parse_sidebar_column_kind(column.kind.trim()) {
                 Ok(kind) => kind,
                 Err(warning) => {
-                    eprintln!("{warning}");
+                    crate::client_log::stderr_log!("config", "{warning}");
                     continue;
                 }
             };
             if !seen.insert(kind) {
-                eprintln!("cmux-tui: ignoring duplicate sidebar column {:?}", column.kind);
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring duplicate sidebar column {:?}",
+                    column.kind
+                );
                 continue;
             }
             let (default_width, default_max_width) = match kind {
@@ -3095,7 +3479,10 @@ pub fn load() -> Config {
             });
         }
         if resolved.is_empty() {
-            eprintln!("cmux-tui: sidebar.columns had no usable entries; keeping defaults");
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: sidebar.columns had no usable entries; keeping defaults"
+            );
         } else {
             config.sidebar.columns = resolved;
             config.sidebar.columns_explicit = true;
@@ -3121,9 +3508,22 @@ pub fn load() -> Config {
         .map(|column| SidebarViewSpec::legacy(column.kind, column.width, column.max_width))
         .collect();
     config.sidebar.views_explicit = config.sidebar.columns_explicit;
+    // User commands resolve before sidebar views so pinned buttons can
+    // reference them as `command:<id>`; their chords bind after `keys`.
+    let (user_commands, user_command_keys) = resolve_user_command_specs(raw.commands);
+    let command_ids: Vec<String> = user_commands.iter().map(|command| command.id.clone()).collect();
+    if let Some(plus) = raw.tabs.plus {
+        config.tabs.plus = resolve_plus_button(plus, &command_ids, "tabs");
+    }
+    if let Some(plus) = raw.status_bar.screens_plus {
+        config.status_bar.screens_plus = resolve_plus_button(plus, &command_ids, "status_bar");
+    }
     if let Some(views) = raw.sidebar.views.as_ref() {
         if raw.sidebar.columns.is_some() {
-            eprintln!("cmux-tui: sidebar.views overrides sidebar.columns");
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: sidebar.views overrides sidebar.columns"
+            );
         }
         let resolved = resolve_sidebar_view_specs(
             views,
@@ -3132,9 +3532,13 @@ pub fn load() -> Config {
             config.sidebar.width,
             config.sidebar.max_width,
             "sidebar",
+            &command_ids,
         );
         if resolved.is_empty() {
-            eprintln!("cmux-tui: sidebar.views had no usable entries; keeping defaults");
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: sidebar.views had no usable entries; keeping defaults"
+            );
         } else {
             config.sidebar.columns = resolved
                 .iter()
@@ -3154,14 +3558,20 @@ pub fn load() -> Config {
     config.sidebar.profiles[0].views.clone_from(&config.sidebar.views);
     if let Some(raw_profiles) = raw.sidebar.profiles.as_ref() {
         if raw.sidebar.views.is_some() || raw.sidebar.columns.is_some() {
-            eprintln!("cmux-tui: sidebar.profiles overrides sidebar.views and sidebar.columns");
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: sidebar.profiles overrides sidebar.views and sidebar.columns"
+            );
         }
         let mut ids = HashSet::new();
         let mut profiles = Vec::new();
         for raw_profile in raw_profiles {
             let id = raw_profile.id.trim();
             if id.is_empty() || !ids.insert(id.to_string()) {
-                eprintln!("cmux-tui: ignoring sidebar profile with an empty or duplicate id");
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring sidebar profile with an empty or duplicate id"
+                );
                 continue;
             }
             let owner = format!("sidebar profile {id:?}");
@@ -3172,9 +3582,13 @@ pub fn load() -> Config {
                 config.sidebar.width,
                 config.sidebar.max_width,
                 &owner,
+                &command_ids,
             );
             if views.is_empty() {
-                eprintln!("cmux-tui: ignoring sidebar profile {id:?} with no usable views");
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring sidebar profile {id:?} with no usable views"
+                );
                 continue;
             }
             let name = raw_profile
@@ -3187,7 +3601,10 @@ pub fn load() -> Config {
             profiles.push(SidebarProfileSpec { id: id.to_string(), name, views });
         }
         if profiles.is_empty() {
-            eprintln!("cmux-tui: sidebar.profiles had no usable entries; keeping defaults");
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: sidebar.profiles had no usable entries; keeping defaults"
+            );
         } else {
             let requested =
                 raw.sidebar.profile.as_deref().map(str::trim).filter(|id| !id.is_empty());
@@ -3195,7 +3612,7 @@ pub fn load() -> Config {
                 .and_then(|id| profiles.iter().position(|profile| profile.id == id))
                 .unwrap_or_else(|| {
                     if let Some(requested) = requested {
-                        eprintln!(
+                        crate::client_log::stderr_log!("config",
                             "cmux-tui: sidebar.profile {requested:?} was not found; using the first profile"
                         );
                     }
@@ -3220,7 +3637,22 @@ pub fn load() -> Config {
             config.sidebar.profiles = profiles;
         }
     } else if raw.sidebar.profile.is_some() {
-        eprintln!("cmux-tui: ignoring sidebar.profile without sidebar.profiles");
+        crate::client_log::stderr_log!(
+            "config",
+            "cmux-tui: ignoring sidebar.profile without sidebar.profiles"
+        );
+    }
+    match raw.machine_provider.command {
+        Some(command) if command.first().is_some_and(|program| !program.trim().is_empty()) => {
+            config.machine_provider.command = Some(command);
+        }
+        Some(_) => {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring machine_provider.command without a program"
+            );
+        }
+        None => {}
     }
     let cloud = raw.machine_provider.cloud;
     if let Some(enabled) = cloud.enabled {
@@ -3229,7 +3661,10 @@ pub fn load() -> Config {
     if let Some(host) = cloud.host {
         let host = host.trim();
         if host.is_empty() {
-            eprintln!("cmux-tui: ignoring empty machine_provider.cloud.host");
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring empty machine_provider.cloud.host"
+            );
         } else {
             config.machine_provider.cloud.host = host.to_string();
         }
@@ -3238,7 +3673,10 @@ pub fn load() -> Config {
         cloud.user.map(|user| user.trim().to_string()).filter(|user| !user.is_empty());
     config.machine_provider.cloud.port = match cloud.port {
         Some(0) => {
-            eprintln!("cmux-tui: ignoring zero machine_provider.cloud.port");
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring zero machine_provider.cloud.port"
+            );
             None
         }
         port => port,
@@ -3253,7 +3691,10 @@ pub fn load() -> Config {
         let id = machine.id.trim().to_string();
         let name = machine.name.trim().to_string();
         if id.is_empty() || name.is_empty() || !machine_ids.insert(id.clone()) {
-            eprintln!("cmux-tui: ignoring machine with an empty or duplicate id/name");
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring machine with an empty or duplicate id/name"
+            );
             continue;
         }
         let target = match machine.target {
@@ -3280,7 +3721,10 @@ pub fn load() -> Config {
                 }
             }
             _ => {
-                eprintln!("cmux-tui: ignoring machine {id:?} with an empty transport target");
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring machine {id:?} with an empty transport target"
+                );
                 continue;
             }
         };
@@ -3308,7 +3752,8 @@ pub fn load() -> Config {
         {
             config.browser.max_capture_megapixels = megapixels;
         } else {
-            eprintln!(
+            crate::client_log::stderr_log!(
+                "config",
                 "cmux-tui: ignoring browser.max_capture_megapixels={megapixels:?}; expected 0 < value <= {TRANSPORT_SAFE_CAPTURE_MEGAPIXELS}"
             );
         }
@@ -3317,7 +3762,8 @@ pub fn load() -> Config {
         if scale.is_finite() && scale > 0.0 && scale <= 1.0 {
             config.browser.capture_scale = Some(scale);
         } else {
-            eprintln!(
+            crate::client_log::stderr_log!(
+                "config",
                 "cmux-tui: ignoring browser.capture_scale={scale:?}; expected 0 < scale <= 1"
             );
         }
@@ -3333,6 +3779,12 @@ pub fn load() -> Config {
     }
     if let Some(c) = raw.theme.status_fg.as_ref().and_then(ColorValue::to_color) {
         config.theme.status_fg = Some(c);
+    }
+    if let Some(c) = raw.theme.sidebar_fg.as_ref().and_then(ColorValue::to_color) {
+        config.theme.sidebar_fg = Some(c);
+    }
+    if let Some(c) = raw.theme.sidebar_selected_fg.as_ref().and_then(ColorValue::to_color) {
+        config.theme.sidebar_selected_fg = Some(c);
     }
     if let Some(dim) = raw.theme.dim_inactive {
         config.theme.dim_inactive = dim;
@@ -3355,74 +3807,72 @@ pub fn load() -> Config {
     if let Some(right) = raw.status_bar.right {
         config.status_bar.right = resolve_status_segments(right, "right");
     }
+    config.status_bar.left_separator =
+        raw.status_bar.left_separator.filter(|separator| !separator.is_empty());
+    config.status_bar.right_separator =
+        raw.status_bar.right_separator.filter(|separator| !separator.is_empty());
+    if let Some(style) = raw.status_bar.screens_style {
+        config.status_bar.screens_style = style;
+    }
     if let Some(animation) = raw.viewport.animation {
         config.viewport.animation = animation;
     }
     config.server.ws = raw.server.ws.filter(|value| !value.trim().is_empty());
     config.server.ws_token = raw.server.ws_token.filter(|value| !value.trim().is_empty());
+    if let Some(detached_owner) = raw.server.detached_owner {
+        config.server.detached_owner = detached_owner;
+    }
     config.keys.apply(&raw.keys);
-    config.commands = resolve_user_commands(raw.commands, &mut config.keys);
+    bind_user_command_chords(&mut config.keys, &user_commands, &user_command_keys);
+    config.commands = user_commands;
     config
 }
 
-/// Validate the raw `commands` section and bind each command's chords.
-/// Command chords are bound after `keys` overrides, so an explicit command
-/// chord replaces whatever action previously held that chord, matching the
-/// last-write-wins behavior of the `keys` section itself.
-fn resolve_user_commands(raw: Vec<RawUserCommand>, keys: &mut Keys) -> Vec<UserCommandConfig> {
+/// Validate the raw `commands` section into resolved specs plus each
+/// command's raw chord values. Chords bind later, after the `keys` section
+/// applied its overrides, so command chords keep last-write-wins order.
+fn resolve_user_command_specs(
+    raw: Vec<RawUserCommand>,
+) -> (Vec<UserCommandConfig>, Vec<Option<Value>>) {
     let mut commands = Vec::new();
+    let mut key_values = Vec::new();
     let mut ids = HashSet::new();
     for command in raw {
         let id = command.id.as_deref().unwrap_or("").trim().to_string();
         if id.is_empty() {
-            eprintln!("cmux-tui: ignoring command with a missing or empty id");
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring command with a missing or empty id"
+            );
             continue;
         }
         if ids.contains(&id) {
-            eprintln!("cmux-tui: ignoring command with duplicate id {id:?}");
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring command with duplicate id {id:?}"
+            );
             continue;
         }
         // Empty positional arguments stay: argv executes directly, and an
         // empty argument is valid there. Only the program itself must exist.
         let run = command.run.unwrap_or_default();
         if run.first().is_none_or(|program| program.is_empty()) {
-            eprintln!("cmux-tui: ignoring command {id:?} without a run program");
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring command {id:?} without a run program"
+            );
             continue;
         }
-        let Some(action) = Action::user_command(commands.len()) else {
-            eprintln!(
+        if Action::user_command(commands.len()).is_none() {
+            crate::client_log::stderr_log!(
+                "config",
                 "cmux-tui: ignoring command {id:?} beyond the {MAX_USER_COMMANDS}-command limit"
             );
             continue;
-        };
+        }
         // The id is reserved only after validation, so an ignored invalid
         // entry never blocks a later valid entry with the same id.
         ids.insert(id.clone());
-        if let Some(value) = command.keys.as_ref() {
-            let mut bound = 0usize;
-            for raw_chord in key_values(value) {
-                if raw_chord.eq_ignore_ascii_case("none") {
-                    continue;
-                }
-                if bound >= MAX_USER_COMMAND_CHORDS {
-                    eprintln!(
-                        "cmux-tui: ignoring command {id:?} chords beyond the {MAX_USER_COMMAND_CHORDS}-chord limit"
-                    );
-                    break;
-                }
-                let Some(chord) = parse_chord(raw_chord) else {
-                    eprintln!(
-                        "cmux-tui: ignoring unparseable command binding {id} = {raw_chord:?}"
-                    );
-                    continue;
-                };
-                // Only a successful bind consumes the limit; rejected
-                // chords leave room for the valid ones after them.
-                if keys.bind_user_command_chord(&id, action, chord) {
-                    bound += 1;
-                }
-            }
-        }
         let name = command
             .name
             .map(|name| name.trim().to_string())
@@ -3430,14 +3880,56 @@ fn resolve_user_commands(raw: Vec<RawUserCommand>, keys: &mut Keys) -> Vec<UserC
             .unwrap_or_else(|| id.clone());
         let cwd = command.cwd.map(|cwd| cwd.trim().to_string()).filter(|cwd| !cwd.is_empty());
         commands.push(UserCommandConfig { id, name, run, cwd });
+        key_values.push(command.keys);
     }
-    commands
+    (commands, key_values)
+}
+
+/// Bind every command's chords after `keys` overrides applied.
+fn bind_user_command_chords(
+    keys: &mut Keys,
+    commands: &[UserCommandConfig],
+    chord_values: &[Option<Value>],
+) {
+    for (index, (command, value)) in commands.iter().zip(chord_values).enumerate() {
+        let Some(action) = Action::user_command(index) else { break };
+        let Some(value) = value.as_ref() else { continue };
+        let id = &command.id;
+        let mut bound = 0usize;
+        for raw_chord in key_values(value) {
+            if raw_chord.eq_ignore_ascii_case("none") {
+                continue;
+            }
+            if bound >= MAX_USER_COMMAND_CHORDS {
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring command {id:?} chords beyond the {MAX_USER_COMMAND_CHORDS}-chord limit"
+                );
+                break;
+            }
+            let Some(chord) = parse_chord(raw_chord) else {
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring unparseable command binding {id} = {raw_chord:?}"
+                );
+                continue;
+            };
+            // Only a successful bind consumes the limit; rejected chords
+            // leave room for the valid ones after them.
+            if keys.bind_user_command_chord(id, action, chord) {
+                bound += 1;
+            }
+        }
+    }
 }
 
 fn normalize_ssh_machine_port(id: &str, port: Option<u16>) -> Option<u16> {
     match port {
         Some(0) => {
-            eprintln!("cmux-tui: ignoring zero SSH machine port for {id:?}");
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring zero SSH machine port for {id:?}"
+            );
             None
         }
         port => port,
@@ -3488,31 +3980,137 @@ fn agent_in_title(tabs: &Tabs, title: &str) -> Option<String> {
 fn load_raw_config() -> RawConfig {
     let Some(path) = platform::config_path() else { return RawConfig::default() };
     let Ok(text) = std::fs::read_to_string(&path) else { return RawConfig::default() };
-    match serde_json::from_str(&text) {
-        Ok(config) => config,
+    let value: Value = match serde_json::from_str(&text) {
+        Ok(value) => value,
         Err(e) => {
-            // A broken config should not take the TUI down; complain on
-            // stderr (visible pre-alternate-screen and in logs).
-            eprintln!("cmux-tui: ignoring invalid config {}: {e}", path.display());
-            RawConfig::default()
+            crate::client_log::stderr_log!(
+                "config",
+                "{} ({})",
+                config_diagnostic(&e),
+                path.display(),
+            );
+            return RawConfig::default();
         }
+    };
+    let Some(object) = value.as_object() else {
+        crate::client_log::stderr_log!(
+            "config",
+            "cmux-tui: ignoring invalid config {}: root must be an object",
+            path.display()
+        );
+        return RawConfig::default();
+    };
+    const KNOWN: &[&str] = &[
+        "theme",
+        "tabs",
+        "sidebar",
+        "machine_sidebar",
+        "machine_provider",
+        "machines",
+        "commands",
+        "browser",
+        "scrollbar",
+        "pane",
+        "status_bar",
+        "viewport",
+        "server",
+        "keys",
+    ];
+    if let Some(unknown) = object.keys().find(|key| !KNOWN.contains(&key.as_str())) {
+        crate::client_log::stderr_log!(
+            "config",
+            "cmux-tui: ignoring invalid config {}: unknown top-level field `{unknown}`",
+            path.display()
+        );
+        return RawConfig::default();
     }
+    let mut raw = RawConfig::default();
+    macro_rules! section {
+        ($field:ident, $name:literal) => {
+            if let Some(value) = object.get($name) {
+                match serde_json::from_value(value.clone()) {
+                    Ok(parsed) => raw.$field = parsed,
+                    Err(error) => crate::client_log::stderr_log!(
+                        "config",
+                        "cmux-tui: ignoring invalid `{}` section in {}: {}",
+                        $name,
+                        path.display(),
+                        error
+                    ),
+                }
+            }
+        };
+    }
+    section!(theme, "theme");
+    section!(tabs, "tabs");
+    section!(sidebar, "sidebar");
+    section!(machine_sidebar, "machine_sidebar");
+    section!(machine_provider, "machine_provider");
+    section!(machines, "machines");
+    section!(commands, "commands");
+    section!(browser, "browser");
+    section!(scrollbar, "scrollbar");
+    section!(pane, "pane");
+    section!(status_bar, "status_bar");
+    section!(viewport, "viewport");
+    section!(server, "server");
+    section!(keys, "keys");
+    raw
+}
+
+fn config_diagnostic(error: &serde_json::Error) -> String {
+    let text = error.to_string();
+    if text.contains("unknown field") {
+        return catalog().config.unknown_field("(see config file)");
+    }
+    if text.contains("invalid type") && text.contains("map") {
+        return catalog().config.invalid_root().to_string();
+    }
+    catalog().config.invalid_section("(see config file)")
 }
 
 pub fn config_path() -> anyhow::Result<PathBuf> {
     platform::config_path().ok_or_else(|| anyhow::anyhow!("could not resolve mux config path"))
 }
 
-pub fn write_sidebar_plugin(plugin: Option<&SidebarPluginConfig>) -> anyhow::Result<PathBuf> {
-    let path = config_path()?;
-    write_sidebar_plugin_at_path(&path, plugin)?;
-    Ok(path)
+/// The result of replacing the config file. A committed replacement is a
+/// successful operation even when the parent directory could not be synced.
+#[must_use = "inspect config durability after a committed write"]
+#[derive(Debug)]
+pub(crate) enum ConfigWriteOutcome {
+    /// The replacement and all relevant directory entries were synced.
+    Committed,
+    /// The replacement committed, but this platform does not support syncing
+    /// directory entries. The staged file itself was synced before rename.
+    CommittedWithoutDirectorySync,
+    /// The replacement committed, but a supported directory sync failed.
+    CommittedButUnsynced { error: anyhow::Error },
 }
 
-pub fn write_sidebar_plugin_at_path(
+impl ConfigWriteOutcome {
+    /// Takes the parent-sync error, if the replacement committed without a
+    /// durability confirmation.
+    pub(crate) fn into_unsynced_error(self) -> Option<anyhow::Error> {
+        match self {
+            Self::Committed | Self::CommittedWithoutDirectorySync => None,
+            Self::CommittedButUnsynced { error } => Some(error),
+        }
+    }
+}
+
+/// Writes the sidebar plugin selection to the configured path.
+pub(crate) fn write_sidebar_plugin(
+    plugin: Option<&SidebarPluginConfig>,
+) -> anyhow::Result<ConfigWriteOutcome> {
+    let path = config_path()?;
+    write_sidebar_plugin_at_path(&path, plugin)
+}
+
+/// Writes the sidebar plugin selection to an explicit path.
+pub(crate) fn write_sidebar_plugin_at_path(
     path: &Path,
     plugin: Option<&SidebarPluginConfig>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<ConfigWriteOutcome> {
     let mut root = read_config_value(path)?;
     let Some(root_object) = root.as_object_mut() else {
         anyhow::bail!("{} must contain a JSON object", path.display());
@@ -3551,16 +4149,75 @@ fn read_config_value(path: &Path) -> anyhow::Result<Value> {
     }
 }
 
-fn write_config_value_atomic(path: &Path, value: &Value) -> anyhow::Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+/// Serializes a config value to a private staging file before atomically
+/// replacing the destination and durably syncing its parent directories. An
+/// `Err` means that replacement did not commit. A
+/// [`ConfigWriteOutcome::CommittedWithoutDirectorySync`] means the rename
+/// committed on a platform without directory-sync support. A
+/// [`ConfigWriteOutcome::CommittedButUnsynced`] value means a supported
+/// directory sync failed.
+fn write_config_value_atomic(path: &Path, value: &Value) -> anyhow::Result<ConfigWriteOutcome> {
+    write_config_value_atomic_with_sync(path, value, &sync_config_parent_directory)
+}
+
+fn write_config_value_atomic_with_sync(
+    path: &Path,
+    value: &Value,
+    sync_parent: &dyn Fn(&Path) -> anyhow::Result<ConfigParentSyncOutcome>,
+) -> anyhow::Result<ConfigWriteOutcome> {
+    let parent = config_parent_directory(path);
     let file_name = path.file_name().and_then(|name| name.to_str()).unwrap_or("cmux-tui.json");
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
-    let tmp_path = parent.join(format!(".{file_name}.{}.{}.tmp", std::process::id(), stamp));
+    let process_id = std::process::id();
+    let staging_path = move |parent: &Path, attempt: usize| {
+        let suffix = if attempt == 0 {
+            format!(".{file_name}.{process_id}.{stamp}.tmp")
+        } else {
+            format!(".{file_name}.{process_id}.{stamp}.{attempt}.tmp")
+        };
+        parent.join(suffix)
+    };
+    write_config_value_atomic_with_sync_and_staging(path, value, sync_parent, &staging_path)
+}
+
+const CONFIG_STAGING_ATTEMPTS: usize = 16;
+
+fn write_config_value_atomic_with_sync_and_staging(
+    path: &Path,
+    value: &Value,
+    sync_parent: &dyn Fn(&Path) -> anyhow::Result<ConfigParentSyncOutcome>,
+    staging_path: &dyn Fn(&Path, usize) -> PathBuf,
+) -> anyhow::Result<ConfigWriteOutcome> {
+    let parent = config_parent_directory(path);
+    let created_directories = ensure_config_parent_directory(parent)?;
+    let mut staged = None;
+    for attempt in 0..CONFIG_STAGING_ATTEMPTS {
+        let tmp_path = staging_path(parent, attempt);
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+
+            // The config can contain the server authentication token. Create
+            // the staging file private from the start, independent of umask,
+            // and reject a pre-existing symlink if a concurrent writer races
+            // with this process before open(2).
+            options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+        }
+        match options.open(&tmp_path) {
+            Ok(file) => {
+                staged = Some((tmp_path, file));
+                break;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error.into()),
+        }
+    }
+    let Some((tmp_path, mut file)) = staged else {
+        anyhow::bail!("could not create a unique config staging file")
+    };
     let result = (|| -> anyhow::Result<()> {
-        let mut file = std::fs::File::create(&tmp_path)?;
         serde_json::to_writer_pretty(&mut file, value)?;
         file.write_all(b"\n")?;
         file.sync_all()?;
@@ -3568,10 +4225,101 @@ fn write_config_value_atomic(path: &Path, value: &Value) -> anyhow::Result<()> {
         std::fs::rename(&tmp_path, path)?;
         Ok(())
     })();
-    if result.is_err() {
+    if let Err(error) = result {
         let _ = std::fs::remove_file(&tmp_path);
+        return Err(error);
     }
-    result
+
+    #[cfg(unix)]
+    {
+        Ok(match sync_config_parent_directories(parent, &created_directories, sync_parent) {
+            Ok(ConfigParentSyncOutcome::Synced) => ConfigWriteOutcome::Committed,
+            Ok(ConfigParentSyncOutcome::Unsupported) => {
+                ConfigWriteOutcome::CommittedWithoutDirectorySync
+            }
+            Err(error) => ConfigWriteOutcome::CommittedButUnsynced { error },
+        })
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (created_directories, sync_parent);
+        Ok(ConfigWriteOutcome::CommittedWithoutDirectorySync)
+    }
+}
+
+fn ensure_config_parent_directory(parent: &Path) -> anyhow::Result<Vec<PathBuf>> {
+    let mut created_directories = Vec::new();
+    let mut current = PathBuf::new();
+    for component in parent.components() {
+        current.push(component.as_os_str());
+        // Prefix, root, and navigation components establish path syntax;
+        // only normal components identify directory entries to create.
+        if !matches!(component, Component::Normal(_)) {
+            continue;
+        }
+        match std::fs::create_dir(&current) {
+            Ok(()) => created_directories.push(current.clone()),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                if !std::fs::metadata(&current)?.is_dir() {
+                    anyhow::bail!(
+                        "config parent component {} is not a directory",
+                        current.display()
+                    );
+                }
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(created_directories)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConfigParentSyncOutcome {
+    Synced,
+    Unsupported,
+}
+
+#[cfg(unix)]
+fn sync_config_parent_directory(parent: &Path) -> anyhow::Result<ConfigParentSyncOutcome> {
+    let result = std::fs::File::open(parent).and_then(|directory| directory.sync_all());
+    #[cfg(target_os = "macos")]
+    if let Err(error) = &result {
+        if matches!(error.raw_os_error(), Some(code) if code == libc::EINVAL || code == libc::ENOTSUP)
+        {
+            return Ok(ConfigParentSyncOutcome::Unsupported);
+        }
+    }
+    result.map(|()| ConfigParentSyncOutcome::Synced).map_err(Into::into)
+}
+
+#[cfg(not(unix))]
+fn sync_config_parent_directory(_parent: &Path) -> anyhow::Result<ConfigParentSyncOutcome> {
+    Ok(ConfigParentSyncOutcome::Unsupported)
+}
+
+#[cfg(unix)]
+fn sync_config_parent_directories(
+    parent: &Path,
+    created_directories: &[PathBuf],
+    sync_parent: &dyn Fn(&Path) -> anyhow::Result<ConfigParentSyncOutcome>,
+) -> anyhow::Result<ConfigParentSyncOutcome> {
+    let mut unsupported = false;
+    for directory in std::iter::once(parent)
+        .chain(created_directories.iter().rev().map(|directory| config_parent_directory(directory)))
+    {
+        if matches!(sync_parent(directory)?, ConfigParentSyncOutcome::Unsupported) {
+            unsupported = true;
+        }
+    }
+    Ok(if unsupported {
+        ConfigParentSyncOutcome::Unsupported
+    } else {
+        ConfigParentSyncOutcome::Synced
+    })
+}
+
+fn config_parent_directory(path: &Path) -> &Path {
+    path.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."))
 }
 
 /// `#rrggbb`, `#rgb`, or an xterm-256 index in a string.
@@ -3597,17 +4345,42 @@ fn parse_color(s: &str) -> Option<Color> {
 /// The user's relevant Ghostty settings with non-optional application defaults
 /// resolved for values that the low-level terminal otherwise leaves unset.
 fn ghostty_defaults() -> DefaultColors {
+    ghostty_application_defaults().colors
+}
+
+struct GhosttyApplicationDefaults {
+    colors: DefaultColors,
+    scrollback_limit_bytes: Option<usize>,
+}
+
+impl Default for GhosttyApplicationDefaults {
+    fn default() -> Self {
+        Self {
+            colors: resolve_ghostty_application_defaults(DefaultColors::default()),
+            scrollback_limit_bytes: None,
+        }
+    }
+}
+
+fn ghostty_application_defaults() -> GhosttyApplicationDefaults {
     let config_paths = platform::ghostty_config_paths();
     let theme_dirs = platform::ghostty_theme_dirs();
     #[cfg(not(test))]
     let helper_defaults = ghostty_defaults_from_helper();
     #[cfg(test)]
     let helper_defaults = GhosttyHelperDefaults::Unavailable;
-    ghostty_defaults_from_sources(config_paths, theme_dirs, helper_defaults)
+    match helper_defaults {
+        GhosttyHelperDefaults::Resolved(defaults) => *defaults,
+        GhosttyHelperDefaults::Unavailable => {
+            parse_ghostty_application_defaults_from_paths(config_paths, theme_dirs)
+                .unwrap_or_default()
+        }
+        GhosttyHelperDefaults::TimedOut => GhosttyApplicationDefaults::default(),
+    }
 }
 
 enum GhosttyHelperDefaults {
-    Resolved(Box<DefaultColors>),
+    Resolved(Box<GhosttyApplicationDefaults>),
     Unavailable,
     TimedOut,
 }
@@ -3617,14 +4390,138 @@ fn ghostty_defaults_from_sources(
     theme_dirs: Vec<PathBuf>,
     helper_defaults: GhosttyHelperDefaults,
 ) -> DefaultColors {
-    let parsed = match helper_defaults {
-        GhosttyHelperDefaults::Resolved(defaults) => *defaults,
+    match helper_defaults {
+        GhosttyHelperDefaults::Resolved(defaults) => defaults.colors,
         GhosttyHelperDefaults::Unavailable => {
-            parse_ghostty_defaults_from_paths(config_paths, theme_dirs).unwrap_or_default()
+            parse_ghostty_application_defaults_from_paths(config_paths, theme_dirs)
+                .map(|defaults| defaults.colors)
+                .unwrap_or_else(|| GhosttyApplicationDefaults::default().colors)
         }
-        GhosttyHelperDefaults::TimedOut => DefaultColors::default(),
-    };
-    resolve_ghostty_application_defaults(parsed)
+        GhosttyHelperDefaults::TimedOut => GhosttyApplicationDefaults::default().colors,
+    }
+}
+
+/// Read Ghostty's scrollback setting with the same bounded include traversal
+/// used for the other file-based defaults. Ghostty 1.4 renamed the setting to
+/// make the byte unit explicit, so both spellings are accepted.
+fn ghostty_scrollback_limit_bytes() -> Option<usize> {
+    let deadline_at = ghostty_config_deadline_from_now(GHOSTTY_CONFIG_PARSE_DEADLINE);
+    let mut resolved = None;
+    for path in platform::ghostty_config_paths() {
+        if ghostty_config_deadline_expired(Some(deadline_at)) {
+            // A partial traversal is not an authoritative configuration
+            // result. Falling back to the shared default avoids making
+            // startup timing change the selected security and memory limit.
+            return None;
+        }
+        match parse_scrollback_limit_from_root(&path, deadline_at) {
+            ScrollbackConfigOutcome::Missing => {}
+            ScrollbackConfigOutcome::TimedOut => return None,
+            ScrollbackConfigOutcome::Parsed(setting) => {
+                // A file with no setting does not mask another candidate.
+                // An explicit empty setting is represented as Some(None) and
+                // intentionally resets the accumulated value to the default.
+                if let Some(setting) = setting {
+                    resolved = setting;
+                }
+            }
+        }
+    }
+    resolved
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum ScrollbackConfigOutcome {
+    Missing,
+    Parsed(Option<Option<usize>>),
+    TimedOut,
+}
+
+fn parse_scrollback_limit_from_root(path: &Path, deadline_at: Instant) -> ScrollbackConfigOutcome {
+    // Ghostty parses the complete parent file first, then loads its
+    // config-file entries in declaration order. Nested entries are appended
+    // after the already queued siblings. A FIFO queue preserves that
+    // precedence while keeping the traversal bounded below.
+    let mut queue = VecDeque::from([PendingGhosttyConfig { path: path.to_path_buf(), depth: 0 }]);
+    let mut loaded = HashSet::new();
+    let mut files_loaded = 0usize;
+    let mut bytes_loaded = 0u64;
+    let mut value = None;
+    let mut loaded_root = false;
+
+    while let Some(pending) = queue.pop_front() {
+        if Instant::now() >= deadline_at {
+            return ScrollbackConfigOutcome::TimedOut;
+        }
+        if pending.depth > GHOSTTY_CONFIG_MAX_DEPTH || files_loaded >= GHOSTTY_CONFIG_MAX_FILES {
+            return ScrollbackConfigOutcome::TimedOut;
+        }
+        let identity = pending.path.canonicalize().unwrap_or_else(|_| pending.path.clone());
+        if !loaded.insert(identity.clone()) {
+            continue;
+        }
+        let remaining_bytes = GHOSTTY_CONFIG_MAX_BYTES.saturating_sub(bytes_loaded);
+        if ghostty_regular_file_exceeds_limit(&pending.path, remaining_bytes) {
+            return ScrollbackConfigOutcome::TimedOut;
+        }
+        let Some(text) = read_ghostty_regular_file(&pending.path, remaining_bytes) else {
+            if pending.depth == 0 && files_loaded == 0 {
+                return ScrollbackConfigOutcome::Missing;
+            }
+            continue;
+        };
+        bytes_loaded = bytes_loaded.saturating_add(text.len() as u64);
+        files_loaded += 1;
+        loaded_root |= pending.depth == 0;
+        if let Some(parsed) = parse_scrollback_limit_bytes(&text) {
+            value = Some(parsed);
+        }
+
+        let base_dir = pending.path.parent().unwrap_or_else(|| Path::new("."));
+        let mut theme_candidates = Vec::new();
+        let parsed = parse_ghostty_config_text(&text, Some(base_dir), &mut theme_candidates);
+        for include in
+            parsed.config_files.into_iter().filter_map(|include| include.resolve(base_dir))
+        {
+            queue.push_back(PendingGhosttyConfig { path: include, depth: pending.depth + 1 });
+        }
+        if Instant::now() >= deadline_at {
+            return ScrollbackConfigOutcome::TimedOut;
+        }
+    }
+
+    if loaded_root {
+        ScrollbackConfigOutcome::Parsed(value)
+    } else {
+        ScrollbackConfigOutcome::Missing
+    }
+}
+
+/// Return the last scrollback setting in a file. The outer `Option` says
+/// whether a setting was present; the inner `Option` represents an explicit
+/// empty reset to the shared default.
+fn parse_scrollback_limit_bytes(text: &str) -> Option<Option<usize>> {
+    text.lines()
+        .filter_map(|line| {
+            let (key, value) = line.trim().split_once('=')?;
+            if !matches!(key.trim(), "scrollback-limit" | "scrollback-limit-bytes") {
+                return None;
+            }
+            // Ghostty treats comments as whole lines. Do not truncate a
+            // numeric value at '#', because that would accept malformed input
+            // that Ghostty rejects.
+            let value = value.trim();
+            let value = value
+                .strip_prefix('"')
+                .and_then(|value| value.strip_suffix('"'))
+                .unwrap_or(value)
+                .trim();
+            if value.is_empty() {
+                return Some(None);
+            }
+            value.replace('_', "").parse::<usize>().ok().map(Some)
+        })
+        .last()
 }
 
 fn resolve_ghostty_application_defaults(mut defaults: DefaultColors) -> DefaultColors {
@@ -3682,16 +4579,17 @@ pub(crate) fn is_ghostty_config_helper_invocation(args: &[String]) -> bool {
 }
 
 pub(crate) fn run_ghostty_config_helper() -> i32 {
-    match parse_ghostty_defaults_from_paths_result(
+    match parse_ghostty_application_defaults_from_paths_result(
         platform::ghostty_config_paths(),
         platform::ghostty_theme_dirs(),
     ) {
-        GhosttyConfigParseOutcome::Parsed(defaults) => {
-            print!("{}", serialize_ghostty_defaults(*defaults));
+        GhosttyApplicationDefaultsParseOutcome::Parsed(defaults) => {
+            print!("{}", serialize_ghostty_application_defaults(&defaults));
             0
         }
-        GhosttyConfigParseOutcome::Missing => 1,
-        GhosttyConfigParseOutcome::TimedOut => 2,
+        GhosttyApplicationDefaultsParseOutcome::Partial(_) => 2,
+        GhosttyApplicationDefaultsParseOutcome::Missing => 1,
+        GhosttyApplicationDefaultsParseOutcome::TimedOut => 2,
     }
 }
 
@@ -3749,9 +4647,10 @@ fn ghostty_defaults_from_helper_command(
         return GhosttyHelperDefaults::Unavailable;
     }
     match output_reader.wait() {
-        Some(output) => {
-            GhosttyHelperDefaults::Resolved(Box::new(parse_resolved_ghostty_defaults(&output)))
-        }
+        Some(output) => GhosttyHelperDefaults::Resolved(Box::new(GhosttyApplicationDefaults {
+            colors: parse_resolved_ghostty_defaults(&output),
+            scrollback_limit_bytes: parse_scrollback_limit_bytes(&output).flatten(),
+        })),
         None => GhosttyHelperDefaults::Unavailable,
     }
 }
@@ -3942,12 +4841,87 @@ fn parse_ghostty_defaults_from_paths(
 ) -> Option<DefaultColors> {
     match parse_ghostty_defaults_from_paths_result(config_paths, theme_dirs) {
         GhosttyConfigParseOutcome::Parsed(defaults) => Some(*defaults),
-        GhosttyConfigParseOutcome::Missing | GhosttyConfigParseOutcome::TimedOut => None,
+        GhosttyConfigParseOutcome::Partial(_)
+        | GhosttyConfigParseOutcome::Missing
+        | GhosttyConfigParseOutcome::TimedOut => None,
+    }
+}
+
+fn parse_ghostty_application_defaults_from_paths(
+    config_paths: Vec<PathBuf>,
+    theme_dirs: Vec<PathBuf>,
+) -> Option<GhosttyApplicationDefaults> {
+    match parse_ghostty_application_defaults_from_paths_result(config_paths, theme_dirs) {
+        GhosttyApplicationDefaultsParseOutcome::Parsed(defaults) => Some(defaults),
+        GhosttyApplicationDefaultsParseOutcome::Partial(defaults) => Some(defaults),
+        GhosttyApplicationDefaultsParseOutcome::Missing
+        | GhosttyApplicationDefaultsParseOutcome::TimedOut => None,
+    }
+}
+
+enum GhosttyApplicationDefaultsParseOutcome {
+    Parsed(GhosttyApplicationDefaults),
+    Partial(GhosttyApplicationDefaults),
+    Missing,
+    TimedOut,
+}
+
+fn parse_ghostty_application_defaults_from_paths_result(
+    config_paths: Vec<PathBuf>,
+    theme_dirs: Vec<PathBuf>,
+) -> GhosttyApplicationDefaultsParseOutcome {
+    let deadline_at = ghostty_config_deadline_from_now(GHOSTTY_CONFIG_PARSE_DEADLINE);
+    let mut resolved = None;
+    let mut scrollback_limit_bytes = None;
+    let mut incomplete = false;
+    for path in config_paths {
+        if ghostty_config_deadline_expired(Some(deadline_at)) {
+            return GhosttyApplicationDefaultsParseOutcome::TimedOut;
+        }
+        let mut path_scrollback = None;
+        match parse_ghostty_defaults_from_path_result_until_with_scrollback(
+            &path,
+            &theme_dirs,
+            Some(deadline_at),
+            Some(&mut path_scrollback),
+        ) {
+            GhosttyConfigParseOutcome::Missing => {}
+            GhosttyConfigParseOutcome::TimedOut => {
+                return GhosttyApplicationDefaultsParseOutcome::TimedOut;
+            }
+            GhosttyConfigParseOutcome::Parsed(defaults) => {
+                let merged = resolved.get_or_insert_with(DefaultColors::default);
+                overlay_ghostty_defaults(merged, *defaults);
+                if let Some(value) = path_scrollback {
+                    scrollback_limit_bytes = value;
+                }
+            }
+            GhosttyConfigParseOutcome::Partial(defaults) => {
+                let merged = resolved.get_or_insert_with(DefaultColors::default);
+                overlay_ghostty_defaults(merged, *defaults);
+                incomplete = true;
+            }
+        }
+    }
+    match resolved {
+        Some(colors) => {
+            let defaults = GhosttyApplicationDefaults {
+                colors: resolve_ghostty_application_defaults(colors),
+                scrollback_limit_bytes: if incomplete { None } else { scrollback_limit_bytes },
+            };
+            if incomplete {
+                GhosttyApplicationDefaultsParseOutcome::Partial(defaults)
+            } else {
+                GhosttyApplicationDefaultsParseOutcome::Parsed(defaults)
+            }
+        }
+        None => GhosttyApplicationDefaultsParseOutcome::Missing,
     }
 }
 
 enum GhosttyConfigParseOutcome {
     Parsed(Box<DefaultColors>),
+    Partial(Box<DefaultColors>),
     Missing,
     TimedOut,
 }
@@ -3988,7 +4962,9 @@ fn parse_ghostty_defaults_with_theme_dirs(text: &str, theme_dirs: &[PathBuf]) ->
 fn parse_ghostty_defaults_from_path(path: &Path, theme_dirs: &[PathBuf]) -> Option<DefaultColors> {
     match parse_ghostty_defaults_from_path_result(path, theme_dirs) {
         GhosttyConfigParseOutcome::Parsed(defaults) => Some(*defaults),
-        GhosttyConfigParseOutcome::Missing | GhosttyConfigParseOutcome::TimedOut => None,
+        GhosttyConfigParseOutcome::Partial(_)
+        | GhosttyConfigParseOutcome::Missing
+        | GhosttyConfigParseOutcome::TimedOut => None,
     }
 }
 
@@ -4006,9 +4982,27 @@ fn parse_ghostty_defaults_from_path_result_until(
     theme_dirs: &[PathBuf],
     deadline_at: Option<Instant>,
 ) -> GhosttyConfigParseOutcome {
+    parse_ghostty_defaults_from_path_result_until_with_scrollback(
+        path,
+        theme_dirs,
+        deadline_at,
+        None,
+    )
+}
+
+fn parse_ghostty_defaults_from_path_result_until_with_scrollback(
+    path: &Path,
+    theme_dirs: &[PathBuf],
+    deadline_at: Option<Instant>,
+    mut scrollback_limit_bytes: Option<&mut Option<Option<usize>>>,
+) -> GhosttyConfigParseOutcome {
     let mut theme_candidates = Vec::new();
-    let overrides = match parse_ghostty_config_file_until(path, &mut theme_candidates, deadline_at)
-    {
+    let overrides = match parse_ghostty_config_file_until_with_scrollback(
+        path,
+        &mut theme_candidates,
+        deadline_at,
+        scrollback_limit_bytes,
+    ) {
         GhosttyConfigParseOutcome::Parsed(overrides) => *overrides,
         outcome => return outcome,
     };
@@ -4060,25 +5054,52 @@ fn parse_ghostty_config_file_until(
     theme_candidates: &mut Vec<GhosttyThemeCandidate>,
     deadline_at: Option<Instant>,
 ) -> GhosttyConfigParseOutcome {
+    parse_ghostty_config_file_until_with_scrollback(path, theme_candidates, deadline_at, None)
+}
+
+fn parse_ghostty_config_file_until_with_scrollback(
+    path: &Path,
+    theme_candidates: &mut Vec<GhosttyThemeCandidate>,
+    deadline_at: Option<Instant>,
+    mut scrollback_limit_bytes: Option<&mut Option<Option<usize>>>,
+) -> GhosttyConfigParseOutcome {
     let mut stack = vec![PendingGhosttyConfig { path: path.to_path_buf(), depth: 0 }];
     let mut loaded = HashSet::new();
+    let mut snapshot = Vec::new();
     let mut files_loaded = 0usize;
     let mut bytes_loaded = 0u64;
     let mut loaded_root = false;
     let mut overrides = DefaultColors::default();
+    let collect_scrollback = scrollback_limit_bytes.is_some();
+    let root_identity = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+
+    // Preserve cmux's existing depth-first precedence for colors and themes.
+    // Scrollback is replayed from this snapshot in Ghostty's declaration-order
+    // breadth-first traversal, so changing color precedence is out of scope.
 
     while let Some(pending) = stack.pop() {
         if files_loaded > 0 && ghostty_config_deadline_expired(deadline_at) {
-            return GhosttyConfigParseOutcome::TimedOut;
+            return if collect_scrollback {
+                GhosttyConfigParseOutcome::Partial(Box::new(overrides))
+            } else {
+                GhosttyConfigParseOutcome::TimedOut
+            };
         }
         if pending.depth > GHOSTTY_CONFIG_MAX_DEPTH || files_loaded >= GHOSTTY_CONFIG_MAX_FILES {
+            if collect_scrollback {
+                return GhosttyConfigParseOutcome::Partial(Box::new(overrides));
+            }
             continue;
         }
         let identity = pending.path.canonicalize().unwrap_or_else(|_| pending.path.clone());
-        if !loaded.insert(identity) {
+        if !loaded.insert(identity.clone()) {
             continue;
         }
         let remaining_bytes = GHOSTTY_CONFIG_MAX_BYTES.saturating_sub(bytes_loaded);
+        if collect_scrollback && ghostty_regular_file_exceeds_limit(&pending.path, remaining_bytes)
+        {
+            return GhosttyConfigParseOutcome::Partial(Box::new(overrides));
+        }
         let text = match read_ghostty_regular_file(&pending.path, remaining_bytes) {
             Some(text) => text,
             None if pending.depth == 0 && files_loaded == 0 => {
@@ -4089,22 +5110,57 @@ fn parse_ghostty_config_file_until(
         bytes_loaded = bytes_loaded.saturating_add(text.len() as u64);
         files_loaded += 1;
         loaded_root |= pending.depth == 0;
-
         let base_dir = pending.path.parent().unwrap_or_else(|| Path::new("."));
         let parsed = parse_ghostty_config_text(&text, Some(base_dir), theme_candidates);
         overlay_ghostty_defaults(&mut overrides, parsed.overrides);
 
-        for include in
-            parsed.config_files.into_iter().rev().filter_map(|include| include.resolve(base_dir))
-        {
+        let includes: Vec<PathBuf> = parsed
+            .config_files
+            .into_iter()
+            .filter_map(|include| include.resolve(base_dir))
+            .collect();
+        if collect_scrollback {
+            snapshot.push((identity, includes.clone(), parse_scrollback_limit_bytes(&text)));
+        }
+        for include in includes.into_iter().rev() {
             stack.push(PendingGhosttyConfig { path: include, depth: pending.depth + 1 });
         }
         if ghostty_config_deadline_expired(deadline_at) {
-            return GhosttyConfigParseOutcome::TimedOut;
+            return if collect_scrollback {
+                GhosttyConfigParseOutcome::Partial(Box::new(overrides))
+            } else {
+                GhosttyConfigParseOutcome::TimedOut
+            };
         }
     }
 
     if loaded_root {
+        if let Some(scrollback_limit_bytes) = scrollback_limit_bytes.as_deref_mut() {
+            let mut snapshot_by_identity = HashMap::new();
+            for (index, (identity, _, _)) in snapshot.iter().enumerate() {
+                snapshot_by_identity.insert(identity, index);
+            }
+            let mut queue = VecDeque::from([(root_identity, 0usize)]);
+            let mut seen = HashSet::new();
+            let mut resolved = None;
+            while let Some((identity, depth)) = queue.pop_front() {
+                if depth > GHOSTTY_CONFIG_MAX_DEPTH || !seen.insert(identity.clone()) {
+                    continue;
+                }
+                let Some(&index) = snapshot_by_identity.get(&identity) else {
+                    continue;
+                };
+                let (_, includes, value) = &snapshot[index];
+                if let Some(value) = value {
+                    resolved = Some(*value);
+                }
+                for include in includes {
+                    let identity = include.canonicalize().unwrap_or_else(|_| include.clone());
+                    queue.push_back((identity, depth + 1));
+                }
+            }
+            *scrollback_limit_bytes = resolved;
+        }
         GhosttyConfigParseOutcome::Parsed(Box::new(overrides))
     } else {
         GhosttyConfigParseOutcome::Missing
@@ -4659,6 +5715,14 @@ fn serialize_ghostty_defaults(defaults: DefaultColors) -> String {
     out
 }
 
+fn serialize_ghostty_application_defaults(defaults: &GhosttyApplicationDefaults) -> String {
+    let mut out = serialize_ghostty_defaults(defaults.colors);
+    if let Some(limit) = defaults.scrollback_limit_bytes {
+        out.push_str(&format!("scrollback-limit-bytes = {limit}\n"));
+    }
+    out
+}
+
 fn format_ghostty_rgb(color: Rgb) -> String {
     format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b)
 }
@@ -4743,6 +5807,11 @@ fn read_ghostty_regular_file(path: &Path, max_bytes: u64) -> Option<String> {
         return None;
     }
     read_ghostty_limited_string(file, max_bytes)
+}
+
+fn ghostty_regular_file_exceeds_limit(path: &Path, max_bytes: u64) -> bool {
+    std::fs::metadata(path)
+        .is_ok_and(|metadata| metadata.file_type().is_file() && metadata.len() > max_bytes)
 }
 
 fn read_ghostty_limited_string(reader: impl Read, max_bytes: u64) -> Option<String> {
@@ -4842,12 +5911,62 @@ fn overlay_ghostty_defaults(defaults: &mut DefaultColors, overrides: DefaultColo
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::{Cell, RefCell};
+
+    #[test]
+    fn config_diagnostics_do_not_echo_parser_details() {
+        let error = serde_json::from_str::<RawConfig>(r#"{"typo":true}"#).unwrap_err();
+        let diagnostic = config_diagnostic(&error);
+        assert!(diagnostic.contains("unknown config field"));
+        assert!(!diagnostic.contains("typo"));
+    }
     use std::ffi::OsString;
     use std::sync::Mutex;
+    use std::sync::atomic::{AtomicU64, Ordering};
 
     /// Config env vars are process-global state; tests that set them must not
     /// run concurrently with each other.
     static CONFIG_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn startup_snapshot_invokes_loader_once() {
+        let loads = Cell::new(0);
+        let snapshot = StartupConfigSnapshot::from_loader(|| {
+            loads.set(loads.get() + 1);
+            Config::default()
+        });
+
+        assert!(snapshot.server.detached_owner);
+        assert!(snapshot.server.detached_owner);
+        let _config = snapshot.into_config();
+        assert_eq!(loads.get(), 1);
+    }
+    static NEXT_TEST_DIRECTORY: AtomicU64 = AtomicU64::new(0);
+
+    struct TestDirectory {
+        path: PathBuf,
+    }
+
+    impl TestDirectory {
+        fn new(label: &str) -> Self {
+            loop {
+                let sequence = NEXT_TEST_DIRECTORY.fetch_add(1, Ordering::Relaxed);
+                let path = std::env::temp_dir()
+                    .join(format!("cmux-tui-config-{label}-{}-{sequence}", std::process::id()));
+                match std::fs::create_dir(&path) {
+                    Ok(()) => return Self { path },
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(error) => panic!("create config test directory failed: {error}"),
+                }
+            }
+        }
+    }
+
+    impl Drop for TestDirectory {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
 
     fn restore_env_var(key: &str, value: Option<OsString>) {
         match value {
@@ -4855,6 +5974,15 @@ mod tests {
             Some(value) => unsafe { std::env::set_var(key, value) },
             None => unsafe { std::env::remove_var(key) },
         }
+    }
+
+    fn assert_committed(outcome: ConfigWriteOutcome) {
+        assert!(matches!(
+            outcome,
+            ConfigWriteOutcome::Committed
+                | ConfigWriteOutcome::CommittedWithoutDirectorySync
+                | ConfigWriteOutcome::CommittedButUnsynced { .. }
+        ));
     }
 
     #[test]
@@ -4877,6 +6005,18 @@ mod tests {
         assert_eq!(defaults.cursor_style, Some(CursorShape::Bar));
         assert_eq!(defaults.cursor_blink, Some(false));
 
+        assert_eq!(
+            parse_scrollback_limit_bytes(
+                "scrollback-limit-lines = 12\n\
+                 scrollback-limit = invalid\n\
+                 scrollback-limit-bytes = 8_000_000\n"
+            ),
+            Some(Some(8_000_000))
+        );
+        assert_eq!(parse_scrollback_limit_bytes("scrollback-limit = \"\"\n"), Some(None));
+        assert_eq!(parse_scrollback_limit_bytes("scrollback-limit-lines = 12\n"), None);
+        assert_eq!(parse_scrollback_limit_bytes("scrollback-limit = 4096#note\n"), None);
+
         let invalid = parse_ghostty_defaults(
             "cursor-style = underline\n\
              cursor-style-blink = true\n\
@@ -4895,6 +6035,178 @@ mod tests {
 
         let hollow = parse_ghostty_defaults("cursor-style = block_hollow\n");
         assert_eq!(hollow.cursor_style, Some(CursorShape::BlockHollow));
+    }
+
+    #[test]
+    fn scrollback_config_outcomes_preserve_precedence_and_timeout() {
+        let dir = TestDirectory::new("scrollback-outcomes");
+        let value_path = dir.path.join("value.conf");
+        let empty_path = dir.path.join("empty.conf");
+        let absent_path = dir.path.join("absent.conf");
+        std::fs::write(&value_path, "scrollback-limit = 123_456\n").unwrap();
+        std::fs::write(&empty_path, "scrollback-limit = \"\"\n").unwrap();
+        std::fs::write(&absent_path, "foreground = #010203\n").unwrap();
+
+        assert_eq!(
+            parse_scrollback_limit_from_root(&value_path, Instant::now() + Duration::from_secs(1)),
+            ScrollbackConfigOutcome::Parsed(Some(Some(123_456)))
+        );
+        assert_eq!(
+            parse_scrollback_limit_from_root(&absent_path, Instant::now() + Duration::from_secs(1)),
+            ScrollbackConfigOutcome::Parsed(None)
+        );
+        assert_eq!(
+            parse_scrollback_limit_from_root(&empty_path, Instant::now() + Duration::from_secs(1)),
+            ScrollbackConfigOutcome::Parsed(Some(None))
+        );
+        assert_eq!(
+            parse_scrollback_limit_from_root(&value_path, Instant::now() - Duration::from_secs(1)),
+            ScrollbackConfigOutcome::TimedOut
+        );
+    }
+
+    #[test]
+    fn scrollback_include_order_matches_ghostty_recursive_loading() {
+        let dir = TestDirectory::new("scrollback-include-order");
+        let root = dir.path.join("config");
+        let first = dir.path.join("first.conf");
+        let second = dir.path.join("second.conf");
+        let nested = dir.path.join("nested.conf");
+        std::fs::write(
+            &root,
+            "config-file = first.conf\n\
+             scrollback-limit = 1\n\
+             config-file = second.conf\n",
+        )
+        .unwrap();
+        std::fs::write(&first, "scrollback-limit = 2\nconfig-file = nested.conf\n").unwrap();
+        std::fs::write(&second, "scrollback-limit = 3\n").unwrap();
+        std::fs::write(&nested, "scrollback-limit = 4\n").unwrap();
+
+        assert_eq!(
+            parse_scrollback_limit_from_root(&root, Instant::now() + Duration::from_secs(1)),
+            ScrollbackConfigOutcome::Parsed(Some(Some(4)))
+        );
+    }
+
+    #[test]
+    fn combined_snapshot_preserves_color_dfs_and_scrollback_bfs_precedence() {
+        let dir = TestDirectory::new("combined-include-precedence");
+        let root = dir.path.join("config");
+        let first = dir.path.join("first.conf");
+        let second = dir.path.join("second.conf");
+        let nested = dir.path.join("nested.conf");
+        std::fs::write(&root, "config-file = first.conf\nconfig-file = second.conf\n").unwrap();
+        std::fs::write(
+            &first,
+            "foreground = #010203\nscrollback-limit-bytes = 2\nconfig-file = nested.conf\n",
+        )
+        .unwrap();
+        std::fs::write(&second, "foreground = #040506\nscrollback-limit-bytes = 3\n").unwrap();
+        std::fs::write(&nested, "foreground = #070809\nscrollback-limit-bytes = 4\n").unwrap();
+
+        let mut scrollback = None;
+        let outcome = parse_ghostty_defaults_from_path_result_until_with_scrollback(
+            &root,
+            &[],
+            Some(Instant::now() + Duration::from_secs(1)),
+            Some(&mut scrollback),
+        );
+        let GhosttyConfigParseOutcome::Parsed(colors) = outcome else {
+            panic!("snapshot should parse");
+        };
+
+        assert_eq!(colors.fg, Some(Rgb { r: 4, g: 5, b: 6 }));
+        assert_eq!(scrollback, Some(Some(4)));
+    }
+
+    #[test]
+    fn scrollback_config_rejects_truncated_include_snapshot() {
+        let dir = TestDirectory::new("scrollback-truncated-include");
+        for depth in 0..=GHOSTTY_CONFIG_MAX_DEPTH + 1 {
+            let path = dir.path.join(format!("config-{depth}"));
+            let include = if depth <= GHOSTTY_CONFIG_MAX_DEPTH {
+                format!("config-file = config-{}\n", depth + 1)
+            } else {
+                "scrollback-limit-bytes = 999999\n".to_owned()
+            };
+            std::fs::write(path, include).unwrap();
+        }
+        let root = dir.path.join("config-0");
+        std::fs::write(&root, "foreground = #010203\nconfig-file = config-1\n").unwrap();
+
+        assert_eq!(
+            parse_scrollback_limit_from_root(&root, Instant::now() + Duration::from_secs(1)),
+            ScrollbackConfigOutcome::TimedOut
+        );
+
+        let mut scrollback = None;
+        let outcome = parse_ghostty_defaults_from_path_result_until_with_scrollback(
+            &root,
+            &[],
+            Some(Instant::now() + Duration::from_secs(1)),
+            Some(&mut scrollback),
+        );
+        let GhosttyConfigParseOutcome::Partial(colors) = outcome else {
+            panic!("truncated snapshot should preserve parsed colors");
+        };
+        assert_eq!(colors.fg, Some(Rgb { r: 1, g: 2, b: 3 }));
+
+        let outcome = parse_ghostty_application_defaults_from_paths_result(vec![root], Vec::new());
+        let GhosttyApplicationDefaultsParseOutcome::Partial(defaults) = outcome else {
+            panic!("truncated application snapshot should remain explicitly partial");
+        };
+        assert_eq!(defaults.scrollback_limit_bytes, None);
+    }
+
+    #[test]
+    fn application_defaults_snapshot_resolves_colors_and_scrollback_together() {
+        let dir = TestDirectory::new("application-defaults-snapshot");
+        let root = dir.path.join("config");
+        let include = dir.path.join("scrollback.conf");
+        std::fs::write(&root, "foreground = #010203\nconfig-file = scrollback.conf\n").unwrap();
+        std::fs::write(&include, "scrollback-limit-bytes = 654321\n").unwrap();
+
+        let mut scrollback = None;
+        let outcome = parse_ghostty_defaults_from_path_result_until_with_scrollback(
+            &root,
+            &[],
+            Some(Instant::now() + Duration::from_secs(1)),
+            Some(&mut scrollback),
+        );
+        let GhosttyConfigParseOutcome::Parsed(colors) = outcome else {
+            panic!("snapshot should parse");
+        };
+        assert_eq!(colors.fg, Some(Rgb { r: 1, g: 2, b: 3 }));
+        assert_eq!(scrollback, Some(Some(654321)));
+    }
+
+    #[test]
+    fn application_defaults_overlay_later_config_and_resolve_fallbacks() {
+        let dir = TestDirectory::new("application-defaults-overlay");
+        let legacy = dir.path.join("config");
+        let current = dir.path.join("config.ghostty");
+        std::fs::write(&legacy, "foreground = #010203\n").unwrap();
+        std::fs::write(&current, "foreground = #070809\nbackground = #040506\n").unwrap();
+
+        let defaults =
+            parse_ghostty_application_defaults_from_paths(vec![legacy, current], Vec::new())
+                .expect("config files should parse");
+        assert_eq!(defaults.colors.fg, Some(Rgb { r: 7, g: 8, b: 9 }));
+        assert_eq!(defaults.colors.bg, Some(Rgb { r: 4, g: 5, b: 6 }));
+        assert_eq!(defaults.colors.cursor_style, Some(CursorShape::Block));
+    }
+
+    #[test]
+    fn effective_scrollback_limit_is_bounded() {
+        let mut config = Config::default();
+        assert_eq!(config.scrollback_limit_bytes(), DEFAULT_SCROLLBACK_LIMIT_BYTES);
+
+        config.scrollback_limit_bytes = Some(usize::MAX);
+        assert_eq!(config.scrollback_limit_bytes(), MAX_SCROLLBACK_LIMIT_BYTES);
+
+        config.scrollback_limit_bytes = Some(0);
+        assert_eq!(config.scrollback_limit_bytes(), 0);
     }
 
     #[test]
@@ -5030,7 +6342,7 @@ mod tests {
         let mut command = Command::new(&binary);
         command.stdout(Stdio::piped()).stderr(Stdio::null());
         let defaults = match ghostty_defaults_from_helper_command(command, Duration::from_secs(2)) {
-            GhosttyHelperDefaults::Resolved(defaults) => defaults,
+            GhosttyHelperDefaults::Resolved(defaults) => defaults.colors,
             GhosttyHelperDefaults::Unavailable => panic!("helper output was not parsed"),
             GhosttyHelperDefaults::TimedOut => panic!("helper output timed out"),
         };
@@ -6213,8 +7525,8 @@ mod tests {
         let GhosttyHelperDefaults::Resolved(defaults) = defaults else {
             panic!("helper should resolve within parent startup margin");
         };
-        assert_eq!(defaults.fg, Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }));
-        assert_eq!(defaults.bg, Some(Rgb { r: 0x04, g: 0x05, b: 0x06 }));
+        assert_eq!(defaults.colors.fg, Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }));
+        assert_eq!(defaults.colors.bg, Some(Rgb { r: 0x04, g: 0x05, b: 0x06 }));
     }
 
     #[cfg(all(unix, not(target_os = "macos")))]
@@ -6267,7 +7579,8 @@ mod tests {
             child_exit.wait(Duration::from_secs(2));
             assert!(!unix_process_is_live(child_pid), "helper child {child_pid} was not killed");
         } else {
-            eprintln!(
+            crate::client_log::stderr_log!(
+                "config",
                 "skipped helper child {child_pid} exit postcondition: pidfd_open is unsupported"
             );
         }
@@ -6315,7 +7628,8 @@ mod tests {
                 "descendant process-group child {child_pid} was not killed"
             );
         } else {
-            eprintln!(
+            crate::client_log::stderr_log!(
+                "config",
                 "skipped descendant process-group child {child_pid} exit postcondition: \
                  pidfd_open is unsupported"
             );
@@ -6432,7 +7746,10 @@ mod tests {
         let defaults = ghostty_defaults_from_sources(
             vec![config],
             Vec::new(),
-            GhosttyHelperDefaults::Resolved(Box::new(helper)),
+            GhosttyHelperDefaults::Resolved(Box::new(GhosttyApplicationDefaults {
+                colors: helper,
+                scrollback_limit_bytes: None,
+            })),
         );
 
         let _ = std::fs::remove_dir_all(dir);
@@ -6786,6 +8103,28 @@ mod tests {
     }
 
     #[test]
+    fn machine_provider_command_parses_and_requires_a_program() {
+        let raw: RawConfig = serde_json::from_str(
+            r#"{"machine_provider":{"command":["/opt/provider/run.sh","--profile","prod"]}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            raw.machine_provider.command.as_deref(),
+            Some(
+                ["/opt/provider/run.sh".to_string(), "--profile".into(), "prod".into()].as_slice()
+            )
+        );
+
+        // An empty argv or blank program is ignored at apply time.
+        let raw: RawConfig =
+            serde_json::from_str(r#"{"machine_provider":{"command":[]}}"#).unwrap();
+        assert!(raw.machine_provider.command.as_deref().is_some_and(|c| c.is_empty()));
+        let raw: RawConfig =
+            serde_json::from_str(r#"{"machine_provider":{"command":["  "]}}"#).unwrap();
+        assert!(raw.machine_provider.command.as_deref().is_some_and(|c| c[0].trim().is_empty()));
+    }
+
+    #[test]
     fn zero_static_ssh_port_falls_back_to_the_ssh_default() {
         assert_eq!(normalize_ssh_machine_port("mini", Some(0)), None);
         assert_eq!(normalize_ssh_machine_port("mini", Some(22)), Some(22));
@@ -7107,7 +8446,13 @@ mod tests {
             vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents]
         );
         assert_eq!(config.sidebar.views[1].collapse_priority, 20);
-        assert_eq!(config.sidebar.views[1].actions, vec![Action::NewWorkspace, Action::NewTab]);
+        assert_eq!(
+            config.sidebar.views[1].actions,
+            vec![
+                SidebarActionSpec::plain(Action::NewWorkspace),
+                SidebarActionSpec::plain(Action::NewTab)
+            ]
+        );
         assert_eq!(
             config.sidebar.views[2].levels,
             vec![
@@ -7181,7 +8526,7 @@ mod tests {
     fn sidebar_resources_are_hidden_when_their_view_is_omitted() {
         let sidebar = Sidebar::default();
         assert!(sidebar.views.iter().all(|view| !view.includes(SidebarResourceKind::Agents)));
-        assert_eq!(sidebar.views[1].actions, vec![Action::NewWorkspace]);
+        assert_eq!(sidebar.views[1].actions, vec![SidebarActionSpec::plain(Action::NewWorkspace)]);
     }
 
     #[test]
@@ -7222,6 +8567,37 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("unknown variant `stealth`"), "{err}");
+    }
+
+    #[test]
+    fn invalid_section_does_not_discard_valid_sections() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir = TestDirectory::new("section-recovery");
+        let path = dir.path.join("cmux-tui.json");
+        std::fs::write(&path, r##"{"theme":{"sidebar_rail":42},"browser":{"mode":"stealth"}}"##)
+            .unwrap();
+        let old = std::env::var_os("CMUX_TUI_CONFIG");
+        unsafe { std::env::set_var("CMUX_TUI_CONFIG", &path) };
+        let config = load();
+        restore_env_var("CMUX_TUI_CONFIG", old);
+        assert_eq!(config.theme.sidebar_rail, Color::Indexed(42));
+        assert_eq!(config.browser.mode, BrowserMode::Headful);
+    }
+
+    #[test]
+    fn unknown_top_level_field_keeps_strict_rejection() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir =
+            std::env::temp_dir().join(format!("cmux-tui-top-level-strict-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cmux-tui.json");
+        std::fs::write(&path, r##"{"theme":{"sidebar_rail":42},"future":true}"##).unwrap();
+        let old = std::env::var_os("CMUX_TUI_CONFIG");
+        unsafe { std::env::set_var("CMUX_TUI_CONFIG", &path) };
+        let config = load();
+        restore_env_var("CMUX_TUI_CONFIG", old);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(config.theme.sidebar_rail, Theme::default().sidebar_rail);
     }
 
     #[test]
@@ -7525,6 +8901,7 @@ mod tests {
             ("swap-pane-next", Action::SwapPaneNext),
             ("scroll-up", Action::ScrollUp),
             ("toggle-sidebar-compact", Action::ToggleSidebarCompact),
+            ("provider-menu", Action::ProviderMenu),
             ("toggle-sidebar-view", Action::ToggleSidebarView),
             ("new-pane-right", Action::NewPaneRight),
             ("undo-layout", Action::UndoLayout),
@@ -7543,6 +8920,23 @@ mod tests {
                 Some(action),
                 "{name} did not parse"
             );
+        }
+    }
+
+    #[test]
+    fn provider_menu_override_requires_a_valid_chord_or_none() {
+        let cases = [
+            (Value::String("not a chord".to_string()), false),
+            (Value::String("ctrl+b".to_string()), false),
+            (Value::String("none".to_string()), true),
+            (Value::Array(vec![]), true),
+            (Value::String("x".to_string()), true),
+            (Value::Bool(true), false),
+        ];
+        for (value, expected) in cases {
+            let mut keys = Keys::default();
+            keys.apply(&HashMap::from([("provider-menu".to_string(), value)]));
+            assert_eq!(keys.provider_menu_overridden, expected);
         }
     }
 
@@ -7712,6 +9106,122 @@ mod tests {
     }
 
     #[test]
+    fn chip_styles_and_separators_parse() {
+        let raw: RawConfig = serde_json::from_value(json!({
+            "tabs": {"style": "pill"},
+            "status_bar": {
+                "left_separator": "\u{e0b0}",
+                "right_separator": "\u{e0b2}",
+                "screens_style": "slant"
+            }
+        }))
+        .unwrap();
+        assert_eq!(raw.tabs.style, Some(ChipStyle::Pill));
+        assert_eq!(raw.status_bar.screens_style, Some(ChipStyle::Slant));
+        assert_eq!(raw.status_bar.left_separator.as_deref(), Some("\u{e0b0}"));
+        assert!(ChipStyle::Block.caps().is_none());
+        let (left, right) = ChipStyle::Pill.caps().unwrap();
+        assert!(!left.is_empty() && !right.is_empty());
+    }
+
+    #[test]
+    fn sidebar_buttons_accept_labels_positions_and_command_references() {
+        let views = vec![RawSidebarView {
+            id: "ws".to_string(),
+            levels: vec!["workspaces".to_string()],
+            actions: Some(vec![
+                RawSidebarAction::Detailed {
+                    action: "new-workspace".to_string(),
+                    label: Some("new".to_string()),
+                },
+                RawSidebarAction::Name("command:lazygit".to_string()),
+                RawSidebarAction::Name("command:unknown".to_string()),
+                RawSidebarAction::Name("new-tab".to_string()),
+            ]),
+            actions_position: Some(ActionsPosition::Top),
+            width: None,
+            max_width: None,
+            collapse_priority: None,
+        }];
+        let command_ids = vec!["lazygit".to_string()];
+        let resolved = resolve_sidebar_view_specs(&views, 22, 0, 22, 0, "sidebar", &command_ids);
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].actions_position, ActionsPosition::Top);
+        assert_eq!(
+            resolved[0].actions,
+            vec![
+                SidebarActionSpec { action: Action::NewWorkspace, label: Some("new".to_string()) },
+                SidebarActionSpec::plain(Action::user_command(0).unwrap()),
+                SidebarActionSpec::plain(Action::NewTab),
+            ],
+            "unknown command references drop, known ones bind by id"
+        );
+    }
+
+    #[test]
+    fn sidebar_row_metrics_glyph_and_label_template_parse() {
+        let raw: RawConfig = serde_json::from_value(json!({
+            "sidebar": {
+                "row_height": 1,
+                "row_gap": 0,
+                "rail_glyph": "none",
+                "workspace_label": "{index} · {name}"
+            }
+        }))
+        .unwrap();
+        assert_eq!(raw.sidebar.row_height, Some(1));
+        assert_eq!(raw.sidebar.row_gap, Some(0));
+        assert_eq!(raw.sidebar.rail_glyph.as_deref(), Some("none"));
+        assert_eq!(raw.sidebar.workspace_label.as_deref(), Some("{index} · {name}"));
+    }
+
+    #[test]
+    fn plus_buttons_parse_labels_actions_and_menus() {
+        let raw: RawConfig = serde_json::from_value(json!({
+            "tabs": {"plus": {
+                "label": " new ",
+                "action": "command:top",
+                "menu": [
+                    "new-tab",
+                    {"action": "new-browser-tab", "label": "browser"},
+                    "command:top",
+                    "command:unknown"
+                ]
+            }},
+            "status_bar": {"screens_plus": {"label": " ⊕ "}}
+        }))
+        .unwrap();
+        let command_ids = vec!["top".to_string()];
+        let plus = resolve_plus_button(raw.tabs.plus.unwrap(), &command_ids, "tabs");
+        assert_eq!(plus.label, " new ");
+        assert_eq!(plus.action, Action::user_command(0));
+        assert_eq!(
+            plus.menu,
+            vec![
+                SidebarActionSpec::plain(Action::NewTab),
+                SidebarActionSpec {
+                    action: Action::NewBrowserTab,
+                    label: Some("browser".to_string()),
+                },
+                SidebarActionSpec::plain(Action::user_command(0).unwrap()),
+            ],
+            "unknown command references drop from plus menus"
+        );
+        let screens =
+            resolve_plus_button(raw.status_bar.screens_plus.unwrap(), &command_ids, "status_bar");
+        assert_eq!(screens.label, " ⊕ ");
+        assert_eq!(screens.action, None);
+        assert!(screens.menu.is_empty());
+        // A blank label keeps the clickable default.
+        let blank = resolve_plus_button(
+            RawPlusButton { label: Some("   ".to_string()), action: None, menu: None },
+            &command_ids,
+            "tabs",
+        );
+        assert_eq!(blank.label, " + ");
+    }
+
+    #[test]
     fn raw_config_accepts_commands_section() {
         let raw: RawConfig = serde_json::from_value(json!({
             "commands": [
@@ -7764,7 +9274,8 @@ mod tests {
                 cwd: None,
             },
         ];
-        let commands = resolve_user_commands(raw, &mut keys);
+        let (commands, key_values) = resolve_user_command_specs(raw);
+        bind_user_command_chords(&mut keys, &commands, &key_values);
         assert_eq!(commands.len(), 2);
         assert_eq!(commands[0].id, "lazygit");
         // An ignored invalid entry does not reserve its id: a later valid
@@ -7786,7 +9297,8 @@ mod tests {
                 cwd: Some("   ".to_string()),
             },
         ];
-        let retried = resolve_user_commands(retry, &mut keys_retry);
+        let (retried, retried_keys) = resolve_user_command_specs(retry);
+        bind_user_command_chords(&mut keys_retry, &retried, &retried_keys);
         assert_eq!(retried.len(), 1);
         assert_eq!(retried[0].id, "retry");
         assert_eq!(retried[0].cwd, None, "blank cwd is treated as absent");
@@ -7834,7 +9346,8 @@ mod tests {
                 cwd: None,
             })
             .collect();
-        let commands = resolve_user_commands(raw, &mut keys);
+        let (commands, key_values) = resolve_user_command_specs(raw);
+        bind_user_command_chords(&mut keys, &commands, &key_values);
         assert_eq!(commands.len(), MAX_USER_COMMANDS);
         assert!(Action::user_command(MAX_USER_COMMANDS).is_none());
     }
@@ -7993,14 +9506,20 @@ mod tests {
         )
         .unwrap();
 
-        write_sidebar_plugin_at_path(
-            &path,
-            Some(&SidebarPluginConfig {
-                command: vec!["/tmp/plugin".to_string(), "--mode".to_string(), "test".to_string()],
-                cwd: Some("/tmp".to_string()),
-            }),
-        )
-        .unwrap();
+        assert_committed(
+            write_sidebar_plugin_at_path(
+                &path,
+                Some(&SidebarPluginConfig {
+                    command: vec![
+                        "/tmp/plugin".to_string(),
+                        "--mode".to_string(),
+                        "test".to_string(),
+                    ],
+                    cwd: Some("/tmp".to_string()),
+                }),
+            )
+            .unwrap(),
+        );
         let value: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(value["theme"]["sidebar_rail"], json!(42));
         assert_eq!(value["sidebar"]["width"], json!(31));
@@ -8008,11 +9527,173 @@ mod tests {
         assert_eq!(value["sidebar"]["plugin"]["command"][0], json!("/tmp/plugin"));
         assert_eq!(value["sidebar"]["plugin"]["cwd"], json!("/tmp"));
 
-        write_sidebar_plugin_at_path(&path, None).unwrap();
+        assert_committed(write_sidebar_plugin_at_path(&path, None).unwrap());
         let value: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(value["sidebar"]["width"], json!(31));
         assert!(value["sidebar"].get("plugin").is_none());
         assert_eq!(value["future"]["unknown"], json!(true));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sidebar_plugin_write_replaces_config_with_private_permissions() {
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+        let dir = TestDirectory::new("private-permissions");
+        let path = dir.path.join("cmux-tui.json");
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true).mode(0o644);
+        let file = options.open(&path).unwrap();
+        drop(file);
+
+        assert_committed(
+            write_sidebar_plugin_at_path(
+                &path,
+                Some(&SidebarPluginConfig { command: vec!["/tmp/plugin".to_string()], cwd: None }),
+            )
+            .unwrap(),
+        );
+
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "config permissions must not expose server.ws_token");
+    }
+
+    #[test]
+    fn config_write_failure_cleans_staging_file() {
+        let dir = TestDirectory::new("failure-cleanup");
+        let path = dir.path.join("cmux-tui.json");
+        std::fs::create_dir(&path).unwrap();
+
+        let error = write_config_value_atomic(&path, &json!({"server": {"ws_token": "secret"}}))
+            .expect_err("replacing a directory must fail");
+        assert!(!error.to_string().is_empty());
+
+        let entries = std::fs::read_dir(&dir.path).unwrap().collect::<Result<Vec<_>, _>>().unwrap();
+        assert_eq!(entries.len(), 1, "failed writes must remove their staging file");
+        assert_eq!(entries[0].path(), path);
+    }
+
+    #[test]
+    fn config_write_collision_preserves_existing_staging_file() {
+        let dir = TestDirectory::new("staging-collision");
+        let path = dir.path.join("cmux-tui.json");
+        let collision = dir.path.join("collision.tmp");
+        let replacement = dir.path.join("replacement.tmp");
+        std::fs::write(&collision, b"owned by another writer").unwrap();
+        let staging_paths = [collision.clone(), replacement.clone()];
+        let staging_path = |_: &Path, attempt: usize| staging_paths[attempt].clone();
+        let sync_parent = |_parent: &Path| -> anyhow::Result<ConfigParentSyncOutcome> {
+            Ok(ConfigParentSyncOutcome::Synced)
+        };
+
+        assert_committed(
+            write_config_value_atomic_with_sync_and_staging(
+                &path,
+                &json!({"server": {"ws_token": "secret"}}),
+                &sync_parent,
+                &staging_path,
+            )
+            .expect("a colliding staging path should be retried"),
+        );
+        assert_eq!(std::fs::read(&collision).unwrap(), b"owned by another writer");
+        assert!(!replacement.exists(), "the successful staging file must be renamed");
+    }
+
+    #[test]
+    fn config_parent_creation_handles_absolute_path_syntax() {
+        let dir = TestDirectory::new("absolute-parent");
+        let parent = dir.path.join("nested").join("config");
+
+        let created = ensure_config_parent_directory(&parent).unwrap();
+
+        assert!(parent.is_dir());
+        assert!(created.iter().any(|directory| directory == &parent));
+    }
+
+    #[test]
+    fn config_parent_directory_normalizes_relative_path() {
+        assert_eq!(config_parent_directory(Path::new("cmux-tui.json")), Path::new("."));
+        assert_eq!(config_parent_directory(Path::new("nested/cmux-tui.json")), Path::new("nested"));
+    }
+
+    #[test]
+    fn config_write_succeeds_after_parent_directory_sync() {
+        let dir = TestDirectory::new("parent-sync");
+        let path = dir.path.join("cmux-tui.json");
+        assert_committed(
+            write_config_value_atomic(&path, &json!({"server": {"ws_token": "secret"}})).unwrap(),
+        );
+
+        let value: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(value["server"]["ws_token"], json!("secret"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn config_write_does_not_report_failure_after_parent_sync_error() {
+        let dir = TestDirectory::new("parent-sync-failure");
+        let path = dir.path.join("cmux-tui.json");
+        let sync_parent = |_parent: &Path| -> anyhow::Result<ConfigParentSyncOutcome> {
+            Err(anyhow::anyhow!("injected parent directory sync failure"))
+        };
+
+        let result = write_config_value_atomic_with_sync(
+            &path,
+            &json!({"server": {"ws_token": "secret"}}),
+            &sync_parent,
+        );
+
+        assert!(matches!(
+            result.expect("a committed rename must not be reported as a write failure"),
+            ConfigWriteOutcome::CommittedButUnsynced { .. }
+        ));
+        let value: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(value["server"]["ws_token"], json!("secret"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn config_write_does_not_warn_for_unsupported_parent_sync() {
+        let dir = TestDirectory::new("unsupported-parent-sync");
+        let path = dir.path.join("cmux-tui.json");
+        let sync_parent = |_parent: &Path| -> anyhow::Result<ConfigParentSyncOutcome> {
+            Ok(ConfigParentSyncOutcome::Unsupported)
+        };
+
+        let outcome = write_config_value_atomic_with_sync(
+            &path,
+            &json!({"server": {"ws_token": "secret"}}),
+            &sync_parent,
+        )
+        .expect("a committed rename must not be reported as a write failure");
+        assert!(matches!(&outcome, ConfigWriteOutcome::CommittedWithoutDirectorySync));
+        assert!(outcome.into_unsynced_error().is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn config_write_syncs_parents_of_new_directories() {
+        let dir = TestDirectory::new("created-parent-sync");
+        let parent = dir.path.join("new").join("nested");
+        let path = parent.join("cmux-tui.json");
+        let synced = RefCell::new(Vec::new());
+        let sync_parent = |directory: &Path| -> anyhow::Result<ConfigParentSyncOutcome> {
+            synced.borrow_mut().push(directory.to_path_buf());
+            Ok(ConfigParentSyncOutcome::Synced)
+        };
+
+        assert_committed(
+            write_config_value_atomic_with_sync(
+                &path,
+                &json!({"server": {"ws_token": "secret"}}),
+                &sync_parent,
+            )
+            .unwrap(),
+        );
+
+        let synced = synced.into_inner();
+        assert!(synced.iter().any(|directory| directory == &parent));
+        assert!(synced.iter().any(|directory| directory == &dir.path));
     }
 }

@@ -11,6 +11,7 @@ public struct SSHPTYReconnectInputByteFilter: Sendable {
     private static let bell: UInt8 = 0x07
     private static let leftBracket: UInt8 = 0x5B
     private static let rightBracket: UInt8 = 0x5D
+    private static let dcs: UInt8 = 0x50
     private static let backslash: UInt8 = 0x5C
     private static let semicolon: UInt8 = 0x3B
     private static let questionMark: UInt8 = 0x3F
@@ -138,9 +139,34 @@ public struct SSHPTYReconnectInputByteFilter: Sendable {
             return oscColorReplySequence(in: bytes, at: start)
         case leftBracket:
             return csiProbeReplySequence(in: bytes, at: start)
+        case dcs:
+            return xtversionReplySequence(in: bytes, at: start)
         default:
             return .passThrough
         }
+    }
+
+    private static func xtversionReplySequence(
+        in bytes: [UInt8],
+        at start: Int
+    ) -> SequenceMatch {
+        // XTVERSION replies are DCS `>|text ST`. The payload is deliberately
+        // treated as opaque: only the protocol prefix identifies this reply.
+        guard start + 2 < bytes.count else { return .incomplete }
+        guard bytes[start + 2] == 0x3E else { return .passThrough }
+        guard start + 3 < bytes.count else { return .incomplete }
+        guard bytes[start + 3] == 0x7C else { return .passThrough }
+        var cursor = start + 4
+        while cursor < bytes.count {
+            if bytes[cursor] == escape {
+                guard cursor + 1 < bytes.count else { return .incomplete }
+                if bytes[cursor + 1] == backslash {
+                    return .strip(length: cursor - start + 2)
+                }
+            }
+            cursor += 1
+        }
+        return .incomplete
     }
 
     private static func oscColorReplySequence(

@@ -60,6 +60,7 @@ extension Workspace {
     }
 
     func openDockBrowserLinkInNewTab(panel: BrowserPanel, seed: BrowserNewTabNavigationSeed) -> Bool {
+        guard !isRetiredFromOwningTabManager else { return false }
         guard let dock = _dockSplit, let paneId = dock.paneId(forPanelId: panel.id) else { return false }
         return dock.newSurface(
             kind: .browser,
@@ -141,10 +142,15 @@ extension DockSplitStore {
     }
 
     /// Builds a Dock browser panel with the workspace's remote-browser settings.
+    ///
+    /// - Parameter renderInitialNavigation: When false, the caller can restore
+    ///   navigation metadata before making the WebKit view visible.
     func makeBrowserPanel(
+        id: UUID = UUID(),
         url: URL?,
         initialRequest: URLRequest? = nil,
         preferredProfileID: UUID? = nil,
+        renderInitialNavigation: Bool = true,
         bypassInsecureHTTPHostOnce: String? = nil,
         chromeVisibility: BrowserChromeVisibility = .visible,
         preloadInitialNavigationInBackground: Bool = false,
@@ -156,10 +162,12 @@ extension DockSplitStore {
         let resolvedBypassRemoteProxy =
             bypassRemoteProxy ?? settings.bypassRemoteProxy
         let panel = BrowserPanel(
+            id: id,
             workspaceId: workspaceId,
             profileID: preferredProfileID,
             initialURL: url,
             initialRequest: initialRequest,
+            renderInitialNavigation: renderInitialNavigation,
             preloadInitialNavigationInBackground:
                 preloadInitialNavigationInBackground,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,

@@ -87,8 +87,7 @@ import Testing
             selectedID: "terminal-1",
             selectedMacSurfaceID: surface.id,
             canCreateWorkspace: true,
-            hasActiveBrowser: false,
-            isChatMode: false
+            hasActiveBrowser: false
         )
         #expect(value.terminalRows.count == 1)
         #expect(value.macSurfaceRows == [TerminalPickerMenuRow(surface)])
@@ -113,8 +112,7 @@ import Testing
                 selectedID: terminal.id,
                 selectedMacSurfaceID: selectedMacSurfaceID,
                 canCreateWorkspace: true,
-                hasActiveBrowser: hasActiveBrowser,
-                isChatMode: false
+                hasActiveBrowser: hasActiveBrowser
             )
         }
 
@@ -144,7 +142,6 @@ import Testing
                 selectedID: nil,
                 canCreateWorkspace: true,
                 hasActiveBrowser: false,
-                isChatMode: false,
                 supportsBrowserStream: supportsBrowserStream
             )
         }
@@ -170,8 +167,7 @@ import Testing
             snapshotRows: snapshotRows,
             selectedID: selectedID,
             canCreateWorkspace: true,
-            hasActiveBrowser: false,
-            isChatMode: false
+            hasActiveBrowser: false
         )
     }
 }

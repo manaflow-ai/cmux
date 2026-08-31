@@ -27,10 +27,14 @@ final class MobilePairingModel {
         /// A ticket is ready to display.
         case ready(Ready)
         /// A phone has attached to the listener; show a paired/success state
-        /// instead of the QR + spinner.
-        case connected(Ready)
-        /// No phone-reachable Tailscale route is available yet.
-        case needsReachableTransport
+        /// instead of the QR + spinner. Carries the state to restore when the
+        /// connection count falls back to the baseline (the QR waiting state,
+        /// or the Iroh-only waiting state when no Tailscale route exists).
+        indirect case connected(from: State)
+        /// No phone-reachable Tailscale route is available yet. Carries the
+        /// live Iroh registration state so the window's Iroh tab keeps
+        /// working while Tailscale QR pairing is unavailable.
+        case needsReachableTransport(reachableViaIroh: Bool)
         /// The listener could not be started or no ticket could be minted.
         case failed(String)
     }
@@ -44,9 +48,25 @@ final class MobilePairingModel {
         /// The best route for manual phone entry, behind the "Copy IP" and
         /// "Copy Port" buttons. `nil` when no phone-dialable route exists.
         let manualEntry: CmxManualPairingEntry?
+        /// Whether this Mac's Iroh endpoint is registered, so signed-in
+        /// iPhones can discover it automatically without any QR.
+        let reachableViaIroh: Bool
 
         /// Whether at least one Tailscale route resolved.
         var reachableViaTailscale: Bool { !tailscaleLines.isEmpty }
+
+        /// The same ticket with its route-derived diagnostics recomputed from
+        /// a fresh host status. The displayed `attachURL` is intentionally
+        /// kept: the code on screen is never regenerated behind the user's
+        /// back; Refresh Code re-mints on demand.
+        func updatingRoutes(_ routes: [CmxAttachRoute]) -> Ready {
+            Ready(
+                attachURL: attachURL,
+                tailscaleLines: MobilePairingModel.tailscaleLines(routes),
+                manualEntry: CmxManualPairingEntry.best(in: routes),
+                reachableViaIroh: MobilePairingModel.hasIrohRoute(routes)
+            )
+        }
     }
 
     struct PairingRoutePlan: Equatable, Sendable {
@@ -173,8 +193,10 @@ final class MobilePairingModel {
             return
         }
         guard let routePlan = PairingRoutePlan.make(routes: status.routes) else {
-            state = .needsReachableTransport
-            observeRouteAvailability()
+            state = .needsReachableTransport(
+                reachableViaIroh: Self.hasIrohRoute(status.routes)
+            )
+            observeHostStatus()
             return
         }
         do {
@@ -199,15 +221,18 @@ final class MobilePairingModel {
                 Ready(
                     attachURL: attachURL,
                     tailscaleLines: Self.tailscaleLines(status.routes),
-                    manualEntry: CmxManualPairingEntry.best(in: status.routes)
+                    manualEntry: CmxManualPairingEntry.best(in: status.routes),
+                    reachableViaIroh: Self.hasIrohRoute(status.routes)
                 )
             )
-            observeConnections()
+            observeHostStatus()
         } catch MobileAttachTicketStoreError.noRoutes,
                 MobileAttachTicketStoreError.routeUnavailable,
                 MobileAttachTicketStoreError.invalidAttachURL {
-            state = .needsReachableTransport
-            observeRouteAvailability()
+            state = .needsReachableTransport(
+                reachableViaIroh: Self.hasIrohRoute(host.statusSnapshot().routes)
+            )
+            observeHostStatus()
         } catch {
             state = .failed(
                 String(
@@ -252,12 +277,6 @@ final class MobilePairingModel {
         }
     }
 
-    /// Launches the Mac browser sign-in flow. Fire-and-forget; the view re-runs
-    /// ``refresh()`` when the coordinator's auth state settles.
-    func signIn() {
-        state = .loading
-        AppDelegate.shared?.auth?.browserSignIn.beginSignIn()
-    }
     /// Cancels the connection observation. Call when the window closes.
     ///
     /// There is deliberately no timer to cancel: the displayed code never
@@ -265,15 +284,20 @@ final class MobilePairingModel {
     /// Tailscale address changes while the window sits open, the Refresh Code
     /// button re-mints on demand.
     func stopObserving() {
+        // Invalidate any pending generation-guarded work (e.g. the observer's
+        // spawned re-mint) so nothing revives the pairing host after close.
+        refreshGeneration &+= 1
         connectionObservationTask?.cancel()
         connectionObservationTask = nil
     }
 
-    /// Watches the mobile host's connection status while a code is displayed and
-    /// flips between `.ready` (QR shown, waiting) and `.connected` (a phone has
-    /// attached). Cancelled and superseded on each ``refresh()`` via the generation
-    /// guard, and on ``stopObserving()``.
-    private func observeConnections() {
+    /// Watches the mobile host's status while the window is open: flips
+    /// waiting states to `.connected` (and back) as phones attach and detach,
+    /// keeps the route-derived transport diagnostics fresh, and re-mints when
+    /// a Tailscale route first appears in the no-route state. Cancelled and
+    /// superseded on each ``refresh()`` via the generation guard, and on
+    /// ``stopObserving()``.
+    private func observeHostStatus() {
         connectionObservationTask?.cancel()
         let generation = refreshGeneration
         // Connections already present when this code is displayed (another phone
@@ -289,61 +313,87 @@ final class MobilePairingModel {
             for await status in self.host.statusUpdates() {
                 if Task.isCancelled { return }
                 guard generation == self.refreshGeneration else { return }
-                self.state = Self.connectionTransition(
+                let next = Self.statusTransition(
                     from: self.state,
+                    routes: status.routes,
                     activeConnectionCount: status.activeConnectionCount,
                     baselineConnectionCount: baseline
                 )
+                if next != self.state {
+                    self.state = next
+                }
+                // A Tailscale route appearing in the no-route state is the one
+                // change a state edit can't express: the QR needs a fresh mint.
+                if case .needsReachableTransport = self.state,
+                   PairingRoutePlan.make(routes: status.routes) != nil {
+                    Task { @MainActor [weak self] in
+                        // Re-check the generation at execution time: a window
+                        // close (stopObserving) or a newer refresh must not
+                        // let this pending re-mint revive the pairing host.
+                        guard let self, generation == self.refreshGeneration else { return }
+                        await self.refresh()
+                    }
+                    return
+                }
             }
         }
     }
 
-    /// Automatically replaces the temporary no-route state when a Tailscale
-    /// route appears. This is event-driven by the host status cache.
-    private func observeRouteAvailability() {
-        connectionObservationTask?.cancel()
-        let generation = refreshGeneration
-        connectionObservationTask = Task { [weak self] in
-            guard let self else { return }
-            for await status in self.host.statusUpdates() {
-                guard !Task.isCancelled,
-                      generation == self.refreshGeneration else { return }
-                guard PairingRoutePlan.make(routes: status.routes) != nil else {
-                    continue
-                }
-                Task { @MainActor [weak self] in
-                    await self?.refresh()
-                }
-                return
-            }
-        }
-    }
-
-    /// Computes the next render state from a connection-count change, relative to
-    /// the `baselineConnectionCount` captured when the code was displayed. A
-    /// connection *above* the baseline (a phone that attached after the QR was
-    /// shown) flips a displayed ticket from `.ready` to `.connected`; dropping
-    /// back to the baseline flips it back so the QR returns. All other states
-    /// pass through unchanged. Pure, so the transition is unit tested without a
-    /// live host.
-    static func connectionTransition(
+    /// Computes the next render state from a host status event. Pure, so the
+    /// transitions are unit tested without a live host.
+    ///
+    /// A connection *above* the `baselineConnectionCount` captured when the
+    /// waiting state was entered (a phone that attached afterwards) flips
+    /// `.ready` and `.needsReachableTransport` to `.connected`; dropping back
+    /// to the baseline restores the prior waiting state. Waiting states also
+    /// absorb route changes so the transport diagnostics stay live: the Iroh
+    /// flag, the Tailscale lines, and the manual entry follow `routes`, while
+    /// the displayed `attachURL` is deliberately never regenerated here (the
+    /// code on screen never changes behind the user's back; Refresh Code
+    /// re-mints on demand).
+    static func statusTransition(
         from current: State,
+        routes: [CmxAttachRoute],
         activeConnectionCount: Int,
         baselineConnectionCount: Int
     ) -> State {
         let connected = activeConnectionCount > baselineConnectionCount
         switch current {
         case let .ready(ready) where connected:
-            return .connected(ready)
-        case let .connected(ready) where !connected:
-            return .ready(ready)
+            return .connected(from: .ready(ready.updatingRoutes(routes)))
+        case let .ready(ready):
+            return .ready(ready.updatingRoutes(routes))
+        case .needsReachableTransport where connected:
+            return .connected(
+                from: .needsReachableTransport(
+                    reachableViaIroh: hasIrohRoute(routes)
+                )
+            )
+        case .needsReachableTransport:
+            return .needsReachableTransport(reachableViaIroh: hasIrohRoute(routes))
+        case let .connected(prior) where !connected:
+            return statusTransition(
+                from: prior,
+                routes: routes,
+                activeConnectionCount: activeConnectionCount,
+                baselineConnectionCount: baselineConnectionCount
+            )
+        case .connected:
+            return current
         default:
             return current
         }
     }
 
     private func enablePairingHost() {
+        // Never force the listener on under a managed remote-control disable.
+        guard MobileRemoteControlPolicy.isEnabled else { return }
         UserDefaults.standard.set(true, forKey: MobileHostService.listeningEnabledDefaultsKey)
+    }
+
+    /// Whether this Mac's Iroh endpoint is registered in `routes`.
+    private nonisolated static func hasIrohRoute(_ routes: [CmxAttachRoute]) -> Bool {
+        routes.contains { $0.kind == .iroh }
     }
 
     /// Whether `route` can serve a physical iPhone: a Tailscale route that does
@@ -354,7 +404,7 @@ final class MobilePairingModel {
         route.kind == .tailscale && !CmxLoopbackHost().matches(route)
     }
 
-    private static func tailscaleLines(_ routes: [CmxAttachRoute]) -> [String] {
+    private nonisolated static func tailscaleLines(_ routes: [CmxAttachRoute]) -> [String] {
         routes.compactMap { route in
             guard route.kind == .tailscale,
                   case let .hostPort(host, port) = route.endpoint else {

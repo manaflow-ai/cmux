@@ -152,6 +152,16 @@ PY
     rm -rf "$workdir"
     return 1
   fi
+  # The runtime reads CMUXKeychainAccessGroup verbatim for kSecAttrAccessGroup.
+  # An unsigned archive bakes it without the $(AppIdentifierPrefix) team prefix,
+  # a group the signature never grants, which kills every SecItem call at
+  # runtime (silent dead transport). Fail the upload instead of shipping it.
+  plist_keychain_group="$("$PLISTBUDDY" -c 'Print :CMUXKeychainAccessGroup' "$app/Info.plist" 2>/dev/null || true)"
+  if [[ -n "$plist_keychain_group" && "$plist_keychain_group" != "$expected_app_id" ]]; then
+    echo "error: Info.plist CMUXKeychainAccessGroup is '$plist_keychain_group', expected '$expected_app_id' (unsigned-archive AppIdentifierPrefix bake); refusing to upload a keychain-broken build: $app" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
 
   rm -rf "$workdir"
   return 0
@@ -1220,6 +1230,19 @@ PY
     -json "[\"$DEVELOPMENT_TEAM.$PRODUCT_BUNDLE_IDENTIFIER\"]" \
     "$MERGED_ENTITLEMENTS"
   plutil -lint "$MERGED_ENTITLEMENTS" >/dev/null
+
+  # The archive is built unsigned, so $(AppIdentifierPrefix) in Info.plist
+  # expanded to an empty string and CMUXKeychainAccessGroup baked as the bare
+  # bundle id. The runtime reads that key verbatim for kSecAttrAccessGroup, and
+  # the entitlements above never grant a prefix-less group, so every SecItem
+  # call fails with errSecMissingEntitlement and the iroh transport dies before
+  # any broker fetch. Rewrite the key to the exact group the entitlements
+  # grant, then sign, so the signature covers the corrected plist.
+  if "$PLISTBUDDY" -c 'Print :CMUXKeychainAccessGroup' "$RESIGN_APP/Info.plist" >/dev/null 2>&1; then
+    "$PLISTBUDDY" -c "Set :CMUXKeychainAccessGroup $DEVELOPMENT_TEAM.$PRODUCT_BUNDLE_IDENTIFIER" \
+      "$RESIGN_APP/Info.plist"
+    echo "Patched CMUXKeychainAccessGroup -> $DEVELOPMENT_TEAM.$PRODUCT_BUNDLE_IDENTIFIER"
+  fi
 
   codesign --force --sign "$RESIGN_IDENTITY" --entitlements "$MERGED_ENTITLEMENTS" --timestamp "$RESIGN_APP"
 

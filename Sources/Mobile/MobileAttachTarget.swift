@@ -32,26 +32,38 @@ enum MobileAttachTarget: String, Sendable {
                 selected = irohRoutes
                 break
             }
-            let physicalRoutes = routes.filter {
-                $0.kind == .tailscale && !CmxLoopbackHost().matches($0)
-            }
-            // A route-id filter can leave `tailscale_2` as the only route.
-            // Reindex the selected endpoints to the canonical sequence the v2
-            // QR decoder reconstructs, keeping the destination lossless while
-            // avoiding a token-bearing v1 fallback on physical devices.
-            selected = try physicalRoutes.enumerated().map { index, route in
-                try CmxAttachRoute(
-                    id: index == 0 ? "tailscale" : "tailscale_\(index + 1)",
-                    kind: .tailscale,
-                    endpoint: route.endpoint,
-                    priority: 10 + index * 10
-                )
-            }
+            selected = try Self.canonicalTailscaleRoutes(from: routes)
         }
         guard !selected.isEmpty else {
             throw MobileAttachTicketStoreError.routeUnavailable
         }
         return selected
+    }
+
+    /// The non-loopback Tailscale routes of `routes`, reindexed to the
+    /// canonical id/priority sequence the v2 pairing decoder resynthesizes.
+    ///
+    /// A route-id filter can leave `tailscale_2` as the only route, and mixed
+    /// snapshots interleave Iroh and loopback entries. Reindexing keeps the
+    /// disclosed subsequence expressible in the bare `host:port` grammar
+    /// (which encodes neither ids nor priorities) without a token-bearing v1
+    /// fallback. Shared by the physical-device destination and the pairing
+    /// window's Tailscale compatibility code.
+    static func canonicalTailscaleRoutes(
+        from routes: [CmxAttachRoute]
+    ) throws -> [CmxAttachRoute] {
+        try routes
+            .filter { $0.kind == .tailscale && !CmxLoopbackHost().matches($0) }
+            .enumerated().map { index, route in
+                try CmxAttachRoute(
+                    id: index == 0
+                        ? CmxAttachTransportKind.tailscale.rawValue
+                        : "\(CmxAttachTransportKind.tailscale.rawValue)_\(index + 1)",
+                    kind: .tailscale,
+                    endpoint: route.endpoint,
+                    priority: 10 + index * 10
+                )
+            }
     }
 
     private static func identityOnlyIrohRoutes(

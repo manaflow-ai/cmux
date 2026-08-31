@@ -50,7 +50,7 @@ struct MobileAutoConnectMigrationExplanation: View {
     private var bodyText: some View {
         Text(L10n.string(
             "mobile.autoConnectMigration.body",
-            defaultValue: "Auto-Connect needs cmux 0.64.20 or later on your Mac for its authenticated, end-to-end encrypted connection."
+            defaultValue: "Iroh needs cmux 0.64.20 or later on your Mac for its authenticated, end-to-end encrypted connection."
         ))
         .font(.body)
         .accessibilityIdentifier("MobileAutoConnectMigrationBody")
@@ -59,7 +59,7 @@ struct MobileAutoConnectMigrationExplanation: View {
     private var guidance: some View {
         Text(L10n.string(
             "mobile.autoConnectMigration.guidance",
-            defaultValue: "cmux 0.64.17 still works over Tailscale. Choose Connect iPhone/iPad on that Mac and scan its Pair iPhone code once."
+            defaultValue: "Older cmux versions still work over Tailscale. Open Tailscale Pairing on the Mac and scan its QR, or enter its numeric Tailscale IP and port once."
         ))
         .font(.body)
         .foregroundStyle(.secondary)

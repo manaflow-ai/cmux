@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import CmuxFoundation
 import Foundation
 import OSLog
 
@@ -18,6 +19,8 @@ final class AgentStallSupervisor {
     let retryActionResolver: AgentStallRetryActionResolver
     let settings: AgentSessionAutoRetrySettings
     let presentation: AgentStallPresentation
+    /// Clock used by each panel's cancellation-aware retry scheduler.
+    let retryClock: any Clock<Duration>
     var statesByPanelID: [UUID: AgentStallSupervisorPanelState] = [:]
     var internalInputPanelIDs: Set<UUID> = []
 
@@ -31,13 +34,15 @@ final class AgentStallSupervisor {
         classifier: AgentStallClassifier = AgentStallClassifier(),
         policy: AgentStallSupervisorPolicy = .standard,
         retryActionResolver: AgentStallRetryActionResolver = AgentStallRetryActionResolver(),
-        settings: AgentSessionAutoRetrySettings = AgentSessionAutoRetrySettings()
+        settings: AgentSessionAutoRetrySettings = AgentSessionAutoRetrySettings(),
+        retryClock: any Clock<Duration> = ContinuousClock()
     ) {
         self.app = app
         self.classifier = classifier
         self.policy = policy
         self.retryActionResolver = retryActionResolver
         self.settings = settings
+        self.retryClock = retryClock
         self.outputDemand = outputDemand
         self.presentation = AgentStallPresentation(notificationStore: notificationStore)
 
@@ -49,7 +54,7 @@ final class AgentStallSupervisor {
 
     deinit {
         if let settingsObserver { settings.removeDidChangeObserver(settingsObserver) }
-        for state in statesByPanelID.values { state.retryTimer?.invalidate() }
+        for state in statesByPanelID.values { state.retryScheduler?.cancel() }
         outputDemand.clearAllCaptures()
     }
 
@@ -435,7 +440,7 @@ final class AgentStallSupervisor {
         // overwhelmingly common unmanaged/no-recovery case must stay an O(1)
         // dictionary miss with no lock, workspace scan, or string formatting.
         guard let state = statesByPanelID.removeValue(forKey: panelID) else { return }
-        state.retryTimer?.invalidate()
+        state.retryScheduler?.cancel()
         // A generic completion may retain its tail briefly while waiting for
         // structured failure evidence. Any cancellation (including explicit
         // user input) must discard that tail so it cannot bleed into a later

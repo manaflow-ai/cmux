@@ -314,7 +314,7 @@ struct RemoteTmuxNotificationLifecycleTests {
             appDelegate.recoverableMainWindowRoute(windowId: harness.windowID)?.tabManager
                 === harness.manager
         )
-        appDelegate.retireRecoverableMainWindowRoutesWithoutRegisteredTerminalSurfaces(
+        appDelegate.retireInactiveRecoverableMainWindowRoutes(
             reason: "remote-tmux-notification-lifecycle-test"
         )
         #expect(

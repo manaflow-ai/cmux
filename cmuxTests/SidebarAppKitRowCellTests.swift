@@ -134,7 +134,6 @@ struct SidebarAppKitRowCellTests {
             isBeingDragged: false,
             topDropIndicatorVisible: false,
             bottomDropIndicatorVisible: false,
-            isBonsplitWorkspaceDropActive: false,
             settings: settings,
             isChecklistExpanded: false,
             checklistAddFieldActivationToken: 0,

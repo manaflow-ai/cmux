@@ -53,8 +53,8 @@ extension AgentStallSupervisor {
             checkpointID: binding.checkpointId ?? "",
             panelID: panelID
         )
-        state.retryTimer?.invalidate()
-        state.retryTimer = nil
+        state.retryScheduler?.cancel()
+        state.retryScheduler = nil
         state.retryToken = nil
         state.generation &+= 1
         state.lifecycle = .running

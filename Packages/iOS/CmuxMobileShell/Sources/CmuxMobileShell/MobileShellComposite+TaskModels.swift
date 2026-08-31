@@ -36,30 +36,15 @@ extension MobileShellComposite {
         )?.client.instanceID
     }
 
-    /// Resolves a secondary control subscription for a physical Mac: the
-    /// exact pairing when a tag is given, otherwise any same-device pairing.
-    /// Mirrors the pre-MacPairingKey device-id lookup these capability
-    /// checks were written against.
+    /// Resolves a secondary control subscription for one exact pairing.
+    /// A missing tag names only a legacy untagged row. It never selects an
+    /// arbitrary Stable/Nightly sibling on the same physical Mac.
     func controlSubscriptionMatching(
         macDeviceID: String,
         instanceTag: String?
     ) -> SecondaryMacSubscription? {
         let probe = MacPairingKey(macDeviceID: macDeviceID, instanceTag: instanceTag)
-        if probe.normalizedInstanceTag != nil,
-           let exact = secondaryMacSubscriptions[probe] {
-            return exact
-        }
-        for key in secondaryMacSubscriptions.keys
-        where key.canonicalMacDeviceID == probe.canonicalMacDeviceID {
-            guard let subscription = secondaryMacSubscriptions[key] else { continue }
-            if instanceTag == nil
-                || key.normalizedInstanceTag == probe.normalizedInstanceTag
-                || subscription.authenticatedInstanceTag == instanceTag
-                || subscription.storedInstanceTag == instanceTag {
-                return subscription
-            }
-        }
-        return nil
+        return secondaryMacSubscriptions[probe]
     }
 
     /// Whether the selected Mac instance advertises task model discovery.
@@ -305,10 +290,15 @@ extension MobileShellComposite {
         macDeviceID: String,
         instanceTag: String?
     ) -> MacConnection? {
-        guard let connection = connections[macDeviceID] else { return nil }
-        guard let instanceTag else { return connection }
-        guard connection.storedInstanceTag == instanceTag
-                || connection.authenticatedInstanceTag == instanceTag else {
+        let key = MacPairingKey(macDeviceID: macDeviceID, instanceTag: instanceTag)
+        guard let connection = connections[key] else { return nil }
+        guard macInstanceTagAuthority.sameStoredAuthority(
+            connection.storedInstanceTag,
+            instanceTag
+        ) || macInstanceTagAuthority.sameStoredAuthority(
+            connection.authenticatedInstanceTag,
+            instanceTag
+        ) else {
             return nil
         }
         return connection
@@ -342,18 +332,18 @@ extension MobileShellComposite {
     /// - Parameters:
     ///   - provider: Coding-agent provider to resolve.
     ///   - macDeviceID: Physical Mac selected in the task composer.
-    ///   - instanceTag: Exact paired instance; the cache intentionally remains
-    ///     device/provider scoped so app rebuilds on one Mac share discovery.
+    ///   - instanceTag: Exact paired instance. Stable and Nightly keep separate
+    ///     discovery results even when their physical device id is shared.
     /// - Returns: Previously fetched models, or `nil`.
     public func discoveredTaskModels(
         provider: MobileTaskAgentProvider,
         macDeviceID: String,
-        instanceTag _: String?
+        instanceTag: String?
     ) -> [MobileTaskAgentModel]? {
         discoveredTaskModelResult(
             provider: provider,
             macDeviceID: macDeviceID,
-            instanceTag: nil
+            instanceTag: instanceTag
         )?.models
     }
 
@@ -361,11 +351,12 @@ extension MobileShellComposite {
     public func discoveredTaskModelResult(
         provider: MobileTaskAgentProvider,
         macDeviceID: String,
-        instanceTag _: String?
+        instanceTag: String?
     ) -> MobileTaskModelListResult? {
         taskModelCache[
             MobileTaskModelCacheKey(
                 macDeviceID: macDeviceID,
+                instanceTag: instanceTag,
                 provider: provider
             )
         ]?.result
@@ -392,6 +383,7 @@ extension MobileShellComposite {
         await refreshTaskModels(
             provider: provider,
             macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
             hostResultLoader: { [weak self] in
                 guard let self else { return nil }
                 do {
@@ -415,11 +407,13 @@ extension MobileShellComposite {
     private func refreshTaskModels(
         provider: MobileTaskAgentProvider,
         macDeviceID: String,
+        instanceTag: String? = nil,
         hostResultLoader: @escaping @Sendable () async -> MobileTaskModelListResult?,
         didUpdate: (@MainActor (MobileTaskModelListResult) -> Void)? = nil
     ) async {
         let key = MobileTaskModelCacheKey(
             macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
             provider: provider
         )
         let catalogClient = taskModelCatalogClient
@@ -504,10 +498,12 @@ extension MobileShellComposite {
     func refreshTaskModels(
         provider: MobileTaskAgentProvider,
         macDeviceID: String,
+        instanceTag: String? = nil,
         hostResult: MobileTaskModelListResult?
     ) async {
         let key = MobileTaskModelCacheKey(
             macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
             provider: provider
         )
         if let hostResult,
@@ -541,11 +537,12 @@ extension MobileShellComposite {
     public func taskModelListSource(
         provider: MobileTaskAgentProvider,
         macDeviceID: String,
-        instanceTag _: String?
+        instanceTag: String?
     ) -> MobileTaskModelListSource? {
         taskModelCache[
             MobileTaskModelCacheKey(
                 macDeviceID: macDeviceID,
+                instanceTag: instanceTag,
                 provider: provider
             )
         ]?.result.source
@@ -555,11 +552,12 @@ extension MobileShellComposite {
     func taskModelsFetchedAt(
         provider: MobileTaskAgentProvider,
         macDeviceID: String,
-        instanceTag _: String?
+        instanceTag: String?
     ) -> Date? {
         taskModelCache[
             MobileTaskModelCacheKey(
                 macDeviceID: macDeviceID,
+                instanceTag: instanceTag,
                 provider: provider
             )
         ]?.fetchedAt

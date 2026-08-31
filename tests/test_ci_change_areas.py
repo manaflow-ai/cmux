@@ -233,6 +233,87 @@ def run_linux_preflight(needs: dict[str, object]) -> subprocess.CompletedProcess
     )
 
 
+def run_app_host_unit_test_step(
+    shard_mode: str = "selectors",
+) -> tuple[subprocess.CompletedProcess[str], bool]:
+    script = workflow_job_step_script("app-host-unit-tests", "Run unit tests")
+    script = script.replace("${{ matrix.shard }}", "1")
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        runner_temp = root / "runner"
+        fake_bin = root / "bin"
+        ci_scripts = root / "scripts" / "ci"
+        runner_temp.mkdir()
+        fake_bin.mkdir()
+        ci_scripts.mkdir(parents=True)
+
+        shard_helper = ci_scripts / "cmux_unit_test_shard.py"
+        shard_helper.write_text(
+            """
+import os
+import sys
+from pathlib import Path
+
+mode = os.environ.get("CMUX_TEST_SHARD_MODE", "selectors")
+if mode == "fail":
+    raise SystemExit(23)
+output = Path(sys.argv[sys.argv.index("--output") + 1])
+output.parent.mkdir(parents=True, exist_ok=True)
+selectors = "" if mode == "empty" else "-only-testing:cmuxTests/FakeTests\\n"
+output.write_text(selectors, encoding="utf-8")
+""".lstrip(),
+            encoding="utf-8",
+        )
+
+        console_runner = ci_scripts / "run-in-console-session.sh"
+        console_runner.write_text(
+            """
+#!/bin/bash
+set -euo pipefail
+counter="${CMUX_TEST_BATCH_COUNTER:?}"
+printf 'invoked\n' > "${CMUX_TEST_RUNNER_MARKER:?}"
+iteration=0
+if [ -f "$counter" ]; then
+  iteration="$(cat "$counter")"
+fi
+iteration=$((iteration + 1))
+printf '%s\n' "$iteration" > "$counter"
+if [ "$iteration" -eq 1 ]; then
+  echo "Executed 2 tests, with 2 failures (0 unexpected)"
+  exit 1
+fi
+echo "simulated app-host crash before test summary" >&2
+exit 9
+""".lstrip(),
+            encoding="utf-8",
+        )
+        console_runner.chmod(0o755)
+
+        fake_sleep = fake_bin / "sleep"
+        fake_sleep.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        fake_sleep.chmod(0o755)
+
+        runner_marker = root / "runner-invoked"
+        result = subprocess.run(
+            ["bash", "-c", script],
+            cwd=root,
+            env={
+                **os.environ,
+                "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                "RUNNER_TEMP": str(runner_temp),
+                "CMUX_DERIVED_DATA_PATH": str(root / "derived-data"),
+                "CMUX_TEST_BATCH_COUNTER": str(root / "batch-counter"),
+                "CMUX_TEST_RUNNER_MARKER": str(runner_marker),
+                "CMUX_TEST_SHARD_MODE": shard_mode,
+            },
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        return result, runner_marker.exists()
+
+
 def linux_preflight_needs(
     *,
     outputs: dict[str, str] | None = None,
@@ -249,6 +330,7 @@ def linux_preflight_needs(
     job_results = {
         "changes": "success",
         "workflow-guard-tests": "success",
+        "ghosttykit-release-check": "success",
         "remote-daemon-tests": "success",
         "web-typecheck": "success",
         "react-apps-check": "success",
@@ -472,6 +554,55 @@ def test_ghosttykit_checksum_pin_runs_macos() -> None:
     assert_areas(["scripts/ghosttykit-checksums.txt"], macos=True, web=False, go=False)
 
 
+def test_ghosttykit_checksum_pr_uses_release_guard_only() -> None:
+    # The classifier remains macOS-aware for manual/full CI routing above, but
+    # a checksum-only pull request takes the dedicated release-check path before
+    # invoking the classifier so it cannot be hidden by a build cache.
+    result, outputs = run_detect_step_for_paths(["scripts/ghosttykit-checksums.txt"])
+
+    assert "GhosttyKit provenance-only PR; running the release guard." in result.stdout
+    assert outputs == [
+        "macos=false",
+        "web=false",
+        "go=false",
+        "agent_session_web=false",
+    ]
+
+
+def test_ghosttykit_guard_wiring_pr_stays_on_release_guard() -> None:
+    result, outputs = run_detect_step_for_paths(
+        [
+            "ghostty",
+            "scripts/download-prebuilt-ghosttykit.sh",
+            "scripts/validate-xcframework-archive.py",
+            "scripts/ghosttykit-checksums.txt",
+            "tests/test_ci_ghosttykit_release_check.sh",
+            "tests/test_ci_change_areas.py",
+            ".github/workflows/ci.yml",
+        ]
+    )
+
+    assert "GhosttyKit provenance-only PR; running the release guard." in result.stdout
+    assert outputs == [
+        "macos=false",
+        "web=false",
+        "go=false",
+        "agent_session_web=false",
+    ]
+
+
+def test_workflow_only_pr_keeps_fail_open_routing() -> None:
+    result, outputs = run_detect_step_for_paths([".github/workflows/ci.yml"])
+
+    assert "CI router changed; running all CI areas." in result.stdout
+    assert outputs == [
+        "macos=true",
+        "web=true",
+        "go=true",
+        "agent_session_web=true",
+    ]
+
+
 def test_app_bundled_markdown_runs_macos() -> None:
     assert_areas(["THIRD_PARTY_LICENSES.md"], macos=True, web=False, go=False)
 
@@ -626,6 +757,7 @@ def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:
     assert "name: linux-preflight" in block
     assert "      - changes" in block
     assert "      - workflow-guard-tests" in block
+    assert "      - ghosttykit-release-check" in block
     assert "      - remote-daemon-tests" in block
     assert "      - web-typecheck" in block
     assert "      - react-apps-check" in block
@@ -633,7 +765,7 @@ def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:
     assert "      - web-db-migrations" in block
     assert "      - agent-session-web-resources" in block
     assert "if: ${{ always() }}" in block
-    assert 'required = ("changes", "workflow-guard-tests")' in block
+    assert 'required = ("changes", "workflow-guard-tests", "ghosttykit-release-check")' in block
     assert 'allowed_routed = {' in block
     assert 'routed_outputs = {' in block
     assert 'bad[name] = f"{result} (route {route}=true)"' in block
@@ -718,6 +850,40 @@ def test_remote_tmux_layout_identity_uses_a_nontolerant_focused_gate() -> None:
     assert step in block
     assert selector in block
     assert block.index(step) < block.index("- name: Run unit tests")
+
+
+def test_settings_store_noop_persistence_uses_a_nontolerant_focused_gate() -> None:
+    block = workflow_job_block("app-host-unit-tests")
+    step = "Run settings file-store no-op persistence regression"
+    selector = "-only-testing:cmuxTests/KeyboardShortcutSettingsFileStoreNoOpPersistenceTests"
+
+    assert step in block
+    assert selector in block
+    assert block.index(step) < block.index("- name: Run unit tests")
+
+
+def test_determinism_workflow_runs_self_test_before_strict_scan() -> None:
+    script = workflow_job_step_script("workflow-guard-tests", "Validate test determinism gate")
+
+    assert "scripts/check-test-determinism.py --self-test" in script
+    assert "scripts/check-test-determinism.py --strict" in script
+    assert script.index("--self-test") < script.index("--strict")
+
+
+def test_app_host_multi_batch_failure_cannot_reuse_prior_expected_summary() -> None:
+    result, runner_invoked = run_app_host_unit_test_step()
+
+    assert runner_invoked
+    assert result.returncode != 0, result.stdout
+    assert "simulated app-host crash before test summary" in result.stdout
+
+
+def test_app_host_rejects_failed_or_empty_shard_generation() -> None:
+    for shard_mode in ("fail", "empty"):
+        result, runner_invoked = run_app_host_unit_test_step(shard_mode)
+
+        assert result.returncode != 0, (shard_mode, result.stdout)
+        assert not runner_invoked, (shard_mode, result.stdout)
 
 
 def test_agent_session_web_resources_runs_only_for_agent_session_web_area() -> None:

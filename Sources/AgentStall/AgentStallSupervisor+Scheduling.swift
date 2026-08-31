@@ -1,4 +1,5 @@
 import Foundation
+import CmuxFoundation
 import OSLog
 
 @MainActor
@@ -21,7 +22,7 @@ extension AgentStallSupervisor {
             cancel(panelID: panelID, reason: "missing-process-generation")
             return
         }
-        state.retryTimer?.invalidate()
+        state.retryScheduler?.cancel()
 
         let token = UUID()
         let request = AgentStallRetryRequest(
@@ -41,16 +42,16 @@ extension AgentStallSupervisor {
         )
         state.retryToken = token
         state.phase = .retryWaiting
-        // A one-shot RunLoop timer is the cancellable event source for this
-        // genuine backoff deadline; it never polls or waits for state to settle.
-        let timer = Timer(timeInterval: TimeInterval(delaySeconds), repeats: false) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.injectRetry(request)
-            }
-        }
-        state.retryTimer = timer
+        // A cancellation-aware scheduler owns this genuine backoff deadline;
+        // it never polls or waits for state to settle. The injected clock keeps
+        // the transition deterministic in tests.
+        let scheduler = state.retryScheduler
+            ?? MainActorDeferredActionScheduler(clock: retryClock)
+        state.retryScheduler = scheduler
         statesByPanelID[panelID] = state
-        RunLoop.main.add(timer, forMode: .common)
+        scheduler.schedule(after: .seconds(delaySeconds)) { [weak self] in
+            self?.injectRetry(request)
+        }
 
         presentation.setRetryStatus(
             owner: owner,
@@ -120,7 +121,7 @@ extension AgentStallSupervisor {
 
         state.phase = .retrying
         state.retryAttempts = request.attempt
-        state.retryTimer = nil
+        state.retryScheduler = nil
         statesByPanelID[request.panelID] = state
         presentation.clearStatus(owner: owner, panelID: request.panelID)
         Self.logger.info(
@@ -135,8 +136,8 @@ extension AgentStallSupervisor {
         reason: String
     ) {
         if var state = statesByPanelID[panelID] {
-            state.retryTimer?.invalidate()
-            state.retryTimer = nil
+            state.retryScheduler?.cancel()
+            state.retryScheduler = nil
             state.retryToken = nil
             state.phase = .exhausted
             statesByPanelID[panelID] = state

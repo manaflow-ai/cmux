@@ -32,11 +32,13 @@ export interface ApnsNotificationInput {
   /** Whether a tap may resolve the surface outside `workspaceId`. */
   readonly retargetsToLiveSurfaceOwner?: boolean;
   readonly macDeviceId?: string | null;
+  /** The cmux app-instance tag paired with `macDeviceId`. */
+  readonly macInstanceTag?: string | null;
   /**
    * Stable Mac-side notification id. Surfaced in the payload as
    * `cmux.notificationId` so an iOS swipe-dismiss can tell the Mac which
-   * notification was cleared. The sender also stamps it as `apns-collapse-id`
-   * so a later Mac→iOS dismiss can target this exact delivered banner.
+   * notification was cleared. The sender derives an exact-Mac-instance-scoped
+   * `apns-collapse-id` from this id when the owner identity is available.
    */
   readonly notificationId?: string | null;
   /** Opaque logical-source-event id used for safe diagnostics and retries. */
@@ -105,6 +107,7 @@ export function buildApnsPayload(input: ApnsNotificationInput): Record<string, u
     cmux.retargetsToLiveSurfaceOwner = input.retargetsToLiveSurfaceOwner;
   }
   if (input.macDeviceId) cmux.macDeviceId = input.macDeviceId;
+  if (input.macInstanceTag) cmux.macInstanceTag = input.macInstanceTag;
   if (input.notificationId) cmux.notificationId = input.notificationId;
   if (input.correlationId) cmux.correlationId = input.correlationId;
 
@@ -128,6 +131,8 @@ function buildDismissPayload(input: ApnsNotificationInput): Record<string, unkno
   const cmux: Record<string, unknown> = {
     dismissedIds: [...(input.dismissedIds ?? [])],
   };
+  if (input.macDeviceId) cmux.macDeviceId = input.macDeviceId;
+  if (input.macInstanceTag) cmux.macInstanceTag = input.macInstanceTag;
   if (input.correlationId) cmux.correlationId = input.correlationId;
   return { aps, cmux };
 }

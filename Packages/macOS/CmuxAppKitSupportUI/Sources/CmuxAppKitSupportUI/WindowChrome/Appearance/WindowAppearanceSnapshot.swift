@@ -87,6 +87,34 @@ public struct WindowAppearanceSnapshot {
         )
     }
 
+    /// Resolves the light/dark decision chrome should render with over the
+    /// terminal backdrop.
+    ///
+    /// An opaque terminal theme owns its rendered pixels, so the theme's own
+    /// scheme stays authoritative even when the window appearance disagrees.
+    /// A translucent theme composites over the window base painted by the
+    /// ambient appearance, so the readable answer must come from that rendered
+    /// result — otherwise a translucent dark theme in a light window keys
+    /// white chrome icons onto a visibly light backdrop.
+    public static func resolvedChromeColorScheme(
+        terminalScheme: ColorScheme?,
+        backgroundColor: NSColor,
+        opacity: Double,
+        ambientScheme: ColorScheme
+    ) -> ColorScheme {
+        let clamped = Double(clampedOpacity(opacity))
+        if clamped >= 0.999 {
+            if let terminalScheme { return terminalScheme }
+            return WindowChromeColorResolver().readableColorScheme(for: backgroundColor)
+        }
+        let composited = compositedTerminalColor(
+            backgroundColor: backgroundColor,
+            opacity: clamped,
+            over: resolvedColor(.windowBackgroundColor, for: ambientScheme)
+        )
+        return WindowChromeColorResolver().readableColorScheme(for: composited)
+    }
+
     /// Returns the concrete AppKit appearance matching a resolved scheme.
     ///
     /// AppKit semantic colors resolve against a view's effective appearance;

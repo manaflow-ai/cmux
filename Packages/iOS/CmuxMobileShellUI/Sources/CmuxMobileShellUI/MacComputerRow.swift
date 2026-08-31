@@ -50,14 +50,14 @@ struct MacComputerRow: View {
             }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("MobileComputerRow-\(computer.id)")
+        .accessibilityIdentifier("MobileComputerRow-\(computer.connectionRef.automationID)")
     }
 
     @ViewBuilder
     private var rowContainer: some View {
         switch style {
         case .computers:
-            NavigationLink(value: computer.id) {
+            NavigationLink(value: computer.connectionRef) {
                 rowLabel
             }
             .accessibilityElement(children: .combine)
@@ -108,10 +108,30 @@ struct MacComputerRow: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 8)
+            caffeineIndicator
             badge
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
+    }
+
+    /// Small cup marking a Mac that cmux is keeping awake. The snapshot only
+    /// carries the state over a live connection, so a stale cup can't linger
+    /// on an unreachable Mac.
+    @ViewBuilder
+    private var caffeineIndicator: some View {
+        if computer.caffeineEnabled == true {
+            Image(systemName: "cup.and.saucer.fill")
+                .font(.caption)
+                .foregroundStyle(.orange)
+                .accessibilityLabel(L10n.string(
+                    "mobile.computers.keepAwake.active",
+                    defaultValue: "Keeping Mac awake"
+                ))
+                .accessibilityIdentifier(
+                    "MobileComputerCaffeine-\(computer.connectionRef.automationID)"
+                )
+        }
     }
 
     /// The connection dot: green only when the PHONE is actually connected to this
@@ -130,7 +150,9 @@ struct MacComputerRow: View {
                 .font(.caption2)
                 .foregroundStyle(dotColor)
                 .accessibilityLabel(primaryStatusPhrase)
-                .accessibilityIdentifier("MobileComputerStatus-\(computer.id)-\(statusIdentifierSuffix)")
+                .accessibilityIdentifier(
+                    "MobileComputerStatus-\(computer.connectionRef.automationID)-\(statusIdentifierSuffix)"
+                )
         }
     }
 
@@ -157,7 +179,8 @@ struct MacComputerRow: View {
     /// connection on the Computers screen, presence on the reconnect list.
     private var statusIdentifierSuffix: String {
         switch style {
-        case .computers: return isConnected ? "connected" : "disconnected"
+        case .computers:
+            return isConnected ? "connected" : "disconnected"
         case .reconnect: return computer.presence == .online ? "online" : "offline"
         }
     }

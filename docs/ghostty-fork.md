@@ -12,12 +12,64 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `f76c132e5`, the fork-main merge of
-https://github.com/manaflow-ai/ghostty/pull/191. Its `533c27ae1` fix preserves
-saved cursors while formatter replay restores the active cursor after margins,
-origin mode, and tabstop state. The pin includes the prior fork changes below,
-including VT stream-boundary visibility at `9513174f2` and Hangul canonical
-font resolution at `3fbdd078d`.
+The submodule pinned by this branch is `466f85867`, reachable from fork `main`.
+It carries the renderer/API compatibility pin plus the Fish SSH feature-gating
+fix (`fd13a3fc2`): the embedded Ghostty CLI wrapper is installed whenever
+either `ssh-env` or `ssh-terminfo` is enabled. The pin includes the prior fork
+changes below, including tokened iOS render dispositions, VT formatter cursor
+restoration, VT stream-boundary visibility, and Hangul canonical font
+resolution.
+
+The corresponding universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-466f8586749216b686c5397d9f03e10eac1955c4-crashsubdir-cmux-crash-sentry-off-v1
+with SHA-256 `a27c76e786da0b625b4cab8c0e0ae052e559bbf598fecca1935087b262844afb`
+pinned in `scripts/ghosttykit-checksums.txt`.
+
+### iOS tokened render disposition and nonblocking prompt reveal
+
+- Pull request:
+  - https://github.com/manaflow-ai/ghostty/pull/200
+- Commits:
+  - `6b221bd26` (ios: report tokened render dispositions)
+  - `e96f2fa1a` (refactor: simplify render failure callback)
+  - `531e49bd6` (ios: make prompt scroll nonblocking)
+  - `d13061b27` (test: cover terminal render delivery gaps)
+  - `3da10da73` (fix: guarantee tokened render disposition)
+- Files:
+  - `include/ghostty.h`
+  - `src/Surface.zig`
+  - `src/apprt/embedded.zig`
+  - `src/renderer.zig`
+  - `src/renderer/Thread.zig`
+  - `src/renderer/generic.zig`
+  - `src/renderer/metal/Frame.zig`
+  - `src/renderer/metal/IOSurfaceLayer.zig`
+  - `src/renderer/opengl/Frame.zig`
+  - `src/termio/Termio.zig`
+- Summary:
+  - Pairs the existing exact-frame presentation callback with discarded and
+    backend-failed outcomes, including layer-size and surface-generation
+    rejection after GPU completion.
+  - Rejects asynchronous tokened requests on iOS, where external-drain mode
+    does not service the renderer-thread request slot, and terminally fails a
+    request accepted across another platform's drain-mode transition.
+  - Releases delivery gates even when a host omits the optional failure
+    callback, while preserving explicitly null callback userdata.
+  - Adds a try-only scroll-to-bottom operation so iOS prompt reveal retries on
+    its display driver instead of blocking the output queue on Ghostty state.
+- Conflict note:
+  - Preserve one terminal disposition for every accepted token. If upstream
+    changes Metal layer assignment or external-drain ownership, keep iOS
+    submissions on the external driver and retain the post-GPU discard signal.
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-3da10da73ae848c0310e3e0f0cb29e509c2f6963-crashsubdir-cmux-crash-sentry-off-v1
+  - SHA-256 `6a02a2ec3794de79a02af993083292a89517d2533eb20c746deca377f23456bd`
+    is pinned in `scripts/ghosttykit-checksums.txt`.
+
+The pinned lineage also contains the hard-newline URL boundary fix from
+Ghostty PR #183. Its regression test and width-filled-row guard keep a short
+slash-terminated URL from absorbing unrelated output on the next hard newline,
+while preserving indented continuations and terminal soft wraps.
 
 ### VT formatter cursor restoration after margins
 
@@ -874,6 +926,15 @@ declared architecture, and `_ghostty_surface_rebuild_renderer` plus
     to share the classifier; duplicating the continuation decision can make
     hover and activation disagree.
 
+- Follow-up regression coverage:
+  - Pull request: https://github.com/manaflow-ai/ghostty/pull/183
+  - Test commit: `28baa8649` rejects a short `https://google.com/` row from
+    joining the unrelated `foobar` row.
+  - Fix commit: `589856524` requires the upper physical row to be width-filled
+    (including a wide-glyph spacer head) before an unindented continuation joins.
+  - Merge commit: `1f78a79aa` carries the fix on fork `main`; the shared
+    classifier keeps hover, copy, preview, and activation consistent.
+
 ### Bounded Kitty graphics state
 
 - Pull request: https://github.com/manaflow-ai/ghostty/pull/137
@@ -1125,9 +1186,13 @@ and pinned in `scripts/ghosttykit-checksums.txt`.
   `ssh`.
 - `GHOSTTY_BIN_DIR` remains the directory contract for the independent `path`
   shell-integration feature; it is no longer used to reconstruct a CLI filename.
+- The Fish integration uses a nested feature check so Fish's `and`/`or`
+  command-list precedence cannot suppress the wrapper when only one SSH feature
+  is enabled.
 - Conflict note: future upstream merges must preserve the distinction between
   the exact CLI path (`GHOSTTY_BIN`) and its PATH directory
-  (`GHOSTTY_BIN_DIR`) across `src/termio/Exec.zig` and every shell integration.
+  (`GHOSTTY_BIN_DIR`) across `src/termio/Exec.zig` and every shell integration,
+  including the nested Fish SSH feature check.
 
 The earlier fork history below includes terminal-owned scrollbar snapshots,
 absolute row-space identity, OSC-boundary geometry, and compare-and-set

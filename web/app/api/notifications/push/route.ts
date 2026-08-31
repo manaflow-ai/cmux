@@ -60,6 +60,7 @@ function pushPayloadFingerprint(
     surfaceId: payload.surfaceId,
     retargetsToLiveSurfaceOwner: payload.retargetsToLiveSurfaceOwner,
     macDeviceId: payload.macDeviceId,
+    macInstanceTag: payload.macInstanceTag,
     notificationId: payload.notificationId,
     expirationEpochSeconds: payload.expirationEpochSeconds,
     dismissedIds: payload.dismissedIds,
@@ -133,19 +134,24 @@ async function sendPush(
 
   const payload = parsePushPayload(body.value);
   if (!payload.ok) return jsonResponse({ error: payload.error }, 400);
+  // Macs from before the namespace rollout (0.64.x) never send this header.
+  // They are the `legacy` namespace: deliver to every iOS token the account
+  // registered, each on its own bundle topic, matching pre-namespace reach.
+  // A present-but-unknown value is still a hard error: only old builds are
+  // allowed to omit the routing hint, new builds must send a valid one.
   const requestedNamespace = request.headers.get("x-cmux-ios-target-namespace");
-  if (!requestedNamespace) {
-    return jsonResponse({ error: "missing_target_namespace" }, 400);
-  }
-  const targetNamespace = normalizeApnsBundle(requestedNamespace);
-  if (!targetNamespace) {
-    return jsonResponse({ error: "invalid_target_namespace" }, 400);
+  let targetNamespace: ReturnType<typeof normalizeApnsBundle> = null;
+  if (requestedNamespace !== null) {
+    targetNamespace = normalizeApnsBundle(requestedNamespace);
+    if (!targetNamespace) {
+      return jsonResponse({ error: "invalid_target_namespace" }, 400);
+    }
   }
   const correlationId =
     payload.value.correlationId ?? crypto.randomUUID();
   const payloadFingerprint = pushPayloadFingerprint(
     payload.value,
-    targetNamespace.bundleId,
+    targetNamespace?.bundleId ?? "legacy",
   );
   const startedAt = new Date();
   const nowEpochSeconds = Math.floor(startedAt.getTime() / 1_000);
@@ -181,7 +187,7 @@ async function sendPush(
       const delivery = yield* PushDeliveryService;
       return yield* delivery.deliver({
         userId: user.id,
-        targetBundleId: targetNamespace.bundleId,
+        targetBundleId: targetNamespace?.bundleId ?? null,
         correlationId,
         payloadFingerprint,
         startedAt,

@@ -397,8 +397,7 @@ struct NotificationRowSnapshotBoundaryTests {
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
         let position = TerminalNotificationScrollPosition(row: 100, totalRows: 400)
         #expect(!hostedView.restoreNotificationScrollPosition(position))
-        #expect(!hostedView.userScrolledAwayFromBottom)
-        #expect(!hostedView.allowExplicitScrollbarSync)
+        #expect(hostedView.scrollbackViewportIntent == .followingOutput)
 
         let readyScrollbar = notificationScrollbar(total: 400, offset: 356, len: 44)
         for _ in 0 ..< 3 {
@@ -406,8 +405,7 @@ struct NotificationRowSnapshotBoundaryTests {
         }
 
         #expect(surfaceView.performedBindingActions == ["scroll_to_row:256", "scroll_to_row:256"])
-        #expect(!hostedView.userScrolledAwayFromBottom)
-        #expect(!hostedView.allowExplicitScrollbarSync)
+        #expect(hostedView.scrollbackViewportIntent == .followingOutput)
     }
 
     @Test(arguments: [Notification.Name.ghosttyDidReceiveWheelScroll, NSScrollView.didLiveScrollNotification])

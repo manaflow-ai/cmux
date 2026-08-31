@@ -88,6 +88,9 @@ final class GhosttyDefaultBackgroundNotificationDispatcher {
 enum GhosttyNotificationKey {
     static let scrollbar = "ghostty.scrollbar"
     static let cellSize = "ghostty.cellSize"
+    static let requiresAuthoritativeWheelResponse = "ghostty.requiresAuthoritativeWheelResponse"
+    static let isAuthoritativeWheelResponse = "ghostty.isAuthoritativeWheelResponse"
+    static let authoritativeWheelResponseUnavailable = "ghostty.authoritativeWheelResponseUnavailable"
     static let tabId = "ghostty.tabId"
     static let surfaceId = "ghostty.surfaceId"
     static let explicitFocusIntent = "ghostty.explicitFocusIntent"

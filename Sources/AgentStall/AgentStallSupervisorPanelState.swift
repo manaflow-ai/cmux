@@ -1,4 +1,5 @@
 import Foundation
+import CmuxFoundation
 
 /// Mutable per-pane evidence and action state owned by ``AgentStallSupervisor``.
 @MainActor
@@ -55,5 +56,8 @@ struct AgentStallSupervisorPanelState {
     var boundaryCommitment: BoundaryCommitment = .open
     var pendingBoundary: PendingBoundary?
     var retryToken: UUID?
-    var retryTimer: Timer?
+    /// Cancellation-aware deadline scheduler for this panel's pending retry.
+    /// The scheduler is injected by the supervisor's clock so tests can
+    /// advance the deadline without waiting on wall time.
+    var retryScheduler: MainActorDeferredActionScheduler?
 }

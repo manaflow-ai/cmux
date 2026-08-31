@@ -83,6 +83,30 @@ enum ControlSurfaceResumeTarget {
         return true
     }
 
+    /// Atomically claims the current binding generation for a CLI restore.
+    func claimBinding(
+        expectedCheckpointID: String,
+        expectedSource: String,
+        expectedUpdatedAt: TimeInterval
+    ) -> Bool {
+        switch self {
+        case .workspace(_, let workspace, let surfaceID):
+            workspace.claimSurfaceResumeBinding(
+                panelId: surfaceID,
+                expectedCheckpointID: expectedCheckpointID,
+                expectedSource: expectedSource,
+                expectedUpdatedAt: expectedUpdatedAt
+            )
+        case .dock(_, let dock, let surfaceID):
+            dock.claimSurfaceResumeBinding(
+                panelId: surfaceID,
+                expectedCheckpointID: expectedCheckpointID,
+                expectedSource: expectedSource,
+                expectedUpdatedAt: expectedUpdatedAt
+            )
+        }
+    }
+
     func bindingForClear(
         expectedSource: String?,
         agentSessionEnded: Bool
@@ -105,7 +129,10 @@ enum ControlSurfaceResumeTarget {
         let didClear: Bool
         switch self {
         case .workspace(_, let workspace, let surfaceID):
-            didClear = workspace.clearSurfaceResumeBinding(panelId: surfaceID)
+            didClear = workspace.clearSurfaceResumeBinding(
+                panelId: surfaceID,
+                agentSessionEnded: agentSessionEnded
+            )
         case .dock(_, let dock, let surfaceID):
             didClear = dock.clearSurfaceResumeBinding(
                 panelId: surfaceID,
@@ -309,7 +336,8 @@ extension TerminalController {
     private func surfaceResumeSnapshot(
         target: ControlSurfaceResumeTarget,
         binding: SurfaceResumeBindingSnapshot?,
-        cleared: Bool
+        cleared: Bool,
+        claimSucceeded: Bool? = nil
     ) -> ControlSurfaceResumeSnapshot {
         ControlSurfaceResumeSnapshot(
             windowID: target.windowID(using: self),
@@ -320,7 +348,8 @@ extension TerminalController {
             binding: controlResumeBinding(from: binding),
             restoreRecord: cleared
                 ? nil
-                : controlSurfaceRestoreRecord(target: target, binding: binding)
+                : controlSurfaceRestoreRecord(target: target, binding: binding),
+            resumeClaimed: claimSucceeded
         )
     }
 
@@ -669,7 +698,10 @@ extension TerminalController {
     func controlSurfaceResumeGet(
         routing: ControlRoutingSelectors,
         explicitTargetID: UUID?,
-        hasResolvedWindowID: Bool
+        hasResolvedWindowID: Bool,
+        claimCheckpointID: String?,
+        claimSource: String?,
+        claimUpdatedAt: Double?
     ) -> ControlSurfaceResumeResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .windowUnavailable
@@ -686,7 +718,24 @@ extension TerminalController {
            case .pendingSigningSecret = SurfaceResumeApprovalStore.applyingStoredApprovalLookup(to: binding) {
             return .approvalPending(message: surfaceResumeApprovalPendingMessage)
         }
-        return .result(surfaceResumeSnapshot(target: target, binding: target.binding, cleared: false))
+        let claimSucceeded: Bool?
+        if let claimCheckpointID, let claimSource, let claimUpdatedAt {
+            claimSucceeded = target.claimBinding(
+                expectedCheckpointID: claimCheckpointID,
+                expectedSource: claimSource,
+                expectedUpdatedAt: claimUpdatedAt
+            )
+        } else {
+            claimSucceeded = nil
+        }
+        return .result(
+            surfaceResumeSnapshot(
+                target: target,
+                binding: target.binding,
+                cleared: false,
+                claimSucceeded: claimSucceeded
+            )
+        )
     }
 
     func controlSurfaceResumeClear(
@@ -695,6 +744,7 @@ extension TerminalController {
         hasResolvedWindowID: Bool,
         expectedCheckpointID: String?,
         expectedSource: String?,
+        expectedUpdatedAt: Double?,
         agentSessionEnded: Bool
     ) -> ControlSurfaceResumeResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
@@ -716,6 +766,10 @@ extension TerminalController {
             return .result(surfaceResumeSnapshot(target: target, binding: target.binding, cleared: false))
         }
         if let expectedSource, bindingForClear?.source != expectedSource {
+            return .result(surfaceResumeSnapshot(target: target, binding: target.binding, cleared: false))
+        }
+        if let expectedUpdatedAt,
+           !expectedUpdatedAt.isFinite || bindingForClear?.updatedAt != expectedUpdatedAt {
             return .result(surfaceResumeSnapshot(target: target, binding: target.binding, cleared: false))
         }
         target.clearBinding(bindingForClear, agentSessionEnded: agentSessionEnded)

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Immutable identity revalidated when a one-shot retry timer fires.
+/// Immutable identity revalidated when a one-shot retry deadline fires.
 struct AgentStallRetryRequest: Sendable {
     let ownerToken: String
     let workspaceID: UUID

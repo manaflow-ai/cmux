@@ -52,6 +52,7 @@ private final class WorkspaceListLayoutPreviewModel {
             for index in workspaces.indices where index % 10 == updateLane {
                 if liveUpdateMode == .visible {
                     workspaces[index].hasUnread.toggle()
+                    workspaces[index].unreadCount = workspaces[index].hasUnread ? 1 + index % 5 : 0
                     workspaces[index].previewAt = Date()
                     workspaces[index].lastActivityAt = Date()
                 } else {
@@ -103,7 +104,7 @@ public struct WorkspaceListLayoutPreviewView: View {
     /// Store-free stand-ins for the device-local sort preference, so the
     /// fixture's sort menu and computer-order editor are fully interactive.
     /// `CMUX_UITEST_WORKSPACE_LIST_PREVIEW_SORT` (a raw mode value) and
-    /// `..._SORT_PRIORITY` (comma-separated Mac device ids) seed them so a
+    /// `..._SORT_PRIORITY` (comma-separated pairing ids) seed them so a
     /// harness can verify each mode's rendering without driving the menu.
     @State private var fixtureSortMode: MobileWorkspaceSortMode =
         ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_SORT"]
@@ -229,6 +230,7 @@ public struct WorkspaceListLayoutPreviewView: View {
             previewAt: seedActivityTime(hour: 11, minute: 32),
             lastActivityAt: seedActivityTime(hour: 11, minute: 32),
             hasUnread: true,
+            unreadCount: 3,
             terminals: [
                 MobileTerminalPreview(id: "terminal-login-agent", name: "Agent"),
             ]
@@ -255,6 +257,7 @@ public struct WorkspaceListLayoutPreviewView: View {
             previewAt: seedActivityTime(hour: 10, minute: 47),
             lastActivityAt: seedActivityTime(hour: 10, minute: 47),
             hasUnread: true,
+            unreadCount: 1,
             terminals: [
                 MobileTerminalPreview(id: "terminal-rate-agent", name: "Agent"),
             ]
@@ -361,7 +364,8 @@ public struct WorkspaceListLayoutPreviewView: View {
             name: String,
             groupID: MobileWorkspaceGroupPreview.ID? = nil,
             activityOffset: TimeInterval? = nil,
-            hasUnread: Bool = false
+            hasUnread: Bool = false,
+            unreadCount: Int? = nil
         ) -> MobileWorkspacePreview {
             let activityAt = activityOffset.map { now.addingTimeInterval($0) }
             var workspace = MobileWorkspacePreview(
@@ -373,6 +377,7 @@ public struct WorkspaceListLayoutPreviewView: View {
                 previewAt: activityAt,
                 lastActivityAt: activityAt,
                 hasUnread: hasUnread,
+                unreadCount: unreadCount,
                 terminals: []
             )
             workspace.macInstanceTag = macInstanceTag
@@ -414,7 +419,8 @@ public struct WorkspaceListLayoutPreviewView: View {
                     defaultValue: "Inactive Member"
                 ),
                 groupID: alphaGroupID,
-                hasUnread: true
+                hasUnread: true,
+                unreadCount: 2
             ),
             workspace(
                 id: "workspace-mixed-between",
@@ -450,7 +456,8 @@ public struct WorkspaceListLayoutPreviewView: View {
                 ),
                 groupID: betaGroupID,
                 activityOffset: -120,
-                hasUnread: true
+                hasUnread: true,
+                unreadCount: 1
             ),
             workspace(
                 id: "workspace-mixed-after",
@@ -532,6 +539,7 @@ public struct WorkspaceListLayoutPreviewView: View {
                 previewAt: anchorTime.addingTimeInterval(-Double(index) * 3600),
                 lastActivityAt: anchorTime.addingTimeInterval(-Double(index) * 3600),
                 hasUnread: index % 4 == 0,
+                unreadCount: index % 4 == 0 ? 1 + index % 12 : 0,
                 terminals: [
                     MobileTerminalPreview(
                         id: MobileTerminalPreview.ID(rawValue: "terminal-seed-\(index)"),
@@ -584,14 +592,24 @@ public struct WorkspaceListLayoutPreviewView: View {
             return model.workspaces
         }
         var rank: [String: Int] = [:]
-        for (index, deviceID) in fixtureComputerPriority.enumerated()
-            where rank[deviceID] == nil {
-            rank[deviceID] = index
+        for (index, computerID) in fixtureComputerPriority.enumerated()
+            where rank[computerID] == nil {
+            rank[computerID] = index
         }
         return model.workspaces.enumerated()
             .sorted { lhs, rhs in
-                let lhsRank = rank[lhs.element.macDeviceID ?? ""] ?? Int.max
-                let rhsRank = rank[rhs.element.macDeviceID ?? ""] ?? Int.max
+                let lhsDeviceID = lhs.element.macDeviceID ?? ""
+                let rhsDeviceID = rhs.element.macDeviceID ?? ""
+                let lhsComputerID = MobilePairedMac.pairingID(
+                    macDeviceID: lhsDeviceID,
+                    instanceTag: lhs.element.macInstanceTag
+                )
+                let rhsComputerID = MobilePairedMac.pairingID(
+                    macDeviceID: rhsDeviceID,
+                    instanceTag: rhs.element.macInstanceTag
+                )
+                let lhsRank = rank[lhsComputerID] ?? rank[lhsDeviceID] ?? Int.max
+                let rhsRank = rank[rhsComputerID] ?? rank[rhsDeviceID] ?? Int.max
                 if lhsRank != rhsRank { return lhsRank < rhsRank }
                 return lhs.offset < rhs.offset
             }
@@ -649,6 +667,8 @@ public struct WorkspaceListLayoutPreviewView: View {
             setUnread: reorderEnabled ? { id, unread in
                 if let index = model.workspaces.firstIndex(where: { $0.id == id }) {
                     model.workspaces[index].hasUnread = unread
+                    // Manual unread counts as 1, mirroring the Mac indicator.
+                    model.workspaces[index].unreadCount = unread ? 1 : 0
                 }
             } : nil,
             closeWorkspace: reorderEnabled ? { id in

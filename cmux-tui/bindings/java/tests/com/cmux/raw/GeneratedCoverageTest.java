@@ -20,7 +20,7 @@ public final class GeneratedCoverageTest {
     public static void main(String[] args) throws Exception {
         check(Protocol.VERSION == 12, "protocol version");
         check("1.0.0".equals(Protocol.SDK_VERSION), "SDK release version");
-        check(Commands.ALL.size() == 101, "all 101 commands generated");
+        check(Commands.ALL.size() == 103, "all 103 commands generated");
         check(Events.ALL.size() == 46, "all 46 events generated");
 
         Map<String, Method> methods = Arrays.stream(GeneratedCmuxClient.class.getDeclaredMethods())
