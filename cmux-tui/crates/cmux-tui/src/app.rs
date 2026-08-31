@@ -45904,7 +45904,7 @@ mod tests {
             projection_rows_cache: VecDeque::new(),
             projection_rows_revision: 0,
             agent_focus_stamps: HashMap::new(),
-        agent_alert_states: HashMap::new(),
+            agent_alert_states: HashMap::new(),
             projection_agent_surfaces: HashSet::new(),
             projection_title_surfaces: HashSet::new(),
             projection_agent_surfaces_by_view: HashMap::new(),
