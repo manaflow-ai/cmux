@@ -92,6 +92,22 @@ import Testing
         connection.lastWindowSizes[0].map { (cols: $0.0, rows: $0.1) }
     }
 
+    /// A single-pane window draws no pane tab bar, so the claim must not pay for one.
+    @Test func singlePaneClaimsTheRowsItsHiddenTabBarFrees() {
+        let (mirror, connection) = makeMirror(
+            layout: node(.pane(1), w: 123, h: 35, x: 0, y: 0),
+            geometry: calibratedGeometry
+        )
+        mirror.noteContainerSize(pointSize: CGSize(width: 800, height: 620), scale: 2)
+        // The premise: one pane means no bar. Asserted here so a change in the visibility
+        // rule shows up as this test's own failure rather than as a silent row drift.
+        #expect(mirror.bonsplitController.configuration.tabBarVisibility == .multipleTabs)
+        #expect(mirror.updateClientSize())
+        // 620pt of container over 17pt cells with no bar to charge → 36 rows. Charging the
+        // 30pt bar the mirror does not draw claims 34 and strands two rows of the container.
+        #expect(pushed(connection)?.rows == 36)
+    }
+
     // MARK: fresh-connect wedge (container reading resolution)
 
     /// With a real window bounding the reading: a sane (within-bound) reading
