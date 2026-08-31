@@ -43,6 +43,29 @@ function scriptedFetch(script: Array<Response | Error>): { calls: number } {
   return state;
 }
 
+function timeoutThenSuccessFetch(): { calls: number } {
+  const state = { calls: 0 };
+  globalThis.fetch = (async (_input, init) => {
+    state.calls += 1;
+    if (state.calls === 1) {
+      const signal = init?.signal;
+      await new Promise<never>((_resolve, reject) => {
+        if (!signal) {
+          reject(new Error("missing attempt signal"));
+          return;
+        }
+        if (signal.aborted) {
+          reject(signal.reason);
+          return;
+        }
+        signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+      });
+    }
+    return jsonResponse(200, { recovered: true });
+  }) as typeof fetch;
+  return state;
+}
+
 function seams(sleeps: number[]): { sleep: (ms: number) => Promise<void>; random: () => number } {
   return {
     sleep: async (ms: number) => {
@@ -117,6 +140,17 @@ describe("blaxelFetch retry", () => {
     const state = scriptedFetch([new TypeError("fetch failed"), jsonResponse(200, { ok: true })]);
     const result = await blaxelFetch<{ ok: boolean }>("GET", URL_UNDER_TEST, undefined, seams([]));
     expect(result).toEqual({ ok: true });
+    expect(state.calls).toBe(2);
+  });
+
+  test("GET retries a timed-out first attempt under the default retry budget", async () => {
+    const state = timeoutThenSuccessFetch();
+    const result = await blaxelFetch<{ recovered: boolean }>("GET", URL_UNDER_TEST, undefined, {
+      timeoutMs: 25,
+      sleep: async () => undefined,
+      random: () => 0,
+    });
+    expect(result).toEqual({ recovered: true });
     expect(state.calls).toBe(2);
   });
 
