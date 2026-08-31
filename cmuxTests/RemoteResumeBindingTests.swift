@@ -1167,32 +1167,36 @@ struct RemoteResumeBindingTests {
             "--session",
             sessionID,
         ])
+        let restoreKind = try #require(restoreRecord["kind"] as? String)
+        let restoreCheckpointID = try #require(restoreRecord["checkpoint_id"] as? String)
+        let restoreLaunchCommand = AgentLaunchCommand(
+            launcher: launchCommand.launcher,
+            executablePath: launchCommand.executablePath,
+            arguments: launchCommand.arguments,
+            workingDirectory: nil,
+            environment: launchCommand.environment,
+            verificationHome: launchCommand.verificationHome,
+            capturedAt: launchCommand.capturedAt,
+            source: launchCommand.source
+        )
+        let restoreRequest = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: restoreKind,
+            checkpointID: restoreCheckpointID,
+            source: restoreRecord["source"] as? String,
+            workingDirectory: restoreRecord["working_directory"] as? String,
+            environment: restoreRecord["environment"] as? [String: String] ?? [:],
+            launchCommand: restoreLaunchCommand,
+            preparedArguments: preparedArguments,
+            preparedArgumentsWorkingDirectory: restoreRecord[
+                "prepared_arguments_working_directory"
+            ] as? String,
+            observedPermissionMode: restoreRecord["permission_mode"] as? String
+        )
         let invocation = try #require(AgentRestorePlanner(
             isExecutableFile: { _ in false }
         ).invocation(
-            for: AgentRestoreRequest(
-                mode: .resumeAgent,
-                kind: try #require(restoreRecord["kind"] as? String),
-                checkpointID: try #require(restoreRecord["checkpoint_id"] as? String),
-                source: restoreRecord["source"] as? String,
-                workingDirectory: restoreRecord["working_directory"] as? String,
-                environment: restoreRecord["environment"] as? [String: String] ?? [:],
-                launchCommand: AgentLaunchCommand(
-                    launcher: launchCommand.launcher,
-                    executablePath: launchCommand.executablePath,
-                    arguments: launchCommand.arguments,
-                    workingDirectory: nil,
-                    environment: launchCommand.environment,
-                    verificationHome: launchCommand.verificationHome,
-                    capturedAt: launchCommand.capturedAt,
-                    source: launchCommand.source
-                ),
-                preparedArguments: preparedArguments,
-                preparedArgumentsWorkingDirectory: restoreRecord[
-                    "prepared_arguments_working_directory"
-                ] as? String,
-                observedPermissionMode: restoreRecord["permission_mode"] as? String
-            ),
+            for: restoreRequest,
             ambientEnvironment: ["PATH": "/usr/bin:/bin"]
         ))
         #expect(invocation.arguments == preparedArguments)
