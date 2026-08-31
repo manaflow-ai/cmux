@@ -23907,7 +23907,7 @@ mod tests {
     }
 
     #[test]
-    fn agent_wait_snapshot_matches_any_state_and_commits_wake_subscribers() {
+    fn agent_signals_wait_snapshot_matches_any_state_and_commits_wake_subscribers() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
         let session_id = mux.workspace_registry.lock().unwrap().session_id().clone();

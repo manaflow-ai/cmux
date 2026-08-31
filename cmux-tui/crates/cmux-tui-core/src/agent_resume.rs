@@ -132,7 +132,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn agent_resume_planner_maps_supported_agents_to_exact_argv() {
+    fn agent_signals_resume_planner_maps_supported_agents_to_exact_argv() {
         let id = AgentSessionRef::id("session-1").unwrap();
         assert_eq!(plan("claude", &id).unwrap().argv, vec!["claude", "--resume", "session-1"]);
         assert_eq!(plan("codex", &id).unwrap().argv, vec!["codex", "resume", "session-1"]);
@@ -148,7 +148,7 @@ mod tests {
     }
 
     #[test]
-    fn agent_resume_refs_validate_as_data_not_shell_text() {
+    fn agent_signals_resume_refs_validate_as_data_not_shell_text() {
         assert!(AgentSessionRef::id("ok-id").is_some());
         assert!(AgentSessionRef::id("").is_none());
         assert!(AgentSessionRef::id("has\nnewline").is_none());
@@ -168,7 +168,7 @@ mod tests {
     }
 
     #[test]
-    fn agent_resume_paths_resume_only_path_capable_agents() {
+    fn agent_signals_resume_paths_resume_only_path_capable_agents() {
         let path = AgentSessionRef::path("/tmp/session.jsonl").unwrap();
         assert_eq!(plan("pi", &path).unwrap().argv, vec!["pi", "--session", "/tmp/session.jsonl"]);
         assert!(plan("claude", &path).is_none(), "claude resumes by id only");
@@ -176,7 +176,7 @@ mod tests {
     }
 
     #[test]
-    fn agent_resume_dedupe_keys_distinguish_agent_kind_and_value() {
+    fn agent_signals_resume_dedupe_keys_distinguish_agent_kind_and_value() {
         let id = AgentSessionRef::id("s").unwrap();
         let path = AgentSessionRef::path("/s").unwrap();
         let keys: std::collections::HashSet<String> = [

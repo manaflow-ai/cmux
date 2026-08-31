@@ -133,7 +133,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn agent_alert_osc9_carries_title_body_and_bel() {
+    fn agent_signals_alert_osc9_carries_title_body_and_bel() {
         let sequence = encode_notification(
             TerminalNotificationBackend::Ghostty,
             false,
@@ -144,7 +144,7 @@ mod tests {
     }
 
     #[test]
-    fn agent_alert_kitty_uses_structured_title_and_body() {
+    fn agent_signals_alert_kitty_uses_structured_title_and_body() {
         let sequence = String::from_utf8(encode_notification(
             TerminalNotificationBackend::Kitty,
             false,
@@ -158,7 +158,7 @@ mod tests {
     }
 
     #[test]
-    fn agent_alert_sanitizes_control_bytes_from_untrusted_titles() {
+    fn agent_signals_alert_sanitizes_control_bytes_from_untrusted_titles() {
         let sequence = encode_notification(
             TerminalNotificationBackend::Ghostty,
             false,
@@ -169,7 +169,7 @@ mod tests {
     }
 
     #[test]
-    fn agent_alert_tmux_passthrough_wraps_and_escapes_but_not_the_bel() {
+    fn agent_signals_alert_tmux_passthrough_wraps_and_escapes_but_not_the_bel() {
         let sequence = encode_notification(TerminalNotificationBackend::Ghostty, true, "hi", None);
         assert_eq!(sequence, b"\x1bPtmux;\x1b\x1b]9;hi\x1b\x1b\\\x1b\\\x07");
     }
