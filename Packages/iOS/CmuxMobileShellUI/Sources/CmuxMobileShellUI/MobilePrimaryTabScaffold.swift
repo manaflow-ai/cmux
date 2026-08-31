@@ -19,6 +19,8 @@ struct MobilePrimaryTabScaffold<
     let notifications: Notifications
     let workspaceSearch: WorkspaceSearch
     let notificationSearch: NotificationSearch
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     init(
         selection: Binding<MobilePrimaryTab>,
@@ -41,7 +43,45 @@ struct MobilePrimaryTabScaffold<
     }
 
     var body: some View {
-        if #available(iOS 26.0, *) {
+        if isIPadLayout {
+            TabView(selection: tabSelection) {
+                primaryTabs
+
+                Tab(value: MobilePrimaryTab.search, role: .search) {
+                    searchDestination
+                        .searchable(
+                            text: activeSearchText,
+                            isPresented: searchPresentation,
+                            prompt: activeSearchPrompt
+                        )
+                        .onSubmit(of: .search) {
+                            selection = searchCoordinator.commitSubmit()
+                        }
+                }
+                .accessibilityIdentifier("MobilePrimaryTabSearch")
+            }
+            // iPad has enough room for the primary controls to live in a
+            // bottom rail. The iOS 26 adaptable tab bar otherwise floats over
+            // the split view's navigation toolbar.
+            .toolbarVisibility(.hidden, for: .tabBar)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                MobileIPadPrimaryBar(
+                    selection: selection,
+                    notificationUnreadCount: notificationUnreadCount,
+                    taskComposerAction: taskComposerAction,
+                    select: selectTab,
+                    beginSearch: {
+                        let scope = selection.searchScope ?? searchCoordinator.scope
+                        searchCoordinator.beginSearch(for: scope)
+                        selectTab(.search)
+                    }
+                )
+            }
+            .accessibilityIdentifier("MobilePrimaryTabs")
+            .onChange(of: selection, initial: true) { _, selection in
+                searchCoordinator.synchronizeSelection(selection)
+            }
+        } else if #available(iOS 26.0, *) {
             ZStack(alignment: .bottomTrailing) {
                 TabView(selection: tabSelection) {
                     primaryTabs
@@ -95,6 +135,10 @@ struct MobilePrimaryTabScaffold<
         }
     }
 
+    private var isIPadLayout: Bool {
+        horizontalSizeClass == .regular && verticalSizeClass == .regular
+    }
+
     /// A tab-view bottom accessory always adds a full-width plate, which is
     /// intended for mini-player content. Compose remains a standalone action
     /// aligned with the detached Search control instead.
@@ -122,6 +166,14 @@ struct MobilePrimaryTabScaffold<
                 selection = newValue
             }
         )
+    }
+
+    private func selectTab(_ tab: MobilePrimaryTab) {
+        if (selection == .search || searchCoordinator.isPresented),
+           tab.searchScope != nil {
+            searchCoordinator.deactivateCurrentSearch()
+        }
+        selection = tab
     }
 
     private var searchPresentation: Binding<Bool> {
@@ -213,6 +265,98 @@ struct MobilePrimaryTabScaffold<
             .accessibilityIdentifier("MobilePrimaryTabNotifications")
         }
         .badge(notificationUnreadCount)
+    }
+}
+
+/// Bottom primary navigation for regular iPad layouts. Keeping this outside
+/// the system tab bar leaves each navigation stack's top toolbar responsible
+/// for its title and actions, while the large iPad canvas gets a useful bottom
+/// control rail.
+private struct MobileIPadPrimaryBar: View {
+    let selection: MobilePrimaryTab
+    let notificationUnreadCount: Int
+    let taskComposerAction: (() -> Void)?
+    let select: (MobilePrimaryTab) -> Void
+    let beginSearch: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            tabButton(
+                .workspaces,
+                title: L10n.string("mobile.tabs.workspaces", defaultValue: "Workspaces"),
+                systemImage: "rectangle.stack"
+            )
+            tabButton(
+                .notifications,
+                title: L10n.string("mobile.tabs.notifications", defaultValue: "Notifications"),
+                systemImage: "bell",
+                badge: notificationUnreadCount
+            )
+
+            Spacer(minLength: 12)
+
+            Button(action: beginSearch) {
+                Label(
+                    L10n.string("mobile.tabs.search", defaultValue: "Search"),
+                    systemImage: "magnifyingglass"
+                )
+                .labelStyle(.titleAndIcon)
+                .frame(minWidth: 88)
+            }
+            .accessibilityIdentifier("MobilePrimaryTabSearch")
+            .buttonStyle(.bordered)
+
+            if selection == .workspaces, let taskComposerAction {
+                TaskComposerButton(
+                    action: taskComposerAction,
+                    diameter: 56
+                )
+                .accessibilityLabel(
+                    L10n.string("mobile.taskComposer.newTask", defaultValue: "New Task")
+                )
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
+        .frame(maxWidth: 760)
+        .frame(maxWidth: .infinity)
+        .background(.bar)
+        .accessibilityIdentifier("MobilePrimaryTabBar")
+    }
+
+    @ViewBuilder
+    private func tabButton(
+        _ tab: MobilePrimaryTab,
+        title: String,
+        systemImage: String,
+        badge: Int = 0
+    ) -> some View {
+        Button {
+            select(tab)
+        } label: {
+            ZStack(alignment: .topTrailing) {
+                Label(title, systemImage: systemImage)
+                    .labelStyle(.titleAndIcon)
+                    .frame(minWidth: 132)
+                if badge > 0 {
+                    Text("\(badge)")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(.red, in: Capsule())
+                        .offset(x: 7, y: -8)
+                        .accessibilityLabel("\(badge)")
+                }
+            }
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(selection == tab ? .accentColor : .secondary)
+        .accessibilityIdentifier(
+            tab == .workspaces
+                ? "MobilePrimaryTabWorkspaces"
+                : "MobilePrimaryTabNotifications"
+        )
     }
 }
 

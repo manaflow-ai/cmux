@@ -34,6 +34,14 @@ final class MobilePrimarySearchCoordinator {
         syncNativeSearchText(fromCommittedQueryFor: selectedScope)
     }
 
+    /// Starts search for the visible primary destination. iPad uses a custom
+    /// bottom control instead of selecting the transient search tab, so the
+    /// scope must be chosen before the searchable navigation stack presents.
+    func beginSearch(for scope: MobilePrimarySearchScope) {
+        self.scope = scope
+        setPresentation(true)
+    }
+
     func setPresentation(_ presented: Bool) {
         if isPresented, !presented {
             resetSearchQuery(for: scope)
