@@ -57,7 +57,10 @@ function usageFromTail(tail: string, model?: string): ModelUsage | null {
     const details = isRecord(value.input_tokens_details)
       ? value.input_tokens_details
       : null;
-    const cachedInputTokens = finiteInteger(details?.cached_tokens) ?? 0;
+    // OpenAI shape nests cached reads under input_tokens_details; the
+    // Anthropic Messages shape reports them as cache_read_input_tokens.
+    const cachedInputTokens = finiteInteger(details?.cached_tokens) ??
+      finiteInteger(value.cache_read_input_tokens) ?? 0;
     return {
       ...(model ? { model } : {}),
       inputTokens,

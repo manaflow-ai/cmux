@@ -450,7 +450,7 @@ async function sendCodex(
   } as RequestInit & { duplex: "half" });
 }
 
-function rateLimitDelay(headers: Headers): number {
+export function rateLimitDelay(headers: Headers): number {
   const retryAfter = headers.get("retry-after");
   if (retryAfter && /^\d+$/.test(retryAfter)) {
     return Number(retryAfter) * 1_000;
@@ -468,7 +468,7 @@ function rateLimitDelay(headers: Headers): number {
   return 60_000;
 }
 
-function bearerToken(request: Request): string | null {
+export function bearerToken(request: Request): string | null {
   const routed = request.headers.get("x-coderouter-route-token")?.trim();
   if (routed) return routed;
   const authorization = request.headers.get("authorization")?.trim() ?? "";
@@ -476,7 +476,7 @@ function bearerToken(request: Request): string | null {
   return match?.[1]?.trim() || null;
 }
 
-function jsonError(
+export function jsonError(
   error: string,
   status: number,
   headers?: HeadersInit,

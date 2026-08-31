@@ -149,6 +149,17 @@ describe("Blaxel baked image template", () => {
     expect(agentConfig).toContain('model-plane.env');
     expect(agentConfig).toContain("umask 077");
     expect(agentConfig).toContain('. "$HOME/.config/cmux/model-plane.env"');
+    // claude derives its endpoint and bearer from the same route token on
+    // every shell (no secret persisted beyond model-plane.env, rotation-safe)
+    // and seeds the onboarding skip write-once.
+    expect(agentConfig).toContain(
+      'export ANTHROPIC_BASE_URL="${ANTHROPIC_BASE_URL:-$CMUX_CODEROUTER_URL}"',
+    );
+    expect(agentConfig).toContain(
+      'export ANTHROPIC_AUTH_TOKEN="${ANTHROPIC_AUTH_TOKEN:-$OPENAI_API_KEY}"',
+    );
+    expect(agentConfig).toContain('[ ! -e "$HOME/.claude.json" ]');
+    expect(agentConfig).toContain('"hasCompletedOnboarding": true');
     // codex rides a custom provider on the /v1 Responses plane with env auth.
     expect(agentConfig).toContain('model_provider = \\"cmux\\"');
     expect(agentConfig).toContain('wire_api = \\"responses\\"');
@@ -167,8 +178,19 @@ describe("Blaxel baked image template", () => {
     expect(agentConfig).toContain("/api/coderouter/opencode/config");
     expect(agentConfig).toContain("{env:OPENAI_API_KEY}");
     expect(agentConfig).toContain('[ ! -e "$HOME/.config/opencode/opencode.json" ]');
-    // The Dockerfile proves generation under a throwaway HOME and proves the
-    // image ships no generated config for /root.
+    // The Dockerfile proves generation under a throwaway HOME (including the
+    // derived Anthropic env and the token-free onboarding seed) and proves
+    // the image ships no generated config for /root.
+    expect(dockerfile).toContain(
+      "bash -lc '[ \"$ANTHROPIC_BASE_URL\" = \"https://example.invalid\" ] && [ \"$ANTHROPIC_AUTH_TOKEN\" = \"crt_check\" ]'",
+    );
+    expect(dockerfile).toContain(
+      "grep -q 'hasCompletedOnboarding' /tmp/agent-config-check/.claude.json",
+    );
+    expect(dockerfile).toContain(
+      "! grep -q 'crt_check' /tmp/agent-config-check/.claude.json",
+    );
+    expect(dockerfile).toContain("test ! -e /root/.claude.json");
     expect(dockerfile).toContain("test ! -e /root/.codex/config.toml");
     expect(dockerfile).toContain("test ! -e /root/.pi/agent/models.json");
     expect(dockerfile).toContain("test ! -e /root/.config/opencode/opencode.json");

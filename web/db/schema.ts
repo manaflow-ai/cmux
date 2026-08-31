@@ -477,7 +477,7 @@ export const coderouterAccounts = pgTable(
   {
     id: uuid("id").defaultRandom().primaryKey(),
     teamId: text("team_id").notNull(),
-    provider: text("provider").$type<"codex" | "opencode-go">().notNull(),
+    provider: text("provider").$type<"codex" | "opencode-go" | "claude">().notNull(),
     providerAccountId: text("provider_account_id").notNull(),
     label: text("label").notNull(),
     state: text("state")
@@ -546,7 +546,7 @@ export const coderouterCredentials = pgTable(
       .primaryKey()
       .references(() => coderouterAccounts.id, { onDelete: "cascade" }),
     teamId: text("team_id").notNull(),
-    provider: text("provider").$type<"codex" | "opencode-go">().notNull(),
+    provider: text("provider").$type<"codex" | "opencode-go" | "claude">().notNull(),
     credentialRevision: bigint("credential_revision", { mode: "number" })
       .notNull(),
     algorithm: text("algorithm").notNull().default("aes-256-gcm"),
@@ -599,7 +599,7 @@ export const coderouterSessionAccounts = pgTable(
   "coderouter_session_accounts",
   {
     teamId: text("team_id").notNull(),
-    provider: text("provider").$type<"codex" | "opencode-go">().notNull(),
+    provider: text("provider").$type<"codex" | "opencode-go" | "claude">().notNull(),
     sessionKey: text("session_key").notNull(),
     accountId: uuid("account_id")
       .notNull()

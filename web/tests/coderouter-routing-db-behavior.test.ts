@@ -34,7 +34,10 @@ beforeEach(async () => {
   await sql`truncate coderouter_session_accounts, coderouter_accounts cascade`;
 });
 
-async function insertAccounts(count: number): Promise<string[]> {
+async function insertAccounts(
+  count: number,
+  provider: "codex" | "claude" = "codex",
+): Promise<string[]> {
   if (!sql) throw new Error("no sql client");
   const ids: string[] = [];
   for (let index = 0; index < count; index++) {
@@ -44,7 +47,7 @@ async function insertAccounts(count: number): Promise<string[]> {
       insert into coderouter_accounts
         (id, team_id, provider, provider_account_id, label, state)
       values
-        (${id}, ${TEAM}, 'codex', ${`provider-${id}`}, ${`Account ${index}`}, 'active')
+        (${id}, ${TEAM}, ${provider}, ${`provider-${id}`}, ${`Account ${index}`}, 'active')
     `;
   }
   return ids;
@@ -78,6 +81,34 @@ describe("coderouter routing db behavior", () => {
     for (const accountId of accounts) {
       expect(counts.get(accountId)).toBe(2);
     }
+  });
+
+  dbTest("claude accounts route and stick like codex ones (provider CHECK admits 'claude')", async () => {
+    // The insert itself exercises the widened provider CHECK constraints; the
+    // selections exercise the provider-scoped placement and sticky binding
+    // the /v1/messages plane depends on.
+    const accounts = await insertAccounts(2, "claude");
+    const first = await selectAccountForSession({
+      teamId: TEAM,
+      provider: "claude",
+      sessionKey: "claude-session",
+    });
+    expect(first).not.toBeNull();
+    expect(accounts).toContain(first?.id ?? "");
+    const again = await selectAccountForSession({
+      teamId: TEAM,
+      provider: "claude",
+      sessionKey: "claude-session",
+    });
+    expect(again?.id).toBe(first?.id ?? "");
+    expect(again?.sticky).toBe(true);
+    // Provider scoping: a codex session never lands on a claude account.
+    const codex = await selectAccountForSession({
+      teamId: TEAM,
+      provider: "codex",
+      sessionKey: "codex-session",
+    });
+    expect(codex).toBeNull();
   });
 
   dbTest("concurrent new sessions do not all land on one account", async () => {

@@ -8,7 +8,17 @@ import {
   type CredentialRefreshDependencies,
 } from "../services/coderouter/refresh";
 import type { EncryptedCredential } from "../services/coderouter/encryption";
-import type { CodexCredential } from "../services/coderouter/types";
+import type { ClaudeCredential, CodexCredential } from "../services/coderouter/types";
+
+const expiredClaude: ClaudeCredential = {
+  provider: "claude",
+  accessToken: "old-claude-access",
+  refreshToken: "old-claude-refresh",
+  accountId: "claude-provider-account",
+  email: "person@example.com",
+  subscriptionType: "max",
+  expiresAt: 1,
+};
 
 const expired: CodexCredential = {
   provider: "codex",
@@ -141,6 +151,54 @@ describe("coderouter provider refresh responses", () => {
       expect(result.accessToken).toBe("rotated-access");
       expect(result.refreshToken).toBe("rotated-refresh");
       expect(result.idToken).toBe("rotated-id");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("refreshes a Claude credential at the platform token endpoint with the OAuth beta", async () => {
+    const originalFetch = globalThis.fetch;
+    let requested: { url: string; beta: string | null; body: unknown } | null = null;
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      requested = {
+        url: String(url),
+        beta: new Headers(init?.headers).get("anthropic-beta"),
+        body: JSON.parse(String(init?.body)),
+      };
+      return Response.json({
+        access_token: "rotated-claude-access",
+        refresh_token: "rotated-claude-refresh",
+        expires_in: 3600,
+      });
+    }) as typeof fetch;
+    try {
+      const result = await refreshProviderCredential(expiredClaude);
+      if (result.provider !== "claude") throw new Error("unexpected provider");
+      expect(result.accessToken).toBe("rotated-claude-access");
+      expect(result.refreshToken).toBe("rotated-claude-refresh");
+      expect(result.subscriptionType).toBe("max");
+      expect(requested).toMatchObject({
+        url: "https://platform.claude.com/v1/oauth/token",
+        beta: "oauth-2025-04-20",
+        body: {
+          grant_type: "refresh_token",
+          refresh_token: "old-claude-refresh",
+          client_id: "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
+        },
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("keeps the prior Claude refresh token when the provider does not rotate it", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      Response.json({ access_token: "fresh", expires_in: 600 })) as typeof fetch;
+    try {
+      const result = await refreshProviderCredential(expiredClaude);
+      if (result.provider !== "claude") throw new Error("unexpected provider");
+      expect(result.refreshToken).toBe("old-claude-refresh");
     } finally {
       globalThis.fetch = originalFetch;
     }

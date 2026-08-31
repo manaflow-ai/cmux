@@ -22,7 +22,7 @@
 FROM debian:trixie-slim
 
 # Cache-buster: bump to force a full rebuild on Blaxel's builder.
-ENV CMUX_IMAGE_EPOCH=2026-08-28-r10
+ENV CMUX_IMAGE_EPOCH=2026-08-31-r1
 
 # Blaxel's sandbox API binary is mandatory in every custom image: it is the control
 # plane (port 8080) the driver uses for filesystem and process operations.
@@ -215,7 +215,9 @@ RUN bash -n /etc/cmux/agent-config.sh \
   && printf '%s\n' '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /root/.bashrc \
   && printf '%s\n' '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /home/cua/.bashrc \
   && mkdir -p /tmp/agent-config-check \
-  && env HOME=/tmp/agent-config-check OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=crt_check CMUX_CODEROUTER_URL=https://example.invalid bash -lc 'true' \
+  && env HOME=/tmp/agent-config-check OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=crt_check CMUX_CODEROUTER_URL=https://example.invalid bash -lc '[ "$ANTHROPIC_BASE_URL" = "https://example.invalid" ] && [ "$ANTHROPIC_AUTH_TOKEN" = "crt_check" ]' \
+  && grep -q 'hasCompletedOnboarding' /tmp/agent-config-check/.claude.json \
+  && ! grep -q 'crt_check' /tmp/agent-config-check/.claude.json \
   && grep -q 'model_provider = "cmux"' /tmp/agent-config-check/.codex/config.toml \
   && grep -q 'base_url = "https://example.invalid/v1"' /tmp/agent-config-check/.codex/config.toml \
   && grep -q 'wire_api = "responses"' /tmp/agent-config-check/.codex/config.toml \
@@ -228,10 +230,12 @@ RUN bash -n /etc/cmux/agent-config.sh \
   && test ! -e /tmp/agent-config-check/.config/opencode/opencode.json \
   && rm -rf /tmp/agent-config-check \
   && mkdir -p /tmp/agent-config-resurrect/.config/cmux \
-  && printf '%s\n' "export OPENAI_BASE_URL='https://resurrect.invalid/v1'" "export OPENAI_API_KEY='crt_persisted'" > /tmp/agent-config-resurrect/.config/cmux/model-plane.env \
+  && printf '%s\n' "export OPENAI_BASE_URL='https://resurrect.invalid/v1'" "export OPENAI_API_KEY='crt_persisted'" "export CMUX_CODEROUTER_URL='https://resurrect.invalid'" > /tmp/agent-config-resurrect/.config/cmux/model-plane.env \
   && env HOME=/tmp/agent-config-resurrect bash -lc 'grep -q "https://resurrect.invalid/v1" "$HOME/.codex/config.toml"' \
+  && env HOME=/tmp/agent-config-resurrect bash -lc '[ "$ANTHROPIC_BASE_URL" = "https://resurrect.invalid" ] && [ "$ANTHROPIC_AUTH_TOKEN" = "crt_persisted" ]' \
   && rm -rf /tmp/agent-config-resurrect \
   && bash -lc 'true' \
+  && test ! -e /root/.claude.json \
   && test ! -e /root/.codex/config.toml \
   && test ! -e /root/.pi/agent/models.json \
   && test ! -e /root/.config/opencode/opencode.json \

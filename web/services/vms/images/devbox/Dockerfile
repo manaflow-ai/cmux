@@ -29,7 +29,7 @@ FROM debian:bookworm-slim
 # Cache-buster: bump the date to force remote builders past stale layer
 # caches (Daytona's cache served stale layers for chatmux on 2026-08-21 and
 # 2026-08-25; E2B skips cache by default).
-ENV CMUX_IMAGE_EPOCH=2026-08-28-r1
+ENV CMUX_IMAGE_EPOCH=2026-08-31-r1
 
 ENV LANG=C.UTF-8 \
     DEBIAN_FRONTEND=noninteractive
@@ -194,7 +194,9 @@ RUN bash -n /etc/cmux/agent-config.sh \
   && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /etc/skel/.bashrc \
   && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /root/.bashrc \
   && mkdir -p /tmp/agent-config-check \
-  && env HOME=/tmp/agent-config-check OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=crt_check CMUX_CODEROUTER_URL=https://example.invalid bash -lc 'true' \
+  && env HOME=/tmp/agent-config-check OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=crt_check CMUX_CODEROUTER_URL=https://example.invalid bash -lc '[ "$ANTHROPIC_BASE_URL" = "https://example.invalid" ] && [ "$ANTHROPIC_AUTH_TOKEN" = "crt_check" ]' \
+  && grep -q 'hasCompletedOnboarding' /tmp/agent-config-check/.claude.json \
+  && ! grep -q 'crt_check' /tmp/agent-config-check/.claude.json \
   && grep -q 'model_provider = "cmux"' /tmp/agent-config-check/.codex/config.toml \
   && grep -q 'base_url = "https://example.invalid/v1"' /tmp/agent-config-check/.codex/config.toml \
   && grep -q 'wire_api = "responses"' /tmp/agent-config-check/.codex/config.toml \
@@ -209,9 +211,12 @@ RUN bash -n /etc/cmux/agent-config.sh \
   && mkdir -p /tmp/agent-config-resurrect/.config/cmux \
   && echo "export OPENAI_BASE_URL='https://resurrect.invalid/v1'" > /tmp/agent-config-resurrect/.config/cmux/model-plane.env \
   && echo "export OPENAI_API_KEY='crt_persisted'" >> /tmp/agent-config-resurrect/.config/cmux/model-plane.env \
+  && echo "export CMUX_CODEROUTER_URL='https://resurrect.invalid'" >> /tmp/agent-config-resurrect/.config/cmux/model-plane.env \
   && env HOME=/tmp/agent-config-resurrect bash -lc 'grep -q "https://resurrect.invalid/v1" "$HOME/.codex/config.toml"' \
+  && env HOME=/tmp/agent-config-resurrect bash -lc '[ "$ANTHROPIC_BASE_URL" = "https://resurrect.invalid" ] && [ "$ANTHROPIC_AUTH_TOKEN" = "crt_persisted" ]' \
   && rm -rf /tmp/agent-config-resurrect \
   && bash -lc 'true' \
+  && test ! -e /root/.claude.json \
   && test ! -e /root/.codex/config.toml \
   && test ! -e /root/.pi/agent/models.json \
   && test ! -e /root/.config/opencode/opencode.json \

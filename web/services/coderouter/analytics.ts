@@ -265,6 +265,7 @@ function eventProperties(
         "codex",
         "opencode",
         "pi",
+        "claude",
         "other",
         "unknown",
       ]);
@@ -447,7 +448,7 @@ function lifecycleSource(value: unknown): string | null {
 }
 
 function routeProvider(value: unknown): string | null {
-  return enumValue(value, ["codex", "opencode-go", "unknown"]);
+  return enumValue(value, ["codex", "opencode-go", "claude", "unknown"]);
 }
 
 function aiProvider(value: AnalyticsScalar | null | undefined): string {
@@ -470,6 +471,7 @@ function aiProvider(value: AnalyticsScalar | null | undefined): string {
 function authSurface(value: unknown): string | null {
   return enumValue(value, [
     "responses",
+    "messages",
     "models",
     "opencode_config",
     "opencode_proxy",

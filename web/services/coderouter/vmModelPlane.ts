@@ -7,6 +7,11 @@
 //   CMUX_CODEROUTER_URL = <web origin>    (origin for future config fetches,
 //                                          e.g. /api/coderouter/opencode/config)
 //
+// The image's agent-config.sh derives the Anthropic pair from these on every
+// shell (ANTHROPIC_BASE_URL = CMUX_CODEROUTER_URL, whose /v1/messages the
+// plane serves; ANTHROPIC_AUTH_TOKEN = the same route token), so Claude Code
+// routes through the plane without any extra minted env.
+//
 // The baked image's /etc/cmux/agent-config.sh materializes harness configs
 // from these vars at first shell and persists them on the machine's durable
 // home volume, because Blaxel create-time envs do not survive a resurrect.

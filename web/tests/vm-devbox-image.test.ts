@@ -319,9 +319,70 @@ describe("devbox image template", () => {
         },
       });
       expect(pi).not.toContain("crt_test");
+      // claude: the onboarding skip is seeded token-free; the endpoint and
+      // bearer live only in the derived shell env, never in a file.
+      const claudeState = readFileSync(path.join(home, ".claude.json"), "utf8");
+      expect(JSON.parse(claudeState)).toEqual({ hasCompletedOnboarding: true });
+      expect(claudeState).not.toContain("crt_test");
       // opencode: the config endpoint is unreachable here, so nothing may be
       // written (the next shell retries).
       expect(existsSync(path.join(home, ".config/opencode/opencode.json"))).toBe(false);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("claude env derives from the model plane on fresh boot and resurrect", () => {
+    const home = mkdtempSync(path.join(tmpdir(), "cmux-devbox-claude-env-"));
+    const script = `. ${path.join(templateDir, "agent-config.sh")} && printf '%s\\n%s\\n' "$ANTHROPIC_BASE_URL" "$ANTHROPIC_AUTH_TOKEN"`;
+    try {
+      // Fresh boot: derived from the boot env.
+      const boot = spawnSync("bash", ["-c", script], {
+        env: {
+          ...process.env,
+          HOME: home,
+          ANTHROPIC_BASE_URL: "",
+          ANTHROPIC_AUTH_TOKEN: "",
+          OPENAI_BASE_URL: "https://example.invalid/v1",
+          OPENAI_API_KEY: "crt_test",
+          CMUX_CODEROUTER_URL: "https://example.invalid",
+        },
+        encoding: "utf8",
+      });
+      expect(boot.status).toBe(0);
+      expect(boot.stdout).toBe("https://example.invalid\ncrt_test\n");
+      // Resurrect: no boot env, only the persisted model-plane.env written
+      // above; the Anthropic pair must still derive so an older machine gains
+      // Claude routing on its next shell.
+      const resurrect = spawnSync("bash", ["-c", script], {
+        env: {
+          ...process.env,
+          HOME: home,
+          ANTHROPIC_BASE_URL: "",
+          ANTHROPIC_AUTH_TOKEN: "",
+          OPENAI_BASE_URL: "",
+          OPENAI_API_KEY: "",
+          CMUX_CODEROUTER_URL: "",
+        },
+        encoding: "utf8",
+      });
+      expect(resurrect.status).toBe(0);
+      expect(resurrect.stdout).toBe("https://example.invalid\ncrt_test\n");
+      // A user's own values stay in control: set-if-unset never overrides.
+      const overridden = spawnSync("bash", ["-c", script], {
+        env: {
+          ...process.env,
+          HOME: home,
+          ANTHROPIC_BASE_URL: "https://user.invalid",
+          ANTHROPIC_AUTH_TOKEN: "user-token",
+          OPENAI_BASE_URL: "",
+          OPENAI_API_KEY: "",
+          CMUX_CODEROUTER_URL: "",
+        },
+        encoding: "utf8",
+      });
+      expect(overridden.status).toBe(0);
+      expect(overridden.stdout).toBe("https://user.invalid\nuser-token\n");
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
