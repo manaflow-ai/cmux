@@ -165,8 +165,10 @@ jobs:
               | (($body | test("CLA Assistant Lite bot"; "i"))) as $marker_candidate
               | ((.user.login // "") | ascii_downcase) as $login
               | (.user.type // "") as $type
+              | ($login == "github-actions[bot]" and $type == "Bot" and $marker_candidate) as $canonical_bot_comment
               | select(
                   ($signature_candidate and
+                  ($canonical_bot_comment | not) and
                    ($body != $phrase or $type != "User" or
                     ($login | endswith("[bot]")))) or
                   ($marker_candidate and

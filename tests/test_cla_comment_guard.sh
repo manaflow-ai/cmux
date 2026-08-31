@@ -62,6 +62,9 @@ gh() {
     bot-exact)
       jq -nc --arg phrase "$CLA_SIGN_PHRASE" '[[{id:1,body:$phrase,user:{login:"release[bot]",type:"Bot"}}]]'
       ;;
+    bot-prompt)
+      jq -nc --arg phrase "$CLA_SIGN_PHRASE" '[[{id:1,body:("Please sign:\n" + $phrase + "\nCLA Assistant Lite bot"),user:{login:"github-actions[bot]",type:"Bot"}}]]'
+      ;;
     too-many)
       jq -nc --arg phrase "$CLA_SIGN_PHRASE" '[range(0;1001) | {id:.,body:$phrase,user:{login:"alice"}}] | [.]'
       ;;
@@ -103,6 +106,7 @@ run_case padded 1 "historical pull request comment"
 run_case lowercase 1 "historical pull request comment"
 run_case wrapped 1 "historical pull request comment"
 run_case bot-exact 1 "historical pull request comment"
+run_case bot-prompt 0 ""
 run_case spoof-marker 1 "historical pull request comment"
 run_case too-many 1 "comment limit"
 run_case api-failure 1 "Could not query pull request comments"
