@@ -15963,15 +15963,22 @@ impl App {
                     Ok(RenderAction::Paint)
                 }
             }
-            AppEvent::Mux(MuxEvent::AgentChanged { surface, .. }) => Ok(
-                if self
-                    .invalidate_projection_rows_for_surface(surface, ProjectionSurfaceChange::Agent)
-                {
-                    RenderAction::Paint
-                } else {
-                    RenderAction::None
-                },
-            ),
+            AppEvent::Mux(MuxEvent::AgentChanged { surface, ref state, ref agent, .. }) => {
+                let agent = agent.clone();
+                if let Some(title) = self.agent_alert_title(surface, state, agent.as_deref()) {
+                    let _ = crate::terminal_notify::show_notification(&title, None);
+                }
+                Ok(
+                    if self.invalidate_projection_rows_for_surface(
+                        surface,
+                        ProjectionSurfaceChange::Agent,
+                    ) {
+                        RenderAction::Paint
+                    } else {
+                        RenderAction::None
+                    },
+                )
+            }
             AppEvent::Mux(MuxEvent::TitleChanged { surface, .. }) => Ok(
                 if self
                     .invalidate_projection_rows_for_surface(surface, ProjectionSurfaceChange::Title)
@@ -16013,13 +16020,6 @@ impl App {
                 | MuxEvent::ClientListInvalidated,
             ) => {
                 self.session.refresh_clients_background();
-                Ok(RenderAction::Draw)
-            }
-            AppEvent::Mux(MuxEvent::AgentChanged { surface, ref state, ref agent, .. }) => {
-                let agent = agent.clone();
-                if let Some(title) = self.agent_alert_title(surface, state, agent.as_deref()) {
-                    let _ = crate::terminal_notify::show_notification(&title, None);
-                }
                 Ok(RenderAction::Draw)
             }
             AppEvent::Mux(_) => Ok(RenderAction::Draw),
