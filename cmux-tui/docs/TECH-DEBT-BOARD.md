@@ -324,13 +324,13 @@ tail then adds protocol v7 operational PTY error gating (`29145d800c`,
 | [#10395](https://github.com/manaflow-ai/cmux/issues/10395) | `eprintln!` can corrupt TUI frames. Route diagnostics through the client log and prove raw-terminal bytes stay unchanged during attach, resize, and close. |
 | [#10431](https://github.com/manaflow-ai/cmux/issues/10431) | OSC-11 heredoc smoke input can drop bytes. Reproduce under parallel load and prove byte-for-byte paste delivery with bounded writes. |
 | [#10384](https://github.com/manaflow-ai/cmux/issues/10384) | SSH timeout kill/reap flakes in full suites. Prove process-group kill, reap, and no-child-leak behavior repeatedly. |
-| [#10426](https://github.com/manaflow-ai/cmux/issues/10426) | Paint-before-pointer flakes on cold parallel runs. Make ordering deterministic without hiding a rendering race. |
+| [#10426](https://github.com/manaflow-ai/cmux/issues/10426) | Paint-before-pointer ordering was fixed by merged [PR #11019](https://github.com/manaflow-ai/cmux/pull/11019). Keep a regression proof if this path changes; do not reopen the old race without a new failure. |
 | [#7126](https://github.com/manaflow-ai/cmux/issues/7126) | Cmd-V can send one character. Prove complete Unicode paste in bracketed and non-bracketed modes. |
 | [#8346](https://github.com/manaflow-ai/cmux/issues/8346) | Open-file-in-editor feature request. Define launch, focus, save/close, and reconnect behavior first. |
 | [#10034](https://github.com/manaflow-ai/cmux/issues/10034) | `preferredEditor` can leak editor and Node children. Prove process-group cleanup on success, cancel, crash, and app exit. |
 | [#4890](https://github.com/manaflow-ai/cmux/issues/4890), [#4733](https://github.com/manaflow-ai/cmux/issues/4733) | SSH loss/reconnect can leak mouse, focus, or Kitty bytes. Prove protocol-state reset on both paths. |
 | [#8285](https://github.com/manaflow-ai/cmux/issues/8285) | Width shrinks but may not widen. Prove bidirectional resize through daemon, PTY, and TUI under rapid changes. |
-| [#2688](https://github.com/manaflow-ai/cmux/issues/2688) | Crossterm startup can block on DSR. Define timeout/cancellation and prove startup without a reply. |
+| [#2688](https://github.com/manaflow-ai/cmux/issues/2688) | Child PTYs can still wait on DSR replies. cmux-tui's own startup probe is single-reader and bounded to 180 ms, but no-reply first-frame latency lacks hosted wall-clock proof. Add that behavior proof before tuning; do not add a second stdin reader. |
 | [#1059](https://github.com/manaflow-ai/cmux/issues/1059) | OSC-11 is not passed through. Prove request/reply forwarding and missing-color behavior. |
 | [#5490](https://github.com/manaflow-ai/cmux/issues/5490) | CSI 996/997/2031 theme protocol is missing. Add protocol behavior tests before claiming support. |
 | [#2396](https://github.com/manaflow-ai/cmux/issues/2396) | Large `cmux send` can freeze. Bound admission and prove completion under backpressure and bracketed paste. |
