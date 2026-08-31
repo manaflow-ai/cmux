@@ -1,4 +1,4 @@
-name: "CLA Assistant"
+name: "CLA Assistant v2"
 on:
   issue_comment:
     types: [created]
@@ -11,7 +11,7 @@ permissions: {}
 
 jobs:
   CLAAssistant:
-    name: "CLA Assistant"
+    name: "CLA Assistant v2"
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     # Filter before concurrency admission. Otherwise arbitrary issue comments
@@ -592,8 +592,8 @@ jobs:
               '[.[] | .jobs[]?
                 | select(
                     (.run_id | tostring) == $run_id and
-                    .name == "CLA Assistant" and
-                    .workflow_name == "CLA Assistant" and
+                    .name == "CLA Assistant v2" and
+                    .workflow_name == "CLA Assistant v2" and
                     .status == "completed" and
                     .conclusion == "failure" and
                     .head_sha == $sha and
@@ -636,8 +636,8 @@ jobs:
             --argjson head_repo_id "${head_repo_id}" '
               .id == ($job_id | tonumber) and
               .run_id == ($run_id | tonumber) and
-              .name == "CLA Assistant" and
-              .workflow_name == "CLA Assistant" and
+              .name == "CLA Assistant v2" and
+              .workflow_name == "CLA Assistant v2" and
               .status == "completed" and
               .conclusion == "failure" and
               .head_sha == $sha and
@@ -678,8 +678,8 @@ jobs:
             --argjson head_repo_id "${head_repo_id}" '
               .id == ($job_id | tonumber) and
               .run_id == ($run_id | tonumber) and
-              .name == "CLA Assistant" and
-              .workflow_name == "CLA Assistant" and
+              .name == "CLA Assistant v2" and
+              .workflow_name == "CLA Assistant v2" and
               .status == "completed" and
               .conclusion == "failure" and
               .head_sha == $sha and
