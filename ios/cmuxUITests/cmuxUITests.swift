@@ -469,11 +469,14 @@ final class cmuxUITests: XCTestCase {
         capture("onboarding-09-connect-compact-height")
     }
 
-    /// Manual pairing only authorizes a Tailscale route, so Auto-Connect must
-    /// not expose Add Computer. Switching Settings still reveals the scanner
-    /// owned by the Tailscale method.
+    /// Add Computer (the manual host:port form) is available under every
+    /// connection method: entering the address where a same-account Mac is
+    /// reachable IS discovery for networks Iroh may not find fast enough.
+    /// Regression: the always-on affordance must actually present the form; a
+    /// stale method re-check in the root's showAddDevice() made the tap a
+    /// silent no-op on Auto-Connect setups.
     @MainActor
-    func testAutomaticConnectionMethodHidesAddComputer() throws {
+    func testAutomaticConnectionMethodPresentsAddComputer() throws {
         let automaticEnvironment = [
             "CMUX_UITEST_AUTOCONNECT_MIGRATION": "ineligible",
             "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": UUID().uuidString,
@@ -488,57 +491,26 @@ final class cmuxUITests: XCTestCase {
             app.descendants(matching: .any)["MobileDisconnectedWorkspaceShell"]
                 .waitForExistence(timeout: 12)
         )
-        XCTAssertFalse(app.buttons["MobileShowAddDeviceButton"].exists)
-        XCTAssertFalse(app.buttons["MobileShowAddDeviceToolbarButton"].exists)
-        let automaticDescription = app.descendants(matching: .any)[
-            "MobileDisconnectedEmptyDescription"
-        ]
-        XCTAssertTrue(automaticDescription.waitForExistence(timeout: 4))
-        for requiredFragment in [
-            "cmux 0.64.20 or later",
-            "same cmux account",
-            "keep cmux running on the Mac",
-            "both devices are online",
-            "will not appear automatically",
-        ] {
-            XCTAssertTrue(
-                automaticDescription.label.contains(requiredFragment),
-                "Auto-Connect empty-state copy is missing: \(requiredFragment)"
-            )
-        }
+        let addComputerToolbarButton = app.buttons["MobileShowAddDeviceToolbarButton"]
+        XCTAssertTrue(addComputerToolbarButton.waitForExistence(timeout: 4))
+        tap(addComputerToolbarButton, in: app)
         XCTAssertTrue(
-            automaticDescription.label.contains(
-                "To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
-            )
+            app.textFields["MobileAddDeviceHostField"].waitForExistence(timeout: 8),
+            "Add Computer must present the manual pairing form under Auto-Connect."
         )
-
-        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
-        XCTAssertTrue(settings.waitForExistence(timeout: 4))
-        tap(settings, in: app)
-        let picker = app.descendants(matching: .any)["MobileSettingsConnectionMethod"]
-        XCTAssertTrue(picker.waitForExistence(timeout: 4))
-        tap(picker, in: app)
-        let tailscale = app.descendants(matching: .any)[
-            "MobileSettingsConnectionMethodTailscale"
-        ]
-        XCTAssertTrue(tailscale.waitForExistence(timeout: 4))
-        tap(tailscale, in: app)
+        let cancelPairing = app.buttons["MobilePairingCancelButton"]
+        XCTAssertTrue(cancelPairing.waitForExistence(timeout: 4))
+        tap(cancelPairing, in: app)
         XCTAssertTrue(
-            app.buttons["MobileSettingsTailscaleScanButton"].waitForExistence(timeout: 4)
-        )
-
-        let done = app.buttons["MobileSettingsDone"]
-        XCTAssertTrue(done.waitForExistence(timeout: 4))
-        tap(done, in: app)
-        XCTAssertTrue(
-            app.descendants(matching: .any)["MobileSettingsView"]
-                .waitForNonExistence(timeout: 4)
+            app.textFields["MobileAddDeviceHostField"].waitForNonExistence(timeout: 8)
         )
     }
 
     /// An externally supplied Auto-Connect attach ticket may still need an
     /// explicit compatibility approval. That approval must remain reachable
-    /// without restoring any manual Add Computer controls.
+    /// without restoring any manual Add Computer controls mid-flow. Afterwards,
+    /// Add Computer inside the Computers sheet must hand the modal slot to the
+    /// manual pairing form instead of only dismissing the sheet.
     @MainActor
     func testAutomaticAttachVersionApprovalDoesNotExposeManualPairing() async throws {
         let server = try MobileSyncMockHostServer()
@@ -579,10 +551,25 @@ final class cmuxUITests: XCTestCase {
         let devices = app.buttons["MobileWorkspaceDevicesButton"]
         XCTAssertTrue(devices.waitForExistence(timeout: 8))
         tap(devices, in: app)
+        let deviceTree = app.descendants(matching: .any)["MobileDeviceTree"]
+        XCTAssertTrue(deviceTree.waitForExistence(timeout: 4))
+
+        // Regression: on an Auto-Connect (non-Tailscale) setup, tapping Add
+        // Computer inside the Computers sheet silently no-opped — the sheet
+        // dismissed and nothing appeared, because a stale method re-check in
+        // the root's showAddDevice() dropped the presentation the always-on
+        // Add Computer affordance had just requested.
+        let addComputer = app.buttons["MobileComputersAddButton"]
+        XCTAssertTrue(addComputer.waitForExistence(timeout: 4))
+        tap(addComputer, in: app)
         XCTAssertTrue(
-            app.descendants(matching: .any)["MobileDeviceTree"].waitForExistence(timeout: 4)
+            deviceTree.waitForNonExistence(timeout: 8),
+            "Add Computer must dismiss the Computers sheet before pairing presents."
         )
-        XCTAssertFalse(app.buttons["MobileComputersAddButton"].exists)
+        XCTAssertTrue(
+            app.textFields["MobileAddDeviceHostField"].waitForExistence(timeout: 8),
+            "Add Computer from the Computers sheet must present the manual pairing form."
+        )
     }
 
     @MainActor
@@ -1601,7 +1588,7 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    func testIOSCanToggleMacKeepAwakeFromSettings() async throws {
+    func testIOSControlsMacKeepAwakePerComputer() async throws {
         let server = try MobileSyncMockHostServer(advertisesCaffeineControl: true)
         let port = try await server.start()
         defer { server.stop() }
@@ -1613,9 +1600,19 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(backButton.waitForExistence(timeout: 4))
         tap(backButton, in: app)
 
-        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
-        XCTAssertTrue(settings.waitForExistence(timeout: 4))
-        tap(settings, in: app)
+        // Keep-awake is per computer: the toggle lives in the computer's own
+        // detail view, not in app-wide Settings.
+        let devices = app.buttons["MobileWorkspaceDevicesButton"]
+        XCTAssertTrue(devices.waitForExistence(timeout: 4))
+        tap(devices, in: app)
+        let deviceTree = app.descendants(matching: .any)["MobileDeviceTree"]
+        XCTAssertTrue(deviceTree.waitForExistence(timeout: 4))
+
+        let row = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier BEGINSWITH 'MobileComputerRow-'")
+        ).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 6))
+        tap(row, in: app)
 
         let toggle = app.switches["MobileSettingsKeepMacAwakeToggle"]
         for _ in 0..<8 where !toggle.exists || !toggle.isHittable {
@@ -1623,30 +1620,60 @@ final class cmuxUITests: XCTestCase {
         }
         XCTAssertTrue(toggle.waitForExistence(timeout: 4))
         XCTAssertTrue(toggle.isHittable)
-        XCTAssertEqual(toggle.value as? String, "0")
         let didRequestInitialStatus = await server.waitForRequest(method: "caffeine.status")
         XCTAssertTrue(didRequestInitialStatus)
+        XCTAssertEqual(toggle.value as? String, "0")
 
         toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
         let enabled = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "value == %@", "1"),
             object: toggle
         )
-        XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 4), .completed)
+        let enabledResult = XCTWaiter.wait(for: [enabled], timeout: 4)
+        if enabledResult != .completed {
+            print("CAFFDBG toggle value=\(String(describing: toggle.value)) isEnabled=\(toggle.isEnabled)")
+            print("CAFFDBG tree begin\n\(app.debugDescription)\nCAFFDBG tree end")
+        }
+        XCTAssertEqual(enabledResult, .completed)
         let didEnableCaffeine = await server.waitForRequest(method: "caffeine.set")
         XCTAssertTrue(didEnableCaffeine)
 
-        let attachment = XCTAttachment(screenshot: app.screenshot())
-        attachment.name = "ios-keep-mac-awake-enabled"
-        attachment.lifetime = .keepAlways
-        add(attachment)
+        let detailAttachment = XCTAttachment(screenshot: app.screenshot())
+        detailAttachment.name = "ios-keep-mac-awake-detail-enabled"
+        detailAttachment.lifetime = .keepAlways
+        add(detailAttachment)
 
-        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
-        let disabled = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "value == %@", "0"),
-            object: toggle
-        )
-        XCTAssertEqual(XCTWaiter.wait(for: [disabled], timeout: 4), .completed)
+        // Back on the Computers list, the caffeinated Mac's row shows the cup
+        // indicator, and the leading swipe action turns keep-awake back off.
+        let detailBack = app.navigationBars.buttons.firstMatch
+        XCTAssertTrue(detailBack.waitForExistence(timeout: 4))
+        tap(detailBack, in: app)
+
+        // The cup indicator lives inside the row's combined accessibility
+        // element, so its label is asserted through the merged row label.
+        let indicator = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label CONTAINS 'Keeping Mac awake'")
+        ).firstMatch
+        XCTAssertTrue(indicator.waitForExistence(timeout: 4))
+
+        let listAttachment = XCTAttachment(screenshot: app.screenshot())
+        listAttachment.name = "ios-keep-mac-awake-row-indicator"
+        listAttachment.lifetime = .keepAlways
+        add(listAttachment)
+
+        XCTAssertTrue(row.waitForExistence(timeout: 4))
+        row.swipeRight()
+        let swipeButton = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH 'MobileComputerCaffeineSwipe-'")
+        ).firstMatch
+        XCTAssertTrue(swipeButton.waitForExistence(timeout: 3))
+
+        let swipeAttachment = XCTAttachment(screenshot: app.screenshot())
+        swipeAttachment.name = "ios-keep-mac-awake-swipe-action"
+        swipeAttachment.lifetime = .keepAlways
+        add(swipeAttachment)
+
+        tap(swipeButton, in: app)
         let didDisableCaffeine = await server.waitForRequest(
             method: "caffeine.set",
             minimumCount: 2
@@ -1654,6 +1681,8 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(didDisableCaffeine)
         let caffeineSetValues = await server.caffeineSetValues()
         XCTAssertEqual(caffeineSetValues, [true, false])
+        // The cup disappears once the Mac confirms keep-awake is off.
+        XCTAssertTrue(indicator.waitForNonExistence(timeout: 4))
     }
 
     @MainActor

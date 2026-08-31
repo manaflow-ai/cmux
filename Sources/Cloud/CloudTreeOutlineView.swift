@@ -247,7 +247,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 
         /// One click means open (D9): a click on any row carries the intent to
         /// open it. The second click of a double-click is ignored so machine and
-        /// group rows don't toggle twice.
+        /// group rows don't toggle twice. Workspace rows are the exception
+        /// (lawrence, 2026-08-27): one click only toggles the container;
+        /// double-click opens the remote workspace as its own local workspace,
+        /// or focuses it when a pane already shows one of its terminals.
         @objc func handleSingleClick(_ sender: Any?) {
             guard let outlineView, NSApp.currentEvent.map({ $0.clickCount <= 1 }) ?? true else { return }
             let row = outlineView.clickedRow >= 0 ? outlineView.clickedRow : outlineView.selectedRow
@@ -255,6 +258,20 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 #if DEBUG
             cmuxDebugLog("cloudTree.click row=\(row) kind=\(node.structureTag) clicks=\(NSApp.currentEvent?.clickCount ?? -1)")
 #endif
+            if case .workspace = node.kind {
+                toggle(node)
+                return
+            }
+            open(node)
+        }
+
+        /// Double-click matters only on workspace rows; every other row already
+        /// acted on the first click.
+        @objc func handleDoubleClick(_ sender: Any?) {
+            guard let outlineView else { return }
+            let row = outlineView.clickedRow >= 0 ? outlineView.clickedRow : outlineView.selectedRow
+            guard row >= 0, let node = outlineView.item(atRow: row) as? CloudTreeNode,
+                  case .workspace = node.kind else { return }
             open(node)
         }
 
@@ -281,10 +298,17 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             case .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .browsersGroup:
                 toggle(node)
             case .workspace(let machine, let workspace, _):
-                // A remote workspace opens as its own local workspace, panes and all.
-                // D9: open never creates — an empty workspace row opens nothing here;
-                // its "+" and menu own creation.
-                if let group = node.dragGroup, !group.isEmpty {
+                // Open-or-focus (D13). Already showing in a pane -> focus that pane.
+                // Otherwise the remote workspace opens as its OWN local workspace —
+                // remote and local workspaces never intermingle. D9: open never
+                // creates — an empty workspace row opens nothing here; its "+" and
+                // menu own creation.
+                if let shown = node.children.first(where: { child in
+                    if case .terminal(let row) = child.kind { return row.isOpen }
+                    return false
+                }), case .terminal(let openRow) = shown.kind {
+                    nodeActions.project(openRow.resource.id, .split, true)
+                } else if let group = node.dragGroup, !group.isEmpty {
                     nodeActions.openGroupAsWorkspace(machine, group, workspace.id)
                 }
             case .localWorkspace(let row):
@@ -417,15 +441,19 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
                 ]
             case .workspace(let machine, let workspace, _):
-                let group = node.dragGroup ?? SurfaceResourceGroup(title: workspace.name, resources: [])
                 return [
-                    item(String(localized: "cloudTree.menu.openAsNewWorkspace", defaultValue: "Open as New Workspace")) { [nodeActions] in nodeActions.openGroupAsWorkspace(machine, group, workspace.id) },
-                    item(String(localized: "cloudTree.menu.openAllHere", defaultValue: "Open All Here")) { [nodeActions] in nodeActions.openGroup(machine, group, .split, workspace.id) },
-                    item(String(localized: "cloudTree.menu.openAllInNewTabs", defaultValue: "Open All in New Tabs")) { [nodeActions] in nodeActions.openGroup(machine, group, .tab, workspace.id) },
+                    // One open verb, THE SAME PATH as double-click and Return (`open`):
+                    // focus the pane already showing the workspace instead of opening a
+                    // duplicate, refuse an empty group, else open as an own local
+                    // workspace (remote and local never intermingle, D13).
+                    item(String(localized: "cloudTree.menu.openWorkspace", defaultValue: "Open Workspace")) { [weak self] in self?.open(node) },
                     item(String(localized: "cloudTree.menu.newTerminalHere", defaultValue: "New Terminal Here")) { [nodeActions] in nodeActions.newTerminal(machine, workspace.id) },
                     .separator(),
-                    item(String(localized: "cloudTree.menu.closeWorkspace", defaultValue: "Close Workspace")) { [nodeActions] in nodeActions.closeWorkspace(machine, workspace.id) },
+                    item(String(localized: "cloudTree.menu.renameWorkspace", defaultValue: "Rename\u{2026}")) { [nodeActions] in nodeActions.renameWorkspace(machine, workspace) },
                     item(String(localized: "cloudTree.menu.copyWorkspaceID", defaultValue: "Copy Workspace ID")) { [nodeActions] in nodeActions.copyToPasteboard(workspace.id) },
+                    .separator(),
+                    item(String(localized: "cloudTree.menu.closeWorkspace", defaultValue: "Close Workspace (Keep Terminals)")) { [nodeActions] in nodeActions.closeWorkspace(machine, workspace.id) },
+                    item(String(localized: "cloudTree.menu.deleteWorkspace", defaultValue: "Delete Workspace and Terminals\u{2026}")) { [nodeActions] in nodeActions.deleteWorkspace(machine, workspace) },
                 ]
             case .localWorkspace(let row):
                 var items = [
@@ -440,7 +468,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 var items = resourceMenuItems(row.resource, isLocal: row.resource.machine.isLocal)
                 if !row.resource.machine.isLocal {
                     items.append(.separator())
-                    items.append(item(String(localized: "cloudTree.menu.closeTerminal", defaultValue: "Close Terminal")) { [nodeActions] in nodeActions.closeTerminal(row.resource.id) })
+                    items.append(item(String(localized: "cloudTree.menu.killTerminal", defaultValue: "Kill Terminal\u{2026}")) { [nodeActions] in nodeActions.closeTerminal(row.resource.id) })
                 }
                 return items
             case .browser(let row):
@@ -513,7 +541,11 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         // MARK: Drag source
 
         func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> NSPasteboardWriting? {
-            guard let node = item as? CloudTreeNode, let group = node.dragGroup, let lead = group.resources.first,
+            // Only terminals and displays leave the tree by drag (lawrence,
+            // 2026-08-27). Workspaces are containers (their drag becomes the D2
+            // mirror later); browsers and ports open in place.
+            guard let node = item as? CloudTreeNode, node.isDragSource,
+                  let group = node.dragGroup, let lead = group.resources.first,
                   let transferRegistry = tabDragTransferRegistry() else { return nil }
             let dragID = SurfaceResourceDragRegistry.shared.register(group)
             guard let registration = SurfaceResourceDragPayload(group: group, leadKind: lead.kind, dragID: dragID)
@@ -593,13 +625,20 @@ final class CloudTreeContainerView: NSView {
         column.resizingMask = .autoresizingMask
         outlineView.addTableColumn(column)
         outlineView.outlineTableColumn = column
+        // The one column's width is derived from the live bounds on EVERY layout
+        // pass (see `layout()`), never left to resize notifications: a width set
+        // only during live-resize events is exactly the "row content is wrong
+        // until I drag the divider" class of bug.
+        outlineView.columnAutoresizingStyle = .firstColumnOnlyAutoresizingStyle
 
         outlineView.dataSource = coordinator
         outlineView.delegate = coordinator
         outlineView.target = coordinator
-        // D9: one click opens. No doubleAction — the handler ignores the second
-        // click of a double-click, so a habitual double-click acts once.
+        // D9: one click opens; the single-click handler ignores the second click
+        // of a double-click, so a habitual double-click acts once. The double
+        // action exists solely for workspace rows (open-or-focus, D13).
         outlineView.action = #selector(CloudTreeOutlineView.Coordinator.handleSingleClick(_:))
+        outlineView.doubleAction = #selector(CloudTreeOutlineView.Coordinator.handleDoubleClick(_:))
         outlineView.setDraggingSourceOperationMask(.move, forLocal: true)
         outlineView.onOpenSelection = { [weak coordinator] in coordinator?.openSelection() }
         outlineView.onMoveSelection = { [weak coordinator] delta in coordinator?.moveSelection(by: delta) }
@@ -636,5 +675,13 @@ final class CloudTreeContainerView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    /// Width is a pure function of the current bounds, recomputed on every layout
+    /// pass. Rows are correct on first display, on sidebar show, and on any
+    /// programmatic resize — not only after a live divider drag.
+    override func layout() {
+        super.layout()
+        outlineView.sizeLastColumnToFit()
     }
 }

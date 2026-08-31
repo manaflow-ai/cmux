@@ -37,6 +37,7 @@ import { isVmFreeAccessExpired, maxActiveVmsForPlan, vmFreeAccessWindowDays } fr
 import { isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import {
+  PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
   VmRepository,
   VmRepositoryLive,
   type BeginCreateResult,
@@ -253,6 +254,12 @@ export function createVm(input: {
   readonly perMachineHome?: boolean;
   /** Runtime memory requested by the caller, in MB. Providers may ignore it. */
   readonly memoryMb?: number;
+  /**
+   * Machine-level env injected at provider create (e.g. the coderouter
+   * model-plane vars). May hold secrets: passed to the driver only, never
+   * persisted in the VM row or providerMetadata.
+   */
+  readonly envs?: Readonly<Record<string, string>>;
   readonly timing?: VmTimingSink;
 }): Effect.Effect<VmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
@@ -296,6 +303,7 @@ export function createVm(input: {
             ? homeVolumeNameForUser(input.userId)
             : undefined,
         memoryMb: input.memoryMb,
+        envs: input.envs,
       }),
     ).pipe(
       Effect.tapError((err) =>
@@ -303,7 +311,11 @@ export function createVm(input: {
           refundCredit(billing, repo, create.vm, creditReservation),
           repo.markCreateFailed({
             id: create.vm.id,
-            code: err.operation,
+            // providers.create fails only with VmProviderOperationError, and
+            // the caller is told it is retryable (vm_cloud_service_unavailable,
+            // retryAfterSeconds ~5), so store the code that lets a same-key
+            // retry reach the provider again immediately.
+            code: PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
             message: errorMessage(err.cause),
           }),
           repo.recordUsageEvent({

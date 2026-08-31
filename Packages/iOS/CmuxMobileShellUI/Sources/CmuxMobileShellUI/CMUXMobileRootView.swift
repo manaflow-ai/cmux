@@ -1073,8 +1073,11 @@ struct CMUXMobileRootView: View {
         }
     }
 
+    /// No method gate: `addComputerAction` renders this entrypoint everywhere,
+    /// so a runtime re-check here would turn visible Add Computer buttons into
+    /// silent no-ops on Iroh-only setups (the Computers sheet would dismiss
+    /// with nothing after it). Only the scanner entrypoints below re-check.
     private func showAddDevice() {
-        guard currentlyAllowsManualPairing else { return }
         presentPairing(.manual)
     }
 

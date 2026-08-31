@@ -14,6 +14,7 @@ import {
   defaultHomeVolumeMbForMemory,
   resolveBlaxelMemoryMb,
   resolveHomeVolumeMb,
+  sandboxEnvs,
   sandboxPorts,
   usablePrivatePreviewUrl,
 } from "../services/vms/drivers/blaxel";
@@ -79,6 +80,19 @@ describe("BlaxelProvider session transport", () => {
 
   test("the sandbox exposes only the cmux-tui daemon port", () => {
     expect(sandboxPorts()).toEqual([{ name: "cmuxtui", protocol: "HTTP", target: 1337 }]);
+  });
+
+  test("machine env always carries LANG and appends caller env after it", () => {
+    expect(sandboxEnvs()).toEqual([{ name: "LANG", value: "C.UTF-8" }]);
+    expect(
+      sandboxEnvs({ OPENAI_BASE_URL: "https://cmux.example/v1", OPENAI_API_KEY: "crt_x" }),
+    ).toEqual([
+      { name: "LANG", value: "C.UTF-8" },
+      { name: "OPENAI_BASE_URL", value: "https://cmux.example/v1" },
+      { name: "OPENAI_API_KEY", value: "crt_x" },
+    ]);
+    // LANG is the image contract; a caller-supplied LANG never overrides it.
+    expect(sandboxEnvs({ LANG: "en_US.UTF-8" })).toEqual([{ name: "LANG", value: "C.UTF-8" }]);
   });
 
   test("the smart-sleep watcher only knows the cmux-tui daemon", () => {

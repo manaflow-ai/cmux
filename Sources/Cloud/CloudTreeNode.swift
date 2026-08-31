@@ -141,6 +141,16 @@ final class CloudTreeNode: NSObject {
         return dragResource.map { SurfaceResourceGroup(single: $0) }
     }
 
+    /// Whether this row may start a native drag. Only terminals and displays
+    /// leave the tree by drag; workspaces, browsers, ports, machines, and
+    /// headers do not (their `dragGroup` still feeds open verbs and menus).
+    var isDragSource: Bool {
+        switch kind {
+        case .terminal, .display: return true
+        default: return false
+        }
+    }
+
     /// The single resource a leaf row stands for; nil for workspace rows and headers.
     var dragResource: SurfaceResource? {
         switch kind {

@@ -1511,11 +1511,7 @@ pub(super) fn resource_operation_error(error: anyhow::Error) -> ResourceError {
 }
 
 pub(super) fn operation_name(operation: ResourceOperation) -> String {
-    serde_json::to_value(operation)
-        .expect("resource operations serialize")
-        .as_str()
-        .expect("resource operations serialize as strings")
-        .to_string()
+    operation.wire_name().to_owned()
 }
 
 pub(super) fn validation_error(message: &str, details: Value) -> ResourceError {
