@@ -90,7 +90,7 @@ describe("Stack Auth async error alerts", () => {
   });
 
   test("does not turn a verified duplicate-email conflict into recovery", async () => {
-    delete mutableProcessEnv.NODE_ENV;
+    Reflect.deleteProperty(mutableProcessEnv, "NODE_ENV");
     const error = new KnownErrors.UserWithEmailAlreadyExists(
       "buyer@example.com",
       false,
@@ -114,7 +114,7 @@ describe("Stack Auth async error alerts", () => {
   });
 
   test("keeps unknown errors generic when the environment is unavailable", async () => {
-    delete mutableProcessEnv.NODE_ENV;
+    Reflect.deleteProperty(mutableProcessEnv, "NODE_ENV");
     const error = new Error("provider internals must stay private");
 
     const message = await captureAlert(error);
