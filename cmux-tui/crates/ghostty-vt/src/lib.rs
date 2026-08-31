@@ -31,7 +31,8 @@ pub use render::{
 pub use terminal::{
     Callbacks, ClearHistoryOutcome, KittyGraphicsLimits, KittyImageIdCursors, KittyReplayState,
     NotifyFn, PtyWriteFn, Rgb, Screen, Scrollbar, Terminal, TerminalColorOverrides,
-    TerminalPointerSemanticSnapshot, TrackedScreenPoint, VtReplay, parse_color,
+    SelectionPoint, SelectionRange, TerminalPointerSemanticSnapshot, TrackedScreenPoint, VtReplay,
+    parse_color,
     parse_palette_entry,
 };
 
