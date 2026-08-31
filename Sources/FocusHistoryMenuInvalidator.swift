@@ -67,7 +67,7 @@ final class FocusHistoryMenuInvalidator: ObservableObject {
         // hide transition even though the Dock no longer satisfies the active
         // store predicate, so Commands can fall back to the main workspace.
         guard dock.isVisibleInUI else { return true }
-        return AppDelegate.shared?.focusedDockStoreForShortcut(
+        return AppDelegate.shared?.focusedDockStoreForMenu(
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
         ) === dock
     }

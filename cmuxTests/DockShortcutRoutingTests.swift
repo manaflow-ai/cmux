@@ -1949,18 +1949,48 @@ struct DockShortcutRoutingTests {
 
         let originalHost = DockPointerInteractionHostView()
         let remountedHost = DockPointerInteractionHostView()
-        router.register(originalHost, in: window)
-        router.register(remountedHost, in: window)
+        let originalToken = router.register(originalHost, in: window)
+        let remountedToken = router.register(remountedHost, in: window)
 
-        #expect(router.isRegistered(originalHost, in: window))
-        #expect(router.isRegistered(remountedHost, in: window))
+        #expect(
+            router.isRegistered(
+                token: originalToken,
+                host: originalHost,
+                in: window
+            )
+        )
+        #expect(
+            router.isRegistered(
+                token: remountedToken,
+                host: remountedHost,
+                in: window
+            )
+        )
 
-        router.unregister(remountedHost)
-        #expect(router.isRegistered(originalHost, in: window))
-        #expect(!router.isRegistered(remountedHost, in: window))
+        router.unregister(token: remountedToken, in: window)
+        #expect(
+            router.isRegistered(
+                token: originalToken,
+                host: originalHost,
+                in: window
+            )
+        )
+        #expect(
+            !router.isRegistered(
+                token: remountedToken,
+                host: remountedHost,
+                in: window
+            )
+        )
 
-        router.unregister(originalHost)
-        #expect(!router.isRegistered(originalHost, in: window))
+        router.unregister(token: originalToken, in: window)
+        #expect(
+            !router.isRegistered(
+                token: originalToken,
+                host: originalHost,
+                in: window
+            )
+        )
     }
 
     @Test("Repeated move-to-pane shortcut does not create a missing pane")
@@ -2470,6 +2500,40 @@ struct DockShortcutRoutingTests {
                     )
                 )
                 #expect(harness.dock.panels.count > 1)
+            }
+        }
+    }
+
+    @Test("Dock menu capabilities and menu dispatch share the same focused store")
+    @MainActor
+    func dockMenuSnapshotMatchesSharedDispatcher() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let first = try harness.dock.seedShortcutTestPanel(
+                    inPane: harness.rootPane
+                )
+                let second = try harness.dock.seedShortcutTestPanel(
+                    inPane: harness.rootPane
+                )
+                harness.dock.focusPanel(first.id)
+                harness.dock.refreshDockMenuCapabilities()
+
+                #expect(
+                    harness.appDelegate.focusedDockStoreForMenu(
+                        preferredWindow: harness.window
+                    ) === harness.dock
+                )
+                #expect(harness.dock.menuCapabilities.isTerminal)
+                #expect(harness.dock.menuCapabilities.canCloseOtherTabs)
+
+                #expect(
+                    harness.appDelegate.performFocusedDockCommand(
+                        .selectNextSurface,
+                        action: .nextSurface,
+                        preferredWindow: harness.window
+                    )
+                )
+                #expect(harness.dock.focusedPanelId == second.id)
             }
         }
     }

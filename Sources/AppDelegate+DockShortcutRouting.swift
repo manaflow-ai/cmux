@@ -314,7 +314,7 @@ extension AppDelegate {
     func focusedDockStoreForSurfaceCommand(
         preferredWindow: NSWindow?
     ) -> DockSplitStore? {
-        focusedDockStoreForShortcut(preferredWindow: preferredWindow)
+        focusedDockStoreForMenu(preferredWindow: preferredWindow)
     }
 
     /// Creates a New Terminal / New Browser surface in the focused Dock pane.
@@ -463,7 +463,7 @@ extension AppDelegate {
         guard case .dockScoped = action.dockShortcutRoutingDisposition else {
             return false
         }
-        guard let store = focusedDockStoreForShortcut(
+        guard let store = focusedDockStoreForMenu(
             preferredWindow: preferredWindow
         ) else {
             return false

@@ -137,6 +137,7 @@ final class DockPointerInteractionHostView: NSView {
     weak var router: DockPointerInteractionEventRouter?
     var isEnabled = false
     private weak var registeredWindow: NSWindow?
+    private var registrationToken: UUID?
     private var windowResignKeyObserver: NSObjectProtocol?
     private var applicationResignActiveObserver: NSObjectProtocol?
     // The reference is immutable and its methods marshal all handle access to
@@ -170,8 +171,10 @@ final class DockPointerInteractionHostView: NSView {
     func installMonitorIfNeeded() {
         guard isEnabled, let window, let router else { return }
         if registeredWindow === window,
+           let registrationToken,
            router.isRegistered(
-               self,
+               token: registrationToken,
+               host: self,
                in: window
            ) {
             refreshTeardownCleanup()
@@ -179,7 +182,7 @@ final class DockPointerInteractionHostView: NSView {
         }
         stopMonitoring()
         registeredWindow = window
-        router.register(self, in: window)
+        registrationToken = router.register(self, in: window)
         windowResignKeyObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didResignKeyNotification,
             object: window,
@@ -204,17 +207,17 @@ final class DockPointerInteractionHostView: NSView {
             teardownBox.replace(with: nil)
             return
         }
-        let hostID = ObjectIdentifier(self)
+        guard let registrationToken else {
+            teardownBox.replace(with: nil)
+            return
+        }
         let ownerStore = store
         let ownerRouter = router
         let installedWindowObserver = windowResignKeyObserver
         let installedApplicationObserver = applicationResignActiveObserver
-        teardownBox.replace(with: { [weak ownerStore, weak registeredWindow] in
+        teardownBox.replace(with: { [weak ownerStore, weak ownerRouter, weak registeredWindow] in
             ownerStore?.cancelDockPointerInteraction(window: registeredWindow)
-            ownerRouter?.unregister(
-                hostID: hostID,
-                in: registeredWindow
-            )
+            ownerRouter?.unregister(token: registrationToken, in: registeredWindow)
             if let installedWindowObserver {
                 NotificationCenter.default.removeObserver(installedWindowObserver)
             }
@@ -229,6 +232,7 @@ final class DockPointerInteractionHostView: NSView {
         // flight. Clear the coordinator unconditionally before rebinding.
         teardownBox.perform()
         registeredWindow = nil
+        registrationToken = nil
         windowResignKeyObserver = nil
         applicationResignActiveObserver = nil
     }

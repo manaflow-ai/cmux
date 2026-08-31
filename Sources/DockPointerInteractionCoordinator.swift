@@ -31,6 +31,7 @@ struct DockPointerHitSignals: Equatable, Sendable {
 @MainActor
 final class DockPointerInteractionEventRouter {
     private struct Entry {
+        let token: UUID
         weak var host: DockPointerInteractionHostView?
     }
 
@@ -41,7 +42,11 @@ final class DockPointerInteractionEventRouter {
 
     init() {}
 
-    func register(_ host: DockPointerInteractionHostView, in window: NSWindow) {
+    @discardableResult
+    func register(
+        _ host: DockPointerInteractionHostView,
+        in window: NSWindow
+    ) -> UUID {
         pruneDeadHosts()
         let hostID = ObjectIdentifier(host)
         // A SwiftUI representable can migrate between windows. Remove any old
@@ -55,36 +60,34 @@ final class DockPointerInteractionEventRouter {
                 hostsByWindow.removeValue(forKey: key)
             }
         }
+        let token = UUID()
         hostsByWindow[ObjectIdentifier(window), default: []].append(
-            Entry(host: host)
+            Entry(token: token, host: host)
         )
         installMonitorIfNeeded()
+        return token
     }
 
     func isRegistered(
-        _ host: DockPointerInteractionHostView,
+        token: UUID,
+        host: DockPointerInteractionHostView,
         in window: NSWindow
     ) -> Bool {
         hostsByWindow[ObjectIdentifier(window)]?.contains { entry in
-            entry.host === host
+            entry.token == token && entry.host === host
         } == true
     }
 
-    func unregister(_ host: DockPointerInteractionHostView) {
-        unregister(hostID: ObjectIdentifier(host), in: nil)
-    }
-
-    /// Stable-identity variant used by teardown closures that may run while a
-    /// host is being deallocated and therefore cannot capture `self` strongly.
-    func unregister(hostID: ObjectIdentifier, in window: NSWindow?) {
+    /// Token-based teardown remains safe even when the host has already
+    /// deallocated and its address has been reused by a newer mount.
+    func unregister(token: UUID, in window: NSWindow?) {
         let windowID = window.map(ObjectIdentifier.init)
         for key in Array(hostsByWindow.keys) {
             if let windowID, key != windowID {
                 continue
             }
             hostsByWindow[key]?.removeAll { entry in
-                guard let registeredHost = entry.host else { return true }
-                return ObjectIdentifier(registeredHost) == hostID
+                entry.host == nil || entry.token == token
             }
             if hostsByWindow[key]?.isEmpty == true {
                 hostsByWindow.removeValue(forKey: key)
