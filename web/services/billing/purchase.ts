@@ -222,6 +222,9 @@ export async function recordCheckoutCompletion(
   if (!subscription) {
     throw new Error("Stripe checkout session is missing an expanded subscription");
   }
+  if (hasConflictingFounderTeamMetadata(input.session, subscription)) {
+    throw new Error("Stripe checkout has conflicting Founder and Team metadata");
+  }
   const customerId = customerIdFromSession(input.session, input.customer);
   if (!customerId) {
     throw new Error("Stripe checkout session is missing a customer id");
@@ -484,6 +487,9 @@ export async function recordFoundersCheckoutCompletion(
   dependencies: BillingPurchaseDependencies = {},
 ): Promise<FoundersCheckoutCompletionResult> {
   const providerSubscription = input.subscription ?? expandedSubscription(input.session);
+  if (hasConflictingFounderTeamMetadata(input.session, providerSubscription)) {
+    throw new Error("Stripe Founder's Edition checkout has conflicting Team metadata");
+  }
   const email = checkoutEmail(input.session, input.customer);
   if (!email) {
     return {
