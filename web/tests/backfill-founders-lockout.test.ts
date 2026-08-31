@@ -64,6 +64,7 @@ function stripeClient() {
 describe("Founder's lockout backfill", () => {
   test("dry-run reports a plan without invoking mutations", async () => {
     const stack = stackApp();
+    stack.user.primaryEmailVerified = true;
     const provider = stripeClient();
     const provision = mock(async () => undefined);
     const remap = mock(async () => undefined);
@@ -317,6 +318,7 @@ describe("Founder's lockout backfill", () => {
 
   test("walks all Stripe subscription and session pages", async () => {
     const stack = stackApp();
+    stack.user.primaryEmailVerified = true;
     const customer = {
       id: "cus_paginated",
       deleted: false,
@@ -395,6 +397,31 @@ describe("Founder's lockout backfill", () => {
     expect(sessionList).toHaveBeenCalledWith(
       expect.objectContaining({ starting_after: "cs_unrelated_page_one" }),
     );
+  });
+
+  test("dry-run skips an unverified target instead of promising a mutation", async () => {
+    const stack = stackApp();
+    const provider = stripeClient();
+    const provision = mock(async () => undefined);
+
+    const result = await runFoundersLockoutBackfill(
+      {
+        dryRun: true,
+        cases: [{ email: "billingfixture@gmail.com" }],
+      },
+      {
+        stackApp: stack.value,
+        stripeClient: provider.value,
+        provision: provision as never,
+      },
+    );
+
+    expect(result.customers[0]).toMatchObject({
+      status: "skipped",
+      reason: "target_stack_user_not_verified",
+      targetUserId: "target-user",
+    });
+    expect(provision).not.toHaveBeenCalled();
   });
 
   test("skips an already-complete repeat run after the durable rows exist", async () => {

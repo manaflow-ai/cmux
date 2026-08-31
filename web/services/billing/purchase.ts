@@ -95,6 +95,8 @@ export type BillingOwnershipTransfer = {
   readonly email: string;
   readonly customerId: string;
   readonly subscriptionIds: readonly string[];
+  /** Founder rows need a post-verification TestFlight enrollment. */
+  readonly founderSubscriptionIds?: readonly string[];
   readonly sourceStackUserId: string;
   readonly targetStackUserId: string;
 };
@@ -748,7 +750,25 @@ export async function recordFoundersCheckoutCompletion(
         mutationLease,
         dependencies,
       );
-      await syncProPlanMetadata(freshUser, true, mutationLease);
+      // Payment identifies a purchase, but it does not prove mailbox control.
+      // Re-read after attaching or promoting the channel, then grant the
+      // Founder entitlement only when Stack reports a verified ordinary owner.
+      const entitlementUser = await stackApp.getUser(user.id);
+      if (entitlementUser && isVerifiedCanonicalBillingOwner(entitlementUser, email)) {
+        await syncProPlanMetadata(entitlementUser, true, mutationLease);
+        await enrollFounderTester(
+          input.enrollmentEmail?.trim() || email,
+          checkoutCustomerName(input.session, input.customer),
+          dependencies,
+        );
+      } else {
+        await mutationLease.refresh();
+        await recordBillingEmailClaim(db, {
+          email,
+          stripeCustomerId: customerId,
+          stackUserId: user.id,
+        });
+      }
       if (input.sendRecoveryMagicLink) {
         await requestPurchaseMagicLink(
           db,
@@ -788,11 +808,6 @@ export async function recordFoundersCheckoutCompletion(
     );
   }
 
-  await enrollFounderTester(
-    input.enrollmentEmail?.trim() || email,
-    checkoutCustomerName(input.session, input.customer),
-    dependencies,
-  );
   await resolveBillingEmailClaimsForCustomer(
     db,
     customerId,
@@ -1228,6 +1243,7 @@ export async function claimPendingProBilling(
     dependencies.ownershipRepository ?? makeBillingOwnershipRepository(db);
   const claims = await repository.findClaims(email, user.id);
   let claimed = 0;
+  let founderClaimed = false;
 
   for (const claim of claims) {
     if (claim.claimedByUserId) continue;
@@ -1238,13 +1254,21 @@ export async function claimPendingProBilling(
     const transfer = await repository.transferClaim(claim, user.id);
     if (!transfer) continue;
     claimed += 1;
+    founderClaimed ||= (transfer.founderSubscriptionIds?.length ?? 0) > 0;
     await clearTransferredSourceProMetadata(transfer, db, stackApp);
     await syncTransferredStripeOwnership(transfer, dependencies.stripeClient ?? stripe);
   }
-  if (claimed > 0) {
+  // A claim is marked consumed before external Stripe and TestFlight calls so
+  // ownership cannot be taken twice. Re-check the durable Founder row on each
+  // verified billing read, which gives a failed TestFlight call a safe retry
+  // path after the claim itself has already been consumed.
+  const founderPurchasePending =
+    founderClaimed || (await hasActiveFounderSubscription(db, user.id));
+  if (claimed > 0 || founderPurchasePending) {
     // Ownership transfer and entitlement metadata are separate stores. Refresh
     // the destination under the same account-deletion guard used by webhook
     // fulfillment so a recovered account is immediately recognized as Pro.
+    let entitlementReady = false;
     await syncStackUserMetadataWithAccountDeletionGuard({
       db,
       stackUserId: user.id,
@@ -1254,13 +1278,21 @@ export async function claimPendingProBilling(
           freshUser.isAnonymous === true ||
           freshUser.isRestricted === true ||
           freshUser.primaryEmailVerified !== true ||
+          isAccountDeletionInProgress(freshUser) ||
           canonicalizeEmailForMatching(freshUser.primaryEmail ?? "") !== email
         ) {
           return;
         }
         await syncProPlanMetadata(freshUser, true, lease);
+        entitlementReady = true;
       },
     });
+    if (founderPurchasePending && entitlementReady) {
+      // TestFlight enrollment is an external side effect. Keep it after the
+      // verified metadata write, and make it idempotent so a failed attempt can
+      // be retried by the next authenticated billing read.
+      await enrollFounderTester(user.primaryEmail?.trim() || email, undefined, dependencies);
+    }
   }
   return { claimed };
 }
@@ -1445,7 +1477,11 @@ async function transferBillingOwnershipClaim(
       )
       .limit(1);
     const sourceSubscriptions = await accountTx
-      .select({ id: stripeSubscriptions.id, status: stripeSubscriptions.status })
+      .select({
+        id: stripeSubscriptions.id,
+        status: stripeSubscriptions.status,
+        raw: stripeSubscriptions.raw,
+      })
       .from(stripeSubscriptions)
       .where(
         and(
@@ -1479,6 +1515,9 @@ async function transferBillingOwnershipClaim(
       )
       .limit(100);
     const sourceSubscriptionIDs = sourceSubscriptions.map((row) => row.id);
+    const founderSubscriptionIds = sourceSubscriptions
+      .filter((row) => isFounderSubscriptionRaw(row.raw))
+      .map((row) => row.id);
     const sourceSubscriptionIDSet = new Set(sourceSubscriptionIDs);
     if (
       targetSubscriptions.some(
@@ -1524,6 +1563,7 @@ async function transferBillingOwnershipClaim(
       email: freshClaim.email,
       customerId: freshClaim.stripeCustomerId,
       subscriptionIds: sourceSubscriptionIDs,
+      ...(founderSubscriptionIds.length > 0 ? { founderSubscriptionIds } : {}),
       sourceStackUserId,
       targetStackUserId,
     };
@@ -2649,6 +2689,26 @@ async function hasActiveUserProSubscription(
     )
     .limit(1);
   return rows.length > 0;
+}
+
+async function hasActiveFounderSubscription(
+  db: BillingDbClient,
+  stackUserId: string,
+): Promise<boolean> {
+  const rows = await db
+    .select({ raw: stripeSubscriptions.raw })
+    .from(stripeSubscriptions)
+    .where(
+      and(
+        eq(stripeSubscriptions.stackUserId, stackUserId),
+        eq(stripeSubscriptions.scope, "user"),
+        eq(stripeSubscriptions.plan, PRO_PLAN_ID),
+        inArray(stripeSubscriptions.status, [...ACTIVE_STRIPE_SUBSCRIPTION_STATUSES]),
+        isNull(stripeSubscriptions.stackTeamId),
+      ),
+    )
+    .limit(100);
+  return rows.some((row) => isFounderSubscriptionRaw(row.raw));
 }
 
 async function attachPurchaseEmailOrRecordClaim(

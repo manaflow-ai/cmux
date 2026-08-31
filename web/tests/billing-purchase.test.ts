@@ -489,7 +489,7 @@ describe("recordFoundersCheckoutCompletion", () => {
     accountMutationOperationId = null;
   });
 
-  test("finds, links, syncs, and enrolls a Founder buyer without verifying by payment", async () => {
+  test("finds and parks a Founder buyer until mailbox verification", async () => {
     const update = mock(async () => undefined);
     const sendMagicLinkEmail = mock(async () => undefined);
     const user = {
@@ -578,7 +578,18 @@ describe("recordFoundersCheckoutCompletion", () => {
     expect(sendMagicLinkEmail).toHaveBeenCalledWith("buyer@example.com", {
       callbackUrl: "https://cmux.com/handler/after-sign-in",
     });
-    expect(enroll).toHaveBeenCalledWith("buyer@example.com", "Sample", "Buyer");
+    expect(
+      inserts.some(
+        (entry) =>
+          entry.table === billingEmailClaims &&
+          entry.values.email === "buyer@example.com" &&
+          entry.values.stackUserId === "founder_1",
+      ),
+    ).toBe(true);
+    expect(update).not.toHaveBeenCalledWith({
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+    });
+    expect(enroll).not.toHaveBeenCalled();
   });
 
   test("does not verify an existing Founder account from payment email alone", async () => {

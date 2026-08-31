@@ -129,33 +129,31 @@ export async function runFoundersLockoutBackfill(
       continue;
     }
 
-    if (!options.dryRun) {
-      // Re-read immediately before any ownership or entitlement mutation. A
-      // stale list result must never allow a paid record to move to an
-      // anonymous, restricted, or unverified Stack account.
-      const freshTarget = await dependencies.stackApp.getUser(user.id);
-      if (
-        !freshTarget ||
-        freshTarget.id !== user.id ||
-        freshTarget.isAnonymous === true ||
-        freshTarget.isRestricted === true ||
-        freshTarget.primaryEmailVerified !== true ||
-        !freshTarget.primaryEmail ||
-        canonicalizeEmailForMatching(freshTarget.primaryEmail) !==
-          canonicalizeEmailForMatching(requestedEmail)
-      ) {
-        const summary = {
-          email: target.email,
-          status: "skipped" as const,
-          reason: "target_stack_user_not_verified",
-          targetUserId: user.id,
-        };
-        summaries.push(summary);
-        dependencies.log?.(backfillLogSummary(summary));
-        continue;
-      }
-      user = freshTarget;
+    // Re-read before deciding what the repair would do. Dry-run and apply must
+    // use the same safety checks, so a dry-run can never promise a mutation
+    // that apply mode would reject after a stale lookup.
+    const freshTarget = await dependencies.stackApp.getUser(user.id);
+    if (
+      !freshTarget ||
+      freshTarget.id !== user.id ||
+      freshTarget.isAnonymous === true ||
+      freshTarget.isRestricted === true ||
+      freshTarget.primaryEmailVerified !== true ||
+      !freshTarget.primaryEmail ||
+      canonicalizeEmailForMatching(freshTarget.primaryEmail) !==
+        canonicalizeEmailForMatching(requestedEmail)
+    ) {
+      const summary = {
+        email: target.email,
+        status: "skipped" as const,
+        reason: "target_stack_user_not_verified",
+        targetUserId: user.id,
+      };
+      summaries.push(summary);
+      dependencies.log?.(backfillLogSummary(summary));
+      continue;
     }
+    user = freshTarget;
 
     const allUsers = await matchingUsers(dependencies.stackApp, requestedEmail);
     const duplicateUserIds = allUsers
