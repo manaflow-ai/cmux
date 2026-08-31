@@ -12,7 +12,7 @@ permissions: {}
 jobs:
   CLAAssistant:
     name: "CLA Assistant"
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     # Filter before concurrency admission. Otherwise arbitrary issue comments
     # can consume the signature queue without running the action.
@@ -149,7 +149,7 @@ jobs:
         github.event.comment.body == 'recheck' ||
         github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA'
       )
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     # A contributor can submit more than one valid comment while the signing
     # job is running. Serialize reruns per PR so two comments cannot race the
@@ -559,7 +559,7 @@ jobs:
       github.event_name == 'pull_request_target' &&
       github.event.action == 'closed' &&
       github.event.pull_request.merged == true
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     # Use the same queue as signature writes. The archived action has no
     # final live-open check, so a signing run admitted before merge must finish
