@@ -219,10 +219,14 @@ final class CLISocketSentryTelemetry {
     /// uses; a claim error fails closed (skips the capture) like that reporter.
     private func claimThrottledCaptureSlot(stage: String, kind: String) -> Bool {
         let store = ClaudeHookSessionStore(processEnv: processEnv)
+        // Bounded lock wait: the CLI is already on an error path, so a
+        // contended/stuck state lock must skip the capture (fail closed)
+        // instead of blocking the command's exit.
         return (try? store.claimAgentHookFailureReport(
             agentName: "cli-sentry",
             stage: stage,
-            sessionId: kind
+            sessionId: kind,
+            deadline: Date.now.addingTimeInterval(0.25)
         )) == true
     }
 
