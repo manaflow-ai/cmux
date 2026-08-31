@@ -4,7 +4,7 @@ on:
     types: [created]
   pull_request_target:
     branches: [main]
-    types: [opened,closed,edited,reopened,synchronize]
+    types: [opened,closed,reopened,synchronize]
 
 # Jobs declare only the permissions they need.
 permissions: {}
@@ -21,7 +21,6 @@ jobs:
         github.event_name == 'pull_request_target' &&
         (
           github.event.action == 'opened' ||
-          github.event.action == 'edited' ||
           github.event.action == 'reopened' ||
           github.event.action == 'synchronize'
         )
@@ -424,6 +423,39 @@ jobs:
           candidate_count="$(jq -r 'length' <<<"${candidate_list_json}")"
           [[ "${candidate_count}" =~ ^[0-9]+$ ]] || fail "Could not count matching CLA workflow runs"
           if [[ "${candidate_count}" == "0" ]]; then
+            # A run from before this workflow generation cannot be safely
+            # rerun: GitHub reruns the old workflow revision, which could
+            # execute the archived action or an obsolete policy. Distinguish
+            # that migration case from a normal no-op after a successful CLA
+            # check so contributors receive an actionable recovery path.
+            stale_run_count="$(jq -r \
+              --arg path "${WORKFLOW_PATH}" \
+              --arg event "${TARGET_EVENT}" \
+              --arg sha "${head_sha}" \
+              --arg head_ref "${head_ref}" \
+              --arg head_repo "${head_repo}" \
+              --argjson head_repo_id "${head_repo_id}" \
+              --arg before "${COMMENT_CREATED_AT}" \
+              '[ .[] | .workflow_runs[]?
+                | select(
+                    (.path == $path or
+                     ((.path | startswith($path + "@")) and
+                      ((.path | length) > (($path | length) + 1)))) and
+                    .event == $event and
+                    .head_sha == $sha and
+                    .head_branch == $head_ref and
+                    (.head_repository.full_name == $head_repo and
+                     .head_repository.id == $head_repo_id) and
+                    .status == "completed" and
+                    .conclusion == "failure" and
+                    (.created_at | type == "string") and
+                    .created_at <= $before
+                  )
+              ] | length' <<<"${runs_json}")"
+            [[ "${stale_run_count}" =~ ^[0-9]+$ ]] || fail "Could not count stale CLA workflow runs"
+            if (( stale_run_count > 0 )); then
+              fail "The failed CLA check was created by an older workflow generation. Push a new commit or close and reopen this pull request to create a current-generation CLA check, then post the exact signing declaration again."
+            fi
             # A valid signature can arrive after the check already passed.
             # Preserve the action's historical no-op behavior in that case.
             echo "No failed CLA run exists for this pull request head"
@@ -582,7 +614,12 @@ jobs:
             ' <<<"${jobs_json}")"; then
             fail "Could not validate CLA job data"
           fi
-          [[ -n "${cla_job_json}" ]] || fail "The selected run does not have exactly one failed CLA job"
+          if [[ -z "${cla_job_json}" ]]; then
+            # The run matched the current PR and failed, but no job carried
+            # this workflow generation marker. It is an old or malformed
+            # generation and must not be replayed with the privileged token.
+            fail "The selected failed CLA check was created by an older workflow generation. Push a new commit or close and reopen this pull request to create a current-generation CLA check, then post the exact signing declaration again."
+          fi
           job_id="$(jq -r '.id // empty' <<<"${cla_job_json}")"
           [[ "${job_id}" =~ ^[1-9][0-9]*$ ]] || fail "The selected CLA job ID is invalid"
 

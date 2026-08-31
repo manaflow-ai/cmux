@@ -223,7 +223,7 @@ run_case() {
 }
 
 run_case fork-current 0 "Requested rerun for CLA job 500 in workflow run 400" 1
-run_case stale-marker 1 "does not have exactly one failed CLA job" 0
+run_case stale-marker 1 "older workflow generation" 0
 run_case wrong-head-repo 0 "No failed CLA run exists for this pull request head" 0
 run_case closed-pr 1 "The issue is not an open pull request" 0
 run_case retargeted-pr 1 "The live pull request is not valid" 0
