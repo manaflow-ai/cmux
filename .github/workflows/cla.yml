@@ -363,8 +363,12 @@ jobs:
           [[ "${workflow_id}" =~ ^[1-9][0-9]*$ ]] || fail "The expected CLA workflow is not active"
 
           # Search all pages, then choose the newest completed failure created
-          # no later than this comment. Every candidate is tied to the exact
-          # workflow path, event, current PR head, and PR association.
+          # no later than this comment. Edited, reopened, and synchronize
+          # events can leave several eligible failures for one exact head, so
+          # sort by creation time and run ID and select the newest one. Every
+          # candidate is tied to the exact workflow path, event, current PR
+          # head, and PR association. pull_request_target run.head_sha is the
+          # source PR head SHA, as confirmed by the GitHub Actions API.
           runs_json="$(gh api --paginate --slurp "repos/${GH_REPO}/actions/workflows/${workflow_id}/runs?event=${TARGET_EVENT}&head_sha=${head_sha}&per_page=100" 2>/dev/null)" || fail "Could not query CLA workflow runs"
           if ! candidate_list_json="$(jq -c \
               --arg path "${WORKFLOW_PATH}" \
@@ -387,6 +391,8 @@ jobs:
                       .event == $event and
                       .head_sha == $sha and
                       .head_branch == $head_ref and
+                      (.id | type == "number") and
+                      .id > 0 and
                       (
                         (.head_repository.full_name == $head_repo and
                          .head_repository.id == $head_repo_id) or
@@ -423,8 +429,10 @@ jobs:
             echo "No failed CLA run exists for this pull request head"
             exit 0
           fi
-          [[ "${candidate_count}" == "1" ]] || fail "Multiple failed CLA runs match this pull request head"
-          candidate_json="$(jq -c '.[0]' <<<"${candidate_list_json}")"
+          # candidate_list_json is sorted oldest-first above. The selected run
+          # is fully fetched and validated below before any state-changing API
+          # call, so multiple historical failures do not create ambiguity.
+          candidate_json="$(jq -c '.[-1]' <<<"${candidate_list_json}")"
           run_id="$(jq -r '.id // empty' <<<"${candidate_json}")"
           [[ "${run_id}" =~ ^[1-9][0-9]*$ ]] || fail "The selected CLA run ID is invalid"
 

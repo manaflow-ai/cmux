@@ -53,7 +53,9 @@ export TARGET_BASE_REF=main
 
 # This stub models the API fields used by the rerun guard. In particular, a
 # fork-only commit has no result from /commits/:sha/pulls, while the workflow
-# run still carries head_repository identity.
+# run still carries head_repository identity. GitHub's pull_request_target
+# run.head_sha is the source PR head SHA, so the duplicate-run fixture keeps
+# that SHA exact while varying only creation time and run ID.
 gh() {
   local endpoint=""
   local arg
@@ -83,7 +85,7 @@ gh() {
   esac
 
   if [[ " $* " == *" --method POST "* ]]; then
-    printf 'rerun\n' >>"$FAKE_POST_FILE"
+    printf '%s\n' "$endpoint" >>"$FAKE_POST_FILE"
     return 0
   fi
 
@@ -120,20 +122,46 @@ gh() {
       printf '[{"workflows":[{"id":300,"path":".github/workflows/cla.yml","state":"active"}]}]\n'
       ;;
     repos/manaflow-ai/cmux/actions/workflows/300/runs\?event=pull_request_target\&head_sha=*\&per_page=100)
-      jq -nc --arg head_repo "$run_head_repo" --argjson head_repo_id "$run_head_repo_id" --arg path "$run_path" \
-        '[{workflow_runs:[{id:400,workflow_id:300,path:$path,event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",head_branch:"feature",head_repository:{id:$head_repo_id,full_name:$head_repo},pull_requests:[],created_at:"2026-08-31T07:00:00Z"}]}]'
+      if [[ "${FAKE_MODE}" == duplicate-runs ]]; then
+        jq -nc --arg head_repo "$run_head_repo" --argjson head_repo_id "$run_head_repo_id" --arg path "$run_path" \
+          '[{workflow_runs:[
+            {id:400,workflow_id:300,path:$path,event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",head_branch:"feature",head_repository:{id:$head_repo_id,full_name:$head_repo},pull_requests:[],created_at:"2026-08-31T07:00:00Z"},
+            {id:401,workflow_id:300,path:$path,event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",head_branch:"feature",head_repository:{id:$head_repo_id,full_name:$head_repo},pull_requests:[],created_at:"2026-08-31T07:30:00Z"}
+          ]}]'
+      else
+        jq -nc --arg head_repo "$run_head_repo" --argjson head_repo_id "$run_head_repo_id" --arg path "$run_path" \
+          '[{workflow_runs:[{id:400,workflow_id:300,path:$path,event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",head_branch:"feature",head_repository:{id:$head_repo_id,full_name:$head_repo},pull_requests:[],created_at:"2026-08-31T07:00:00Z"}]}]'
+      fi
       ;;
-    repos/manaflow-ai/cmux/actions/runs/400)
-      jq -nc --arg head_repo "$run_head_repo" --argjson head_repo_id "$run_head_repo_id" --arg path "$run_path" \
-        '{id:400,workflow_id:300,path:$path,event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",head_branch:"feature",head_repository:{id:$head_repo_id,full_name:$head_repo},pull_requests:[],created_at:"2026-08-31T07:00:00Z"}'
+    repos/manaflow-ai/cmux/actions/runs/400|repos/manaflow-ai/cmux/actions/runs/401)
+      local run_id=400
+      local created_at=2026-08-31T07:00:00Z
+      if [[ "$endpoint" == repos/manaflow-ai/cmux/actions/runs/401 ]]; then
+        run_id=401
+        created_at=2026-08-31T07:30:00Z
+      fi
+      jq -nc --argjson run_id "$run_id" --arg created_at "$created_at" --arg head_repo "$run_head_repo" --argjson head_repo_id "$run_head_repo_id" --arg path "$run_path" \
+        '{id:$run_id,workflow_id:300,path:$path,event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",head_branch:"feature",head_repository:{id:$head_repo_id,full_name:$head_repo},pull_requests:[],created_at:$created_at}'
       ;;
-    repos/manaflow-ai/cmux/actions/runs/400/jobs\?per_page=100)
-      jq -nc --arg marker "$marker" \
-        '[{jobs:[{id:500,run_id:400,name:"CLA Assistant",workflow_name:"CLA Assistant",status:"completed",conclusion:"failure",head_sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",head_branch:"feature",head_repository:null,steps:[{name:$marker,status:"completed",conclusion:"success"}]}]}]'
+    repos/manaflow-ai/cmux/actions/runs/400/jobs\?per_page=100|repos/manaflow-ai/cmux/actions/runs/401/jobs\?per_page=100)
+      local run_id=400
+      local job_id=500
+      if [[ "$endpoint" == repos/manaflow-ai/cmux/actions/runs/401/jobs\?per_page=100 ]]; then
+        run_id=401
+        job_id=501
+      fi
+      jq -nc --argjson run_id "$run_id" --argjson job_id "$job_id" --arg marker "$marker" \
+        '[{jobs:[{id:$job_id,run_id:$run_id,name:"CLA Assistant",workflow_name:"CLA Assistant",status:"completed",conclusion:"failure",head_sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",head_branch:"feature",head_repository:null,steps:[{name:$marker,status:"completed",conclusion:"success"}]}]}]'
       ;;
-    repos/manaflow-ai/cmux/actions/jobs/500)
-      jq -nc --arg marker "$marker" \
-        '{id:500,run_id:400,name:"CLA Assistant",workflow_name:"CLA Assistant",status:"completed",conclusion:"failure",head_sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",head_branch:"feature",head_repository:null,steps:[{name:$marker,status:"completed",conclusion:"success"}]}'
+    repos/manaflow-ai/cmux/actions/jobs/500|repos/manaflow-ai/cmux/actions/jobs/501)
+      local job_id=500
+      local run_id=400
+      if [[ "$endpoint" == repos/manaflow-ai/cmux/actions/jobs/501 ]]; then
+        job_id=501
+        run_id=401
+      fi
+      jq -nc --argjson job_id "$job_id" --argjson run_id "$run_id" --arg marker "$marker" \
+        '{id:$job_id,run_id:$run_id,name:"CLA Assistant",workflow_name:"CLA Assistant",status:"completed",conclusion:"failure",head_sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",head_branch:"feature",head_repository:null,steps:[{name:$marker,status:"completed",conclusion:"success"}]}'
       ;;
     *)
       echo "unexpected API endpoint: $endpoint" >&2
@@ -148,6 +176,7 @@ run_case() {
   local expected_status="$2"
   local expected_text="$3"
   local expected_posts="$4"
+  local expected_post="${5:-}"
   local output status posts comment_author=contributor comment_type=User comment_association=NONE comment_body=recheck
   if [[ "$mode" == untrusted-recheck ]]; then
     comment_author=untrusted-user
@@ -185,6 +214,11 @@ run_case() {
     echo "FAIL: $mode made $posts rerun calls, expected $expected_posts" >&2
     exit 1
   fi
+  if [[ -n "$expected_post" ]] && ! grep -Fxq "$expected_post" "$work/posts-$mode"; then
+    echo "FAIL: $mode did not rerun the expected endpoint '$expected_post'" >&2
+    cat "$work/posts-$mode" >&2
+    exit 1
+  fi
   echo "PASS: $mode"
 }
 
@@ -198,3 +232,5 @@ run_case untrusted-recheck 1 "Only the pull request author or a trusted reposito
 run_case suffixed-path 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case late-ambiguous 1 "Expected exactly one open pull request for this head" 0
 run_case external-signer 0 "Requested rerun for CLA job 500 in workflow run 400" 1
+run_case duplicate-runs 0 "Requested rerun for CLA job 501 in workflow run 401" 1 \
+  "repos/manaflow-ai/cmux/actions/jobs/501/rerun"
