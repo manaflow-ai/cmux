@@ -666,7 +666,12 @@ struct MobileSettingsView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            .contentShape(Rectangle())
         }
+        // Plain style keeps the row text primary/secondary (a default Form
+        // button would tint the whole label); only the checkmark carries the
+        // accent color.
+        .buttonStyle(.plain)
         .disabled(switchingConnectionID != nil)
         .accessibilityIdentifier(
             "MobileSettingsMacConnection-\(connection.macDeviceID)"
