@@ -15,6 +15,20 @@ struct NotificationDebugTarget: Sendable {
 @MainActor
 extension TerminalController {
     func notificationDebugCallerTarget(params: [String: Any]) -> NotificationDebugTarget? {
+        let hasCallerSelector = [
+            "preferred_workspace_id",
+            "preferred_surface_id",
+            "caller_tty",
+        ].contains { key in
+            guard let value = params[key] else { return false }
+            return !(value is NSNull)
+        }
+        // Keep the long-standing synthetic-debug default explicit and outside
+        // the production caller resolver. A real caller request with any
+        // selector still fails closed when that selector cannot be proven.
+        guard hasCallerSelector else {
+            return NotificationDebugEmitter.shared.defaultTargetForDebugEmission()
+        }
         guard let target = resolvedCallerNotificationTarget(
             preferredWorkspaceId: v2UUID(params, "preferred_workspace_id"),
             preferredSurfaceId: v2UUID(params, "preferred_surface_id"),
