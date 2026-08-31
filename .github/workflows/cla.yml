@@ -5,51 +5,58 @@ on:
   pull_request_target:
     types: [opened,closed,reopened,synchronize]
 
-# Signature updates share one file and must not race.
-concurrency:
-  group: cla-signatures
-  cancel-in-progress: false
-
-# Keep the token scoped to the GitHub API operations used by this action.
-permissions:
-  # The action inspects prior runs; its optional rerun request is best-effort.
-  actions: read
-  contents: write
-  issues: write
-  # GitHub's pull_request_target token denied issue comments for fork PRs with
-  # this set to read, despite the endpoint documentation allowing issues:write.
-  # Keep write until that live behavior changes.
-  pull-requests: write
-  statuses: write
+# Jobs declare only the permissions they need.
+permissions: {}
 
 jobs:
   CLAAssistant:
     name: "CLA Assistant"
     runs-on: ubuntu-latest
+    # Filter before concurrency admission. Otherwise arbitrary issue comments
+    # can consume the signature queue without running the action.
+    if: >-
+      (
+        github.event_name == 'pull_request_target' &&
+        github.event.action != 'closed'
+      ) ||
+      (
+        github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request &&
+        (
+          github.event.comment.body == 'recheck' ||
+          github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA'
+        )
+      )
+    # Signature updates share one file. Queue up to 100 runs instead of
+    # silently replacing all but one pending contributor event.
+    concurrency:
+      group: cla-signatures
+      queue: max
+      cancel-in-progress: false
+    permissions:
+      # The action inspects prior runs; its optional rerun request is best-effort.
+      actions: read
+      contents: write
+      issues: write
+      # GitHub's pull_request_target token denied issue comments for fork PRs
+      # with this set to read, despite the endpoint documentation allowing
+      # issues:write. Keep write until that live behavior changes.
+      pull-requests: write
+      statuses: write
     steps:
       - name: "Check CLA commit limit"
         # The archived action reads only its first 100 commits. Fail closed
         # instead of allowing an unsigned committer beyond that limit through.
-        if: >-
-          (
-            github.event_name == 'pull_request_target' &&
-            github.event.action != 'closed'
-          ) ||
-          (
-            github.event_name == 'issue_comment' &&
-            github.event.issue.pull_request &&
-            (
-              github.event.comment.body == 'recheck' ||
-              github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA'
-            )
-          )
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
         run: |
           set -euo pipefail
-          commit_count="$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}" --jq '.commits')"
+          if ! commit_count="$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}" --jq '.commits' 2>/dev/null)"; then
+            echo "::error::Could not query the pull request commit count"
+            exit 1
+          fi
           if ! [[ "${commit_count}" =~ ^[0-9]+$ ]]; then
             echo "::error::Could not determine the pull request commit count"
             exit 1
@@ -63,40 +70,33 @@ jobs:
         # The action handles signing and status updates. Merged pull requests
         # use the explicit lock step below because the archived action sends
         # an invalid lock request.
-        if: >-
-          (
-            github.event_name == 'pull_request_target' &&
-            github.event.action != 'closed'
-          ) ||
-          (
-            github.event_name == 'issue_comment' &&
-            github.event.issue.pull_request &&
-            (
-              github.event.comment.body == 'recheck' ||
-              github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA'
-            )
-          )
         uses: contributor-assistant/github-action@ca4a40a7d1004f18d9960b404b97e5f30a505a08 # v2.6.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           path-to-signatures: 'signatures/version1/cla.json'
-          path-to-document: 'https://github.com/manaflow-ai/cmux/blob/main/CLA.md'
+          path-to-document: 'https://github.com/manaflow-ai/cmux/blob/${{ github.workflow_sha }}/CLA.md'
           # The archived action calls the lock endpoint without the required
           # lock_reason. Disable that broken path and use the explicit step
           # below, which supplies a valid reason and fails on API errors.
           lock-pullrequest-aftermerge: 'false'
           # signatures live on the unprotected cla-signatures branch so required checks on main don't block the bot's signature commits
           branch: 'cla-signatures'
-          # Keep this list explicit. A username prefix is not proof that an
-          # account is a GitHub bot and would let a human bypass the CLA.
-          allowlist: lawrencecchen,github-actions[bot],chatmux-connections[bot]
+          # Require the exact phrase below. Do not use the action's name-based
+          # allowlist, which can be spoofed by an unlinked commit identity.
+          custom-pr-sign-comment: 'I have read the CLA Document and I hereby sign the CLA'
 
+  LockMergedPullRequest:
+    name: "Lock merged pull request"
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      github.event.action == 'closed' &&
+      github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
       - name: "Lock merged pull request"
-        if: >-
-          github.event_name == 'pull_request_target' &&
-          github.event.action == 'closed' &&
-          github.event.pull_request.merged == true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
