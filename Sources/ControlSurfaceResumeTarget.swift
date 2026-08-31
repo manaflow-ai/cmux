@@ -427,6 +427,18 @@ extension TerminalController {
                     observedPermissionMode: permissionMode
                 )
                 : nil
+            let legacyCommand = binding?.restoreWorkingDirectorySelection?.discardsRecordedCwdOptions != true &&
+                bindingScopedAgent.restoreWorkingDirectorySelection?.discardsRecordedCwdOptions != true
+                ? compatibilityBinding?.inlineStartupInput
+                : nil
+            // Custom kinds have no generic planner fallback: a launch capture
+            // alone does not identify how to resume their session. Publish only
+            // when a registry-built argv or a permitted compatibility command exists.
+            guard bindingScopedAgent.kind.customAgentID == nil ||
+                    preparedArguments?.isEmpty == false ||
+                    legacyCommand != nil else {
+                return nil
+            }
             return ControlSurfaceRestoreRecord(
                 modeRawValue: mode.rawValue,
                 kind: bindingScopedAgent.kind.rawValue,
@@ -445,10 +457,7 @@ extension TerminalController {
                     ? nil
                     : workingDirectory,
                 permissionMode: permissionMode,
-                legacyCommand: binding?.restoreWorkingDirectorySelection?.discardsRecordedCwdOptions != true &&
-                    bindingScopedAgent.restoreWorkingDirectorySelection?.discardsRecordedCwdOptions != true
-                    ? compatibilityBinding?.inlineStartupInput
-                    : nil
+                legacyCommand: legacyCommand
             )
         }
         guard binding?.isAgentHookBinding != true ||
@@ -513,6 +522,17 @@ extension TerminalController {
         } else {
             preparedArguments = nil
         }
+        let legacyCommand = bindingSelection?.discardsRecordedCwdOptions == true
+            ? nil
+            : compatibilityBinding?.inlineStartupInput
+        // A custom agent-hook record cannot be executed from launchCommand alone;
+        // it needs a validated registry argv or an allowed legacy command.
+        guard !binding.isAgentHookBinding ||
+                RestorableAgentKind(rawValue: normalizedKind)?.customAgentID == nil ||
+                preparedArguments?.isEmpty == false ||
+                legacyCommand != nil else {
+            return nil
+        }
         return ControlSurfaceRestoreRecord(
             modeRawValue: mode.rawValue,
             kind: normalizedKind,
@@ -533,9 +553,7 @@ extension TerminalController {
                 ? nil
                 : workingDirectory,
             permissionMode: binding.permissionMode,
-            legacyCommand: bindingSelection?.discardsRecordedCwdOptions == true
-                ? nil
-                : compatibilityBinding?.inlineStartupInput
+            legacyCommand: legacyCommand
         )
     }
 
