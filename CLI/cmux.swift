@@ -38831,6 +38831,14 @@ export default CMUXSessionRestore;
                     guard let workspaceId else { return nil }
                     return resolveFromSurfaceList(workspaceId: workspaceId)
                 }
+                // Relay authorization intentionally exposes only the scoped
+                // `surface.list` path for remote callers; use it directly
+                // rather than asking the local PID/surface resolver, which is
+                // outside the remote trust boundary.
+                if activeClient.isRelayBacked {
+                    guard let workspaceId else { return nil }
+                    return resolveFromSurfaceList(workspaceId: workspaceId)
+                }
                 var params: [String: Any] = ["surface_id": rawSurfaceId]
                 if let workspaceId { params["workspace_id"] = workspaceId }
                 do {
