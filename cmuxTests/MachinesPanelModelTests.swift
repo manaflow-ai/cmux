@@ -708,14 +708,14 @@ final class MachinesPanelModelTests: XCTestCase {
             activity: .ready, createdAt: nil, label: nil, freeAccess: .active(daysLeft: 3)
         )
         XCTAssertFalse(CloudTreeMachineRowContent.subtitle(active).contains("3"), "expiry is plan chrome, not a machine fact")
-        XCTAssertNil(CloudTreeMachineRowContent.inlineFact(active))
+        XCTAssertNil(CloudTreeMachineRowContent.inlineFact(active, style: .compact))
 
         let expired = MachineSnapshot(
             id: "warm-owl", provider: "blaxel", image: "blaxel/xfce-vnc:latest", isDesktop: true,
             activity: .attention("locked"), createdAt: nil, label: nil, freeAccess: .expired
         )
         XCTAssertTrue(CloudTreeMachineRowContent.subtitle(expired).contains("Locked"), "a dead row still explains itself")
-        XCTAssertNotNil(CloudTreeMachineRowContent.inlineFact(expired))
+        XCTAssertNotNil(CloudTreeMachineRowContent.inlineFact(expired, style: .compact))
     }
 
     func testCloudTreeStylePresetsAreDistinctAndResolvable() {
