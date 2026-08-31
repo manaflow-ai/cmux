@@ -119,6 +119,10 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     private var followedFontSize: Double
     private var followedFontFamily: String
     private var followedMaxContentWidth: Double
+    /// Injected text loading keeps the panel's asynchronous read path
+    /// deterministic in behavior tests while the default remains the
+    /// off-main, unbounded Markdown loader.
+    private let textLoader: @Sendable (URL) async -> FilePreviewTextLoader.Result
 
     // MARK: - Init
 
@@ -129,7 +133,14 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         workspaceId: UUID,
         filePath: String,
         fontSize: Double? = nil,
-        fileContentChangeCoordinator: FileContentChangeCoordinator? = nil
+        fileContentChangeCoordinator: FileContentChangeCoordinator? = nil,
+        textLoader: @escaping @Sendable (URL) async -> FilePreviewTextLoader.Result = { url in
+            await FilePreviewTextLoader.load(
+                url: url,
+                maximumBytes: nil,
+                decodeUTF16: false
+            )
+        }
     ) {
         let defaultSize = MarkdownFontSizeSettings.resolvedDefault()
         let defaultFamily = MarkdownFontFamily.resolvedDefault()
@@ -143,6 +154,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         self.followedFontSize = defaultSize
         self.followedFontFamily = defaultFamily
         self.followedMaxContentWidth = defaultMaxWidth
+        self.textLoader = textLoader
         self.displayTitle = (filePath as NSString).lastPathComponent
         self.fileContentChangeCoordinator =
             fileContentChangeCoordinator ?? FileContentChangeCoordinator()
@@ -555,14 +567,9 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         let loadGeneration = textLoadGeneration
         let editGeneration = textEditGeneration
         let fileURL = URL(fileURLWithPath: filePath)
+        let textLoader = textLoader
         return textLoadCoordinator.submit(load: {
-            // Markdown historically accepts files larger than the bounded
-            // File Preview editor limit; retain that range off the main actor.
-            await FilePreviewTextLoader.load(
-                url: fileURL,
-                maximumBytes: nil,
-                decodeUTF16: false
-            )
+            await textLoader(fileURL)
         }) { [weak self] result in
             guard let self, !self.isClosed else { return }
             self.applyLoadedResult(

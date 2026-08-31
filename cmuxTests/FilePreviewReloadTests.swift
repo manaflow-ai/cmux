@@ -356,6 +356,41 @@ struct FilePreviewReloadTests {
         #expect(!panel.isDirty)
     }
 
+    @Test("Markdown reload retries when the file changes during the read")
+    func markdownReloadRetriesWhenFileChangesDuringRead() async throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appending(path: "cmux-markdown-read-race-\(UUID().uuidString).md")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let before = "# Before\n"
+        let after = "# After\n"
+        try before.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let loader = ControlledMarkdownTextLoader(
+            firstResult: .loaded(content: before, encoding: .utf8),
+            subsequentResult: .loaded(content: after, encoding: .utf8)
+        )
+        let panel = MarkdownPanel(
+            workspaceId: UUID(),
+            filePath: fileURL.path,
+            fileContentChangeCoordinator: FileContentChangeCoordinator(
+                makeFileWatcher: { _ in nil }
+            ),
+            textLoader: { _ in await loader.load() }
+        )
+        defer { panel.close() }
+
+        await loader.waitForFirstStart()
+        try after.write(to: fileURL, atomically: false, encoding: .utf8)
+        await loader.releaseFirstRead()
+
+        for _ in 0..<100 where panel.content != after {
+            await Task.yield()
+        }
+
+        #expect(await loader.count == 2)
+        #expect(panel.content == after)
+    }
+
     @Test("A PDF reload preserves user-applied page rotation")
     func pdfReloadPreservesUserRotations() async throws {
         let fileURL = FileManager.default.temporaryDirectory
@@ -520,6 +555,45 @@ private actor ControlledFilePreviewTextLoader {
         for continuation in continuations {
             continuation.resume()
         }
+    }
+}
+
+private actor ControlledMarkdownTextLoader {
+    private(set) var count = 0
+    private let firstResult: FilePreviewTextLoader.Result
+    private let subsequentResult: FilePreviewTextLoader.Result
+    private var firstStartContinuation: CheckedContinuation<Void, Never>?
+    private var firstReleaseContinuation: CheckedContinuation<Void, Never>?
+
+    init(
+        firstResult: FilePreviewTextLoader.Result,
+        subsequentResult: FilePreviewTextLoader.Result
+    ) {
+        self.firstResult = firstResult
+        self.subsequentResult = subsequentResult
+    }
+
+    func load() async -> FilePreviewTextLoader.Result {
+        count += 1
+        switch count {
+        case 1:
+            firstStartContinuation?.resume()
+            firstStartContinuation = nil
+            await withCheckedContinuation { firstReleaseContinuation = $0 }
+            return firstResult
+        default:
+            return subsequentResult
+        }
+    }
+
+    func waitForFirstStart() async {
+        guard count == 0 else { return }
+        await withCheckedContinuation { firstStartContinuation = $0 }
+    }
+
+    func releaseFirstRead() {
+        firstReleaseContinuation?.resume()
+        firstReleaseContinuation = nil
     }
 }
 
