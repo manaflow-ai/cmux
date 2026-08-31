@@ -134,6 +134,7 @@ jobs:
           COMMENT_BODY: ${{ github.event.comment.body }}
           COMMENT_CREATED_AT: ${{ github.event.comment.created_at }}
           WORKFLOW_PATH: '.github/workflows/cla.yml'
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
           TARGET_EVENT: 'pull_request_target'
           TARGET_BASE_REF: 'main'
         run: |
@@ -209,7 +210,6 @@ jobs:
               --arg event "${TARGET_EVENT}" \
               --arg sha "${head_sha}" \
               --arg pr "${PR_NUMBER}" \
-              --arg repo "${GH_REPO}" \
               --argjson repo_id "${repo_id}" \
               --arg base "${TARGET_BASE_REF}" \
               --arg head_ref "${head_ref}" \
@@ -261,7 +261,6 @@ jobs:
             --arg event "${TARGET_EVENT}" \
             --arg sha "${head_sha}" \
             --arg pr "${PR_NUMBER}" \
-            --arg repo "${GH_REPO}" \
             --argjson repo_id "${repo_id}" \
             --arg head_ref "${head_ref}" \
             --arg workflow_id "${workflow_id}" \
@@ -306,7 +305,6 @@ jobs:
             --arg event "${TARGET_EVENT}" \
             --arg sha "${head_sha}" \
             --arg pr "${PR_NUMBER}" \
-            --arg repo "${GH_REPO}" \
             --argjson repo_id "${repo_id}" \
             --arg head_ref "${head_ref}" \
             --arg workflow_id "${workflow_id}" \
