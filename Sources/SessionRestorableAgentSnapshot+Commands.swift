@@ -260,7 +260,6 @@ extension SurfaceResumeBindingSnapshot {
                   registration: registration
               ),
               let sessionId = checkpointId,
-              let launchCommand,
               registration != nil || agentKind.customAgentID == nil else {
             return nil
         }
