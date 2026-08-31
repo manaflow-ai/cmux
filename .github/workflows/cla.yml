@@ -219,10 +219,12 @@ jobs:
     # independent PRs and lifecycle events proceed. Keeping comments and
     # pull_request_target runs in separate queues prevents public comments
     # from replacing a pending lifecycle validation.
-    # The maintained action uses bounded optimistic locking when their writes
-    # race on the shared signatures branch. The default Actions policy keeps
-    # one running and one pending event for this PR and never cancels a run
-    # that may be writing the ledger.
+    # The maintained action at fc608ba7106e7029d981d487d7bad28a64325956 uses
+    # Contents-API SHA compare-and-swap writes. On HTTP 409 it rereads and
+    # merges the current ledger, with three bounded attempts; its persistence
+    # unit test covers a concurrent update. This is the ledger writer lock.
+    # A global Actions lock would retain only one pending run and could drop
+    # valid signatures from unrelated PRs, so it is not safe for this intake.
     concurrency:
       group: cla-signatures-${{ github.repository }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.issue.number }}
       cancel-in-progress: false
