@@ -33,7 +33,7 @@ fi
 grep -Fq "path-to-signatures: 'signatures/version2/cla.json'" "$WORKFLOW"
 grep -Fq "github.event.comment.body == 'recheck'" "$WORKFLOW"
 grep -Fq "github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA'" "$WORKFLOW"
-if grep -Fq 'cla-trigger-${{ github.run_id }}' "$WORKFLOW"; then
+if grep -Fq "cla-trigger-\${{ github.run_id }}" "$WORKFLOW"; then
   echo 'FAIL: CLA trigger gate admits an unbounded per-event runner group' >&2
   exit 1
 fi

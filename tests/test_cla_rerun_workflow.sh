@@ -25,17 +25,32 @@ fi
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
-rerun_script="$work/rerun.sh"
-
-# Extract only the run block for RerunFailedCLA. The extracted file is
-# executed below, so this is a behavior test of the checked-in workflow.
-awk '
-  /^  RerunFailedCLA:/ { in_job=1; next }
-  in_job && /^        run: \|$/ { in_run=1; next }
-  in_run && /^  LockMergedPullRequest:/ { exit }
-  in_run { sub(/^          /, ""); print }
-' "$WORKFLOW" >"$rerun_script"
+rerun_script="$ROOT_DIR/.github/scripts/rerun-failed-cla.sh"
+test -f "$rerun_script"
 bash -n "$rerun_script"
+
+# The privileged job checks out only the immutable workflow revision and
+# launches the checked-in guard. Keep the launcher below the Actions step-size
+# limit, and reject any future attempt to execute the pull-request head.
+grep -Fq 'uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2' "$WORKFLOW"
+grep -Fq "repository: \${{ github.repository }}" "$WORKFLOW"
+grep -Fq "ref: \${{ github.workflow_sha }}" "$WORKFLOW"
+grep -Fq 'sparse-checkout: .github/scripts/rerun-failed-cla.sh' "$WORKFLOW"
+grep -Fq 'bash .github/scripts/rerun-failed-cla.sh' "$WORKFLOW"
+if grep -Fq "ref: \${{ github.event.pull_request" "$WORKFLOW"; then
+  echo 'FAIL: CLA rerun checkout must never use a pull-request ref' >&2
+  exit 1
+fi
+launcher_bytes="$(awk '
+  /^  RerunFailedCLA:/ { in_job=1; next }
+  in_job && /^  LockMergedPullRequest:/ { exit }
+  in_job && /^        run: \|$/ { in_run=1; next }
+  in_run { sub(/^          /, ""); print }
+' "$WORKFLOW" | wc -c | tr -d ' ')"
+[[ "$launcher_bytes" =~ ^[0-9]+$ && "$launcher_bytes" -lt 21000 ]] || {
+  echo "FAIL: CLA rerun launcher is too large (${launcher_bytes} bytes)" >&2
+  exit 1
+}
 
 export GH_REPO=manaflow-ai/cmux
 export EVENT_NAME=issue_comment
