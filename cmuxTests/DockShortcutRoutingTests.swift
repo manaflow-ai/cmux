@@ -1786,6 +1786,110 @@ struct DockShortcutRoutingTests {
         #expect(coordinator.phase == .idle)
     }
 
+    @Test("Clicking the already-selected Dock tab retires its pointer origin")
+    @MainActor
+    func unchangedDockSelectionRetiresPointerOriginOnMouseUp() throws {
+        let coordinator = DockPointerInteractionCoordinator()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.close() }
+
+        let pane = PaneID()
+        let tab = TabID()
+        coordinator.begin(
+            window: window,
+            initialPaneID: pane,
+            initialTabID: tab
+        )
+        #expect(
+            coordinator.consumeSelection(
+                in: window,
+                paneID: pane,
+                tabID: tab
+            ) == nil
+        )
+        #expect(coordinator.phase == .pressed)
+
+        coordinator.markReleased(in: window)
+        #expect(coordinator.phase == .idle)
+    }
+
+    @Test("Dock pointer origins reject a callback from a different window")
+    @MainActor
+    func dockPointerOriginScopesCallbacksToItsWindow() throws {
+        let coordinator = DockPointerInteractionCoordinator()
+        let originWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let foreignWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            originWindow.close()
+            foreignWindow.close()
+        }
+
+        coordinator.begin(
+            window: originWindow,
+            initialPaneID: PaneID(),
+            initialTabID: TabID()
+        )
+        #expect(
+            coordinator.consumeSelection(
+                in: foreignWindow,
+                paneID: PaneID(),
+                tabID: TabID()
+            ) == nil
+        )
+        #expect(coordinator.phase == .pressed)
+        coordinator.markReleased(in: foreignWindow)
+        #expect(coordinator.phase == .pressed)
+        coordinator.markReleased(in: originWindow)
+        #expect(coordinator.phase == .released)
+    }
+
+    @Test("Dock visibility union and key events clear pointer origins at lifecycle boundaries")
+    @MainActor
+    func dockPointerOriginLifecycleBoundariesAreCovered() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let firstHost = UUID()
+                let secondHost = UUID()
+                harness.dock.setVisibleInUI(true, hostId: firstHost)
+                harness.dock.setVisibleInUI(true, hostId: secondHost)
+                harness.dock.beginUserDockPointerInteraction(window: harness.window)
+
+                harness.dock.setVisibleInUI(false, hostId: firstHost)
+                #expect(
+                    harness.dock.dockPointerInteractionCoordinator.phase == .pressed
+                )
+
+                harness.appDelegate.cancelDockPointerOriginForKeyEvent(
+                    in: harness.window
+                )
+                #expect(
+                    harness.dock.dockPointerInteractionCoordinator.phase == .idle
+                )
+
+                harness.dock.beginUserDockPointerInteraction(window: harness.window)
+                harness.dock.setVisibleInUI(false, hostId: secondHost)
+                #expect(
+                    harness.dock.dockPointerInteractionCoordinator.phase == .idle
+                )
+            }
+        }
+    }
+
     @Test("Dock pointer hit policy keeps tab accessories out of focus ownership")
     @MainActor
     func dockPointerHitPolicyClassifiesOwnershipSignals() {

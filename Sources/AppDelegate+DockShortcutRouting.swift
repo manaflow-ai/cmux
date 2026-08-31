@@ -147,6 +147,25 @@ extension AppDelegate {
         return dockStoreForShortcut(context: context)
     }
 
+    /// Returns the Dock for menu enablement without traversing responder,
+    /// panel, or Bonsplit collections. Commands reads this bounded path during
+    /// SwiftUI menu reconstruction; action execution still uses the stricter
+    /// event-time resolver in ``focusedDockStoreForShortcut``.
+    func focusedDockStoreForMenu(preferredWindow: NSWindow?) -> DockSplitStore? {
+        guard let context = preferredRegisteredMainWindowContext(
+            preferredWindow: preferredWindow
+        ),
+        let sidebarState = context.fileExplorerState,
+        sidebarState.isVisible,
+        context.keyboardFocusCoordinator.focusedRightSidebarMode == .dock,
+        let dock = existingWindowDock(forWindowId: context.windowId),
+        !dock.isRetired,
+        dock.isVisibleInUI else {
+            return nil
+        }
+        return dock
+    }
+
     /// Clears a Dock pointer-origin transaction when a key event begins in the
     /// owning window. Pointer callbacks may be absent for a slop-area click;
     /// keyboard focus changes must never allow that released origin to leak

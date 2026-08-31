@@ -1319,7 +1319,7 @@ struct cmuxApp: App {
         // change the resolved Dock without changing either Dock's capability
         // snapshot.
         let _ = focusHistoryMenuInvalidator.revision
-        return appDelegate.focusedDockStoreForShortcut(
+        return appDelegate.focusedDockStoreForMenu(
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
         )
     }
