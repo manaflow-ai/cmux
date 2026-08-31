@@ -139,6 +139,10 @@ export function makeBillingRecoveryHandler(
           console.error("billing.recovery.provider_failure", {
             failure: "provider_unavailable",
           });
+          // Keep the response generic so this does not become an account
+          // enumeration signal, while still telling the client that no
+          // authentication message was confirmed and that it may retry.
+          return json({ error: "recovery_unavailable" }, 503);
         }
 
         return json(
