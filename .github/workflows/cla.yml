@@ -491,18 +491,20 @@ jobs:
           # no later than this comment. Edited, reopened, and synchronize
           # events can leave several eligible failures for one exact head, so
           # sort by creation time and run ID and select the newest one. Every
-          # candidate is tied to the exact workflow path, event, current PR
-          # head, and PR association. When GitHub includes pull_requests on a
-          # run, bind the candidate to the exact PR object, including its head
-          # SHA. GitHub can return an empty array for fork pull_request_target
-          # runs, so those candidates use the unique live open-PR association
-          # checked above and the exact run head-repository binding below.
-          runs_json="$(gh api --paginate --slurp "repos/${GH_REPO}/actions/workflows/${workflow_id}/runs?event=${TARGET_EVENT}&head_sha=${head_sha}&per_page=100" 2>/dev/null)" || fail "Could not query CLA workflow runs"
+          # candidate is tied to the exact workflow path, event, and PR
+          # association. When GitHub includes pull_requests on a run, bind the
+          # candidate to the exact PR object, including its source head SHA.
+          # GitHub can return an empty array for fork pull_request_target runs,
+          # so those candidates use the unique live open-PR association checked
+          # above and the exact run head-repository binding below. The run's
+          # head_sha is retained as an execution identity and is not assumed to
+          # equal the source PR SHA.
+          runs_json="$(gh api --paginate --slurp "repos/${GH_REPO}/actions/workflows/${workflow_id}/runs?event=${TARGET_EVENT}&per_page=100" 2>/dev/null)" || fail "Could not query CLA workflow runs"
           if ! candidate_list_json="$(jq -c \
               --arg path "${WORKFLOW_PATH}" \
               --arg event "${TARGET_EVENT}" \
               --arg sha "${head_sha}" \
-              --arg workflow_sha "${WORKFLOW_SHA}" \
+              --arg workflow_id "${workflow_id}" \
               --arg pr "${PR_NUMBER}" \
               --arg repo "${GH_REPO}" \
               --arg head_repo "${head_repo}" \
@@ -511,12 +513,25 @@ jobs:
               --arg base "${TARGET_BASE_REF}" \
               --arg head_ref "${head_ref}" \
               --arg before "${COMMENT_CREATED_AT}" '
-                def exact_run_pr:
+                def run_binds_to_pr:
                   (.pull_requests) as $raw_prs
-                  | (if $raw_prs == null then [] else $raw_prs end) as $prs
-                  | if ($prs | type) != "array" then false
-                    elif ($prs | length) == 0 then true
+                  | (if $raw_prs == null then []
+                     elif ($raw_prs | type) == "array" then $raw_prs
+                     else null end) as $prs
+                  | if $prs == null then false
+                    elif ($prs | length) == 0 then
+                      .head_branch == $head_ref and
+                      (
+                        ((.head_repository | type) == "object" and
+                         .head_repository.full_name == $head_repo and
+                         (.head_repository.id | type == "number") and
+                         .head_repository.id == $head_repo_id) or
+                        (.head_repository == null and
+                         $head_repo == $repo and
+                         $head_repo_id == $repo_id)
+                      )
                     else any($prs[]?;
+                      (.number | type == "number") and
                       (.number | tostring) == $pr and
                       .base.ref == $base and
                       ((.base.repo.full_name // "") == "" or
@@ -534,23 +549,20 @@ jobs:
                 [ .[] | .workflow_runs[]?
                   | select(
                       (.path == $path or
-                       ((.path | startswith($path + "@")) and
-                        ((.path | length) > (($path | length) + 1)))) and
+                      ((.path | startswith($path + "@")) and
+                       ((.path | length) > (($path | length) + 1)))) and
                       .event == $event and
-                      .head_sha == $sha and
-                      .head_branch == $head_ref and
+                      (.workflow_id | type == "number") and
+                      .workflow_id == ($workflow_id | tonumber) and
+                      (.head_sha | type == "string") and
+                      (.head_sha | test("^[0-9a-f]{40}$")) and
                       (.id | type == "number") and
                       .id > 0 and
-                      (
-                        (.head_repository.full_name == $head_repo and
-                         .head_repository.id == $head_repo_id) or
-                        (.head_repository == null and $head_repo == $repo)
-                      ) and
                       .status == "completed" and
                       .conclusion == "failure" and
                       (.created_at | type == "string") and
                       .created_at <= $before and
-                      exact_run_pr
+                      run_binds_to_pr
                     )
                 ]
                 | sort_by([.created_at, .id])
@@ -569,6 +581,7 @@ jobs:
               --arg path "${WORKFLOW_PATH}" \
               --arg event "${TARGET_EVENT}" \
               --arg sha "${head_sha}" \
+              --arg workflow_id "${workflow_id}" \
               --arg pr "${PR_NUMBER}" \
               --arg repo "${GH_REPO}" \
               --arg head_ref "${head_ref}" \
@@ -577,12 +590,25 @@ jobs:
               --argjson repo_id "${repo_id}" \
               --arg base "${TARGET_BASE_REF}" \
               --arg before "${COMMENT_CREATED_AT}" \
-              'def exact_run_pr:
+              'def run_binds_to_pr:
                  (.pull_requests) as $raw_prs
-                 | (if $raw_prs == null then [] else $raw_prs end) as $prs
-                 | if ($prs | type) != "array" then false
-                   elif ($prs | length) == 0 then true
+                 | (if $raw_prs == null then []
+                    elif ($raw_prs | type) == "array" then $raw_prs
+                    else null end) as $prs
+                 | if $prs == null then false
+                   elif ($prs | length) == 0 then
+                     .head_branch == $head_ref and
+                     (
+                       ((.head_repository | type) == "object" and
+                        .head_repository.full_name == $head_repo and
+                        (.head_repository.id | type == "number") and
+                        .head_repository.id == $head_repo_id) or
+                       (.head_repository == null and
+                        $head_repo == $repo and
+                        $head_repo_id == $repo_id)
+                     )
                    else any($prs[]?;
+                     (.number | type == "number") and
                      (.number | tostring) == $pr and
                      .base.ref == $base and
                      ((.base.repo.full_name // "") == "" or
@@ -600,18 +626,20 @@ jobs:
                [ .[] | .workflow_runs[]?
                 | select(
                     (.path == $path or
-                     ((.path | startswith($path + "@")) and
+                    ((.path | startswith($path + "@")) and
                       ((.path | length) > (($path | length) + 1)))) and
                     .event == $event and
-                    .head_sha == $sha and
-                    .head_branch == $head_ref and
-                    (.head_repository.full_name == $head_repo and
-                     .head_repository.id == $head_repo_id) and
+                    (.workflow_id | type == "number") and
+                    .workflow_id == ($workflow_id | tonumber) and
+                    (.head_sha | type == "string") and
+                    (.head_sha | test("^[0-9a-f]{40}$")) and
+                    (.id | type == "number") and
+                    .id > 0 and
                     .status == "completed" and
                     .conclusion == "failure" and
                     (.created_at | type == "string") and
                     .created_at <= $before and
-                    exact_run_pr
+                    run_binds_to_pr
                   )
               ] | length' <<<"${runs_json}")"
             [[ "${stale_run_count}" =~ ^[0-9]+$ ]] || fail "Could not count stale CLA workflow runs"
@@ -629,6 +657,10 @@ jobs:
           candidate_json="$(jq -c '.[-1]' <<<"${candidate_list_json}")"
           run_id="$(jq -r '.id // empty' <<<"${candidate_json}")"
           [[ "${run_id}" =~ ^[1-9][0-9]*$ ]] || fail "The selected CLA run ID is invalid"
+          run_execution_sha="$(jq -r '.head_sha // empty' <<<"${candidate_json}")"
+          [[ "${run_execution_sha}" =~ ^[0-9a-f]{40}$ ]] || fail "The selected CLA run execution SHA is invalid"
+          run_head_branch="$(jq -r '.head_branch // empty' <<<"${candidate_json}")"
+          [[ -n "${run_head_branch}" && "${run_head_branch}" != *$'\n'* && "${run_head_branch}" != *$'\r'* ]] || fail "The selected CLA run head branch is invalid"
 
           # Re-read the individual run. The list response is only a discovery
           # result, not authorization to rerun it.
@@ -638,6 +670,8 @@ jobs:
             --arg path "${WORKFLOW_PATH}" \
             --arg event "${TARGET_EVENT}" \
             --arg sha "${head_sha}" \
+            --arg run_sha "${run_execution_sha}" \
+            --arg run_head_branch "${run_head_branch}" \
             --arg pr "${PR_NUMBER}" \
             --arg repo "${GH_REPO}" \
             --arg head_repo "${head_repo}" \
@@ -647,12 +681,25 @@ jobs:
             --arg workflow_id "${workflow_id}" \
             --arg base "${TARGET_BASE_REF}" \
             --arg before "${COMMENT_CREATED_AT}" '
-              def exact_run_pr:
+              def run_binds_to_pr:
                 (.pull_requests) as $raw_prs
-                | (if $raw_prs == null then [] else $raw_prs end) as $prs
-                | if ($prs | type) != "array" then false
-                  elif ($prs | length) == 0 then true
+                | (if $raw_prs == null then []
+                   elif ($raw_prs | type) == "array" then $raw_prs
+                   else null end) as $prs
+                | if $prs == null then false
+                  elif ($prs | length) == 0 then
+                    .head_branch == $head_ref and
+                    (
+                      ((.head_repository | type) == "object" and
+                       .head_repository.full_name == $head_repo and
+                       (.head_repository.id | type == "number") and
+                       .head_repository.id == $head_repo_id) or
+                      (.head_repository == null and
+                       $head_repo == $repo and
+                       $head_repo_id == $repo_id)
+                    )
                   else any($prs[]?;
+                    (.number | type == "number") and
                     (.number | tostring) == $pr and
                     .base.ref == $base and
                     ((.base.repo.full_name // "") == "" or
@@ -675,16 +722,11 @@ jobs:
               .event == $event and
               .status == "completed" and
               .conclusion == "failure" and
-              .head_sha == $sha and
-              .head_branch == $head_ref and
-              (
-                (.head_repository.full_name == $head_repo and
-                 .head_repository.id == $head_repo_id) or
-                (.head_repository == null and $head_repo == $repo)
-              ) and
+              .head_sha == $run_sha and
+              .head_branch == $run_head_branch and
               (.created_at | type == "string") and
               .created_at <= $before and
-              exact_run_pr
+              run_binds_to_pr
             ' <<<"${run_json}" >/dev/null || fail "The selected run no longer matches the exact failed CLA check"
 
           # Close the main TOCTOU window. A push, close, or another rerun can
@@ -706,6 +748,8 @@ jobs:
             --arg path "${WORKFLOW_PATH}" \
             --arg event "${TARGET_EVENT}" \
             --arg sha "${head_sha}" \
+            --arg run_sha "${run_execution_sha}" \
+            --arg run_head_branch "${run_head_branch}" \
             --arg pr "${PR_NUMBER}" \
             --arg repo "${GH_REPO}" \
             --arg head_repo "${head_repo}" \
@@ -716,12 +760,25 @@ jobs:
             --arg run_id "${run_id}" \
             --arg base "${TARGET_BASE_REF}" \
             --arg before "${COMMENT_CREATED_AT}" '
-              def exact_run_pr:
+              def run_binds_to_pr:
                 (.pull_requests) as $raw_prs
-                | (if $raw_prs == null then [] else $raw_prs end) as $prs
-                | if ($prs | type) != "array" then false
-                  elif ($prs | length) == 0 then true
+                | (if $raw_prs == null then []
+                   elif ($raw_prs | type) == "array" then $raw_prs
+                   else null end) as $prs
+                | if $prs == null then false
+                  elif ($prs | length) == 0 then
+                    .head_branch == $head_ref and
+                    (
+                      ((.head_repository | type) == "object" and
+                       .head_repository.full_name == $head_repo and
+                       (.head_repository.id | type == "number") and
+                       .head_repository.id == $head_repo_id) or
+                      (.head_repository == null and
+                       $head_repo == $repo and
+                       $head_repo_id == $repo_id)
+                    )
                   else any($prs[]?;
+                    (.number | type == "number") and
                     (.number | tostring) == $pr and
                     .base.ref == $base and
                     ((.base.repo.full_name // "") == "" or
@@ -744,16 +801,11 @@ jobs:
               .event == $event and
               .status == "completed" and
               .conclusion == "failure" and
-              .head_sha == $sha and
-              .head_branch == $head_ref and
-              (
-                (.head_repository.full_name == $head_repo and
-                 .head_repository.id == $head_repo_id) or
-                (.head_repository == null and $head_repo == $repo)
-              ) and
+              .head_sha == $run_sha and
+              .head_branch == $run_head_branch and
               (.created_at | type == "string") and
               .created_at <= $before and
-              exact_run_pr
+              run_binds_to_pr
           ' <<<"${final_run_json}" >/dev/null || fail "The exact failed CLA run is no longer eligible"
 
           # Rerun only the failed CLA job, rather than every job in the run.
@@ -762,9 +814,9 @@ jobs:
           jobs_json="$(gh api --paginate --slurp "repos/${GH_REPO}/actions/runs/${run_id}/jobs?per_page=100" 2>/dev/null)" || fail "Could not query jobs for the selected CLA run"
           if ! cla_job_json="$(jq -c \
               --arg run_id "${run_id}" \
-              --arg sha "${head_sha}" \
+              --arg run_sha "${run_execution_sha}" \
               --arg workflow_sha "${WORKFLOW_SHA}" \
-              --arg head_ref "${head_ref}" \
+              --arg run_head_branch "${run_head_branch}" \
               --arg head_repo "${head_repo}" \
               --argjson head_repo_id "${head_repo_id}" \
               '[.[] | .jobs[]?
@@ -774,8 +826,8 @@ jobs:
                     .workflow_name == "CLA Assistant v2" and
                     .status == "completed" and
                     .conclusion == "failure" and
-                    .head_sha == $sha and
-                    .head_branch == $head_ref and
+                    .head_sha == $run_sha and
+                    .head_branch == $run_head_branch and
                     (
                       .head_repository == null or
                       (.head_repository.full_name == $head_repo and
@@ -807,9 +859,9 @@ jobs:
           jq -e \
             --arg job_id "${job_id}" \
             --arg run_id "${run_id}" \
-            --arg sha "${head_sha}" \
+            --arg run_sha "${run_execution_sha}" \
             --arg workflow_sha "${WORKFLOW_SHA}" \
-            --arg head_ref "${head_ref}" \
+            --arg run_head_branch "${run_head_branch}" \
             --arg head_repo "${head_repo}" \
             --argjson head_repo_id "${head_repo_id}" '
               .id == ($job_id | tonumber) and
@@ -818,8 +870,8 @@ jobs:
               .workflow_name == "CLA Assistant v2" and
               .status == "completed" and
               .conclusion == "failure" and
-              .head_sha == $sha and
-              .head_branch == $head_ref and
+              .head_sha == $run_sha and
+              .head_branch == $run_head_branch and
               (
                 .head_repository == null or
                 (.head_repository.full_name == $head_repo and
@@ -849,9 +901,9 @@ jobs:
           jq -e \
             --arg job_id "${job_id}" \
             --arg run_id "${run_id}" \
-            --arg sha "${head_sha}" \
+            --arg run_sha "${run_execution_sha}" \
             --arg workflow_sha "${WORKFLOW_SHA}" \
-            --arg head_ref "${head_ref}" \
+            --arg run_head_branch "${run_head_branch}" \
             --arg head_repo "${head_repo}" \
             --argjson head_repo_id "${head_repo_id}" '
               .id == ($job_id | tonumber) and
@@ -860,8 +912,8 @@ jobs:
               .workflow_name == "CLA Assistant v2" and
               .status == "completed" and
               .conclusion == "failure" and
-              .head_sha == $sha and
-              .head_branch == $head_ref and
+              .head_sha == $run_sha and
+              .head_branch == $run_head_branch and
               (
                 .head_repository == null or
                 (.head_repository.full_name == $head_repo and
@@ -886,7 +938,7 @@ jobs:
             "repos/${GH_REPO}/actions/jobs/${job_id}/rerun" >/dev/null 2>&1; then
             fail "Could not rerun the exact failed CLA job"
           fi
-          echo "Requested rerun for CLA job ${job_id} in workflow run ${run_id} at head ${head_sha}"
+          echo "Requested rerun for CLA job ${job_id} in workflow run ${run_id} at execution ${run_execution_sha} for PR head ${head_sha}"
 
   LockMergedPullRequest:
     name: "Lock merged pull request"
