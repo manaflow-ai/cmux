@@ -980,14 +980,30 @@ struct CMUXMobileRootView: View {
     }
 
     /// Starts the stored-Mac reconnect when authenticated, unless a UITest attach
-    /// URL took over. Called from both initial `onAppear` (covers a mount that is
-    /// already authenticated) and `onChange(of: isAuthenticated)` (covers a
-    /// sign-in that completes after mount) so the restoring gate always resolves
-    /// even when the auth state never transitions while this view is mounted.
+    /// URL took over. Called from initial `onAppear` (covers a mount that is
+    /// already authenticated, including one still restoring a keychain session:
+    /// the early dial), from `onChange(of: isAuthenticated)` (covers a sign-in
+    /// that completes after mount), and from the bootstrap continuation, so the
+    /// restoring gate always resolves even when the auth state never transitions
+    /// while this view is mounted.
     private func reconnectStoredMacIfNeeded() {
-        guard isAuthenticated,
-              didFinishAuthBootstrap,
-              !authManager.isRestoringSession else { return }
+        guard MobileRootAuthGate.shouldStartStartupConnections(
+            stackAuthenticated: authManager.isAuthenticated,
+            attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
+            didFinishAuthBootstrap: didFinishAuthBootstrap,
+            isRestoringSession: authManager.isRestoringSession,
+            hasRestoredAccountIdentity: authManager.currentUser?.id != nil
+        ) else { return }
+        // Every startup connection dials inside a prepared account scope.
+        // Post-bootstrap this coalesces with the scope the bootstrap
+        // continuation applied. The pre-bootstrap early dial pins the RESTORED
+        // keychain account (with its persisted team selection) here; a
+        // bootstrap that resolves a different account or team applies a new
+        // scope, which resets the startup coordinator and supersedes the early
+        // connection through `currentTeamDidChange()`.
+        if authManager.isAuthenticated {
+            guard prepareResolvedAccountScope() != nil else { return }
+        }
         let startedUITestAttachURL = connectUITestAttachURLIfNeeded()
         guard !startedUITestAttachURL,
               MobileRootAuthGate.shouldReconnectStoredMac(
@@ -995,10 +1011,13 @@ struct CMUXMobileRootView: View {
                 attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
                 didFinishAuthBootstrap: didFinishAuthBootstrap,
                 isRestoringSession: authManager.isRestoringSession,
+                hasRestoredAccountIdentity: authManager.currentUser?.id != nil,
                 connectionState: store.connectionState
               ) else { return }
         guard let startupAttempt = startupConnectionCoordinator.claimStoredReconnect() else { return }
-        MobileDebugLog.anchormux("startup.stored_reconnect claimed")
+        MobileDebugLog.anchormux(
+            "startup.stored_reconnect claimed early=\(!didFinishAuthBootstrap)"
+        )
         let stackUserID = authManager.currentUser?.id
         didExceedStartupRestoringGate = false
         let restoringGateDeadline = Task { @MainActor in
@@ -1032,7 +1051,13 @@ struct CMUXMobileRootView: View {
         MobileDebugLog.anchormux("startup.bootstrap_await end authenticated=\(authManager.isAuthenticated)")
         guard !Task.isCancelled else { return }
         if authManager.isAuthenticated {
-            guard prepareResolvedAccountScope() != nil else { return }
+            // `false` (coalesced) means the bootstrap confirmed the scope the
+            // early dial already pinned, so that dial survives; `true` means
+            // this application superseded any pre-bootstrap startup work.
+            guard let appliedNewScope = prepareResolvedAccountScope() else { return }
+            MobileDebugLog.anchormux(
+                "startup.bootstrap_scope \(appliedNewScope ? "applied" : "coalesced_with_early")"
+            )
         }
         didFinishAuthBootstrap = true
         if !consumePendingURLIfReady() {
