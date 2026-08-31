@@ -2959,6 +2959,23 @@
         }
       }
     },
+    "mobile.computers.presenceFooter.official": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Presence is the Mac's own heartbeat to the presence service. Not every Mac reports it yet, so a Mac you're connected to may show no server heartbeat. If presence says online but This phone is not connected, the Mac is reachable elsewhere but not from your phone, usually a Tailscale or route problem."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレゼンスは Mac 自身のプレゼンスサービスへのハートビートです。まだすべての Mac が通知するわけではないため、接続中の Mac でもサーバーハートビートが表示されないことがあります。プレゼンスがオンラインなのに「この電話」が未接続の場合、Mac は他からは到達できるが電話からは到達できません。通常は Tailscale かルートの問題です。"
+          }
+        }
+      }
+    },
     "mobile.computers.presenceUnknown": {
       "extractionState": "manual",
       "localizations": {
@@ -6070,6 +6087,23 @@
         }
       }
     },
+    "mobile.pairing.authEnvironmentMismatch.official": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac uses a different cmux sign-in environment, so its account can never match this iPhone's account, even with the same email."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac は別の cmux サインイン環境を使用しているため、同じメールアドレスでもこの iPhone のアカウントと一致することはありません。"
+          }
+        }
+      }
+    },
     "mobile.pairing.authorizationFailed": {
       "extractionState": "manual",
       "localizations": {
@@ -6291,6 +6325,23 @@
         }
       }
     },
+    "mobile.pairing.buildIncompatible.official": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac runs an incompatible version of cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac は互換性のないバージョンの cmux を実行しています。"
+          }
+        }
+      }
+    },
     "mobile.pairing.emailMismatchFormat": {
       "extractionState": "manual",
       "localizations": {
@@ -6376,6 +6427,23 @@
         }
       }
     },
+    "mobile.pairing.guidance.authEnvironment.official": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pair with a Mac running the standard cmux app, and update cmux on the Mac if it is out of date."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通常版の cmux アプリを実行している Mac とペアリングしてください。Mac の cmux が古い場合は最新版に更新してください。"
+          }
+        }
+      }
+    },
     "mobile.pairing.guidance.buildIncompatible": {
       "extractionState": "manual",
       "localizations": {
@@ -6389,6 +6457,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "DEV iPhone ビルドは同じタグの DEV Mac ビルドと、「cmux mobile compatible-tags」で許可されたタグに接続できます。BETA、INTERNAL、App Store ビルドは Stable または Nightly にのみ接続できます。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.guidance.buildIncompatible.official": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update cmux on your Mac to the latest version, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac の cmux を最新バージョンに更新してから、もう一度お試しください。"
           }
         }
       }
@@ -6559,6 +6644,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "App Store（またはTestFlight）でcmuxを更新してから、もう一度スキャンしてください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.guidance.updateApp.official": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update cmux from the App Store, then scan again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Storeでcmuxを更新してから、もう一度スキャンしてください。"
           }
         }
       }
@@ -23797,6 +23899,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "この iPhone アップデートは新しい接続プロトコルを使用し、アップデート済みの Mac としかペアリングできません。接続する前に、Mac の cmux を %@ にアップデートしてください。まだ Mac をアップデートしない場合は、旧バージョンの Mac で動作する最後のバージョンである cmux BETA TestFlight 1.0.4 (20260817224846) をそのままご利用ください（または戻してください）。"
+          }
+        }
+      }
+    },
+    "mobile.connectionsUpdate.macUpdate.detail.official": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This iPhone update speaks a new connection protocol and only pairs with an updated Mac. Update cmux on your Mac to %@ before connecting."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この iPhone アップデートは新しい接続プロトコルを使用し、アップデート済みの Mac としかペアリングできません。接続する前に、Mac の cmux を %@ にアップデートしてください。"
           }
         }
       }

@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileShellModel
 import CmuxMobileSupport
 import Foundation
 
@@ -137,16 +138,35 @@ enum MobileWhatsNewCatalog {
                         "mobile.connectionsUpdate.macUpdate.title",
                         defaultValue: "Action required: update your Mac"
                     ),
-                    detail: String(
-                        format: L10n.string(
-                            "mobile.connectionsUpdate.macUpdate.detail",
-                            defaultValue: "This iPhone update speaks a new connection protocol and only pairs with an updated Mac. Update cmux on your Mac to %@ before connecting. Not ready to update your Mac? Stay on (or revert to) cmux BETA TestFlight version 1.0.4 (20260817224846), the last version that works with older Macs."
-                        ),
-                        requiredMacVersionLabel
-                    )
+                    detail: macUpdateDetail()
                 ),
             ]),
             isAnnouncement: false
+        )
+    }
+
+    /// The compat-notice body, gated per distribution channel.
+    ///
+    /// Team builds include the BETA TestFlight rollback recipe. The public
+    /// App Store app has no older protocol version to revert to, so it gets
+    /// the update instruction only; App Review's Guideline 2.2 rejection also
+    /// bars beta-lane vocabulary from its UI.
+    static func macUpdateDetail(buildType: MobileBuildType = .current()) -> String {
+        guard buildType.usesInternalBuildVocabulary else {
+            return String(
+                format: L10n.string(
+                    "mobile.connectionsUpdate.macUpdate.detail.official",
+                    defaultValue: "This iPhone update speaks a new connection protocol and only pairs with an updated Mac. Update cmux on your Mac to %@ before connecting."
+                ),
+                requiredMacVersionLabel
+            )
+        }
+        return String(
+            format: L10n.string(
+                "mobile.connectionsUpdate.macUpdate.detail",
+                defaultValue: "This iPhone update speaks a new connection protocol and only pairs with an updated Mac. Update cmux on your Mac to %@ before connecting. Not ready to update your Mac? Stay on (or revert to) cmux BETA TestFlight version 1.0.4 (20260817224846), the last version that works with older Macs."
+            ),
+            requiredMacVersionLabel
         )
     }
 }
