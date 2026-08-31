@@ -3,6 +3,8 @@ import * as Effect from "effect/Effect";
 
 import { env } from "../../../env";
 import { getStackServerApp, isStackConfigured } from "../../../lib/stack";
+import { preferredLocaleFromAcceptLanguage } from "../../../../i18n/accept-language";
+import { loadMessages } from "../../../../i18n/messages";
 import { readBoundedJsonObject } from "../../../../services/apns/routePolicy";
 import {
   requestEmailVerificationRecovery,
@@ -133,12 +135,33 @@ export function makeBillingRecoveryHandler(
         }
 
         return json(
-          { ok: true, message: BILLING_RECOVERY_RESPONSE_MESSAGE },
+          {
+            ok: true,
+            message: await billingRecoveryResponseMessage(request),
+          },
           202,
         );
       },
     );
   };
+}
+
+async function billingRecoveryResponseMessage(request: Request): Promise<string> {
+  try {
+    const locale = preferredLocaleFromAcceptLanguage(
+      request.headers.get("accept-language") ?? "",
+    );
+    const messages = await loadMessages(locale);
+    const candidate = (messages.billingRecovery as { message?: unknown } | undefined)
+      ?.message;
+    return typeof candidate === "string" && candidate.length > 0
+      ? candidate
+      : BILLING_RECOVERY_RESPONSE_MESSAGE;
+  } catch {
+    // Localization must never turn an otherwise generic recovery response into
+    // an availability or account-enumeration signal.
+    return BILLING_RECOVERY_RESPONSE_MESSAGE;
+  }
 }
 
 export const POST = makeBillingRecoveryHandler();

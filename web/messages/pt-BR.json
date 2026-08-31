@@ -1,4 +1,7 @@
 {
+  "billingRecovery": {
+    "message": "Se encontramos uma conta, enviamos um código de login para seu e-mail"
+  },
   "cloudBillingReturn": {
     "eyebrow": "cmux Cloud",
     "returnTitle": "Continue no terminal",

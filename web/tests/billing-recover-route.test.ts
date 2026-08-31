@@ -109,6 +109,38 @@ describe("billing recovery route", () => {
     expect(await paid.text()).toBe(await unpaid.text());
   });
 
+  test("localizes the generic response from Accept-Language", async () => {
+    const response = await makeBillingRecoveryHandler(dependencies())(
+      request("buyer@example.com").clone(),
+    );
+
+    // The route remains generic; only the locale-specific wording changes.
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({
+      ok: true,
+      message: BILLING_RECOVERY_RESPONSE_MESSAGE,
+    });
+
+    const japaneseRequest = new Request(
+      "https://cmux.test/api/billing/recover",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "accept-language": "ja-JP, en;q=0.8",
+        },
+        body: JSON.stringify({ email: "buyer@example.com" }),
+      },
+    );
+    const japanese = await makeBillingRecoveryHandler(dependencies())(
+      japaneseRequest,
+    );
+    expect(await japanese.json()).toEqual({
+      ok: true,
+      message: "アカウントが見つかった場合は、サインインコードをメールでお送りしました",
+    });
+  });
+
   test("keeps provider failures indistinguishable", async () => {
     const response = await makeBillingRecoveryHandler(
       dependencies({

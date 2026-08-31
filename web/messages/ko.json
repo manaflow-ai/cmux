@@ -1,4 +1,7 @@
 {
+  "billingRecovery": {
+    "message": "계정을 찾았다면 로그인 코드를 이메일로 보내드렸습니다"
+  },
   "cloudBillingReturn": {
     "eyebrow": "cmux Cloud",
     "returnTitle": "터미널에서 계속하기",

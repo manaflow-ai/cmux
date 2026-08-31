@@ -159,6 +159,42 @@ describe("billing complete route", () => {
     );
   });
 
+  test("rejects conflicting Team and Founder metadata before provisioning", async () => {
+    retrievedSession = {
+      id: "cs_conflicting_scope",
+      payment_status: "paid",
+      client_reference_id: "team-1",
+      metadata: {
+        founders_edition: "true",
+        app: "cmux",
+        plan: "team",
+        stackTeamId: "team-1",
+      },
+      subscription: {
+        id: "sub_conflicting_scope",
+        metadata: {
+          founders_edition: "true",
+          app: "cmux",
+          plan: "team",
+          stackTeamId: "team-1",
+        },
+      },
+      customer: { id: "cus_conflicting_scope" },
+    };
+
+    const response = await GET(
+      new NextRequest(
+        "https://cmux.test/api/billing/complete?session_id=cs_conflicting_scope",
+      ),
+    );
+
+    expect(recordFoundersCheckoutCompletion).not.toHaveBeenCalled();
+    expect(recordCheckoutCompletion).not.toHaveBeenCalled();
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/pricing?billing=error",
+    );
+  });
+
   test("does not redirect to success when checkout is cancelled for account deletion", async () => {
     recordCheckoutCompletionResult = {
       skipped: "account_deletion_in_progress",

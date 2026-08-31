@@ -144,6 +144,15 @@ export async function POST(request: Request) {
       if (trigger !== "founders_edition" && trigger !== "pro_plan") {
         return NextResponse.json({ ok: true, skipped: "not_welcome_eligible" });
       }
+      if (
+        event.type === "checkout.session.completed" &&
+        session?.payment_status !== "paid" &&
+        session?.payment_status !== "no_payment_required"
+      ) {
+        // Delayed payment methods can emit `completed` before funds settle;
+        // wait for `async_payment_succeeded` before sending a welcome.
+        return NextResponse.json({ ok: true, skipped: "payment_pending" });
+      }
       if (!customerEmail) {
         // A completed session that arrives without a customer email is
         // diagnosable in telemetry rather than a silent miss.
@@ -219,6 +228,7 @@ type StripeEvent = {
         email?: string | null;
         name?: string | null;
       } | null;
+      payment_status?: string | null;
     };
   };
 };

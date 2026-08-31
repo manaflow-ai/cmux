@@ -79,9 +79,26 @@ export async function markStackUserEmailVerifiedViaApi(
     process.env.NEXT_PUBLIC_STACK_API_URL?.trim() ||
     process.env.STACK_API_URL?.trim() ||
     "https://api.stack-auth.com";
-  const baseURL = /\/api\/v1\/?$/u.test(configuredBaseURL)
-    ? configuredBaseURL
-    : `${configuredBaseURL.replace(/\/+$/, "")}/api/v1`;
+  let parsedBaseURL: URL;
+  try {
+    parsedBaseURL = new URL(configuredBaseURL);
+  } catch {
+    throw new Error("Stack Auth API URL is invalid");
+  }
+  if (
+    parsedBaseURL.protocol !== "https:" ||
+    !parsedBaseURL.hostname ||
+    parsedBaseURL.username ||
+    parsedBaseURL.password ||
+    parsedBaseURL.search ||
+    parsedBaseURL.hash
+  ) {
+    throw new Error("Stack Auth API URL must use HTTPS");
+  }
+  const normalizedBaseURL = parsedBaseURL.toString().replace(/\/+$/u, "");
+  const baseURL = /\/api\/v1$/u.test(normalizedBaseURL)
+    ? normalizedBaseURL
+    : `${normalizedBaseURL}/api/v1`;
   const response = await fetch(
     `${baseURL.replace(/\/+$/, "")}/users/${encodeURIComponent(userId)}`,
     {

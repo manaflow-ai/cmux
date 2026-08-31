@@ -24,13 +24,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Check your email for a sign-in code."
+            "value" : "Check your email for a sign-in code or verification link."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "サインインコードが届いているかメールを確認してください。"
+            "value" : "サインインコードまたは確認リンクが届いているかメールを確認してください。"
           }
         }
       }

@@ -1196,7 +1196,7 @@ describe("recordCheckoutCompletion", () => {
       isAnonymous: false,
       isRestricted: false,
       primaryEmail: "billingfixture@gmail.com",
-      primaryEmailVerified: false,
+      primaryEmailVerified: true,
       clientReadOnlyMetadata: {},
       update: mock(async () => undefined),
     };
@@ -1272,6 +1272,76 @@ describe("recordCheckoutCompletion", () => {
           entry.values.stackUserId === target.id,
       ),
     ).toBe(true);
+  });
+
+  test("does not remap a parked customer to an unverified target", async () => {
+    const source = {
+      id: "parked_unverified_source",
+      isAnonymous: true,
+      primaryEmail: null,
+      primaryEmailVerified: false,
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+      update: mock(async () => undefined),
+    };
+    const target = {
+      id: "unverified_recovery_target",
+      isAnonymous: false,
+      isRestricted: false,
+      primaryEmail: "billingfixture@gmail.com",
+      primaryEmailVerified: false,
+      clientReadOnlyMetadata: {},
+      update: mock(async () => undefined),
+    };
+    const getUser = mock(async (rawID: unknown) =>
+      (rawID as string) === source.id ? source : target,
+    );
+    selectResults = [
+      [{ stackUserId: source.id, stackTeamId: null }],
+      [{ stackUserId: source.id, stackTeamId: null }],
+    ];
+
+    await expect(
+      recordCheckoutCompletion(
+        {
+          ...checkoutInput("cus_unverified_recovery"),
+          session: {
+            ...checkoutInput("cus_unverified_recovery").session,
+            client_reference_id: source.id,
+            customer: "cus_unverified_recovery",
+            customer_details: { email: "billing.fixture@gmail.com" },
+            metadata: { app: "cmux", plan: "pro" },
+          },
+          subscription: {
+            ...checkoutInput("cus_unverified_recovery").subscription,
+            customer: "cus_unverified_recovery",
+            metadata: { app: "cmux", plan: "pro", stackUserId: source.id },
+          },
+          customer: {
+            id: "cus_unverified_recovery",
+            deleted: false,
+            email: "billing.fixture@gmail.com",
+          },
+          allowCanonicalOwnershipRecovery: true,
+        } as never,
+        {
+          db: fakeDb() as never,
+          stackApp: {
+            getUser,
+            listUsers: async () => [
+              {
+                id: target.id,
+                primaryEmail: target.primaryEmail,
+                primaryEmailVerified: false,
+                update: target.update,
+              },
+            ],
+          } as never,
+        },
+      ),
+    ).rejects.toThrow("ownership conflict");
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+    expect(target.update).not.toHaveBeenCalled();
   });
 
   test("updates the Stripe customer id when the same Stack user repurchases", async () => {

@@ -1,5 +1,5 @@
 import type Stripe from "stripe";
-import { eq } from "drizzle-orm";
+import { eq, or, sql } from "drizzle-orm";
 
 import { cloudDb } from "../../db/client";
 import {
@@ -29,8 +29,14 @@ export type PaidBillingPurchase = {
 type RecoveryDb = ReturnType<typeof cloudDb>;
 type RecoveryStripeClient = {
   readonly customers: {
-    list?(options?: Record<string, unknown>): Promise<{ data: readonly Stripe.Customer[] }>;
-    search?(options?: Record<string, unknown>): Promise<{ data: readonly Stripe.Customer[] }>;
+    list?(options?: Record<string, unknown>): Promise<{
+      data: readonly Stripe.Customer[];
+      has_more?: boolean;
+    }>;
+    search?(options?: Record<string, unknown>): Promise<{
+      data: readonly Stripe.Customer[];
+      has_more?: boolean;
+    }>;
   };
   readonly subscriptions: {
     list(options?: Record<string, unknown>): Promise<{
@@ -72,9 +78,11 @@ export async function findPaidBillingPurchaseByEmail(
   dependencies: RecoveryDependencies = {},
 ): Promise<PaidBillingPurchase | null> {
   const matchingEmail = canonicalizeEmailForMatching(email);
+  const literalEmail = email.trim().toLowerCase();
   try {
     const local = await findLocalPurchase(
       matchingEmail,
+      literalEmail,
       dependencies.db ?? cloudDb(),
     );
     if (local) return local;
@@ -86,25 +94,7 @@ export async function findPaidBillingPurchaseByEmail(
     const client = dependencies.stripeClient
       ? dependencies.stripeClient()
       : (stripe() as unknown as RecoveryStripeClient);
-    let searched: { data: readonly Stripe.Customer[] } | null = null;
-    if (client.customers.search && isEmailSearchSafe(email)) {
-      try {
-        searched = await client.customers.search({
-          query: `email:'${escapeStripeSearchValue(email)}'`,
-          limit: 100,
-        });
-      } catch {
-        // The bounded list below is an equivalent, slower fallback when the
-        // provider's search index or query parser is unavailable.
-      }
-    }
-    const listed = client.customers.list
-      ? await client.customers.list({ limit: 100 })
-      : { data: [] as readonly Stripe.Customer[] };
-    const customers = dedupeCustomers([
-      ...(searched?.data ?? []),
-      ...listed.data,
-    ]);
+    const customers = await listStripeCustomersByEmail(client, email);
     for (const customer of customers) {
       if (
         !customer.email ||
@@ -195,9 +185,15 @@ export async function provisionPaidBillingPurchase(
 
 async function findLocalPurchase(
   matchingEmail: string,
+  literalEmail: string,
   db: RecoveryDb,
 ): Promise<PaidBillingPurchase | null> {
   try {
+    const emailPredicate = billingEmailPredicate(
+      stripeCustomers.email,
+      matchingEmail,
+      literalEmail,
+    );
     const rows = await db
       .select({
         customerId: stripeCustomers.id,
@@ -206,6 +202,7 @@ async function findLocalPurchase(
         stackTeamId: stripeCustomers.stackTeamId,
       })
       .from(stripeCustomers)
+      .where(emailPredicate)
       .limit(500);
     for (const row of rows) {
       if (
@@ -275,6 +272,13 @@ async function findLocalPurchase(
     const claims = await db
       .select()
       .from(billingEmailClaims)
+      .where(
+        billingEmailPredicate(
+          billingEmailClaims.email,
+          matchingEmail,
+          literalEmail,
+        ),
+      )
       .limit(500);
     const claim = claims.find(
       (candidate) =>
@@ -334,6 +338,22 @@ async function findLocalPurchase(
     // A missing/unavailable local database should fall through to Stripe.
   }
   return null;
+}
+
+/**
+ * Restrict billing-email reads in SQL while retaining canonical comparison in
+ * memory for legacy rows that predate Gmail normalization. The lower-case
+ * expression also covers users who type a different case than Stripe stored.
+ */
+function billingEmailPredicate(
+  column: typeof stripeCustomers.email | typeof billingEmailClaims.email,
+  matchingEmail: string,
+  literalEmail: string,
+) {
+  const variants = [...new Set([matchingEmail, literalEmail])].filter(Boolean);
+  const exact = variants.map((value) => eq(column, value));
+  return or(...exact, sql`lower(${column}) = ${literalEmail}`) ??
+    eq(column, matchingEmail);
 }
 
 async function purchaseFromStripeCustomer(
@@ -396,6 +416,53 @@ async function purchaseFromStripeCustomer(
       customer,
     },
   };
+}
+
+/** Query both literal/canonical spellings and paginate each Stripe result. */
+async function listStripeCustomersByEmail(
+  client: RecoveryStripeClient,
+  email: string,
+): Promise<readonly Stripe.Customer[]> {
+  const trimmed = email.trim();
+  const lower = trimmed.toLowerCase();
+  const canonical = canonicalizeEmailForMatching(trimmed);
+  const variants = [...new Set([trimmed, lower, canonical])].filter(Boolean);
+  const customers: Stripe.Customer[] = [];
+  for (const variant of variants) {
+    if (client.customers.search && isEmailSearchSafe(variant)) {
+      try {
+        const response = await client.customers.search({
+          query: `email:'${escapeStripeSearchValue(variant)}'`,
+          limit: 100,
+        });
+        customers.push(...response.data);
+      } catch {
+        // Fall through to the exact-email list endpoint when search is
+        // unavailable or rejects the provider query syntax.
+      }
+    }
+    if (!client.customers.list) continue;
+    let startingAfter: string | undefined;
+    for (;;) {
+      let response: Awaited<ReturnType<NonNullable<RecoveryStripeClient["customers"]["list"]>>>;
+      try {
+        response = await client.customers.list({
+          email: variant,
+          limit: 100,
+          ...(startingAfter ? { starting_after: startingAfter } : {}),
+        });
+      } catch {
+        // Some Stripe API versions do not expose the email filter. Keep the
+        // recovery path fail-closed rather than issuing an unbounded scan.
+        break;
+      }
+      customers.push(...response.data);
+      const lastID = response.data.at(-1)?.id;
+      if (!response.has_more || !lastID || lastID === startingAfter) break;
+      startingAfter = lastID;
+    }
+  }
+  return dedupeCustomers(customers);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

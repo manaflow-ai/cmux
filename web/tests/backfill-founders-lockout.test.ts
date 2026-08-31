@@ -92,6 +92,9 @@ describe("Founder's lockout backfill", () => {
     });
     expect(provision).not.toHaveBeenCalled();
     expect(remap).not.toHaveBeenCalled();
+    const logged = (log as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    expect(JSON.stringify(logged)).not.toContain("customerId");
+    expect(JSON.stringify(logged)).not.toContain("subscriptionIds");
   });
 
   test("apply delegates provisioning to the shared recorder", async () => {
@@ -124,6 +127,68 @@ describe("Founder's lockout backfill", () => {
     });
   });
 
+  test("apply remaps a synthetic dotted alias before provisioning", async () => {
+    const stack = stackApp();
+    const provider = stripeClient();
+    const order: string[] = [];
+    const fakeDb = {
+      select: () => ({
+        from: (table: unknown) => ({
+          where: () => ({
+            limit: async () =>
+              table === stripeCustomers
+                ? [{ stackUserId: stack.user.id, stackTeamId: null }]
+                : [{ id: "sub_fixture", stackUserId: stack.user.id, stackTeamId: null }],
+          }),
+        }),
+      }),
+    };
+
+    const result = await runFoundersLockoutBackfill(
+      {
+        dryRun: false,
+        cases: [
+          {
+            email: "billingfixture@gmail.com",
+            purchaseEmail: "billing.fixture@gmail.com",
+            realEmail: "billingfixture@gmail.com",
+          },
+        ],
+      },
+      {
+        stackApp: stack.value,
+        stripeClient: provider.value,
+        billingDependencies: { db: fakeDb as never },
+        remap: (async (...args: unknown[]) => {
+          const input = args[0] as {
+            customerId: string;
+            subscriptionIds: readonly string[];
+            targetStackUserId: string;
+            email?: string | null;
+          };
+          order.push("remap");
+          expect(input).toEqual({
+            customerId: "cus_fixture",
+            subscriptionIds: ["sub_fixture"],
+            targetStackUserId: "target-user",
+            email: "billing.fixture@gmail.com",
+          });
+        }) as never,
+        provision: (async (...args: unknown[]) => {
+          const input = args[0] as { enrollmentEmail?: string | null };
+          order.push("provision");
+          expect(input.enrollmentEmail).toBe("billingfixture@gmail.com");
+        }) as never,
+      },
+    );
+
+    expect(result.customers[0]).toMatchObject({
+      status: "did",
+      reason: "provisioned",
+    });
+    expect(order).toEqual(["remap", "provision"]);
+  });
+
   test("skips an already-complete repeat run after the durable rows exist", async () => {
     const stack = stackApp();
     stack.user.primaryEmailVerified = true;
@@ -137,7 +202,7 @@ describe("Founder's lockout backfill", () => {
             limit: async () =>
               table === stripeCustomers
                 ? [{ stackUserId: stack.user.id, stackTeamId: null }]
-                : [{ stackUserId: stack.user.id, stackTeamId: null }],
+                : [{ id: "sub_fixture", stackUserId: stack.user.id, stackTeamId: null }],
           }),
         }),
       }),

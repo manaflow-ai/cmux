@@ -1,4 +1,7 @@
 {
+  "billingRecovery": {
+    "message": "Hvis vi fant en konto, sendte vi deg en innloggingskode på e-post"
+  },
   "cloudBillingReturn": {
     "eyebrow": "cmux Cloud",
     "returnTitle": "Fortsett i terminalen",

@@ -70,6 +70,7 @@ type SessionOverrides = {
   id?: string;
   metadata?: Record<string, string> | null;
   customer_details?: { email?: string | null; name?: string | null } | null;
+  payment_status?: string | null;
 };
 
 function checkoutCompletedEvent(
@@ -84,6 +85,7 @@ function checkoutCompletedEvent(
         id: "cs_test_123",
         metadata: { founders_edition: "true" },
         customer_details: { email: "customer@example.com", name: "Sample Buyer" },
+        payment_status: "paid",
         ...overrides,
       },
     },
@@ -208,6 +210,22 @@ describe("founders welcome route", () => {
     expect(sentEmails[0].options.idempotencyKey).toBe(
       "founders-welcome/cs_test_pro_async",
     );
+  });
+
+  test("does not send a welcome for an unsettled completed Pro checkout", async () => {
+    const response = await POST(
+      signedRequest(
+        checkoutCompletedEvent({
+          id: "cs_test_pro_pending",
+          metadata: { stackUserId: "user-1", plan: "pro", app: "cmux" },
+          payment_status: "unpaid",
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, skipped: "payment_pending" });
+    expect(resendSend).not.toHaveBeenCalled();
   });
 
   test("skips a Team plan checkout", async () => {

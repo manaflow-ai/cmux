@@ -97,4 +97,31 @@ describe("purchase email verification", () => {
     }
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  test("refuses to send the Stack server key to a non-HTTPS endpoint", async () => {
+    const previousFetch = globalThis.fetch;
+    const previousBaseURL = process.env.STACK_API_BASE_URL;
+    const fetchMock = mock(async () => {
+      throw new Error("fetch must not run");
+    });
+    process.env.STACK_API_BASE_URL = "http://stack.test";
+    globalThis.fetch = fetchMock as typeof globalThis.fetch;
+    try {
+      await expect(
+        markPurchaseEmailVerified(
+          {
+            id: "user-5",
+            primaryEmail: "buyer@example.com",
+            primaryEmailVerified: false,
+          },
+          "buyer@example.com",
+        ),
+      ).rejects.toThrow("must use HTTPS");
+    } finally {
+      globalThis.fetch = previousFetch;
+      if (previousBaseURL === undefined) delete process.env.STACK_API_BASE_URL;
+      else process.env.STACK_API_BASE_URL = previousBaseURL;
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });

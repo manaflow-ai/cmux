@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import type Stripe from "stripe";
 
 import { getStackServerApp } from "../../app/lib/stack";
@@ -287,6 +287,7 @@ export async function recordCheckoutCompletion(
         user &&
         user.isAnonymous !== true &&
         user.isRestricted !== true &&
+        user.primaryEmailVerified === true &&
         (canonicalEmailMatches || parkedAnonymousSource) &&
         canonicalizeEmailForMatching(user.primaryEmail ?? "") ===
           canonicalizeEmailForMatching(checkoutEmailValue ?? ""),
@@ -788,15 +789,24 @@ async function resolveBillingEmailClaimsForCustomer(
   }
 
   // Claims written by older deployments may retain dotted Gmail spelling.
-  // Read the bounded customer set and compare canonically before claiming so
-  // a recovery for one mailbox cannot consume an unrelated claim on a shared
-  // Stripe customer.
+  // Restrict the read in SQL, then compare canonically for those legacy rows so
+  // a recovery for one mailbox cannot consume an unrelated claim.
+  const matchingEmail = canonicalizeEmailForMatching(email);
+  const literalEmail = email.trim().toLowerCase();
   const rows = await db
     .select({ id: billingEmailClaims.id, email: billingEmailClaims.email })
     .from(billingEmailClaims)
-    .where(basePredicate)
+    .where(
+      and(
+        basePredicate,
+        or(
+          eq(billingEmailClaims.email, matchingEmail),
+          eq(billingEmailClaims.email, literalEmail),
+          sql`lower(${billingEmailClaims.email}) = ${literalEmail}`,
+        ),
+      ),
+    )
     .limit(100);
-  const matchingEmail = canonicalizeEmailForMatching(email);
   for (const row of rows) {
     if (canonicalizeEmailForMatching(row.email) !== matchingEmail) continue;
     await db
@@ -817,7 +827,13 @@ export async function findOrCreateBillingUser(
   email: string,
 ): Promise<StackBillingUser> {
   const existing = await findBillingUserByEmail(stackApp, email);
-  if (existing) return existing;
+  if (existing) {
+    // A paid checkout is the authoritative proof for this mailbox. Verify an
+    // older account before any ownership-remap decision so an unverified
+    // target cannot strand the purchase or fail closed after the move.
+    await markPurchaseEmailVerified(existing, email);
+    return existing;
+  }
   if (!stackApp.createUser) {
     throw new Error("Stack Auth server SDK cannot create users");
   }
@@ -1024,6 +1040,8 @@ function makeBillingOwnershipRepository(
 ): BillingOwnershipRepository {
   return {
     findClaims: async (email) => {
+      const matchingEmail = canonicalizeEmailForMatching(email);
+      const literalEmail = email.trim().toLowerCase();
       const rows = await db
         .select({
           id: billingEmailClaims.id,
@@ -1037,10 +1055,14 @@ function makeBillingOwnershipRepository(
           and(
             eq(billingEmailClaims.plan, PRO_PLAN_ID),
             isNull(billingEmailClaims.claimedByUserId),
+            or(
+              eq(billingEmailClaims.email, matchingEmail),
+              eq(billingEmailClaims.email, literalEmail),
+              sql`lower(${billingEmailClaims.email}) = ${literalEmail}`,
+            ),
           ),
         )
         .limit(100);
-      const matchingEmail = canonicalizeEmailForMatching(email);
       return rows.filter(
         (row) => canonicalizeEmailForMatching(row.email) === matchingEmail,
       );
@@ -1749,6 +1771,30 @@ export function isCmuxCheckoutSession(
   if (session.metadata?.app === "cmux") return true;
   if (session.metadata?.app) return false;
   return Boolean(session.client_reference_id && session.metadata?.plan === "pro");
+}
+
+/**
+ * Return true when a checkout claims both the one-time Founder product and a
+ * Team scope. Those metadata shapes are mutually exclusive; fail closed at
+ * every completion entry point instead of allowing a user-scoped entitlement
+ * to be written for a Team purchase.
+ */
+export function hasConflictingFounderTeamMetadata(
+  session: Pick<Stripe.Checkout.Session, "metadata">,
+  subscription?: Pick<Stripe.Subscription, "metadata"> | null,
+): boolean {
+  const sessionMetadata = session.metadata;
+  const subscriptionMetadata = subscription?.metadata;
+  const isFounder =
+    sessionMetadata?.founders_edition === "true" ||
+    subscriptionMetadata?.founders_edition === "true";
+  if (!isFounder) return false;
+  return Boolean(
+    sessionMetadata?.plan === TEAM_PLAN_ID ||
+      subscriptionMetadata?.plan === TEAM_PLAN_ID ||
+      sessionMetadata?.stackTeamId ||
+      subscriptionMetadata?.stackTeamId,
+  );
 }
 
 async function loadOptionalStackUser(
@@ -2501,17 +2547,23 @@ function checkoutEmail(
   session: Stripe.Checkout.Session,
   customer: Stripe.Customer | Stripe.DeletedCustomer | null | undefined,
 ): string | null {
-  const email = session.customer_details?.email ?? (customer && !customer.deleted ? customer.email : null);
-  return email ? email.trim().toLowerCase() : null;
+  const sessionEmail = session.customer_details?.email?.trim();
+  const customerEmail = customer && !customer.deleted
+    ? customer.email?.trim()
+    : null;
+  const email = sessionEmail || customerEmail;
+  return email ? email.toLowerCase() : null;
 }
 
 function checkoutLiteralEmail(
   session: Stripe.Checkout.Session,
   customer: Stripe.Customer | Stripe.DeletedCustomer | null | undefined,
 ): string | null {
-  const email = session.customer_details?.email ?? (customer && !customer.deleted ? customer.email : null);
-  const trimmed = email?.trim();
-  return trimmed || null;
+  const sessionEmail = session.customer_details?.email?.trim();
+  const customerEmail = customer && !customer.deleted
+    ? customer.email?.trim()
+    : null;
+  return sessionEmail || customerEmail || null;
 }
 
 function checkoutCustomerName(

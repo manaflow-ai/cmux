@@ -43,6 +43,7 @@ type BackfillStripeClient = {
   readonly customers: {
     list(options?: Record<string, unknown>): Promise<{
       data: readonly Stripe.Customer[];
+      has_more?: boolean;
     }>;
     retrieve?(id: string): Promise<Stripe.Customer | Stripe.DeletedCustomer>;
   };
@@ -169,14 +170,7 @@ export async function runFoundersLockoutBackfill(
         ...(duplicateUserIds.length > 0 ? { duplicateUserIds } : {}),
       };
       summaries.push(summary);
-      dependencies.log?.(
-        duplicateUserIds.length > 0
-          ? {
-              ...summary,
-              manualFollowUp: "flag duplicate Stack account for manual merge/deletion",
-            }
-          : summary,
-      );
+      dependencies.log?.(backfillLogSummary(summary));
       continue;
     }
     if (options.dryRun) {
@@ -188,16 +182,7 @@ export async function runFoundersLockoutBackfill(
         ...(duplicateUserIds.length > 0 ? { duplicateUserIds } : {}),
       };
       summaries.push(summary);
-      dependencies.log?.({
-        ...summary,
-        customerId: resolved.customer.id,
-        subscriptionIds: resolved.subscriptionIds,
-        preserveTeamEntitlements: true,
-        manualFollowUp:
-          duplicateUserIds.length > 0
-            ? "flag duplicate Stack account for manual merge/deletion"
-            : undefined,
-      });
+      dependencies.log?.(backfillLogSummary(summary));
       continue;
     }
 
@@ -243,16 +228,26 @@ export async function runFoundersLockoutBackfill(
       ...(duplicateUserIds.length > 0 ? { duplicateUserIds } : {}),
     };
     summaries.push(summary);
-    dependencies.log?.(
-      duplicateUserIds.length > 0
-        ? {
-            ...summary,
-            manualFollowUp: "flag duplicate Stack account for manual merge/deletion",
-          }
-        : summary,
-    );
+    dependencies.log?.(backfillLogSummary(summary));
   }
   return { mode: options.dryRun ? "dry-run" : "apply", customers: summaries };
+}
+
+/** Keep operator progress logs free of internal Stack and Stripe identifiers. */
+function backfillLogSummary(
+  summary: FoundersBackfillSummary["customers"][number],
+): Record<string, unknown> {
+  return {
+    email: summary.email,
+    status: summary.status,
+    reason: summary.reason,
+    ...(summary.duplicateUserIds && summary.duplicateUserIds.length > 0
+      ? {
+          duplicateCount: summary.duplicateUserIds.length,
+          manualFollowUp: "flag duplicate Stack account for manual merge/deletion",
+        }
+      : {}),
+  };
 }
 
 async function resolveStripeCase(
@@ -264,9 +259,9 @@ async function resolveStripeCase(
   readonly subscription: Stripe.Subscription | null;
   readonly subscriptionIds: readonly string[];
 } | null> {
-  const customers = await client.customers.list({ limit: 100 });
   const purchaseEmail = target.purchaseEmail ?? target.email;
-  let matching = customers.data.filter(
+  const customers = await listStripeCustomersByEmail(client, purchaseEmail);
+  let matching = customers.filter(
     (customer) =>
       customer.email &&
       canonicalizeEmailForMatching(customer.email) ===
@@ -282,7 +277,7 @@ async function resolveStripeCase(
     const paymentIntent = await client.paymentIntents.retrieve(target.paymentIntent);
     const paymentCustomerId = stringID(paymentIntent.customer);
     if (paymentCustomerId) {
-      const paymentCustomer = customers.data.find(
+      const paymentCustomer = customers.find(
         (customer) => customer.id === paymentCustomerId,
       );
       const resolvedPaymentCustomer = paymentCustomer ??
@@ -311,6 +306,9 @@ async function resolveStripeCase(
         (metadata.app === "cmux" && metadata.plan === "pro")
       );
     });
+    const founderSubscriptions = relevant.filter(
+      (subscription) => subscription.metadata?.founders_edition === "true",
+    );
     // The legacy payment link can leave its subscription unclassified. A
     // paid Founder checkout session is still authoritative; only use a
     // classified subscription as the synthetic-session fallback, never an
@@ -318,9 +316,9 @@ async function resolveStripeCase(
     const remapCandidates = target.realEmail
       ? subscriptions.data.filter((subscription) => {
           const metadata = subscription.metadata ?? {};
-          // Friedrich's customer is explicitly operator-audited. Include
-          // unclassified personal subscription history so a cancelled
-          // duplicate is moved, while leaving Team-scoped history untouched.
+          // This audited remap case includes unclassified personal
+          // subscription history so a cancelled duplicate is moved, while
+          // leaving Team-scoped history untouched.
           return !metadata.stackTeamId && metadata.plan !== "team";
         })
       : [];
@@ -336,8 +334,8 @@ async function resolveStripeCase(
           (!target.paymentIntent ||
           stringID(session.payment_intent) === target.paymentIntent),
       ) ??
-      (!target.paymentIntent && (relevant[0] ?? remapCandidates[0])
-        ? syntheticSession(customer, relevant[0] ?? remapCandidates[0]!)
+      (!target.paymentIntent && founderSubscriptions[0]
+        ? syntheticSession(customer, founderSubscriptions[0])
         : null);
     if (!selectedSession) continue;
     const sessionSubscriptionID = stringID(selectedSession.subscription);
@@ -351,10 +349,8 @@ async function resolveStripeCase(
       (sessionSubscriptionID
         ? subscriptions.data.find((subscription) => subscription.id === sessionSubscriptionID)
         : null) ??
-      relevant.find((subscription) => subscription.status !== "canceled") ??
-      remapCandidates.find((subscription) => subscription.status !== "canceled") ??
-      relevant[0] ??
-      remapCandidates[0] ??
+      founderSubscriptions.find((subscription) => subscription.status !== "canceled") ??
+      founderSubscriptions[0] ??
       null;
     return {
       customer,
@@ -364,6 +360,37 @@ async function resolveStripeCase(
     };
   }
   return null;
+}
+
+/**
+ * Stripe's customer list is newest-first and capped at 100 rows. Query both
+ * literal/canonical spellings and walk every page so an older purchase cannot
+ * be missed by the lockout repair.
+ */
+async function listStripeCustomersByEmail(
+  client: BackfillStripeClient,
+  email: string,
+): Promise<readonly Stripe.Customer[]> {
+  const trimmed = email.trim();
+  const lower = trimmed.toLowerCase();
+  const canonical = canonicalizeEmailForMatching(trimmed);
+  const variants = [...new Set([trimmed, lower, canonical])].filter(Boolean);
+  const byID = new Map<string, Stripe.Customer>();
+  for (const variant of variants) {
+    let startingAfter: string | undefined;
+    for (;;) {
+      const response = await client.customers.list({
+        email: variant,
+        limit: 100,
+        ...(startingAfter ? { starting_after: startingAfter } : {}),
+      });
+      for (const customer of response.data) byID.set(customer.id, customer);
+      const lastID = response.data.at(-1)?.id;
+      if (!response.has_more || !lastID || lastID === startingAfter) break;
+      startingAfter = lastID;
+    }
+  }
+  return [...byID.values()];
 }
 
 function stringID(value: string | { id: string } | null | undefined): string | null {
@@ -479,10 +506,16 @@ async function billingRowsNeedRepair(
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
-  const dryRun = args.includes("--dry-run");
-  const unknown = args.filter((arg) => arg !== "--dry-run");
+  const apply = args.includes("--apply");
+  const dryRun = !apply;
+  const unknown = args.filter(
+    (arg) => arg !== "--dry-run" && arg !== "--apply",
+  );
   if (unknown.length > 0) {
-    throw new Error("Unknown argument. Use --dry-run or no arguments.");
+    throw new Error("Unknown argument. Use --apply to mutate, or --dry-run for a plan.");
+  }
+  if (apply && args.includes("--dry-run")) {
+    throw new Error("Choose either --apply or --dry-run, not both.");
   }
   const stackApp = getStackServerApp() as unknown as StackBillingApp;
   const summary = await runFoundersLockoutBackfill(
@@ -494,14 +527,26 @@ async function main(): Promise<void> {
       log: (value) => console.log(JSON.stringify(value)),
     },
   );
-  console.log(JSON.stringify(summary, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        mode: summary.mode,
+        customers: summary.customers.map(backfillLogSummary),
+      },
+      null,
+      2,
+    ),
+  );
 }
 
 if ((import.meta as ImportMeta & { main?: boolean }).main) {
   try {
     await main();
-  } catch {
-    console.error("Founder's billing backfill did not complete; retry after reviewing configuration.");
+  } catch (error) {
+    console.error(
+      "Founder's billing backfill did not complete; review the per-customer records above before retrying.",
+      error instanceof Error ? error.name : "unknown error",
+    );
     process.exitCode = 1;
   }
 }

@@ -14,6 +14,7 @@ import {
 } from "../../../../services/analytics/stripeBilling";
 import {
   applySubscriptionUpdate as applySubscriptionUpdateDefault,
+  hasConflictingFounderTeamMetadata,
   isCmuxCheckoutSession,
   isActiveStripeSubscriptionStatus,
   recordCheckoutCompletion as recordCheckoutCompletionDefault,
@@ -161,6 +162,9 @@ async function processStripeEvent(
       const expanded = await dependencies.stripe().checkout.sessions.retrieve(session.id, {
         expand: ["subscription", "customer"],
       });
+      if (hasConflictingFounderTeamMetadata(expanded, expandedSubscription(expanded))) {
+        return { skipped: "conflicting_checkout_metadata" };
+      }
       if (!checkoutPaymentSettled(expanded)) {
         return { skipped: "checkout_payment_pending" };
       }

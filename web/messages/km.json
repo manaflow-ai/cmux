@@ -1,4 +1,7 @@
 {
+  "billingRecovery": {
+    "message": "ប្រសិនបើយើងរកឃើញគណនី យើងបានផ្ញើលេខកូដចូលតាមអ៊ីមែលទៅអ្នក"
+  },
   "cloudBillingReturn": {
     "eyebrow": "cmux Cloud",
     "returnTitle": "បន្តនៅក្នុងស្ថានីយ",

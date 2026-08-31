@@ -8,6 +8,7 @@ import {
 import { captureBillingError } from "../../../../services/errors";
 import {
   isCmuxCheckoutSession,
+  hasConflictingFounderTeamMetadata,
   recordCheckoutCompletion as recordCheckoutCompletionDefault,
   recordFoundersCheckoutCompletion as recordFoundersCheckoutCompletionDefault,
 } from "../../../../services/billing/purchase";
@@ -60,8 +61,12 @@ export function makeBillingCompleteHandler(
         const session = await dependencies.stripe().checkout.sessions.retrieve(sessionId, {
           expand: ["subscription", "customer"],
         });
+        const expandedSubscriptionValue = expandedSubscription(session);
+        if (hasConflictingFounderTeamMetadata(session, expandedSubscriptionValue)) {
+          return NextResponse.redirect(new URL("/pricing?billing=error", request.url));
+        }
         const expandedFounderMetadata =
-          expandedSubscription(session)?.metadata?.founders_edition === "true";
+          expandedSubscriptionValue?.metadata?.founders_edition === "true";
         if (!isCmuxCheckoutSession(session) && !expandedFounderMetadata) {
           return NextResponse.redirect(new URL("/pricing?billing=error", request.url));
         }
@@ -74,16 +79,16 @@ export function makeBillingCompleteHandler(
         ) {
           const isFounderCheckout =
             session.metadata?.founders_edition === "true" ||
-            expandedSubscription(session)?.metadata?.founders_edition === "true";
+            expandedSubscriptionValue?.metadata?.founders_edition === "true";
           const completion = isFounderCheckout
             ? await (dependencies.recordFoundersCheckoutCompletion ?? recordFoundersCheckoutCompletionDefault)({
                 session,
-                subscription: expandedSubscription(session),
+                subscription: expandedSubscriptionValue,
                 customer: expandedCustomer(session),
               })
             : await dependencies.recordCheckoutCompletion({
                 session,
-                subscription: expandedSubscription(session),
+                subscription: expandedSubscriptionValue,
                 customer: expandedCustomer(session),
               });
           if ("skipped" in completion) {
