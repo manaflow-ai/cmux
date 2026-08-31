@@ -101,6 +101,30 @@ describe("welcomeTriggerForCheckout", () => {
       ),
     ).toBe("other");
   });
+
+  test("falls back when the session has only a partial product marker", () => {
+    expect(
+      welcomeTriggerForCheckout(
+        { app: "cmux" },
+        { app: "cmux", plan: "pro" },
+      ),
+    ).toBe("pro_plan");
+    expect(
+      welcomeTriggerForCheckout(
+        { founders_edition: "false" },
+        { app: "cmux", plan: "pro" },
+      ),
+    ).toBe("pro_plan");
+  });
+
+  test("keeps malformed Founder metadata from falling back to another product", () => {
+    expect(
+      welcomeTriggerForCheckout(
+        { founders_edition: "true", app: "cmux", plan: "pro" },
+        { app: "cmux", plan: "pro" },
+      ),
+    ).toBe("other");
+  });
 });
 
 describe("foundersThreadRef", () => {

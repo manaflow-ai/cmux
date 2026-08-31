@@ -66,9 +66,9 @@ export function requestEmailVerificationRecovery(
       // undotted spelling (and googlemail.com is a separate search value).
       // Query every bounded provider spelling, then canonicalize locally.
       const lookupDeadlineAt = Date.now() + STACK_USER_LOOKUP_DEADLINE_MS;
-      const listUsers = async (
-        options: Parameters<EmailVerificationRecoveryStackApp["listUsers"]>[0],
-      ) => {
+      const withLookupDeadline = async <Result>(
+        operation: () => Promise<Result>,
+      ): Promise<Result> => {
         const remainingMs = lookupDeadlineAt - Date.now();
         if (remainingMs <= 0) {
           throw new Error("Stack Auth user lookup deadline exceeded");
@@ -76,7 +76,7 @@ export function requestEmailVerificationRecovery(
         let timeoutID: ReturnType<typeof setTimeout> | undefined;
         try {
           return await Promise.race([
-            dependencies.stackApp.listUsers(options),
+            operation(),
             new Promise<never>((_, reject) => {
               timeoutID = setTimeout(
                 () => reject(new Error("Stack Auth user lookup deadline exceeded")),
@@ -95,13 +95,15 @@ export function requestEmailVerificationRecovery(
         let cursor: string | undefined;
         const seenCursors = new Set<string>();
         for (let page = 0; page < MAX_STACK_USER_LOOKUP_PAGES; page += 1) {
-          const users = await listUsers({
-            ...(query ? { query } : {}),
-            ...(cursor ? { cursor } : {}),
-            limit,
-            includeAnonymous: true,
-            includeRestricted: true,
-          });
+          const users = await withLookupDeadline(() =>
+            dependencies.stackApp.listUsers({
+              ...(query ? { query } : {}),
+              ...(cursor ? { cursor } : {}),
+              limit,
+              includeAnonymous: true,
+              includeRestricted: true,
+            }),
+          );
           // A matching primary email is only a candidate. Keep scanning until
           // a matching account exposes a usable unverified auth channel. This
           // handles duplicate Stack accounts where the first result is stale,
@@ -113,7 +115,9 @@ export function requestEmailVerificationRecovery(
             ) {
               continue;
             }
-            const channels = await user.listContactChannels();
+            const channels = await withLookupDeadline(() =>
+              user.listContactChannels(),
+            );
             const channel = channels.find(
               (candidate) =>
                 canonicalizeEmailForMatching(candidate.value) ===
@@ -122,7 +126,9 @@ export function requestEmailVerificationRecovery(
                 !candidate.isVerified,
             );
             if (!channel) continue;
-            await channel.sendVerificationEmail({ callbackUrl: input.callbackURL });
+            await withLookupDeadline(() =>
+              channel.sendVerificationEmail({ callbackUrl: input.callbackURL }),
+            );
             return true;
           }
           const nextCursor = users.nextCursor ?? null;

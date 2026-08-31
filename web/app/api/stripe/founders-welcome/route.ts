@@ -15,7 +15,10 @@ import {
   buildFoundersWelcomeEmail,
   buildProWelcomeEmail,
 } from "./welcome-email";
-import { welcomeTriggerForCheckout } from "./welcome-trigger";
+import {
+  sessionProductMarkerIsAuthoritative,
+  welcomeTriggerForCheckout,
+} from "./welcome-trigger";
 import { locales, type Locale } from "../../../../i18n/routing";
 import { personalProWelcomeOwnsDelivery } from "../../../../services/billing/personalProWelcome";
 import { stripe } from "../../../../services/billing/stripe";
@@ -167,7 +170,7 @@ export function makeFoundersWelcomeHandler(
       if (
         !subscriptionMetadata &&
         typeof session?.subscription === "string" &&
-        !hasSessionProductMarker(session.metadata)
+        !sessionProductMarkerIsAuthoritative(session.metadata)
       ) {
         try {
           subscriptionMetadata = (
@@ -301,17 +304,6 @@ type StripeEvent = {
 type StripeSessionPayload = NonNullable<
   NonNullable<StripeEvent["data"]>["object"]
 >;
-
-function hasSessionProductMarker(
-  metadata: Record<string, string> | null | undefined,
-): boolean {
-  return Boolean(
-    metadata &&
-      (Object.prototype.hasOwnProperty.call(metadata, "app") ||
-        Object.prototype.hasOwnProperty.call(metadata, "plan") ||
-        Object.prototype.hasOwnProperty.call(metadata, "founders_edition")),
-  );
-}
 
 function localeForSession(session: StripeSessionPayload | undefined): Locale {
   const value =

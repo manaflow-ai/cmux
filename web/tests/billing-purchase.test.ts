@@ -1921,7 +1921,7 @@ describe("recordCheckoutCompletion", () => {
       {
         db: fakeDb() as never,
         magicLinkDelivery: {
-          deliverOnce: async (_input, deliver) => {
+          deliverOnce: async (_input: unknown, deliver: () => Promise<void>) => {
             await deliver();
             return "sent";
           },

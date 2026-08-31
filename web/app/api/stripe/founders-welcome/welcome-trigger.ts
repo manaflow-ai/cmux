@@ -49,17 +49,47 @@ export function welcomeTriggerForCheckout(
   sessionMetadata: Record<string, string> | null | undefined,
   subscriptionMetadata: Record<string, string> | null | undefined,
 ): WelcomeTrigger {
-  const hasSessionProductMarker = Boolean(
-    sessionMetadata &&
-      (Object.prototype.hasOwnProperty.call(sessionMetadata, "app") ||
-        Object.prototype.hasOwnProperty.call(sessionMetadata, "plan") ||
-        Object.prototype.hasOwnProperty.call(
-          sessionMetadata,
-          "founders_edition",
-        )),
+  return (
+    authoritativeSessionTrigger(sessionMetadata) ??
+    welcomeTriggerForMetadata(subscriptionMetadata)
   );
-  if (hasSessionProductMarker) {
-    return welcomeTriggerForMetadata(sessionMetadata);
+}
+
+/**
+ * Return whether the session has enough product metadata to be authoritative.
+ * Partial fields must not hide a complete marker on the expanded subscription.
+ * A complete but conflicting session marker is authoritative as `other`, so a
+ * nested object cannot turn malformed or foreign checkout data into a welcome.
+ */
+export function sessionProductMarkerIsAuthoritative(
+  metadata: Record<string, string> | null | undefined,
+): boolean {
+  return authoritativeSessionTrigger(metadata) !== null;
+}
+
+function authoritativeSessionTrigger(
+  metadata: Record<string, string> | null | undefined,
+): WelcomeTrigger | null {
+  if (!metadata) return null;
+
+  const foundersMarker = metadata.founders_edition === "true";
+  const app = metadata.app?.trim();
+  const plan = metadata.plan?.trim();
+  const hasCompleteAppPlan = Boolean(app && plan);
+
+  if (foundersMarker) {
+    // Founder and recurring/team product markers cannot describe the same
+    // checkout. Keep the malformed session authoritative and fail closed.
+    if (
+      (app && app !== "cmux") ||
+      plan ||
+      metadata.stackTeamId?.trim()
+    ) {
+      return "other";
+    }
+    return "founders_edition";
   }
-  return welcomeTriggerForMetadata(subscriptionMetadata);
+
+  if (!hasCompleteAppPlan) return null;
+  return welcomeTriggerForMetadata(metadata);
 }
