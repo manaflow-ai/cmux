@@ -1,4 +1,7 @@
 {
+  "billingRecovery": {
+    "message": "If we found an account, check your email for next steps"
+  },
   "vmDesktop": {
     "invalidTitle": "This desktop link isn't valid",
     "invalidBody": "The link is missing its session or points somewhere cmux won't frame. Reopen the desktop from cmux: right-click {machine} in the Machines panel and choose Open Desktop.",
