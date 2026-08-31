@@ -501,7 +501,15 @@ export async function blaxelFetch<T>(
   const sleep = opts?.sleep ?? defaultRetrySleep;
   const random = opts?.random ?? Math.random;
   const attemptTimeoutMs = Math.max(1, opts?.timeoutMs ?? BLAXEL_DEFAULT_TIMEOUT_MS);
-  const retryBudgetMs = Math.max(1, opts?.retryBudgetMs ?? attemptTimeoutMs);
+  // The default operation budget must leave room for every configured attempt
+  // and the waits between them. Retry-After is capped at 15 seconds, so this
+  // covers both server-directed waits and the shorter exponential backoff.
+  // An explicit budget remains authoritative for callers that need a tighter
+  // wall-clock limit.
+  const defaultRetryBudgetMs =
+    attemptTimeoutMs * BLAXEL_FETCH_MAX_ATTEMPTS +
+    BLAXEL_RETRY_AFTER_CAP_MS * (BLAXEL_FETCH_MAX_ATTEMPTS - 1);
+  const retryBudgetMs = Math.max(1, opts?.retryBudgetMs ?? defaultRetryBudgetMs);
   const deadlineMs = Date.now() + retryBudgetMs;
   let lastFailure = "";
   let lastCause: unknown;
