@@ -365,7 +365,9 @@ struct CmxIrohRelayPolicyServiceTests {
             now: fixture.now
         )
 
-        let expired = await stores.service.expireManagedPolicy(accountID: "account-a")
+        let expired = try #require(
+            await stores.service.expireManagedPolicy(accountID: "account-a")
+        )
         #expect(expired.source == .managedUnavailable)
         #expect(expired.endpointRelayProfile.allowedRelayURLs.isEmpty)
         #expect(await stores.service.diagnosticsSnapshot().policyExpiresAt == nil)
@@ -405,9 +407,10 @@ struct CmxIrohRelayPolicyServiceTests {
         )
 
         let expired = await stores.service.expireManagedPolicy(accountID: "account-a")
-        #expect(expired == custom)
-        #expect(expired.source == .custom)
-        #expect(expired.endpointRelayProfile.allowedRelayURLs == [definition.url])
+        #expect(expired == nil)
+        #expect(await stores.service.effectivePolicy() == custom)
+        #expect(custom.source == .custom)
+        #expect(custom.endpointRelayProfile.allowedRelayURLs == [definition.url])
     }
 
     @Test

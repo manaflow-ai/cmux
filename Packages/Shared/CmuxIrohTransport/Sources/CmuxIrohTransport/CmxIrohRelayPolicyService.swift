@@ -251,16 +251,21 @@ public actor CmxIrohRelayPolicyService {
     /// service.
     ///
     /// - Parameter accountID: Account whose persisted preference is retained.
-    /// - Returns: A managed-unavailable effective policy with no relay URLs.
+    /// - Returns: A managed-unavailable effective policy with no relay URLs,
+    ///   or `nil` when custom relay authority is already active or a newer
+    ///   policy operation superseded this expiry decision.
     public func expireManagedPolicy(
         accountID: String
-    ) async -> CmxIrohEffectiveRelayPolicy {
+    ) async -> CmxIrohEffectiveRelayPolicy? {
         // Custom profiles can retain the managed catalog as metadata, but its
-        // expiry must never disable a valid custom endpoint profile.
+        // expiry must never disable a valid custom endpoint profile. Returning
+        // nil is an explicit no-op: callers must not carry this snapshot into
+        // a later endpoint application while a preference mutation is in
+        // flight.
         if let currentEffective,
            (currentEffective.source == .custom
             || currentEffective.source == .customUnavailable) {
-            return currentEffective
+            return nil
         }
         let operation = beginOperation()
         let configuration: CmxIrohAccountRelayConfiguration?
@@ -276,6 +281,7 @@ public actor CmxIrohRelayPolicyService {
             configuration = persisted?.requested
             revision = persisted?.revision
         }
+        guard isCurrent(operation) else { return nil }
         return publishUnavailable(
             configuration: configuration,
             revision: revision,

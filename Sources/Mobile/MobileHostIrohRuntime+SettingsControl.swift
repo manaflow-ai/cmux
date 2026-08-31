@@ -618,7 +618,10 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
         // committed a newer catalog while its endpoint installation was
         // suspended; this operation intentionally creates an empty managed
         // profile for the authority that is actually installed.
-        let expired = await service.expireManagedPolicy(accountID: accountID)
+        guard let expired = await service.expireManagedPolicy(accountID: accountID),
+              await service.effectivePolicy() == expired else {
+            return false
+        }
         guard !Task.isCancelled,
               ownsRelayPolicyRefreshTask(taskID),
               (relayPolicyNetworkReachable == true) == expectedReachability else {
@@ -628,7 +631,8 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
             expired,
             refreshTaskID: taskID,
             allowOffline: true,
-            expectedReachability: expectedReachability
+            expectedReachability: expectedReachability,
+            expectedServicePolicy: expired
         )
     }
 
@@ -771,7 +775,8 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
         _ effective: CmxIrohEffectiveRelayPolicy,
         refreshTaskID: UUID? = nil,
         allowOffline: Bool = false,
-        expectedReachability: Bool? = nil
+        expectedReachability: Bool? = nil,
+        expectedServicePolicy: CmxIrohEffectiveRelayPolicy? = nil
     ) async throws -> Bool {
         let diagnostics = await relayPolicyService?.diagnosticsSnapshot()
         if let refreshTaskID {
@@ -780,6 +785,12 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                       allowOffline: allowOffline,
                       expectedReachability: expectedReachability
                   ) else {
+                return false
+            }
+        }
+        if let expectedServicePolicy {
+            guard let service = relayPolicyService,
+                  await service.effectivePolicy() == expectedServicePolicy else {
                 return false
             }
         }
@@ -794,6 +805,12 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                 }
             }
             try await runtime.replaceRelayPolicy(effective)
+        }
+        if let expectedServicePolicy {
+            guard let service = relayPolicyService,
+                  await service.effectivePolicy() == expectedServicePolicy else {
+                return false
+            }
         }
         if let refreshTaskID {
             guard ownsRelayPolicyRefreshTask(refreshTaskID),
