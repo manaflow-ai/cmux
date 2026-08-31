@@ -6605,7 +6605,8 @@ mod tests {
         let _guard = CONFIG_ENV_LOCK.lock().unwrap();
         let old_tui_config = std::env::var_os("CMUX_TUI_CONFIG");
         let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
-        let dir = std::env::temp_dir().join(format!("mux-config-test-{name}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("mux-config-test-{name}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("cmux-tui.json");
         std::fs::write(&path, json).unwrap();
@@ -6661,10 +6662,8 @@ mod tests {
 
     #[test]
     fn known_config_yields_no_startup_warnings() {
-        let config = load_from_json(
-            "no-warnings",
-            r#"{"notifications": {"agent_blocked": false}}"#,
-        );
+        let config =
+            load_from_json("no-warnings", r#"{"notifications": {"agent_blocked": false}}"#);
         assert!(!config.notifications.agent_blocked);
         assert!(config.notifications.agent_idle);
         assert_eq!(config.startup_warnings, Vec::<String>::new());
