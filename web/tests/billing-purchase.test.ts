@@ -312,7 +312,11 @@ describe("Founder success read-back", () => {
   });
 
   test("reads a synthetic Founder entitlement by Stripe customer when no subscription id exists", async () => {
-    const row = { id: "founders_cs_fixture", status: "active" };
+    const row = {
+      id: "founders_cs_fixture",
+      status: "active",
+      raw: { metadata: { founders_edition: "true" } },
+    };
     selectResults = [[row]];
 
     await expect(
@@ -344,6 +348,32 @@ describe("Founder success read-back", () => {
       ),
     ).resolves.toBeNull();
     expect(selectResults).toEqual([[unrelatedRow]]);
+  });
+
+  test("selects only a Founder-marked row from a customer with multiple Pro purchases", async () => {
+    const unrelatedRow = {
+      id: "sub_pro",
+      status: "active",
+      raw: { metadata: { app: "cmux", plan: "pro" } },
+    };
+    const founderRow = {
+      id: "founders_cs_fixture",
+      status: "active",
+      raw: { metadata: { founders_edition: "true" } },
+    };
+    selectResults = [[unrelatedRow, founderRow]];
+
+    await expect(
+      latestStripeSubscriptionForSession(
+        {
+          id: "cs_fixture",
+          customer: "cus_fixture",
+          subscription: null,
+          metadata: { founders_edition: "true" },
+        } as never,
+        fakeDb() as never,
+      ),
+    ).resolves.toEqual(founderRow);
   });
 
   test("does not substitute a different customer subscription for a known id", async () => {
