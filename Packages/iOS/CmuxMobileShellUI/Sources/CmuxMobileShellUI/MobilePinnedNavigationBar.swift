@@ -77,32 +77,61 @@ final class PinnedNavigationBarProbeView: UIView {
     /// zero content (no scroll edge treatment); in scrolled-under mode it
     /// reports a tall content frozen mid-scroll so the bar renders its
     /// scroll edge effect over the content that visually underlaps it.
+    ///
+    /// The stand-in lives IN the hierarchy (a probe-sized, empty, untouchable
+    /// subview): UIKit only renders the scroll edge effect for an on-window
+    /// content scroll view with real geometry. Empty and non-interactive, it
+    /// draws nothing and eats no touches; the effect's blur is a backdrop at
+    /// the bar, so it treats whatever actually renders under the bar — the
+    /// terminal's overscan band — regardless of this view's z-position.
     private let anchorScrollView: UIScrollView = {
         let scrollView = UIScrollView()
         scrollView.isScrollEnabled = false
+        scrollView.isUserInteractionEnabled = false
         return scrollView
     }()
 
-    /// The mid-scroll pose: any frame/content pair that keeps the offset
+    /// The mid-scroll pose: any content/offset pair that keeps the offset
     /// strictly inside the scrollable range, so UIKit reads "content under
     /// the bar" without ever seeing a scroll delta.
     private static let scrolledUnderContentHeight: CGFloat = 10_000
     private static let scrolledUnderOffset: CGFloat = 5_000
 
+    private var scrolledUnderContent = false
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        anchorScrollView.frame = bounds
+        anchorScrollView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        addSubview(anchorScrollView)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
     func setScrolledUnderContent(_ scrolledUnder: Bool) {
-        if scrolledUnder {
-            guard anchorScrollView.contentSize.height != Self.scrolledUnderContentHeight else { return }
-            anchorScrollView.frame = CGRect(x: 0, y: 0, width: 1, height: 100)
-            anchorScrollView.contentSize = CGSize(
-                width: 1,
+        scrolledUnderContent = scrolledUnder
+        applyScrollPose()
+    }
+
+    private func applyScrollPose() {
+        if scrolledUnderContent {
+            let size = CGSize(
+                width: max(1, bounds.width),
                 height: Self.scrolledUnderContentHeight
             )
-            anchorScrollView.contentOffset = CGPoint(x: 0, y: Self.scrolledUnderOffset)
+            if anchorScrollView.contentSize != size {
+                anchorScrollView.contentSize = size
+            }
+            if anchorScrollView.contentOffset.y != Self.scrolledUnderOffset {
+                anchorScrollView.contentOffset = CGPoint(x: 0, y: Self.scrolledUnderOffset)
+            }
         } else {
             guard anchorScrollView.contentSize.height != 0 else { return }
             anchorScrollView.contentSize = .zero
             anchorScrollView.contentOffset = .zero
-            anchorScrollView.frame = .zero
         }
     }
     /// The controller currently pointed at the stand-in, so teardown can
@@ -117,6 +146,9 @@ final class PinnedNavigationBarProbeView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        // Keep the frozen pose sized with the probe (content width tracks
+        // the bounds; the offset never moves).
+        applyScrollPose()
         // Re-assert after layout passes: SwiftUI can re-derive the tracked
         // scroll view for its own containers, and the association resets when
         // the hosting controller re-parents during navigation transitions.
