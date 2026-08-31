@@ -287,11 +287,12 @@ public enum AgentLaunchSanitizer {
                     continue
                 }
                 let value = args[index + 1]
-                if value == "--",
-                   removeAllWorkingDirectoryOptions &&
-                    unconditionallyRemovableValueOptions.contains(arg) {
-                    // The cwd option is incomplete. Remove only that option so
-                    // the boundary and every payload token after it stay opaque.
+                if removeAllWorkingDirectoryOptions &&
+                    unconditionallyRemovableValueOptions.contains(arg) &&
+                    value.hasPrefix("-") && value != "-" {
+                    // An option-looking token cannot be a reliable cwd value.
+                    // Remove only the incomplete cwd option so the next option
+                    // remains available to the replayed agent command.
                     index += 1
                     continue
                 }
