@@ -2434,18 +2434,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 // unlike the held anchor it survives the routing flip.
                 let revealBudgetPx = hostedScrollTopRevealBudgetPx
                 let deltaPixels = pixels
-                var wheelDeltaPixels = deltaPixels
-                localPixelScrollState.withLock {
-                    $0.epoch &+= 1
-                    $0.remainderPx = 0
-                    $0.lastApplied = nil
+                let wheelDeltaPixels = localPixelScrollState.withLock { state -> Double in
+                    state.epoch &+= 1
+                    state.remainderPx = 0
+                    state.lastApplied = nil
                     let resolved = TerminalLetterboxGeometry.lineScrollTopRevealResolution(
-                        currentRevealPx: $0.topRevealPx,
+                        currentRevealPx: state.topRevealPx,
                         deltaPixels: deltaPixels,
                         maxRevealPx: revealBudgetPx
                     )
-                    $0.topRevealPx = resolved.revealPx
-                    wheelDeltaPixels = resolved.leftoverDeltaPixels
+                    state.topRevealPx = resolved.revealPx
+                    return resolved.leftoverDeltaPixels
                 }
                 let wheelFraction = deltaPixels != 0 ? wheelDeltaPixels / deltaPixels : 1
                 // TUI scroll feel: dispatch whole lines only, carrying the
