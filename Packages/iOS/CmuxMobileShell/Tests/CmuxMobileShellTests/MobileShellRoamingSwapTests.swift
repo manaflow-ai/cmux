@@ -11,54 +11,112 @@ import Testing
 // Scripted transports model the relay; the LivenessHostRouter answers the
 // Mac side of both sessions.
 
-/// Wraps the scripted liveness transport with a per-dial connect behavior so
-/// one factory can model a healthy relay dial, a dial the new network path
-/// refuses, and a dial parked mid-flight (to observe make-before-break
-/// invariants while the replacement is still connecting).
-actor RoamingScriptedTransport: CmxByteTransport {
-    enum ConnectBehavior: Sendable {
-        case succeed
-        case fail
-        case hold
+/// Models the NETWORK PATH the roaming candidate dials over, not the fate of
+/// one transport object. A production candidate client may dial more than
+/// once (the pipelined connect-time subscribe's `ensureConnected` and the
+/// workspace-list exchange's fresh dial after a failure), and every dial on
+/// the same path behaves the same way: a dead path refuses each attempt, a
+/// settling path parks each attempt. Scripting a fate per transport instance
+/// silently diverges from that wire the moment a feature adds or removes one
+/// dial, which is exactly how the pipelined-subscribe feature made a
+/// "failing" replacement succeed on its second, unscripted dial.
+final class RoamingTransportFactory: CmxByteTransportFactory, @unchecked Sendable {
+    enum PathState: Sendable {
+        /// Dials complete against the scripted host.
+        case up
+        /// Dials refuse immediately (the new path cannot carry the relay).
+        case down
+        /// Dials park mid-connect until `resolvePath(up:)` (path settling).
+        case parked
     }
 
-    private let base: LivenessTransport
-    private let behavior: ConnectBehavior
-    private var parkedConnects: [CheckedContinuation<Void, Never>] = []
-    private var released = false
-    private var releaseThrows = false
+    private let router: LivenessHostRouter
+    private let lock = NSLock()
+    private var pathState: PathState = .up
+    private var transports: [RoamingScriptedTransport] = []
 
-    init(router: LivenessHostRouter, behavior: ConnectBehavior) {
+    init(router: LivenessHostRouter) {
+        self.router = router
+    }
+
+    /// New dials refuse immediately until the path changes.
+    func setPathDown() {
+        lock.withLock { pathState = .down }
+    }
+
+    /// New dials park mid-connect until `resolvePath(up:)`.
+    func parkPath() {
+        lock.withLock { pathState = .parked }
+    }
+
+    /// Settle the path: parked dials resume (completing when `up`, refusing
+    /// when not) and every later dial follows the new state.
+    func resolvePath(up: Bool) async {
+        let parked = lock.withLock {
+            pathState = up ? .up : .down
+            return transports
+        }
+        for transport in parked {
+            await transport.resolveParkedConnects(up: up)
+        }
+    }
+
+    func currentPathState() -> PathState {
+        lock.withLock { pathState }
+    }
+
+    func makeTransport(for _: CmxAttachRoute) throws -> any CmxByteTransport {
+        let transport = RoamingScriptedTransport(router: router, factory: self)
+        lock.withLock { transports.append(transport) }
+        return transport
+    }
+
+    func transportCount() -> Int {
+        lock.withLock { transports.count }
+    }
+
+    func transport(at index: Int) -> RoamingScriptedTransport? {
+        lock.withLock {
+            transports.indices.contains(index) ? transports[index] : nil
+        }
+    }
+}
+
+/// One dialed transport over the factory's path. Connect behavior is read
+/// from the factory's CURRENT path state at dial time, so a candidate's
+/// second dial on a dead path fails exactly like its first.
+actor RoamingScriptedTransport: CmxByteTransport {
+    private let base: LivenessTransport
+    private let factory: RoamingTransportFactory
+    private var parkedConnects: [CheckedContinuation<Bool, Never>] = []
+
+    init(router: LivenessHostRouter, factory: RoamingTransportFactory) {
         base = LivenessTransport(router: router)
-        self.behavior = behavior
+        self.factory = factory
     }
 
     func connect() async throws {
-        switch behavior {
-        case .succeed:
+        switch factory.currentPathState() {
+        case .up:
             try await base.connect()
-        case .fail:
+        case .down:
             throw MobileShellConnectionError.connectionClosed
-        case .hold:
-            if !released {
-                await withCheckedContinuation { continuation in
-                    parkedConnects.append(continuation)
-                }
+        case .parked:
+            let pathCameUp = await withCheckedContinuation { continuation in
+                parkedConnects.append(continuation)
             }
-            if releaseThrows {
+            guard pathCameUp else {
                 throw MobileShellConnectionError.connectionClosed
             }
             try await base.connect()
         }
     }
 
-    func release(throwing: Bool) {
-        released = true
-        releaseThrows = throwing
+    func resolveParkedConnects(up: Bool) {
         let parked = parkedConnects
         parkedConnects = []
         for continuation in parked {
-            continuation.resume()
+            continuation.resume(returning: up)
         }
     }
 
@@ -80,49 +138,6 @@ actor RoamingScriptedTransport: CmxByteTransport {
 
     func deliver(_ frame: Data) async {
         await base.deliver(frame)
-    }
-}
-
-final class RoamingTransportFactory: CmxByteTransportFactory, @unchecked Sendable {
-    private let router: LivenessHostRouter
-    private let lock = NSLock()
-    private var scriptedBehaviors: [RoamingScriptedTransport.ConnectBehavior] = []
-    private var transports: [RoamingScriptedTransport] = []
-
-    init(router: LivenessHostRouter) {
-        self.router = router
-    }
-
-    /// Behaviors consumed by upcoming dials, in order; unscripted dials succeed.
-    func scriptNextConnects(
-        _ behaviors: [RoamingScriptedTransport.ConnectBehavior]
-    ) {
-        lock.withLock { scriptedBehaviors.append(contentsOf: behaviors) }
-    }
-
-    func makeTransport(for _: CmxAttachRoute) throws -> any CmxByteTransport {
-        let behavior: RoamingScriptedTransport.ConnectBehavior = lock.withLock {
-            scriptedBehaviors.isEmpty ? .succeed : scriptedBehaviors.removeFirst()
-        }
-        let transport = RoamingScriptedTransport(router: router, behavior: behavior)
-        lock.withLock { transports.append(transport) }
-        return transport
-    }
-
-    func transportCount() -> Int {
-        lock.withLock { transports.count }
-    }
-
-    func transport(at index: Int) -> RoamingScriptedTransport? {
-        lock.withLock {
-            transports.indices.contains(index) ? transports[index] : nil
-        }
-    }
-
-    func releaseHeldConnects(throwing: Bool = false) async {
-        for transport in lock.withLock({ transports }) {
-            await transport.release(throwing: throwing)
-        }
     }
 }
 
@@ -202,11 +217,11 @@ final class RoamingTransportFactory: CmxByteTransportFactory, @unchecked Sendabl
         let servingTransport = try #require(factory.transport(at: 0))
         let subscribesBeforeSwap = await router.count(of: "mobile.events.subscribe")
 
-        // Park the replacement's dial so the mid-dial invariants are visible.
-        factory.scriptNextConnects([.hold])
+        // Park the new path so the mid-dial invariants are visible.
+        factory.parkPath()
         store.recoverMobileConnection(trigger: .networkChange)
 
-        let dialStarted = try await pollUntil { factory.transportCount() == 2 }
+        let dialStarted = try await pollUntil { factory.transportCount() >= 2 }
         #expect(dialStarted, "a parallel replacement dial must start")
         // Make: the old session is untouched while the replacement connects.
         #expect(store.remoteClient === servingClient)
@@ -218,7 +233,7 @@ final class RoamingTransportFactory: CmxByteTransportFactory, @unchecked Sendabl
                 "the recovery owner must arbitrate the roaming attempt")
 
         // Break: only after the replacement is admitted.
-        await factory.releaseHeldConnects()
+        await factory.resolvePath(up: true)
         let swapped = try await pollUntil {
             store.remoteClient != nil && store.remoteClient !== servingClient
         }
@@ -265,11 +280,13 @@ final class RoamingTransportFactory: CmxByteTransportFactory, @unchecked Sendabl
         let servingClient = try #require(store.remoteClient)
         let servingTransport = try #require(factory.transport(at: 0))
 
-        factory.scriptNextConnects([.fail])
+        // Every dial on the new path refuses: the pipelined subscribe's
+        // dial AND the exchange's retry dial, exactly like a dead path.
+        factory.setPathDown()
         store.recoverMobileConnection(trigger: .networkChange)
 
         let attemptSettled = try await pollUntil {
-            factory.transportCount() == 2
+            factory.transportCount() >= 2
                 && !store.connectionRecoveryOwner.isActive
         }
         #expect(attemptSettled, "the failed roaming attempt must settle")
@@ -297,9 +314,9 @@ final class RoamingTransportFactory: CmxByteTransportFactory, @unchecked Sendabl
         )
         let servingTransport = try #require(factory.transport(at: 0))
 
-        factory.scriptNextConnects([.hold])
+        factory.parkPath()
         store.recoverMobileConnection(trigger: .networkChange)
-        let dialStarted = try await pollUntil { factory.transportCount() == 2 }
+        let dialStarted = try await pollUntil { factory.transportCount() >= 2 }
         #expect(dialStarted)
 
         // The old session dies while the replacement is still dialing: the
@@ -312,10 +329,11 @@ final class RoamingTransportFactory: CmxByteTransportFactory, @unchecked Sendabl
         #expect(store.connectionRecoveryOwner.isRedialingOrValidating,
                 "the roaming dial keeps owning recovery after the old session dies")
 
-        // The replacement then fails too: recovery escalates to the ordinary
-        // teardown + automatic retry instead of leaving a dead session
-        // published as connected.
-        await factory.releaseHeldConnects(throwing: true)
+        // The path then settles DOWN, so the replacement fails too (every
+        // dial, including the exchange's retry): recovery escalates to the
+        // ordinary teardown + automatic retry instead of leaving a dead
+        // session published as connected.
+        await factory.resolvePath(up: false)
         let escalated = try await pollUntil {
             store.connectionState == .disconnected && store.connectionRecoveryFailed
         }
@@ -337,16 +355,16 @@ final class RoamingTransportFactory: CmxByteTransportFactory, @unchecked Sendabl
         let servingClient = try #require(store.remoteClient)
         let servingTransport = try #require(factory.transport(at: 0))
 
-        factory.scriptNextConnects([.hold])
+        factory.parkPath()
         store.recoverMobileConnection(trigger: .networkChange)
-        let dialStarted = try await pollUntil { factory.transportCount() == 2 }
+        let dialStarted = try await pollUntil { factory.transportCount() >= 2 }
         #expect(dialStarted)
 
         await servingTransport.close()
         let deathObserved = try await pollUntil { store.isRecoveringConnection }
         #expect(deathObserved)
 
-        await factory.releaseHeldConnects()
+        await factory.resolvePath(up: true)
         let swapped = try await pollUntil {
             store.connectionState == .connected
                 && store.remoteClient != nil
@@ -359,5 +377,49 @@ final class RoamingTransportFactory: CmxByteTransportFactory, @unchecked Sendabl
         }
         #expect(settled)
         #expect(!store.connectionRecoveryFailed)
+    }
+
+    /// Production invariant, pinned: adoption is gated ONLY by the
+    /// workspace-list + authenticated host-status exchange (and the identity
+    /// and build-compatibility checks it feeds), never by the settlement of
+    /// the connect-time pipelined `mobile.events.subscribe`. A host that
+    /// rejects the pipelined subscribe must not block (or fail) the roaming
+    /// swap; the post-adoption sequential subscribe remains the fallback and
+    /// still completes the swap's validation phase.
+    @Test func pipelinedSubscribeFailureDoesNotGateRoamingSwapAdoption() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let factory = RoamingTransportFactory(router: router)
+        let store = try await makeRelayConnectedStore(
+            router: router,
+            factory: factory,
+            clock: clock
+        )
+        let servingClient = try #require(store.remoteClient)
+
+        // Fail exactly the replacement's pipelined subscribe on the wire;
+        // every other request (the adoption exchange, the fallback
+        // sequential subscribe) answers normally.
+        let subscribesBefore = await router.count(of: "mobile.events.subscribe")
+        await router.failSubscribeRequest(number: subscribesBefore + 1)
+        store.recoverMobileConnection(trigger: .networkChange)
+
+        let swapped = try await pollUntil {
+            store.remoteClient != nil && store.remoteClient !== servingClient
+        }
+        #expect(swapped,
+                "a rejected pipelined subscribe must not gate the adoption exchange")
+        #expect(store.connectionState == .connected)
+        let validated = try await pollUntil {
+            !store.connectionRecoveryOwner.isActive
+        }
+        #expect(validated,
+                "the fallback sequential subscribe must still complete swap validation")
+        #expect(!store.connectionRecoveryFailed)
+        let fallbackSubscribed = try await pollUntil {
+            await router.count(of: "mobile.events.subscribe") >= subscribesBefore + 2
+        }
+        #expect(fallbackSubscribed,
+                "the failed pipelined subscribe falls back to the sequential subscribe")
     }
 }
