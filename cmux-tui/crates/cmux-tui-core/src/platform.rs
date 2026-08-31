@@ -376,20 +376,32 @@ pub fn chrome_candidates() -> Vec<PathBuf> {
 
 /// Candidate Ghostty config files used to seed selection colors.
 pub fn ghostty_config_paths() -> Vec<PathBuf> {
+    ghostty_config_paths_from(env_path("XDG_CONFIG_HOME"), home_dir())
+}
+
+fn ghostty_config_paths_from(
+    xdg_config_home: Option<PathBuf>,
+    home: Option<PathBuf>,
+) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
-    if let Some(config_home) = env_path("XDG_CONFIG_HOME") {
-        push_unique(&mut candidates, config_home.join("ghostty").join("config"));
+    // Ghostty resolves XDG_CONFIG_HOME to the user's XDG config root. When
+    // it is unset, that root is HOME/.config. Do not search both roots: doing
+    // so would make an unrelated legacy file override the active XDG file.
+    #[cfg(target_os = "macos")]
+    let has_xdg_config_home = xdg_config_home.is_some();
+    let config_root = xdg_config_home.or_else(|| home.as_ref().map(|home| home.join(".config")));
+    if let Some(config_root) = config_root {
+        let dir = config_root.join("ghostty");
+        // Ghostty loads the legacy name first, then the current name when
+        // both exist. Keep that order so later current-file settings win.
+        push_unique(&mut candidates, dir.join("config"));
+        push_unique(&mut candidates, dir.join("config.ghostty"));
     }
-    if let Some(home) = home_dir() {
-        push_unique(&mut candidates, home.join(".config").join("ghostty").join("config"));
-        #[cfg(target_os = "macos")]
-        push_unique(
-            &mut candidates,
-            home.join("Library")
-                .join("Application Support")
-                .join("com.mitchellh.ghostty")
-                .join("config"),
-        );
+    #[cfg(target_os = "macos")]
+    if !has_xdg_config_home && let Some(home) = home {
+        let dir = home.join("Library").join("Application Support").join("com.mitchellh.ghostty");
+        push_unique(&mut candidates, dir.join("config"));
+        push_unique(&mut candidates, dir.join("config.ghostty"));
     }
     candidates
 }
@@ -723,6 +735,50 @@ pub fn foreground_cwd(pid: u32) -> Option<String> {
     process_cwd(foreground_process_group(pid)?)
 }
 
+/// Executable name of a terminal's live foreground process group leader
+/// (see [`foreground_cwd`] for the leader resolution contract). Used by
+/// screen detection to decide whether the pane runs a known agent CLI.
+/// Returns `None` when the leader is gone, the child has no controlling
+/// terminal, or the platform denies the lookup.
+pub fn foreground_process_name(pid: u32) -> Option<String> {
+    process_name(foreground_process_group(pid)?)
+}
+
+#[cfg(target_os = "linux")]
+fn process_name(pid: u32) -> Option<String> {
+    // argv[0]'s basename beats /proc/<pid>/comm: comm truncates to 15
+    // bytes and wrapper launchers exec with a meaningful argv[0].
+    let argv0 = std::fs::read(format!("/proc/{pid}/cmdline")).ok().and_then(|cmdline| {
+        let argv0 = cmdline.split(|byte| *byte == 0).next()?;
+        let argv0 = std::str::from_utf8(argv0).ok()?.trim();
+        (!argv0.is_empty()).then(|| argv0.to_string())
+    });
+    argv0.or_else(|| {
+        let comm = std::fs::read_to_string(format!("/proc/{pid}/comm")).ok()?;
+        let comm = comm.trim();
+        (!comm.is_empty()).then(|| comm.to_string())
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn process_name(pid: u32) -> Option<String> {
+    let pid = libc::c_int::try_from(pid).ok()?;
+    let mut path = [0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+    // SAFETY: proc_pidpath writes at most `path.len()` bytes and returns
+    // the written byte count (0 on failure).
+    let written = unsafe { libc::proc_pidpath(pid, path.as_mut_ptr().cast(), path.len() as u32) };
+    if written <= 0 {
+        return None;
+    }
+    let path = std::str::from_utf8(&path[..written as usize]).ok()?;
+    (!path.is_empty()).then(|| path.to_string())
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn process_name(_pid: u32) -> Option<String> {
+    None
+}
+
 #[cfg(target_os = "linux")]
 fn foreground_process_group(pid: u32) -> Option<u32> {
     let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
@@ -992,6 +1048,16 @@ fn restrict_permissions(_path: &Path, _mode: u32) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn explicit_xdg_ghostty_config_does_not_add_application_support_candidates() {
+        let xdg = PathBuf::from("/tmp/cmux-test-xdg");
+        let home = PathBuf::from("/tmp/cmux-test-home");
+        let paths = ghostty_config_paths_from(Some(xdg.clone()), Some(home));
+
+        assert_eq!(paths, vec![xdg.join("ghostty/config"), xdg.join("ghostty/config.ghostty")]);
+    }
 
     #[test]
     fn default_terminal_cwd_prefers_a_live_launch_directory() {
