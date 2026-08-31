@@ -476,7 +476,7 @@ async function purchaseFromStripeCustomer(
   for (const subscription of subscriptions) {
     const metadata = subscription.metadata ?? {};
     const isCmuxPro = metadata.app === "cmux" && metadata.plan === "pro";
-    const isFounder = metadata.founders_edition === "true";
+    const isFounder = isFounderRecoveryPurchase(undefined, subscription);
     if (metadata.stackTeamId) continue;
     if (!isCmuxPro && !isFounder) continue;
     if (isFounder) {
@@ -555,11 +555,7 @@ function isSettledFounderCheckoutSession(
   }
   if (stringID(session.subscription) !== subscriptionId) return false;
   if (session.metadata?.stackTeamId) return false;
-  if (
-    session.metadata?.app &&
-    session.metadata.app !== "cmux" &&
-    session.metadata.founders_edition !== "true"
-  ) {
+  if (session.metadata?.app && session.metadata.app !== "cmux") {
     return false;
   }
   return true;
@@ -641,6 +637,14 @@ function isFounderRecoveryPurchase(
   sessionMetadata: Stripe.Metadata | null | undefined,
   subscription: Stripe.Subscription | null | undefined,
 ): boolean {
+  if (sessionMetadata?.app && sessionMetadata.app !== "cmux") return false;
+  if (
+    !sessionMetadata?.app &&
+    subscription?.metadata?.app &&
+    subscription.metadata.app !== "cmux"
+  ) {
+    return false;
+  }
   return (
     sessionMetadata?.founders_edition === "true" ||
     subscription?.metadata?.founders_edition === "true"
@@ -651,11 +655,21 @@ function isRecognizedRecoveryMetadata(
   sessionMetadata: Stripe.Metadata | null | undefined,
   subscription: Stripe.Subscription | null | undefined,
 ): boolean {
-  if (isFounderRecoveryPurchase(sessionMetadata, subscription)) return true;
   if (sessionMetadata?.app) {
-    return sessionMetadata.app === "cmux" && sessionMetadata.plan === "pro";
+    return (
+      sessionMetadata.app === "cmux" &&
+      (sessionMetadata.plan === "pro" ||
+        sessionMetadata.founders_edition === "true")
+    );
   }
-  return subscription?.metadata?.app === "cmux" && subscription.metadata.plan === "pro";
+  if (subscription?.metadata?.app) {
+    return (
+      subscription.metadata.app === "cmux" &&
+      (subscription.metadata.plan === "pro" ||
+        subscription.metadata.founders_edition === "true")
+    );
+  }
+  return isFounderRecoveryPurchase(sessionMetadata, subscription);
 }
 
 /** Query both literal/canonical spellings and paginate each Stripe result. */

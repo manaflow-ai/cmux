@@ -470,6 +470,9 @@ export async function recordFoundersCheckoutCompletion(
   dependencies: BillingPurchaseDependencies = {},
 ): Promise<FoundersCheckoutCompletionResult> {
   const providerSubscription = input.subscription ?? expandedSubscription(input.session);
+  if (!isCmuxCheckoutSession(input.session, providerSubscription)) {
+    throw new Error("Stripe Founder's Edition checkout is not a cmux purchase");
+  }
   if (hasConflictingFounderTeamMetadata(input.session, providerSubscription)) {
     throw new Error("Stripe Founder's Edition checkout has conflicting Team metadata");
   }
@@ -692,10 +695,10 @@ export async function recordProCheckoutCompletionByEmail(
 ): Promise<CheckoutCompletionResult | FoundersCheckoutCompletionResult> {
   const session = input.session;
   const subscription = input.subscription ?? expandedSubscription(session);
-  if (
-    session.metadata?.founders_edition === "true" ||
-    subscription?.metadata?.founders_edition === "true"
-  ) {
+  if (!isCmuxCheckoutSession(session, subscription)) {
+    throw new Error("Stripe Pro checkout is not a cmux purchase");
+  }
+  if (isFounderCheckoutMetadata(session.metadata, subscription)) {
     return recordFoundersCheckoutCompletion(input, dependencies);
   }
 
@@ -1790,18 +1793,30 @@ export function isCmuxCheckoutSession(
 ): boolean {
   const sessionMetadata = session.metadata;
   const subscriptionMetadata = subscription?.metadata;
+  // An explicit app marker on the checkout is the trust boundary. A nested
+  // subscription cannot turn a foreign session into a cmux purchase.
+  if (sessionMetadata?.app) return sessionMetadata.app === "cmux";
+  if (subscriptionMetadata?.app) {
+    if (subscriptionMetadata.app !== "cmux") return false;
+    return true;
+  }
   if (
     sessionMetadata?.founders_edition === "true" ||
     subscriptionMetadata?.founders_edition === "true"
   ) {
     return true;
   }
-  // A session-level app marker is authoritative. Do not let an expanded
-  // subscription overwrite an explicit foreign checkout classification.
-  if (sessionMetadata?.app) return sessionMetadata.app === "cmux";
-  if (subscriptionMetadata?.app === "cmux") return true;
-  if (subscriptionMetadata?.app) return false;
   return Boolean(session.client_reference_id && sessionMetadata?.plan === "pro");
+}
+
+function isFounderCheckoutMetadata(
+  sessionMetadata: Stripe.Metadata | null | undefined,
+  subscription: Pick<Stripe.Subscription, "metadata"> | null | undefined,
+): boolean {
+  return (
+    sessionMetadata?.founders_edition === "true" ||
+    subscription?.metadata?.founders_edition === "true"
+  );
 }
 
 /**
