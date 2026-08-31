@@ -3057,10 +3057,11 @@ fn validate_plugin_component(label: &str, value: &str) -> anyhow::Result<()> {
     anyhow::ensure!(
         !value.is_empty()
             && value.len() <= 64
-            && value
-                .bytes()
-                .all(|byte| { byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_' }),
-        "{label} must contain 1 to 64 lowercase ASCII letters, digits, or underscores"
+            && value.as_bytes().first().is_some_and(|byte| byte.is_ascii_alphanumeric())
+            && value.bytes().all(|byte| {
+                byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_' || byte == b'-'
+            }),
+        "{label} must match [a-z0-9][a-z0-9_-]* and contain at most 64 bytes"
     );
     Ok(())
 }
@@ -3071,11 +3072,15 @@ fn validate_dotted_kind(value: &str) -> anyhow::Result<()> {
             && value.len() <= 128
             && value.split('.').all(|component| {
                 !component.is_empty()
+                    && component.as_bytes().first().is_some_and(|byte| byte.is_ascii_alphanumeric())
                     && component.bytes().all(|byte| {
-                        byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_'
+                        byte.is_ascii_lowercase()
+                            || byte.is_ascii_digit()
+                            || byte == b'_'
+                            || byte == b'-'
                     })
             }),
-        "journal event kind must be a dotted lowercase ASCII name"
+        "journal event kind must match dotted [a-z0-9][a-z0-9_-]* components"
     );
     Ok(())
 }

@@ -189,7 +189,7 @@ impl<'a> RosterEvent<'a> {
             return false;
         }
         if let Some(generation) = normalized.get("plugin_generation")
-            && decimal_u64(generation).is_none()
+            && decimal_string_u64(generation).is_none()
         {
             return false;
         }
@@ -221,6 +221,17 @@ fn decimal_u64(value: &Value) -> Option<u64> {
         })
         .and_then(|text| text.parse::<u64>().ok())
         .or_else(|| value.as_u64())
+}
+
+/// Generation tags are part of the public plugin envelope and must stay
+/// strings. Keeping one wire type avoids a number/string fork in replay and
+/// prevents a producer from changing the identity representation between
+/// emissions.
+fn decimal_string_u64(value: &Value) -> Option<u64> {
+    let text = value.as_str()?;
+    (!text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit()))
+        .then_some(text)
+        .and_then(|text| text.parse::<u64>().ok())
 }
 
 /// Compare evidence owned by the same userland producer. A supervisor
@@ -351,32 +362,34 @@ impl AgentRoster {
             }
             let cutoff = event.normalized_u64("observed_at_ms").unwrap_or(event.committed_at_ms);
             let generation = event.normalized("plugin_generation");
-            if generation
-                .is_some_and(|value| decimal_u64(&Value::String(value.to_string())).is_none())
-            {
+            let generation_number = generation.and_then(|value| value.parse::<u64>().ok());
+            if generation.is_some() && generation_number.is_none() {
                 return Vec::new();
             }
-            self.record_plugin_exit_fence(
-                plugin_id,
-                generation.and_then(|value| value.parse::<u64>().ok()),
-                cutoff,
-            );
+            self.record_plugin_exit_fence(plugin_id, generation_number, cutoff);
             let retired = self
                 .entries
                 .iter()
                 .filter(|(_, entry)| {
                     entry.agent_source() == AgentSource::Plugin
                         && entry.producer.as_deref() == Some(plugin_id)
-                        && match generation {
+                        && match generation_number {
+                            // A tagged generation is a unique child identity,
+                            // so remove every row from it even if its wall
+                            // clock is ahead of the supervisor's cutoff.
                             Some(generation) => {
-                                entry.producer_generation.as_deref() == Some(generation)
+                                entry
+                                    .producer_generation
+                                    .as_deref()
+                                    .and_then(|value| value.parse::<u64>().ok())
+                                    == Some(generation)
                             }
                             // An untagged exit can only retire an untagged
                             // row. It must never clear a replacement child
                             // whose generation is known.
                             None => entry.producer_generation.is_none(),
                         }
-                        && entry.updated_at_ms <= cutoff
+                        && (generation_number.is_some() || entry.updated_at_ms <= cutoff)
                 })
                 .map(|(terminal_id, _)| terminal_id.clone())
                 .collect::<Vec<_>>();
@@ -408,7 +421,10 @@ impl AgentRoster {
                 }
                 let updated_at_ms =
                     event.normalized_u64("observed_at_ms").unwrap_or(event.committed_at_ms);
-                let producer_generation = event.normalized("plugin_generation").map(str::to_string);
+                let producer_generation = event
+                    .normalized("plugin_generation")
+                    .and_then(|value| value.parse::<u64>().ok())
+                    .map(|value| value.to_string());
                 let session = event.normalized("source_session").map(str::to_string);
                 let agent = event.adapter_id().map(str::to_string);
                 (
@@ -1349,6 +1365,7 @@ mod tests {
             json!({"format":"wrong","plugin":{"id":"screen_detector","version":1},"adapter":{"id":"codex","version":1},"event":"state.changed","normalized":{"state":"working","source_session":"pid:42","observed_at_ms":"100"}}),
             json!({"format":AGENT_PLUGIN_FORMAT,"plugin":{"id":"other","version":1},"adapter":{"id":"codex","version":1},"event":"state.changed","normalized":{"state":"working","source_session":"pid:42","observed_at_ms":"100"}}),
             json!({"format":AGENT_PLUGIN_FORMAT,"plugin":{"id":"screen_detector","version":1},"adapter":{"id":"codex","version":1},"event":"state.changed","normalized":{"state":"working","source_session":"pid:42"}}),
+            json!({"format":AGENT_PLUGIN_FORMAT,"plugin":{"id":"screen_detector","version":1},"adapter":{"id":"codex","version":1},"event":"state.changed","normalized":{"state":"working","source_session":"pid:42","plugin_generation":7,"observed_at_ms":"100"}}),
         ];
         for payload in malformed {
             let event = RosterEvent {

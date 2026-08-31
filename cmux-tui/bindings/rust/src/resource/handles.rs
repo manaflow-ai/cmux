@@ -1524,25 +1524,33 @@ impl Tab {
 }
 
 impl Session {
-    pub fn terminals(&self) -> Result<Vec<Terminal>> {
+    /// Returns the terminal catalog values from one list request.
+    ///
+    /// Use this when a caller needs to inspect every terminal. Calling
+    /// `Terminal::refresh` after `terminals` would turn one catalog read into
+    /// an N+1 request pattern and discard the snapshots the list operation
+    /// already returned.
+    pub fn terminal_snapshots(&self) -> Result<Vec<TerminalSnapshot>> {
         wire::list::<TerminalSnapshot>(
             &self.client.read(ops::TERMINAL_LIST, self.params())?,
             "terminals",
             "terminal",
         )
-        .map(|snapshots| snapshots.into_iter().map(|snapshot| self.terminal(snapshot.id)).collect())
+    }
+
+    pub fn terminals(&self) -> Result<Vec<Terminal>> {
+        self.terminal_snapshots().map(|snapshots| {
+            snapshots.into_iter().map(|snapshot| self.terminal(snapshot.id)).collect()
+        })
     }
 
     pub fn find_terminals_by_name(&self, name: &str) -> Result<Vec<Terminal>> {
-        Ok(wire::list::<TerminalSnapshot>(
-            &self.client.read(ops::TERMINAL_LIST, self.params())?,
-            "terminals",
-            "terminal",
-        )?
-        .into_iter()
-        .filter(|snapshot| snapshot.title == name)
-        .map(|snapshot| self.terminal(snapshot.id))
-        .collect())
+        Ok(self
+            .terminal_snapshots()?
+            .into_iter()
+            .filter(|snapshot| snapshot.title == name)
+            .map(|snapshot| self.terminal(snapshot.id))
+            .collect())
     }
 
     pub fn browsers(&self) -> Result<Vec<Browser>> {

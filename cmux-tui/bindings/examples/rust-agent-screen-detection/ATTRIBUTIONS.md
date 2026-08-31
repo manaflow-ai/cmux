@@ -18,12 +18,12 @@ The package does not copy herdr's application, API server, sound assets, or
 other multiplexer code. Only the listed detector files and manifests contain
 derived herdr material.
 
-`src/process.rs` adapts herdr's `src/platform/{linux,macos,windows}.rs` and
+`src/process.rs` adapts herdr's `src/platform/{linux,macos}.rs` and
 `src/detect/mod.rs` foreground process-group and wrapper discovery. It adds
-bounded traversal, safer path candidates, and a fallback to the public cmux
-process response. The current package has native deep inspection on Linux and
-macOS; Windows uses the public one-process fallback until a Windows backend is
-added.
+bounded traversal, safer path candidates, an explicit Linux child-group
+fallback, and a fallback to the public cmux process response. The current
+package has native deep inspection on Linux and macOS; Windows uses the public
+one-process fallback until a Windows backend is added.
 
 `src/detect.rs` adapts herdr's `src/detect/mod.rs` and
 `src/pane/agent_detection.rs` debounce, identity-edge, miss-confirmation, and

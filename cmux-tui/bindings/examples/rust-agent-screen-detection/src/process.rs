@@ -1,6 +1,6 @@
 //! Foreground process-group discovery and userland agent identification.
 //!
-//! The process model is adapted from herdr's `src/platform/{linux,macos,windows}.rs`
+//! The process model is adapted from herdr's `src/platform/{linux,macos}.rs`
 //! and `src/detect/mod.rs` at commit
 //! `7b675f42af35508eab66ac42fe1598628597a893` (Apache-2.0). The plugin
 //! keeps this platform code outside cmux core, adds bounded traversal, and
@@ -654,13 +654,23 @@ fn parse_agent_env_hint(environ: &[u8]) -> Option<String> {
 mod platform {
     use super::{ForegroundJob, ForegroundProcess};
     use std::collections::{HashSet, VecDeque};
+    use std::sync::OnceLock;
 
+    const PROCESS_DETECTION_ENV: &str = "CMUX_AGENT_PROCESS_DETECTION";
+    const HERDR_PROCESS_DETECTION_ENV: &str = "HERDR_PROCESS_DETECTION";
+    const CHILD_GROUPS_SCAN_LIMIT: usize = 64;
     const MAX_PROCESS_COUNT: usize = 256;
     const MAX_PROC_FILE_BYTES: usize = 128 * 1024;
     const MAX_THREADS_PER_PROCESS: usize = 256;
 
     pub(super) fn foreground_job(child_pid: u32) -> Option<ForegroundJob> {
-        let process_group_id = foreground_process_group_id(child_pid)?;
+        let process_group_id = match foreground_process_group_id(child_pid) {
+            Some(process_group_id) => process_group_id,
+            None if process_detection_mode() == ProcessDetectionMode::ChildGroups => {
+                child_groups_foreground_process_group(child_pid)?
+            }
+            None => return None,
+        };
         let mut pids = process_tree_pids([child_pid, process_group_id]);
         pids.sort_unstable();
         pids.dedup();
@@ -701,6 +711,87 @@ mod platform {
         let fields = stat.get(close + 1..)?.split_whitespace().collect::<Vec<_>>();
         let tpgid = fields.get(5)?.parse::<i32>().ok()?;
         (tpgid > 0).then_some(tpgid as u32)
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum ProcessDetectionMode {
+        Native,
+        ChildGroups,
+    }
+
+    fn parse_process_detection_mode(value: Option<&str>) -> Result<ProcessDetectionMode, &str> {
+        match value {
+            None | Some("") | Some("native") => Ok(ProcessDetectionMode::Native),
+            Some("child-groups") => Ok(ProcessDetectionMode::ChildGroups),
+            Some(value) => Err(value),
+        }
+    }
+
+    fn process_detection_mode() -> ProcessDetectionMode {
+        static MODE: OnceLock<ProcessDetectionMode> = OnceLock::new();
+        *MODE.get_or_init(|| {
+            let value = std::env::var(PROCESS_DETECTION_ENV)
+                .ok()
+                .or_else(|| std::env::var(HERDR_PROCESS_DETECTION_ENV).ok());
+            parse_process_detection_mode(value.as_deref()).unwrap_or_else(|value| {
+                eprintln!(
+                    "cmux-agent-screen-detection: unknown process detection mode {value:?}; using native"
+                );
+                ProcessDetectionMode::Native
+            })
+        })
+    }
+
+    /// Infer a foreground process group when a Linux host does not expose a
+    /// controlling terminal foreground group. This mode is opt-in because a
+    /// child process can be running in the background and Linux provides no
+    /// kernel signal that distinguishes it from the foreground job.
+    fn child_groups_foreground_process_group(child_pid: u32) -> Option<u32> {
+        let shell_group_id =
+            process_pgrp_and_comm(child_pid).map(|(pgrp, _)| pgrp).filter(|pgrp| *pgrp > 0)? as u32;
+        child_groups_foreground_process_group_with(
+            child_pid,
+            shell_group_id,
+            task_ids,
+            task_children,
+            |pid| process_pgrp_and_comm(pid).map(|(pgrp, _)| pgrp),
+        )
+    }
+
+    fn child_groups_foreground_process_group_with(
+        child_pid: u32,
+        shell_group_id: u32,
+        mut task_ids: impl FnMut(u32) -> Vec<u32>,
+        mut task_children: impl FnMut(u32, u32) -> Vec<u32>,
+        mut process_group_id: impl FnMut(u32) -> Option<i32>,
+    ) -> Option<u32> {
+        let mut newest = None;
+        let mut scanned = 0usize;
+        for tid in task_ids(child_pid) {
+            for child in task_children(child_pid, tid) {
+                if scanned >= CHILD_GROUPS_SCAN_LIMIT {
+                    return None;
+                }
+                scanned += 1;
+                let Some(pgrp) = process_group_id(child) else { continue };
+                if pgrp <= 0 || pgrp as u32 == shell_group_id {
+                    continue;
+                }
+                let pgrp = pgrp as u32;
+                newest = Some(newest.map_or(pgrp, |current: u32| current.max(pgrp)));
+            }
+        }
+        newest.or(Some(shell_group_id))
+    }
+
+    fn process_pgrp_and_comm(pid: u32) -> Option<(i32, String)> {
+        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+        let open = stat.find('(')?;
+        let close = stat.rfind(')')?;
+        let comm = stat.get(open + 1..close)?.to_string();
+        let fields = stat.get(close + 1..)?.split_whitespace().collect::<Vec<_>>();
+        let pgrp = fields.get(2)?.parse::<i32>().ok()?;
+        Some((pgrp, comm))
     }
 
     fn parse_process_stat(stat: &str) -> Option<(u32, String)> {
@@ -765,6 +856,70 @@ mod platform {
             .split_whitespace()
             .filter_map(|child| child.parse().ok())
             .collect()
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn process_detection_mode_requires_explicit_child_groups_value() {
+            assert_eq!(parse_process_detection_mode(None), Ok(ProcessDetectionMode::Native));
+            assert_eq!(
+                parse_process_detection_mode(Some("native")),
+                Ok(ProcessDetectionMode::Native)
+            );
+            assert_eq!(
+                parse_process_detection_mode(Some("child-groups")),
+                Ok(ProcessDetectionMode::ChildGroups)
+            );
+            assert_eq!(parse_process_detection_mode(Some("guess")), Err("guess"));
+        }
+
+        #[test]
+        fn child_groups_selects_the_newest_non_shell_group() {
+            let group = child_groups_foreground_process_group_with(
+                10,
+                10,
+                |_| vec![10, 11],
+                |_, tid| match tid {
+                    10 => vec![20, 21],
+                    11 => vec![22],
+                    _ => Vec::new(),
+                },
+                |pid| match pid {
+                    20 => Some(12),
+                    21 => Some(17),
+                    22 => Some(15),
+                    _ => None,
+                },
+            );
+            assert_eq!(group, Some(17));
+        }
+
+        #[test]
+        fn child_groups_fall_back_to_shell_when_no_child_has_a_new_group() {
+            let group = child_groups_foreground_process_group_with(
+                10,
+                10,
+                |_| vec![10],
+                |_, _| vec![20],
+                |_| Some(10),
+            );
+            assert_eq!(group, Some(10));
+        }
+
+        #[test]
+        fn child_groups_fail_closed_at_the_scan_limit() {
+            let group = child_groups_foreground_process_group_with(
+                10,
+                10,
+                |_| vec![10],
+                |_, _| (0..=CHILD_GROUPS_SCAN_LIMIT as u32).collect(),
+                |pid| Some(pid as i32),
+            );
+            assert_eq!(group, None);
+        }
     }
 }
 

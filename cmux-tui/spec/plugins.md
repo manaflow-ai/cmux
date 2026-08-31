@@ -128,7 +128,8 @@ The selected plugin is stored in `~/.config/cmux/cmux-tui.json`:
 }
 ```
 
-`id` is the stable producer identity. `command[0]` and `cwd` must be absolute.
+`id` is the stable producer identity and must match
+`[a-z0-9][a-z0-9_-]*` (maximum 64 bytes). `command[0]` and `cwd` must be absolute.
 `revision` is optional for hand-written configuration, but the plugin manager
 writes a content-derived value. A changed revision restarts the child even
 when the command path is unchanged. Invalid replacement configuration disables
@@ -147,9 +148,21 @@ starts. A plugin that emits restart-fenced observations should copy
 Core starts one child after the resource socket is bound. An unexpected exit
 creates a normal `agent.plugin.exited` journal event for that producer, then
 restarts it with bounded exponential backoff. The reducer removes only entries
-owned by the exited producer and only observations older than the exit fence.
-This prevents a crash from removing a replacement process that has already
-reported. Config reload stops the old child before starting the replacement.
+owned by the exited producer and, for a tagged child, by that exact exited
+generation. Untagged compatibility rows use the exit timestamp as their limit,
+and untagged observations stay fenced after an exit because they cannot prove
+that they belong to a replacement. This prevents a crash from removing a
+replacement process that has already reported. Config reload stops the old
+child before starting the replacement.
+On Unix the child starts in a dedicated process group and shutdown signals the
+whole group. On Windows the child starts suspended, is assigned to a Job Object
+with kill-on-close, and is resumed only after ownership is established. A Unix
+plugin that calls `setsid` can leave that group; plugins must keep helper
+processes in the inherited group or provide their own cleanup.
+Generation fences protect the journal from late records, but Unix PID and
+process-group identifier reuse remains a platform race. The detector treats a
+foreground group as authoritative only when the host reports the current
+group; a public-process fallback cannot prove replacement identity.
 
 ### Journal boundary
 
@@ -217,7 +230,11 @@ The manager installs agent packages under
 `$XDG_DATA_HOME` path), validates the manifest, runs its declared build, and
 checks the executable before writing the selected config. Installation and
 build execute third-party code with the user's permissions. Core does not
-sandbox a plugin.
+sandbox a plugin. Artifact replacement and selected-config replacement use a
+local rollback guard, but they are separate filesystem transactions. A power
+loss between those writes can leave an old artifact with new configuration (or
+the reverse); startup validation disables an invalid selection and the next
+explicit install or update repairs it.
 
 The reference screen detector keeps the 21 herdr-derived manifests in the
 plugin package. It loads bundled files first, then a bounded cache, then an
@@ -226,7 +243,7 @@ the only network update path. The scanner never performs implicit network I/O,
 so startup does not depend on a catalog, DNS, or a remote service. Update
 failures are recorded per agent and never replace a valid cached manifest.
 
-The herdr source and Apache-2.0 notice are listed in
+The herdr source and Apache-2.0 license attribution are listed in
 `cmux-tui/ATTRIBUTIONS.md` and the plugin package `ATTRIBUTIONS.md`. Files
 derived from herdr carry the upstream path and pinned commit in their header.
 
@@ -238,7 +255,7 @@ shared without importing herdr's application into cmux:
 | Herdr capability | Userland package behavior |
 | --- | --- |
 | Screen manifests | 21 manifests are bundled and replaceable. Herdr lists 23 agent kinds, but OMP and Mastracode have no screen manifest at the pinned revision. |
-| Identity aliases and wrappers | Manifest aliases, shell/runtime arguments, package launchers, process groups, and a public-process fallback are supported. |
+| Identity aliases and wrappers | Manifest aliases, shell/runtime arguments, package launchers, process groups, and a public-process fallback are supported. Linux can opt into bounded child-group inference with `CMUX_AGENT_PROCESS_DETECTION=child-groups` when a controlling-terminal group is unavailable. |
 | Regions and gates | Recent-screen regions, prompt and viewer slices, OSC title/progress regions, `all`, `any`, `not`, literal, regex, and line-regex gates are supported with bounded complexity. |
 | Rule priority and visibility | Numeric priority, idle fallback, blocker/working/idle visibility hints, and `skip_state_update` are preserved. |
 | Stable polling | Quiescence debounce, a one-second maximum evaluation pacer, startup grace, six-miss identity hysteresis, same-name process-group replacement edges, activity expiry, pending idle, blocker refresh, and process-exit edges are supported. Process hints and adaptive process-info cache intervals reduce process-tree work without delaying unknown-agent discovery. |
@@ -250,7 +267,9 @@ projection. Hook authority and session identity remain in cmux's existing hook
 adapter because moving those contracts into a detector would make hook and
 screen producers compete outside one reducer. Windows deep process-group
 inspection is not yet implemented; the public process response remains the
-fallback there. Generic OSC metadata has no agent-specific reset operation, so
+fallback there. Linux child-group inference is available only as an explicit
+fallback because it cannot distinguish foreground from background children
+without a controlling terminal. Generic OSC metadata has no agent-specific reset operation, so
 the scanner's startup grace prevents stale screen classification while the
 daemon retains its generic terminal metadata. Network updates are explicit;
 the scanner never fetches data during startup. A different userland plugin can

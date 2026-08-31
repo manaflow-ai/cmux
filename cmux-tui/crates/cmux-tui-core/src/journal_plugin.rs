@@ -5,11 +5,35 @@
 //! module. A plugin communicates through the local resource socket and writes
 //! normal journal events, so every frontend observes the same reducer state.
 
+#[cfg(windows)]
+use std::mem::size_of;
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
+
+#[cfg(windows)]
+use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
+#[cfg(windows)]
+use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+    CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
+};
+#[cfg(windows)]
+use windows_sys::Win32::System::JobObjects::{
+    AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+    SetInformationJobObject, TerminateJobObject,
+};
+#[cfg(windows)]
+use windows_sys::Win32::System::Threading::{
+    CREATE_SUSPENDED, OpenProcess, OpenThread, PROCESS_SET_QUOTA, PROCESS_TERMINATE, ResumeThread,
+    THREAD_SUSPEND_RESUME,
+};
 
 const SUPERVISOR_WAIT: Duration = Duration::from_millis(500);
 const MAX_RESTART_DELAY: Duration = Duration::from_secs(30);
@@ -19,6 +43,153 @@ const MAX_RESTART_DELAY: Duration = Duration::from_secs(30);
 const STABLE_RUNTIME: Duration = Duration::from_secs(30);
 
 pub(crate) type JournalPluginExitHandler = Arc<dyn Fn(&str, u64) + Send + Sync + 'static>;
+
+/// A plugin child plus the OS-owned boundary used to stop its descendants.
+/// The supervisor must own the whole process tree: a plugin helper that keeps
+/// running after the leader exits can otherwise continue to append events
+/// after its generation has been fenced.
+struct JournalPluginChild {
+    child: Child,
+    #[cfg(unix)]
+    process_group_id: libc::pid_t,
+    #[cfg(windows)]
+    job: WindowsJournalPluginJob,
+}
+
+impl JournalPluginChild {
+    fn try_wait(&mut self) -> std::io::Result<Option<ExitStatus>> {
+        self.child.try_wait()
+    }
+
+    /// Terminate the owned process tree and reap the leader. The group/job
+    /// operation runs before `wait`, so descendants are not left behind when
+    /// the leader exits first.
+    fn terminate(&mut self) {
+        self.terminate_descendants();
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+
+    fn terminate_descendants(&self) {
+        #[cfg(unix)]
+        {
+            if self.process_group_id > 0 {
+                // The child is placed in a fresh process group before exec.
+                // A negative pid addresses that group, including helpers that
+                // inherited it from the plugin.
+                unsafe {
+                    libc::kill(-self.process_group_id, libc::SIGKILL);
+                }
+            }
+        }
+        #[cfg(windows)]
+        {
+            self.job.terminate_descendants();
+        }
+    }
+}
+
+#[cfg(windows)]
+struct WindowsJournalPluginJob {
+    handle: HANDLE,
+}
+
+#[cfg(windows)]
+impl WindowsJournalPluginJob {
+    fn assign(child: &Child) -> std::io::Result<Self> {
+        let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
+        if handle.is_null() {
+            return Err(std::io::Error::last_os_error());
+        }
+        let job = Self { handle };
+        let mut information = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        information.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        let information_size = u32::try_from(size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>())
+            .expect("Windows job information fits in u32");
+        if unsafe {
+            SetInformationJobObject(
+                job.handle,
+                JobObjectExtendedLimitInformation,
+                std::ptr::from_ref(&information).cast(),
+                information_size,
+            )
+        } == 0
+        {
+            return Err(std::io::Error::last_os_error());
+        }
+
+        let process = unsafe { OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, child.id()) };
+        if process.is_null() {
+            return Err(std::io::Error::last_os_error());
+        }
+        let assigned = unsafe { AssignProcessToJobObject(job.handle, process) };
+        let assign_error = (assigned == 0).then(std::io::Error::last_os_error);
+        unsafe {
+            CloseHandle(process);
+        }
+        if let Some(error) = assign_error {
+            return Err(error);
+        }
+        Ok(job)
+    }
+
+    fn terminate_descendants(&self) {
+        unsafe {
+            TerminateJobObject(self.handle, 1);
+        }
+    }
+}
+
+#[cfg(windows)]
+impl Drop for WindowsJournalPluginJob {
+    fn drop(&mut self) {
+        unsafe {
+            CloseHandle(self.handle);
+        }
+    }
+}
+
+#[cfg(windows)]
+fn resume_suspended_journal_plugin(child: &Child) -> std::io::Result<()> {
+    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
+    if snapshot == INVALID_HANDLE_VALUE {
+        return Err(std::io::Error::last_os_error());
+    }
+    let result = (|| {
+        let mut entry = THREADENTRY32 {
+            dwSize: u32::try_from(size_of::<THREADENTRY32>())
+                .expect("Windows thread entry size fits in u32"),
+            ..THREADENTRY32::default()
+        };
+        if unsafe { Thread32First(snapshot, &mut entry) } == 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        loop {
+            if entry.th32OwnerProcessID == child.id() {
+                let thread = unsafe { OpenThread(THREAD_SUSPEND_RESUME, 0, entry.th32ThreadID) };
+                if thread.is_null() {
+                    return Err(std::io::Error::last_os_error());
+                }
+                let resumed = unsafe { ResumeThread(thread) };
+                let error = (resumed == u32::MAX).then(std::io::Error::last_os_error);
+                unsafe {
+                    CloseHandle(thread);
+                }
+                return error.map_or(Ok(()), Err);
+            }
+            if unsafe { Thread32Next(snapshot, &mut entry) } == 0 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "suspended journal plugin has no thread to resume",
+                ));
+            }
+        }
+    })();
+    unsafe {
+        CloseHandle(snapshot);
+    }
+    result
+}
 
 /// A configured userland journal plugin.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,10 +211,14 @@ impl JournalPluginOptions {
         anyhow::ensure!(!self.id.is_empty(), "journal plugin id must not be empty");
         anyhow::ensure!(self.id.len() <= 64, "journal plugin id is too long");
         anyhow::ensure!(
-            self.id
-                .bytes()
-                .all(|byte| { byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_' }),
-            "journal plugin id must match [a-z0-9_]+"
+            self.id.as_bytes().first().is_some_and(|byte| byte.is_ascii_alphanumeric())
+                && self.id.bytes().all(|byte| {
+                    byte.is_ascii_lowercase()
+                        || byte.is_ascii_digit()
+                        || byte == b'_'
+                        || byte == b'-'
+                }),
+            "journal plugin id must match [a-z0-9][a-z0-9_-]*"
         );
         let Some(executable) = self.command.first() else {
             anyhow::bail!("journal plugin command must not be empty");
@@ -80,7 +255,7 @@ struct SupervisorState {
     options: Option<JournalPluginOptions>,
     socket: Option<PathBuf>,
     session: Option<String>,
-    child: Option<Child>,
+    child: Option<JournalPluginChild>,
     restart_at: Option<Instant>,
     failures: u32,
     child_started_at: Option<Instant>,
@@ -91,8 +266,9 @@ struct SupervisorState {
     exit_handler: Option<JournalPluginExitHandler>,
 }
 
-/// Owns one restartable plugin process. The runtime is deliberately small and
-/// has no knowledge of any agent vendor or event schema.
+/// Owns one plugin process and restarts failed children until shutdown. The
+/// runtime is deliberately small and has no knowledge of any agent vendor or
+/// event schema.
 pub struct JournalPluginRuntime {
     state: Arc<(Mutex<SupervisorState>, Condvar)>,
     thread: Mutex<Option<JoinHandle<()>>>,
@@ -181,8 +357,10 @@ impl JournalPluginRuntime {
         changed.notify_all();
     }
 
-    /// Stops the child and joins the supervisor. It is safe to call more than
-    /// once, including from `Drop` after an earlier explicit shutdown.
+    /// Stops the child and joins the supervisor. Shutdown is terminal for this
+    /// runtime; construct a new runtime to start supervision again. It is safe
+    /// to call more than once, including from `Drop` after an earlier explicit
+    /// shutdown.
     pub fn shutdown(&self) {
         let (lock, changed) = &*self.state;
         let retired = {
@@ -224,7 +402,7 @@ fn supervise(shared: Arc<(Mutex<SupervisorState>, Condvar)>) {
             return;
         }
 
-        let child_status = state.child.as_mut().map(Child::try_wait);
+        let child_status = state.child.as_mut().map(JournalPluginChild::try_wait);
         if let Some(child_status) = child_status {
             match child_status {
                 Ok(Some(status)) => {
@@ -301,7 +479,7 @@ fn spawn_plugin(
     socket: &PathBuf,
     session: &str,
     generation: u64,
-) -> anyhow::Result<Child> {
+) -> anyhow::Result<JournalPluginChild> {
     let mut command = Command::new(&options.command[0]);
     command
         .args(&options.command[1..])
@@ -319,19 +497,52 @@ fn spawn_plugin(
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::inherit());
+    #[cfg(unix)]
+    command.process_group(0);
+    #[cfg(windows)]
+    command.creation_flags(CREATE_SUSPENDED);
     if let Some(cwd) = &options.cwd {
         command.current_dir(cwd);
     }
     if let Some(revision) = &options.revision {
         command.env("CMUX_PLUGIN_REVISION", revision);
     }
-    Ok(command.spawn()?)
+    let child = command.spawn()?;
+    #[cfg(unix)]
+    {
+        let process_group_id = libc::pid_t::try_from(child.id()).map_err(|_| {
+            anyhow::anyhow!("journal plugin pid is outside the process-group range")
+        })?;
+        return Ok(JournalPluginChild { process_group_id, child });
+    }
+    #[cfg(windows)]
+    {
+        let mut child = child;
+        let job = match WindowsJournalPluginJob::assign(&child) {
+            Ok(job) => job,
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(anyhow::anyhow!("isolate journal plugin process tree: {error}"));
+            }
+        };
+        if let Err(error) = resume_suspended_journal_plugin(&child) {
+            job.terminate_descendants();
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(anyhow::anyhow!("resume isolated journal plugin: {error}"));
+        }
+        return Ok(JournalPluginChild { child, job });
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        Ok(JournalPluginChild { child })
+    }
 }
 
 fn stop_child(state: &mut SupervisorState) {
     if let Some(mut child) = state.child.take() {
-        let _ = child.kill();
-        let _ = child.wait();
+        child.terminate();
     }
     state.child_generation = None;
     state.child_started_at = None;
@@ -347,11 +558,15 @@ fn mark_child_exit(
 ) -> (Option<u64>, Option<Instant>) {
     if terminate_child {
         if let Some(mut child) = state.child.take() {
-            let _ = child.kill();
-            let _ = child.wait();
+            child.terminate();
         }
     } else {
-        state.child.take();
+        if let Some(child) = state.child.take() {
+            // `try_wait` already reaped the leader. The group/job can still
+            // contain helpers, so close that ownership boundary before the
+            // wrapper is dropped.
+            child.terminate_descendants();
+        }
     }
     let exited_generation = state.child_generation.take();
     let child_started_at = state.child_started_at.take();

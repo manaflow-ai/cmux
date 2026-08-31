@@ -21,8 +21,9 @@ Derived material, in each case modified by manaflow:
 - `bindings/examples/rust-agent-screen-detection/src/{detect.rs,scanner.rs}`:
   detection semantics (state model, edge-triggered transitions,
   foreground-process identification, quiescence sampling) derived from
-  `src/detect/mod.rs` and herdr's poller design. These files are a userland
-  plugin. Core only supervises the process and folds its generic events.
+  `src/detect/mod.rs`, `src/pane/agent_detection.rs`, and `src/pane.rs`.
+  These files are a userland plugin. Core only supervises the process and
+  folds its generic events.
 - `bindings/examples/rust-agent-screen-detection/src/process.rs`: bounded
   foreground process-group discovery and wrapper handling derived from
   herdr's platform and detector modules, with platform fallbacks and stricter

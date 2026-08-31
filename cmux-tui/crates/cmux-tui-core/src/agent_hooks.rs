@@ -231,7 +231,7 @@ pub(crate) fn built_in_agent_producer_manifest() -> JournalProducerManifest {
                         "type":"string",
                         "minLength":1,
                         "maxLength":MAX_AGENT_SOURCE_BYTES,
-                        "pattern":"^[a-z0-9_-]+$"
+                        "pattern":"^[a-z0-9][a-z0-9_-]*$"
                     },
                     "version":{"const":1}
                 },
@@ -267,10 +267,11 @@ fn validate_agent_source(source: &str) -> anyhow::Result<()> {
     anyhow::ensure!(
         !source.is_empty()
             && source.len() <= MAX_AGENT_SOURCE_BYTES
+            && source.as_bytes().first().is_some_and(|byte| byte.is_ascii_alphanumeric())
             && source.bytes().all(|byte| {
                 byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'-')
             }),
-        "agent source must contain 1 to {MAX_AGENT_SOURCE_BYTES} lowercase ASCII letters, digits, hyphens, or underscores"
+        "agent source must match [a-z0-9][a-z0-9_-]* and contain at most {MAX_AGENT_SOURCE_BYTES} bytes"
     );
     Ok(())
 }
@@ -833,6 +834,13 @@ fn semantic_key(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn agent_source_uses_the_shared_component_grammar() {
+        assert!(agent_hook_journal_ingress("codex-agent", "Stop", None, json!({})).is_ok());
+        assert!(agent_hook_journal_ingress("-codex", "Stop", None, json!({})).is_err());
+        assert!(agent_hook_journal_ingress("codex.agent", "Stop", None, json!({})).is_err());
+    }
 
     #[test]
     fn completion_hooks_share_one_semantic_kind_and_keep_native_payload() {

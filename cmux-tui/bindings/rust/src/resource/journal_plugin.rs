@@ -18,9 +18,10 @@ const MAX_MANIFEST_BYTES: usize = 1024 * 1024;
 fn valid_component(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= MAX_COMPONENT_BYTES
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+        && value.as_bytes().first().is_some_and(|byte| byte.is_ascii_alphanumeric())
+        && value.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_' || byte == b'-'
+        })
 }
 
 fn valid_kind(value: &str) -> bool {
@@ -81,8 +82,7 @@ impl JournalProducerManifest {
     pub fn validate(&self) -> Result<()> {
         if !valid_component(&self.producer_id) {
             return Err(Error::InvalidArgument(
-                "producer_id must contain 1 to 64 lowercase ASCII letters, digits, or underscores"
-                    .into(),
+                "producer_id must match [a-z0-9][a-z0-9_-]* and contain at most 64 bytes".into(),
             ));
         }
         if self.namespace != format!("plugin.{}", self.producer_id) {
@@ -228,3 +228,34 @@ pub type AgentPluginSubject = JournalSubject;
 pub type AgentPluginIngress = JournalIngress;
 pub type AgentPluginListResult = JournalProducerListResult;
 pub type JournalEventSubject = JournalSubject;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn manifest(producer_id: &str) -> JournalProducerManifest {
+        JournalProducerManifest {
+            producer_id: producer_id.into(),
+            namespace: format!("plugin.{producer_id}"),
+            manifest_version: 1,
+            max_sensitivity: JournalSensitivity::Sensitive,
+            permissions: vec![format!("journal.append.plugin.{producer_id}")],
+            events: vec![JournalEventSchema {
+                kind: format!("plugin.{producer_id}.state.changed"),
+                schema_version: 1,
+                class: JournalClass::State,
+                replay: JournalReplayPolicy::Required,
+                sensitivity: JournalSensitivity::Sensitive,
+                payload_schema: serde_json::json!({"type":"object"}),
+            }],
+        }
+    }
+
+    #[test]
+    fn producer_component_grammar_is_shared_with_core() {
+        assert!(manifest("screen-detector").validate().is_ok());
+        assert!(manifest("screen_detector").validate().is_ok());
+        assert!(manifest("_screen-detector").validate().is_err());
+        assert!(manifest("Screen-detector").validate().is_err());
+    }
+}

@@ -30,10 +30,16 @@ use crate::process as process_discovery;
 const SCAN_INTERVAL: Duration = Duration::from_millis(100);
 const RECONNECT_INTERVAL: Duration = Duration::from_secs(1);
 const MANIFEST_RELOAD_INTERVAL: Duration = Duration::from_secs(5);
-const PROCESS_GROUP_RESCAN_INTERVAL: Duration = Duration::from_millis(250);
+const PROCESS_GROUP_RECHECK_IDENTIFIED: Duration = Duration::from_secs(5);
+const PROCESS_GROUP_RECHECK_UNKNOWN: Duration = Duration::from_millis(500);
+const PROCESS_GROUP_RECHECK_ON_OUTPUT: Duration = Duration::from_secs(1);
 const PROCESS_INFO_RECHECK_IDENTIFIED: Duration = Duration::from_secs(5);
 const PROCESS_INFO_RECHECK_UNKNOWN: Duration = Duration::from_millis(500);
 const PROCESS_INFO_RECHECK_ON_OUTPUT: Duration = Duration::from_secs(1);
+const PROCESS_ACQUISITION_FAST_WINDOW: Duration = Duration::from_millis(1_500);
+const PROCESS_ACQUISITION_WINDOW: Duration = Duration::from_secs(8);
+const PROCESS_ACQUISITION_FAST_RECHECK: Duration = Duration::from_millis(500);
+const PROCESS_ACQUISITION_SLOW_RECHECK: Duration = Duration::from_secs(2);
 const PLUGIN_VERSION: u32 = 1;
 
 /// Runs until the daemon closes the socket or the process is terminated.
@@ -161,17 +167,22 @@ fn scan_connection(
             }
             manifests_checked_at = now;
         }
-        let terminals = session.terminals().map_err(|error| error.to_string())?;
-        let live_ids = terminals
+        // `terminal.list` already returns complete snapshots. Keep that one
+        // bulk response instead of refreshing every handle and creating an
+        // N+1 socket request pattern on large sessions.
+        let snapshots = session.terminal_snapshots().map_err(|error| error.to_string())?;
+        let live_ids = snapshots
             .iter()
-            .filter_map(|terminal| terminal.id().map(|id| id.as_str().to_string()))
+            .map(|snapshot| snapshot.id.as_str().to_string())
             .collect::<HashSet<_>>();
         tracker.retain_terminals(|terminal_id| live_ids.contains(terminal_id));
         process_cache.retain_terminals(|terminal_id| live_ids.contains(terminal_id));
         process_info_cache.retain_terminals(|terminal_id| live_ids.contains(terminal_id));
-        for terminal in terminals {
+        for snapshot in snapshots {
+            let terminal = session.terminal(snapshot.id.clone());
             if let Err(error) = scan_terminal(
                 &terminal,
+                &snapshot,
                 plugin_id,
                 &manifests,
                 &mut tracker,
@@ -206,6 +217,10 @@ struct CachedProcessInfo {
     checked_at: Instant,
     stream_revision: Option<u64>,
     identified: bool,
+    /// Short adaptive probing after an agent is first found catches a
+    /// hand-off or same-name replacement without making steady-state scans
+    /// expensive.
+    acquisition_started_at: Option<Instant>,
 }
 
 impl ProcessInfoCache {
@@ -222,20 +237,36 @@ impl ProcessInfoCache {
             return Ok(cached.process.clone());
         }
         let process = terminal.process().map_err(|error| error.to_string())?;
+        let (identified, acquisition_started_at) = self
+            .entries
+            .get(terminal_id)
+            .map(|entry| (entry.identified, entry.acquisition_started_at))
+            .unwrap_or((false, None));
         self.entries.insert(
             terminal_id.to_string(),
             CachedProcessInfo {
                 process: process.clone(),
                 checked_at: now,
                 stream_revision,
-                identified: false,
+                // Preserve the acquisition phase across refreshes. The
+                // scanner marks this value after it identifies the new
+                // process; resetting it here would make a steady agent pay
+                // the fast probe cost forever.
+                identified,
+                acquisition_started_at,
             },
         );
         Ok(process)
     }
 
-    fn mark_identified(&mut self, terminal_id: &str, identified: bool) {
+    fn mark_identified(&mut self, terminal_id: &str, identified: bool, now: Instant) {
         if let Some(cached) = self.entries.get_mut(terminal_id) {
+            if identified && !cached.identified {
+                cached.acquisition_started_at = Some(now);
+            }
+            if !identified {
+                cached.acquisition_started_at = None;
+            }
             cached.identified = identified;
         }
     }
@@ -251,9 +282,22 @@ fn process_info_refresh_due(
     now: Instant,
 ) -> bool {
     let revision_changed = matches!((cached.stream_revision, stream_revision), (Some(previous), Some(current)) if previous != current);
+    // Older daemons do not expose a stream revision. Keep a bounded one-second
+    // probe in that mode because a same-name process replacement cannot be
+    // observed through output metadata.
+    let output_signal_missing = cached.stream_revision.is_none() || stream_revision.is_none();
     let interval = if cached.identified {
-        if revision_changed {
+        if revision_changed || output_signal_missing {
             PROCESS_INFO_RECHECK_ON_OUTPUT
+        } else if let Some(started_at) = cached.acquisition_started_at {
+            let acquisition_age = now.duration_since(started_at);
+            if acquisition_age < PROCESS_ACQUISITION_FAST_WINDOW {
+                PROCESS_ACQUISITION_FAST_RECHECK
+            } else if acquisition_age < PROCESS_ACQUISITION_WINDOW {
+                PROCESS_ACQUISITION_SLOW_RECHECK
+            } else {
+                PROCESS_INFO_RECHECK_IDENTIFIED
+            }
         } else {
             PROCESS_INFO_RECHECK_IDENTIFIED
         }
@@ -268,7 +312,14 @@ struct CachedProcessGroup {
     pid: u32,
     foreground_name: Option<String>,
     checked_at: Instant,
+    stream_revision: Option<u64>,
     job: process_discovery::ForegroundJob,
+    /// A public process response is a useful fallback, but its pid is not a
+    /// verified foreground process-group id and must not create replacement
+    /// edges.
+    authoritative: bool,
+    identified: bool,
+    acquisition_started_at: Option<Instant>,
 }
 
 impl ProcessGroupCache {
@@ -276,28 +327,58 @@ impl ProcessGroupCache {
         &mut self,
         terminal_id: &str,
         process: &cmux::ProcessInfoResult,
+        stream_revision: Option<u64>,
         now: Instant,
     ) -> process_discovery::ForegroundJob {
         let foreground_name = process.foreground_executable.clone();
         if let Some(cached) = self.entries.get(terminal_id)
             && cached.pid == process.pid
             && cached.foreground_name == foreground_name
-            && now.duration_since(cached.checked_at) < PROCESS_GROUP_RESCAN_INTERVAL
+            && !process_group_refresh_due(cached, stream_revision, now)
         {
             return cached.job.clone();
         }
-        let job = process_discovery::foreground_job(process.pid)
-            .unwrap_or_else(|| process_discovery::fallback_job(process));
+        let (identified, acquisition_started_at) = self
+            .entries
+            .get(terminal_id)
+            .map(|entry| (entry.identified, entry.acquisition_started_at))
+            .unwrap_or((false, None));
+        let native_job = process_discovery::foreground_job(process.pid);
+        let authoritative = native_job.is_some();
+        let job = native_job.unwrap_or_else(|| process_discovery::fallback_job(process));
         self.entries.insert(
             terminal_id.to_string(),
             CachedProcessGroup {
                 pid: process.pid,
                 foreground_name,
                 checked_at: now,
+                stream_revision,
                 job: job.clone(),
+                authoritative,
+                identified,
+                acquisition_started_at,
             },
         );
         job
+    }
+
+    fn mark_identified(&mut self, terminal_id: &str, identified: bool, now: Instant) {
+        if let Some(cached) = self.entries.get_mut(terminal_id) {
+            if identified && !cached.identified {
+                cached.acquisition_started_at = Some(now);
+            }
+            if !identified {
+                cached.acquisition_started_at = None;
+            }
+            cached.identified = identified;
+        }
+    }
+
+    fn authoritative_group_id(&self, terminal_id: &str) -> Option<u32> {
+        self.entries
+            .get(terminal_id)
+            .filter(|entry| entry.authoritative)
+            .map(|entry| entry.job.process_group_id)
     }
 
     fn retain_terminals(&mut self, live: impl Fn(&str) -> bool) {
@@ -305,8 +386,37 @@ impl ProcessGroupCache {
     }
 }
 
+fn process_group_refresh_due(
+    cached: &CachedProcessGroup,
+    stream_revision: Option<u64>,
+    now: Instant,
+) -> bool {
+    let revision_changed = matches!((cached.stream_revision, stream_revision), (Some(previous), Some(current)) if previous != current);
+    let output_signal_missing = cached.stream_revision.is_none() || stream_revision.is_none();
+    let interval = if cached.identified {
+        if revision_changed || output_signal_missing {
+            PROCESS_GROUP_RECHECK_ON_OUTPUT
+        } else if let Some(started_at) = cached.acquisition_started_at {
+            let acquisition_age = now.duration_since(started_at);
+            if acquisition_age < PROCESS_ACQUISITION_FAST_WINDOW {
+                PROCESS_ACQUISITION_FAST_RECHECK
+            } else if acquisition_age < PROCESS_ACQUISITION_WINDOW {
+                PROCESS_ACQUISITION_SLOW_RECHECK
+            } else {
+                PROCESS_GROUP_RECHECK_IDENTIFIED
+            }
+        } else {
+            PROCESS_GROUP_RECHECK_IDENTIFIED
+        }
+    } else {
+        PROCESS_GROUP_RECHECK_UNKNOWN
+    };
+    now.duration_since(cached.checked_at) >= interval
+}
+
 fn scan_terminal(
     terminal: &Terminal,
+    snapshot: &cmux::TerminalSnapshot,
     plugin_id: &str,
     manifests: &ManifestSet,
     tracker: &mut ScreenDetectTracker,
@@ -316,19 +426,13 @@ fn scan_terminal(
     emission_nonce: &str,
     emission_sequence: &mut u64,
 ) -> Result<(), String> {
-    let snapshot = terminal.refresh().map_err(|error| error.to_string())?;
-    let terminal_id = terminal
-        .id()
-        .ok_or_else(|| "terminal selector did not resolve to an id".to_string())?
-        .as_str()
-        .to_string();
+    let terminal_id = snapshot.id.as_str().to_string();
+    let now = Instant::now();
     if !snapshot.running {
         // A terminal can remain in the catalog briefly after its PTY exits.
         // Close the plugin-owned emission now instead of waiting for catalog
         // pruning, so the roster does not show a dead agent during that gap.
-        if let Some(emission) =
-            tracker.record_detection_at(&terminal_id, None, Instant::now(), true, true)
-        {
+        if let Some(emission) = tracker.record_detection_at(&terminal_id, None, now, true, true) {
             // The process query is expected to fail after a PTY exits. Keep
             // the terminal identity as the source session for this final
             // event instead of issuing a second, racy process read.
@@ -344,10 +448,9 @@ fn scan_terminal(
         }
         return Ok(());
     }
-    let now = Instant::now();
     let process =
         process_info_cache.get_or_refresh(terminal, &terminal_id, snapshot.stream_revision, now)?;
-    let job = process_cache.job_for(&terminal_id, &process, now);
+    let job = process_cache.job_for(&terminal_id, &process, snapshot.stream_revision, now);
     // `stream_revision` is a cheap coalesced PTY counter. New daemons expose
     // it on the terminal snapshot, so unchanged screens do not cross the
     // socket or invoke the terminal parser. Older daemons fall back to a
@@ -368,10 +471,11 @@ fn scan_terminal(
     let identity_edge = tracker.note_foreground_job_at(
         &terminal_id,
         manifest.map(|item| item.id()),
-        Some(job.process_group_id),
+        process_cache.authoritative_group_id(&terminal_id),
         now,
     );
-    process_info_cache.mark_identified(&terminal_id, manifest.is_some());
+    process_cache.mark_identified(&terminal_id, manifest.is_some(), now);
+    process_info_cache.mark_identified(&terminal_id, manifest.is_some(), now);
     if manifest.is_none() {
         // Process inspection is best effort. The tracker keeps a known agent
         // through a bounded miss-confirmation window, so do not emit Done or
@@ -578,6 +682,33 @@ mod tests {
             checked_at,
             stream_revision,
             identified,
+            acquisition_started_at: identified.then_some(checked_at),
+        }
+    }
+
+    fn cached_with_acquisition_start(
+        checked_at: Instant,
+        acquisition_started_at: Instant,
+    ) -> CachedProcessInfo {
+        let mut entry = cached(checked_at, true, Some(7));
+        entry.acquisition_started_at = Some(acquisition_started_at);
+        entry
+    }
+
+    fn cached_group(
+        checked_at: Instant,
+        identified: bool,
+        stream_revision: Option<u64>,
+    ) -> CachedProcessGroup {
+        CachedProcessGroup {
+            pid: 42,
+            foreground_name: Some("shell".into()),
+            checked_at,
+            stream_revision,
+            job: process_discovery::ForegroundJob { process_group_id: 42, processes: Vec::new() },
+            authoritative: true,
+            identified,
+            acquisition_started_at: identified.then_some(checked_at),
         }
     }
 
@@ -608,6 +739,46 @@ mod tests {
     }
 
     #[test]
+    fn missing_output_revision_keeps_process_probe_bounded() {
+        let start = Instant::now();
+        let entry = cached(start, true, None);
+        assert!(!process_info_refresh_due(
+            &entry,
+            None,
+            start + PROCESS_INFO_RECHECK_ON_OUTPUT - Duration::from_millis(1),
+        ));
+        assert!(process_info_refresh_due(&entry, None, start + PROCESS_INFO_RECHECK_ON_OUTPUT,));
+    }
+
+    #[test]
+    fn newly_identified_processes_use_adaptive_acquisition_rechecks() {
+        let start = Instant::now();
+        let entry = cached(start, true, Some(7));
+        assert!(!process_info_refresh_due(
+            &entry,
+            Some(7),
+            start + PROCESS_ACQUISITION_FAST_RECHECK - Duration::from_millis(1),
+        ));
+        assert!(process_info_refresh_due(
+            &entry,
+            Some(7),
+            start + PROCESS_ACQUISITION_FAST_RECHECK,
+        ));
+        let slow_check =
+            cached_with_acquisition_start(start + PROCESS_ACQUISITION_FAST_WINDOW, start);
+        assert!(!process_info_refresh_due(
+            &slow_check,
+            Some(7),
+            slow_check.checked_at + PROCESS_ACQUISITION_SLOW_RECHECK - Duration::from_millis(1),
+        ));
+        assert!(process_info_refresh_due(
+            &slow_check,
+            Some(7),
+            slow_check.checked_at + PROCESS_ACQUISITION_SLOW_RECHECK,
+        ));
+    }
+
+    #[test]
     fn unknown_processes_recheck_quickly_for_spawn_detection() {
         let start = Instant::now();
         let entry = cached(start, false, Some(7));
@@ -617,6 +788,46 @@ mod tests {
             start + PROCESS_INFO_RECHECK_UNKNOWN - Duration::from_millis(1),
         ));
         assert!(process_info_refresh_due(&entry, Some(8), start + PROCESS_INFO_RECHECK_UNKNOWN,));
+    }
+
+    #[test]
+    fn unknown_process_groups_recheck_quickly_for_spawn_detection() {
+        let start = Instant::now();
+        let entry = cached_group(start, false, Some(7));
+        assert!(!process_group_refresh_due(
+            &entry,
+            Some(8),
+            start + PROCESS_GROUP_RECHECK_UNKNOWN - Duration::from_millis(1),
+        ));
+        assert!(process_group_refresh_due(&entry, Some(8), start + PROCESS_GROUP_RECHECK_UNKNOWN,));
+    }
+
+    #[test]
+    fn identified_process_groups_recheck_on_output_within_one_second() {
+        let start = Instant::now();
+        let entry = cached_group(start, true, Some(7));
+        assert!(!process_group_refresh_due(
+            &entry,
+            Some(8),
+            start + PROCESS_GROUP_RECHECK_ON_OUTPUT - Duration::from_millis(1),
+        ));
+        assert!(process_group_refresh_due(
+            &entry,
+            Some(8),
+            start + PROCESS_GROUP_RECHECK_ON_OUTPUT,
+        ));
+    }
+
+    #[test]
+    fn missing_output_revision_keeps_process_group_probe_bounded() {
+        let start = Instant::now();
+        let entry = cached_group(start, true, None);
+        assert!(!process_group_refresh_due(
+            &entry,
+            None,
+            start + PROCESS_GROUP_RECHECK_ON_OUTPUT - Duration::from_millis(1),
+        ));
+        assert!(process_group_refresh_due(&entry, None, start + PROCESS_GROUP_RECHECK_ON_OUTPUT,));
     }
 
     #[test]

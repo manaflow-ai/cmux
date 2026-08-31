@@ -410,6 +410,7 @@ fn validate_catalog_entries(
 fn validate_agent_id(id: &str) -> Result<(), String> {
     if id.is_empty()
         || id.len() > 64
+        || !id.as_bytes().first().is_some_and(|byte| byte.is_ascii_alphanumeric())
         || !id.bytes().all(|byte| {
             byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_' || byte == b'-'
         })
@@ -521,19 +522,15 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
         file.write_all(bytes).map_err(|error| error.to_string())?;
         file.sync_all().map_err(|error| error.to_string())?;
         fs::rename(&tmp, path).map_err(|error| error.to_string())?;
-        // A durable file rename also needs its parent directory flushed. Some
-        // filesystems reject directory sync, so preserve the successful
-        // atomic write when the platform does not expose that operation.
-        if let Err(error) = fs::File::open(parent).and_then(|directory| directory.sync_all())
-            && !matches!(
-                error.kind(),
-                std::io::ErrorKind::InvalidInput
-                    | std::io::ErrorKind::NotADirectory
-                    | std::io::ErrorKind::Unsupported
-                    | std::io::ErrorKind::PermissionDenied
-            )
-        {
-            return Err(error.to_string());
+        // A durable file rename also needs its parent directory flushed. The
+        // rename already committed the new content, so a directory-sync error
+        // is a durability warning, not an update failure that callers could
+        // safely roll back.
+        if let Err(error) = fs::File::open(parent).and_then(|directory| directory.sync_all()) {
+            eprintln!(
+                "cmux-agent-screen-detection: committed {}, but could not flush its parent directory: {error}",
+                path.display()
+            );
         }
         Ok::<(), String>(())
     })();
@@ -582,8 +579,10 @@ mod tests {
     fn catalog_ids_are_bounded_and_normalized() {
         assert!(validate_agent_id("codex").is_ok());
         assert!(validate_agent_id("screen_detector").is_ok());
+        assert!(validate_agent_id("screen-detector").is_ok());
         assert!(validate_agent_id("bad id").is_err());
         assert!(validate_agent_id("A").is_err());
+        assert!(validate_agent_id("-codex").is_err());
     }
 
     #[test]

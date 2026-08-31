@@ -7,6 +7,7 @@
 //! bounded source loading and explain output for a userland plugin.
 
 use std::cmp::Ordering;
+use std::collections::{HashMap, hash_map::Entry};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -325,9 +326,10 @@ impl CompiledManifest {
     /// (herdr's `default_known_agent_idle_fallback`).
     pub fn detect(&self, input: DetectionInput<'_>) -> Detection {
         let mut matched: Option<&ManifestRule> = None;
+        let mut regions = HashMap::new();
         for (rule, compiled) in self.manifest.rules.iter().zip(&self.compiled_rules) {
-            let region_text = region(input, &rule.region);
-            if !compiled_gate_matches_text(compiled, region_text) {
+            let (region_text, lower_region_text) = cached_region(&mut regions, input, &rule.region);
+            if !compiled_gate_matches(compiled, region_text, lower_region_text) {
                 continue;
             }
             match matched {
@@ -361,9 +363,10 @@ impl CompiledManifest {
     pub fn explain(&self, input: DetectionInput<'_>) -> DetectionExplain {
         let mut selected: Option<&ManifestRule> = None;
         let mut evaluated_rules = Vec::with_capacity(self.manifest.rules.len());
+        let mut regions = HashMap::new();
         for (rule, compiled) in self.manifest.rules.iter().zip(&self.compiled_rules) {
-            let text = region(input, &rule.region);
-            let matched = compiled_gate_matches_text(compiled, text);
+            let (text, lower_text) = cached_region(&mut regions, input, &rule.region);
+            let matched = compiled_gate_matches(compiled, text, lower_text);
             evaluated_rules.push(RuleExplanation {
                 id: rule.id.clone(),
                 priority: rule.priority,
@@ -520,9 +523,22 @@ fn preview(text: &str) -> String {
     preview
 }
 
-fn compiled_gate_matches_text(gate: &CompiledGate, text: &str) -> bool {
-    let lower_text = text.to_lowercase();
-    compiled_gate_matches(gate, text, &lower_text)
+/// Resolve and lowercase each distinct region once per screen evaluation.
+/// Herdr evaluated the same region independently for every rule. A manifest
+/// can contain many rules over `whole_recent` or a shared bottom slice, so
+/// reusing both the slice and its case-folded text keeps the hot path linear in
+/// the number of distinct regions rather than the number of rules.
+fn cached_region<'input, 'spec>(
+    cache: &mut HashMap<&'spec str, (&'input str, String)>,
+    input: DetectionInput<'input>,
+    spec: &'spec str,
+) -> (&'input str, &str) {
+    if let Entry::Vacant(entry) = cache.entry(spec) {
+        let text = region(input, spec);
+        entry.insert((text, text.to_lowercase()));
+    }
+    let (text, lower_text) = cache.get(spec).expect("region was inserted above");
+    (*text, lower_text.as_str())
 }
 
 fn compiled_gate_matches(gate: &CompiledGate, text: &str, lower_text: &str) -> bool {

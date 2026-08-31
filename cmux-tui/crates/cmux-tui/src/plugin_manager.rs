@@ -221,13 +221,27 @@ fn install_command(
         verify_executable(&command[0])?;
         let metadata = PluginRegistryMetadata { id: random_plugin_id_for(kind)? };
         let id = metadata.id.clone();
-        replace_plugin_install(&root, &name, &temp_dir, &target, &metadata, kind)?;
         let selected = selected_plugin_cwd(kind)?.is_some_and(|cwd| same_path(&cwd, &target));
+        let transaction =
+            replace_plugin_install(&root, &name, &temp_dir, &target, &metadata, kind)?;
         if selected {
-            let command = resolved_run_command(&manifest, &target)?;
-            let cwd = canonical_path(&target)?;
-            let revision = artifact_revision(&manifest, &target, &command);
-            persist_plugin(kind, &id, &command, Some(cwd.display().to_string()), Some(revision))?;
+            let config_result = (|| -> Result<(), ManagerError> {
+                let command = resolved_run_command(&manifest, &target)?;
+                let cwd = canonical_path(&target)?;
+                let revision = artifact_revision(&manifest, &target, &command);
+                persist_plugin(kind, &id, &command, Some(cwd.display().to_string()), Some(revision))
+            })();
+            if let Err(error) = config_result {
+                return match transaction.rollback() {
+                    Ok(()) => Err(error),
+                    Err(rollback_error) => Err(ManagerError::Failure(anyhow::anyhow!(
+                        "plugin configuration failed: {error}; plugin rollback failed: {rollback_error}"
+                    ))),
+                };
+            }
+            transaction.commit();
+        } else {
+            transaction.commit();
         }
         Ok(json!({"plugin": plugin_json(&InstalledPlugin {
             id,
@@ -336,21 +350,33 @@ fn update_command(
         let command = resolved_run_command(&manifest, &temp_dir)?;
         verify_executable(&command[0])?;
         let metadata = PluginRegistryMetadata { id: plugin.id.clone() };
-        replace_plugin_install(&root, &plugin.name, &temp_dir, &plugin.dir, &metadata, kind)?;
+        let transaction =
+            replace_plugin_install(&root, &plugin.name, &temp_dir, &plugin.dir, &metadata, kind)?;
         plugin.manifest = manifest;
         if plugin.selected {
-            let command = resolved_run_command(&plugin.manifest, &plugin.dir)?;
-            let cwd = canonical_path(&plugin.dir)?;
-            let plugin_id = plugin.id.clone();
-            let revision = artifact_revision(&plugin.manifest, &plugin.dir, &command);
-            persist_plugin(
-                kind,
-                &plugin_id,
-                &command,
-                Some(cwd.display().to_string()),
-                Some(revision),
-            )?;
+            let config_result = (|| -> Result<(), ManagerError> {
+                let command = resolved_run_command(&plugin.manifest, &plugin.dir)?;
+                let cwd = canonical_path(&plugin.dir)?;
+                let plugin_id = plugin.id.clone();
+                let revision = artifact_revision(&plugin.manifest, &plugin.dir, &command);
+                persist_plugin(
+                    kind,
+                    &plugin_id,
+                    &command,
+                    Some(cwd.display().to_string()),
+                    Some(revision),
+                )
+            })();
+            if let Err(error) = config_result {
+                return match transaction.rollback() {
+                    Ok(()) => Err(error),
+                    Err(rollback_error) => Err(ManagerError::Failure(anyhow::anyhow!(
+                        "plugin configuration failed: {error}; plugin rollback failed: {rollback_error}"
+                    ))),
+                };
+            }
         }
+        transaction.commit();
         Ok(json!({"plugin": plugin_json(&plugin)}))
     })();
     if result.is_err() && temp_dir.exists() {
@@ -806,6 +832,91 @@ fn replace_registry_metadata(
     Ok(())
 }
 
+/// A completed artifact replacement whose old files remain available until
+/// the selected-plugin configuration has also been written. The guard makes
+/// install and update a best-effort local transaction across the filesystem
+/// and the JSON configuration file.
+struct PluginInstallTransaction {
+    name: String,
+    target: PathBuf,
+    target_backup: Option<PathBuf>,
+    metadata_path: PathBuf,
+    metadata_backup: Option<PathBuf>,
+    finished: bool,
+}
+
+impl PluginInstallTransaction {
+    fn commit(mut self) {
+        if let Some(backup) = self.target_backup.take()
+            && let Err(error) = remove_path_if_present(&backup)
+        {
+            eprintln!(
+                "cmux-tui: installed plugin {:?}, but could not remove backup {}: {error}",
+                self.name,
+                backup.display()
+            );
+        }
+        if let Some(backup) = self.metadata_backup.take()
+            && let Err(error) = remove_path_if_present(&backup)
+        {
+            eprintln!(
+                "cmux-tui: installed plugin {:?}, but could not remove metadata backup {}: {error}",
+                self.name,
+                backup.display()
+            );
+        }
+        self.finished = true;
+    }
+
+    fn rollback(mut self) -> anyhow::Result<()> {
+        self.rollback_in_place()
+    }
+
+    fn rollback_in_place(&mut self) -> anyhow::Result<()> {
+        let mut errors = Vec::new();
+        if let Err(error) = remove_path_if_present(&self.target) {
+            errors.push(format!("remove new plugin {}: {error}", self.target.display()));
+        }
+
+        if let Some(backup) = self.metadata_backup.take() {
+            if let Err(error) = remove_path_if_present(&self.metadata_path) {
+                errors
+                    .push(format!("remove new metadata {}: {error}", self.metadata_path.display()));
+            }
+            if let Err(error) = fs::rename(&backup, &self.metadata_path) {
+                errors.push(format!(
+                    "restore metadata {} from {}: {error}",
+                    self.metadata_path.display(),
+                    backup.display()
+                ));
+            }
+        } else if let Err(error) = remove_path_if_present(&self.metadata_path) {
+            errors.push(format!("remove new metadata {}: {error}", self.metadata_path.display()));
+        }
+
+        if let Some(backup) = self.target_backup.take()
+            && let Err(error) = fs::rename(&backup, &self.target)
+        {
+            errors.push(format!(
+                "restore plugin {} from {}: {error}",
+                self.target.display(),
+                backup.display()
+            ));
+        }
+
+        self.finished = true;
+        if errors.is_empty() { Ok(()) } else { anyhow::bail!(errors.join("; ")) }
+    }
+}
+
+impl Drop for PluginInstallTransaction {
+    fn drop(&mut self) {
+        if !self.finished {
+            let _ = self.rollback_in_place();
+        }
+    }
+}
+
 /// Replace an installed plugin and its registry identity as one local
 /// transaction. A failed rename or metadata write restores the previous
 /// directory and identity, so `--force` cannot leave a half-installed plugin.
@@ -816,7 +927,7 @@ fn replace_plugin_install(
     target: &Path,
     metadata: &PluginRegistryMetadata,
     kind: PluginKind,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<PluginInstallTransaction> {
     validate_plugin_name(name)?;
     validate_plugin_id_for(&metadata.id, kind)?;
     let target_backup =
@@ -830,6 +941,8 @@ fn replace_plugin_install(
     let metadata_exists = path_exists(&metadata_path)?;
     let mut target_moved = false;
     let mut metadata_moved = false;
+    let mut target_installed = false;
+    let mut metadata_installed = false;
 
     let install_result = (|| -> anyhow::Result<()> {
         if target_exists {
@@ -846,16 +959,27 @@ fn replace_plugin_install(
         }
         fs::rename(temp_dir, target)
             .map_err(|error| anyhow::anyhow!("failed to install {}: {error}", target.display()))?;
-        replace_registry_metadata(install_root, name, metadata, kind)
+        target_installed = true;
+        replace_registry_metadata(install_root, name, metadata, kind)?;
+        metadata_installed = true;
+        Ok(())
     })();
 
     if let Err(error) = install_result {
-        let _ = fs::remove_dir_all(target);
+        // Remove only paths this attempt installed. If staging failed before
+        // a rename, the old target or metadata must remain untouched. This
+        // also avoids deleting a path that appeared concurrently after a
+        // failed rename.
+        if target_installed {
+            let _ = remove_path_if_present(target);
+        }
         if metadata_moved {
-            let _ = fs::remove_file(&metadata_path);
+            if metadata_installed {
+                let _ = remove_path_if_present(&metadata_path);
+            }
             let _ = fs::rename(&metadata_backup, &metadata_path);
-        } else {
-            let _ = fs::remove_file(&metadata_path);
+        } else if metadata_installed {
+            let _ = remove_path_if_present(&metadata_path);
         }
         if target_moved {
             let _ = fs::rename(&target_backup, target);
@@ -863,27 +987,31 @@ fn replace_plugin_install(
         return Err(error);
     }
 
-    // The new install and metadata are committed. Cleanup failures do not
-    // roll back a valid plugin, but the hidden backup is removed when possible.
-    if target_moved && let Err(error) = fs::remove_dir_all(&target_backup) {
-        eprintln!(
-            "cmux-tui: installed plugin {name:?}, but could not remove backup {}: {error}",
-            target_backup.display()
-        );
-    }
-    if metadata_moved && let Err(error) = fs::remove_file(&metadata_backup) {
-        eprintln!(
-            "cmux-tui: installed plugin {name:?}, but could not remove metadata backup {}: {error}",
-            metadata_backup.display()
-        );
-    }
-    Ok(())
+    Ok(PluginInstallTransaction {
+        name: name.to_string(),
+        target: target.to_path_buf(),
+        target_backup: target_moved.then_some(target_backup),
+        metadata_path,
+        metadata_backup: metadata_moved.then_some(metadata_backup),
+        finished: false,
+    })
 }
 
 fn path_exists(path: &Path) -> anyhow::Result<bool> {
     match fs::symlink_metadata(path) {
         Ok(_) => Ok(true),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(anyhow::anyhow!("failed to inspect {}: {error}", path.display())),
+    }
+}
+
+fn remove_path_if_present(path: &Path) -> anyhow::Result<()> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_dir() => fs::remove_dir_all(path)
+            .map_err(|error| anyhow::anyhow!("failed to remove {}: {error}", path.display())),
+        Ok(_) => fs::remove_file(path)
+            .map_err(|error| anyhow::anyhow!("failed to remove {}: {error}", path.display())),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(anyhow::anyhow!("failed to inspect {}: {error}", path.display())),
     }
 }
@@ -1059,6 +1187,52 @@ mod tests {
             first.id
         );
 
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn install_transaction_restores_the_previous_artifact_and_identity() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-plugin-transaction-test-{}-{}",
+            std::process::id(),
+            now_nanos()
+        ));
+        let target = root.join("agent-view");
+        let staged = root.join(".staged");
+        fs::create_dir_all(target.join("bin")).unwrap();
+        fs::write(target.join("bin/old"), "old artifact").unwrap();
+        fs::create_dir_all(staged.join("bin")).unwrap();
+        fs::write(staged.join("bin/new"), "new artifact").unwrap();
+
+        let old_metadata =
+            PluginRegistryMetadata { id: "sidebar_plugin_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into() };
+        replace_registry_metadata(&root, "agent-view", &old_metadata, PluginKind::Sidebar).unwrap();
+        let new_metadata =
+            PluginRegistryMetadata { id: "sidebar_plugin_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into() };
+
+        let transaction = replace_plugin_install(
+            &root,
+            "agent-view",
+            &staged,
+            &target,
+            &new_metadata,
+            PluginKind::Sidebar,
+        )
+        .unwrap();
+        assert!(target.join("bin/new").is_file());
+        assert_eq!(
+            read_registry_metadata(&root, "agent-view", PluginKind::Sidebar).unwrap().id,
+            new_metadata.id
+        );
+
+        transaction.rollback().unwrap();
+        assert!(target.join("bin/old").is_file());
+        assert!(!target.join("bin/new").exists());
+        assert_eq!(
+            read_registry_metadata(&root, "agent-view", PluginKind::Sidebar).unwrap().id,
+            old_metadata.id
+        );
+        assert!(!staged.exists());
         fs::remove_dir_all(root).unwrap();
     }
 
