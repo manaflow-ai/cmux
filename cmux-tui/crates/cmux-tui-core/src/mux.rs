@@ -6327,34 +6327,49 @@ impl Mux {
         source: AgentSource,
         session: Option<&str>,
     ) -> Option<String> {
-        let previous = {
-            let host = self.agent_roster.lock().unwrap();
-            let previous = host
-                .roster
-                .entries
-                .get(terminal_id.as_str())
-                .map(|entry| {
-                    (
-                        entry.state.clone(),
-                        entry.source.clone(),
-                        entry.session.clone(),
-                        entry.agent.clone(),
-                    )
-                })
-                .or_else(|| {
-                    host.roster.last_external_report(terminal_id.as_str()).map(
-                        |(source, state, session)| {
-                            (
-                                state.to_string(),
-                                source.to_string(),
-                                session.map(str::to_owned),
-                                None,
-                            )
-                        },
-                    )
-                });
-            previous
-        };
+        // The compatibility cache is updated as part of the direct resource
+        // commit, before its journal echo is folded. Prefer it for admission
+        // so an unfinished reducer tail cannot make an ABA sequence reuse an
+        // older idempotency key (working -> blocked -> working).
+        let previous = self
+            .agent_records
+            .lock()
+            .unwrap()
+            .get(terminal_id)
+            .map(|record| {
+                (
+                    record.state.as_str().to_string(),
+                    record.source.as_str().to_string(),
+                    record.session.clone(),
+                    record.agent.clone(),
+                )
+            })
+            .or_else(|| {
+                let host = self.agent_roster.lock().unwrap();
+                host.roster
+                    .entries
+                    .get(terminal_id.as_str())
+                    .map(|entry| {
+                        (
+                            entry.state.clone(),
+                            entry.source.clone(),
+                            entry.session.clone(),
+                            entry.agent.clone(),
+                        )
+                    })
+                    .or_else(|| {
+                        host.roster.last_external_report(terminal_id.as_str()).map(
+                            |(source, state, session)| {
+                                (
+                                    state.to_string(),
+                                    source.to_string(),
+                                    session.map(str::to_owned),
+                                    None,
+                                )
+                            },
+                        )
+                    })
+            });
         let unchanged = previous.as_ref().is_some_and(
             |(previous_state, previous_source, previous_session, _)| {
                 previous_state == state.as_str()
@@ -25946,6 +25961,48 @@ mod tests {
                 .head_sequence,
             after_first_head
         );
+    }
+
+    #[test]
+    fn direct_echo_key_uses_live_cache_when_roster_fold_lags() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+
+        // Model a blocked reducer tail after the direct projection has already
+        // accepted a later Working report. Reusing the reducer state here
+        // would recreate the old Working key and lose the ABA transition.
+        mux.agent_records.lock().unwrap().insert(
+            terminal_id.clone(),
+            TerminalAgentRecord {
+                state: AgentState::Working,
+                source: AgentSource::Socket,
+                session: Some("aba-session".into()),
+                agent: None,
+                updated_at_ms: 2,
+            },
+        );
+        mux.agent_roster.lock().unwrap().roster.entries.insert(
+            terminal_id.to_string(),
+            crate::journal_reducers::RosterEntry {
+                state: AgentState::Blocked.as_str().into(),
+                source: AgentSource::Socket.as_str().into(),
+                session: Some("aba-session".into()),
+                agent: None,
+                updated_at_ms: 1,
+            },
+        );
+
+        assert!(
+            mux.agent_report_echo_key(
+                &terminal_id,
+                AgentState::Working,
+                AgentSource::Socket,
+                Some("aba-session"),
+            )
+            .is_none()
+        );
+        mux.shutdown();
     }
 
     #[test]
