@@ -10,6 +10,8 @@ struct AgentFeedActions {
     var questionReply: @MainActor (MobileAgentFeedItem, _ selections: [String]) -> Void = { _, _ in }
     var exitPlanReply: @MainActor (MobileAgentFeedItem, _ mode: String, _ feedback: String?) -> Void = { _, _, _ in }
     var terminalReply: @MainActor (MobileAgentFeedItem, _ text: String) -> Void = { _, _ in }
+    /// Opens the X-style reply composer sheet; rows never host a keyboard.
+    var beginCompose: @MainActor (MobileAgentFeedItem, AgentFeedComposeContext.Kind) -> Void = { _, _ in }
     var refresh: @MainActor () async -> Void = {}
 }
 
@@ -64,11 +66,7 @@ struct AgentFeedRow: View, Equatable {
                             reference: model.presentation.replyReferenceSnippet
                         )
                     }
-                    AgentFeedInlineReplyField(
-                        item: model.item,
-                        isReplyPending: isReplyPending,
-                        actions: actions
-                    )
+                    replyButton
                 }
             }
         }
@@ -123,6 +121,30 @@ struct AgentFeedRow: View, Equatable {
                 .lineLimit(3)
         }
         .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// The X-style reply affordance: a quiet bubble button under the post
+    /// that opens the composer sheet.
+    private var replyButton: some View {
+        Button {
+            actions.beginCompose(model.item, .terminalReply)
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "bubble.left")
+                    .font(.caption)
+                Text(String(
+                    localized: "mobile.agentFeed.compose.reply",
+                    defaultValue: "Reply",
+                    bundle: .module
+                ))
+                .font(.footnote.weight(.medium))
+            }
+            .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+        .disabled(isReplyPending)
+        .padding(.top, 2)
+        .accessibilityIdentifier("MobileAgentFeedReplyButton")
     }
 
     /// The user's recorded reply, quote-referencing the message it answered.
@@ -347,8 +369,6 @@ private struct AgentFeedExitPlanControls: View {
     let item: MobileAgentFeedItem
     let isReplyPending: Bool
     let actions: AgentFeedActions
-    @State private var isRevising = false
-    @State private var feedbackDraft = ""
 
     private var approveMode: String { item.defaultExitPlanMode ?? "manual" }
 
@@ -369,9 +389,7 @@ private struct AgentFeedExitPlanControls: View {
                 .controlSize(.small)
 
                 Button {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        isRevising.toggle()
-                    }
+                    actions.beginCompose(item, .planRevise)
                 } label: {
                     Text(String(
                         localized: "mobile.agentFeed.exitPlan.revise",
@@ -414,18 +432,6 @@ private struct AgentFeedExitPlanControls: View {
                     defaultValue: "More approval modes",
                     bundle: .module
                 ))
-            }
-            if isRevising {
-                AgentFeedSendableTextField(
-                    placeholder: String(
-                        localized: "mobile.agentFeed.exitPlan.revisePlaceholder",
-                        defaultValue: "What should change?",
-                        bundle: .module
-                    ),
-                    text: $feedbackDraft
-                ) { feedback in
-                    actions.exitPlanReply(item, "manual", feedback)
-                }
             }
         }
     }
@@ -476,8 +482,6 @@ private struct AgentFeedQuestionControls: View {
     let isReplyPending: Bool
     let actions: AgentFeedActions
     @State private var selectedOptionIDs: Set<String> = []
-    @State private var isAnsweringOther = false
-    @State private var otherDraft = ""
 
     private var question: MobileAgentFeedQuestion? { item.questions.first }
     private var isMultiSelect: Bool { question?.multiSelect ?? false }
@@ -509,18 +513,6 @@ private struct AgentFeedQuestionControls: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
-            }
-            if isAnsweringOther {
-                AgentFeedSendableTextField(
-                    placeholder: String(
-                        localized: "mobile.agentFeed.question.otherPlaceholder",
-                        defaultValue: "Your answer",
-                        bundle: .module
-                    ),
-                    text: $otherDraft
-                ) { answer in
-                    actions.questionReply(item, [answer])
-                }
             }
         }
     }
@@ -565,9 +557,7 @@ private struct AgentFeedQuestionControls: View {
 
     private var otherChip: some View {
         Button {
-            withAnimation(.easeInOut(duration: 0.15)) {
-                isAnsweringOther.toggle()
-            }
+            actions.beginCompose(item, .questionOther)
         } label: {
             Text(String(
                 localized: "mobile.agentFeed.question.other",
@@ -585,81 +575,6 @@ private struct AgentFeedQuestionControls: View {
             )
         }
         .buttonStyle(.plain)
-    }
-}
-
-/// The turn-complete inline reply lane: text field plus send, routed to the
-/// owning terminal via the same path push-notification replies use.
-private struct AgentFeedInlineReplyField: View {
-    let item: MobileAgentFeedItem
-    let isReplyPending: Bool
-    let actions: AgentFeedActions
-    @State private var draft = ""
-
-    var body: some View {
-        AgentFeedSendableTextField(
-            placeholder: String(
-                localized: "mobile.agentFeed.reply.placeholder",
-                defaultValue: "Reply to agent…",
-                bundle: .module
-            ),
-            text: $draft
-        ) { text in
-            actions.terminalReply(item, text)
-        }
-        .disabled(isReplyPending)
-        .padding(.top, 4)
-    }
-}
-
-/// A bordered text field with a trailing send affordance. Submitting trims,
-/// sends through `onSend`, clears the draft, and drops keyboard focus so the
-/// keyboard lowers instead of pinning the feed.
-private struct AgentFeedSendableTextField: View {
-    let placeholder: String
-    @Binding var text: String
-    let onSend: @MainActor (String) -> Void
-    @FocusState private var isFocused: Bool
-
-    var body: some View {
-        HStack(spacing: 8) {
-            TextField(placeholder, text: $text, axis: .vertical)
-                .font(.subheadline)
-                .lineLimit(1...4)
-                .textFieldStyle(.plain)
-                .focused($isFocused)
-                .onSubmit(send)
-            Button(action: send) {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.title3)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(
-                text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    ? Color.secondary.opacity(0.4)
-                    : Color.accentColor
-            )
-            .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            .accessibilityLabel(String(
-                localized: "mobile.agentFeed.reply.send",
-                defaultValue: "Send reply",
-                bundle: .module
-            ))
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .strokeBorder(Color.secondary.opacity(0.25))
-        )
-    }
-
-    private func send() {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        onSend(trimmed)
-        text = ""
-        isFocused = false
     }
 }
 

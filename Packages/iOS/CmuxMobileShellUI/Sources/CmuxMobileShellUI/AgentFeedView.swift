@@ -19,6 +19,16 @@ struct AgentFeedView: View {
     let actions: AgentFeedActions
     @State private var filter: AgentFeedFilter = .all
     @State private var now = Date()
+    @State private var composeContext: AgentFeedComposeContext?
+
+    /// Row actions with the composer hook bound to this view's sheet state.
+    private var rowActions: AgentFeedActions {
+        var rowActions = actions
+        rowActions.beginCompose = { item, kind in
+            composeContext = AgentFeedComposeContext(item: item, kind: kind)
+        }
+        return rowActions
+    }
 
     private var visibleItems: [MobileAgentFeedItem] {
         // The Feed is a decision surface: routine tool churn stays out even
@@ -72,6 +82,9 @@ struct AgentFeedView: View {
                 )
             }
         }
+        .sheet(item: $composeContext) { context in
+            AgentFeedReplyComposer(context: context, actions: actions)
+        }
         .onAppear {
             now = Date()
             guard refreshesOnAppear else { return }
@@ -93,7 +106,7 @@ struct AgentFeedView: View {
                                 pendingReplyRequestIDs.contains($0)
                             } ?? false,
                             now: now,
-                            actions: actions
+                            actions: rowActions
                         )
                         .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
                         .listRowSeparator(.visible)
