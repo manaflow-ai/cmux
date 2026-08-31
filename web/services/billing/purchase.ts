@@ -1814,8 +1814,10 @@ export async function latestStripeSubscriptionForSession(
   }
 
   // Founder's Edition payment-link sessions are one-time payments and often
-  // have no Stripe subscription id. Only those sessions may use the synthetic
-  // customer fallback. A session with a concrete id was handled above.
+  // have no Stripe subscription id. Only an explicitly marked Founder session
+  // may use the synthetic customer fallback. A Pro checkout without a
+  // subscription id must not inherit an unrelated customer subscription.
+  if (!isFounderCheckoutMetadata(session.metadata, subscription)) return null;
   const customerId = customerIdFromSession(session, expandedCustomerForLookup(session));
   if (!customerId) return null;
   const rows = await db

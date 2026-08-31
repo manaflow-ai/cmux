@@ -15,7 +15,7 @@ import {
   buildFoundersWelcomeEmail,
   buildProWelcomeEmail,
 } from "./welcome-email";
-import { welcomeTriggerForMetadata } from "./welcome-trigger";
+import { welcomeTriggerForCheckout } from "./welcome-trigger";
 import { locales, type Locale } from "../../../../i18n/routing";
 
 // to blunt replay attempts.
@@ -125,9 +125,9 @@ export async function POST(request: Request) {
 
       // This endpoint owns the personal welcome for Founder's Edition and Pro.
       // Team and unrecognized checkouts are acknowledged without mail. Explicit
-      // Founder's Edition metadata wins in welcomeTriggerForMetadata, so its
-      // existing behavior remains byte-identical even if extra metadata is
-      // present.
+      // Session product markers take precedence. Some Stripe checkout flows
+      // put the product metadata only on the expanded subscription, so pass
+      // that metadata to the shared classifier as a fallback.
       if (
         event.type !== "checkout.session.completed" &&
         event.type !== "checkout.session.async_payment_succeeded"
@@ -135,7 +135,14 @@ export async function POST(request: Request) {
         return NextResponse.json({ ok: true, skipped: "event_type" });
       }
       const session = event.data?.object;
-      const trigger = welcomeTriggerForMetadata(session?.metadata);
+      const subscriptionMetadata =
+        session?.subscription && typeof session.subscription === "object"
+          ? session.subscription.metadata
+          : null;
+      const trigger = welcomeTriggerForCheckout(
+        session?.metadata,
+        subscriptionMetadata,
+      );
       const customerEmail = session?.customer_details?.email ?? null;
       setSpanAttributes(span, {
         "cmux.stripe.is_founders": trigger === "founders_edition",
@@ -226,6 +233,12 @@ type StripeEvent = {
     object?: {
       id?: string;
       metadata?: Record<string, string> | null;
+      subscription?:
+        | string
+        | {
+            metadata?: Record<string, string> | null;
+          }
+        | null;
       customer_details?: {
         email?: string | null;
         name?: string | null;

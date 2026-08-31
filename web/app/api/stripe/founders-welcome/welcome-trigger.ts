@@ -36,3 +36,30 @@ export function welcomeTriggerForMetadata(
   }
   return "other";
 }
+
+/**
+ * Classify a checkout using the session metadata first, then an expanded
+ * subscription when the session has no product marker. Stripe can place the
+ * checkout product metadata on either object depending on which API creates
+ * the session. An explicit session app, plan, or Founder marker remains the
+ * trust boundary, so a nested subscription cannot turn a foreign checkout
+ * into a cmux welcome.
+ */
+export function welcomeTriggerForCheckout(
+  sessionMetadata: Record<string, string> | null | undefined,
+  subscriptionMetadata: Record<string, string> | null | undefined,
+): WelcomeTrigger {
+  const hasSessionProductMarker = Boolean(
+    sessionMetadata &&
+      (Object.prototype.hasOwnProperty.call(sessionMetadata, "app") ||
+        Object.prototype.hasOwnProperty.call(sessionMetadata, "plan") ||
+        Object.prototype.hasOwnProperty.call(
+          sessionMetadata,
+          "founders_edition",
+        )),
+  );
+  if (hasSessionProductMarker) {
+    return welcomeTriggerForMetadata(sessionMetadata);
+  }
+  return welcomeTriggerForMetadata(subscriptionMetadata);
+}
