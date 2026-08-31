@@ -198,7 +198,7 @@ import Testing
 
         #expect(category == .buildIncompatible)
         #expect(category.analyticsReason == "build_incompatible")
-        #expect(category.message.localizedCaseInsensitiveContains("pairing"))
+        #expect(category.message.localizedCaseInsensitiveContains("cannot connect"))
         #expect(category.guidance?.contains("any DEV Mac build") == true)
         #expect(!category.isAuthorizationFailure)
     }
@@ -342,14 +342,14 @@ import Testing
     @Test func unrecognizedVersionTellsUserToUpdateTheApp() {
         // A real cmux QR from a newer Mac whose grammar this build predates: the
         // user must be told to update, not that the code is invalid.
-        let message = MobilePairingFailureCategory.unrecognizedVersion.message(buildType: .prod)
+        let message = MobilePairingFailureCategory.unrecognizedVersion.message(buildType: .beta)
         #expect(message.lowercased().contains("newer"))
         #expect(!message.localizedCaseInsensitiveContains("update cmux"))
-        let guidance = MobilePairingFailureCategory.unrecognizedVersion.guidance(buildType: .prod)
+        let guidance = MobilePairingFailureCategory.unrecognizedVersion.guidance(buildType: .beta)
         #expect(guidance?.localizedCaseInsensitiveContains("latest") == true)
         #expect(guidance?.localizedCaseInsensitiveContains("iPhone") == true)
         #expect(guidance?.localizedCaseInsensitiveContains("App Store") == true)
-        #expect(guidance?.localizedCaseInsensitiveContains("TestFlight") != true)
+        #expect(guidance?.localizedCaseInsensitiveContains("TestFlight") == true)
         #expect(MobilePairingFailureCategory.unrecognizedVersion.analyticsReason == "unrecognized_version")
     }
 

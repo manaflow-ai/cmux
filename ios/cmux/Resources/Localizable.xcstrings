@@ -6314,13 +6314,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This iPhone build cannot complete pairing with that cmux build."
+            "value": "This iPhone build cannot connect to that cmux build."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この iPhone ビルドは、その cmux ビルドとのペアリングを完了できません。"
+            "value": "この iPhone ビルドは、その cmux ビルドに接続できません。"
           }
         }
       }
@@ -6450,13 +6450,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Update cmux to the latest version on your iPhone, then scan again. A DEV iPhone build connects to its same-tag DEV Mac build, plus tags granted with 'cmux mobile compatible-tags'. Official release builds connect only to Stable or Nightly."
+            "value": "Update cmux to the latest version on your iPhone, then scan again. A DEV iPhone build connects to its same-tag DEV Mac build, plus tags granted with 'cmux mobile compatible-tags'. BETA, INTERNAL, and App Store builds connect only to Stable or Nightly."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone の cmux を最新バージョンに更新してから、もう一度スキャンしてください。DEV iPhone ビルドは同じタグの DEV Mac ビルドと、「cmux mobile compatible-tags」で許可されたタグに接続できます。公式リリースビルドは Stable または Nightly にのみ接続できます。"
+            "value": "iPhone の cmux を最新バージョンに更新してから、もう一度スキャンしてください。DEV iPhone ビルドは同じタグの DEV Mac ビルドと、「cmux mobile compatible-tags」で許可されたタグに接続できます。BETA、INTERNAL、App Store ビルドは Stable または Nightly にのみ接続できます。"
           }
         }
       }
