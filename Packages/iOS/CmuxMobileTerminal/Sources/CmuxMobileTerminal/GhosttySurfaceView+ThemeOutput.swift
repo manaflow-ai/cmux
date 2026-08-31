@@ -28,13 +28,17 @@ extension GhosttySurfaceView {
     ///   - renderGridContract: Grid dimensions these bytes address when they
     ///     replay a render-grid frame; the apply fails instead of painting when
     ///     the local grid does not satisfy it.
+    ///   - pushesLocalScrollbackRows: Rows this chunk's scroll prologue pushes
+    ///     into local scrollback (a screen-anchored delta's `scrolledRows`),
+    ///     accounted into the view's cumulative push counter as the bytes apply.
     /// - Returns: `true` when the operation reached the current surface generation,
     ///   or `false` when the caller should reset its delivery queue and replay.
     @discardableResult
     public func processOutputAndWait(
         _ data: Data,
         terminalConfigTheme: TerminalTheme?,
-        renderGridContract: RenderGridApplyContract? = nil
+        renderGridContract: RenderGridApplyContract? = nil,
+        pushesLocalScrollbackRows: Int = 0
     ) async -> Bool {
         await withCheckedContinuation { continuation in
             let operationID = registerPendingOutputApply(
@@ -44,7 +48,8 @@ extension GhosttySurfaceView {
             processOutput(
                 data,
                 terminalConfigTheme: terminalConfigTheme,
-                renderGridContract: renderGridContract
+                renderGridContract: renderGridContract,
+                pushesLocalScrollbackRows: pushesLocalScrollbackRows
             ) { [weak self] applied in
                 self?.completePendingOutputApply(id: operationID, returning: applied)
             }

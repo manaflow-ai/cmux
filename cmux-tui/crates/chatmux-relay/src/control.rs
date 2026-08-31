@@ -28,31 +28,12 @@ pub trait ControlHandle: Send + Sync {
     ) -> std::pin::Pin<Box<dyn Future<Output = Option<Value>> + Send + '_>>;
     /// Fire-and-forget (input/resize hot paths); the response line drops.
     fn send(&self, cmd: &str, params: Value);
-    /// Send one mutating command and wait for an ordered daemon barrier before
-    /// allowing the next session command. The default is for deterministic
-    /// test controls; UnixControl overrides it with a FIFO `identify` reply.
-    fn ordered_send(
-        &self,
-        cmd: &str,
-        params: Value,
-    ) -> std::pin::Pin<Box<dyn Future<Output = bool> + Send + '_>> {
-        self.send(cmd, params);
-        Box::pin(std::future::ready(true))
-    }
     fn on_event(&self, handler: EventHandler);
     /// Fires on unexpected close only (not after `end()`).
     fn on_close(&self, handler: CloseHandler);
     fn pause(&self);
     fn resume(&self);
     fn end(&self);
-    /// Close this transport only after the daemon has observed all commands
-    /// already queued on it. Test controls and older transports that have no
-    /// acknowledgement primitive may return `true` immediately; the Unix
-    /// implementation overrides this with an ordered `identify` barrier.
-    fn end_and_wait(&self) -> std::pin::Pin<Box<dyn Future<Output = bool> + Send + '_>> {
-        self.end();
-        Box::pin(std::future::ready(true))
-    }
 }
 
 #[cfg(unix)]
@@ -88,6 +69,10 @@ mod unix {
         paused: AtomicBool,
         resume_notify: Notify,
         closed_notify: Notify,
+        #[cfg(test)]
+        read_done: Notify,
+        #[cfg(test)]
+        read_waiting: Mutex<Option<oneshot::Sender<()>>>,
     }
 
     impl Shared {
@@ -97,7 +82,10 @@ mod unix {
             }
             // Resolve every pending request with "no reply".
             self.pending.lock().expect("control pending lock").clear();
-            self.closed_notify.notify_one();
+            // Both the writer and a paused reader wait on this state. Keep a
+            // broadcast wakeup so either task can observe closure without
+            // consuming the other's permit.
+            self.closed_notify.notify_waiters();
             if !self.deliberate.load(Ordering::SeqCst)
                 && let Some(handler) =
                     self.close_handler.lock().expect("control close lock").as_ref()
@@ -113,8 +101,6 @@ mod unix {
         raw_fd: std::os::fd::RawFd,
         next_id: AtomicU64,
         timeout_ms: u64,
-        ended: AtomicBool,
-        barrier_completed: AtomicBool,
     }
 
     /// Connect a JSON-lines control client to a cmux-tui session socket.
@@ -122,6 +108,13 @@ mod unix {
         socket_path: &std::path::Path,
         timeout_ms: u64,
     ) -> Result<Arc<dyn ControlHandle>, String> {
+        Ok(connect_control_inner(socket_path, timeout_ms).await?)
+    }
+
+    async fn connect_control_inner(
+        socket_path: &std::path::Path,
+        timeout_ms: u64,
+    ) -> Result<Arc<UnixControl>, String> {
         let connect = UnixStream::connect(socket_path);
         let stream = tokio::time::timeout(Duration::from_millis(timeout_ms), connect)
             .await
@@ -141,6 +134,10 @@ mod unix {
             paused: AtomicBool::new(false),
             resume_notify: Notify::new(),
             closed_notify: Notify::new(),
+            #[cfg(test)]
+            read_done: Notify::new(),
+            #[cfg(test)]
+            read_waiting: Mutex::new(None),
         });
         // Keep one async writer for every connection. The queue makes the
         // synchronous `send` API safe without spawning one task per input;
@@ -156,9 +153,15 @@ mod unix {
             raw_fd,
             next_id: AtomicU64::new(1),
             timeout_ms,
-            ended: AtomicBool::new(false),
-            barrier_completed: AtomicBool::new(false),
         }))
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn connect_control_for_test(
+        socket_path: &std::path::Path,
+        timeout_ms: u64,
+    ) -> Result<Arc<UnixControl>, String> {
+        connect_control_inner(socket_path, timeout_ms).await
     }
 
     async fn write_loop(
@@ -168,6 +171,8 @@ mod unix {
     ) {
         loop {
             let closed = shared.closed_notify.notified();
+            tokio::pin!(closed);
+            closed.as_mut().enable();
             if shared.closed.load(Ordering::SeqCst) {
                 break;
             }
@@ -178,20 +183,15 @@ mod unix {
             let Some(line) = next_line else {
                 break;
             };
+            if shared.closed.load(Ordering::SeqCst) {
+                if let Some(written) = line.written {
+                    let _ = written.send(false);
+                }
+                continue;
+            }
             let result = {
                 let mut writer = writer.lock().await;
-                // Re-check only after acquiring the writer lock. `end()` can
-                // close the shared state while this task is waiting for a
-                // previous write; checking before the lock allowed a stale
-                // line to pass that check and be written after teardown.
-                if shared.closed.load(Ordering::SeqCst) {
-                    Err(std::io::Error::new(
-                        std::io::ErrorKind::BrokenPipe,
-                        "control writer closed",
-                    ))
-                } else {
-                    writer.write_all(&line.bytes).await
-                }
+                writer.write_all(&line.bytes).await
             };
             let succeeded = result.is_ok();
             if let Some(written) = line.written {
@@ -215,16 +215,31 @@ mod unix {
     async fn read_loop(mut reader: OwnedReadHalf, shared: Arc<Shared>) {
         let mut buffer: Vec<u8> = Vec::new();
         let mut chunk = [0_u8; 16_384];
-        loop {
+        'read_loop: loop {
             // Create the waiter before checking the flag. `Notify` retains a
             // permit when resume races this check, so a pause cannot leave
             // the reader asleep after the wakeup.
             loop {
-                let notified = shared.resume_notify.notified();
+                let resumed = shared.resume_notify.notified();
+                let closed = shared.closed_notify.notified();
+                tokio::pin!(closed);
+                closed.as_mut().enable();
+                #[cfg(test)]
+                if let Some(waiting) =
+                    shared.read_waiting.lock().expect("control read waiter lock").take()
+                {
+                    let _ = waiting.send(());
+                }
+                if shared.closed.load(Ordering::SeqCst) {
+                    break 'read_loop;
+                }
                 if !shared.paused.load(Ordering::SeqCst) {
                     break;
                 }
-                notified.await;
+                tokio::select! {
+                    _ = resumed => {}
+                    _ = closed => break 'read_loop,
+                }
             }
             let count = match reader.read(&mut chunk).await {
                 Ok(0) | Err(_) => break,
@@ -262,9 +277,23 @@ mod unix {
             }
         }
         shared.settle_closed();
+        #[cfg(test)]
+        shared.read_done.notify_waiters();
     }
 
     impl UnixControl {
+        #[cfg(test)]
+        pub(crate) async fn wait_reader_done(&self) {
+            self.shared.read_done.notified().await;
+        }
+
+        #[cfg(test)]
+        pub(crate) fn arm_reader_waiting(&self) -> oneshot::Receiver<()> {
+            let (sender, receiver) = oneshot::channel();
+            *self.shared.read_waiting.lock().expect("control read waiter lock") = Some(sender);
+            receiver
+        }
+
         fn encode_line(id: u64, cmd: &str, params: Value) -> Vec<u8> {
             let mut frame = match params {
                 Value::Object(map) => map,
@@ -339,34 +368,6 @@ mod unix {
             let _ = self.enqueue_line(id, cmd, params, None);
         }
 
-        fn ordered_send(
-            &self,
-            cmd: &str,
-            params: Value,
-        ) -> std::pin::Pin<Box<dyn Future<Output = bool> + Send + '_>> {
-            let cmd = cmd.to_owned();
-            Box::pin(async move {
-                if self.shared.closed.load(Ordering::Acquire) {
-                    return false;
-                }
-                let id = self.next_id.fetch_add(1, Ordering::SeqCst);
-                if !self.enqueue_line(id, &cmd, params, None) {
-                    return false;
-                }
-                // JSON-lines requests are processed in read order by the
-                // daemon. The identify reply therefore acknowledges this
-                // command and every earlier command on this socket.
-                tokio::time::timeout(
-                    Duration::from_millis(self.timeout_ms),
-                    self.request("identify", serde_json::json!({})),
-                )
-                .await
-                .ok()
-                .flatten()
-                .is_some_and(|response| response.get("ok").and_then(Value::as_bool) == Some(true))
-            })
-        }
-
         fn on_event(&self, handler: EventHandler) {
             *self.shared.event_handler.lock().expect("control event lock") = Some(handler);
         }
@@ -385,9 +386,6 @@ mod unix {
         }
 
         fn end(&self) {
-            if self.ended.swap(true, Ordering::SeqCst) {
-                return;
-            }
             self.shared.deliberate.store(true, Ordering::SeqCst);
             self.shared.settle_closed();
             // Shut both directions so the read loop sees EOF and any blocked
@@ -398,40 +396,6 @@ mod unix {
                 libc::shutdown(self.raw_fd, libc::SHUT_RDWR);
             }
         }
-
-        fn end_and_wait(&self) -> std::pin::Pin<Box<dyn Future<Output = bool> + Send + '_>> {
-            Box::pin(async move {
-                if self.barrier_completed.load(Ordering::Acquire) {
-                    return true;
-                }
-                if self.shared.closed.load(Ordering::Acquire) {
-                    return false;
-                }
-                // `identify` is side-effect free and is ordered behind all
-                // earlier control commands on this JSON-lines connection.
-                // Its response is the daemon-observed close barrier. If the
-                // transport is already closed, no new claim may be admitted.
-                let barrier = tokio::time::timeout(
-                    Duration::from_millis(self.timeout_ms),
-                    self.request("identify", serde_json::json!({})),
-                )
-                .await
-                .ok()
-                .flatten()
-                .is_some_and(|response| response.get("ok").and_then(Value::as_bool) == Some(true));
-                if !barrier {
-                    self.end();
-                    return false;
-                }
-                self.barrier_completed.store(true, Ordering::Release);
-                self.end();
-                // The identify response is the daemon-observed barrier. Do
-                // not wait for peer EOF after local shutdown: EOF ordering is
-                // transport-dependent and cannot strengthen the protocol
-                // guarantee.
-                true
-            })
-        }
     }
 }
 
@@ -439,9 +403,90 @@ mod unix {
 mod tests {
     use super::*;
     use serde_json::json;
-    use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _};
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _};
     use tokio::net::UnixListener;
-    use tokio::sync::oneshot;
+    use tokio::sync::{Notify, oneshot};
+
+    #[tokio::test]
+    async fn end_wakes_paused_reader_and_closes_socket() {
+        let socket_path = std::env::temp_dir()
+            .join(format!("chatmux-relay-control-close-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&socket_path);
+        let listener = UnixListener::bind(&socket_path).expect("bind control close test socket");
+        let (accepted_tx, accepted_rx) = oneshot::channel();
+        let (paused_tx, paused_rx) = oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.expect("accept control close test socket");
+            let (mut read_half, mut write_half) = stream.into_split();
+            accepted_tx.send(()).expect("tell client that socket is accepted");
+            paused_rx.await.expect("wait for client pause");
+            write_half.write_all(b"{}\n").await.expect("wake paused reader");
+            let mut bytes = Vec::new();
+            read_half.read_to_end(&mut bytes).await.expect("read client close");
+        });
+
+        let control = unix::connect_control_for_test(&socket_path, 3_000)
+            .await
+            .expect("connect control close test socket");
+        accepted_rx.await.expect("wait for control close test server");
+        control.pause();
+
+        // Register both waiters before end() so the test deterministically
+        // exercises the paused-reader branch and the close wakeup.
+        let read_waiting = control.arm_reader_waiting();
+        paused_tx.send(()).expect("tell server that reader is paused");
+        read_waiting.await.expect("paused reader entered wait");
+        let waiter_control = Arc::clone(&control);
+        let reader_done = tokio::spawn(async move { waiter_control.wait_reader_done().await });
+        tokio::task::yield_now().await;
+        control.end();
+
+        tokio::time::timeout(Duration::from_secs(1), reader_done)
+            .await
+            .expect("paused reader exits after end")
+            .expect("join paused reader waiter");
+        tokio::time::timeout(Duration::from_secs(1), server)
+            .await
+            .expect("server observes client close")
+            .expect("join control close test server");
+        let _ = std::fs::remove_file(socket_path);
+    }
+
+    #[tokio::test]
+    async fn close_broadcast_wakes_two_waiters() {
+        let notify = Arc::new(Notify::new());
+        let (first_ready_tx, first_ready_rx) = oneshot::channel();
+        let (second_ready_tx, second_ready_rx) = oneshot::channel();
+        let first_notify = Arc::clone(&notify);
+        let first = tokio::spawn(async move {
+            let notified = first_notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            first_ready_tx.send(()).expect("signal first waiter registration");
+            notified.await;
+        });
+        let second_notify = Arc::clone(&notify);
+        let second = tokio::spawn(async move {
+            let notified = second_notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            second_ready_tx.send(()).expect("signal second waiter registration");
+            notified.await;
+        });
+        first_ready_rx.await.expect("first waiter registered");
+        second_ready_rx.await.expect("second waiter registered");
+        notify.notify_waiters();
+        tokio::time::timeout(Duration::from_secs(1), first)
+            .await
+            .expect("first waiter wakes")
+            .expect("first waiter joins");
+        tokio::time::timeout(Duration::from_secs(1), second)
+            .await
+            .expect("second waiter wakes")
+            .expect("second waiter joins");
+    }
 
     #[tokio::test]
     async fn writer_queue_preserves_complete_fifo_lines() {

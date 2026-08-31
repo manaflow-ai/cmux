@@ -8,6 +8,44 @@ import Testing
 @Suite
 @MainActor
 struct SidebarWorkspaceTableSuspensionTests {
+    private final class MockDraggingInfo: NSObject, NSDraggingInfo {
+        let draggingDestinationWindow: NSWindow?
+        let draggingSourceOperationMask: NSDragOperation = .move
+        let draggingLocation: NSPoint
+        let draggedImageLocation: NSPoint
+        let draggedImage: NSImage? = nil
+        nonisolated(unsafe) let draggingPasteboard: NSPasteboard
+        nonisolated(unsafe) let draggingSource: Any? = nil
+        let draggingSequenceNumber: Int = 1
+        var draggingFormation: NSDraggingFormation = .default
+        var animatesToDestination = false
+        var numberOfValidItemsForDrop = 1
+        let springLoadingHighlight: NSSpringLoadingHighlight = .none
+
+        init(window: NSWindow, location: NSPoint, pasteboard: NSPasteboard) {
+            draggingDestinationWindow = window
+            draggingLocation = location
+            draggedImageLocation = location
+            draggingPasteboard = pasteboard
+        }
+
+        func slideDraggedImage(to screenPoint: NSPoint) {}
+
+        func enumerateDraggingItems(
+            options enumOpts: NSDraggingItemEnumerationOptions = [],
+            for view: NSView?,
+            classes classArray: [AnyClass],
+            searchOptions: [NSPasteboard.ReadingOptionKey: Any] = [:],
+            using block: (NSDraggingItem, Int, UnsafeMutablePointer<ObjCBool>) -> Void
+        ) {}
+
+        func resetSpringLoading() {}
+
+        override func namesOfPromisedFilesDropped(atDestination dropDestination: URL) -> [String]? {
+            nil
+        }
+    }
+
     @Test
     func rowHeightCacheMeasuresAgainAfterPayloadSuspension() {
         let cache = SidebarWorkspaceTableRowHeightCache()
@@ -98,6 +136,71 @@ struct SidebarWorkspaceTableSuspensionTests {
         )
         await flushStagedTableMutations()
         #expect(container.tableView.numberOfRows == 2)
+    }
+
+    @Test
+    func revealApplyPreservesReloadAfterHiddenRowPrune() async {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let initialRows = (0..<24).map { index in
+            makeRowConfiguration(contentToken: index, fixedHeight: 30)
+        }
+        let retainedRows = Array(initialRows.dropLast())
+        let initialWorkspaceIds = initialRows.map(\.workspaceId)
+        let retainedWorkspaceIds = retainedRows.map(\.workspaceId)
+        let actions = makeTableActions()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        controller.apply(
+            rows: initialRows,
+            actions: actions,
+            workspaceIds: initialWorkspaceIds,
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+        #expect(container.tableView.numberOfRows == initialRows.count)
+
+        let requestedOrigin = container.tableView.rect(ofRow: 10).minY + 7
+        container.clipView.scroll(to: NSPoint(x: 0, y: requestedOrigin))
+        container.scrollView.reflectScrolledClipView(container.clipView)
+        let originBefore = container.clipView.bounds.origin.y
+
+        // Hiding prunes the controller snapshot and queues a reload. A reveal
+        // apply can arrive before that queued callback gets a run-loop turn.
+        controller.setPresentationActive(false, workspaceIds: retainedWorkspaceIds)
+        controller.setPresentationActive(true, workspaceIds: retainedWorkspaceIds)
+        controller.apply(
+            rows: retainedRows,
+            actions: actions,
+            workspaceIds: retainedWorkspaceIds,
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+
+        #expect(
+            container.tableView.numberOfRows == retainedRows.count,
+            "A reveal apply must still reload a table whose hidden snapshot was pruned before the apply."
+        )
+        #expect(
+            abs(container.clipView.bounds.origin.y - originBefore) < 0.5,
+            "A forced hidden-prune reload must preserve the mounted table's viewport origin."
+        )
     }
 
     @Test
@@ -317,6 +420,116 @@ struct SidebarWorkspaceTableSuspensionTests {
     }
 
     @Test
+    func reconstructedNativeTableSourceRetainsItsCompletionAction() async {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let row = makeRowConfiguration()
+        var completionCount = 0
+
+        controller.apply(
+            rows: [row],
+            actions: makeTableActions(endWorkspaceDrag: { completionCount += 1 }),
+            workspaceIds: [row.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+
+        // This brackets the real production seam: AppKit has accepted the
+        // table as its source, then SwiftUI reconstructs the table before the
+        // terminal draggingSession(_:endedAt:operation:) callback arrives.
+        controller.workspaceDragSessionDidBegin()
+        controller.dismantleContainerView(container)
+        #expect(container.tableView.delegate === controller)
+
+        controller.workspaceDragSessionDidEnd()
+
+        #expect(completionCount == 1)
+        #expect(container.tableView.delegate == nil)
+    }
+
+    @Test
+    func dismantlingActiveSourcePreservesDeferredReorderUntilTargetsArrive() async throws {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let row = makeRowConfiguration()
+        let workspaceId = row.workspaceId
+        let pasteboard = NSPasteboard(
+            name: NSPasteboard.Name("sidebar-table-deferred-\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        pasteboard.setString(
+            "\(SidebarTabDragPayload.prefix)\(workspaceId.uuidString)",
+            forType: SidebarWorkspaceReorderDropOverlay.pasteboardType
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        defer {
+            window.contentView = nil
+            window.close()
+            pasteboard.clearContents()
+        }
+
+        var pendingCommitCount = 0
+        let actions = makeTableActions(
+            performPendingWorkspaceDrop: { pending, _ in
+                pendingCommitCount += 1
+                return pending.workspaceId == workspaceId
+            }
+        )
+        controller.apply(
+            rows: [row],
+            actions: actions,
+            workspaceIds: [workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        container.layoutSubtreeIfNeeded()
+        controller.workspaceDragSessionDidBegin()
+        // Keep the target snapshot empty so the drop view parks the operation
+        // instead of taking the direct release path; production may fill this
+        // bridge asynchronously during a reconstruction.
+        container.reorderDropView.setWorkspaceDropTargetCollectionActive = { _ in }
+        container.reorderDropView.targets = []
+
+        let sender = MockDraggingInfo(
+            window: window,
+            location: NSPoint(x: 40, y: 40),
+            pasteboard: pasteboard
+        )
+        #expect(container.reorderDropView.performDragOperation(sender))
+        container.reorderDropView.concludeDragOperation(sender)
+
+        controller.dismantleContainerView(container)
+        // Native source completion can arrive before the asynchronous target
+        // bridge updates the reconstructed drop view. It must not erase the
+        // pending operation or release the retained container early.
+        controller.workspaceDragSessionDidEnd()
+        #expect(pendingCommitCount == 0)
+
+        let target = SidebarWorkspaceReorderDropOverlay.Target(
+            workspaceId: workspaceId,
+            groupId: nil,
+            isGroupHeader: false,
+            frame: CGRect(x: 0, y: 0, width: 200, height: 24)
+        )
+        container.reorderDropView.targets = [target]
+        container.reorderDropView.targetsDidUpdate()
+
+        #expect(
+            pendingCommitCount == 1,
+            "A deferred reorder must survive table teardown until its target snapshot arrives."
+        )
+        #expect(container.tableView.activeWorkspaceDragController == nil)
+    }
+
+    @Test
     func atomicReorderReloadAndDetachmentDeferInlineEditCommits() async throws {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
@@ -495,6 +708,32 @@ struct SidebarWorkspaceTableSuspensionTests {
     }
 
     @Test
+    func optimisticHeaderBailoutRestoresStoredActivePaint() throws {
+        let cell = SidebarGroupHeaderTableCellView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 44)
+        )
+        let model = makeGroupHeaderModel(isAnchorActive: true)
+        cell.configure(
+            model: model,
+            actions: makeGroupHeaderActions {},
+            isPointerHovering: false,
+            contextMenuDidOpen: {},
+            contextMenuDidClose: {}
+        )
+        let background = try #require(cell.subviews.first)
+        cell.showOptimisticDeselection()
+        let deselectedAlpha = NSColor(cgColor: try #require(background.layer?.backgroundColor))?
+            .alphaComponent
+
+        cell.restoreStoredModelPaint()
+        let restoredAlpha = NSColor(cgColor: try #require(background.layer?.backgroundColor))?
+            .alphaComponent
+
+        #expect((deselectedAlpha ?? 1) < 0.01)
+        #expect((restoredAlpha ?? 0) > 0.01)
+    }
+
+    @Test
     func groupHeaderReconfigureAfterSuspensionRestoresAuthoritativePaint() throws {
         let cell = SidebarGroupHeaderTableCellView(
             frame: NSRect(x: 0, y: 0, width: 320, height: 44)
@@ -525,10 +764,12 @@ struct SidebarWorkspaceTableSuspensionTests {
         var viewportFlushes = 0
         var postUpdateActions = 0
         var reloads = 0
+        var rowHeightFlushes: [Set<SidebarWorkspaceRenderItemID>] = []
         let scheduler = SidebarWorkspaceTableMutationScheduler(
             applyFlush: { _ in appliedInputs += 1 },
             viewportChangeFlush: { viewportFlushes += 1 },
-            reloadFlush: { reloads += 1 }
+            reloadFlush: { reloads += 1 },
+            rowHeightFlush: { rowHeightFlushes.append($0) }
         )
         let row = makeRowConfiguration()
         let input = SidebarWorkspaceTableApplyInput(
@@ -539,14 +780,20 @@ struct SidebarWorkspaceTableSuspensionTests {
             selectedScrollTargetWorkspaceId: nil
         )
 
+        // A hidden prune can queue its required reload before a reveal apply.
+        // If another hide cancels that apply, the reload remains the only path
+        // that can synchronize NSTableView with the already-pruned snapshot.
+        scheduler.stageTableReload()
         scheduler.stageApply(input)
         scheduler.stageViewportChange()
-        scheduler.stageTableReload()
+        scheduler.stageRowHeightChange(row.id)
         scheduler.cancelPendingApplyAndViewport()
+        #expect(rowHeightFlushes.isEmpty)
         await flushStagedTableMutations()
         #expect(appliedInputs == 0)
         #expect(viewportFlushes == 0)
         #expect(reloads == 1)
+        #expect(rowHeightFlushes == [Set([row.id])])
 
         scheduler.stageApply(input)
         scheduler.stageViewportChange()
@@ -607,10 +854,10 @@ struct SidebarWorkspaceTableSuspensionTests {
         }
     }
 
-    private func makeGroupHeaderModel() -> SidebarGroupHeaderRowModel {
+    private func makeGroupHeaderModel(isAnchorActive: Bool = false) -> SidebarGroupHeaderRowModel {
         SidebarGroupHeaderRowModel(
             groupId: UUID(), anchorWorkspaceId: UUID(), name: "Group", iconSymbol: "folder",
-            tintHex: nil, isCollapsed: false, isPinned: false, isAnchorActive: false,
+            tintHex: nil, isCollapsed: false, isPinned: false, isAnchorActive: isAnchorActive,
             isMultiSelected: false,
             multiSelectionBackgroundStyle: .clear,
             memberCount: 1, anchorUnreadCount: 0, canMarkRead: false, canMarkUnread: true,
@@ -640,6 +887,8 @@ struct SidebarWorkspaceTableSuspensionTests {
             [SidebarWorkspaceReorderDropOverlay.Target],
             UUID?
         ) -> SidebarWorkspaceTableReorderDropUpdate? = { _, _, _ in nil },
+        endWorkspaceDrag: @escaping () -> Void = {},
+        performPendingWorkspaceDrop: ((SidebarWorkspaceReorderPendingDrop, [SidebarWorkspaceReorderDropOverlay.Target]) -> Bool)? = nil,
         clearWorkspaceDropIndicator: @escaping () -> Void = {}
     ) -> SidebarWorkspaceTableActions {
         SidebarWorkspaceTableActions(
@@ -649,10 +898,11 @@ struct SidebarWorkspaceTableSuspensionTests {
             createEmptyWorkspaceGroup: {},
             beginWorkspaceDrag: { _ in },
             movingWorkspaceCount: { _ in 1 },
-            endWorkspaceDrag: {},
+            endWorkspaceDrag: endWorkspaceDrag,
             isValidWorkspaceDrag: { true },
             updateWorkspaceDrag: updateWorkspaceDrag,
             performWorkspaceDrop: { _, _, _ in false },
+            performPendingWorkspaceDrop: performPendingWorkspaceDrop,
             commitWorkspaceDropPlan: { _ in false },
             clearWorkspaceDropIndicator: clearWorkspaceDropIndicator,
             currentDropIndicator: { nil },

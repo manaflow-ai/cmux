@@ -652,7 +652,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         let applied = await surfaceView.processOutputAndWait(
                             chunk.data,
                             terminalConfigTheme: chunk.terminalConfigTheme,
-                            renderGridContract: renderGridContract
+                            renderGridContract: renderGridContract,
+                            pushesLocalScrollbackRows: chunk.sourceRenderGridFrame?.scrolledRows ?? 0
                         )
                         guard applied else {
                             store.terminalOutputDidReset(
@@ -1110,7 +1111,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         columns: frame.columns,
                         rows: frame.rows,
                         isDelta: !frame.full
-                    )
+                    ),
+                    pushesLocalScrollbackRows: chunk.sourceRenderGridFrame?.scrolledRows ?? 0
                 )
                 guard !Task.isCancelled else { return false }
                 guard applied else {

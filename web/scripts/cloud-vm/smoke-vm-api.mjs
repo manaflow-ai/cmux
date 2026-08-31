@@ -13,18 +13,28 @@ import {
   requireEnvKeys,
 } from "./projects.mjs";
 
-const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--provider e2b|freestyle|daytona] [--url https://preview.example] [--vercel-curl] [--skip-attach]";
+const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--provider e2b|freestyle|daytona|blaxel|default] [--image <manifest image id or version>] [--url https://preview.example] [--vercel-curl] [--skip-attach]";
 const args = process.argv.slice(2);
 const { webDir, target, project, rest } = parseWebDirAndTarget(args, usage);
 const shouldCreate = rest.includes("--create");
 const useVercelCurl = rest.includes("--vercel-curl");
 const skipAttach = rest.includes("--skip-attach");
 const provider = optionValue(rest, "--provider") ?? "e2b";
+const image = optionValue(rest, "--image");
 const targetUrl = optionValue(rest, "--url") ?? project.url;
 const REQUEST_TIMEOUT_MS = 45_000;
 
-if (shouldCreate && provider !== "e2b" && provider !== "freestyle" && provider !== "daytona") {
-  console.error("--provider must be e2b, freestyle, or daytona");
+// "default" omits the provider from the create body, exercising the same
+// server-side default-provider path real clients (CLI, Mac app) use.
+if (
+  shouldCreate &&
+  provider !== "e2b" &&
+  provider !== "freestyle" &&
+  provider !== "daytona" &&
+  provider !== "blaxel" &&
+  provider !== "default"
+) {
+  console.error("--provider must be e2b, freestyle, daytona, blaxel, or default");
   process.exit(2);
 }
 
@@ -153,14 +163,17 @@ try {
     const create = await fetchWithTimeout(`${targetUrl}/api/vm`, {
       method: "POST",
       headers: { ...authHeaders, "content-type": "application/json", "idempotency-key": `smoke-${suffix}` },
-      body: JSON.stringify({ provider }),
+      body: JSON.stringify({
+        ...(provider === "default" ? {} : { provider }),
+        ...(image ? { image } : {}),
+      }),
     });
     const createDurationMs = Math.round(performance.now() - createStartedAt);
     const createText = await create.text();
     if (create.status !== 200) throw new Error(`POST /api/vm expected 200, got ${create.status}: ${createText}`);
     const created = JSON.parse(createText);
     if (!created.id) throw new Error("create response missing id");
-    if (created.provider !== provider) {
+    if (provider !== "default" && created.provider !== provider) {
       throw new Error(`POST /api/vm returned provider ${created.provider}, expected ${provider}`);
     }
     vmId = created.id;
@@ -168,17 +181,49 @@ try {
     let attachTransport;
     let attachDurationMs;
     if (!skipAttach) {
+      // Blaxel machines run only the cmux-tui remote daemon; every other provider still
+      // serves the legacy cmuxd-remote websocket PTY.
+      const expectedTransport = created.provider === "blaxel" ? "cmux-remote" : "websocket";
+      const attachBody = expectedTransport === "cmux-remote"
+        ? { transport: "cmux-remote" }
+        : { requireDaemon: true };
+      // First attach after create races the in-VM daemon boot; the API says
+      // retryable with retryAfterSeconds and real clients loop. Retry 502s
+      // within a bounded budget so the smoke measures the client contract,
+      // not the race.
       const attachStartedAt = performance.now();
-      const attach = await fetchWithTimeout(`${targetUrl}/api/vm/${encodeURIComponent(vmId)}/attach-endpoint`, {
-        method: "POST",
-        headers: { ...authHeaders, "content-type": "application/json" },
-        body: JSON.stringify({ requireDaemon: true }),
-      });
+      const attachBudgetMs = 120_000;
+      let attach;
+      let attachText;
+      for (;;) {
+        attach = await fetchWithTimeout(`${targetUrl}/api/vm/${encodeURIComponent(vmId)}/attach-endpoint`, {
+          method: "POST",
+          headers: { ...authHeaders, "content-type": "application/json" },
+          body: JSON.stringify(attachBody),
+        });
+        attachText = await attach.text();
+        if (attach.status !== 502) break;
+        const elapsed = performance.now() - attachStartedAt;
+        if (elapsed >= attachBudgetMs) break;
+        let retryAfterSeconds = 2;
+        try {
+          const parsed = JSON.parse(attachText);
+          if (typeof parsed.retryAfterSeconds === "number") retryAfterSeconds = parsed.retryAfterSeconds;
+          if (parsed.retryable !== true) break;
+        } catch {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, Math.max(1, retryAfterSeconds) * 1000));
+      }
       attachDurationMs = Math.round(performance.now() - attachStartedAt);
-      const attachText = await attach.text();
       if (attach.status !== 200) throw new Error(`POST attach-endpoint expected 200, got ${attach.status}: ${attachText}`);
       const attached = JSON.parse(attachText);
-      if (attached.transport !== "websocket") throw new Error(`expected websocket attach, got ${attached.transport}`);
+      if (attached.transport !== expectedTransport) {
+        throw new Error(`expected ${expectedTransport} attach, got ${attached.transport}`);
+      }
+      if (expectedTransport === "cmux-remote" && !/^wss:\/\/.+\/v1\/link\?/.test(attached.route ?? "")) {
+        throw new Error("cmux-remote attach response missing the daemon route");
+      }
       attachTransport = attached.transport;
     }
 
