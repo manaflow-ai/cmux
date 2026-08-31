@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
@@ -13,16 +14,16 @@ struct OnboardingConnectionMethodPicker: View {
 
     var body: some View {
         VStack(spacing: density.pickerOptionSpacing) {
+            // Both methods share the pairing floor, so both subtitles name it
+            // through MobileMacPairingFloor instead of baking a version that
+            // goes stale at the next release cut.
             optionCard(
                 .automatic,
                 title: L10n.string(
                     "mobile.onboarding.connect.method.automatic",
                     defaultValue: "Iroh"
                 ),
-                subtitle: L10n.string(
-                    "mobile.onboarding.connect.method.automaticDetail",
-                    defaultValue: "Requires cmux 0.64.20 or later on your Mac."
-                ),
+                subtitle: MobileMacPairingFloor.requiredOnMacSentence,
                 systemImage: "bolt.fill",
                 accessibilityIdentifier: "MobileOnboardingConnectionMethodAutomatic"
             )
@@ -32,10 +33,13 @@ struct OnboardingConnectionMethodPicker: View {
                     "mobile.onboarding.connect.method.tailscale",
                     defaultValue: "Tailscale Only"
                 ),
-                subtitle: L10n.string(
-                    "mobile.onboarding.connect.method.tailscaleDetail",
-                    defaultValue: "Works with cmux 0.64.17 or later. Scan once to authorize the Mac."
-                ),
+                subtitle: [
+                    MobileMacPairingFloor.requiredOnMacSentence,
+                    L10n.string(
+                        "mobile.onboarding.connect.method.tailscaleScan",
+                        defaultValue: "Scan once to authorize the Mac."
+                    ),
+                ].joined(separator: " "),
                 systemImage: "qrcode",
                 accessibilityIdentifier: "MobileOnboardingConnectionMethodTailscale"
             )

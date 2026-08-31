@@ -98,6 +98,12 @@ struct MacComputerRow: View {
                         ComputerBuildBadge(label: buildLabel)
                     }
                 }
+                // Own line: the row's text column is too narrow for the
+                // fixed-width warning chip to share the title line without
+                // crushing the name.
+                if computer.needsMacUpdate {
+                    ComputerUpdateRequiredBadge()
+                }
                 Text(connectionLine)
                     .font(.caption)
                     .foregroundStyle(.secondary)

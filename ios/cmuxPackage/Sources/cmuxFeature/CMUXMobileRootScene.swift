@@ -163,7 +163,10 @@ public struct CMUXMobileRootScene: View {
         self.diagnosticLog = diagnosticLog
         _toastCenter = State(initialValue: ToastCenter(diagnosticLog: diagnosticLog))
         _whatsNewCenter = State(
-            initialValue: MobileWhatsNewCenter(apiBaseURL: auth.config.apiBaseURL)
+            initialValue: MobileWhatsNewCenter(
+                apiBaseURL: auth.config.apiBaseURL,
+                buildType: .current()
+            )
         )
         webAppSession = MobileWebAppSessionBroker(
             tokens: auth.coordinator,

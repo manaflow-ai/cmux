@@ -11,23 +11,14 @@ import UIKit
 /// hardware machine identifier, none of which belong in the platform-light shell
 /// package. The build type is derived from `#if DEBUG` plus the bundle id, the
 /// single place that derivation lives.
-extension MobileFeedbackStamp {
-    /// Resolve the stamp for the running build.
-    @MainActor
-    static func current() -> MobileFeedbackStamp {
-        let info = Bundle.main.infoDictionary ?? [:]
-        let bundleID = Bundle.main.bundleIdentifier ?? ""
-        let buildType = MobileBuildType.resolve(
+extension MobileBuildType {
+    /// The running app's distribution channel: `#if DEBUG` plus the live
+    /// bundle id, the single place that derivation lives. App-layer only
+    /// because it reads `Bundle.main`.
+    static func current() -> MobileBuildType {
+        resolve(
             isDebugBuild: isDebugBuild,
-            bundleIdentifier: bundleID
-        )
-        return MobileFeedbackStamp(
-            buildType: buildType,
-            appVersion: info["CFBundleShortVersionString"] as? String ?? "",
-            appBuild: info["CFBundleVersion"] as? String ?? "",
-            bundleIdentifier: bundleID,
-            osVersion: osVersion,
-            deviceModel: deviceModel
+            bundleIdentifier: Bundle.main.bundleIdentifier ?? ""
         )
     }
 
@@ -37,6 +28,23 @@ extension MobileFeedbackStamp {
         #else
         false
         #endif
+    }
+}
+
+extension MobileFeedbackStamp {
+    /// Resolve the stamp for the running build.
+    @MainActor
+    static func current() -> MobileFeedbackStamp {
+        let info = Bundle.main.infoDictionary ?? [:]
+        let bundleID = Bundle.main.bundleIdentifier ?? ""
+        return MobileFeedbackStamp(
+            buildType: .current(),
+            appVersion: info["CFBundleShortVersionString"] as? String ?? "",
+            appBuild: info["CFBundleVersion"] as? String ?? "",
+            bundleIdentifier: bundleID,
+            osVersion: osVersion,
+            deviceModel: deviceModel
+        )
     }
 
     @MainActor private static var osVersion: String {

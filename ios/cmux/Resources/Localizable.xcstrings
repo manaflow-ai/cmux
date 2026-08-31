@@ -3809,23 +3809,6 @@
         }
       }
     },
-    "mobile.devices.emptyDescription": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "For Iroh to find a Mac, run cmux 0.64.20 or later on the Mac, sign in to cmux on both devices with the same account, and keep cmux running on the Mac while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "IrohでMacを見つけるには、Macでcmux 0.64.20以降を起動し、両方のデバイスでcmuxに同じアカウントでサインインし、cmuxを起動したまま両方のデバイスをオンラインにしてください。いずれかの条件を満たしていない場合、Macは自動的には表示されません。代わりにTailscaleを使うには、「設定」を開き、「接続方法」をタップして「Tailscaleのみ」を選択してください。"
-          }
-        }
-      }
-    },
     "mobile.devices.setupHelp": {
       "extractionState": "manual",
       "localizations": {
@@ -5135,23 +5118,6 @@
         }
       }
     },
-    "mobile.autoConnectMigration.body": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Iroh needs cmux 0.64.20 or later on your Mac for its authenticated, end-to-end encrypted connection."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Irohには、認証済みのエンドツーエンド暗号化接続に対応したMac版cmux 0.64.20以降が必要です。"
-          }
-        }
-      }
-    },
     "mobile.autoConnectMigration.continue": {
       "extractionState": "manual",
       "localizations": {
@@ -5165,23 +5131,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Irohを続ける"
-          }
-        }
-      }
-    },
-    "mobile.autoConnectMigration.guidance": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Older cmux versions still work over Tailscale. Open Tailscale Pairing on the Mac and scan its QR, or enter its numeric Tailscale IP and port once."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "古い cmux バージョンでも Tailscale 経由で接続できます。Mac で「Tailscale Pairing」を開き、QR をスキャンするか、数値の Tailscale IP アドレスとポートを一度入力してください。"
           }
         }
       }
@@ -5271,23 +5220,6 @@
         }
       }
     },
-    "mobile.onboarding.connect.method.automaticDetail": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Requires cmux 0.64.20 or later on your Mac."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mac版cmux 0.64.20以降が必要です。"
-          }
-        }
-      }
-    },
     "mobile.onboarding.connect.method.tailscale": {
       "extractionState": "manual",
       "localizations": {
@@ -5301,23 +5233,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tailscaleのみ"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.connect.method.tailscaleDetail": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Works with cmux 0.64.17 or later. Scan once to authorize the Mac."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mac版cmux 0.64.17以降で動作します。一度スキャンしてMacを承認します。"
           }
         }
       }
@@ -5352,23 +5267,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tailscaleで接続"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.connect.tailscaleBody": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Works with cmux 0.64.17 or later. Install Tailscale on both devices and join the same network. On 0.64.17, choose Connect iPhone/iPad and scan the Pair iPhone code once."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 0.64.17以降で動作します。両方のデバイスにTailscaleをインストールし、同じネットワークに参加してください。0.64.17では「Connect iPhone/iPad」を選び、「Pair iPhone」のコードを一度スキャンします。"
           }
         }
       }
@@ -5492,23 +5390,6 @@
         }
       }
     },
-    "mobile.settings.connectionMethod.automaticFooter": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Requires cmux 0.64.20 or later on your Mac. Connects automatically over an authenticated, end-to-end encrypted connection."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mac版cmux 0.64.20以降が必要です。認証済みのエンドツーエンド暗号化接続で自動的に接続します。"
-          }
-        }
-      }
-    },
     "mobile.settings.connectionMethod.tailscale": {
       "extractionState": "manual",
       "localizations": {
@@ -5522,23 +5403,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tailscaleのみ"
-          }
-        }
-      }
-    },
-    "mobile.settings.connectionMethod.tailscaleFooter": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Works with cmux 0.64.17 or later on your Mac. Install Tailscale on both devices, join the same network, then scan the Mac's pairing code once. cmux stays disconnected until that local authorization exists."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mac版cmux 0.64.17以降で動作します。両方のデバイスにTailscaleをインストールして同じネットワークに参加し、Macのペアリングコードを一度スキャンしてください。そのローカル承認が完了するまでcmuxは未接続のままになります。"
           }
         }
       }
@@ -6610,23 +6474,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "iOSが接続をブロックしました。iOSの設定でcmuxにローカルネットワークの使用を許可してから、もう一度お試しください。"
-          }
-        }
-      }
-    },
-    "mobile.pairing.macUpdateRequired": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Update cmux on this Mac to connect securely."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "安全に接続するには、このMacのcmuxをアップデートしてください。"
           }
         }
       }
@@ -8854,23 +8701,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "両方の端末がTailscale、別のVPN、または同じネットワーク上にある場合、cmuxはそれをより高速な直接経路として使うことがあります。どの経路でも接続の暗号化と検証は保たれます。"
-          }
-        }
-      }
-    },
-    "mobile.setupHelp.macAppBody": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Install cmux on your computer, sign in to the same account, and leave it running. The computer then appears on this phone automatically. To pair through Tailscale, install Tailscale on both devices and connect them to the same Tailscale network. Open Tailscale Pairing on the Mac and scan its QR here, or enter the Mac's numeric Tailscale IP and port."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コンピュータに cmux をインストールし、同じ cmux アカウントでサインインしたまま起動しておきます。コンピュータは自動的にこの端末に表示されます。Tailscale 経由でペアリングするには、両方のデバイスに Tailscale をインストールし、同じ Tailscale ネットワークに接続してください。Mac で「Tailscale Pairing」を開き、QR をここでスキャンするか、Mac の数値 Tailscale IP アドレスとポートを入力します。"
           }
         }
       }
@@ -21064,23 +20894,6 @@
         }
       }
     },
-    "mobile.connections.empty": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No computers yet. Iroh finds Macs running cmux 0.64.20 or later. Both devices must be signed in to the same cmux account, and the Mac must keep cmux running while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, choose Tailscale in the computer's configuration."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コンピュータがありません。Irohで表示されるのは、Mac版cmux 0.64.20以降を実行しているMacです。両方のデバイスで同じcmuxアカウントにサインインし、cmuxを起動したまま両方のデバイスをオンラインにしてください。いずれかの条件を満たしていない場合、Macは自動的には表示されません。代わりにTailscaleを使うには、コンピュータの設定でTailscaleを選択してください。"
-          }
-        }
-      }
-    },
     "mobile.connections.footer": {
       "extractionState": "manual",
       "localizations": {
@@ -23750,57 +23563,6 @@
         }
       }
     },
-    "mobile.connectionsUpdate.macUpdate.requiredVersion": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "the latest cmux NIGHTLY or cmux RELEASE"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "最新の cmux NIGHTLY または cmux RELEASE"
-          }
-        }
-      }
-    },
-    "mobile.connectionsUpdate.macUpdate.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Action required: update your Mac"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "要対応：Mac をアップデートしてください"
-          }
-        }
-      }
-    },
-    "mobile.connectionsUpdate.macUpdate.detail": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This iPhone update speaks a new connection protocol and only pairs with an updated Mac. Update cmux on your Mac to %@ before connecting. Not ready to update your Mac? Stay on (or revert to) cmux BETA TestFlight version 1.0.4 (20260817224846), the last version that works with older Macs."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "この iPhone アップデートは新しい接続プロトコルを使用し、アップデート済みの Mac としかペアリングできません。接続する前に、Mac の cmux を %@ にアップデートしてください。まだ Mac をアップデートしない場合は、旧バージョンの Mac で動作する最後のバージョンである cmux BETA TestFlight 1.0.4 (20260817224846) をそのままご利用ください（または戻してください）。"
-          }
-        }
-      }
-    },
     "mobile.computers.keepAwake.active": {
       "extractionState": "manual",
       "localizations": {
@@ -23865,6 +23627,278 @@
           "stringUnit": {
             "state": "translated",
             "value": "「Macをスリープさせない」を操作するには、このMacに接続してください。"
+          }
+        }
+      }
+    },
+    "mobile.computers.updateRequiredBadge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update required"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要アップデート"
+          }
+        }
+      }
+    },
+    "mobile.computers.macUpdate.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update cmux on this Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacのcmuxをアップデート"
+          }
+        }
+      }
+    },
+    "mobile.computers.macUpdate.detailFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This iPhone version speaks a new connection protocol and pairs only with an updated Mac. Update cmux on this Mac to %@; the computer reconnects automatically, with no need to sign out or pair again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このiPhoneバージョンは新しい接続プロトコルを使用し、アップデート済みのMacとしかペアリングできません。このMacのcmuxを%@にアップデートしてください。コンピュータは自動的に再接続され、サインアウトや再ペアリングは不要です。"
+          }
+        }
+      }
+    },
+    "mobile.devices.emptyDescriptionFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "For Iroh to find a Mac, run %@ on the Mac, sign in to cmux on both devices with the same account, and keep cmux running on the Mac while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IrohでMacを見つけるには、Macで%@を起動し、両方のデバイスでcmuxに同じアカウントでサインインし、cmuxを起動したまま両方のデバイスをオンラインにしてください。いずれかの条件を満たしていない場合、Macは自動的には表示されません。代わりにTailscaleを使うには、「設定」を開き、「接続方法」をタップして「Tailscaleのみ」を選択してください。"
+          }
+        }
+      }
+    },
+    "mobile.autoConnectMigration.bodyFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh needs %@ on your Mac for its authenticated, end-to-end encrypted connection."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Irohには、認証済みのエンドツーエンド暗号化接続に対応した%@がMacに必要です。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.method.tailscaleScan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scan once to authorize the Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一度スキャンしてMacを承認します。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.tailscaleSteps": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install Tailscale on both devices and join the same network, then open Tailscale Pairing on the Mac and scan its code once."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "両方のデバイスにTailscaleをインストールして同じネットワークに参加し、Macで「Tailscale Pairing」を開いて表示されたコードを一度スキャンしてください。"
+          }
+        }
+      }
+    },
+    "mobile.settings.connectionMethod.automaticFooterFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requires %@ on your Mac. Connects automatically over an authenticated, end-to-end encrypted connection."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macに%@が必要です。認証済みのエンドツーエンド暗号化接続で自動的に接続します。"
+          }
+        }
+      }
+    },
+    "mobile.settings.connectionMethod.tailscaleFooterFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Works with %@ on your Mac. Install Tailscale on both devices, join the same network, then scan the Mac's pairing code once. cmux stays disconnected until that local authorization exists."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macの%@で動作します。両方のデバイスにTailscaleをインストールして同じネットワークに参加し、Macのペアリングコードを一度スキャンしてください。そのローカル承認が完了するまでcmuxは未接続のままになります。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.macUpdateRequiredFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update cmux on this Mac to %@ to connect securely."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安全に接続するには、このMacのcmuxを%@にアップデートしてください。"
+          }
+        }
+      }
+    },
+    "mobile.setupHelp.macAppBodyFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install cmux on your computer, sign in to the same account, and leave it running. The computer then appears on this phone automatically. This iPhone app needs %@ on the Mac. To pair through Tailscale instead, install Tailscale on both devices and connect them to the same Tailscale network, then open Tailscale Pairing on the Mac and scan its QR here, or enter the Mac's numeric Tailscale IP and port."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータにcmuxをインストールし、同じcmuxアカウントでサインインしたまま起動しておきます。コンピュータは自動的にこの端末に表示されます。このiPhoneアプリにはMac側に%@が必要です。Tailscale経由でペアリングするには、両方のデバイスにTailscaleをインストールして同じTailscaleネットワークに接続し、Macで「Tailscale Pairing」を開いて表示されたQRをここでスキャンするか、MacのTailscaleの数値IPとポートを入力してください。"
+          }
+        }
+      }
+    },
+    "mobile.connections.emptyFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No computers yet. Iroh finds Macs running %@. Both devices must be signed in to the same cmux account, and the Mac must keep cmux running while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータがありません。Irohで表示されるのは、%@を実行しているMacです。両方のデバイスで同じcmuxアカウントにサインインし、cmuxを起動したまま両方のデバイスをオンラインにしてください。いずれかの条件を満たしていない場合、Macは自動的には表示されません。代わりにTailscaleを使うには、コンピュータの設定でTailscaleを選択してください。"
+          }
+        }
+      }
+    },
+    "mobile.macUpdate.requiredVersionLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the latest cmux NIGHTLY or cmux RELEASE"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最新の cmux NIGHTLY または cmux RELEASE"
+          }
+        }
+      }
+    },
+    "mobile.macUpdate.requiredOnMacFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requires %@ on your Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac に %@ が必要です。"
+          }
+        }
+      }
+    },
+    "mobile.macUpdate.revertGuidance": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not ready to update your Mac? Stay on (or revert to) cmux BETA TestFlight version 1.0.4 (20260817224846), the last version that works with older Macs."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだ Mac をアップデートしない場合は、旧バージョンの Mac で動作する最後のバージョンである cmux BETA TestFlight 1.0.4 (20260817224846) をそのままご利用ください（または戻してください）。"
+          }
+        }
+      }
+    },
+    "mobile.macUpdate.revertShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not ready? Stay on (or revert to) cmux BETA 1.0.4 (20260817224846)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだの場合は、cmux BETA 1.0.4 (20260817224846) をそのままご利用ください（または戻してください）。"
           }
         }
       }

@@ -302,7 +302,7 @@ final class cmuxUITests: XCTestCase {
         assertPageVisible(connectScene)
         XCTAssertTrue(app.staticTexts["Your Mac connects automatically"].exists)
         XCTAssertTrue(app.staticTexts[
-            "Use the same cmux account on both devices. Your Mac connects automatically."
+            "Use the same cmux account on both devices. Your Mac connects automatically. Requires the latest cmux NIGHTLY or cmux RELEASE on your Mac."
         ].exists)
         XCTAssertTrue(app.staticTexts["Looking for your Mac…"].exists)
         XCTAssertFalse(element("MobileOnboardingSignInBridge").exists)
@@ -314,7 +314,7 @@ final class cmuxUITests: XCTestCase {
             title: app.staticTexts["Your Mac connects automatically"],
             visual: element("MobileOnboardingConnectionPreview"),
             additionalContent: [app.staticTexts[
-                "Use the same cmux account on both devices. Your Mac connects automatically."
+                "Use the same cmux account on both devices. Your Mac connects automatically. Requires the latest cmux NIGHTLY or cmux RELEASE on your Mac."
             ]],
             includeFooter: false
         )
@@ -341,7 +341,7 @@ final class cmuxUITests: XCTestCase {
         let tailscaleDescription = app.staticTexts.matching(
             NSPredicate(
                 format: "label == %@",
-                "Works with cmux 0.64.17 or later. Install Tailscale on both devices and join the same network. On 0.64.17, choose Connect iPhone/iPad and scan the Pair iPhone code once."
+                "Requires the latest cmux NIGHTLY or cmux RELEASE on your Mac. Install Tailscale on both devices and join the same network, then open Tailscale Pairing on the Mac and scan its code once."
             )
         ).firstMatch
         XCTAssertTrue(tailscaleDescription.waitForExistence(timeout: 4))
@@ -386,7 +386,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(scannerGuidance.waitForExistence(timeout: 4))
         XCTAssertEqual(
             scannerGuidance.label,
-            "Install Tailscale on both devices and use the same Tailscale network. On cmux 0.64.17, choose Connect iPhone/iPad and scan the Pair iPhone code. On newer versions, open Tailscale Pairing and scan its code here."
+            "Install Tailscale on both devices and use the same Tailscale network, then open Tailscale Pairing on the Mac and scan its code here."
         )
         XCTAssertTrue(scannerCancel.waitForExistence(timeout: 4))
         capture("onboarding-05-scanner-fallback")
@@ -461,7 +461,7 @@ final class cmuxUITests: XCTestCase {
             visual: element("MobileOnboardingConnectionPreview"),
             additionalContent: [
                 app.staticTexts[
-                    "Use the same cmux account on both devices. Your Mac connects automatically."
+                    "Use the same cmux account on both devices. Your Mac connects automatically. Requires the latest cmux NIGHTLY or cmux RELEASE on your Mac."
                 ],
                 element("MobileOnboardingConnectionMethodPicker"),
             ]
@@ -636,10 +636,10 @@ final class cmuxUITests: XCTestCase {
         )
         XCTAssertEqual(migrationTitle.label, "Check cmux on your Mac")
         XCTAssertTrue(app.staticTexts.matching(
-            NSPredicate(format: "label CONTAINS %@", "0.64.20 or later")
+            NSPredicate(format: "label CONTAINS %@", "the latest cmux NIGHTLY or cmux RELEASE")
         ).firstMatch.exists)
         XCTAssertTrue(app.staticTexts.matching(
-            NSPredicate(format: "label CONTAINS %@", "0.64.17 still works over Tailscale")
+            NSPredicate(format: "label CONTAINS %@", "cmux BETA TestFlight version 1.0.4")
         ).firstMatch.exists)
 
         let autoConnectButton = app.buttons["MobileAutoConnectMigrationUseAutoConnect"]
@@ -652,8 +652,8 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(scannerPreview.waitForExistence(timeout: 4))
         let scannerGuidance = app.descendants(matching: .any)["MobilePairingScannerGuidance"]
         XCTAssertTrue(scannerGuidance.waitForExistence(timeout: 4))
-        XCTAssertTrue(scannerGuidance.label.contains("cmux 0.64.17"))
-        XCTAssertTrue(scannerGuidance.label.contains("Connect iPhone/iPad"))
+        XCTAssertTrue(scannerGuidance.label.contains("Tailscale Pairing"))
+        XCTAssertTrue(scannerGuidance.label.contains("scan its code here"))
         let scannerCancel = app.buttons["MobileScannerCancelButton"]
         XCTAssertTrue(scannerCancel.waitForExistence(timeout: 4))
         scannerCancel.tap()
@@ -693,7 +693,7 @@ final class cmuxUITests: XCTestCase {
         ]
         XCTAssertTrue(relaunchedDescription.waitForExistence(timeout: 8))
         for requiredFragment in [
-            "cmux 0.64.20 or later",
+            "the latest cmux NIGHTLY or cmux RELEASE",
             "same cmux account",
             "keep cmux running on the Mac",
             "both devices are online",
