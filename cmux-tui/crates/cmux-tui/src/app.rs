@@ -21827,11 +21827,11 @@ impl App {
         // A repeat is valid only for presses that land directly in a PTY
         // content cell. Any chrome, overlay, browser, or modified click ends
         // the pending terminal click sequence.
-        let repeat_target = !modifiers.contains(KeyModifiers::SHIFT)
+        let repeat_target = modifiers == KeyModifiers::NONE
             && self.hit_at(x, y).is_none()
             && self.pane_area_at(x, y).is_some_and(|area| {
-                area.content.contains(x, y)
-                    && self.surface_kind(area.surface) == Some(SurfaceKind::Pty)
+                self.surface_kind(area.surface) == Some(SurfaceKind::Pty)
+                    && self.terminal_input_rect(area).is_some_and(|content| content.contains(x, y))
             });
         if !repeat_target {
             self.reset_selection_click_sequence();
@@ -22153,9 +22153,11 @@ impl App {
                         self.focus_pane_after_input(area.pane);
                     }
                     let Some(content) = self.terminal_input_rect(&area) else {
+                        self.reset_selection_click_sequence();
                         return Ok(RenderAction::Draw);
                     };
                     if !content.contains(x, y) {
+                        self.reset_selection_click_sequence();
                         return Ok(RenderAction::Draw);
                     }
                     // Begin a text selection; it becomes visible once the
