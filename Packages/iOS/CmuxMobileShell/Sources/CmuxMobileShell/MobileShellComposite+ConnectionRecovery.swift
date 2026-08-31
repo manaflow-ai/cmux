@@ -775,18 +775,12 @@ extension MobileShellComposite {
         }
 
         var outcome: StoredMacReconnectOutcome = .failed(.unknown)
-
-        let hasAuthorizedTailscaleRoute = pinnedRoutes.contains { route in
-            Self.legacyTailscaleAuthorizationEvidence(
-                for: route,
-                macDeviceID: pairedMacDeviceID,
-                persistedRoutes: legacyTailscaleRoutes
-            ) != nil
-                || Self.userTailscalePairingAuthorization(
-                    for: route,
-                    persistedRoutes: resolvedUserAuthorizedTailscaleRoutes
-                ) != nil
-        }
+        let hasAuthorizedTailscaleRoute = Self.hasAuthorizedTailscaleRoute(
+            in: pinnedRoutes,
+            macDeviceID: pairedMacDeviceID,
+            legacyRoutes: legacyTailscaleRoutes,
+            userRoutes: resolvedUserAuthorizedTailscaleRoutes
+        )
         if firstRoute.kind == .iroh || hasAuthorizedTailscaleRoute {
             do {
                 let ticket = try Self.storedMacTicket(
@@ -794,7 +788,7 @@ extension MobileShellComposite {
                     routes: pinnedRoutes,
                     pairedMacDeviceID: pairedMacDeviceID
                 )
-                let noThrowFailure = try await connect(
+                let connectResult = try await connect(
                     ticket: ticket,
                     legacyTailscaleRoutes: legacyTailscaleRoutes,
                     userTailscalePairingAuthorizations: Self.userTailscalePairingAuthorizations(from: resolvedUserAuthorizedTailscaleRoutes),
@@ -804,9 +798,10 @@ extension MobileShellComposite {
                     ifStillCurrent: ifStillCurrent
                 )
                 guard ifStillCurrent?() ?? true else { return .superseded }
-                if noThrowFailure == .noSupportedRoute {
-                    outcome = .failed(.unsupportedRoute)
+                guard let reconnectOutcome = connectResult.storedReconnectOutcome else {
+                    return .superseded
                 }
+                outcome = reconnectOutcome
             } catch {
                 guard ifStillCurrent?() ?? true else { return .superseded }
                 outcome = .failed(Self.diagnosticFailureKind(for: error))

@@ -122,27 +122,32 @@ extension MobileShellComposite {
         macDeviceID: String,
         persistedRoutes: [CmxAttachRoute]
     ) -> CmxLegacyTailscaleAuthorizationEvidence? {
+        legacyTailscaleAuthorizationEvidence(
+            for: route,
+            macDeviceID: macDeviceID,
+            persistedAuthorizations: legacyTailscaleAuthorizationSet(
+                macDeviceID: macDeviceID,
+                from: persistedRoutes
+            )
+        )
+    }
+
+    nonisolated static func legacyTailscaleAuthorizationEvidence(
+        for route: CmxAttachRoute,
+        macDeviceID: String,
+        persistedAuthorizations: Set<CmxLegacyTailscaleAuthorizationEvidence>
+    ) -> CmxLegacyTailscaleAuthorizationEvidence? {
         guard route.kind == .tailscale,
-              case let .hostPort(host, port) = route.endpoint else {
+              case let .hostPort(host, port) = route.endpoint,
+              let candidate = try? CmxLegacyTailscaleAuthorizationEvidence(
+                  macDeviceID: macDeviceID,
+                  host: host,
+                  port: port
+              ),
+              persistedAuthorizations.contains(candidate) else {
             return nil
         }
-        for persistedRoute in persistedRoutes where persistedRoute.kind == .tailscale {
-            guard case let .hostPort(persistedHost, persistedPort) = persistedRoute.endpoint,
-                  let evidence = try? CmxLegacyTailscaleAuthorizationEvidence(
-                      macDeviceID: macDeviceID,
-                      host: persistedHost,
-                      port: persistedPort
-                  ),
-                  evidence.authorizes(
-                      macDeviceID: macDeviceID,
-                      host: host,
-                      port: port
-                  ) else {
-                continue
-            }
-            return evidence
-        }
-        return nil
+        return candidate
     }
 
     /// Whether any paired Mac retains a current route matching an exact local
@@ -171,6 +176,9 @@ extension MobileShellComposite {
             }
         }
         for mac in macs {
+            let userAuthorizations = Self.userTailscalePairingAuthorizationsSet(
+                from: mac.userAuthorizedTailscaleRoutes ?? []
+            )
             for route in mac.routes {
                 if let endpoint = MobileTailscaleAuthorizationEndpoint(
                     macDeviceID: mac.macDeviceID,
@@ -180,7 +188,7 @@ extension MobileShellComposite {
                 }
                 if Self.userTailscalePairingAuthorization(
                     for: route,
-                    persistedRoutes: mac.userAuthorizedTailscaleRoutes ?? []
+                    authorizations: userAuthorizations
                 ) != nil {
                     return true
                 }
@@ -256,15 +264,24 @@ extension MobileShellComposite {
             ordered.removeAll { $0.kind == .debugLoopback }
         }
         if let tailscaleRequirement {
+            let legacyAuthorizations = legacyTailscaleAuthorizationSet(
+                macDeviceID: tailscaleRequirement.macDeviceID,
+                from: tailscaleRequirement.grantRoutes
+            )
+            let userAuthorizations = Set(
+                userTailscalePairingAuthorizations(
+                    from: tailscaleRequirement.userGrantRoutes
+                )
+            )
             let authorizedTailscale = ordered.filter { route in
                 legacyTailscaleAuthorizationEvidence(
                     for: route,
                     macDeviceID: tailscaleRequirement.macDeviceID,
-                    persistedRoutes: tailscaleRequirement.grantRoutes
+                    persistedAuthorizations: legacyAuthorizations
                 ) != nil
                     || userTailscalePairingAuthorization(
                         for: route,
-                        persistedRoutes: tailscaleRequirement.userGrantRoutes
+                        authorizations: userAuthorizations
                     ) != nil
             }
             return authorizedTailscale

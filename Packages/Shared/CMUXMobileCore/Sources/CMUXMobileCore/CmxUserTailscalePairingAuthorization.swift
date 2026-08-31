@@ -21,7 +21,7 @@ public enum CmxUserTailscalePairingAuthorizationError: Error, Equatable, Sendabl
 /// manual-host trust warning and remains exact-destination-only. Once the host
 /// authenticates, the shell records a device-local grant and later dials use that
 /// grant.
-public struct CmxUserTailscalePairingAuthorization: Equatable, Sendable {
+public struct CmxUserTailscalePairingAuthorization: Equatable, Hashable, Sendable {
     /// The canonical host from the entered code.
     public let host: String
     /// The exact legacy mobile listener port from the entered code.

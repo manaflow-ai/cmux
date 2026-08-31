@@ -2745,8 +2745,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 guard remoteClient === sameRouteProbeClient else { return .superseded }
                 preparePairingConnectionAttempt()
             }
-            let pairingSuccess = MobilePairingSuccessLatch()
-            let noThrowFailure = try await connect(
+            let connectOutcome = try await connect(
                 ticket: ticket,
                 // The generic Stack-bearer fallback remains loopback-only.
                 // Explicit non-loopback pairing uses the destination grant
@@ -2755,22 +2754,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 userTailscalePairingAuthorizations: userTailscalePairingAuthorization.map { [$0] } ?? [],
                 pairedMacDeviceID: pairedMacDeviceID,
                 instanceTagExpectation: instanceTagExpectation,
-                pairingSuccessLatch: pairingSuccess,
                 ifStillCurrent: ifStillCurrent
             )
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
-            if pairingSuccess.didSucceed {
+            switch connectOutcome {
+            case .connected:
                 // Refresh the shared row before dismissing so list/picker
                 // surfaces see the newly paired Mac immediately.
                 await loadPairedMacs()
                 guard isCurrentPairingAttempt(attemptID) else { return .superseded }
                 recordPairingSucceeded()
                 return .connected
-            } else {
+            case let .failed(category):
                 // `connect()` returned without connecting and already set a
                 // specific error; record without overwriting that message.
-                recordFailureForCurrentConnectionError(phase: "connect", category: noThrowFailure)
+                recordFailureForCurrentConnectionError(phase: "connect", category: category)
                 return .failed
+            case .superseded:
+                return .superseded
             }
         } catch is CancellationError {
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
@@ -3106,19 +3107,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let localHasIroh = localRoutes.contains { $0.kind == .iroh }
             let localCanConnectSecurely = localHasIroh
                 || localRoutes.contains { $0.kind == .debugLoopback }
-                || localRoutes.contains { route in
-                    Self.legacyTailscaleAuthorizationEvidence(
-                        for: route,
-                        macDeviceID: mac.macDeviceID,
-                        persistedRoutes: mac.legacyTailscaleRoutes ?? []
-                    ) != nil
-                }
-                || localRoutes.contains { route in
-                    Self.userTailscalePairingAuthorization(
-                        for: route,
-                        persistedRoutes: mac.userAuthorizedTailscaleRoutes ?? []
-                    ) != nil
-                }
+                || Self.hasAuthorizedTailscaleRoute(
+                    in: localRoutes,
+                    macDeviceID: mac.macDeviceID,
+                    legacyRoutes: mac.legacyTailscaleRoutes ?? [],
+                    userRoutes: mac.userAuthorizedTailscaleRoutes ?? []
+                )
             let isLegacyPrivateNetworkPairing = !mac.routes.contains { $0.kind == .iroh }
                 && mac.routes.contains { $0.kind == .tailscale }
 
@@ -4101,19 +4095,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let localHasIroh = candidateRoutes.contains { $0.kind == .iroh }
         let localCanConnectSecurely = localHasIroh
             || candidateRoutes.contains { $0.kind == .debugLoopback }
-            || candidateRoutes.contains { route in
-                Self.legacyTailscaleAuthorizationEvidence(
-                    for: route,
-                    macDeviceID: refreshedTarget.macDeviceID,
-                    persistedRoutes: refreshedTarget.legacyTailscaleRoutes ?? []
-                ) != nil
-            }
-            || candidateRoutes.contains { route in
-                Self.userTailscalePairingAuthorization(
-                    for: route,
-                    persistedRoutes: refreshedTarget.userAuthorizedTailscaleRoutes ?? []
-                ) != nil
-            }
+            || Self.hasAuthorizedTailscaleRoute(
+                in: candidateRoutes,
+                macDeviceID: refreshedTarget.macDeviceID,
+                legacyRoutes: refreshedTarget.legacyTailscaleRoutes ?? [],
+                userRoutes: refreshedTarget.userAuthorizedTailscaleRoutes ?? []
+            )
         let isLegacyPrivateNetworkPairing = !refreshedTarget.routes.contains { $0.kind == .iroh }
             && refreshedTarget.routes.contains { $0.kind == .tailscale }
         var refreshOutcome = ReconnectRouteRefreshOutcome.inconclusive
@@ -4781,7 +4768,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
         // Offline preflight: fail fast instead of stacking per-route connect
         // timeouts into the opaque ~60s wait. Skipped only when no route is
-        // dialable so `connect()` classifies that as `no_supported_route`.
+        // dialable so `connect()` returns the explicit `.failed(.noSupportedRoute)` outcome.
         // Ticket expiry deliberately does NOT gate this: a stale QR is a valid
         // pairing input now (expiry is enforced solely where the RPC attach
         // token is used), so an expired legacy code scanned offline must say
@@ -4804,28 +4791,30 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
         do {
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
-            let pairingSuccess = MobilePairingSuccessLatch()
-            let noThrowFailure = try await connect(
+            let connectOutcome = try await connect(
                 ticket: ticket,
-                userTailscalePairingAuthorizations: userTailscalePairingAuthorizations,
-                pairingSuccessLatch: pairingSuccess
+                userTailscalePairingAuthorizations: userTailscalePairingAuthorizations
             )
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
-            if pairingSuccess.didSucceed && activeTicket != nil {
+            switch connectOutcome {
+            case .connected:
                 // Refresh before success so pickers see the new Mac immediately.
                 await loadPairedMacs()
                 guard isCurrentPairingAttempt(attemptID) else { return .superseded }
                 recordPairingSucceeded()
                 MobileDebugLog.shared.append("pairing.attempt.succeeded")
                 return .connected
+            case let .failed(category):
+                // `connect()` returned without connecting and already set a
+                // specific error; record without overwriting that message.
+                recordFailureForCurrentConnectionError(phase: "connect", category: category)
+                MobileDebugLog.shared.append(
+                    "pairing.attempt.failed_without_throw category=\(String(describing: category))"
+                )
+                return .failed
+            case .superseded:
+                return .superseded
             }
-            // `connect()` returned without connecting and already set a
-            // specific error; record without overwriting that message.
-            recordFailureForCurrentConnectionError(phase: "connect", category: noThrowFailure)
-            MobileDebugLog.shared.append(
-                "pairing.attempt.failed_without_throw category=\(noThrowFailure.map(String.init(describing:)) ?? "nil")"
-            )
-            return .failed
         } catch is CancellationError {
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
             connectionState = .disconnected
@@ -5021,6 +5010,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let route: CmxAttachRoute
         let legacyTailscaleAuthorizationEvidence: CmxLegacyTailscaleAuthorizationEvidence?
         let userTailscalePairingAuthorization: CmxUserTailscalePairingAuthorization?
+        let legacyAuthorizations = Self.legacyTailscaleAuthorizationSet(
+            macDeviceID: mac.macDeviceID,
+            from: mac.legacyTailscaleRoutes ?? []
+        )
+        let userAuthorizations = Self.userTailscalePairingAuthorizationsSet(
+            from: mac.userAuthorizedTailscaleRoutes ?? []
+        )
         if firstRoute.kind == .iroh {
             do {
                 ticket = try Self.storedMacTicket(
@@ -5041,7 +5037,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             Self.legacyTailscaleAuthorizationEvidence(
                 for: candidate,
                 macDeviceID: mac.macDeviceID,
-                persistedRoutes: mac.legacyTailscaleRoutes ?? []
+                persistedAuthorizations: legacyAuthorizations
             ) != nil
         }) {
             do {
@@ -5055,7 +5051,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     .legacyTailscaleAuthorizationEvidence(
                         for: authorizedLegacyRoute,
                         macDeviceID: mac.macDeviceID,
-                        persistedRoutes: mac.legacyTailscaleRoutes ?? []
+                        persistedAuthorizations: legacyAuthorizations
                     )
                 userTailscalePairingAuthorization = nil
             } catch {
@@ -5067,11 +5063,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } else if let authorizedUserRoute = pinnedRoutes.first(where: { candidate in
             Self.userTailscalePairingAuthorization(
                 for: candidate,
-                persistedRoutes: mac.userAuthorizedTailscaleRoutes ?? []
+                authorizations: userAuthorizations
             ) != nil
         }), let authorization = Self.userTailscalePairingAuthorization(
             for: authorizedUserRoute,
-            persistedRoutes: mac.userAuthorizedTailscaleRoutes ?? []
+            authorizations: userAuthorizations
         ) {
             do {
                 ticket = try Self.storedMacTicket(
@@ -5084,7 +5080,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 userTailscalePairingAuthorization = authorization
             } catch {
                 mobileShellLog.warning(
-                    "secondary client: invalid user-authorized ticket mac=\(mac.macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)"
+                    "secondary client: invalid user-authorized ticket mac=\(mac.macDeviceID, privacy: .private) error=\(String(describing: error), privacy: .private)"
                 )
                 return .permanentFailure
             }
@@ -9405,10 +9401,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         clearRemoteConnectionContext()
     }
 
-    /// Establishes the live connection for `ticket`. Returns `nil` on success
-    /// (and superseded-generation early exits), or the failure category it applied
-    /// when it returned without connecting and without throwing
-    /// (`.noSupportedRoute`), so callers record the matching analytics reason.
+    /// Establishes the live connection for `ticket` and reports its terminal
+    /// semantic outcome. Transport and RPC failures still throw so callers can
+    /// classify the underlying error; non-throwing route and generation exits
+    /// are represented explicitly by ``MobileConnectOutcome``.
     @discardableResult
     func connect(
         ticket: CmxAttachTicket,
@@ -9418,14 +9414,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         directOnlyDialCandidates: [CmxIrohDirectDialCandidate]? = nil,
         pairedMacDeviceID: String? = nil,
         instanceTagExpectation: MobileMacInstanceTagExpectation = .adopt,
-        pairingSuccessLatch: MobilePairingSuccessLatch? = nil,
         ifStillCurrent: (() -> Bool)? = nil
-    ) async throws -> MobilePairingFailureCategory? {
+    ) async throws -> MobileConnectOutcome {
         // A bounded reconnect can outlive its owner when an FFI dial ignores
         // cancellation; check authority before claiming the foreground
         // generation or clearing the established client, or an abandoned
         // attempt can briefly disconnect the newer session.
-        guard ifStillCurrent?() ?? true else { return nil }
+        guard ifStillCurrent?() ?? true else { return .superseded }
         let generation = UUID()
         var liveConnectionGeneration = generation
         let ticketMacDeviceID = ticket.macDeviceID
@@ -9448,7 +9443,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionAttemptGeneration = generation
         connectionGeneration = generation
         await releaseConnectionAttemptClientForReplacement()
-        guard isConnectCurrent() else { return nil }
+        guard isConnectCurrent() else { return .superseded }
         diagnosticLog?.record(DiagnosticEvent(.connect))
         cancelRemoteOperationTasks()
         rawTerminalInputBuffer.clear()
@@ -9492,7 +9487,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 b: DiagnosticFailureKind.unsupportedRoute.rawValue
             ))
             clearRemoteConnectionContext()
-            return .noSupportedRoute
+            return .failed(.noSupportedRoute)
         }
         let foregroundReservation = ForegroundConnectionAttemptReservation(
             id: generation,
@@ -9520,7 +9515,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 secondaryMacEstablishmentFlights[key] = nil
             }
         }
-        guard isConnectCurrent() else { return nil }
+        guard isConnectCurrent() else { return .superseded }
         let targetsCurrentLogicalMac =
             currentFocusedConnection.map { connection in
                 requestedMacDeviceID.map {
@@ -9564,17 +9559,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // replacement background dial to time out against that same peer.
         if previousFocusedConnection == nil {
             await releaseRemoteClientForReplacement()
-            guard isConnectCurrent() else { return nil }
+            guard isConnectCurrent() else { return .superseded }
         }
 
         guard let runtime else {
-            guard isConnectCurrent() else { return nil }
+            guard isConnectCurrent() else { return .superseded }
             clearPairingError()
             applyPreviewTicket(ticket, route: firstRoute)
             connectionState = .connected
             markMacConnectionHealthy()
-            pairingSuccessLatch?.markSucceeded()
-            return nil
+            return .connected
         }
 
         let workspaceListRequests = try initialWorkspaceListRequests(for: ticket)
@@ -9628,7 +9622,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             for flight in conflictingEstablishmentFlights {
                 _ = await flight.task.value
             }
-            guard isConnectCurrent() else { return nil }
+            guard isConnectCurrent() else { return .superseded }
         }
         // A fresh same-peer dial cannot acquire the Iroh session while any
         // warm control client owns one of its physical routes. Logical device
@@ -9694,7 +9688,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             if displaced == nil,
                secondaryMacSubscriptions[candidate.ownerKey] === candidate {
                 guard beginSecondaryMacDrainReservation(candidate) else {
-                    return nil
+                    return .superseded
                 }
                 displaced = secondaryMacDrainReservation(
                     for: candidate.ownerKey
@@ -9727,7 +9721,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         for waiter in drainWaiters {
             let transportDrained = await waiter.value
             guard isConnectCurrent() else {
-                return nil
+                return .superseded
             }
             if Task.isCancelled {
                 throw CancellationError()
@@ -9775,7 +9769,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 await previousAttemptClient.disconnect()
                 guard isConnectCurrent() else {
                     await client.disconnect()
-                    return nil
+                    return .superseded
                 }
             }
             defer {
@@ -9811,7 +9805,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     let response = try MobileSyncWorkspaceListResponse.decode(exchange.response)
                     guard isConnectCurrent() else {
                         await client.disconnect()
-                        return nil
+                        return .superseded
                     }
                     // Bind the route to the authenticated Mac process before
                     // persisting or labeling workspaces. A stale A endpoint may
@@ -9952,7 +9946,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     ))
                     guard isConnectCurrent() else {
                         await client.disconnect()
-                        return nil
+                        return .superseded
                     }
                     let resolvedForegroundMacID = resolvedTicket.foregroundMacID(
                         hint: pairedMacDeviceID
@@ -9975,7 +9969,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             invalidateFocusedConnectionAfterAbortedHandoff(
                                 previousFocusedConnection
                             )
-                            return nil
+                            return .superseded
                         }
                         let retainPreviousAsControl =
                             terminalStopped && !resolvesToSameMac
@@ -9991,7 +9985,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             invalidateFocusedConnectionAfterAbortedHandoff(
                                 previousFocusedConnection
                             )
-                            return nil
+                            return .superseded
                         }
                         await commitFocusedConnectionHandoff(
                             previousFocusedConnection,
@@ -10000,7 +9994,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         )
                         guard isConnectCurrent() else {
                             await client.disconnect()
-                            return nil
+                            return .superseded
                         }
                         liveConnectionGeneration =
                             adoptPooledRemoteClient(client)
@@ -10150,13 +10144,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             generation: liveConnectionGeneration
                         )
                     }
-                    pairingSuccessLatch?.markSucceeded()
-                    return nil
+                    return .connected
                 } catch {
                     lastError = error
                     guard isConnectCurrent() else {
                         await client.disconnect()
-                        return nil
+                        return .superseded
                     }
                     mobileShellLog.error(
                         "pairing route failed kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private) scoped=\(workspaceListRequest.isScoped ? 1 : 0, privacy: .public): \(String(describing: error), privacy: .private)"
@@ -11176,16 +11169,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
     }
 
-    /// Record an `ios_pairing_failed` for a `connect()` that returned without
-    /// connecting and already set a specific ``connectionError``: emits the reason
-    /// `connect()` reported (fallback `other`) without overwriting the message.
+    /// Record an `ios_pairing_failed` for a failed connection outcome that has
+    /// already set a specific ``connectionError`` without overwriting it.
     private func recordFailureForCurrentConnectionError(
         phase: String,
         category: MobilePairingFailureCategory? = nil
     ) {
         if connectionError == nil {
             // Defense in depth: never leave a silent revert if a future
-            // `connect()` path returns without connecting or setting an error.
+            // A future connection path returns without connecting or setting an error.
             applyPairingFailure(category ?? .unknown(host: nil, port: nil), phase: phase)
             return
         }

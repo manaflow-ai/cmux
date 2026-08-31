@@ -43,19 +43,67 @@ extension MobileShellComposite {
         for route: CmxAttachRoute,
         authorizations: [CmxUserTailscalePairingAuthorization]
     ) -> CmxUserTailscalePairingAuthorization? {
-        guard route.kind == .tailscale,
-              case let .hostPort(host, port) = route.endpoint else { return nil }
-        return authorizations.first { $0.authorizes(host: host, port: port) }
+        userTailscalePairingAuthorization(
+            for: route,
+            authorizations: Set(authorizations)
+        )
     }
 
+    /// Finds an exact destination in a pre-normalized authorization set.
+    nonisolated static func userTailscalePairingAuthorization(
+        for route: CmxAttachRoute,
+        authorizations: Set<CmxUserTailscalePairingAuthorization>
+    ) -> CmxUserTailscalePairingAuthorization? {
+        guard route.kind == .tailscale,
+              case let .hostPort(host, port) = route.endpoint,
+              let authorization = try? CmxUserTailscalePairingAuthorization(
+                  host: host,
+                  port: port
+              ),
+              authorizations.contains(authorization) else {
+            return nil
+        }
+        return authorization
+    }
+
+    /// Filters routes to the exact destinations authorized by this operation.
     static func explicitlyAuthorizedTailscaleRoutes(
         from routes: [CmxAttachRoute],
         authorizations: [CmxUserTailscalePairingAuthorization]
     ) -> [CmxAttachRoute]? {
-        let matches = routes.filter {
-            userTailscalePairingAuthorization(for: $0, authorizations: authorizations) != nil
+        let authorizedDestinations = Set(authorizations)
+        let matches = routes.filter { route in
+            userTailscalePairingAuthorization(
+                for: route,
+                authorizations: authorizedDestinations
+            ) != nil
         }
         return matches.isEmpty ? nil : matches
+    }
+
+    /// Converts persisted or ticket routes into a constant-time authorization set.
+    nonisolated static func userTailscalePairingAuthorizationsSet(
+        from routes: [CmxAttachRoute]
+    ) -> Set<CmxUserTailscalePairingAuthorization> {
+        Set(userTailscalePairingAuthorizations(from: routes))
+    }
+
+    /// Converts persisted migration routes into a constant-time evidence set.
+    nonisolated static func legacyTailscaleAuthorizationSet(
+        macDeviceID: String,
+        from routes: [CmxAttachRoute]
+    ) -> Set<CmxLegacyTailscaleAuthorizationEvidence> {
+        Set(routes.compactMap { route in
+            guard route.kind == .tailscale,
+                  case let .hostPort(host, port) = route.endpoint else {
+                return nil
+            }
+            return try? CmxLegacyTailscaleAuthorizationEvidence(
+                macDeviceID: macDeviceID,
+                host: host,
+                port: port
+            )
+        })
     }
 
     nonisolated static func userTailscalePairingAuthorization(
@@ -63,15 +111,11 @@ extension MobileShellComposite {
         persistedRoutes: [CmxAttachRoute]
     ) -> CmxUserTailscalePairingAuthorization? {
         guard route.kind == .tailscale,
-              case let .hostPort(host, port) = route.endpoint else { return nil }
-        for stored in persistedRoutes where stored.kind == .tailscale {
-            guard case let .hostPort(storedHost, storedPort) = stored.endpoint,
-                  let authorization = try? CmxUserTailscalePairingAuthorization(
-                      host: storedHost, port: storedPort
-                  ) else { continue }
-            if authorization.authorizes(host: host, port: port) { return authorization }
-        }
-        return nil
+              case .hostPort = route.endpoint else { return nil }
+        return userTailscalePairingAuthorization(
+            for: route,
+            authorizations: userTailscalePairingAuthorizationsSet(from: persistedRoutes)
+        )
     }
 
     nonisolated static func userTailscalePairingAuthorizations(
@@ -81,6 +125,31 @@ extension MobileShellComposite {
             guard route.kind == .tailscale,
                   case let .hostPort(host, port) = route.endpoint else { return nil }
             return try? CmxUserTailscalePairingAuthorization(host: host, port: port)
+        }
+    }
+
+    /// Checks whether one route list contains an exact local authorization.
+    nonisolated static func hasAuthorizedTailscaleRoute(
+        in routes: [CmxAttachRoute],
+        macDeviceID: String,
+        legacyRoutes: [CmxAttachRoute],
+        userRoutes: [CmxAttachRoute]
+    ) -> Bool {
+        let legacyAuthorizations = legacyTailscaleAuthorizationSet(
+            macDeviceID: macDeviceID,
+            from: legacyRoutes
+        )
+        let userAuthorizations = userTailscalePairingAuthorizationsSet(from: userRoutes)
+        return routes.contains { route in
+            legacyTailscaleAuthorizationEvidence(
+                for: route,
+                macDeviceID: macDeviceID,
+                persistedAuthorizations: legacyAuthorizations
+            ) != nil
+                || userTailscalePairingAuthorization(
+                    for: route,
+                    authorizations: userAuthorizations
+                ) != nil
         }
     }
 
