@@ -1,3 +1,4 @@
+public import CmuxFoundation
 import Foundation
 
 func commandPaletteNormalizedSearchWordText(
