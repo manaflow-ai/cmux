@@ -31,6 +31,14 @@ export function validateList(input: WhatsNewList): WhatsNewList {
     seenEntryIDs.add(trimmed);
   }
 
+  if (!["beta", "all", "none"].includes(input.macUpdateNoticeAudience)) {
+    throw new Error(
+      `macUpdateNoticeAudience must be "beta", "all", or "none"; got ${JSON.stringify(
+        input.macUpdateNoticeAudience,
+      )}`,
+    );
+  }
+
   const seenAnnouncementIDs = new Set<string>();
   for (const [index, announcement] of input.announcements.entries()) {
     const path = `announcements[${index}]`;

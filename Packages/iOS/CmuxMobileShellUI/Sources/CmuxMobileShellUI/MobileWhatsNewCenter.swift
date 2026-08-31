@@ -1,6 +1,47 @@
 #if os(iOS)
+import CmuxMobileShellModel
 import Foundation
 import Observation
+
+/// Which build channels may see the Mac-update floor notice (the tinted
+/// banner on binary What's New pages). Backend-controlled through
+/// `/api/whats-new` (`macUpdateNoticeAudience`); the notice's revert path is
+/// a TestFlight instruction, so it must never reach App Store users.
+enum MobileWhatsNewNoticeAudience: String {
+    /// Dogfood channels: dev, TestFlight beta, and internal builds. App
+    /// Store (prod) and demo builds never see the notice. The default when
+    /// the field is absent (older cached list, never fetched) or carries a
+    /// value this binary does not know (newer backend): the notice exists to
+    /// protect TestFlight users, so unknown narrowing stays protective and
+    /// the backend hides it explicitly with "none".
+    case beta
+    /// Every build channel, including App Store.
+    case all
+    /// Nobody: the remote kill switch for the notice alone, leaving the
+    /// page's feature rows visible.
+    case none
+
+    static func resolve(_ rawValue: String?) -> MobileWhatsNewNoticeAudience {
+        guard let rawValue else { return .beta }
+        return MobileWhatsNewNoticeAudience(rawValue: rawValue) ?? .beta
+    }
+
+    func allows(_ buildType: MobileBuildType) -> Bool {
+        switch self {
+        case .all:
+            return true
+        case .none:
+            return false
+        case .beta:
+            switch buildType {
+            case .dev, .beta, .internal:
+                return true
+            case .demo, .prod:
+                return false
+            }
+        }
+    }
+}
 
 /// App-root What's New state: the binary catalog filtered by the
 /// remote-authoritative visibility list, remote announcements targeted at
@@ -31,6 +72,9 @@ public final class MobileWhatsNewCenter {
     private let appVersion: String
     private let defaults: UserDefaults
     private let loader: Loader
+    /// The running app's distribution channel, resolved at the composition
+    /// root; gates the Mac-update floor notice by audience.
+    private let buildType: MobileBuildType
 
     /// The last successfully fetched list (this launch or a previous one).
     /// `nil` means no list has EVER been fetched on this device.
@@ -42,10 +86,12 @@ public final class MobileWhatsNewCenter {
 
     public init(
         apiBaseURL: String?,
+        buildType: MobileBuildType,
         appVersion: String? = nil,
         defaults: UserDefaults = .standard,
         loader: Loader? = nil
     ) {
+        self.buildType = buildType
         if let apiBaseURL, !apiBaseURL.isEmpty {
             requestURL = URL(string: apiBaseURL + Self.requestPath)
         } else {
@@ -120,9 +166,29 @@ public final class MobileWhatsNewCenter {
     /// Binary catalog entries the remote list allows, in catalog order
     /// (newest first). Never-fetched devices show the full catalog.
     var visibleBinaryEntries: [MobileWhatsNewPage] {
-        guard let remoteList else { return MobileWhatsNewCatalog.entries }
-        let visible = Set(remoteList.visibleEntryIds)
-        return MobileWhatsNewCatalog.entries.filter { visible.contains($0.id) }
+        let entries: [MobileWhatsNewPage]
+        if let remoteList {
+            let visible = Set(remoteList.visibleEntryIds)
+            entries = MobileWhatsNewCatalog.entries.filter { visible.contains($0.id) }
+        } else {
+            entries = MobileWhatsNewCatalog.entries
+        }
+        // The Mac-update floor notice is audience-gated (default: dogfood
+        // channels only). Stripping it here covers every consumer at once:
+        // the one-time sheet (unseenPages) and Settings > What's New
+        // (archivePages) both read this list.
+        guard !noticeAudience.allows(buildType) else { return entries }
+        return entries.map { page in
+            var stripped = page
+            stripped.footnote = nil
+            return stripped
+        }
+    }
+
+    /// The backend's audience for the Mac-update floor notice; absent or
+    /// unknown values fall back to the protective dogfood default.
+    private var noticeAudience: MobileWhatsNewNoticeAudience {
+        MobileWhatsNewNoticeAudience.resolve(remoteList?.macUpdateNoticeAudience)
     }
 
     /// Cached announcements targeted at this app version, resolved to

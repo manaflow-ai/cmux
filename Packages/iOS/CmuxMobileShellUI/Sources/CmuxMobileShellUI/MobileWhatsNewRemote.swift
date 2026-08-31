@@ -10,20 +10,30 @@ import Foundation
 struct MobileWhatsNewRemoteList: Codable {
     var visibleEntryIds: [String]
     var announcements: [MobileWhatsNewRemoteAnnouncement]
+    /// Which build channels may see the Mac-update floor notice
+    /// ("beta" | "all" | "none"). Raw string on purpose: an unknown value
+    /// from a newer backend must not fail the list; the audience enum
+    /// resolves it with a protective fallback.
+    var macUpdateNoticeAudience: String?
 
     init(
         visibleEntryIds: [String],
-        announcements: [MobileWhatsNewRemoteAnnouncement]
+        announcements: [MobileWhatsNewRemoteAnnouncement],
+        macUpdateNoticeAudience: String? = nil
     ) {
         self.visibleEntryIds = visibleEntryIds
         self.announcements = announcements
+        self.macUpdateNoticeAudience = macUpdateNoticeAudience
     }
 
     /// Announcements decode lossily: one malformed entry (missing required
     /// version bounds, wrong types) drops that entry, not the whole list.
+    /// The audience field is equally lossy: a wrong type reads as absent.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         visibleEntryIds = try container.decode([String].self, forKey: .visibleEntryIds)
+        macUpdateNoticeAudience =
+            (try? container.decodeIfPresent(String.self, forKey: .macUpdateNoticeAudience)) ?? nil
         var decoded: [MobileWhatsNewRemoteAnnouncement] = []
         if var elements = try? container.nestedUnkeyedContainer(forKey: .announcements) {
             while !elements.isAtEnd {

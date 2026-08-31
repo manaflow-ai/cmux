@@ -41,9 +41,21 @@ export interface WhatsNewAnnouncement {
   webUrl?: string;
 }
 
+/**
+ * Which build channels may see the Mac-update floor notice (the tinted
+ * banner on binary What's New pages): "beta" = dogfood channels only (dev,
+ * TestFlight beta, internal; the notice's revert path is a TestFlight
+ * instruction), "all" = every channel including App Store, "none" = hide
+ * the banner remotely while keeping the page's feature rows.
+ * Clients that never fetched the list, or that see a value they do not
+ * know, fall back to "beta".
+ */
+export type WhatsNewMacUpdateNoticeAudience = "beta" | "all" | "none";
+
 export interface WhatsNewList {
   visibleEntryIds: string[];
   announcements: WhatsNewAnnouncement[];
+  macUpdateNoticeAudience: WhatsNewMacUpdateNoticeAudience;
 }
 
 export const whatsNewList: WhatsNewList = {
@@ -53,4 +65,5 @@ export const whatsNewList: WhatsNewList = {
   // to hide its page remotely.
   visibleEntryIds: ["connections.v1"],
   announcements: [],
+  macUpdateNoticeAudience: "beta",
 };
