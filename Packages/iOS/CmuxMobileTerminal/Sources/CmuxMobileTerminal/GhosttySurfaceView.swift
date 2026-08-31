@@ -309,17 +309,37 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         var epoch: UInt64 = 0
         var remainderPx: Double = 0
         var lastFallbackLogTime: CFTimeInterval = 0
-        /// The last (row, remainder) the pixel pump applied. While a gesture
-        /// is active this is the position AUTHORITY: batches rebase from it
+        /// One applied pixel-pump position, remembered as the gesture's
+        /// authority between batches.
+        nonisolated struct Held: Equatable, Sendable {
+            /// The viewport top row applied to Ghostty.
+            var row: UInt64
+            /// The whole-pixel offset actually applied to Ghostty.
+            var remainderPx: Double
+            /// The exact (unrounded) content-space position, so sub-pixel
+            /// deltas accumulate across batches.
+            var positionPx: Double
+            /// Row-space revision at apply time; the held content anchor is
+            /// only valid verbatim while it matches.
+            var revision: UInt64
+            /// Row-space total at apply time.
+            var total: UInt64
+            /// Cumulative local scrollback pushes at apply time.
+            var rowsPushed: UInt64
+            /// True when this batch docked at the tail (`row == total`).
+            /// A docked hold is BOTTOM-anchored, not content-anchored: while
+            /// it stands, batches target the LIVE tail so streaming output
+            /// cannot leave the viewport a few rows behind the bottom.
+            var dockedAtTail: Bool
+        }
+
+        /// The last position the pixel pump applied. While a gesture is
+        /// active this is the position AUTHORITY: batches rebase from it
         /// instead of the live viewport, so a verified-replay bottom-reset
         /// between batches is overwritten on the next frame instead of
         /// hijacking the gesture. Cleared on dock/typing snaps and surface
         /// replacement, where the live viewport becomes the truth again.
-        /// `positionPx` is the exact (unrounded) content-space position so
-        /// sub-pixel deltas accumulate across batches; `remainderPx` is the
-        /// whole-pixel offset actually applied to Ghostty. `revision` guards
-        /// the row space: the held anchor is only valid while it matches.
-        var lastApplied: (row: UInt64, remainderPx: Double, positionPx: Double, revision: UInt64, total: UInt64)?
+        var lastApplied: Held?
         /// Device pixels of scroll-top reveal: how far past scrollback-top
         /// the gesture has pulled, realized by the host sliding the
         /// bottom-pinned render back down to uncover the rows the keyboard-up
@@ -335,9 +355,20 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
     nonisolated let localPixelScrollState =
         OSAllocatedUnfairLock<LocalPixelScrollState>(initialState: .init())
+    /// Cumulative rows this view has pushed into its local mirror's scrollback
+    /// (the line feeds of screen-anchored delta prologues). Incremented on the
+    /// serial output queue as each chunk applies, and read there by viewport
+    /// anchor capture/restore and pixel-scroll batches, so reads are exactly
+    /// ordered against the pushes they account for. Below the scrollback cap a
+    /// push grows the row space; at the cap it evicts a retained top row, which
+    /// totals alone cannot distinguish — this counter can.
+    // lint:allow lock - one cumulative row counter shared between the main
+    // actor and the serial output queue; same discipline as viewportRestoreGate.
+    nonisolated let localScrollbackRowsPushed =
+        OSAllocatedUnfairLock<UInt64>(initialState: 0)
     #if DEBUG
     /// Last pixel-precise viewport position the pixel pump applied.
-    var debugLastPixelScroll: (row: UInt64, remainderPx: Double, positionPx: Double, revision: UInt64, total: UInt64)? {
+    var debugLastPixelScroll: LocalPixelScrollState.Held? {
         localPixelScrollState.withLock { $0.lastApplied }
     }
     #endif
@@ -3030,6 +3061,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     func processOutput(
         _ data: Data,
         terminalConfigTheme outputConfigTheme: TerminalTheme? = nil,
+        pushesLocalScrollbackRows: Int = 0,
         completion: (@MainActor @Sendable (Bool) -> Void)?
     ) {
         guard !renderPipelineRecoveryPaused else {
@@ -3078,6 +3110,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // the main thread. Feed it on a serial background queue (order
         // preserved) and hop back to main only for the Swift-side UI state.
         let workQueue = outputQueue
+        let pushedRowsCounter = localScrollbackRowsPushed
         workQueue.async { [weak self] in
             if let preparedConfigBits,
                let preparedConfig = ghostty_config_t(bitPattern: preparedConfigBits) {
@@ -3091,6 +3124,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 guard let baseAddress = buffer.baseAddress else { return }
                 let pointer = baseAddress.assumingMemoryBound(to: CChar.self)
                 ghostty_surface_process_output(surface, pointer, UInt(buffer.count))
+            }
+            // Account for this chunk's scroll-prologue pushes at the exact
+            // queue position they landed, so an anchor capture or pixel batch
+            // queued before/after this block reads a counter consistent with
+            // the row space it observes.
+            if pushesLocalScrollbackRows > 0 {
+                pushedRowsCounter.withLock { $0 &+= UInt64(pushesLocalScrollbackRows) }
             }
             #if DEBUG
             // Perf probe for the scroll-hitch investigation: a VT apply on this

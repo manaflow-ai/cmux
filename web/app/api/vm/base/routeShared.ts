@@ -182,8 +182,8 @@ function baseWorkflowErrorResponse(err: unknown, operation: BaseOperation, planI
       limit: err.limit,
       planId,
       retryAction: operation === "reset"
-        ? "Stop or delete another active Cloud VM, then retry Base reset. The current Base is still retained."
-        : "Stop or delete another active Cloud VM, then retry opening Base.",
+        ? "Delete another active Cloud VM, then retry Base reset. The current Base is still retained."
+        : "Delete another active Cloud VM, then retry opening Base.",
       phase: "create",
     });
   }
