@@ -367,6 +367,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// resumes) degrades into a bounded failure with a scheduled retry
     /// instead of an owner that silently coalesces every later trigger.
     var connectionRecoveryAttemptDeadlineTask: Task<Void, Never>?
+    /// Make-before-break roaming swap (relay route). While the recovery
+    /// owner's active attempt carries this id, the serving connection stays
+    /// live and interactive during the replacement dial, so the attempt must
+    /// not surface reconnecting UI and its failure must not tear anything
+    /// down unless the old connection also died.
+    @ObservationIgnored var roamingSwapAttemptID: UUID?
+    /// Set when a definitive dead-connection signal for the SERVING client
+    /// arrives while a roaming replacement dial is in flight. The in-flight
+    /// dial is the recovery; if it also fails, recovery escalates to the
+    /// ordinary teardown + automatic-retry path instead of leaving a dead
+    /// session published as connected.
+    @ObservationIgnored var roamingSwapOldClientDied = false
+    /// Observable handoff-gap measurement for one roaming swap: stamped at
+    /// dial start, at the last applied event before the swap breaks the old
+    /// terminal registration, and at swap commit; resolved (and logged as
+    /// `roaming.swap gap_ms=…`) by the first event applied on the
+    /// replacement connection.
+    @ObservationIgnored var roamingSwapGapProbe: RoamingSwapGapProbe?
     var lastPresenceReconnectEvidence: (
         scope: MobileShellScopeSnapshot,
         instances: [MobilePresenceReconnectEvidence]
@@ -9120,6 +9138,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// (and superseded-generation early exits), or the failure category it applied
     /// when it returned without connecting and without throwing
     /// (`.noSupportedRoute`), so callers record the matching analytics reason.
+    ///
+    /// `makeBeforeBreak` (roaming relay swap): the currently focused
+    /// connection keeps serving — its generation, event stream, and input
+    /// pipeline untouched — while the replacement dials and authenticates;
+    /// only then does the ordinary `previousFocusedConnection` handoff drain
+    /// the old terminal registration and adopt the replacement. A failed dial
+    /// leaves the serving connection exactly as it was. Effective only while
+    /// a focused connection is live; otherwise the ordinary connect runs.
     @discardableResult
     func connect(
         ticket: CmxAttachTicket,
@@ -9128,6 +9154,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         userTailscalePairingAuthorizations: [CmxUserTailscalePairingAuthorization] = [],
         pairedMacDeviceID: String? = nil,
         instanceTagExpectation: MobileMacInstanceTagExpectation = .adopt,
+        makeBeforeBreak: Bool = false,
         ifStillCurrent: (() -> Bool)? = nil
     ) async throws -> MobilePairingFailureCategory? {
         // A bounded reconnect can outlive its owning task when an FFI dial
@@ -9152,15 +9179,32 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         func isConnectCurrent() -> Bool {
             isCurrentConnectionAttempt(generation) && (ifStillCurrent?() ?? true)
         }
+        // Make-before-break is effective only while there is a focused
+        // connection to keep serving; with nothing live the ordinary connect
+        // is already break-free.
+        let makeBeforeBreakConnection: MacConnection? =
+            makeBeforeBreak && connectionState == .connected
+                ? currentFocusedConnection
+                : nil
         connectionAttemptGeneration = generation
-        connectionGeneration = generation
+        if makeBeforeBreakConnection == nil {
+            // The serving connection keeps its generation, in-flight
+            // operations, and buffered input during a make-before-break dial;
+            // `adoptPooledRemoteClient` publishes the fresh generation and
+            // clears them at the actual swap. Bumping here would kill the old
+            // event listener at dial START, turning the parallel dial back
+            // into today's observable gap.
+            connectionGeneration = generation
+        }
         await releaseConnectionAttemptClientForReplacement()
         guard isConnectCurrent() else { return nil }
         diagnosticLog?.record(DiagnosticEvent(.connect))
-        cancelRemoteOperationTasks()
-        rawTerminalInputBuffer.clear()
-        terminalInputRPCPipeline.clear()
-        resumeRawTerminalInputDrainWaiters()
+        if makeBeforeBreakConnection == nil {
+            cancelRemoteOperationTasks()
+            rawTerminalInputBuffer.clear()
+            terminalInputRPCPipeline.clear()
+            resumeRawTerminalInputDrainWaiters()
+        }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         let supportedRoutes = supportedRoutes(
             for: ticket,
@@ -9171,17 +9215,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             instanceTag: instanceTagExpectation.expectedTag
         )
         guard let firstRoute = supportedRoutes.first else {
+            diagnosticLog?.record(DiagnosticEvent(
+                .routeUnavailable,
+                a: DiagnosticTransportKind.unknown.rawValue,
+                b: DiagnosticFailureKind.unsupportedRoute.rawValue
+            ))
+            // A make-before-break replacement that cannot even synthesize a
+            // route fails without touching the serving connection.
+            guard makeBeforeBreakConnection == nil else {
+                return .noSupportedRoute
+            }
             // No route kind this build can dial: set the specific category;
             // the caller records the matching analytics reason from it.
             connectionError = MobilePairingFailureCategory.noSupportedRoute.message
             connectionErrorGuidance = MobilePairingFailureCategory.noSupportedRoute.guidance
             connectionState = .disconnected
             macConnectionStatus = .unavailable
-            diagnosticLog?.record(DiagnosticEvent(
-                .routeUnavailable,
-                a: DiagnosticTransportKind.unknown.rawValue,
-                b: DiagnosticFailureKind.unsupportedRoute.rawValue
-            ))
             clearRemoteConnectionContext()
             return .noSupportedRoute
         }
@@ -9229,10 +9278,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // the current focus stays live. Same-Mac and same-route targets must
         // first transfer the old route lease to cleanup, including anonymous
         // tickets whose logical identity is not known until host status.
-        let previousFocusedConnection =
-            targetsCurrentLogicalMac || targetsCurrentPhysicalRoute
+        // Make-before-break inverts that rule for its same-Mac relay redial:
+        // the focused connection is kept serving and handed off through the
+        // exact previousFocusedConnection path a cross-Mac switch uses; the
+        // registry's replacement admission (not lease release) arbitrates the
+        // shared physical route.
+        let previousFocusedConnection = makeBeforeBreakConnection
+            ?? (targetsCurrentLogicalMac || targetsCurrentPhysicalRoute
                 ? nil
-                : currentFocusedConnection
+                : currentFocusedConnection)
         // No connect-time expiry gate: a pairing QR never expires (new QRs
         // carry no expiry at all), and the host authorizes by Stack account,
         // not ticket age. Expiry still gates the RPC-minted attach token at
@@ -9453,6 +9507,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     ?? MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
                 legacyTailscaleAuthorizationEvidence: legacyTailscaleAuthorizationEvidence,
                 userTailscalePairingAuthorization: userTailscalePairingAuthorization,
+                // Only the make-before-break replacement dialing the exact
+                // route its serving predecessor still leases may coexist with
+                // that lease; every other dial keeps exclusive admission.
+                admitsReplacementDialAlongsideInstalledSession:
+                    makeBeforeBreakConnection?.client
+                        .sharesPhysicalTransportRoute(with: route) == true,
                 connectAttemptRegistry: connectAttemptRegistry,
                 stackTokenGate: stackTokenGate,
                 stackTokenForceRefreshGate: stackTokenForceRefreshGate,
@@ -9655,6 +9715,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         // the new focused client. A different or anonymous
                         // target can retain the old client as control-only; a
                         // same-Mac redial must disconnect the superseded client.
+                        if makeBeforeBreakConnection != nil {
+                            // The break starts here: stamp the last event the
+                            // old connection delivered so the first event on
+                            // the replacement closes the observable gap.
+                            roamingSwapGapProbe?.lastEventBeforeSwapAt =
+                                lastTerminalEventAt
+                        }
                         clearPendingTerminalInputForFocusChange()
                         let terminalStopped = await prepareFocusedConnectionForHandoff(
                             previousFocusedConnection
@@ -9693,6 +9760,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         }
                         liveConnectionGeneration =
                             adoptPooledRemoteClient(client)
+                        if makeBeforeBreakConnection != nil {
+                            roamingSwapGapProbe?.swapCommittedAt = runtime.now()
+                            MobileDebugLog.anchormux(
+                                "roaming.swap committed route=\(route.kind.rawValue)"
+                            )
+                        }
                     } else {
                         replaceRemoteClient(with: client)
                     }
@@ -10163,6 +10236,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // filter must keep the exact tagged entry.
         let offlineForegroundKey = foregroundMacKey
         focusedHandoffPreparedGenerations.removeAll()
+        // A pending roaming-gap measurement cannot survive a full context
+        // teardown; resolving it against some later connection's first event
+        // would fabricate an enormous gap.
+        roamingSwapGapProbe = nil
         cancelRemoteOperationTasks()
         clearActiveConnectionContext()
         macConnectionStatus = .unavailable
@@ -12343,6 +12420,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // it resets the liveness window (not just render_grid events).
                 self.cancelTerminalInputAckResubscribeRetry()
                 self.recordTerminalEventStreamLiveness()
+                self.resolveRoamingSwapGapIfPending()
                 self.markMacConnectionHealthy()
                 if event.topic == "workspace.updated" {
                     self.scheduleWorkspaceListRefreshFromEvent()
