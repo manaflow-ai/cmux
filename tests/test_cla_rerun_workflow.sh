@@ -98,7 +98,15 @@ gh() {
       printf '[]\n'
       ;;
     repos/manaflow-ai/cmux/pulls)
-      if [[ "${FAKE_MODE}" == ambiguous-association ]]; then
+      local association_call=1
+      if [[ -n "${FAKE_ASSOC_CALL_FILE:-}" ]]; then
+        if [[ -s "${FAKE_ASSOC_CALL_FILE}" ]]; then
+          read -r association_call <"${FAKE_ASSOC_CALL_FILE}"
+          association_call=$((association_call + 1))
+        fi
+        printf '%s\n' "$association_call" >"${FAKE_ASSOC_CALL_FILE}"
+      fi
+      if [[ "${FAKE_MODE}" == ambiguous-association || ( "${FAKE_MODE}" == late-ambiguous && "$association_call" -gt 1 ) ]]; then
         jq -nc '[[
           {number:123,state:"open",base:{ref:"main",repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",repo:{id:200,full_name:"contributor/cmux"}}},
           {number:124,state:"open",base:{ref:"main",repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",repo:{id:200,full_name:"contributor/cmux"}}}
@@ -144,10 +152,12 @@ run_case() {
     comment_author=untrusted-user
   fi
   : >"$work/posts-$mode"
+  printf '0\n' >"$work/association-$mode"
   set +e
   output="$(
     FAKE_MODE="$mode" \
     FAKE_POST_FILE="$work/posts-$mode" \
+    FAKE_ASSOC_CALL_FILE="$work/association-$mode" \
     COMMENT_AUTHOR_LOGIN="$comment_author" \
     COMMENT_AUTHOR_ASSOCIATION="$comment_association" \
     bash "$rerun_script" 2>&1
@@ -180,3 +190,4 @@ run_case retargeted-pr 1 "The live pull request is not valid" 0
 run_case ambiguous-association 1 "Expected exactly one open pull request for this head" 0
 run_case wrong-commenter 1 "Only the pull request author or a trusted repository participant" 0
 run_case suffixed-path 0 "Requested rerun for CLA job 500 in workflow run 400" 1
+run_case late-ambiguous 1 "Expected exactly one open pull request for this head" 0
