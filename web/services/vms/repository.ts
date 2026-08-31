@@ -1237,14 +1237,14 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
         ));
       const freeAccessExpired = input.freeAccessExpiresBefore
         ? and(
-          // Legacy rows can have a null plan; entitlement resolution treats
-          // those rows as free, so the cleanup query must do the same.
-          sql`lower(coalesce(${cloudVms.billingPlanId}, 'free')) = 'free'`,
+          // Legacy rows can have a null or blank plan; entitlement resolution
+          // treats those rows as free, so the cleanup query must do the same.
+          sql`lower(coalesce(nullif(trim(${cloudVms.billingPlanId}), ''), 'free')) = 'free'`,
           lt(cloudVms.createdAt, input.freeAccessExpiresBefore),
         )
         : sql`false`;
       const paidAccessExpired = and(
-        sql`lower(coalesce(${cloudVms.billingPlanId}, '')) in ('pro', 'team')`,
+        sql`lower(coalesce(nullif(trim(${cloudVms.billingPlanId}), ''), '')) in ('pro', 'team')`,
         exists(expiredSubscription),
       );
 
