@@ -9238,6 +9238,28 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                       connection.client === remoteClient else { return nil }
                 return connection
             }
+        // Capability snapshot for the TARGETED Mac, taken before the previous
+        // client is released (which clears the live store value). It shapes
+        // the connect-time pipelined subscribe: a known Mac gets the exact
+        // request the post-adoption path would send; an unknown target gets
+        // the safe superset guess. A stale or wrong snapshot only costs the
+        // ordinary corrective re-subscribe.
+        let learnedCapabilitiesForOptimisticSubscribe: Set<String> = {
+            guard let requestedMacDeviceID else { return [] }
+            // Device-level read on purpose: any instance tag's snapshot is a
+            // valid hint for the same physical Mac's capabilities.
+            if let pooled = macConnectionRegistry.focusedConnection(
+                onDevice: requestedMacDeviceID
+            )?.supportedHostCapabilities {
+                return pooled
+            }
+            if let currentFocusedConnection,
+               cmxCanonicalDeviceID(currentFocusedConnection.macDeviceID)
+                   == cmxCanonicalDeviceID(requestedMacDeviceID) {
+                return supportedHostCapabilities
+            }
+            return []
+        }()
         func isConnectCurrent() -> Bool {
             isCurrentConnectionAttempt(generation) && (ifStillCurrent?() ?? true)
         }
@@ -9624,6 +9646,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             if optimisticSubscribeTimeoutNanoseconds > 0 {
                 await startOptimisticTerminalEventSubscription(
                     client: client,
+                    learnedCapabilities:
+                        learnedCapabilitiesForOptimisticSubscribe,
                     timeoutNanoseconds: optimisticSubscribeTimeoutNanoseconds
                 )
                 guard isConnectCurrent() else {

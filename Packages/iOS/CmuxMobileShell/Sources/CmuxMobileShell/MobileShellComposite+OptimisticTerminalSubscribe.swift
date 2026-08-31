@@ -62,25 +62,27 @@ extension MobileShellComposite {
     /// Topic list and anchor negotiation for the connect-time optimistic
     /// subscribe, chosen BEFORE this connection's host status arrives.
     ///
-    /// A reconnect knows the previous capability snapshot, so it requests
-    /// exactly what the post-adoption path will request and the extra
-    /// re-subscribe round trip disappears. A first pairing knows nothing:
-    /// it requests the hybrid superset (both terminal output topics) with no
-    /// anchor negotiation, which every host serves, and lets the ordinary
-    /// idempotent post-adoption re-subscribe narrow topics and negotiate the
-    /// anchor once capabilities are authenticated.
-    func optimisticTerminalEventSubscriptionPlan(
+    /// `learnedCapabilities` is the caller's pre-release capability snapshot
+    /// for the TARGETED Mac (the live store value is cleared when the
+    /// previous client is released for replacement, before the route loop
+    /// runs). A reconnect therefore requests exactly what the post-adoption
+    /// path will request and the extra re-subscribe round trip disappears. A
+    /// first pairing knows nothing: it requests the hybrid superset (both
+    /// terminal output topics) with no anchor negotiation, which every host
+    /// serves, and lets the ordinary idempotent post-adoption re-subscribe
+    /// narrow topics and negotiate the anchor once capabilities are
+    /// authenticated.
+    static func optimisticTerminalEventSubscriptionPlan(
+        learnedCapabilities: Set<String>
     ) -> (topics: [String], usesScreenAnchor: Bool) {
-        guard !supportedHostCapabilities.isEmpty else {
+        guard !learnedCapabilities.isEmpty else {
             return (TerminalOutputTransport.hybrid.eventTopics, false)
         }
-        let transport = Self.fallbackTerminalOutputTransport(
-            learnedCapabilities: supportedHostCapabilities
+        let transport = fallbackTerminalOutputTransport(
+            learnedCapabilities: learnedCapabilities
         )
         let anchored = transport == .renderGrid
-            && supportedHostCapabilities.contains(
-                Self.terminalScreenAnchorCapability
-            )
+            && learnedCapabilities.contains(terminalScreenAnchorCapability)
         return (transport.eventTopics, anchored)
     }
 
@@ -97,6 +99,7 @@ extension MobileShellComposite {
     /// and the post-adoption sequential subscribe remains the fallback.
     func startOptimisticTerminalEventSubscription(
         client: MobileCoreRPCClient,
+        learnedCapabilities: Set<String>,
         timeoutNanoseconds: UInt64
     ) async {
         guard runtime?.supportsServerPushEvents ?? false,
@@ -104,7 +107,9 @@ extension MobileShellComposite {
             return
         }
         discardOptimisticTerminalSubscription()
-        let plan = optimisticTerminalEventSubscriptionPlan()
+        let plan = Self.optimisticTerminalEventSubscriptionPlan(
+            learnedCapabilities: learnedCapabilities
+        )
         let params = terminalEventSubscribeParams(
             topics: plan.topics,
             usesScreenAnchor: plan.usesScreenAnchor
