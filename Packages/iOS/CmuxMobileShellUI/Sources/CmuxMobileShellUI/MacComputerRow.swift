@@ -94,14 +94,15 @@ struct MacComputerRow: View {
                         .font(.headline)
                         .foregroundStyle(.primary)
                         .lineLimit(1)
-                    // One chip only: a Mac that needs the update leads with
-                    // that fact instead of its build channel, so the fixed
-                    // badge and the name never fight for the same line.
-                    if computer.needsMacUpdate {
-                        ComputerUpdateRequiredBadge()
-                    } else if let buildLabel = computer.buildLabel {
+                    if let buildLabel = computer.buildLabel {
                         ComputerBuildBadge(label: buildLabel)
                     }
+                }
+                // Own line: the row's text column is too narrow for the
+                // fixed-width warning chip to share the title line without
+                // crushing the name.
+                if computer.needsMacUpdate {
+                    ComputerUpdateRequiredBadge()
                 }
                 Text(connectionLine)
                     .font(.caption)
