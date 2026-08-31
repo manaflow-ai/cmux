@@ -20,6 +20,10 @@ grep -Fq 'github.event.comment.body == '\''I have read the CLA Document v2.2 and
 grep -Fq 'always() &&' "$WORKFLOW"
 grep -Fq 'cancel-in-progress: false' "$WORKFLOW"
 grep -Fq "group: cla-signatures-\${{ github.repository }}-\${{ github.event.pull_request.number || github.event.issue.number }}" "$WORKFLOW"
+if rg -n -- '--paginate|--slurp' "$WORKFLOW" >/dev/null; then
+  echo 'FAIL: CLA rerun queries must use explicit bounded pages' >&2
+  exit 1
+fi
 grep -Fq "path-to-signatures: 'signatures/version2/cla.json'" "$WORKFLOW"
 grep -Fq "github.event.comment.body == 'recheck'" "$WORKFLOW"
 grep -Fq "github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA'" "$WORKFLOW"

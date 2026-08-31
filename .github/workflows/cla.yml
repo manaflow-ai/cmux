@@ -458,7 +458,7 @@ jobs:
           # rejects duplicate or cross-PR matches before a run is selected,
           # and the helper is called again immediately before the POST.
           validate_live_open_head_association() {
-            local head_owner head_name open_prs_json matching_open_prs_json open_association_count
+            local head_owner head_name open_prs_page open_pr_count open_prs_json matching_open_prs_json open_association_count
             [[ "${head_repo}" == */* && "${head_repo}" != */*/* ]] || fail "The pull request head repository name is invalid"
             head_owner="${head_repo%%/*}"
             head_name="${head_repo#*/}"
@@ -525,13 +525,14 @@ jobs:
           workflow_id="$(jq -r --arg path "${WORKFLOW_PATH}" '[.[] | .workflows[]? | select(.path == $path and .state == "active") | .id] | if length == 1 then .[0] else empty end' <<<"${workflow_json}")"
           [[ "${workflow_id}" =~ ^[1-9][0-9]*$ ]] || fail "The expected CLA workflow is not active"
 
-          # Search all pages, then choose the newest completed failure created
-          # no later than this comment. Edited, reopened, and synchronize
-          # events can leave several eligible failures for one exact head, so
-          # sort by creation time and run ID and select the newest one. Every
-          # candidate is tied to the exact workflow path, event, and PR
-          # association. When GitHub includes pull_requests on a run, bind the
-          # candidate to the exact PR object, including its source head SHA.
+          # Search a bounded first page, then choose the newest completed
+          # failure created no later than this comment. Edited, reopened, and
+          # synchronize events can leave several eligible failures for one
+          # exact head, so sort by creation time and run ID and select the
+          # newest one. Every candidate is tied to the exact workflow path,
+          # event, and PR association. When GitHub includes pull_requests on a
+          # run, bind the candidate to the exact PR object, including its
+          # source head SHA.
           # GitHub can return an empty array for fork pull_request_target runs,
           # so those candidates use the unique live open-PR association checked
           # above and the exact run head-repository binding below. The run's
