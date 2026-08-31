@@ -1525,12 +1525,48 @@ fn codex_owned_trust_hashes() -> anyhow::Result<BTreeSet<String>> {
         .collect()
 }
 
+/// Dotfile managers commonly symlink `config.toml`; the atomic rename must
+/// land in the link's TARGET so the link survives and codex keeps editing the
+/// same file. A link that cannot be resolved is refused instead of replaced.
+fn resolve_codex_config_path(config_path: PathBuf) -> anyhow::Result<PathBuf> {
+    match fs::symlink_metadata(&config_path) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(config_path),
+        Err(error) => Err(error).with_context(|| format!("inspect {}", config_path.display())),
+        Ok(metadata) if !metadata.file_type().is_symlink() => Ok(config_path),
+        Ok(_) => fs::canonicalize(&config_path).with_context(|| {
+            format!(
+                "{} is a symlink that does not resolve; refusing to replace it",
+                config_path.display()
+            )
+        }),
+    }
+}
+
+/// Size gate shared by every config.toml consumer, checked against metadata
+/// before any read so an oversized file is rejected without loading it.
+fn codex_config_within_size_limit(config_path: &Path) -> anyhow::Result<bool> {
+    match fs::metadata(config_path) {
+        Ok(metadata) => Ok(metadata.len() <= MAX_CONFIG_BYTES),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(true),
+        Err(error) => Err(error).with_context(|| format!("inspect {}", config_path.display())),
+    }
+}
+
 fn read_codex_config_document(
     config_path: &Path,
 ) -> anyhow::Result<(Option<String>, toml_edit::DocumentMut)> {
+    anyhow::ensure!(
+        codex_config_within_size_limit(config_path)?,
+        "{} exceeds 16 MiB",
+        config_path.display()
+    );
     let original = match fs::read(config_path) {
         Ok(bytes) => {
-            anyhow::ensure!(bytes.len() as u64 <= MAX_CONFIG_BYTES, "configuration exceeds 16 MiB");
+            anyhow::ensure!(
+                bytes.len() as u64 <= MAX_CONFIG_BYTES,
+                "{} exceeds 16 MiB",
+                config_path.display()
+            );
             Some(
                 String::from_utf8(bytes)
                     .with_context(|| format!("{} is not valid UTF-8", config_path.display()))?,
@@ -1622,7 +1658,9 @@ fn prepare_codex_trust_state(
     install: bool,
 ) -> anyhow::Result<Option<PreparedCodexTrustWrite>> {
     let parent = hooks_path.parent().context("codex hooks path has no parent")?;
-    let config_path = parent.join(CODEX_CONFIG_FILE);
+    // Resolve a symlinked config.toml to its target so the later atomic
+    // rename edits the real file instead of detaching the link.
+    let config_path = resolve_codex_config_path(parent.join(CODEX_CONFIG_FILE))?;
     let key_hooks_path = codex_state_key_hooks_path(hooks_path, from_env_override);
     let desired = if install {
         codex_expected_trust_entries(&key_hooks_path, root)?
@@ -1683,7 +1721,11 @@ fn prepare_codex_trust_state(
     if Some(updated.as_str()) == original.as_deref() || (original.is_none() && updated.is_empty()) {
         return Ok(None);
     }
-    ensure_writable_directory(parent)?;
+    // Probe where the rename will actually land: the resolved target's
+    // directory, not necessarily the codex home.
+    let target_parent =
+        config_path.parent().context("codex config path has no parent")?.to_path_buf();
+    ensure_writable_directory(&target_parent)?;
     Ok(Some(PreparedCodexTrustWrite {
         mode: existing_file_mode(&config_path).unwrap_or(0o600),
         config_path,
@@ -1774,7 +1816,13 @@ fn codex_trust_state_verified(
     let Ok(expected) = codex_expected_trust_entries(&key_hooks_path, root) else {
         return false;
     };
-    let Ok(text) = fs::read_to_string(parent.join(CODEX_CONFIG_FILE)) else {
+    let config_path = parent.join(CODEX_CONFIG_FILE);
+    // Same size gate as install/uninstall, checked against metadata before the
+    // read so an oversized config (or a symlink to one) cannot stall status.
+    if !matches!(codex_config_within_size_limit(&config_path), Ok(true)) {
+        return false;
+    }
+    let Ok(text) = fs::read_to_string(&config_path) else {
         return false;
     };
     let Ok(config) = text.parse::<toml_edit::DocumentMut>() else {
@@ -2146,6 +2194,83 @@ mod tests {
         // half-applied uninstall; the config preflight must fail first.
         assert_eq!(fs::read(&hooks_path).unwrap(), installed);
         assert_eq!(fs::read_to_string(&config_path).unwrap(), "not = valid = toml\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn codex_install_edits_the_target_of_a_symlinked_config_toml() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let real = root.path().join("dotfiles/codex-config.toml");
+        atomic_write(&real, b"# managed by dotfiles\nmodel = \"gpt-5.6\"\n", Some(0o600)).unwrap();
+        let config_path = context.home.join(".codex/config.toml");
+        fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+        symlink(&real, &config_path).unwrap();
+
+        let install = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        let first = run_with_context(&install, &context);
+        assert!(!first.failed, "{}", first.value);
+        // The symlink must survive; the trust entries land in its target so
+        // codex and the dotfile manager keep seeing one file.
+        assert!(fs::symlink_metadata(&config_path).unwrap().file_type().is_symlink());
+        let text = fs::read_to_string(&real).unwrap();
+        assert!(text.contains("# managed by dotfiles"));
+        assert!(text.contains("trusted_hash"));
+        let status = Plan { action: Action::Status, providers: vec!["codex".into()] };
+        let result = run_with_context(&status, &context);
+        assert_eq!(result.value["providers"][0]["state"], "installed", "{}", result.value);
+        let second = run_with_context(&install, &context);
+        assert_eq!(second.value["providers"][0]["changed"], Value::Bool(false));
+
+        let uninstall = Plan { action: Action::Uninstall, providers: vec!["codex".into()] };
+        let result = run_with_context(&uninstall, &context);
+        assert!(!result.failed, "{}", result.value);
+        assert!(fs::symlink_metadata(&config_path).unwrap().file_type().is_symlink());
+        let text = fs::read_to_string(&real).unwrap();
+        assert!(text.contains("# managed by dotfiles"));
+        assert!(!text.contains("trusted_hash"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn codex_install_refuses_a_dangling_config_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let config_path = context.home.join(".codex/config.toml");
+        fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+        symlink(root.path().join("missing-target.toml"), &config_path).unwrap();
+
+        let plan = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        let result = run_with_context(&plan, &context);
+        assert!(result.failed, "{}", result.value);
+        assert!(result.value["errors"][0].as_str().unwrap().contains("does not resolve"));
+        // Preflight runs first: no hooks were installed and the link survives.
+        assert!(!context.home.join(".codex/hooks.json").exists());
+        assert!(fs::symlink_metadata(&config_path).unwrap().file_type().is_symlink());
+    }
+
+    #[test]
+    fn codex_status_reports_partial_for_an_oversized_config_toml() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let install = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        assert!(!run_with_context(&install, &context).failed);
+        let status = Plan { action: Action::Status, providers: vec!["codex".into()] };
+        let result = run_with_context(&status, &context);
+        assert_eq!(result.value["providers"][0]["state"], "installed", "{}", result.value);
+
+        // Grow config.toml past the cap without writing real data; the status
+        // path must reject it from metadata instead of reading it.
+        let config_path = context.home.join(".codex/config.toml");
+        let file = OpenOptions::new().write(true).open(&config_path).unwrap();
+        file.set_len(MAX_CONFIG_BYTES + 1).unwrap();
+        drop(file);
+        let result = run_with_context(&status, &context);
+        assert_eq!(result.value["providers"][0]["state"], "partial", "{}", result.value);
     }
 
     #[test]
