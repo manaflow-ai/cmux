@@ -108,7 +108,8 @@ final class MobilePairedPhoneStore {
         guard let normalizedAccountID = Self.normalized(accountID),
               let normalizedHandshakeIdentity = Self.normalized(handshakeIdentity),
               normalizedHandshakeIdentity.utf8.count <= Self.maximumHandshakeIdentityLength,
-              let bundleIdentifier = legacyCompatibilityBundleIdentifier,
+              let bundleIdentifier = legacyPickerBundleIdentifier
+                  ?? legacyCompatibilityBundleIdentifier,
               isBundleAllowedForMacLane(bundleIdentifier) else {
             return false
         }
@@ -189,6 +190,12 @@ final class MobilePairedPhoneStore {
         return fallbackBundleIdentifier
     }
 
+    private var legacyPickerBundleIdentifier: String? {
+        recordsByClientID.values.first {
+            $0.source == .legacyPickerMigration
+        }?.bundleIdentifier
+    }
+
     private var isOfficialMacLane: Bool {
         let normalizedTag = macInstanceTag
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -222,7 +229,7 @@ final class MobilePairedPhoneStore {
     private static func legacyCompatibilityClientID(for clientID: String?) -> String {
         let suffix = normalized(clientID) ?? "default"
         let prefix = "legacy-compatible-"
-        let budget = maxClientIDLength - prefix.utf16.count
+        let budget = maximumClientIDLength - prefix.utf16.count
         return prefix + String(suffix.prefix(budget))
     }
 }

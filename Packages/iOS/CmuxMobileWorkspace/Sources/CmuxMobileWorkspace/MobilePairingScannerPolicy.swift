@@ -21,11 +21,6 @@ public struct MobilePairingScannerPolicy {
         // Keep future bundle-specific attach schemes flowing to the decoder so
         // it can show the update-your-iPhone-app guidance. A scanner that drops
         // them here would leave the user with no failure surface at all.
-        guard let components = URLComponents(string: code),
-              (components.host == "attach" || components.host == "pair"),
-              let scheme = components.scheme?.lowercased() else {
-            return false
-        }
-        return scheme.hasPrefix("cmux-ios-")
+        return CmxPairingURLScheme.isPairingURLCandidate(code)
     }
 }

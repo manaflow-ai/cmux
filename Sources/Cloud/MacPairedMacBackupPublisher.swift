@@ -30,6 +30,7 @@ final class MacPairedMacBackupPublisher {
     private let session: URLSession = .shared
     private var auth: AuthCoordinator?
     private var observeTask: Task<Void, Never>?
+    private var authObserveTask: Task<Void, Never>?
     /// The routes most recently published, so an unchanged status update (the
     /// common case) does not re-POST.
     private var lastPublishedRoutes: [CmxAttachRoute] = []
@@ -70,12 +71,17 @@ final class MacPairedMacBackupPublisher {
     func configure(auth: AuthCoordinator) {
         guard Self.isEnabled() else { return }
         self.auth = auth
+        observeTask?.cancel()
+        authObserveTask?.cancel()
+        observeTask = nil
+        authObserveTask = nil
         lastPublishedRoutes = []
         lastPublishedBundleIdentifier = nil
         // The iOS-pairing listener defaults ON in DEBUG builds (see
         // MobileCatalogSection.iOSPairingHost), so an attach route comes up
         // without a manual Settings toggle; we just observe and publish it.
         startObserving()
+        startObservingAuth(auth)
     }
 
     private func startObserving() {
@@ -93,6 +99,28 @@ final class MacPairedMacBackupPublisher {
                     continue
                 }
                 await self.publish(routes: status.routes)
+            }
+        }
+    }
+
+    /// Replays the current routes after auth restoration. The host-status
+    /// stream can yield before Stack has published its identity, so relying on
+    /// that first yield alone would permanently skip an otherwise valid backup.
+    private func startObservingAuth(_ auth: AuthCoordinator) {
+        authObserveTask = Task { @MainActor [weak self, weak auth] in
+            guard let self, let auth else { return }
+            await auth.awaitBootstrapped()
+            guard !Task.isCancelled, self.auth === auth else { return }
+            for await identity in auth.authenticatedSessionIdentities() {
+                guard !Task.isCancelled, self.auth === auth else { return }
+                guard identity != nil else {
+                    self.lastPublishedRoutes = []
+                    self.lastPublishedBundleIdentifier = nil
+                    continue
+                }
+                let routes = MobileHostService.shared.statusSnapshot().routes
+                guard !routes.isEmpty else { continue }
+                await self.publish(routes: routes)
             }
         }
     }

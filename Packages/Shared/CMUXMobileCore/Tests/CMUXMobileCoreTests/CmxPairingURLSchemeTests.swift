@@ -145,6 +145,21 @@ import Testing
         #expect(CmxPairingURLScheme(rawValue: "cmux-ios-*") == nil)
     }
 
+    @Test func pairingURLCandidateKeepsFutureBundleSchemesOnTheDecoderPath() {
+        #expect(CmxPairingURLScheme.isPairingURLCandidate(
+            "cmux-ios-dev.cmux.app.future://attach?v=4"
+        ))
+        #expect(CmxPairingURLScheme.isPairingURLCandidate(
+            "cmux-ios-com.cmux.app://pair?v=1&payload=abc"
+        ))
+        #expect(!CmxPairingURLScheme.isPairingURLCandidate(
+            "https://example.com/attach"
+        ))
+        #expect(!CmxPairingURLScheme.isPairingURLCandidate(
+            "cmux-ios-dev.cmux.app.future://settings"
+        ))
+    }
+
     @Test func channelClassificationRecognizesOnlyAuthoritativeLanes() throws {
         for bundleIdentifier in [
             "com.cmux.app",

@@ -59,6 +59,21 @@ public struct CmxPairingURLScheme {
         self = scheme
     }
 
+    /// Whether a URL has the cmux attach shape even when its bundle-specific
+    /// scheme is newer than this build's classified allowlist. Callers use this
+    /// to route future payloads into the decoder's update-guidance path instead
+    /// of treating them as unrelated preview input.
+    public static func isPairingURLCandidate(_ urlString: String) -> Bool {
+        guard let components = URLComponents(string: urlString),
+              let scheme = components.scheme?.lowercased(),
+              scheme.hasPrefix("cmux-ios-"),
+              (components.host?.lowercased() == "attach"
+                  || components.host?.lowercased() == "pair") else {
+            return false
+        }
+        return true
+    }
+
     /// Whether this scheme identifies a tagged iOS development build.
     public var isDevelopment: Bool {
         rawValue == Self.development

@@ -318,11 +318,11 @@ final class PhonePushClient {
             .pairedPhoneBundleIdentifier(accountID: identity.accountID) else {
             return .encodingFailed
         }
-        deliveryQueue.start()
         deliveryQueue.retainOnly(
             accountID: identity.accountID,
             generation: identity.generation
         )
+        deliveryQueue.start()
         let correlationID = UUID()
         let envelope: PhonePushRequestEnvelope
         do {
@@ -356,11 +356,11 @@ final class PhonePushClient {
               let identity = auth?.authenticatedSessionIdentity,
               let targetBundleIdentifier = MobileHostService.shared
                   .pairedPhoneBundleIdentifier(accountID: identity.accountID) else { return }
-        deliveryQueue.start()
         deliveryQueue.retainOnly(
             accountID: identity.accountID,
             generation: identity.generation
         )
+        deliveryQueue.start()
         for start in stride(
             from: 0,
             to: ids.count,
@@ -519,7 +519,6 @@ final class PhonePushClient {
     /// completed host-status handshake records an iOS bundle.
     func pairedPhoneTargetDidChange() {
         guard PhonePushConfiguration.forwardingEnabled(in: defaults),
-              !unresolvedRestoredEnvelopes.isEmpty,
               let identity = activeIdentity,
               auth?.isAuthenticatedSessionIdentityCurrent(identity) == true,
               let targetBundleIdentifier = MobileHostService.shared

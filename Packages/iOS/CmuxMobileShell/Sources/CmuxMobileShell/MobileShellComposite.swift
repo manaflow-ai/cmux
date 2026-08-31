@@ -2542,7 +2542,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard !trimmedCode.isEmpty else {
             return
         }
-        if CmxPairingURLScheme(urlString: trimmedCode) != nil {
+        if CmxPairingURLScheme(urlString: trimmedCode) != nil
+            || CmxPairingURLScheme.isPairingURLCandidate(trimmedCode) {
             return
         }
         let attemptID = beginPairingAttempt()
