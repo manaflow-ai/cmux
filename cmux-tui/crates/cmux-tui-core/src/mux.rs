@@ -23877,6 +23877,85 @@ mod tests {
     }
 
     #[test]
+    fn delayed_roster_remove_cannot_delete_a_newer_lifecycle_record() {
+        use crate::journal_reducers::RosterDelta;
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("terminal");
+        mux.agent_records.lock().unwrap().insert(
+            terminal_id.clone(),
+            TerminalAgentRecord {
+                state: AgentState::Working,
+                source: AgentSource::Socket,
+                session: Some("new-session".into()),
+                agent: None,
+                updated_at_ms: 200,
+            },
+        );
+
+        // A delayed Done fold belongs to the previous lifecycle. It must not
+        // remove the newer direct record that now occupies the same terminal.
+        mux.apply_roster_delta_to_record_cache(RosterDelta::Remove {
+            terminal_id: terminal_id.to_string(),
+        });
+
+        let record = mux.agent_records.lock().unwrap();
+        assert_eq!(
+            record.get(&terminal_id).and_then(|entry| entry.session.as_deref()),
+            Some("new-session")
+        );
+        mux.shutdown();
+    }
+
+    #[test]
+    fn direct_done_report_fences_same_session_before_roster_fold() {
+        let mux = test_mux();
+        let blocked_surface = mux.new_workspace(None, None).unwrap();
+        let target_surface = mux.new_workspace(None, None).unwrap();
+        let blocked_terminal = blocked_surface.terminal_public_id().cloned().expect("terminal");
+
+        // Leave an earlier hook projection pending. The direct Done echo for
+        // the target terminal commits, but its roster fold must stop behind
+        // this unresolved prefix.
+        mux.remove_terminal_catalog_for_test(&blocked_terminal);
+        let pending_hook = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "UserPromptSubmit",
+            Some(&blocked_terminal.to_string()),
+            serde_json::json!({}),
+        )
+        .unwrap();
+        let validated = mux.journal_kernel.validate_ingress(&pending_hook).unwrap();
+        mux.workspace_registry
+            .lock()
+            .unwrap()
+            .append_journal_ingress(&pending_hook, &validated, "test", "done-fence-prefix")
+            .unwrap();
+
+        let done = mux
+            .report_agent(
+                target_surface.id,
+                AgentState::Done,
+                AgentSource::Socket,
+                Some("direct-session".into()),
+            )
+            .unwrap();
+        assert_eq!(done.state, AgentState::Done);
+
+        let working = mux.report_agent(
+            target_surface.id,
+            AgentState::Working,
+            AgentSource::Socket,
+            Some("direct-session".into()),
+        );
+        assert!(
+            working.is_err(),
+            "a same-session Working report must respect the durable Done fence"
+        );
+        mux.shutdown();
+    }
+
+    #[test]
     fn roster_fold_pages_to_a_target_beyond_the_first_journal_page() {
         let root = std::env::temp_dir().join(format!(
             "cmux-roster-multiple-pages-{}",
@@ -26080,8 +26159,8 @@ mod tests {
         let failed = mux.purge_terminal_side_tables(&terminal_id);
         assert!(failed.is_err(), "the durable snapshot error must remain observable");
         assert!(
-            !mux.agent_records.lock().unwrap().contains_key(&terminal_id),
-            "a failed roster snapshot must not retain the compatibility record"
+            mux.agent_records.lock().unwrap().contains_key(&terminal_id),
+            "a failed roster snapshot must retain the compatibility record"
         );
         assert!(
             mux.workspace_registry
@@ -26089,8 +26168,9 @@ mod tests {
                 .unwrap()
                 .pending_agent_hook_projections()
                 .unwrap()
-                .is_empty(),
-            "durable pending hook receipts must still be purged"
+                .iter()
+                .any(|(_, _, key, _, _)| key == "pending-before-snapshot-failure"),
+            "durable pending hook receipts must remain until the fence is durable"
         );
         assert!(
             !mux.agent_roster.lock().unwrap().roster.is_retired(terminal_id.as_str()),
