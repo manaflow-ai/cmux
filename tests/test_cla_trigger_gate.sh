@@ -234,6 +234,7 @@ if [[ "$status" -eq 0 || "$output" != *"metadata is incomplete"* ]]; then
 fi
 set +e
 output="$(
+  env -u GITHUB_OUTPUT \
   EVENT_NAME=issue_comment EVENT_ACTION=created COMMENT_BODY=ordinary \
   COMMENT_AUTHOR_ID=300 COMMENT_AUTHOR_LOGIN=contributor PR_AUTHOR_ID=300 \
   COMMENT_AUTHOR_TYPE=User COMMENT_AUTHOR_ASSOCIATION=NONE bash -u "$gate_script" 2>&1
