@@ -2435,7 +2435,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Relayed phone replies type through the SAME entrypoint as the phone's
         // direct RPC sends, so both lanes share claim resolution and injection.
         PhoneReplyInboxCoordinator.shared.injectTerminalInput = { [weak self] params in
-            switch TerminalController.shared.v2MobileTerminalInput(params: params) {
+            guard let self else { return .permanentlyUndeliverable }
+            let controller = TerminalController.shared
+            // The inbox payload always carries a stable surface id. Resolve it
+            // before entering the generic mobile RPC so a launch-time workspace
+            // claim cannot route the reply to a stale manager.
+            guard let routedParams = self.phoneReplyTerminalInputParams(params) else {
+                let restorationPending = !self.didAttemptStartupSessionRestore
+                    || self.isApplyingSessionRestore
+                return restorationPending ? .retryable : .permanentlyUndeliverable
+            }
+            switch controller.v2MobileTerminalInput(params: routedParams) {
             case .ok:
                 return .delivered
             case .err(let code, _, _):
@@ -2449,9 +2459,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // still rebuilding its workspace. Once that pass has finished,
                 // a stable-surface lookup miss is authoritative and the parked
                 // reply must be acknowledged instead of retrying until TTL.
-                let restorationPending = self.map {
-                    !$0.didAttemptStartupSessionRestore || $0.isApplyingSessionRestore
-                } ?? false
+                let restorationPending = !self.didAttemptStartupSessionRestore
+                    || self.isApplyingSessionRestore
                 return restorationPending ? .retryable : .permanentlyUndeliverable
             }
         }

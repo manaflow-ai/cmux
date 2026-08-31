@@ -43,6 +43,37 @@ final class NotificationDeliverySeamAdapter: NotificationFeedReplying, Notificat
 }
 
 extension AppDelegate {
+    /// Rewrites a parked phone reply to the surface's current workspace.
+    ///
+    /// The reply inbox is already authenticated by ``PhoneReplyInboxClient``;
+    /// this helper is deliberately limited to that internal relay path. Direct
+    /// mobile RPCs retain their workspace/window authorization and routing
+    /// selectors, and must not use this global surface re-home.
+    func phoneReplyTerminalInputParams(
+        _ params: [String: Any]
+    ) -> [String: Any]? {
+        let controller = TerminalController.shared
+        guard let surfaceID = controller.v2UUID(params, "surface_id") else {
+            return nil
+        }
+        let hasWorkspaceID = controller.v2HasNonNullParam(params, "workspace_id")
+        let claimedWorkspaceID = controller.v2UUID(params, "workspace_id")
+        guard !hasWorkspaceID || claimedWorkspaceID != nil else {
+            return nil
+        }
+        guard let owner = liveSurfaceOwner(
+            surfaceID: surfaceID,
+            preferredTabID: claimedWorkspaceID
+        ) else {
+            return nil
+        }
+
+        var routed = params
+        routed["workspace_id"] = owner.tabID.uuidString
+        routed["surface_id"] = owner.surfaceID.uuidString
+        return routed
+    }
+
     func notificationDeliveryDeliverFeedReply(requestId: String, decision: NotificationFeedDecision) {
         FeedCoordinator.shared.deliverReply(
             requestId: requestId,

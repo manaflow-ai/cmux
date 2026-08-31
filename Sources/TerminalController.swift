@@ -16070,45 +16070,14 @@ class TerminalController {
         params: [String: Any],
         requireTerminal: Bool
     ) -> (tabManager: TabManager, workspace: Workspace, surfaceId: UUID?)? {
-        let requestedSurfaceId = v2UUID(params, "surface_id")
-            ?? v2UUID(params, "terminal_id")
-            ?? v2UUID(params, "tab_id")
-        let requestedWorkspaceId = v2UUID(params, "workspace_id")
-
-        // The workspace id in a relayed mobile reply is a launch-time claim and
-        // can be stale after a pane move or session restore. Keep the normal
-        // workspace-first path allocation-free for the common case; only scan
-        // live surface ownership when that workspace cannot resolve the
-        // requested terminal. The surface id is globally stable and therefore
-        // the authoritative selector for this recovery path.
-        let resolvedContext: (tabManager: TabManager, workspace: Workspace)?
-        if let tabManager = v2ResolveTabManager(params: params),
-           let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) {
-            if requireTerminal,
-               let requestedSurfaceId,
-               workspace.terminalInputTarget(forPanelID: requestedSurfaceId) == nil,
-               let retargeted = mobileRetargetedTerminalWorkspace(
-                   surfaceID: requestedSurfaceId,
-                   preferredWorkspaceID: requestedWorkspaceId
-               ) {
-                resolvedContext = retargeted
-            } else {
-                resolvedContext = (tabManager, workspace)
-            }
-        } else if requireTerminal,
-                  let requestedSurfaceId,
-                  let retargeted = mobileRetargetedTerminalWorkspace(
-                      surfaceID: requestedSurfaceId,
-                      preferredWorkspaceID: requestedWorkspaceId
-                  ) {
-            resolvedContext = retargeted
-        } else {
+        guard let tabManager = v2ResolveTabManager(params: params),
+              let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
             return nil
         }
 
-        guard let resolvedContext else { return nil }
-        let tabManager = resolvedContext.tabManager
-        let workspace = resolvedContext.workspace
+        let requestedSurfaceId = v2UUID(params, "surface_id")
+            ?? v2UUID(params, "terminal_id")
+            ?? v2UUID(params, "tab_id")
 
         let surfaceId: UUID?
         if let requestedSurfaceId {
@@ -16148,24 +16117,6 @@ class TerminalController {
         }
 
         return (tabManager, workspace, surfaceId)
-    }
-
-    /// Finds the workspace currently owning a terminal surface after the
-    /// request's claimed workspace failed to resolve it. This fallback is kept
-    /// off the hot path so ordinary mobile keystrokes retain their existing
-    /// O(1) workspace lookup.
-    private func mobileRetargetedTerminalWorkspace(
-        surfaceID: UUID,
-        preferredWorkspaceID: UUID?
-    ) -> (tabManager: TabManager, workspace: Workspace)? {
-        guard let owner = AppDelegate.shared?.liveSurfaceOwner(
-            surfaceID: surfaceID,
-            preferredTabID: preferredWorkspaceID
-        ),
-              let workspace = owner.tabManager.tabs.first(where: { $0.id == owner.tabID }) else {
-            return nil
-        }
-        return (owner.tabManager, workspace)
     }
 
     func mobileTerminalPanels(in workspace: Workspace) -> [TerminalPanel] {
