@@ -812,4 +812,95 @@ import Testing
         #expect(try await transport.sentRequests().isEmpty)
     }
 
+    @Test func relayRouteRequestCarriesTicketHostDeviceID() async throws {
+        let route = try CmxAttachRoute(
+            id: "relay",
+            kind: .websocket,
+            endpoint: .url("wss://relay.example.test/session"),
+            priority: 0
+        )
+        let transport = QueuedCancellationProbeTransport()
+        let capture = TransportRequestCapture()
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: IntentRecordingTransportFactory(
+                transport: transport,
+                capture: capture
+            )
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "123E4567-E89B-42D3-A456-426614174004",
+            macDisplayName: "Relay Mac",
+            routes: [route],
+            expiresAt: nil,
+            authToken: nil
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket
+        )
+        let request = try MobileCoreRPCClient.requestData(method: "workspace.list")
+
+        let task = Task { try await client.sendRequest(request) }
+        _ = try await transport.waitForSentRequestCount(1)
+
+        // The pairing dial must bind the relay session to the ticket's host:
+        // the relay factory refuses a request with a nil or empty peer id, so
+        // the ticket's (canonicalized) macDeviceID is the value that keeps the
+        // relay route dialable at all.
+        #expect(capture.request()?.expectedPeerDeviceID == ticket.macDeviceID)
+        #expect(capture.request()?.authorizationMode == .transportAdmission)
+        task.cancel()
+        await transport.releaseFirstSend()
+        _ = try? await task.value
+    }
+
+    @Test func anonymousTicketRequestCarriesNoPeerBinding() async throws {
+        let route = try hostPortRoute(
+            kind: .debugLoopback,
+            host: "127.0.0.1",
+            port: 59_123
+        )
+        let transport = QueuedCancellationProbeTransport()
+        let capture = TransportRequestCapture()
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: IntentRecordingTransportFactory(
+                transport: transport,
+                capture: capture
+            ),
+            stackAccessToken: "test-stack-token"
+        )
+        // An anonymous pairing ticket (v2/v3 QR grammars) has an empty
+        // macDeviceID until host status authenticates the Mac. The transport
+        // request must express that as "peer unknown" (nil), never as an
+        // empty-string binding.
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "",
+            macDisplayName: nil,
+            routes: [route],
+            expiresAt: nil,
+            authToken: nil
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let request = try MobileCoreRPCClient.requestData(method: "workspace.list")
+
+        let task = Task { try await client.sendRequest(request) }
+        _ = try await transport.waitForSentRequestCount(1)
+
+        let recorded = try #require(capture.request())
+        #expect(recorded.expectedPeerDeviceID == nil)
+        task.cancel()
+        await transport.releaseFirstSend()
+        _ = try? await task.value
+    }
+
 }
