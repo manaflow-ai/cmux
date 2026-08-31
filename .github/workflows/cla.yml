@@ -7,7 +7,8 @@ on:
 
 # Keep the token scoped to the GitHub API operations used by this action.
 permissions:
-  actions: write
+  # The action inspects prior runs; its optional rerun request is best-effort.
+  actions: read
   contents: write
   issues: write
   pull-requests: read
