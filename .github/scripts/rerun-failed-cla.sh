@@ -354,10 +354,13 @@ runs_json="$(jq -c '[.]' <<<"${runs_page}")"
 # The API returns newest runs first. Probe additional bounded pages when the
 # first page is full, so normal workflow history growth does not strand a
 # failed check. GitHub documents a 1,000-result cap for filtered workflow-run
-# queries, so ten 100-item pages cover the complete API result window. If page
-# ten is full, fail with an actionable message instead of pretending page 11
-# can reveal an unreported run. `runs_json` stays an array of response objects;
-# the candidate query below flattens each `.workflow_runs` array explicitly.
+# queries, so ten 100-item pages cover the complete API result window. Search
+# the complete bounded window before deciding whether it is full: a valid
+# candidate on page ten is still actionable. If the window is full and no
+# candidate matches, fail with an actionable message instead of pretending page
+# 11 can reveal an unreported run. `runs_json` stays an array of response
+# objects; the candidate query below flattens each `.workflow_runs` array
+# explicitly.
 page_count="${run_count}"
 page_number=2
 while (( page_count == 100 && page_number <= MAX_RUN_PAGES )); do
@@ -376,9 +379,8 @@ while (( page_count == 100 && page_number <= MAX_RUN_PAGES )); do
   runs_json="$(jq -c --argjson next_page "${next_runs_page}" '. + [$next_page]' <<<"${runs_json}")"
   (( page_number++ ))
 done
-if (( page_count == 100 )); then
-  fail "The GitHub workflow-run result window is full after ${MAX_RUN_PAGES} pages; push a new commit or ask an administrator to prune old runs before requesting a rerun"
-fi
+run_window_full=false
+(( page_count == 100 )) && run_window_full=true
 
 if ! candidate_list_json="$(jq -c \
     --arg path "${WORKFLOW_PATH}" \
@@ -456,6 +458,9 @@ fi
 candidate_count="$(jq -r 'length' <<<"${candidate_list_json}")"
 [[ "${candidate_count}" =~ ^[0-9]+$ ]] || fail "Could not count matching CLA workflow runs"
 if [[ "${candidate_count}" == "0" ]]; then
+  if [[ "${run_window_full}" == true ]]; then
+    fail "The GitHub workflow-run result window is full after ${MAX_RUN_PAGES} pages and contains no matching failed CLA run; push a new commit or ask an administrator to prune old runs before requesting a rerun"
+  fi
   # Do not silently treat a failed run with an empty association and a
   # different execution SHA as a successful no-op. It is not eligible for a
   # rerun, but it still needs an explicit fail-closed migration/error path.

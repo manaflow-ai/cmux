@@ -237,7 +237,16 @@ gh() {
       fi
       ;;
     repos/manaflow-ai/cmux/actions/workflows/300/runs)
-      if [[ "${FAKE_MODE}" == paginated-runs && "${api_page}" == 1 ]]; then
+      if [[ "${FAKE_MODE}" == full-run-window ]]; then
+        if [[ "${api_page}" == 10 ]]; then
+          jq -nc --arg path "$run_path" --arg run_sha "$run_sha" --argjson run_prs "$run_prs" \
+            '{workflow_runs:([range(0; 99) | {id:(1000 + .),workflow_id:300,path:$path,event:"pull_request_target",status:"completed",conclusion:"success",head_sha:"cccccccccccccccccccccccccccccccccccccccc",head_branch:"other",head_repository:{id:200,full_name:"contributor/cmux"},pull_requests:[],created_at:"2026-08-31T07:45:00Z"}] + [{id:400,workflow_id:300,path:$path,event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:{id:200,full_name:"contributor/cmux"},pull_requests:$run_prs,created_at:"2026-08-31T07:00:00Z"}])}'
+        else
+          jq -nc '{workflow_runs:[range(0; 100) | {id:(1000 + .),workflow_id:300,path:".github/workflows/cla.yml",event:"pull_request_target",status:"completed",conclusion:"success",head_sha:"cccccccccccccccccccccccccccccccccccccccc",head_branch:"other",head_repository:{id:200,full_name:"contributor/cmux"},pull_requests:[],created_at:"2026-08-31T07:45:00Z"}]}'
+        fi
+      elif [[ "${FAKE_MODE}" == full-run-window-no-match ]]; then
+        jq -nc '{workflow_runs:[range(0; 100) | {id:(1000 + .),workflow_id:300,path:".github/workflows/cla.yml",event:"pull_request_target",status:"completed",conclusion:"success",head_sha:"cccccccccccccccccccccccccccccccccccccccc",head_branch:"other",head_repository:{id:200,full_name:"contributor/cmux"},pull_requests:[],created_at:"2026-08-31T07:45:00Z"}]}'
+      elif [[ "${FAKE_MODE}" == paginated-runs && "${api_page}" == 1 ]]; then
         jq -nc '{workflow_runs:[range(0; 100) | {id:(1000 + .),workflow_id:300,path:".github/workflows/cla.yml",event:"pull_request_target",status:"completed",conclusion:"success",head_sha:"cccccccccccccccccccccccccccccccccccccccc",head_branch:"other",head_repository:{id:200,full_name:"contributor/cmux"},pull_requests:[],created_at:"2026-08-31T07:45:00Z"}]}'
       elif [[ "${FAKE_MODE}" == empty-mismatched-newer ]]; then
         jq -nc '{workflow_runs:[
@@ -410,6 +419,8 @@ run_case paginated-associations 0 "Requested rerun for CLA job 500 in workflow r
 run_case paginated-open-prs 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case paginated-workflows 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case paginated-runs 0 "Requested rerun for CLA job 500 in workflow run 400" 1
+run_case full-run-window 0 "Requested rerun for CLA job 500 in workflow run 400" 1
+run_case full-run-window-no-match 1 "workflow-run result window is full" 0
 run_case paginated-jobs 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case empty-different-execution-associated 1 "no pull request association and its execution SHA does not match" 0
 run_case stale-empty-execution 1 "no pull request association and its execution SHA does not match" 0
