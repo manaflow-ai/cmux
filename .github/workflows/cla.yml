@@ -9,6 +9,13 @@ on:
 # Jobs declare only the permissions they need.
 permissions: {}
 
+# Bump this value when the CLA workflow policy or maintained action pin
+# changes. Do not derive the rerun marker from `github.workflow_sha`: that SHA
+# changes for every unrelated commit on main and would strand valid failed
+# checks on open pull requests.
+env:
+  CLA_GENERATION: 'v2.2-action-49f01032e93ef115a238cd55ab9171ee3bd02435'
+
 # Bound workflow admission before any job-level `if` or runner allocation.
 # The body comparisons are only a coarse classifier because GitHub expression
 # string comparisons ignore case. The shell gate below remains the exact
@@ -128,10 +135,11 @@ jobs:
       # issues:write. Keep write until that live behavior changes.
       pull-requests: write
     steps:
-      # Immutable generation marker. Including the workflow SHA means a run
-      # from an older revision cannot execute after the policy changes below.
-      - name: "CLA generation v2 ${{ github.workflow_sha }}"
-        run: echo "CLA generation v2 ${{ github.workflow_sha }}"
+      # Stable generation marker. It changes only when the policy or action
+      # pin changes, unlike github.workflow_sha, which follows every main
+      # commit.
+      - name: "CLA generation ${{ env.CLA_GENERATION }}"
+        run: echo "CLA generation ${{ env.CLA_GENERATION }}"
 
       - name: "Validate CLA comment declaration"
         if: github.event_name == 'issue_comment'
@@ -283,7 +291,7 @@ jobs:
           COMMENT_AUTHOR_TYPE: ${{ github.event.comment.user.type }}
           COMMENT_AUTHOR_ASSOCIATION: ${{ github.event.comment.author_association }}
           WORKFLOW_PATH: '.github/workflows/cla.yml'
-          WORKFLOW_SHA: ${{ github.workflow_sha }}
+          CLA_GENERATION: ${{ env.CLA_GENERATION }}
           TARGET_EVENT: 'pull_request_target'
           TARGET_BASE_REF: 'main'
         run: |
@@ -311,7 +319,7 @@ jobs:
             OWNER|MEMBER|COLLABORATOR|CONTRIBUTOR|FIRST_TIME_CONTRIBUTOR|FIRST_TIMER|NONE) ;;
             *) fail "Comment author association is invalid" ;;
           esac
-          [[ "${WORKFLOW_SHA}" =~ ^[0-9a-f]{40}$ ]] || fail "Invalid workflow generation SHA"
+          [[ "${CLA_GENERATION}" =~ ^v[0-9]+\.[0-9]+-action-[0-9a-f]{7,40}$ ]] || fail "Invalid CLA generation marker"
 
           issue_json="$(gh api "repos/${GH_REPO}/issues/${PR_NUMBER}" 2>/dev/null)" || fail "Could not query the issue"
           issue_state="$(jq -r '.state // empty' <<<"${issue_json}")"
@@ -835,7 +843,7 @@ jobs:
           if ! cla_job_json="$(jq -c \
               --arg run_id "${run_id}" \
               --arg run_sha "${run_execution_sha}" \
-              --arg workflow_sha "${WORKFLOW_SHA}" \
+              --arg cla_generation "${CLA_GENERATION}" \
               --arg run_head_branch "${run_head_branch}" \
               --arg head_repo "${head_repo}" \
               --argjson head_repo_id "${head_repo_id}" \
@@ -854,7 +862,7 @@ jobs:
                        .head_repository.id == $head_repo_id)
                     ) and
                     any(.steps[]?;
-                      .name == ("CLA generation v2 " + $workflow_sha) and
+                      .name == ("CLA generation " + $cla_generation) and
                       .status == "completed" and
                       .conclusion == "success"
                     )
@@ -880,7 +888,7 @@ jobs:
             --arg job_id "${job_id}" \
             --arg run_id "${run_id}" \
             --arg run_sha "${run_execution_sha}" \
-            --arg workflow_sha "${WORKFLOW_SHA}" \
+            --arg cla_generation "${CLA_GENERATION}" \
             --arg run_head_branch "${run_head_branch}" \
             --arg head_repo "${head_repo}" \
             --argjson head_repo_id "${head_repo_id}" '
@@ -898,7 +906,7 @@ jobs:
                  .head_repository.id == $head_repo_id)
               ) and
               any(.steps[]?;
-                .name == ("CLA generation v2 " + $workflow_sha) and
+                .name == ("CLA generation " + $cla_generation) and
                 .status == "completed" and
                 .conclusion == "success"
               )
@@ -925,7 +933,7 @@ jobs:
             --arg job_id "${job_id}" \
             --arg run_id "${run_id}" \
             --arg run_sha "${run_execution_sha}" \
-            --arg workflow_sha "${WORKFLOW_SHA}" \
+            --arg cla_generation "${CLA_GENERATION}" \
             --arg run_head_branch "${run_head_branch}" \
             --arg head_repo "${head_repo}" \
             --argjson head_repo_id "${head_repo_id}" '
@@ -943,7 +951,7 @@ jobs:
                  .head_repository.id == $head_repo_id)
               ) and
               any(.steps[]?;
-                .name == ("CLA generation v2 " + $workflow_sha) and
+                .name == ("CLA generation " + $cla_generation) and
                 .status == "completed" and
                 .conclusion == "success"
               )

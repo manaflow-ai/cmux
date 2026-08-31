@@ -47,7 +47,7 @@ export COMMENT_AUTHOR_LOGIN=contributor
 export COMMENT_AUTHOR_TYPE=User
 export COMMENT_AUTHOR_ASSOCIATION=NONE
 export WORKFLOW_PATH=.github/workflows/cla.yml
-export WORKFLOW_SHA=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+export CLA_GENERATION=v2.2-action-49f01032e93ef115a238cd55ab9171ee3bd02435
 export TARGET_EVENT=pull_request_target
 export TARGET_BASE_REF=main
 
@@ -80,12 +80,13 @@ gh() {
   local run_head_repo_id=200
   local run_head_repository_null=false
   local run_sha=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-  local marker="CLA generation v2 ${WORKFLOW_SHA}"
+  local marker="CLA generation ${CLA_GENERATION}"
   local run_path=.github/workflows/cla.yml
   local run_prs='[{"number":123,"base":{"ref":"main","repo":{"id":100,"full_name":"manaflow-ai/cmux"}},"head":{"ref":"feature","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","repo":{"id":200,"full_name":"contributor/cmux"}}}]'
 
   case "${FAKE_MODE}" in
-    stale-marker) marker="CLA generation v2 cccccccccccccccccccccccccccccccccccccccc" ;;
+    stale-marker) marker="CLA generation v2.2-action-0000000000000000000000000000000000000000" ;;
+    unrelated-main-commit) marker="CLA generation ${CLA_GENERATION}" ;;
     wrong-head-repo) run_head_repo=attacker/cmux; run_head_repo_id=201; run_prs='[]' ;;
     fork-current|empty-run-association) run_prs='[]'; run_sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ;;
     empty-different-execution-associated) run_prs='[]' ;;
@@ -263,6 +264,7 @@ run_case wrong-run-association 0 "No failed CLA run exists for this pull request
 run_case malformed-run-association 0 "No failed CLA run exists for this pull request head" 0
 run_case invalid-run-association 0 "No failed CLA run exists for this pull request head" 0
 run_case stale-marker 1 "older workflow generation" 0
+run_case unrelated-main-commit 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case wrong-head-repo 0 "No failed CLA run exists for this pull request head" 0
 run_case closed-pr 1 "The issue is not an open pull request" 0
 run_case retargeted-pr 1 "The live pull request is not valid" 0
