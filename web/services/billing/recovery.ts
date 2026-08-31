@@ -14,6 +14,7 @@ import {
 import {
   recordFoundersCheckoutCompletion,
   recordProCheckoutCompletionByEmail,
+  hasConflictingFounderMetadata,
   type BillingPurchaseDependencies,
   type CheckoutCompletionInput,
 } from "./purchase";
@@ -477,6 +478,11 @@ async function purchaseFromStripeCustomer(
   );
   for (const subscription of subscriptions) {
     const metadata = subscription.metadata ?? {};
+    if (hasConflictingFounderMetadata({ metadata: null }, subscription)) {
+      // A malformed Founder/Pro or Founder/Team marker must not fall through
+      // as an ordinary Pro subscription after the Founder branch rejects it.
+      continue;
+    }
     const isCmuxPro = metadata.app === "cmux" && metadata.plan === "pro";
     const isFounder = isFounderRecoveryPurchase(undefined, subscription);
     if (metadata.stackTeamId) continue;
@@ -639,6 +645,9 @@ function isFounderRecoveryPurchase(
   sessionMetadata: Stripe.Metadata | null | undefined,
   subscription: Stripe.Subscription | null | undefined,
 ): boolean {
+  if (hasConflictingFounderMetadata({ metadata: sessionMetadata ?? null }, subscription)) {
+    return false;
+  }
   if (sessionMetadata?.app && sessionMetadata.app !== "cmux") return false;
   if (
     !sessionMetadata?.app &&
@@ -657,6 +666,9 @@ function isRecognizedRecoveryMetadata(
   sessionMetadata: Stripe.Metadata | null | undefined,
   subscription: Stripe.Subscription | null | undefined,
 ): boolean {
+  if (hasConflictingFounderMetadata({ metadata: sessionMetadata ?? null }, subscription)) {
+    return false;
+  }
   if (sessionMetadata?.app) {
     return (
       sessionMetadata.app === "cmux" &&

@@ -8,7 +8,7 @@ import {
 import { captureBillingError } from "../../../../services/errors";
 import {
   isCmuxCheckoutSession,
-  hasConflictingFounderTeamMetadata,
+  hasConflictingFounderMetadata,
   recordCheckoutCompletion as recordCheckoutCompletionDefault,
   recordFoundersCheckoutCompletion as recordFoundersCheckoutCompletionDefault,
 } from "../../../../services/billing/purchase";
@@ -62,7 +62,7 @@ export function makeBillingCompleteHandler(
           expand: ["subscription", "customer"],
         });
         const expandedSubscriptionValue = expandedSubscription(session);
-        if (hasConflictingFounderTeamMetadata(session, expandedSubscriptionValue)) {
+        if (hasConflictingFounderMetadata(session, expandedSubscriptionValue)) {
           return NextResponse.redirect(new URL("/pricing?billing=error", request.url));
         }
         if (!isCmuxCheckoutSession(session, expandedSubscriptionValue)) {

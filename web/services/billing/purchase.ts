@@ -260,7 +260,7 @@ export async function recordCheckoutCompletion(
   if (!subscription) {
     throw new Error("Stripe checkout session is missing an expanded subscription");
   }
-  if (hasConflictingFounderTeamMetadata(input.session, subscription)) {
+  if (hasConflictingFounderMetadata(input.session, subscription)) {
     throw new Error("Stripe checkout has conflicting Founder and Team metadata");
   }
   const customerId = customerIdFromSession(input.session, input.customer);
@@ -516,7 +516,7 @@ export async function recordFoundersCheckoutCompletion(
   if (!isCmuxCheckoutSession(input.session, providerSubscription)) {
     throw new Error("Stripe Founder's Edition checkout is not a cmux purchase");
   }
-  if (hasConflictingFounderTeamMetadata(input.session, providerSubscription)) {
+  if (hasConflictingFounderMetadata(input.session, providerSubscription)) {
     throw new Error("Stripe Founder's Edition checkout has conflicting Team metadata");
   }
   const email = checkoutEmail(input.session, input.customer);
@@ -2080,12 +2080,13 @@ function isFounderCheckoutMetadata(
 }
 
 /**
- * Return true when a checkout claims both the one-time Founder product and a
- * Team scope. Those metadata shapes are mutually exclusive; fail closed at
- * every completion entry point instead of allowing a user-scoped entitlement
- * to be written for a Team purchase.
+ * Return true when a checkout claims the one-time Founder product together
+ * with another product marker or Team scope. Founder and renewable Pro
+ * metadata are mutually exclusive, too. Fail closed at every completion
+ * entry point instead of granting a durable Founder entitlement from a
+ * malformed checkout.
  */
-export function hasConflictingFounderTeamMetadata(
+export function hasConflictingFounderMetadata(
   session: Pick<Stripe.Checkout.Session, "metadata">,
   subscription?: Pick<Stripe.Subscription, "metadata"> | null,
 ): boolean {
@@ -2096,6 +2097,8 @@ export function hasConflictingFounderTeamMetadata(
     subscriptionMetadata?.founders_edition === "true";
   if (!isFounder) return false;
   return Boolean(
+    sessionMetadata?.plan === PRO_PLAN_ID ||
+      subscriptionMetadata?.plan === PRO_PLAN_ID ||
     sessionMetadata?.plan === TEAM_PLAN_ID ||
       subscriptionMetadata?.plan === TEAM_PLAN_ID ||
       sessionMetadata?.stackTeamId ||

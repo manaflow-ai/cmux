@@ -388,6 +388,64 @@ describe("billing purchase recovery", () => {
     expect(result).toBeNull();
   });
 
+  test("does not recover a Pro purchase as Founder when metadata conflicts", async () => {
+    const customer = {
+      id: "cus_conflicting_founder_pro_fixture",
+      deleted: false,
+      email: "conflicting-founder-pro@example.com",
+      metadata: {},
+    };
+    const subscription = {
+      id: "sub_conflicting_founder_pro_fixture",
+      customer: customer.id,
+      status: "active",
+      metadata: {
+        app: "cmux",
+        plan: "pro",
+        founders_edition: "true",
+      },
+      cancel_at_period_end: false,
+      items: { data: [] },
+    };
+    const session = {
+      id: "cs_conflicting_founder_pro_fixture",
+      customer: customer.id,
+      customer_details: { email: customer.email },
+      payment_status: "paid",
+      metadata: {
+        app: "cmux",
+        plan: "pro",
+        founders_edition: "true",
+      },
+      subscription: subscription.id,
+    };
+    const result = await findPaidBillingPurchaseByEmail(
+      customer.email,
+      {
+        db: {
+          select: () => {
+            throw new Error("no local database in this test");
+          },
+        } as never,
+        stripeClient: () => ({
+          customers: {
+            list: mock(async () => ({ data: [customer] })),
+          },
+          subscriptions: {
+            list: mock(async () => ({ data: [subscription] })),
+          },
+          checkout: {
+            sessions: {
+              list: mock(async () => ({ data: [session] })),
+            },
+          },
+        }) as never,
+      },
+    );
+
+    expect(result).toBeNull();
+  });
+
   test("paginates the bounded payment-link fallback", async () => {
     const subscription = {
       id: "sub_recent_payment_link_fixture",

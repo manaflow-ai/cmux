@@ -14,7 +14,7 @@ import {
 } from "../../../../services/analytics/stripeBilling";
 import {
   applySubscriptionUpdate as applySubscriptionUpdateDefault,
-  hasConflictingFounderTeamMetadata,
+  hasConflictingFounderMetadata,
   isCmuxCheckoutSession,
   isActiveStripeSubscriptionStatus,
   recordCheckoutCompletion as recordCheckoutCompletionDefault,
@@ -177,7 +177,7 @@ async function processStripeEvent(
       if (!isCmuxCheckoutSession(expanded, subscription)) {
         return { skipped: "foreign_checkout" };
       }
-      if (hasConflictingFounderTeamMetadata(expanded, subscription)) {
+      if (hasConflictingFounderMetadata(expanded, subscription)) {
         return { skipped: "conflicting_checkout_metadata" };
       }
       if (!checkoutPaymentSettled(expanded)) {
