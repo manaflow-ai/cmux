@@ -24120,6 +24120,61 @@ mod tests {
     }
 
     #[test]
+    fn missing_terminal_hook_event_is_quarantined_before_roster_replay() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-roster-missing-terminal-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let session = "roster-missing-terminal";
+        let terminal_id =
+            TerminalPublicId::parse("term_ffffffffffffffffffffffffffffffff").unwrap();
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "UserPromptSubmit",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({"session_id":"missing-terminal"}),
+        )
+        .unwrap();
+        let mux = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
+        let commit = mux.append_journal_ingress(&ingress, "test", "missing-terminal").unwrap();
+        assert!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .agent_hook_pending_is_quarantined(
+                    &ingress.producer_id,
+                    "test",
+                    "missing-terminal",
+                )
+                .unwrap(),
+            "a missing terminal must leave a durable reducer skip marker"
+        );
+        mux.shutdown();
+        drop(mux);
+
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let reopened = Mux::from_workspace_registry(
+            session.into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap();
+        let roster = reopened.agent_roster.lock().unwrap();
+        assert!(
+            roster.roster.entries.is_empty(),
+            "missing terminal event at sequence {} must not create ghost roster state",
+            commit.sequence
+        );
+        assert!(roster.cursor >= commit.sequence);
+        drop(roster);
+        reopened.shutdown();
+        drop(reopened);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn detected_report_cannot_replace_hook_owned_state() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
