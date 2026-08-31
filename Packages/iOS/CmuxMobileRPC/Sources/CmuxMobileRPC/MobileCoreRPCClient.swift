@@ -40,6 +40,12 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         }
     }
     private let allowsStackAuthFallback: Bool
+    /// Whether the connect-time `mobile.events.subscribe` may be enqueued with
+    /// ``sendRequestPipelined(_:timeoutNanoseconds:)`` so it rides the same
+    /// transport batch as the initial workspace-list exchange. `false` on
+    /// routes that negotiate the optional Iroh independent event lane, whose
+    /// `event_transport` advertisement only attaches on the sequential path.
+    public let supportsPipelinedInitialEventSubscribe: Bool
     // `internal` (not `private`) so `@testable import` can observe session
     // queue state from tests, instead of exposing a debug hook in production.
     let session: MobileCoreRPCSession
@@ -163,6 +169,13 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         } else {
             independentEventFactory = nil
         }
+        // Pipelining the connect-time subscribe skips
+        // `requestAdvertisingIndependentEvents`, and the host keeps an
+        // existing registration's transport on later idempotent subscribes,
+        // so a route that negotiates the optional Iroh event lane would be
+        // locked to control delivery for the connection's lifetime. Those
+        // routes keep the sequential subscribe.
+        self.supportsPipelinedInitialEventSubscribe = independentEventFactory == nil
         self.session = MobileCoreRPCSession(
             connectAttemptKey: MobileRPCConnectAttemptKey(
                 route: route

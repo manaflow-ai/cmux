@@ -1142,6 +1142,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// across re-subscribes) so events arriving during the round-trip are
     /// consumed, not buffered invisibly behind the await.
     private var terminalSubscriptionStartTask: Task<Void, Never>?
+    /// The connect-time pipelined `mobile.events.subscribe` awaiting adoption
+    /// by the listener generation for its exact candidate client. Set once
+    /// per candidate client in the connect route loop, consumed by
+    /// ``startTerminalRefreshPolling(initialHostStatus:subscriptionReadiness:recoversConnectionOnSubscriptionFailure:)``,
+    /// and discarded when the candidate is rejected or replaced. See
+    /// `MobileShellComposite+OptimisticTerminalSubscribe.swift`.
+    @ObservationIgnored var optimisticTerminalSubscription:
+        OptimisticTerminalEventSubscription?
     /// Subscription success is the final validation edge for a replacement
     /// connection or listener. This snapshot closes the race where an old
     /// acknowledgement arrives after a newer listener has taken ownership.
@@ -9589,7 +9597,39 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
             }
             defer {
+                // Runs after a successful adoption consumed the optimistic
+                // subscription (no-op then); otherwise releases the rejected
+                // candidate's pipelined subscribe with its client.
+                discardOptimisticTerminalSubscription(ifMatching: client)
                 clearConnectionAttemptClient(ifMatching: client)
+            }
+            // Pipeline the initial event subscribe ONCE PER CLIENT so it
+            // rides the same held pre-admission batch as the first
+            // workspace-list request below (the session write queue is FIFO,
+            // and the relay releases held requests together at admission).
+            // Every workspace-list retry on this client reuses this one
+            // pending/settled subscribe. Events the Mac starts pushing before
+            // route adoption buffer in the handle's pre-registered listener.
+            let optimisticSubscribeTimeoutNanoseconds: UInt64
+            if let connectionAttemptStartedAt {
+                optimisticSubscribeTimeoutNanoseconds =
+                    Self.boundedPairingRequestTimeoutNanoseconds(
+                        runtime: runtime,
+                        attemptStartedAt: connectionAttemptStartedAt
+                    )
+            } else {
+                optimisticSubscribeTimeoutNanoseconds =
+                    runtime.pairingRequestTimeoutNanoseconds
+            }
+            if optimisticSubscribeTimeoutNanoseconds > 0 {
+                await startOptimisticTerminalEventSubscription(
+                    client: client,
+                    timeoutNanoseconds: optimisticSubscribeTimeoutNanoseconds
+                )
+                guard isConnectCurrent() else {
+                    await client.disconnect()
+                    return nil
+                }
             }
             for workspaceListRequest in workspaceListRequests {
                 do {
@@ -12139,7 +12179,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    private var terminalEventStreamID: String {
+    // `internal` (not `private`) so the optimistic connect-time subscribe in
+    // `MobileShellComposite+OptimisticTerminalSubscribe.swift` requests and
+    // validates the same stream identity as the sequential path.
+    var terminalEventStreamID: String {
         "ios-terminal-events-\(clientID)"
     }
 
@@ -12200,6 +12243,31 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         case failed
     }
 
+    /// The one `mobile.events.subscribe` request-parameter builder, shared by
+    /// the sequential subscribe/re-assert path and the connect-time pipelined
+    /// subscribe so the two can be compared field-for-field.
+    func terminalEventSubscribeParams(
+        topics: [String],
+        usesScreenAnchor: Bool
+    ) -> [String: Any] {
+        var params: [String: Any] = [
+            "client_id": clientID,
+            "stream_id": terminalEventStreamID,
+            "topics": topics,
+        ]
+        // Negotiate screen-anchored render grids: the Mac then emits frames
+        // anchored to the active area (with exact scrolled-row counts) so
+        // this device owns a deep local scrollback and scrolls it locally.
+        if usesScreenAnchor, topics.contains("terminal.render_grid") {
+            params["render_grid_anchor"] = MobileTerminalRenderGridFrame.Anchor.screen.rawValue
+            // Opt into zlib-compressed event frames (render-grid deltas
+            // and full frames); a Mac too old to know the parameter
+            // ignores it and keeps sending plain frames.
+            params["event_compression"] = MobileEventFrameCompression.deflateParameterValue
+        }
+        return params
+    }
+
     private func requestTerminalEventSubscription(
         client: MobileCoreRPCClient,
         reason: String,
@@ -12208,24 +12276,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) async -> TerminalEventSubscriptionAck {
         let requestData: Data
         do {
-            var params: [String: Any] = [
-                "client_id": clientID,
-                "stream_id": terminalEventStreamID,
-                "topics": topics,
-            ]
-            // Negotiate screen-anchored render grids: the Mac then emits frames
-            // anchored to the active area (with exact scrolled-row counts) so
-            // this device owns a deep local scrollback and scrolls it locally.
-            if usesScreenAnchoredRenderGrid, topics.contains("terminal.render_grid") {
-                params["render_grid_anchor"] = MobileTerminalRenderGridFrame.Anchor.screen.rawValue
-                // Opt into zlib-compressed event frames (render-grid deltas
-                // and full frames); a Mac too old to know the parameter
-                // ignores it and keeps sending plain frames.
-                params["event_compression"] = MobileEventFrameCompression.deflateParameterValue
-            }
             requestData = try MobileCoreRPCClient.requestData(
                 method: "mobile.events.subscribe",
-                params: params
+                params: terminalEventSubscribeParams(
+                    topics: topics,
+                    usesScreenAnchor: usesScreenAnchoredRenderGrid
+                )
             )
         } catch {
             mobileShellLog.error("subscribe payload encode failed: \(String(describing: error), privacy: .private)")
@@ -12439,6 +12495,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let listenerID = UUID()
         let listenerConnectionGeneration = connectionGeneration
         terminalEventListenerID = listenerID
+        // Adopt the connect-time pipelined subscribe when one is pending for
+        // this exact client: its stream already buffered every event the Mac
+        // pushed since it registered the subscription (pre-adoption events),
+        // and its ack replaces the sequential `start` handshake round trip
+        // when the acknowledged registration matches the resolved request.
+        let optimisticSubscription = takeOptimisticTerminalSubscription(
+            for: client
+        )
         markMacConnectionHealthy()
         // Arm the liveness watchdog for this subscription generation. Done only
         // inside the push-events path (after the guard above) so scripted
@@ -12475,7 +12539,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             self?.scheduleForegroundNotificationFeedRefresh(client: client)
             let topics = outputTransport.eventTopics
-            let stream = await client.subscribe(to: Set(topics))
+            // The optimistic connect-time subscription pre-registered its
+            // listener (with the all-transports topic union) before its
+            // subscribe frame was written, so consuming ITS stream preserves
+            // events the Mac pushed before this listener generation started.
+            // A fresh listener here would silently drop that buffered window.
+            let stream: AsyncStream<MobileEventEnvelope>
+            if let optimisticSubscription {
+                stream = optimisticSubscription.stream
+            } else {
+                stream = await client.subscribe(to: Set(topics))
+            }
             // Kick off the server-side enable handshake CONCURRENTLY with
             // consumption. The old structure awaited the ack here, which
             // parked the consumer loop while events from a still-active prior
@@ -12495,6 +12569,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 connectionGeneration: listenerConnectionGeneration,
                 topics: topics,
                 transport: outputTransport,
+                optimisticSubscription: optimisticSubscription,
                 subscriptionReadiness: subscriptionReadiness,
                 recoversConnectionOnFailure:
                     recoversConnectionOnSubscriptionFailure
@@ -12748,6 +12823,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionGeneration: UUID,
         topics: [String],
         transport: TerminalOutputTransport,
+        optimisticSubscription: OptimisticTerminalEventSubscription? = nil,
         subscriptionReadiness: MobileTerminalEventSubscriptionReadiness? = nil,
         recoversConnectionOnFailure: Bool
     ) {
@@ -12774,11 +12850,47 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                 }
             }
-            let ack = await self?.requestTerminalEventSubscription(
-                client: client,
-                reason: "start",
-                topics: topics
-            ) ?? .failed
+            // Prefer the connect-time pipelined acknowledgement: when the Mac
+            // acknowledged exactly the registration this listener would have
+            // requested, the sequential `start` round trip is redundant. Any
+            // mismatch (failed/timed-out pipeline, legacy host resolving to
+            // different topics, a different anchor negotiation) falls back to
+            // the ordinary idempotent subscribe, which also owns auth-failure
+            // routing exactly as before.
+            var pipelinedAck: TerminalEventSubscriptionAck?
+            if let optimisticSubscription {
+                let response = await optimisticSubscription.ackTask.value
+                let matchesResolvedRequest = optimisticSubscription.client === client
+                    && Set(optimisticSubscription.topics) == Set(topics)
+                    && optimisticSubscription.requestedScreenAnchor
+                        == (self?.usesScreenAnchoredRenderGrid ?? false)
+                if let response, matchesResolvedRequest {
+                    pipelinedAck = .subscribed(
+                        alreadySubscribed: response.alreadySubscribed
+                    )
+                    self?.recordAppEvent(
+                        .terminalStreamSubscribed,
+                        count: topics.count
+                    )
+                    MobileDebugLog.anchormux(
+                        "sync.subscribe_pipelined_adopted topics=\(topics.count)"
+                    )
+                } else {
+                    MobileDebugLog.anchormux(
+                        "sync.subscribe_pipelined_reassert reason=\(response == nil ? "ack_failed" : "request_mismatch")"
+                    )
+                }
+            }
+            let ack: TerminalEventSubscriptionAck
+            if let pipelinedAck {
+                ack = pipelinedAck
+            } else {
+                ack = await self?.requestTerminalEventSubscription(
+                    client: client,
+                    reason: "start",
+                    topics: topics
+                ) ?? .failed
+            }
             guard let self else { return }
             guard !Task.isCancelled,
                   self.terminalEventListenerID == listenerID,
