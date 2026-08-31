@@ -318,6 +318,7 @@ final class PhonePushClient {
             .pairedPhoneBundleIdentifier(accountID: identity.accountID) else {
             return .encodingFailed
         }
+        deliveryQueue.start()
         deliveryQueue.retainOnly(
             accountID: identity.accountID,
             generation: identity.generation
@@ -355,6 +356,7 @@ final class PhonePushClient {
               let identity = auth?.authenticatedSessionIdentity,
               let targetBundleIdentifier = MobileHostService.shared
                   .pairedPhoneBundleIdentifier(accountID: identity.accountID) else { return }
+        deliveryQueue.start()
         deliveryQueue.retainOnly(
             accountID: identity.accountID,
             generation: identity.generation
@@ -522,6 +524,10 @@ final class PhonePushClient {
               auth?.isAuthenticatedSessionIdentityCurrent(identity) == true,
               let targetBundleIdentifier = MobileHostService.shared
                   .pairedPhoneBundleIdentifier(accountID: identity.accountID) else {
+            return
+        }
+        guard !unresolvedRestoredEnvelopes.isEmpty else {
+            deliveryQueue.start()
             return
         }
         let rebound = unresolvedRestoredEnvelopes.map { envelope in
