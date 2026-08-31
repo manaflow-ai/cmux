@@ -2648,7 +2648,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             connectionError = L10n.string(
                 "mobile.pairing.loopbackRejected",
-                defaultValue: "This device cannot connect to the Mac through localhost. Scan the Mac's pairing QR or enter its Tailscale or local-network address."
+                defaultValue: "This device cannot connect to the Mac through localhost. Scan the Mac's pairing QR or enter its Tailscale IP, MagicDNS name, or local-network address."
             )
             connectionErrorGuidance = nil
             connectionState = .disconnected

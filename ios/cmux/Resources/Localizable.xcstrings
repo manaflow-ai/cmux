@@ -6586,13 +6586,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open Tailscale Pairing on the Mac and scan a fresh QR, or enter the Mac's Tailscale or local-network address and port."
+            "value": "Open Tailscale Pairing on the Mac and scan a fresh QR, or enter the Mac's Tailscale IP, MagicDNS name, or local-network address and port."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac で「Tailscale Pairing」を開き、新しい QR をスキャンするか、Mac の Tailscale またはローカルネットワークのアドレスとポートを入力してください。"
+            "value": "Mac で「Tailscale Pairing」を開き、新しい QR をスキャンするか、Mac の Tailscale IP、MagicDNS 名、またはローカルネットワークのアドレスとポートを入力してください。"
           }
         }
       }
@@ -6603,13 +6603,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open Tailscale on both devices, then scan a fresh Mac pairing QR or enter its Tailscale or local-network address and port."
+            "value": "Open Tailscale on both devices, then scan a fresh Mac pairing QR or enter its Tailscale IP, MagicDNS name, or local-network address and port."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "両方のデバイスで Tailscale を開き、新しい Mac のペアリング QR をスキャンするか、Tailscale またはローカルネットワークのアドレスとポートを入力してください。"
+            "value": "両方のデバイスで Tailscale を開き、新しい Mac のペアリング QR をスキャンするか、Tailscale IP、MagicDNS 名、またはローカルネットワークのアドレスとポートを入力してください。"
           }
         }
       }
@@ -6739,13 +6739,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This code points at the Mac itself (localhost), so your iPhone can't use it. On cmux 0.64.17, open Pair iPhone. On newer versions, open Tailscale Pairing. Then scan a fresh code or enter the Mac's Tailscale or local-network address."
+            "value": "This code points at the Mac itself (localhost), so your iPhone can't use it. On cmux 0.64.17, open Pair iPhone. On newer versions, open Tailscale Pairing. Then scan a fresh code or enter the Mac's Tailscale IP, MagicDNS name, or local-network address."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このコードはMac自身（localhost）を指しているため、iPhoneからは使えません。cmux 0.64.17では「Pair iPhone」を開きます。新しいバージョンでは「Tailscale Pairing」を開き、新しいコードをスキャンするか、MacのTailscaleまたはローカルネットワークのアドレスを入力してください。"
+            "value": "このコードはMac自身（localhost）を指しているため、iPhoneからは使えません。cmux 0.64.17では「Pair iPhone」を開きます。新しいバージョンでは「Tailscale Pairing」を開き、新しいコードをスキャンするか、MacのTailscale IP、MagicDNS 名、またはローカルネットワークのアドレスを入力してください。"
           }
         }
       }
@@ -6756,13 +6756,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Can't scan? Enter this Mac's numeric Tailscale IP and port:"
+            "value": "Can't scan? Enter this Mac's Tailscale IP, MagicDNS name, or local-network host and port:"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "スキャンできない場合は、この Mac の数値 Tailscale IP アドレスとポートを入力してください："
+            "value": "スキャンできない場合は、この Mac の Tailscale IP、MagicDNS 名、またはローカルネットワークのホストとポートを入力してください："
           }
         }
       }
@@ -6943,13 +6943,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This pairing route is not trusted. Verify the Mac's Tailscale or local-network address, then scan its pairing QR or enter that address again."
+            "value": "This pairing route is not trusted. Verify the Mac's Tailscale IP, MagicDNS name, or local-network address, then scan its pairing QR or enter that address again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このペアリング経路は信頼できません。Mac の Tailscale またはローカルネットワークのアドレスを確認してから、ペアリング QR をスキャンするか、そのアドレスをもう一度入力してください。"
+            "value": "このペアリング経路は信頼できません。Mac の Tailscale IP、MagicDNS 名、またはローカルネットワークのアドレスを確認してから、ペアリング QR をスキャンするか、そのアドレスをもう一度入力してください。"
           }
         }
       }

@@ -347,7 +347,7 @@ extension MobilePairingFailureCategory {
                 defaultValue: """
                 This code points at the Mac itself (localhost), so your iPhone can't use it. \
                 On cmux 0.64.17, open Pair iPhone. On newer versions, open Tailscale Pairing. \
-                Then scan a fresh code or enter the Mac's Tailscale or local-network address.
+                Then scan a fresh code or enter the Mac's Tailscale IP, MagicDNS name, or local-network address.
                 """
             )
         case .macUpdateRequired:
@@ -358,7 +358,7 @@ extension MobilePairingFailureCategory {
         case .unsupportedRoute:
             return L10n.string(
                 "mobile.pairing.secureRouteRequired",
-                defaultValue: "This pairing route is not trusted. Verify the Mac's Tailscale or local-network address, then scan its pairing QR or enter that address again."
+                defaultValue: "This pairing route is not trusted. Verify the Mac's Tailscale IP, MagicDNS name, or local-network address, then scan its pairing QR or enter that address again."
             )
         case .noSupportedRoute:
             return L10n.string(
@@ -404,7 +404,7 @@ extension MobilePairingFailureCategory {
         case .tailscaleUnavailable:
             return L10n.string(
                 "mobile.pairing.guidance.tailscaleUnavailable",
-                defaultValue: "Open Tailscale on both devices, then scan a fresh Mac pairing QR or enter its Tailscale or local-network address and port."
+                defaultValue: "Open Tailscale on both devices, then scan a fresh Mac pairing QR or enter its Tailscale IP, MagicDNS name, or local-network address and port."
             )
         case .hostUnreachable, .dnsFailed, .handshakeTimedOut:
             return L10n.string(
@@ -460,7 +460,7 @@ extension MobilePairingFailureCategory {
         case .ticketExpired, .unsupportedRoute, .noSupportedRoute:
             return L10n.string(
                 "mobile.pairing.guidance.rescanFresh",
-                defaultValue: "Open Tailscale Pairing on the Mac and scan a fresh QR, or enter the Mac's Tailscale or local-network address and port."
+                defaultValue: "Open Tailscale Pairing on the Mac and scan a fresh QR, or enter the Mac's Tailscale IP, MagicDNS name, or local-network address and port."
             )
         case .unrecognizedVersion:
             guard buildType.usesInternalBuildVocabulary else {
