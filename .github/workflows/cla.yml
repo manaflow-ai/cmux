@@ -143,6 +143,9 @@ jobs:
           lock-pullrequest-aftermerge: 'false'
           # signatures live on the unprotected cla-signatures branch so required checks on main don't block the bot's signature commits
           branch: 'cla-signatures'
+          # Pin the policy branch explicitly. The maintained action preserves
+          # upstream compatibility when this input is omitted.
+          required-base-ref: 'main'
           # Require the exact phrase below. Do not use the action's raw-name
           # allowlist: an unlinked commit identity can spoof it. Automated PRs
           # follow this same fail-closed path until an authenticated signer is
