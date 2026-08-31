@@ -1,17 +1,15 @@
 import AppKit
 import CmuxWorkspaces
-import SwiftUI
 
 // MARK: - Compact status line (hidesAllDetails mode)
 
 /// Pure-AppKit port of the legacy `compactWorkspaceStatusMenu` row: a flag
-/// glyph plus "Status: X" that opens the status-lane menu on press. Shown
-/// only in compact detail mode (`hidesAllDetails`) for workspaces with a
-/// visible status.
+/// glyph that opens the status-lane menu on press. The status glyph in the
+/// title line carries the visible status; this compact affordance remains for
+/// menu access when details are hidden.
 @MainActor
 final class SidebarRowCompactStatusLine: NSControl {
     private let iconView = NSImageView()
-    private let label = SidebarRowTextView(lines: 1)
 
     var menuProvider: (() -> NSMenu)?
 
@@ -21,7 +19,6 @@ final class SidebarRowCompactStatusLine: NSControl {
         super.init(frame: frameRect)
         iconView.imageScaling = .scaleProportionallyDown
         addSubview(iconView)
-        addSubview(label)
     }
 
     required init?(coder: NSCoder) {
@@ -37,23 +34,18 @@ final class SidebarRowCompactStatusLine: NSControl {
             systemName: "flag", pointSize: model.scaled(8), weight: nil
         )
         iconView.contentTintColor = palette.secondary(0.65)
-        label.stringValue = String(
-            localized: "sidebar.status.compactLabel",
-            defaultValue: "Status: \(status.displayName)"
-        )
-        label.font = .systemFont(ofSize: model.scaled(10), weight: .semibold)
-        label.textColor = palette.secondary(0.9)
         toolTip = String(localized: "sidebar.status.compactTooltip", defaultValue: "Change workspace status")
         setAccessibilityRole(.button)
         setAccessibilityIdentifier("SidebarWorkspaceCompactStatusMenu")
-        setAccessibilityLabel(label.stringValue)
-        label.setAccessibilityElement(false)
+        setAccessibilityLabel(String(
+            localized: "sidebar.status.compactLabel",
+            defaultValue: "Status: \(status.displayName)"
+        ))
         needsLayout = true
     }
 
     func measuredHeight(width: CGFloat) -> CGFloat {
-        let iconSide = iconView.image?.size.height ?? 0
-        return max(iconSide, label.sidebarNaturalCellSize.height)
+        iconView.image?.size.height ?? 0
     }
 
     override func layout() {
@@ -64,14 +56,6 @@ final class SidebarRowCompactStatusLine: NSControl {
             y: (bounds.height - iconSize.height) / 2,
             width: iconSize.width,
             height: iconSize.height
-        )
-        let labelSize = label.sidebarNaturalCellSize
-        let labelX = iconSize.width > 0 ? iconSize.width + 4 : 0
-        label.frame = NSRect(
-            x: labelX,
-            y: (bounds.height - labelSize.height) / 2,
-            width: max(10, bounds.width - labelX),
-            height: labelSize.height
         )
     }
 

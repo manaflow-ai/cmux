@@ -15598,11 +15598,6 @@ struct TabItemView: View, Equatable {
             HStack(spacing: 4) {
                 CmuxSystemSymbolImage(magnified: "flag", pointSize: scaledFontSize(8))
                     .foregroundColor(activeSecondaryColor(0.65))
-                Text(title)
-                    .font(magnifiedFont(scaledFontSize(10), weight: .semibold))
-                    .foregroundColor(activeSecondaryColor(0.9))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
                 Spacer(minLength: 0)
             }
             .contentShape(Rectangle())
@@ -15610,6 +15605,7 @@ struct TabItemView: View, Equatable {
         .menuStyle(.borderlessButton)
         .fixedSize(horizontal: false, vertical: true)
         .safeHelp(String(localized: "sidebar.status.compactTooltip", defaultValue: "Change workspace status"))
+        .accessibilityLabel(title)
         .accessibilityIdentifier("SidebarWorkspaceCompactStatusMenu")
     }
 

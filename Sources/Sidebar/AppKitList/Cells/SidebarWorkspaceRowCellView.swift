@@ -535,9 +535,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             subtitleView.textColor = palette.secondary(0.8)
         }
 
-        // Compact status row (legacy `compactWorkspaceStatusMenu`): in
-        // hide-all-details mode, any visible status renders as a flag +
-        // "Status: X" line that opens the lanes menu.
+        // Compact status affordance (legacy `compactWorkspaceStatusMenu`): in
+        // hide-all-details mode, any visible status renders a flag icon that
+        // opens the lanes menu. The title-line status glyph carries the
+        // visible status without a duplicate text label.
         let showsCompactStatus = model.todoControlsEnabled
             && settings.hidesAllDetails
             && snapshot.taskStatus != nil
