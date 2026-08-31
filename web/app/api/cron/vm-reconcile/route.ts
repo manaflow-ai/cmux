@@ -13,8 +13,10 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   try {
-    const result = await runVmWorkflow(reconcileVmProviderStatuses());
+    // Run cost cleanup first. Provider status probes can consume the route's
+    // time budget, while each failed expiry destroy remains retryable.
     const expired = await runVmWorkflow(sweepExpiredVms());
+    const result = await runVmWorkflow(reconcileVmProviderStatuses());
     return Response.json({ ok: true, ...result, expired });
   } catch (err) {
     console.error("[VM] cron reconcile/sweep failed", err);

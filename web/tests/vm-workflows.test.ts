@@ -825,6 +825,7 @@ describe("VM Effect workflows", () => {
       expiredLifecycleCandidates: (input) => {
         expect(input.now).toEqual(now);
         expect(input.freeAccessExpiresBefore).toEqual(new Date("2026-08-24T12:00:00.000Z"));
+        expect(input.limit).toBe(50);
         return Effect.succeed([vm]);
       },
     });

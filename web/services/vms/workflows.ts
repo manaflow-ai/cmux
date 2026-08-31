@@ -81,7 +81,10 @@ const IDENTITY_REVOKE_PROVIDER_TIMEOUT = "5 seconds";
 const ACTIVE_IDENTITY_REVOKE_HOT_PATH_LIMIT = 8;
 const ACCOUNT_DELETION_IDENTITY_REVOKE_BATCH = 8;
 const VM_STATUS_RECONCILE_BATCH_LIMIT = 200;
-const EXPIRED_VM_SWEEP_LIMIT = 100;
+// Ten concurrent Blaxel volume deletes can each spend about 7.5 seconds in
+// the provider's attached-volume backoff. Five waves keep the cleanup inside
+// the cron route's 60-second budget under that expected worst case.
+const EXPIRED_VM_SWEEP_LIMIT = 50;
 const EXPIRED_VM_SWEEP_CONCURRENCY = 10;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const PREVIEW_ENDPOINT_LEASE_TTL_MS = 12 * 60 * 60 * 1000;
@@ -235,7 +238,7 @@ export function sweepExpiredVms(input: {
   readonly now?: Date;
   readonly limit?: number;
 } = {}): Effect.Effect<VmExpiredLifecycleSweepResult, VmWorkflowError, VmRepository | VmProviderGateway> {
-  return Effect.gen(function*() {
+  return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const findCandidates = repo.expiredLifecycleCandidates;
@@ -265,7 +268,7 @@ export function sweepExpiredVms(input: {
       }).pipe(
         Effect.as("destroyed" as const),
         Effect.catchAll((err) =>
-          Effect.gen(function*() {
+          Effect.gen(function* () {
             console.error(
               `[vm] expired lifecycle destroy failed for ${vm.providerVmId}`,
               errorMessage(vmWorkflowErrorCause(err) ?? err),
