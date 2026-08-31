@@ -674,8 +674,8 @@ public struct AppSection: View {
                 configurationReview: .json("notifications.soundOverrides"),
                 String(localized: "settings.notifications.soundOverrides.title", defaultValue: "Per-Agent Notification Sounds"),
                 subtitle: String(localized: "settings.notifications.soundOverrides.subtitle", defaultValue: "Override the sound for a specific agent and alert type."),
-                verticalAlignment: .top,
-                trailingFillsWidth: true
+                controlWidth: 380,
+                verticalAlignment: .top
             ) {
                 NotificationSoundOverridesView(
                     parsedOverrides: soundOverridesModel.parsed ?? .empty,
@@ -701,7 +701,7 @@ public struct AppSection: View {
                     hostActions: hostActions,
                     agents: soundAgents
                 )
-                .frame(minWidth: 510, maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             SettingsCardDivider()
 

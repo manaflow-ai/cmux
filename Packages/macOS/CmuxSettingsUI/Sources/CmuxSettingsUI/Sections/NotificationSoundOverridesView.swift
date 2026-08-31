@@ -1,10 +1,13 @@
 import AppKit
-import CmuxFoundation
 import CmuxSettings
+import CmuxFoundation
 import SwiftUI
 
-/// Sparse agent × alert sound editor. It owns only the serialized matrix;
-/// discovery, file validation, and persistence remain host/catalog concerns.
+/// Focused agent × alert sound editor.
+///
+/// The editor keeps the agent registry behind one picker and shows only the
+/// three categories for the selected agent. This avoids rendering a large
+/// matrix of mostly-global values while keeping every override editable.
 @MainActor
 struct NotificationSoundOverridesView: View {
     /// Bounded matrix parsed by the parent-owned cache.
@@ -17,24 +20,16 @@ struct NotificationSoundOverridesView: View {
         String,
         NotificationSoundAlertType
     ) -> Void
-    let hostActions: SettingsHostActions
     let agents: [NotificationSoundAgentOption]
     /// True when the persisted JSON could not be decoded. Editing is disabled
     /// so a recovery attempt cannot silently replace unrelated valid cells.
     var isPersistedValueMalformed: Bool = false
 
     @State private var filePicker: NotificationSoundFilePickerModel
+    @State private var selectedAgentID: String?
 
     private let alertTypes = NotificationSoundAlertType.allCases
-    private let soundCatalog = NotificationSoundOptionCatalog()
-    /// Flexible columns keep every editor cell inside the Settings detail
-    /// column while still giving the matrix all width the window offers.
-    private let gridColumns = [
-        GridItem(.flexible(minimum: 150), spacing: 12, alignment: .leading),
-        GridItem(.flexible(minimum: 120), spacing: 12, alignment: .leading),
-        GridItem(.flexible(minimum: 120), spacing: 12, alignment: .leading),
-        GridItem(.flexible(minimum: 120), spacing: 12, alignment: .leading),
-    ]
+
     init(
         parsedOverrides: NotificationSoundOverrides,
         isPersistedValueMalformed: Bool = false,
@@ -49,15 +44,19 @@ struct NotificationSoundOverridesView: View {
         self.parsedOverrides = parsedOverrides
         self.isPersistedValueMalformed = isPersistedValueMalformed
         self.onChange = onChange
-        self.hostActions = hostActions
         self.agents = agents
         _filePicker = State(
             initialValue: NotificationSoundFilePickerModel(hostActions: hostActions)
         )
+        let configuredAgentIDs = Set(parsedOverrides.agentIDs)
+        _selectedAgentID = State(
+            initialValue: agents.first(where: { configuredAgentIDs.contains($0.id) })?.id
+                ?? agents.first?.id
+        )
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             if isPersistedValueMalformed {
                 Text(String(
                     localized: "settings.notifications.soundOverrides.invalidConfiguration",
@@ -67,13 +66,6 @@ struct NotificationSoundOverridesView: View {
                 .foregroundStyle(.red)
             }
 
-            Text(String(
-                localized: "settings.notifications.soundOverrides.help",
-                defaultValue: "Choose a sound for each agent and alert type. Empty cells use the global notification sound."
-            ))
-            .font(.caption)
-            .foregroundStyle(.secondary)
-
             if agents.isEmpty {
                 Text(String(
                     localized: "settings.notifications.soundOverrides.noAgents",
@@ -82,35 +74,9 @@ struct NotificationSoundOverridesView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             } else {
-                LazyVGrid(
-                    columns: gridColumns,
-                    alignment: .leading,
-                    spacing: 6
-                ) {
-                    Text(String(localized: "settings.notifications.soundOverrides.agent", defaultValue: "Agent"))
-                        .font(.caption.weight(.semibold))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    ForEach(alertTypes, id: \.self) { alertType in
-                        Text(label(for: alertType))
-                            .font(.caption.weight(.semibold))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    ForEach(agents) { agent in
-                        Text(agent.displayName)
-                            .lineLimit(1)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        ForEach(alertTypes, id: \.self) { alertType in
-                            cell(
-                                for: agent,
-                                alertType: alertType,
-                                overrides: parsedOverrides
-                            )
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
+                if let selectedAgent {
+                    editor(for: selectedAgent)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .disabled(isPersistedValueMalformed)
             }
 
             if let validationMessage = filePicker.validationMessage {
@@ -129,53 +95,122 @@ struct NotificationSoundOverridesView: View {
             }
         }
         .accessibilityIdentifier("NotificationSoundOverridesMatrix")
+        .onAppear {
+            ensureSelection()
+        }
+        .onChange(of: agents) { _, _ in
+            ensureSelection()
+        }
         .onDisappear {
             filePicker.cancel()
         }
     }
 
-    @ViewBuilder
-    private func cell(
-        for agent: NotificationSoundAgentOption,
-        alertType: NotificationSoundAlertType,
-        overrides: NotificationSoundOverrides
-    ) -> some View {
-        let current = overrides.override(forAgentID: agent.id, alertType: alertType)
-        Menu {
-            Button(String(localized: "settings.notifications.soundOverrides.useGlobal", defaultValue: "Use Global Sound")) {
-                update(nil, agentID: agent.id, alertType: alertType)
-            }
-            Divider()
-            ForEach(soundCatalog.options, id: \.value) { option in
-                if option.value != NotificationSoundOverride.customFileValue {
-                    Button(soundLabel(for: option.value)) {
-                        guard let override = NotificationSoundOverride(sound: option.value) else { return }
-                        update(override, agentID: agent.id, alertType: alertType)
-                    }
+    private var selectedAgent: NotificationSoundAgentOption? {
+        guard !agents.isEmpty else { return nil }
+        if let selectedAgentID,
+           let matchingAgent = agents.first(where: { $0.id == selectedAgentID }) {
+            return matchingAgent
+        }
+        return agents[0]
+    }
+
+    private var selectedAgentBinding: Binding<String> {
+        Binding(
+            get: { selectedAgent?.id ?? agents.first?.id ?? "" },
+            set: { selectedAgentID = $0 }
+        )
+    }
+
+    private var agentPicker: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "person.crop.circle.fill")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 28, height: 28)
+                .background(Color.accentColor.opacity(0.13), in: Circle())
+
+            Text(String(
+                localized: "settings.notifications.soundOverrides.agent",
+                defaultValue: "Agent"
+            ))
+            .cmuxFont(size: 13, weight: .medium)
+
+            Spacer(minLength: 8)
+
+            Picker(
+                selectedAgent?.displayName ?? String(
+                    localized: "settings.notifications.soundOverrides.agent",
+                    defaultValue: "Agent"
+                ),
+                selection: selectedAgentBinding
+            ) {
+                ForEach(agents) { agent in
+                    Text(agent.displayName).tag(agent.id)
                 }
             }
-            Divider()
-            Button(String(localized: "settings.notifications.soundOverrides.chooseCustom", defaultValue: "Choose Custom File…")) {
-                chooseCustomFile(agentID: agent.id, alertType: alertType)
-            }
-        } label: {
-            Text(currentLabel(current))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 8)
-                .frame(minHeight: 28, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(Color(nsColor: .controlBackgroundColor).opacity(0.72))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .stroke(Color(nsColor: .separatorColor).opacity(0.55), lineWidth: 1)
-                )
+            .pickerStyle(.menu)
+            .controlSize(.small)
+            .frame(minWidth: 190, alignment: .trailing)
+            .disabled(isPersistedValueMalformed || filePicker.isValidating)
+            .accessibilityIdentifier("NotificationSoundOverridesAgentPicker")
         }
-        .menuStyle(.borderlessButton)
-        .disabled(filePicker.isValidating)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+    }
+
+    private func editor(for agent: NotificationSoundAgentOption) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            agentPicker
+            Rectangle()
+                .fill(Color(nsColor: .separatorColor).opacity(0.45))
+                .frame(height: 1)
+
+            ForEach(Array(alertTypes.enumerated()), id: \.element) { index, alertType in
+                if index > 0 {
+                    Rectangle()
+                        .fill(Color(nsColor: .separatorColor).opacity(0.28))
+                        .frame(height: 1)
+                        .padding(.leading, 50)
+                }
+                NotificationSoundOverrideEditorRow(
+                    alertType: alertType,
+                    currentOverride: parsedOverrides.override(
+                        forAgentID: agent.id,
+                        alertType: alertType
+                    ),
+                    isDisabled: isPersistedValueMalformed || filePicker.isValidating,
+                    onSelect: { value in
+                        update(value, agentID: agent.id, alertType: alertType)
+                    },
+                    onChooseCustom: {
+                        chooseCustomFile(agentID: agent.id, alertType: alertType)
+                    }
+                )
+            }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(Color(nsColor: .windowBackgroundColor).opacity(0.3))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .stroke(Color(nsColor: .separatorColor).opacity(0.45), lineWidth: 1)
+        )
+        .disabled(isPersistedValueMalformed)
+        .accessibilityIdentifier("NotificationSoundOverridesSelectedAgent")
+    }
+
+    private func ensureSelection() {
+        guard let firstAgent = agents.first else {
+            selectedAgentID = nil
+            return
+        }
+        guard let selectedAgentID,
+              agents.contains(where: { $0.id == selectedAgentID }) else {
+            self.selectedAgentID = firstAgent.id
+            return
+        }
     }
 
     private func update(
@@ -206,33 +241,5 @@ struct NotificationSoundOverridesView: View {
                 onChange(value, agentID, alertType)
             }
         )
-    }
-
-    private func label(for alertType: NotificationSoundAlertType) -> String {
-        switch alertType {
-        case .turnDone:
-            return String(localized: "settings.notifications.soundOverrides.turnDone", defaultValue: "Turn Done")
-        case .needsInput:
-            return String(localized: "settings.notifications.soundOverrides.needsInput", defaultValue: "Needs Input")
-        case .errorStalled:
-            return String(localized: "settings.notifications.soundOverrides.errorStalled", defaultValue: "Error / Stalled")
-        }
-    }
-
-    private func soundLabel(for value: String) -> String {
-        guard let option = soundCatalog.descriptor(for: value) else {
-            return value
-        }
-        return soundCatalog.localizedLabel(for: option)
-    }
-
-    private func currentLabel(_ value: NotificationSoundOverride?) -> String {
-        guard let value else {
-            return String(localized: "settings.notifications.soundOverrides.global", defaultValue: "Global")
-        }
-        if value.sound == NotificationSoundOverride.customFileValue {
-            return String(localized: "settings.notifications.soundOverrides.custom", defaultValue: "Custom")
-        }
-        return soundLabel(for: value.sound)
     }
 }
