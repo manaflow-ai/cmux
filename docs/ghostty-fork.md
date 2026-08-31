@@ -43,8 +43,8 @@ resolution.
     regresses the visible selection and the next repeat's distance check.
 
 The corresponding universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-466f8586749216b686c5397d9f03e10eac1955c4-crashsubdir-cmux-crash-sentry-off-v1
-with SHA-256 `a27c76e786da0b625b4cab8c0e0ae052e559bbf598fecca1935087b262844afb`
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-fb90d351590d21f5443dabd2f003e8a6b8f2c802-crashsubdir-cmux-crash-sentry-off-v1
+with SHA-256 `fda416bf7b207ecc9f6afe8b0d453b42af54d0a0d0bb81aa44c413e2084f191a`
 pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### iOS tokened render disposition and nonblocking prompt reveal
