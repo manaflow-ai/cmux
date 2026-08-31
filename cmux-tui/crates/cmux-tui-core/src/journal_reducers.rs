@@ -654,13 +654,16 @@ mod tests {
 
         let mut fresh_working = stale_working;
         fresh_working["normalized"]["source_session"] = json!("screen-2");
-        assert_eq!(
-            restored.apply(&hook_event(4, "agent.state.changed", &subjects, &fresh_working)),
-            vec![RosterDelta::Upsert {
-                terminal_id: "term_a".into(),
-                entry: restored.entries["term_a"].clone(),
-            }]
-        );
+        let deltas =
+            restored.apply(&hook_event(4, "agent.state.changed", &subjects, &fresh_working));
+        assert_eq!(deltas.len(), 1);
+        assert!(matches!(
+            &deltas[0],
+            RosterDelta::Upsert { terminal_id, entry }
+                if terminal_id == "term_a"
+                    && entry.session.as_deref() == Some("screen-2")
+                    && entry.state == "working"
+        ));
         assert_eq!(restored.entries["term_a"].session.as_deref(), Some("screen-2"));
     }
 
