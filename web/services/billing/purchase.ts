@@ -1829,11 +1829,15 @@ export async function latestStripeSubscriptionForSession(
         eq(stripeSubscriptions.plan, PRO_PLAN_ID),
         eq(stripeSubscriptions.scope, "user"),
         isNull(stripeSubscriptions.stackTeamId),
+        sql`${stripeSubscriptions.raw}->'metadata'->>'founders_edition' = 'true'`,
       ),
     )
     .orderBy(desc(stripeSubscriptions.updatedAt))
     .limit(1);
-  return rows[0] ?? null;
+  // Keep the application-side check as a second fence for test doubles and
+  // databases that contain legacy rows with a nullable or malformed JSON
+  // value. A normal Pro row must never satisfy a Founder success read-back.
+  return rows.find((row) => isFounderSubscriptionRaw(row.raw)) ?? null;
 }
 
 export function isActiveStripeSubscriptionStatus(status: string): boolean {
