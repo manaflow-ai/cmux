@@ -144,6 +144,13 @@ class Harness {
         this.map.set(key, value);
       },
       delete: async (key: string) => this.map.delete(key),
+      list: async <T>(options: { prefix: string }) => {
+        const out = new Map<string, T>();
+        for (const [key, value] of this.map) {
+          if (key.startsWith(options.prefix)) out.set(key, value as T);
+        }
+        return out;
+      },
     },
     now: () => this.now,
     upstream: async (path, init) => {
@@ -168,7 +175,7 @@ class Harness {
 
   async connect(
     sessionId: string,
-    options: { expiresInMs?: number } = {},
+    options: { expiresInMs?: number; namespace?: string } = {},
   ): Promise<FakeSocket> {
     const socket = new FakeSocket();
     this.socketList.push(socket);
@@ -176,6 +183,7 @@ class Harness {
       sessionId,
       expiresAt: this.now + (options.expiresInMs ?? 15 * 60_000),
       bearer: `token-${sessionId}`,
+      ...(options.namespace !== undefined ? { namespace: options.namespace } : {}),
     });
     return socket;
   }
@@ -253,6 +261,7 @@ describe("confirm-on-hello", () => {
       releaseTrack: "internal",
       capabilities: ["cmux.irx.v1"],
       lastConfirmedAt: new Date(T0).toISOString(),
+      deviceId: "77116c35-0000-4000-8000-000000000001",
     });
 
     // The overlay change is revision-bearing: 42 (broker) -> 43 (local bump).
@@ -292,6 +301,51 @@ describe("confirm-on-hello", () => {
     expect(socket.types()).toEqual(["hello_ack", "directory", "snapshot_complete"]);
     expect(harness.overlay(ENDPOINT_A)?.status).toBe("seeded");
     expect(harness.map.get(REV_KEY)).toBe(42); // no bump
+  });
+
+  it("emits a confirmed device the upstream view omits (synthesized), until the TTL lapses", async () => {
+    const harness = new Harness();
+    // Upstream only ever lists ENDPOINT_A; ENDPOINT_B exists solely through
+    // its own confirmed hello (namespace-filtered upstream views, upstream
+    // registration lag, caller self-exclusion all look like this).
+    harness.serveDiscovery(() => discoveryResponse(42));
+
+    const socket = await harness.connect("s1", { namespace: "dev.cmux.ios.lsta" });
+    await harness.hello(socket, {
+      endpointId: ENDPOINT_B,
+      haveRev: null,
+      wantPasses: false,
+      deviceId: "device-b",
+      platform: "ios",
+      appVersion: "1.2+34",
+    });
+
+    const directory = socket.frame("directory") as {
+      payload: { bindings: Record<string, unknown>[] };
+    };
+    const synthesized = directory.payload.bindings.find(
+      (binding) => binding.endpointId === ENDPOINT_B,
+    );
+    expect(synthesized).toMatchObject({
+      bindingId: `ctl-hello:${ENDPOINT_B}`,
+      clientNamespace: "dev.cmux.ios.lsta",
+      deviceId: "device-b",
+      status: "active",
+      revoked: false,
+      appVersion: "1.2+34",
+    });
+
+    // Past the directory TTL with no re-confirmation the synthesized entry
+    // drops back out: an upstream deletion cannot outlive the trust lease.
+    harness.now = T0 + DIRECTORY_TTL_SECONDS * 1000 + 60_000;
+    const later = await harness.connect("s2");
+    await harness.hello(later, { endpointId: ENDPOINT_A, haveRev: null, wantPasses: false });
+    const laterDirectory = later.frame("directory") as {
+      payload: { bindings: Record<string, unknown>[] };
+    };
+    expect(
+      laterDirectory.payload.bindings.some((binding) => binding.endpointId === ENDPOINT_B),
+    ).toBe(false);
   });
 });
 

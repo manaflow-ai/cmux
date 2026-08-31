@@ -118,7 +118,10 @@ export const BEARER_PREFIX = "ctl:bearer:";
 export const DEV_PREFIX = "ctl:dev:";
 
 /** The stored shape under DEV_PREFIX. lastAckedRev is bookkeeping only and is
- * never emitted in the directory. */
+ * never emitted in the directory. deviceId/clientNamespace are captured at
+ * confirm-on-hello so a confirmed device can still be emitted (synthesized)
+ * when the upstream discovery view omits it — e.g. a namespace-filtered
+ * broker view, or upstream registration lag. */
 export interface DeviceOverlay {
   status: Status;
   revoked: boolean;
@@ -127,6 +130,8 @@ export interface DeviceOverlay {
   capabilities?: string[];
   lastConfirmedAt?: string;
   lastAckedRev?: number;
+  deviceId?: string;
+  clientNamespace?: string;
 }
 
 // The generated types annotate RFC3339 `format: date-time` fields as `Date`,
@@ -785,6 +790,8 @@ export interface CtlStorage {
   get<T>(key: string): Promise<T | undefined>;
   put(key: string, value: unknown): Promise<void>;
   delete(key: string): Promise<boolean>;
+  /** Prefix scan (DurableObjectStorage.list-compatible). */
+  list<T>(options: { prefix: string }): Promise<Map<string, T>>;
 }
 
 export interface CtlUpstreamInit {
@@ -1042,6 +1049,8 @@ export class ControlPlaneCore {
       ...(payload.appVersion != null ? { appVersion: payload.appVersion } : {}),
       ...(payload.releaseTrack != null ? { releaseTrack: payload.releaseTrack } : {}),
       ...(payload.capabilities != null ? { capabilities: [...payload.capabilities] } : {}),
+      ...(payload.deviceId != null ? { deviceId: payload.deviceId } : {}),
+      ...(attachment.namespace !== undefined ? { clientNamespace: attachment.namespace } : {}),
     };
     await this.deps.storage.put(DEV_PREFIX + payload.endpointId, updated);
     await this.bumpOverlayRevisionAndBroadcast(attachment.sessionId);
@@ -1279,12 +1288,47 @@ export class ControlPlaneCore {
    * bookkeeping and never emitted. */
   private async mergedDirectory(broker: BrokerDirectoryPayload): Promise<WireDirectoryBody> {
     const bindings: Binding[] = [];
+    const emitted = new Set<string>();
     for (const binding of broker.bindings) {
       const overlay = await this.ensureOverlay(binding.endpointId);
+      emitted.add(binding.endpointId);
       bindings.push({
         ...binding,
         status: overlay.status,
         revoked: overlay.revoked,
+        ...(overlay.appVersion !== undefined ? { appVersion: overlay.appVersion } : {}),
+        ...(overlay.releaseTrack !== undefined ? { releaseTrack: overlay.releaseTrack } : {}),
+        ...(overlay.capabilities !== undefined ? { capabilities: overlay.capabilities } : {}),
+        ...(overlay.lastConfirmedAt !== undefined
+          ? { lastConfirmedAt: wireDate(overlay.lastConfirmedAt) }
+          : {}),
+      });
+    }
+    // Confirmed-but-unlisted devices: a device that proved itself over its
+    // own authenticated hello stays in the emitted directory even when the
+    // upstream discovery view omits it (namespace-filtered upstream views,
+    // registration lag, caller self-exclusion). Without this, the device's
+    // peers fail closed against it — the exact wedge the confirm-on-hello
+    // contract exists to prevent. Bounded by the directory TTL so an
+    // upstream deletion cannot outlive the trust lease; revoked rides along
+    // so peers still see the kill switch.
+    const overlays = await this.deps.storage.list<DeviceOverlay>({ prefix: DEV_PREFIX });
+    const cutoffMs = this.deps.now() - DIRECTORY_TTL_SECONDS * 1000;
+    for (const [key, overlay] of overlays) {
+      const endpointId = key.slice(DEV_PREFIX.length);
+      if (emitted.has(endpointId)) continue;
+      if (overlay.status !== "active") continue;
+      const confirmedAtMs = overlay.lastConfirmedAt === undefined
+        ? Number.NaN
+        : Date.parse(overlay.lastConfirmedAt);
+      if (!(confirmedAtMs > cutoffMs)) continue;
+      bindings.push({
+        bindingId: `ctl-hello:${endpointId}`,
+        clientNamespace: overlay.clientNamespace ?? "legacy",
+        endpointId,
+        status: overlay.status,
+        revoked: overlay.revoked,
+        ...(overlay.deviceId !== undefined ? { deviceId: overlay.deviceId } : {}),
         ...(overlay.appVersion !== undefined ? { appVersion: overlay.appVersion } : {}),
         ...(overlay.releaseTrack !== undefined ? { releaseTrack: overlay.releaseTrack } : {}),
         ...(overlay.capabilities !== undefined ? { capabilities: overlay.capabilities } : {}),

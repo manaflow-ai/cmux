@@ -160,6 +160,13 @@ class Harness {
         this.map.set(key, value);
       },
       delete: async (key: string) => this.map.delete(key),
+      list: async <T>(options: { prefix: string }) => {
+        const out = new Map<string, T>();
+        for (const [key, value] of this.map) {
+          if (key.startsWith(options.prefix)) out.set(key, value as T);
+        }
+        return out;
+      },
     },
     now: () => this.now,
     upstream: async (path, init) => {

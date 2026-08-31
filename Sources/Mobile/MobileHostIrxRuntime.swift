@@ -296,7 +296,8 @@ final class MobileHostIrxRuntime {
                                 infoDictionary: Bundle.main.infoDictionary),
                             releaseTrack: Self.hostReleaseTrack(),
                             capabilities: ["cmux.irx.v2", "list-auth"]
-                        )
+                        ),
+                        clientNamespace: namespace.rawValue
                     ),
                     tokenPair: { [weak auth] in
                         guard let auth else { return nil }

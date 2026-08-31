@@ -25,19 +25,25 @@ public actor IrxControlPlaneClient {
         /// Optional client identification carried on the hello so the server
         /// can seed and version-stamp this device's directory entry.
         public var clientInfo: IrxCtlClientInfo?
+        /// The app namespace (`X-Cmux-App-Namespace`) sent on the socket
+        /// open. The DO reuses it for upstream discovery, so it must match
+        /// the namespace the broker service registers under.
+        public var clientNamespace: String?
 
         public init(
             socketURL: URL,
             endpointIDHex: String,
             wantPasses: Bool,
             cacheDirectory: URL,
-            clientInfo: IrxCtlClientInfo? = nil
+            clientInfo: IrxCtlClientInfo? = nil,
+            clientNamespace: String? = nil
         ) {
             self.socketURL = socketURL
             self.endpointIDHex = endpointIDHex
             self.wantPasses = wantPasses
             self.cacheDirectory = cacheDirectory
             self.clientInfo = clientInfo
+            self.clientNamespace = clientNamespace
         }
     }
 
@@ -189,6 +195,13 @@ public actor IrxControlPlaneClient {
         var request = URLRequest(url: configuration.socketURL)
         request.setValue("Bearer \(tokens.access)", forHTTPHeaderField: "Authorization")
         request.setValue(tokens.refresh, forHTTPHeaderField: "x-stack-refresh-token")
+        // The DO borrows this connection's identity for its upstream
+        // discovery fetches; without the namespace the broker serves the
+        // release-scoped view and per-tag isolation hides every dev-tagged
+        // binding — including this device's own peers — from the directory.
+        if let namespace = configuration.clientNamespace {
+            request.setValue(namespace, forHTTPHeaderField: "X-Cmux-App-Namespace")
+        }
         let task = URLSession.shared.webSocketTask(with: request)
         socket = task
         lastAckedRev = nil

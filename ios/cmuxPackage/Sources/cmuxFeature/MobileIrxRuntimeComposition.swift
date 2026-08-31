@@ -279,7 +279,8 @@ public actor MobileIrxRuntimeComposition {
                         infoDictionary: Bundle.main.infoDictionary),
                     releaseTrack: Self.clientReleaseTrack(),
                     capabilities: ["cmux.irx.v2", "list-auth"]
-                )
+                ),
+                clientNamespace: clientNamespace
             ),
             tokenPair: { [weak auth] in
                 guard let auth else { return nil }
