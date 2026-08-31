@@ -2020,9 +2020,13 @@ export async function applySubscriptionUpdate(
     stackUserId: lockedResult.stackUserId,
     stackApp: dependencies.stackApp ?? getStackServerApp(),
     sync: async (freshUser, mutationLease) => {
+      // A recurring Pro cancellation must not clear the shared metadata marker
+      // while a separate paid Founder row still grants permanent access.
+      const founderEntitlementActive = !isActive &&
+        await hasActiveFounderSubscription(db, lockedResult.stackUserId);
       const currentMetadata = await syncProPlanMetadata(
         freshUser,
-        isActive,
+        isActive || founderEntitlementActive,
         mutationLease,
       );
       if (!isActive) {

@@ -140,8 +140,11 @@ export function normalizePersonalPlan(
   hasActiveStripeSubscription: boolean,
   hasActiveFounderSubscription = false,
 ): NormalizedPersonalPlan {
+  const metadataRecord = proMetadataRecord(metadata);
+  const hasExplicitVmOverride = hasManualVmOverride(metadataRecord);
   const isFounder =
-    hasActiveFounderSubscription || hasFounderEditionEntitlement(metadata);
+    hasFounderEditionEntitlement(metadata) ||
+    (!hasExplicitVmOverride && hasActiveFounderSubscription);
   const isPro = hasActiveStripeSubscription || isFounder;
   return {
     planId: isPro ? PRO_PLAN_ID : FREE_PLAN_ID,
@@ -170,6 +173,7 @@ export async function reconcileProPlanMetadata(
   user: ProReconcileUser,
   options: {
     hasActiveStripeSubscription?: ActiveStripeSubscriptionQuery;
+    hasActiveFounderSubscription?: ActiveFounderSubscriptionQuery;
     withFreshMetadataUser?: FreshProMetadataUserMutation;
   } = {},
 ): Promise<boolean> {
@@ -182,14 +186,24 @@ export async function reconcileProPlanMetadata(
     return false;
   }
 
-  const isPro = user.id
-    ? await (options.hasActiveStripeSubscription ?? hasActiveStripeProSubscription)(user.id)
-    : false;
-  if (isPro === (metadata.cmuxPlan === PRO_PLAN_ID)) return false;
   if (!user.id) return false;
+  let isPro = false;
+  let hasFounderSubscription = false;
+  if (options.hasActiveStripeSubscription) {
+    isPro = await options.hasActiveStripeSubscription(user.id);
+    if (!isPro && options.hasActiveFounderSubscription) {
+      hasFounderSubscription = await options.hasActiveFounderSubscription(user.id);
+    }
+  } else {
+    const state = await activeStripeSubscriptionState(user.id);
+    isPro = state.regular;
+    hasFounderSubscription = state.founder;
+  }
+  const metadataEntitlementPro = isPro || hasFounderSubscription;
+  if (metadataEntitlementPro === (metadata.cmuxPlan === PRO_PLAN_ID)) return false;
   return await reconcileProMetadataIfAvailable(
     user.id,
-    isPro,
+    metadataEntitlementPro,
     options.withFreshMetadataUser ?? withDefaultFreshProMetadataUser,
   );
 }
@@ -243,7 +257,9 @@ export async function resolveProPlanStatus(
     }
   }
   const hasManualVmPlanOverride =
-    hasManualVmOverride(metadata) || hasActiveFounderSubscription;
+    hasManualVmOverride(metadata) || metadataFounderEntitlement;
+  const metadataEntitlementPro =
+    hasActiveStripeSubscription || hasActiveFounderSubscription;
   const normalizedPlan = normalizePersonalPlan(
     user.clientReadOnlyMetadata,
     hasActiveStripeSubscription,
@@ -254,11 +270,11 @@ export async function resolveProPlanStatus(
   if (
     user.id &&
     !hasManualVmPlanOverride &&
-    hasActiveStripeSubscription !== (metadataPlanId === PRO_PLAN_ID)
+    metadataEntitlementPro !== (metadataPlanId === PRO_PLAN_ID)
   ) {
     metadataChanged = await reconcileProMetadataIfAvailable(
       user.id,
-      hasActiveStripeSubscription,
+      metadataEntitlementPro,
       options.withFreshMetadataUser ?? withDefaultFreshProMetadataUser,
     );
   }
@@ -449,12 +465,19 @@ export async function isTestflightEligible(
   user: ProReconcileUser,
   options: {
     hasActiveStripeSubscription?: ActiveStripeSubscriptionQuery;
+    hasActiveFounderSubscription?: ActiveFounderSubscriptionQuery;
   } = {},
 ): Promise<boolean> {
   if (!user.id) return false;
-  return (options.hasActiveStripeSubscription ?? hasActiveStripeProSubscription)(
-    user.id,
-  );
+  if (hasFounderEditionEntitlement(user.clientReadOnlyMetadata)) return true;
+  if (options.hasActiveStripeSubscription) {
+    if (await options.hasActiveStripeSubscription(user.id)) return true;
+    return options.hasActiveFounderSubscription
+      ? options.hasActiveFounderSubscription(user.id)
+      : false;
+  }
+  const state = await activeStripeSubscriptionState(user.id);
+  return state.regular || state.founder;
 }
 
 export function metadataPlanId(raw: unknown): string | null {

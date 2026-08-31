@@ -337,10 +337,10 @@ describe("resolveProPlanStatus", () => {
       planId: PRO_PLAN_ID,
       isPro: true,
       billingManagement: "none",
-      hasManualVmPlanOverride: true,
-      metadataChanged: false,
+      hasManualVmPlanOverride: false,
+      metadataChanged: true,
     });
-    expect(user.updates).toEqual([]);
+    expect(user.updates).toEqual([{ cmuxPlan: PRO_PLAN_ID }]);
   });
 
   test("reloads metadata inside the account mutation lease before reconciling Pro", async () => {
@@ -519,5 +519,26 @@ describe("isTestflightEligible", () => {
       hasActiveStripeSubscription: async () => false,
     })).resolves.toBe(false);
     expect(user.updates).toEqual([]);
+  });
+
+  test("includes a Founder metadata entitlement", async () => {
+    const user = metadataUser({ cmuxVmPlan: "founders" }, "founder-testflight");
+
+    await expect(
+      isTestflightEligible(user, {
+        hasActiveStripeSubscription: async () => false,
+      }),
+    ).resolves.toBe(true);
+  });
+
+  test("includes a durable Founder row when the mailbox is otherwise Pro-eligible", async () => {
+    const user = metadataUser({}, "founder-row-testflight");
+
+    await expect(
+      isTestflightEligible(user, {
+        hasActiveStripeSubscription: async () => false,
+        hasActiveFounderSubscription: async () => true,
+      }),
+    ).resolves.toBe(true);
   });
 });
