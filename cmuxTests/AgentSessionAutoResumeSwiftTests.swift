@@ -2353,6 +2353,24 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
             #expect(resumeSnapshot.binding == nil)
             #expect(resumeSnapshot.restoreRecord == nil)
         }
+
+        // A stale agent snapshot can coexist with an independent
+        // process-detected SSH binding. Rejecting the agent recipe must not
+        // erase that terminal-level binding.
+        var plainSSHSnapshot = snapshot
+        var plainSSHTerminal = try #require(plainSSHSnapshot.panels[panelIndex].terminal)
+        var plainSSHBinding = try #require(plainSSHTerminal.resumeBinding)
+        plainSSHBinding.source = "process-detected"
+        plainSSHTerminal.resumeBinding = plainSSHBinding
+        plainSSHSnapshot.panels[panelIndex].terminal = plainSSHTerminal
+        try withRestoredRemoteSurfaceSnapshot(
+            plainSSHSnapshot,
+            sourcePanelId: sourcePanelId,
+            autoResumeAgentSessions: true
+        ) { restored, restoredPanelId, _, resumeSnapshot in
+            #expect(restored.surfaceResumeBinding(panelId: restoredPanelId) != nil)
+            #expect(resumeSnapshot.binding != nil)
+        }
     }
 
     @MainActor
