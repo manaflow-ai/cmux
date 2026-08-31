@@ -1,6 +1,28 @@
 import Foundation
 
 extension BrowserPanel {
+    /// Starts a browser-chrome Design Mode transition on the panel-owned task.
+    /// Keeping the operation here lets lifecycle teardown cancel either the
+    /// active chip or overflow-menu action without separate unstructured tasks.
+    @discardableResult
+    func toggleDesignModeFromBrowserChrome(reason: String) -> Bool {
+        guard designModeToolbarToggleTask == nil else { return false }
+        designModeToolbarToggleTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.designModeToolbarToggleTask = nil }
+            guard !Task.isCancelled else { return }
+            _ = await self.toggleDesignMode(reason: reason)
+        }
+        return true
+    }
+
+    /// Cancels a toolbar-triggered Design Mode transition during view teardown.
+    func cancelDesignModeToolbarToggle() {
+        // Keep the handle until the task's defer runs so cancellation cannot
+        // overlap a still-unwinding transition with a later toolbar action.
+        designModeToolbarToggleTask?.cancel()
+    }
+
     @discardableResult
     func toggleDesignMode(reason: String) async -> Bool {
         await setDesignModeEnabled(!designModeController.isActive, reason: reason)
@@ -35,7 +57,10 @@ extension BrowserPanel {
     private func deactivateReactGrabForDesignMode(reason: String) async -> Bool {
         guard isReactGrabActive else { return true }
         do {
-            _ = try await evaluateJavaScript("window.__REACT_GRAB__?.deactivate(); true")
+            _ = try await designModeController.evaluatePageJavaScript(
+                "window.__REACT_GRAB__?.deactivate(); true",
+                in: webView
+            )
             isReactGrabActive = false
             clearReactGrabRoundTrip(reason: "\(reason).deactivateReactGrab")
             return true

@@ -1060,11 +1060,11 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         workspace.configureRemoteConnection(config, autoConnect: false)
         let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
         workspace.markRemoteTerminalSessionEnded(surfaceId: panelID, relayPort: nil)
-        let replacement = workspace.createReplacementTerminalPanel()
+        let replacement = try XCTUnwrap(workspace.createReplacementTerminalPanel())
         let firstReplacementCommand = replacement.surface.initialCommand
 
         workspace.markRemoteTerminalSessionEnded(surfaceId: panelID, relayPort: 64034)
-        let secondReplacement = workspace.createReplacementTerminalPanel()
+        let secondReplacement = try XCTUnwrap(workspace.createReplacementTerminalPanel())
 
         XCTAssertNotNil(firstReplacementCommand)
         XCTAssertNil(secondReplacement.surface.initialCommand)
@@ -1713,7 +1713,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         workspace.configureRemoteConnection(config, autoConnect: false)
         let workspacePane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
         let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
-        let dock = workspace.dockSplit
+        let dock = workspace.requiredDockSplitForTesting
         defer { dock.closeAllPanels() }
         let dockPane = try XCTUnwrap(dock.bonsplitController.allPaneIds.first)
 
@@ -2067,10 +2067,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 if command.contains("mkdir -p") {
                     return (status: 0, stdout: "", stderr: "")
                 }
-                // The daemon upload streams the binary through an ssh exec channel into `cat >`
+                // The daemon upload streams the binary through an ssh exec channel into a backgrounded `cat`
                 // rather than shelling out to scp, so the remote path this test is about arrives
                 // inside the command and the destination host is its own argument.
-                if command.contains("cat > ") {
+                if command.contains("cat > ") || command.contains("cat <&3 > ") {
                     lock.withLock {
                         uploadCommand = command
                         uploadDestination = arguments.dropLast().last
@@ -2208,11 +2208,11 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 if command.contains("mkdir -p") {
                     return (status: 0, stdout: "", stderr: "")
                 }
-                // The upload streams over the ssh exec channel into `cat >`, not scp. Recording how
+                // The upload streams over the ssh exec channel into a backgrounded `cat`, not scp. Recording how
                 // many hellos preceded it is what keeps this test about a *reinstall*: an upload
                 // before any hello would be a first install and would not exercise the
                 // missing-capability path this test is named for.
-                if command.contains("cat > ") {
+                if command.contains("cat > ") || command.contains("cat <&3 > ") {
                     lock.withLock {
                         uploadCommand = command
                         uploadPayload = stdin

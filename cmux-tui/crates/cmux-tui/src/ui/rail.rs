@@ -53,7 +53,7 @@ impl Viewport {
     }
 }
 
-/// Split a rail into a header, its spacer, a scrollable body, and a bottom-pinned
+/// Split a rail into a one-row top pad, a scrollable body, and a bottom-pinned
 /// footer. Footer rows get first claim on short terminals, so every action can
 /// be reached by keyboard even when the catalog itself has no visible rows.
 pub fn viewport(
@@ -78,8 +78,8 @@ pub fn viewport(
 }
 
 /// `viewport` with a configurable action-row position: `Bottom` pins the
-/// action rows to the rail's bottom edge, `Top` mounts them directly under
-/// the header with the scrollable body below.
+/// action rows to the rail's bottom edge, `Top` mounts them at the rail's
+/// top with the scrollable body below.
 #[allow(clippy::too_many_arguments)]
 pub fn viewport_positioned(
     area: Rect,
@@ -91,16 +91,16 @@ pub fn viewport_positioned(
     selected_footer: Option<RowSpan>,
     position: ActionsPosition,
 ) -> Viewport {
-    let available = area.height.saturating_sub(2);
+    let available = area.height.saturating_sub(1);
     let footer_height = footer_rows.min(available as usize) as u16;
     let body_height = available.saturating_sub(footer_height);
     let (body_y, footer_y) = match position {
         ActionsPosition::Bottom => (
-            area.y.saturating_add(2),
+            area.y.saturating_add(1),
             area.y.saturating_add(area.height).saturating_sub(footer_height),
         ),
         ActionsPosition::Top => {
-            (area.y.saturating_add(2).saturating_add(footer_height), area.y.saturating_add(2))
+            (area.y.saturating_add(1).saturating_add(footer_height), area.y.saturating_add(1))
         }
     };
     let body = Rect { x: area.x, y: body_y, width: area.width, height: body_height };
@@ -140,7 +140,6 @@ pub struct RailPalette {
     pub base: Style,
     pub dim: Style,
     pub active: Style,
-    pub header: Style,
     pub border: Style,
     pub border_symbol: &'static str,
     pub rail: Color,
@@ -167,14 +166,6 @@ impl RailPalette {
             base,
             dim: base.fg(chrome.sidebar_dim_fg),
             active: Style::default().bg(selected_bg).fg(selected_fg).add_modifier(Modifier::BOLD),
-            header: if focused {
-                Style::default()
-                    .bg(chrome.status_active_bg)
-                    .fg(app.config.theme.border_active)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                base.fg(chrome.sidebar_dim_fg)
-            },
             border: base
                 .fg(if focused { app.config.theme.border_active } else { chrome.sidebar_border })
                 .add_modifier(if focused { Modifier::BOLD } else { Modifier::empty() }),
@@ -197,25 +188,6 @@ pub fn prepare(frame: &mut Frame, area: Rect, palette: RailPalette) {
         }
         buf[(border_x, y)].set_symbol(palette.border_symbol).set_style(palette.border);
     }
-}
-
-pub fn header(frame: &mut Frame, area: Rect, label: &str, palette: RailPalette) -> Rect {
-    let rect = Rect {
-        x: area.x,
-        y: area.y,
-        width: area.width.saturating_sub(1),
-        height: area.height.min(1),
-    };
-    let width = rect.width as usize;
-    if width == 0 || rect.height == 0 {
-        return rect;
-    }
-    let buf = frame.buffer_mut();
-    for x in rect.x..rect.x + rect.width {
-        buf[(x, area.y)].set_symbol(" ").set_style(palette.header);
-    }
-    buf.set_stringn(area.x, area.y, format!(" {label}"), width, palette.header);
-    rect
 }
 
 pub struct Entry<'a> {
@@ -413,7 +385,6 @@ mod tests {
             base: Style::default(),
             dim: Style::default(),
             active: Style::default().add_modifier(Modifier::BOLD),
-            header: Style::default(),
             border: Style::default(),
             border_symbol: "│",
             rail: Color::Cyan,
@@ -463,9 +434,9 @@ mod tests {
         );
 
         assert_eq!(viewport.body.height, 0);
-        assert_eq!(viewport.footer.height, 1);
-        assert_eq!(viewport.footer.y, 5);
-        assert_eq!(viewport.footer_offset, 3);
+        assert_eq!(viewport.footer.height, 2);
+        assert_eq!(viewport.footer.y, 4);
+        assert_eq!(viewport.footer_offset, 2);
         assert_eq!(viewport.footer_y(RowSpan::new(3, 1)), Some(5));
     }
 
@@ -495,6 +466,6 @@ mod tests {
             None,
         );
         assert!(large.body_y(selected).is_some());
-        assert_eq!(body_offset, 13);
+        assert_eq!(body_offset, 12);
     }
 }

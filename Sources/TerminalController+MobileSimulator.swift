@@ -102,6 +102,8 @@ extension TerminalController {
             return await v2MobileSimulatorDevicesList(params: params, connectionID: connectionID)
         case "mobile.simulator.device.select":
             return v2MobileSimulatorDeviceSelect(params: params, connectionID: connectionID)
+        case "mobile.simulator.recover":
+            return v2MobileSimulatorRecover(params: params, connectionID: connectionID)
         default:
             return .err(code: "method_not_found", message: "Unknown mobile method", data: ["method": method])
         }
@@ -143,6 +145,30 @@ extension TerminalController {
             ]
         }
         return .ok(["devices": devices])
+    }
+
+    /// Restarts a crash-fused simulator worker session, the same recovery
+    /// the pane's Reconnect button and `simulator.recover` debug RPC run.
+    /// Fire-and-forget: recovery completes only after the replacement worker
+    /// reports a live frame stream, which can outlive an RPC deadline; the
+    /// v2 stream's own status flow shows progress to the phone.
+    private func v2MobileSimulatorRecover(
+        params: [String: Any],
+        connectionID: UUID?
+    ) -> V2CallResult {
+        guard CmuxFeatureFlags.shared.isSimulatorEnabled else {
+            return .err(code: "capability_disabled", message: "Simulator panes are disabled", data: nil)
+        }
+        guard let panelIDString = v2RawString(params, "panel_id"),
+              let workspaceID = v2UUID(params, "workspace_id"),
+              let resolved = mobileSimulatorPanel(id: panelIDString, workspaceID: workspaceID) else {
+            return mobileSimulatorPanelResolutionError(params: params)
+        }
+        let coordinator = resolved.panel.coordinator
+        Task { @MainActor in
+            try? await coordinator.recoverAndWait()
+        }
+        return .ok(["ok": true, "panel_id": resolved.panel.id.uuidString])
     }
 
     /// Selects (and boots when needed) another simulator for the panel.

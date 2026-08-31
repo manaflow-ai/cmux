@@ -1,5 +1,6 @@
 import CmuxFoundation
 import CmuxSentryReporting
+import CmuxSettings
 import Darwin
 import Foundation
 
@@ -49,12 +50,14 @@ final class CLISocketSentryTelemetry {
     private let disabledByEnv: Bool
     private let noiseFilter: SentryNoiseFilter
     private let sentryPolicy: CLISocketSentryPolicy
+    private let buildIdentityPolicy: SentryBuildIdentityPolicy
     private var pendingBreadcrumbs: [PendingBreadcrumb] = []
 
 #if canImport(Sentry)
     private static let startupLock = NSLock()
     private static var started = false
     private static let dsn = "https://ecba1ec90ecaee02a102fba931b6d2b3@o4507547940749312.ingest.us.sentry.io/4510796264636416"
+#endif
 
     private static func currentSentryReleaseName() -> String? {
         guard let bundleIdentifier = currentSentryBundleIdentifier(),
@@ -66,8 +69,10 @@ final class CLISocketSentryTelemetry {
         return "\(bundleIdentifier)@\(version)+\(build)"
     }
 
-    private static func currentSentryBundleIdentifier() -> String? {
-        if let bundleIdentifier = ProcessInfo.processInfo.environment["CMUX_BUNDLE_ID"]?
+    private static func currentSentryBundleIdentifier(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> String? {
+        if let bundleIdentifier = environment["CMUX_BUNDLE_ID"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !bundleIdentifier.isEmpty {
             return bundleIdentifier
@@ -105,7 +110,6 @@ final class CLISocketSentryTelemetry {
 
         return Bundle.main
     }
-#endif
 
     init(command: String, commandArgs: [String], socketPath: String, processEnv: [String: String]) {
         self.command = command.lowercased()
@@ -120,6 +124,13 @@ final class CLISocketSentryTelemetry {
             processEnv["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] == "1"
         self.noiseFilter = SentryNoiseFilter()
         self.sentryPolicy = CLISocketSentryPolicy(environment: processEnv)
+        // The cmux repo is public; rebranded forks have shipped with this
+        // CLI's hardcoded DSN intact. Only a build that identifies as cmux
+        // may report to it (Sentry issue CMUXTERM-MACOS-1RZF).
+        self.buildIdentityPolicy = SentryBuildIdentityPolicy(
+            bundleIdentifier: Self.currentSentryBundleIdentifier(environment: processEnv),
+            trustedBaseBundleIdentifier: SocketPathMarkerFiles.stableBundleIdentifier
+        )
     }
 
     func breadcrumb(_ message: String, data: [String: Any] = [:]) {
@@ -138,6 +149,12 @@ final class CLISocketSentryTelemetry {
             dataKeys: Set(data.keys),
             allowSandboxPolicyDenial: sentryPolicy.allowsSandboxPolicyDenial
         ) else {
+            return
+        }
+        let fingerprintKind = Self.fingerprintKind(for: error, message: errorDescription)
+        if let fingerprintKind,
+           CLISentryErrorFingerprint.throttledKinds.contains(fingerprintKind),
+           !claimThrottledCaptureSlot(stage: stage, kind: fingerprintKind) {
             return
         }
 #if DEBUG
@@ -161,6 +178,7 @@ final class CLISocketSentryTelemetry {
             context: context,
             command: command,
             subcommand: subcommand,
+            fingerprint: ["cmux-cli", stage, fingerprintKind ?? "{{ default }}"],
             breadcrumbs: pendingBreadcrumbs.map { pending in
                 makeBreadcrumb(message: pending.message, data: pending.data)
             }
@@ -179,13 +197,48 @@ final class CLISocketSentryTelemetry {
         // coordination path. The app's Sentry client will pick up the cached
         // envelope on its next transport pass.
 #if DEBUG
-        recordStoreProbe(eventId: scrubbedEvent.eventId.sentryIdString)
+        recordStoreProbe(
+            eventId: scrubbedEvent.eventId.sentryIdString,
+            fingerprint: scrubbedEvent.fingerprint ?? []
+        )
 #endif
 #endif
     }
 
     private var shouldEmit: Bool {
-        !disabledByEnv
+        !disabledByEnv && buildIdentityPolicy.allowsTelemetry
+    }
+
+    /// Chooses the stable fingerprint kind for a CLI failure: the structured
+    /// v2 protocol error code when the app replied with one, else the known
+    /// transport failure class of the rendered message, else `nil` so the
+    /// event keeps Sentry's default grouping within its stage.
+    private static func fingerprintKind(for error: Error, message: String) -> String? {
+        if let v2Code = (error as? CLIError)?.v2Code?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased(),
+           !v2Code.isEmpty {
+            return "v2-\(v2Code)"
+        }
+        return CLISentryErrorFingerprint().kind(forMessage: message)
+    }
+
+    /// One durable capture per (stage, kind) per throttle interval for
+    /// expected-but-reportable volume states like command timeouts, which
+    /// otherwise fire once per agent hook invocation while the app is wedged.
+    /// Backed by the same locked state file the agent hook failure reporter
+    /// uses; a claim error fails closed (skips the capture) like that reporter.
+    private func claimThrottledCaptureSlot(stage: String, kind: String) -> Bool {
+        let store = ClaudeHookSessionStore(processEnv: processEnv)
+        // Bounded lock wait: the CLI is already on an error path, so a
+        // contended/stuck state lock must skip the capture (fail closed)
+        // instead of blocking the command's exit.
+        return (try? store.claimAgentHookFailureReport(
+            agentName: "cli-sentry",
+            stage: stage,
+            sessionId: kind,
+            deadline: Date.now.addingTimeInterval(0.25)
+        )) == true
     }
 
 #if DEBUG
@@ -199,12 +252,12 @@ final class CLISocketSentryTelemetry {
     }
 
 #if canImport(Sentry)
-    private func recordStoreProbe(eventId: String) {
+    private func recordStoreProbe(eventId: String, fingerprint: [String]) {
         guard let path = processEnv["CMUX_CLI_SENTRY_STORE_PROBE_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
               !path.isEmpty else {
             return
         }
-        let payload = "event_id=\(eventId)\n"
+        let payload = "event_id=\(eventId)\nfingerprint=\(fingerprint.joined(separator: "|"))\n"
         try? payload.write(toFile: NSString(string: path).expandingTildeInPath, atomically: true, encoding: .utf8)
     }
 #endif
@@ -216,12 +269,19 @@ final class CLISocketSentryTelemetry {
         context: [String: Any],
         command: String,
         subcommand: String,
+        fingerprint: [String],
         breadcrumbs: [Breadcrumb]
     ) -> Event {
         let nsError = error as NSError
         let event = Event(error: nsError)
         event.exceptions = errorChain(for: nsError).reversed().map(Self.makeException)
         event.level = .error
+        // Every CLI error shares one NSError domain+code with system-only
+        // frames, so default grouping folds all failure classes into a single
+        // issue. Group by stage plus normalized error kind instead;
+        // "{{ default }}" keeps default grouping inside the stage for
+        // unclassified errors.
+        event.fingerprint = fingerprint
         event.releaseName = currentSentryReleaseName()
 #if DEBUG
         event.environment = "development-cli"

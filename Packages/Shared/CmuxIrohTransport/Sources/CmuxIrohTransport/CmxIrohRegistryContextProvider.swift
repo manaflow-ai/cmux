@@ -1,4 +1,5 @@
 public import CMUXMobileCore
+import CryptoKit
 public import Foundation
 
 /// Resolves fresh same-account reachability and a locally verified pair grant per dial.
@@ -204,6 +205,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
                 return try await context(
                     targetBinding: cached.targetBinding,
                     routeHints: routeHints,
+                    directOnly: request.irohDirectOnlyDialCandidates,
                     pairGrantToken: cached.pairGrant.grant,
                     at: clock
                 )
@@ -327,6 +329,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             return try await context(
                 targetBinding: cached.targetBinding,
                 routeHints: routeHints,
+                directOnly: request.irohDirectOnlyDialCandidates,
                 pairGrantToken: cached.pairGrant.grant,
                 at: clock
             )
@@ -344,6 +347,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         return try await context(
             targetBinding: targetBinding,
             routeHints: routeHints,
+            directOnly: request.irohDirectOnlyDialCandidates,
             pairGrantToken: pairGrant.grant,
             at: clock
         )
@@ -560,9 +564,18 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
     private func context(
         targetBinding: CmxIrohBrokerBinding,
         routeHints: [CmxIrohPathHint],
+        directOnly: [CmxIrohDirectDialCandidate]? = nil,
         pairGrantToken: String,
         at clock: Date
     ) async throws -> CmxIrohClientContext {
+        if let directOnly {
+            return try directOnlyContext(
+                candidates: directOnly,
+                targetBinding: targetBinding,
+                pairGrantToken: pairGrantToken,
+                at: clock
+            )
+        }
         let targetIdentity = targetBinding.endpointID
         var routeHints = authoritativePrivateRouteHints(
             routeHints,
@@ -610,6 +623,111 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             dialPlan: dialPlan,
             credential: try .pairGrant(pairGrantToken),
             privateFallbackAuthorization: fallbackAuthorization
+        )
+    }
+
+    /// Builds the exclusive dial context for the per-Computer Direct method.
+    ///
+    /// The user-enabled candidates are the COMPLETE path allowlist: the broker
+    /// binding's advertised relay and direct paths, LAN discovery, and custom
+    /// private-path joins are all skipped. The broker still authenticates the
+    /// target tuple and signs the pair grant, so authorization is unchanged;
+    /// only path selection is pinned. Explicit candidate ports are used
+    /// verbatim while port-less candidates join the broker-published Iroh UDP
+    /// port for their address family. Zero usable joins fails the dial instead
+    /// of substituting another path, keeping Direct fail-closed.
+    ///
+    /// The pinned hints deliberately ride `publicPaths`, the unconditional
+    /// primary dial leg. The private-fallback machinery (profile gating,
+    /// snapshot generations, revalidation) exists to keep AUTOMATICALLY
+    /// discovered private addresses off the wrong network; a user-pinned
+    /// exclusive allowlist is an explicit instruction to dial exactly these,
+    /// and peer identity is still proven by the QUIC handshake against the
+    /// broker-authenticated EndpointID.
+    private func directOnlyContext(
+        candidates: [CmxIrohDirectDialCandidate],
+        targetBinding: CmxIrohBrokerBinding,
+        pairGrantToken: String,
+        at clock: Date
+    ) throws -> CmxIrohClientContext {
+        let peerAlias = DiagnosticCorrelation().handle(for: targetBinding.deviceID)
+        guard !candidates.isEmpty else {
+            diagnostics?.record(DiagnosticEvent(
+                .transportPrivateAddressJoin,
+                surface: peerAlias,
+                a: DiagnosticPrivateAddressJoinState.notConfigured.rawValue,
+                b: 0,
+                c: 0
+            ))
+            throw CmxIrohRegistryContextError.dialPlanUnavailable
+        }
+        let directPorts = freshDirectPorts(targetBinding: targetBinding, at: clock)
+        let profile = Self.directOnlyNetworkProfile(deviceID: targetBinding.deviceID)
+        var hints: [CmxIrohPathHint] = []
+        for candidate in candidates.prefix(CmxAttachEndpoint.maximumIrohPathHintCount) {
+            guard let address = try? CmxIrohCustomPrivateAddress(candidate.address) else {
+                continue
+            }
+            let port: UInt16?
+            if let explicitPort = candidate.port {
+                port = explicitPort
+            } else {
+                switch address.family {
+                case .ipv4: port = directPorts?.ipv4
+                case .ipv6: port = directPorts?.ipv6
+                }
+            }
+            guard let port, let profile,
+                  let hint = try? CmxIrohPathHint(
+                      kind: .directAddress,
+                      value: address.socketAddress(port: port),
+                      source: .customVPN,
+                      privacyScope: .privateNetwork,
+                      observedAt: clock,
+                      expiresAt: clock.addingTimeInterval(
+                          CmxIrohPathHint.maximumPrivateHintTTL
+                      ),
+                      networkProfile: profile
+                  ),
+                  !hints.contains(hint) else { continue }
+            hints.append(hint)
+        }
+        guard let dialPlan = CmxIrohDialPlan.directOnly(pinnedPaths: hints) else {
+            diagnostics?.record(DiagnosticEvent(
+                .transportPrivateAddressJoin,
+                surface: peerAlias,
+                a: DiagnosticPrivateAddressJoinState.brokerPortsStale.rawValue,
+                b: candidates.count,
+                c: 0
+            ))
+            throw CmxIrohRegistryContextError.dialPlanUnavailable
+        }
+        diagnostics?.record(DiagnosticEvent(
+            .transportPrivateAddressJoin,
+            surface: peerAlias,
+            a: DiagnosticPrivateAddressJoinState.joined.rawValue,
+            b: candidates.count,
+            c: hints.count
+        ))
+        return CmxIrohClientContext(
+            dialPlan: dialPlan,
+            credential: try .pairGrant(pairGrantToken),
+            privateFallbackAuthorization: nil
+        )
+    }
+
+    /// Deterministic routing-metadata profile for user-pinned Direct hints.
+    /// It carries hint provenance only; Direct dials are not profile-gated.
+    private static func directOnlyNetworkProfile(
+        deviceID: String
+    ) -> CmxIrohNetworkProfileKey? {
+        let digest = SHA256.hash(
+            data: Data("direct-only-allowlist-v1\0\(deviceID)".utf8)
+        )
+        let profileID = digest.map { String(format: "%02x", $0) }.joined()
+        return try? CmxIrohNetworkProfileKey(
+            source: .customVPN,
+            profileID: profileID
         )
     }
 
@@ -742,6 +860,11 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
               request.authorizationMode == .transportAdmission,
               let expectedDeviceID = request.expectedPeerDeviceID,
               case let .peer(targetIdentity, _) = request.route.endpoint else {
+            return context
+        }
+        // A Direct-only dial's allowlist is complete: LAN-discovered hints
+        // must not widen it, so its context is returned untouched.
+        guard request.irohDirectOnlyDialCandidates == nil else {
             return context
         }
         guard let authority = lanAuthorities[targetIdentity],

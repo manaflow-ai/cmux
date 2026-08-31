@@ -75,20 +75,9 @@ extension WorkspaceDetailView {
                     // dark theme (and vice versa).
                     .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
                     // Same recovery chrome as the terminal: the last synced
-                    // surface stays visible underneath while the pill shows
-                    // reconnect progress (it renders nothing when connected).
-                    .overlay(alignment: .topLeading) {
-                        MobileMacConnectionStatusPill(
-                            host: host,
-                            status: effectiveConnectionStatus,
-                            reconnect: Self.reconnectAction(
-                                connectionRequiresReauth: store.connectionRequiresReauth,
-                                reconnect: { reconnectToWorkspaceMac() }
-                            )
-                        )
-                        .padding(.top, 10)
-                        .padding(.leading, 10)
-                    }
+                    // surface stays visible, and connection state lives in
+                    // the shared title bar (spinner while reconnecting, red
+                    // dot + Reconnect menu item while disconnected).
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -271,6 +260,11 @@ extension WorkspaceDetailView {
                 selectDevice: { [weak store] udid in
                     await store?.selectSimulatorDevice(
                         panelID: simulator.id, workspaceID: workspaceID, udid: udid) ?? false
+                },
+                supportsRecover: store.supportsSimulatorRecover,
+                recover: { [weak store] in
+                    await store?.recoverSimulator(
+                        panelID: simulator.id, workspaceID: workspaceID) ?? false
                 }
             )
             .task {

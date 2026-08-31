@@ -79,11 +79,35 @@ public struct UITestConfig {
         #endif
     }
 
-    /// Forces the iOS 27 keyboard-dock compatibility path on an older simulator.
-    /// DEBUG-only so production selection remains tied exclusively to the OS version.
-    public static var forceIOS27KeyboardDockWorkaround: Bool {
+    /// Forces the legacy keyboard-dock path on any simulator. Legacy is the
+    /// shipping default, so this pin exists for explicit-path tests and
+    /// debugging. DEBUG-only.
+    public static var forceLegacyKeyboardDock: Bool {
         #if DEBUG
-        return ProcessInfo.processInfo.environment["CMUX_UITEST_FORCE_IOS27_KEYBOARD_DOCK"] == "1"
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_FORCE_LEGACY_KEYBOARD_DOCK"] == "1"
+        #else
+        return false
+        #endif
+    }
+
+    /// Forces the rebuilt (single-constraint) keyboard-dock path on iOS ≤26
+    /// simulators so CI keeps exercising the kill-switch fallback. DEBUG-only;
+    /// iOS 27+ ignores it because the rebuild misreads that OS's keyboard
+    /// frames.
+    public static var forceRebuildKeyboardDock: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_FORCE_REBUILD_KEYBOARD_DOCK"] == "1"
+        #else
+        return false
+        #endif
+    }
+
+    /// Forces the exact iOS 27 keyboard seat (notification authority,
+    /// will-frames only) on any simulator OS, so iOS ≤26 CI runners exercise
+    /// the path iOS 27 devices ship with. DEBUG-only.
+    public static var forceIOS27KeyboardSeat: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_FORCE_IOS27_KEYBOARD_SEAT"] == "1"
         #else
         return false
         #endif
