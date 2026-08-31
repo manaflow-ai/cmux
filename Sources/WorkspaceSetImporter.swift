@@ -58,6 +58,35 @@ struct WorkspaceSetPanelTemplate: Codable {
     var command: String?
 }
 
+/// An agent a workspace's agent pane can be pointed at. Duplicating a
+/// workspace offers one of these so a copy can run Codex while the original
+/// runs Claude (the workspace-set template only ever names one of them).
+///
+/// The wrapper scripts live in `~/.local/bin` and share a naming shape:
+/// `<agent>` or `<agent>-<variant>` (`claude`, `claude-remote`, `codex-remote`).
+/// Adding an agent is one case here plus its `panelTitle`.
+enum WorkspaceAgent: String, CaseIterable, Sendable {
+    case claude
+    case codex
+
+    /// Panel title the workspace-set templates use for this agent's pane.
+    var panelTitle: String {
+        switch self {
+        case .claude: return "Claude"
+        case .codex: return "Codex"
+        }
+    }
+
+    /// Parse a CLI/socket argument (`claude`, `Codex`, `codex-remote`).
+    init?(argument: String) {
+        let normalized = argument.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return nil }
+        let head = normalized.split(separator: "-").first.map(String.init) ?? normalized
+        guard let match = WorkspaceAgent(rawValue: head) else { return nil }
+        self = match
+    }
+}
+
 struct WorkspaceSetSplitLayout: Codable {
     var orientation: String  // "horizontal" or "vertical"
     var dividerPosition: Double
@@ -262,7 +291,8 @@ enum WorkspaceSetImporter {
     @discardableResult
     static func rebuildWorkspaceFromTemplate(
         _ workspace: Workspace,
-        at path: String? = nil
+        at path: String? = nil,
+        agent: WorkspaceAgent? = nil
     ) -> Int? {
         let resolvedPath = path ?? defaultPath
         guard let workspaceSet = try? parseFile(at: resolvedPath) else { return nil }
@@ -276,7 +306,13 @@ enum WorkspaceSetImporter {
             templates = workspaceSet.defaultPanels
             layout = workspaceSet.defaultLayout
         }
-        guard let templates, !templates.isEmpty else { return nil }
+        guard var templates, !templates.isEmpty else { return nil }
+        var resolvedLayout = layout
+        if let agent {
+            let retarget = retargeted(panels: templates, layout: layout, to: agent)
+            templates = retarget.panels
+            resolvedLayout = retarget.layout
+        }
 
         // Reduce the workspace to a single pane with one anchor panel so
         // `restoreSessionSnapshot` doesn't layer new splits on top of the
@@ -288,8 +324,84 @@ enum WorkspaceSetImporter {
             _ = workspace.closePanel(panelId, force: true)
         }
 
-        applyFullTemplate(to: workspace, panels: templates, layout: layout)
+        applyFullTemplate(to: workspace, panels: templates, layout: resolvedLayout)
         return templates.count
+    }
+
+    /// Rewrite an agent pane's template so it launches `agent` instead of the
+    /// agent the workspace-set names. Panels that aren't agent panes are
+    /// returned untouched, and a renamed panel is renamed in the layout tree
+    /// too — `applyFullTemplate` resolves layout leaves by panel title.
+    nonisolated static func retargeted(
+        panels: [WorkspaceSetPanelTemplate],
+        layout: WorkspaceSetLayoutNode?,
+        to agent: WorkspaceAgent
+    ) -> (panels: [WorkspaceSetPanelTemplate], layout: WorkspaceSetLayoutNode?) {
+        var renames: [String: String] = [:]
+        let rewritten = panels.map { tpl -> WorkspaceSetPanelTemplate in
+            guard let command = tpl.command,
+                  let swap = agentSwappedCommand(command, to: agent) else { return tpl }
+            var copy = tpl
+            copy.command = swap.command
+            // Only retitle a pane that was named after the agent it ran; a
+            // hand-titled pane ("Boards") keeps its name.
+            if tpl.title.caseInsensitiveCompare(swap.previous.panelTitle) == .orderedSame {
+                copy.title = agent.panelTitle
+                renames[tpl.title.lowercased()] = agent.panelTitle
+            }
+            return copy
+        }
+        guard !renames.isEmpty else { return (rewritten, layout) }
+        return (rewritten, layout.map { retitled($0, renames: renames) })
+    }
+
+    /// Swap the launched executable for `agent`'s equivalent, preserving any
+    /// leading `VAR=value` env assignments, the wrapper's variant suffix and
+    /// its directory: `CLAUDE_REMOTE_HOST=win-desktop claude-remote -n win`
+    /// becomes `CLAUDE_REMOTE_HOST=win-desktop codex-remote -n win`.
+    /// Returns nil when the command isn't an agent pane, or already runs `agent`.
+    nonisolated private static func agentSwappedCommand(
+        _ command: String,
+        to agent: WorkspaceAgent
+    ) -> (command: String, previous: WorkspaceAgent)? {
+        var tokens = command.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
+        guard let index = tokens.firstIndex(where: { !$0.isEmpty && !isEnvAssignment($0) }) else { return nil }
+        let token = tokens[index]
+        let base = (token as NSString).lastPathComponent
+        let lowered = base.lowercased()
+        guard let previous = WorkspaceAgent.allCases.first(where: {
+            lowered == $0.rawValue || lowered.hasPrefix($0.rawValue + "-")
+        }), previous != agent else { return nil }
+        let swappedBase = agent.rawValue + base.dropFirst(previous.rawValue.count)
+        let directory = (token as NSString).deletingLastPathComponent
+        tokens[index] = directory.isEmpty ? swappedBase : (directory as NSString).appendingPathComponent(swappedBase)
+        return (tokens.joined(separator: " "), previous)
+    }
+
+    /// True for a shell env prefix like `CLAUDE_REMOTE_HOST=win-desktop`.
+    nonisolated private static func isEnvAssignment(_ token: String) -> Bool {
+        guard let equals = token.firstIndex(of: "="), equals != token.startIndex else { return false }
+        let name = token[token.startIndex..<equals]
+        guard let first = name.first, first.isLetter || first == "_" else { return false }
+        return name.allSatisfy { $0.isLetter || $0.isNumber || $0 == "_" }
+    }
+
+    nonisolated private static func retitled(
+        _ node: WorkspaceSetLayoutNode,
+        renames: [String: String]
+    ) -> WorkspaceSetLayoutNode {
+        switch node {
+        case .split(let split):
+            var copy = split
+            copy.first = retitled(split.first, renames: renames)
+            copy.second = retitled(split.second, renames: renames)
+            return .split(copy)
+        case .pane(let pane):
+            var copy = pane
+            copy.panels = pane.panels.map { renames[$0.lowercased()] ?? $0 }
+            copy.selected = pane.selected.map { renames[$0.lowercased()] ?? $0 }
+            return .pane(copy)
+        }
     }
 
     // MARK: - Private

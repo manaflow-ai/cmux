@@ -4731,10 +4731,26 @@ class TerminalController {
                     )
                     return
                 }
+                var requestedAgent: WorkspaceAgent?
+                if let agentRaw = v2String(params, "agent") {
+                    guard let parsed = WorkspaceAgent(argument: agentRaw) else {
+                        result = .err(
+                            code: "invalid_params",
+                            message: "Unknown agent",
+                            data: [
+                                "agent": agentRaw,
+                                "supported_agents": WorkspaceAgent.allCases.map(\.rawValue)
+                            ]
+                        )
+                        return
+                    }
+                    requestedAgent = parsed
+                }
                 guard let duplicate = AppDelegate.shared?.duplicateWorkspace(
                     tabId: workspace.id,
                     in: tabManager,
                     instanceIndex: requestedIndex,
+                    agent: requestedAgent,
                     select: false
                 ) else {
                     // The only in-range failure is a taken index; report it as a
@@ -4752,7 +4768,8 @@ class TerminalController {
                 finish([
                     "duplicate_id": duplicate.id.uuidString,
                     "duplicate_ref": v2Ref(kind: .workspace, uuid: duplicate.id),
-                    "instance_index": duplicate.instanceIndex
+                    "instance_index": duplicate.instanceIndex,
+                    "agent": v2OrNull(requestedAgent?.rawValue)
                 ])
 
             case "rename":

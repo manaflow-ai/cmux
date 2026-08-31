@@ -1051,9 +1051,15 @@ struct cmuxApp: App {
             }
         }
 
-        Button(String(localized: "contextMenu.duplicateWorkspace", defaultValue: "Duplicate Workspace")) {
-            if let workspace {
-                AppDelegate.shared?.duplicateWorkspace(tabId: workspace.id, in: manager)
+        Menu(String(localized: "contextMenu.duplicateWorkspace", defaultValue: "Duplicate Workspace")) {
+            ForEach(WorkspaceAgent.allCases, id: \.self) { agent in
+                Button(agent.panelTitle) {
+                    if let workspace {
+                        AppDelegate.shared?.duplicateWorkspace(
+                            tabId: workspace.id, in: manager, agent: agent
+                        )
+                    }
+                }
             }
         }
         .disabled(workspace == nil)

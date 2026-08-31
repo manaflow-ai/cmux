@@ -3615,3 +3615,85 @@ final class SidebarWorkspaceShortcutHintMetricsTests: XCTestCase {
         XCTAssertGreaterThan(widened, base)
     }
 }
+
+// MARK: - Duplicate Workspace agent retargeting
+
+final class WorkspaceAgentRetargetTests: XCTestCase {
+
+    private func layout(_ titles: [String], selected: String? = nil) -> WorkspaceSetLayoutNode {
+        .split(WorkspaceSetSplitLayout(
+            orientation: "vertical",
+            dividerPosition: 0.85,
+            first: .pane(WorkspaceSetPaneLayout(panels: titles, selected: selected)),
+            second: .pane(WorkspaceSetPaneLayout(panels: ["Terminal"], selected: nil))
+        ))
+    }
+
+    private func paneTitles(_ node: WorkspaceSetLayoutNode?) -> [String] {
+        guard case .split(let split) = node, case .pane(let pane) = split.first else { return [] }
+        return pane.panels
+    }
+
+    func testSwapsAgentWrapperAndPanelTitle() {
+        let result = WorkspaceSetImporter.retargeted(
+            panels: [
+                WorkspaceSetPanelTemplate(title: "Terminal", command: nil),
+                WorkspaceSetPanelTemplate(title: "Claude", command: "claude-remote")
+            ],
+            layout: layout(["Claude"], selected: "Claude"),
+            to: .codex
+        )
+
+        XCTAssertEqual(result.panels.map(\.title), ["Terminal", "Codex"])
+        XCTAssertEqual(result.panels[1].command, "codex-remote")
+        XCTAssertEqual(paneTitles(result.layout), ["Codex"])
+    }
+
+    func testPreservesEnvPrefixVariantSuffixAndPath() {
+        let result = WorkspaceSetImporter.retargeted(
+            panels: [WorkspaceSetPanelTemplate(
+                title: "Claude",
+                command: "CLAUDE_REMOTE_HOST=win-desktop /Users/rod/.local/bin/claude-remote -n win"
+            )],
+            layout: nil,
+            to: .codex
+        )
+
+        XCTAssertEqual(
+            result.panels[0].command,
+            "CLAUDE_REMOTE_HOST=win-desktop /Users/rod/.local/bin/codex-remote -n win"
+        )
+    }
+
+    func testLeavesNonAgentAndAlreadyTargetedPanesAlone() {
+        let panels = [
+            WorkspaceSetPanelTemplate(title: "Files", command: "files-remote"),
+            WorkspaceSetPanelTemplate(title: "Notes", command: "vim claude.md"),
+            WorkspaceSetPanelTemplate(title: "Codex", command: "codex-remote")
+        ]
+        let result = WorkspaceSetImporter.retargeted(panels: panels, layout: nil, to: .codex)
+
+        XCTAssertEqual(result.panels.map(\.command), panels.map(\.command))
+        XCTAssertEqual(result.panels.map(\.title), panels.map(\.title))
+    }
+
+    func testKeepsHandTitledAgentPaneName() {
+        let result = WorkspaceSetImporter.retargeted(
+            panels: [WorkspaceSetPanelTemplate(title: "Boards", command: "claude-remote -n boards")],
+            layout: layout(["Boards"]),
+            to: .codex
+        )
+
+        XCTAssertEqual(result.panels[0].title, "Boards")
+        XCTAssertEqual(result.panels[0].command, "codex-remote -n boards")
+        XCTAssertEqual(paneTitles(result.layout), ["Boards"])
+    }
+
+    func testParsesAgentArgument() {
+        XCTAssertEqual(WorkspaceAgent(argument: "Codex"), .codex)
+        XCTAssertEqual(WorkspaceAgent(argument: "codex-remote"), .codex)
+        XCTAssertEqual(WorkspaceAgent(argument: " claude "), .claude)
+        XCTAssertNil(WorkspaceAgent(argument: "copilot"))
+        XCTAssertNil(WorkspaceAgent(argument: ""))
+    }
+}

@@ -4157,17 +4157,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// independent "-<n>" tmux session instead of attaching the primary's.
     /// `select` is false for socket/CLI callers: duplicating is not a focus-intent
     /// command, so it must not move the user's selection out from under them.
+    /// `agent` re-points the copy's agent pane at another wrapper (Codex on a
+    /// workspace whose template names Claude); nil keeps the template's agent.
     @discardableResult
     func duplicateWorkspace(
         tabId: UUID,
         in tabManager: TabManager,
         instanceIndex: Int? = nil,
+        agent: WorkspaceAgent? = nil,
         select: Bool = true
     ) -> Workspace? {
         guard let duplicate = tabManager.makeDuplicateWorkspace(of: tabId, instanceIndex: instanceIndex) else {
             return nil
         }
-        if let count = WorkspaceSetImporter.rebuildWorkspaceFromTemplate(duplicate) {
+        if let count = WorkspaceSetImporter.rebuildWorkspaceFromTemplate(duplicate, agent: agent) {
             NSLog("[WorkspaceSetImporter] duplicate: recreated %d panels in '%@'",
                   count, duplicate.title)
             refreshTerminalSurfacesAfterGhosttyConfigReload(source: "duplicateWorkspace")
