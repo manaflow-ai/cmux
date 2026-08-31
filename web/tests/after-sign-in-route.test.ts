@@ -11,6 +11,10 @@ type TestStackAuthSession = {
   getTokens: () => Promise<{ refreshToken?: string; accessToken?: string }>;
 };
 type TestStackAuthUser = {
+  id?: string;
+  primaryEmail?: string | null;
+  primaryEmailVerified?: boolean;
+  isAnonymous?: boolean;
   createSession: (options: { expiresInMillis: number }) => Promise<TestStackAuthSession>;
 };
 
@@ -23,6 +27,7 @@ const signOut = mock((options?: unknown) => {
   void options;
   return Promise.resolve();
 });
+const promoteVerifiedAnonymousUser = mock(async (_userId: string, _email: string) => undefined);
 
 const { makeAfterSignInHandler } = await import("../app/handler/after-sign-in/handler");
 const { appPricingNativeReturnURL } = await import("../app/lib/billing");
@@ -32,6 +37,7 @@ const { makeSignOutAndSignInHandler } = await import("../app/handler/sign-out-an
 const GET = makeAfterSignInHandler({
   projectId: "test-project",
   stackServerApp: { getUser },
+  promoteVerifiedAnonymousUser,
   getCookieStore: async () => ({
     get: (name: string) => {
       if (name === HANDOFF_COOKIE && handoffCookie) return { value: handoffCookie };
@@ -84,6 +90,7 @@ describe("after sign-in native handoff", () => {
     getUserResponses = [];
     getUser.mockClear();
     signOut.mockClear();
+    promoteVerifiedAnonymousUser.mockClear();
   });
 
   test("issues and clears the handoff nonce with one cookie contract", async () => {
@@ -253,6 +260,40 @@ describe("after sign-in native handoff", () => {
     expect(callbackURL.searchParams.get("stack_access")).toBe(
       JSON.stringify(["anon-refresh", "anon-access"]),
     );
+  });
+
+  test("promotes a verified anonymous account before minting handoff tokens", async () => {
+    rawRefreshCookie = "";
+    rawAccessCookie = "";
+    const createSession = mock(async () => ({
+      getTokens: async () => ({
+        refreshToken: "promoted-refresh",
+        accessToken: "promoted-access",
+      }),
+    }));
+    const user = {
+      id: "anonymous-verified",
+      primaryEmail: "buyer@example.com",
+      primaryEmailVerified: true,
+      isAnonymous: true,
+      createSession,
+    };
+    getUserResponses = [null, user];
+
+    const response = await GET(
+      signInRequest("cmux://auth-callback", "unused"),
+    );
+
+    expect(promoteVerifiedAnonymousUser).toHaveBeenCalledWith(
+      "anonymous-verified",
+      "buyer@example.com",
+    );
+    expect(createSession).toHaveBeenCalledWith({
+      expiresInMillis: 30 * 24 * 60 * 60 * 1000,
+    });
+    expect(response.status).toBe(200);
+    const callbackURL = new URL(returnHref(await response.text()));
+    expect(callbackURL.searchParams.get("stack_refresh")).toBe("promoted-refresh");
   });
 
   test("accepts only signed tagged purchase callbacks on the deployed host", async () => {
