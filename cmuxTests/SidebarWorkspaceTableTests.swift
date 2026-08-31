@@ -199,6 +199,43 @@ struct SidebarWorkspaceTableTests {
 
     @Test
     @MainActor
+    func rowHeightCacheIgnoresPaletteOnlyEnvironmentChanges() {
+        let cache = SidebarWorkspaceTableRowHeightCache()
+        let workspaceId = UUID()
+        var measurementCount = 0
+        let measure: SidebarWorkspaceTableRowHeightCache.Measurement = { _, _ in
+            measurementCount += 1
+            return 44
+        }
+        let original = makeRowConfiguration(workspaceId: workspaceId)
+        let accentEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
+            environment: .sidebarTableTestValues(colorScheme: .light),
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe(),
+            systemAccentColor: NSColor(srgbRed: 0.1, green: 0.8, blue: 0.2, alpha: 1)
+        )
+        let accentChanged = SidebarWorkspaceTableRowConfiguration(
+            id: .workspace(workspaceId),
+            workspaceId: workspaceId,
+            groupId: nil,
+            isGroupHeader: false,
+            isPinned: false,
+            environment: accentEnvironment,
+            equivalenceValue: TestRowContent()
+        ) { _, _ in
+            AnyView(TestRowContent())
+        }
+
+        _ = cache.prepare(rows: [original], columnWidth: 200, measure: measure)
+        let changes = cache.prepare(rows: [accentChanged], columnWidth: 200, measure: measure)
+
+        #expect(measurementCount == 1)
+        #expect(changes.isEmpty)
+        #expect(cache.height(for: accentChanged, columnWidth: 200) == 44)
+    }
+
+    @Test
+    @MainActor
     func cachedHeightQueriesDuringScrollNeverMeasure() {
         let cache = SidebarWorkspaceTableRowHeightCache()
         let row = makeRowConfiguration()

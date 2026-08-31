@@ -195,7 +195,7 @@ struct SystemAppearanceObserverTests {
 
     // (a) System-mode appearance flip posts the notification exactly once.
     @Test
-    func systemModeAppearanceFlipPostsNotificationExactlyOnce() {
+    func systemModeAppearanceFlipPostsNotificationExactlyOnce() async {
         let harness = Harness()
         let observer = SystemAppearanceObserver(environment: harness.environment)
 
@@ -206,6 +206,8 @@ struct SystemAppearanceObserverTests {
 
         harness.prefersDark = true
         harness.fireEffectiveAppearanceChanged()
+        await Task.yield()
+        await Task.yield()
 
         #expect(harness.events == [
             "effectivePrefersDark(false)",
@@ -283,7 +285,7 @@ struct SystemAppearanceObserverTests {
     }
 
     @Test
-    func explicitModeFireInvalidatesCachedBaselineBeforeReturningToSystem() {
+    func explicitModeFireInvalidatesCachedBaselineBeforeReturningToSystem() async {
         let harness = Harness()
         harness.prefersDark = true
         let observer = SystemAppearanceObserver(environment: harness.environment)
@@ -300,6 +302,8 @@ struct SystemAppearanceObserverTests {
         harness.modeRawValue = AppearanceMode.system.rawValue
         harness.prefersDark = true
         harness.fireEffectiveAppearanceChanged()
+        await Task.yield()
+        await Task.yield()
 
         #expect(harness.events == [
             "effectivePrefersDark(true)",
@@ -312,7 +316,7 @@ struct SystemAppearanceObserverTests {
     // (c) An unchanged value is coalesced (no duplicate post) — including
     // immediately after a real prior transition.
     @Test
-    func unchangedResolvedAppearanceIsCoalesced() {
+    func unchangedResolvedAppearanceIsCoalesced() async {
         let harness = Harness()
         let observer = SystemAppearanceObserver(environment: harness.environment)
 
@@ -324,6 +328,8 @@ struct SystemAppearanceObserverTests {
 
         harness.prefersDark = true
         harness.fireEffectiveAppearanceChanged()
+        await Task.yield()
+        await Task.yield()
 
         #expect(harness.events.filter { $0 == "postSystemAppearanceDidChange" }.count == 1)
         #expect(harness.events.filter { $0 == "synchronizeTerminalTheme" }.count == 1)
@@ -332,13 +338,14 @@ struct SystemAppearanceObserverTests {
         // seeded at startObserving() — fire the same (now-current) value again
         // immediately after a real transition and confirm it's a no-op.
         harness.fireEffectiveAppearanceChanged()
+        await Task.yield()
 
         #expect(harness.events.filter { $0 == "postSystemAppearanceDidChange" }.count == 1)
     }
 
     // (f) Re-entrant fire during postSystemAppearanceDidChange() does not loop.
     @Test
-    func reentrantFireDuringPostDoesNotLoop() {
+    func reentrantFireDuringPostDoesNotLoop() async {
         let harness = Harness()
         let observer = SystemAppearanceObserver(environment: harness.environment)
 
@@ -355,6 +362,8 @@ struct SystemAppearanceObserverTests {
         observer.startObserving()
         harness.prefersDark = true
         harness.fireEffectiveAppearanceChanged()
+        await Task.yield()
+        await Task.yield()
 
         #expect(harness.events == [
             "effectivePrefersDark(false)",
@@ -364,6 +373,22 @@ struct SystemAppearanceObserverTests {
             "effectivePrefersDark(true)",
         ])
         #expect(reentrantFireCount == 1)
+        #expect(harness.events.filter { $0 == "postSystemAppearanceDidChange" }.count == 1)
+    }
+
+    @Test
+    func effectiveAppearanceAndSystemColorsChangesShareOneRefresh() async {
+        let harness = Harness()
+        let observer = SystemAppearanceObserver(environment: harness.environment)
+
+        observer.startObserving()
+        harness.prefersDark = true
+        harness.fireEffectiveAppearanceChanged()
+        harness.fireSystemColorsChanged()
+        await Task.yield()
+        await Task.yield()
+
+        #expect(harness.events.filter { $0 == "synchronizeTerminalTheme" }.count == 1)
         #expect(harness.events.filter { $0 == "postSystemAppearanceDidChange" }.count == 1)
     }
 
