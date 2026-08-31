@@ -56,6 +56,9 @@ gh() {
     unrelated)
       jq -nc '[[{id:1,body:"Thanks for the review",user:{login:"alice",type:"User"}}]]'
       ;;
+    spoof-marker)
+      jq -nc '[[{id:1,body:"CLA Assistant Lite bot: false notice",user:{login:"alice",type:"User"}}]]'
+      ;;
     bot-exact)
       jq -nc --arg phrase "$CLA_SIGN_PHRASE" '[[{id:1,body:$phrase,user:{login:"release[bot]",type:"Bot"}}]]'
       ;;
@@ -100,5 +103,6 @@ run_case padded 1 "historical pull request comment"
 run_case lowercase 1 "historical pull request comment"
 run_case wrapped 1 "historical pull request comment"
 run_case bot-exact 1 "historical pull request comment"
+run_case spoof-marker 1 "historical pull request comment"
 run_case too-many 1 "comment limit"
 run_case api-failure 1 "Could not query pull request comments"
