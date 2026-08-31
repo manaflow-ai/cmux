@@ -131,8 +131,11 @@ jobs:
       contents: write
       issues: write
       # The maintained action does not call the commit-status API. GitHub
-      # creates the job check run itself, so statuses:write would add an
-      # unused write capability without changing the displayed CLA result.
+      # creates the job check run itself and keys it to the pull request head
+      # for pull_request_target runs, so statuses:write would add an unused
+      # write capability without changing the displayed CLA result. The
+      # production check-run API confirms this head binding; do not replace it
+      # with a manually posted status.
       # GitHub's pull_request_target token denied issue comments for fork PRs
       # with this set to read, despite the endpoint documentation allowing
       # issues:write. Keep write until that live behavior changes.
@@ -424,6 +427,7 @@ jobs:
           # exact live PR plus the run head_repository binding below is the
           # association proof in that case.
           commit_prs_json="$(gh api \
+            --method GET \
             --header 'Accept: application/vnd.github+json' \
             --raw-field per_page=100 \
             --raw-field page=1 \
@@ -742,6 +746,7 @@ jobs:
             [[ "${execution_sha}" == "${head_sha}" ]] && return 0
 
             execution_prs_json="$(gh api \
+              --method GET \
               --header 'Accept: application/vnd.github+json' \
               --raw-field per_page=100 \
               --raw-field page=1 \

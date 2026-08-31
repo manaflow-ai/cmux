@@ -74,6 +74,11 @@ gh() {
     echo "missing API endpoint" >&2
     return 1
   }
+  if [[ "$endpoint" == repos/manaflow-ai/cmux/commits/*/pulls &&
+        " $* " != *" --method GET "* ]]; then
+    echo "commit association lookup must use GET" >&2
+    return 1
+  fi
   local live_state=open
   local live_base=main
   local live_head_repo=contributor/cmux
