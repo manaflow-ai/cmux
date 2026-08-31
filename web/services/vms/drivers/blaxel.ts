@@ -344,23 +344,110 @@ function controlHeaders(): Record<string, string> {
   };
 }
 
-async function blaxelFetch<T>(
+// Bounded retry for the Blaxel control plane. Every control-plane call used to
+// be a single bare fetch, so any transient 429/5xx or network blip failed the
+// whole provisioning workflow (August 2026: 18 of 19 real create attempts).
+// Retries are per-method: 429 is retried for every method, because the server
+// refused the request before doing any work, and Retry-After is honored; 5xx
+// and network errors are retried only for idempotent requests (GET, DELETE,
+// HEAD, and this driver's PUTs, which write fixed file content). POST is never
+// replayed on 5xx or network failure because the request may have executed:
+// sandbox create relies on the caller's 409 name-collision loop instead, and
+// process starts are not idempotent.
+export const BLAXEL_FETCH_MAX_ATTEMPTS = 4;
+const BLAXEL_RETRY_BASE_DELAY_MS = 250;
+const BLAXEL_RETRY_MAX_DELAY_MS = 4_000;
+const BLAXEL_RETRY_AFTER_CAP_MS = 15_000;
+
+/**
+ * Retries exhausted on a retriable control-plane failure. Distinct from a
+ * plain ProviderError so logs can tell "Blaxel kept failing for the whole
+ * retry budget" from "Blaxel rejected this request".
+ */
+export class BlaxelRetryExhaustedError extends ProviderError {
+  constructor(method: string, url: string, attempts: number, lastFailure: string, cause?: unknown) {
+    super(
+      "blaxel",
+      `${method} ${url} -> ${lastFailure} (retries exhausted after ${attempts} attempts)`,
+      cause,
+    );
+    this.name = "BlaxelRetryExhaustedError";
+  }
+}
+
+function parseRetryAfterMs(header: string | null): number | null {
+  if (!header) return null;
+  const seconds = Number(header);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.round(seconds * 1000);
+  const dateMs = Date.parse(header);
+  if (!Number.isNaN(dateMs)) return Math.max(0, dateMs - Date.now());
+  return null;
+}
+
+/** Full-jitter exponential backoff; a server-provided Retry-After wins (capped). */
+export function blaxelRetryDelayMs(
+  attempt: number,
+  retryAfterHeader: string | null,
+  random: () => number = Math.random,
+): number {
+  const retryAfterMs = parseRetryAfterMs(retryAfterHeader);
+  if (retryAfterMs !== null) return Math.min(retryAfterMs, BLAXEL_RETRY_AFTER_CAP_MS);
+  const cap = Math.min(BLAXEL_RETRY_MAX_DELAY_MS, BLAXEL_RETRY_BASE_DELAY_MS * 2 ** attempt);
+  return Math.floor(random() * cap);
+}
+
+const defaultRetrySleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+export async function blaxelFetch<T>(
   method: string,
   url: string,
   body?: unknown,
-  opts?: { timeoutMs?: number },
+  opts?: {
+    timeoutMs?: number;
+    /** Test seams; production callers never pass these. */
+    sleep?: (ms: number) => Promise<void>;
+    random?: () => number;
+  },
 ): Promise<T> {
-  const response = await fetch(url, {
-    method,
-    headers: controlHeaders(),
-    body: body === undefined ? undefined : JSON.stringify(body),
-    signal: AbortSignal.timeout(opts?.timeoutMs ?? 60_000),
-  });
-  const text = await response.text();
-  if (!response.ok) {
-    throw new ProviderError("blaxel", `${method} ${url} -> ${response.status}: ${text.slice(0, 500)}`);
+  const idempotent = method === "GET" || method === "DELETE" || method === "PUT" || method === "HEAD";
+  const sleep = opts?.sleep ?? defaultRetrySleep;
+  const random = opts?.random ?? Math.random;
+  let lastFailure = "";
+  let lastCause: unknown;
+  for (let attempt = 0; attempt < BLAXEL_FETCH_MAX_ATTEMPTS; attempt += 1) {
+    const lastAttempt = attempt === BLAXEL_FETCH_MAX_ATTEMPTS - 1;
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method,
+        headers: controlHeaders(),
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: AbortSignal.timeout(opts?.timeoutMs ?? 60_000),
+      });
+    } catch (err) {
+      // Network failure or timeout: a non-idempotent request may still have
+      // executed on the far side, so only idempotent methods are replayed.
+      if (!idempotent) throw err;
+      lastFailure = `network failure: ${err instanceof Error ? err.message : String(err)}`;
+      lastCause = err;
+      if (lastAttempt) break;
+      await sleep(blaxelRetryDelayMs(attempt, null, random));
+      continue;
+    }
+    const text = await response.text();
+    if (response.ok) return (text ? JSON.parse(text) : undefined) as T;
+    const retriable = response.status === 429 || (idempotent && response.status >= 500);
+    if (!retriable) {
+      // Preserve the exact historical message shape: the sandbox-create
+      // name-collision loop matches /-> 409/ and not-found checks match /-> 404/.
+      throw new ProviderError("blaxel", `${method} ${url} -> ${response.status}: ${text.slice(0, 500)}`);
+    }
+    lastFailure = `${response.status}: ${text.slice(0, 500)}`;
+    lastCause = undefined;
+    if (lastAttempt) break;
+    await sleep(blaxelRetryDelayMs(attempt, response.headers.get("retry-after"), random));
   }
-  return (text ? JSON.parse(text) : undefined) as T;
+  throw new BlaxelRetryExhaustedError(method, url, BLAXEL_FETCH_MAX_ATTEMPTS, lastFailure, lastCause);
 }
 
 // The daemon source resolution, install command, daemon command, and enrollment
