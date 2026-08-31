@@ -3,7 +3,7 @@ on:
   issue_comment:
     types: [created]
   pull_request_target:
-    types: [opened,closed,synchronize]
+    types: [opened,closed,reopened,synchronize]
 
 # Signature updates share one file and must not race.
 concurrency:
@@ -27,6 +27,38 @@ jobs:
     name: "CLA Assistant"
     runs-on: ubuntu-latest
     steps:
+      - name: "Check CLA commit limit"
+        # The archived action reads only its first 100 commits. Fail closed
+        # instead of allowing an unsigned committer beyond that limit through.
+        if: >-
+          (
+            github.event_name == 'pull_request_target' &&
+            github.event.action != 'closed'
+          ) ||
+          (
+            github.event_name == 'issue_comment' &&
+            github.event.issue.pull_request &&
+            (
+              github.event.comment.body == 'recheck' ||
+              github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA'
+            )
+          )
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          commit_count="$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}" --jq '.commits')"
+          if ! [[ "${commit_count}" =~ ^[0-9]+$ ]]; then
+            echo "::error::Could not determine the pull request commit count"
+            exit 1
+          fi
+          if (( commit_count > 100 )); then
+            echo "::error title=CLA Assistant commit limit::This pull request has ${commit_count} commits. Split it into 100 or fewer commits before requesting a CLA check."
+            exit 1
+          fi
+
       - name: "CLA Assistant"
         # The action handles signing and status updates. Merged pull requests
         # use the explicit lock step below because the archived action sends
