@@ -42,9 +42,9 @@ jobs:
       # with this set to read, despite the endpoint documentation allowing
       # issues:write. Keep write until that live behavior changes.
       pull-requests: write
-      statuses: write
     steps:
       - name: "Check CLA commit limit"
+        id: cla-preflight
         # The archived action reads only its first 100 commits. Fail closed
         # instead of allowing an unsigned committer beyond that limit through.
         env:
@@ -66,6 +66,16 @@ jobs:
             exit 1
           fi
 
+          # The archived action matches its allowlist by raw Git commit name.
+          # Enable the cmux integration's raw commit identities only when the
+          # authenticated PR opener is the expected GitHub App bot.
+          bot_allowlist=''
+          if opener="$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}" --jq '[.user.login, .user.type] | @tsv' 2>/dev/null)" &&
+             [[ "${opener}" == $'chatmux-connections[bot]\tBot' ]]; then
+            bot_allowlist='Pi,chatmux-connections[bot]'
+          fi
+          printf 'allowlist=%s\n' "${bot_allowlist}" >> "${GITHUB_OUTPUT}"
+
       - name: "CLA Assistant"
         # The action handles signing and status updates. Merged pull requests
         # use the explicit lock step below because the archived action sends
@@ -83,7 +93,9 @@ jobs:
           # signatures live on the unprotected cla-signatures branch so required checks on main don't block the bot's signature commits
           branch: 'cla-signatures'
           # Require the exact phrase below. Do not use the action's name-based
-          # allowlist, which can be spoofed by an unlinked commit identity.
+          # allowlist for human PRs, which can be spoofed by an unlinked commit
+          # identity. The preflight limits this exception to one GitHub App.
+          allowlist: ${{ steps.cla-preflight.outputs.allowlist }}
           custom-pr-sign-comment: 'I have read the CLA Document and I hereby sign the CLA'
 
   LockMergedPullRequest:
@@ -93,6 +105,12 @@ jobs:
       github.event.action == 'closed' &&
       github.event.pull_request.merged == true
     runs-on: ubuntu-latest
+    # A merged PR must not lock while a signature update for this repository
+    # is still writing or updating its CLA comment.
+    concurrency:
+      group: cla-signatures
+      queue: max
+      cancel-in-progress: false
     permissions:
       issues: write
     steps:
