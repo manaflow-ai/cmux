@@ -3000,7 +3000,8 @@ impl Terminal {
             size: size_of::<sys::GhosttySelection>(),
             ..Default::default()
         };
-        let result = unsafe { sys::ghostty_terminal_select_word(self.raw, &options, &mut selection) };
+        let result =
+            unsafe { sys::ghostty_terminal_select_word(self.raw, &options, &mut selection) };
         if result == sys::GHOSTTY_NO_VALUE {
             return Ok(None);
         }
@@ -3059,7 +3060,8 @@ impl Terminal {
             size: size_of::<sys::GhosttySelection>(),
             ..Default::default()
         };
-        let result = unsafe { sys::ghostty_terminal_select_line(self.raw, &options, &mut selection) };
+        let result =
+            unsafe { sys::ghostty_terminal_select_line(self.raw, &options, &mut selection) };
         if result == sys::GHOSTTY_NO_VALUE {
             return Ok(None);
         }
