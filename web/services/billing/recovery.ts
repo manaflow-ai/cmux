@@ -388,13 +388,31 @@ async function purchaseFromStripeCustomer(
     client,
     customer.id,
   );
+  const sessions = await listStripeCheckoutSessionsForCustomer(
+    client,
+    customer.id,
+  );
   for (const subscription of subscriptions) {
     const metadata = subscription.metadata ?? {};
     const isCmuxPro = metadata.app === "cmux" && metadata.plan === "pro";
     const isFounder = metadata.founders_edition === "true";
     if (metadata.stackTeamId) continue;
     if (!isCmuxPro && !isFounder) continue;
-    if (!isFounder && !["active", "trialing", "past_due"].includes(subscription.status)) {
+    if (isFounder) {
+      // A subscription record alone is not payment proof. Stripe can create
+      // an incomplete subscription before the first invoice is paid. Require
+      // a settled checkout session that names this exact subscription before
+      // recovering a one-time Founder entitlement.
+      const settledSession = sessions.find((candidate) =>
+        isSettledFounderCheckoutSession(candidate, subscription.id),
+      );
+      if (!settledSession) continue;
+      return {
+        kind: "founders_edition",
+        input: { session: settledSession, subscription, customer },
+      };
+    }
+    if (!["active", "trialing", "past_due"].includes(subscription.status)) {
       continue;
     }
     const session = {
@@ -412,10 +430,6 @@ async function purchaseFromStripeCustomer(
     };
   }
 
-  const sessions = await listStripeCheckoutSessionsForCustomer(
-    client,
-    customer.id,
-  );
   const session = sessions.find(
     (candidate) => {
       const subscription = expandedSubscription(candidate);
@@ -449,6 +463,25 @@ async function purchaseFromStripeCustomer(
       customer,
     },
   };
+}
+
+function isSettledFounderCheckoutSession(
+  session: Stripe.Checkout.Session,
+  subscriptionId: string,
+): boolean {
+  if (!["paid", "no_payment_required"].includes(session.payment_status ?? "")) {
+    return false;
+  }
+  if (stringID(session.subscription) !== subscriptionId) return false;
+  if (session.metadata?.stackTeamId) return false;
+  if (
+    session.metadata?.app &&
+    session.metadata.app !== "cmux" &&
+    session.metadata.founders_edition !== "true"
+  ) {
+    return false;
+  }
+  return true;
 }
 
 /** Walk a customer's complete subscription history without issuing unbounded reads. */

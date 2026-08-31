@@ -257,17 +257,10 @@ export async function recordCheckoutCompletion(
   let remappedSourceStackUserId: string | null = null;
   const checkoutEmailValue = checkoutEmail(input.session, input.customer);
   // A checkout can be replayed after an earlier recovery moved its Stripe
-  // customer to the verified destination account. Fence that stale
-  // client_reference_id before any upsert can move ownership back. This read
-  // also rejects a Team-scoped customer accidentally presented as a personal
-  // checkout.
-  const shouldFenceMappedOwnership =
-    input.allowCanonicalOwnershipRecovery ||
-    user?.isAnonymous === true ||
-    !user;
-  const mappedCustomerBeforeLookup = shouldFenceMappedOwnership
-    ? await stripeCustomerRowForId(db, customerId)
-    : null;
+  // customer to the verified destination account. Always fence the mapped
+  // customer before any upsert can move ownership back. This read also rejects
+  // a Team-scoped customer accidentally presented as a personal checkout.
+  const mappedCustomerBeforeLookup = await stripeCustomerRowForId(db, customerId);
   if (mappedCustomerBeforeLookup?.stackTeamId != null) {
     throw new Error("Stripe checkout customer belongs to a Team");
   }
@@ -299,30 +292,14 @@ export async function recordCheckoutCompletion(
         canonicalizeEmailForMatching(user.primaryEmail ?? "") ===
           canonicalizeEmailForMatching(checkoutEmailValue ?? ""),
     );
-    const staleReplayOwnerIsVerified = Boolean(
-      mappedOwner &&
-        mappedOwner.isAnonymous !== true &&
-        mappedOwner.isRestricted !== true &&
-        !isAccountDeletionInProgress(mappedOwner) &&
-        mappedOwner.primaryEmailVerified === true &&
-        canonicalEmailMatches,
-    );
-    if (!recoveryTargetIsVerified && !staleReplayOwnerIsVerified) {
+    if (!recoveryTargetIsVerified) {
       throw new Error("Stripe checkout customer ownership conflict");
     }
     if (!mappedOwner || await hasCheckoutBlockingAccountDeletionTombstone(mappedOwner.id, db)) {
       throw new Error("Stripe checkout customer ownership conflict");
     }
-    if (recoveryTargetIsVerified) {
-      resolvedFromAnonymousAlias = true;
-      remappedSourceStackUserId = mappedCustomerBeforeLookup.stackUserId;
-    } else {
-      return {
-        scope: "user",
-        stackUserId: mappedCustomerBeforeLookup.stackUserId,
-        subscriptionId: subscription.id,
-      };
-    }
+    resolvedFromAnonymousAlias = true;
+    remappedSourceStackUserId = mappedCustomerBeforeLookup.stackUserId;
   }
   // Stripe's anonymous checkout user is only a temporary holder. If the
   // purchased mailbox already belongs to a canonical Stack account (including
