@@ -6107,28 +6107,35 @@ impl ChildKiller for TestChildKiller {
 }
 
 impl PtySurface {
-    fn journal_target(&self) -> Option<(Arc<Mux>, Arc<TerminalPublicId>)> {
+    fn journal_target(&self) -> Option<(Weak<Mux>, Arc<TerminalPublicId>)> {
         let terminal_id = self.terminal_public_id.clone()?;
         let mux = self.mux.upgrade()?;
-        (mux.terminal_journal_enabled() && self.journal_capture_supported)
-            .then_some((mux, terminal_id))
+        if !mux.terminal_journal_enabled() || !self.journal_capture_supported {
+            return None;
+        }
+        // The target is carried across the blocking PTY read. Keep only the
+        // weak owner there, otherwise a reader that cannot be interrupted can
+        // keep the session lease alive after daemon shutdown.
+        drop(mux);
+        Some((self.mux.clone(), terminal_id))
     }
 
     fn journal_output_if_open(
         &self,
-        (mux, terminal_id): (Arc<Mux>, Arc<TerminalPublicId>),
+        (mux, terminal_id): (Weak<Mux>, Arc<TerminalPublicId>),
         bytes: Vec<u8>,
     ) {
         let occurred_at_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
         for chunk in bytes.chunks(crate::journal_ingress::TERMINAL_OUTPUT_INGRESS_BYTES) {
             let mut pending = chunk.to_vec();
             loop {
-                let space_epoch = {
+                let Some(owner) = mux.upgrade() else { return };
+                let retry = {
                     let _gate = self.journal_capture_gate.lock().unwrap();
                     if !self.journal_capture_open.load(Ordering::Acquire) {
                         return;
                     }
-                    let retry = match mux.try_journal_terminal_output(
+                    match owner.try_journal_terminal_output(
                         terminal_id.clone(),
                         self.journal_generation.clone(),
                         occurred_at_ms,
@@ -6137,25 +6144,27 @@ impl PtySurface {
                         Ok(retry) => retry,
                         Err(error) => {
                             self.journal_capture_open.store(false, Ordering::Release);
-                            mux.request_daemon_shutdown();
+                            owner.request_daemon_shutdown();
                             eprintln!(
                                 "cmux-tui: terminal journal capture failed; stopping daemon: {error}"
                             );
                             return;
                         }
-                    };
-                    let Some((retry, space_epoch)) = retry else { break };
-                    pending = retry;
-                    space_epoch
+                    }
                 };
-                if let Err(error) = mux.wait_for_terminal_journal_space(space_epoch) {
+                drop(owner);
+                let Some((retry, space_epoch)) = retry else { break };
+                pending = retry;
+                let Some(owner) = mux.upgrade() else { return };
+                if let Err(error) = owner.wait_for_terminal_journal_space(space_epoch) {
                     self.journal_capture_open.store(false, Ordering::Release);
-                    mux.request_daemon_shutdown();
+                    owner.request_daemon_shutdown();
                     eprintln!(
                         "cmux-tui: terminal journal capture failed; stopping daemon: {error}"
                     );
                     return;
                 }
+                drop(owner);
             }
         }
     }
