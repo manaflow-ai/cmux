@@ -1,6 +1,7 @@
 import Foundation
 import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxMobileDiagnostics
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -997,6 +998,7 @@ struct CMUXMobileRootView: View {
                 connectionState: store.connectionState
               ) else { return }
         guard let startupAttempt = startupConnectionCoordinator.claimStoredReconnect() else { return }
+        MobileDebugLog.anchormux("startup.stored_reconnect claimed")
         let stackUserID = authManager.currentUser?.id
         didExceedStartupRestoringGate = false
         let restoringGateDeadline = Task { @MainActor in
@@ -1025,7 +1027,9 @@ struct CMUXMobileRootView: View {
     }
 
     private func finishAuthenticationBootstrapAndConnect() async {
+        MobileDebugLog.anchormux("startup.bootstrap_await begin")
         await authManager.awaitBootstrapped()
+        MobileDebugLog.anchormux("startup.bootstrap_await end authenticated=\(authManager.isAuthenticated)")
         guard !Task.isCancelled else { return }
         if authManager.isAuthenticated {
             guard prepareResolvedAccountScope() != nil else { return }
