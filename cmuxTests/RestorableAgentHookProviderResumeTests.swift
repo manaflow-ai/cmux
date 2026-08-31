@@ -382,7 +382,7 @@ extension SocketListenerAcceptPolicyTests {
         )
         XCTAssertEqual(
             qoder.resumeCommand,
-            "cd -- '/tmp/qoder repo' 2>/dev/null || [ ! -d '/tmp/qoder repo' ] && 'env' 'QODER_CONFIG_DIR=/tmp/qoder config' '/Users/example/.npm/bin/qodercli' '--resume' 'qoder-session-123' '--model' 'gemini-2.5-pro' '--permission-mode' 'plan'"
+            "cd -- '/tmp/qoder repo' 2>/dev/null || [ ! -d '/tmp/qoder repo' ] && 'env' 'QODER_CONFIG_DIR=/tmp/qoder config' '/Users/example/.npm/bin/qodercli' '--resume' 'qoder-session-123' '--model' 'gemini-2.5-pro' '--permission-mode' 'plan' '--workspace' '/tmp/qoder repo'"
         )
         XCTAssertEqual(
             kiro.resumeCommand,

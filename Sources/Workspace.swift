@@ -6250,7 +6250,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                     kind: incomingKind,
                     lhs: previousRestorableAgent.sessionId,
                     rhs: incomingSessionID
-                )
+                ) &&
+                previousBinding?.launchFlavor == constrainedBinding.launchFlavor
         } else {
             false
         }
