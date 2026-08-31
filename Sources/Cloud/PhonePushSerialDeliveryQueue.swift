@@ -83,6 +83,27 @@ final class PhonePushSerialDeliveryQueue {
         beginDrainIfNeeded()
     }
 
+    /// Rewrites queued envelopes without touching the request currently being
+    /// delivered. Used when the paired iOS variant changes so every future
+    /// push follows the latest authenticated pairing target; an in-flight
+    /// request is already committed to its original HTTP destination.
+    func rebindPending(
+        _ transform: (PhonePushRequestEnvelope) -> PhonePushRequestEnvelope
+    ) {
+        var changed = false
+        for index in pending.indices {
+            guard pending[index].correlationID != inFlightCorrelationID else {
+                continue
+            }
+            let rebound = transform(pending[index])
+            guard rebound != pending[index] else { continue }
+            pending[index] = rebound
+            changed = true
+        }
+        guard changed else { return }
+        publishPending()
+    }
+
     func start() {
         isStarted = true
         beginDrainIfNeeded()

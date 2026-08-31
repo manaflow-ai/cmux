@@ -525,6 +525,13 @@ final class PhonePushClient {
                   .pairedPhoneBundleIdentifier(accountID: identity.accountID) else {
             return
         }
+        deliveryQueue.rebindPending { envelope in
+            reboundEnvelope(
+                envelope,
+                targetBundleIdentifier: targetBundleIdentifier,
+                identity: identity
+            )
+        }
         guard !unresolvedRestoredEnvelopes.isEmpty else {
             deliveryQueue.start()
             return
