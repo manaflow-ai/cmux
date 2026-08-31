@@ -51,9 +51,22 @@ extension TerminalNotificationSocketActionTests {
                 focus: false
             )
         )
-        let ambiguousTTY = "/dev/ttys777"
+        let focusedTerminal = try XCTUnwrap(
+            fixture.workspace.panels[focusedSurfaceId] as? TerminalPanel
+        )
+        let ambiguousTTY = try XCTUnwrap(focusedTerminal.surface.controllingTTYName())
         fixture.workspace.registerReportedSurfaceTTYName(ambiguousTTY, panelId: focusedSurfaceId)
         fixture.workspace.registerReportedSurfaceTTYName(ambiguousTTY, panelId: siblingPanel.id)
+        PortScanner.shared.registerTTY(
+            workspaceId: fixture.workspace.id,
+            panelId: focusedSurfaceId,
+            ttyName: ambiguousTTY
+        )
+        PortScanner.shared.registerTTY(
+            workspaceId: fixture.workspace.id,
+            panelId: siblingPanel.id,
+            ttyName: ambiguousTTY
+        )
 
         let response = try await sendV2RequestAsync(
             method: "notification.create_for_caller",

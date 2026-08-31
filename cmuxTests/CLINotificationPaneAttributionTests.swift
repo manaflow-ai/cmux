@@ -133,6 +133,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let settledTurnId = "turn-1"
         let parentStopSessionId = "codex-stale-parent-stop"
         let parentStopTurnId = "turn-parent-stop"
+        let staleStopSessionId = "codex-stale-old-turn-stop"
+        let staleCurrentTurnId = "turn-new"
+        let staleIncomingTurnId = "turn-old"
         let ledgerPath = root.appendingPathComponent("codex-turn-ledger.json")
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -145,7 +148,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         // These values are fixture metadata only; keep them independent of the
         // host clock because this test does not exercise freshness boundaries.
         let now: TimeInterval = 4_000_000_000
-        let storedSessions = Dictionary(uniqueKeysWithValues: (sessionIds + [parentStopSessionId]).map { sessionId in
+        let storedSessions = Dictionary(uniqueKeysWithValues: (sessionIds + [parentStopSessionId, staleStopSessionId]).map { sessionId in
             (
                 sessionId,
                 [
@@ -187,10 +190,24 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "notifiedTurnIDs": [],
             "updatedAt": now,
         ]
+        let staleStopLedgerRecord: [String: Any] = [
+            "workspaceID": workspaceId,
+            "surfaceID": staleSurfaceId,
+            "owner": [:],
+            "activeTurnID": staleCurrentTurnId,
+            "activeChildrenByTurn": [:],
+            "unknownChildrenByTurn": [:],
+            "terminalChildrenByTurn": [:],
+            "pendingTurns": [staleCurrentTurnId: ["turnID": staleCurrentTurnId]],
+            "settledTurnIDs": [],
+            "notifiedTurnIDs": [],
+            "updatedAt": now,
+        ]
         let ledgerObject: [String: Any] = [
             "records": [
                 settledSessionId: ledgerRecord,
                 parentStopSessionId: parentStopLedgerRecord,
+                staleStopSessionId: staleStopLedgerRecord,
             ],
             "surfaceOwners": [:],
         ]
@@ -277,6 +294,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(parentStopResult.status, 0, parentStopResult.stderr)
         XCTAssertEqual(parentStopResult.stdout, "{}\n")
 
+        let staleStopResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "stop"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(staleStopSessionId)","cwd":"\#(root.path)","hook_event_name":"Stop","turn_id":"\#(staleIncomingTurnId)","last_assistant_message":"late"}"#,
+            timeout: 5
+        )
+        XCTAssertFalse(staleStopResult.timedOut, staleStopResult.stderr)
+        XCTAssertEqual(staleStopResult.status, 0, staleStopResult.stderr)
+        XCTAssertEqual(staleStopResult.stdout, "{}\n")
+
         wait(for: [serverHandled], timeout: 5)
         let journalCommands = state.commands.filter { $0.contains("agent_journal_append") }
         XCTAssertFalse(
@@ -318,6 +346,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(
             (parentStopRecord["notifiedTurnIDs"] as? [String])?.contains(parentStopTurnId) == true,
             "An unresolved parent Stop must leave notification claiming retryable until a pane is proven"
+        )
+        let staleStopRecord = try XCTUnwrap(records[staleStopSessionId] as? [String: Any])
+        XCTAssertFalse(
+            (staleStopRecord["settledTurnIDs"] as? [String])?.contains(staleIncomingTurnId) == true,
+            "An unresolved Stop for an older non-pending turn must not settle over the current turn"
+        )
+        XCTAssertTrue(
+            (staleStopRecord["pendingTurns"] as? [String: Any])?[staleCurrentTurnId] != nil,
+            "An unresolved stale Stop must preserve the newer pending turn"
         )
         XCTAssertTrue(
             AgentJournalAppendCapture.captures(in: state.commands).contains {

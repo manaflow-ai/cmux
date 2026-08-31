@@ -90,7 +90,8 @@ struct CodexTurnLifecycleCoordinator {
         workspaceID: String?,
         surfaceID: String?,
         claimNotification: Bool = true,
-        allowCreate: Bool = true
+        allowCreate: Bool = true,
+        requireCurrentTurn: Bool = false
     ) -> CodexTurnLedgerDecision {
         (try? ledger.stop(
             sessionID: sessionID,
@@ -99,7 +100,8 @@ struct CodexTurnLifecycleCoordinator {
             surfaceID: surfaceID,
             invocation: invocation,
             claimNotification: claimNotification,
-            allowCreate: allowCreate
+            allowCreate: allowCreate,
+            requireCurrentTurn: requireCurrentTurn
         )) ?? .ignored
     }
 

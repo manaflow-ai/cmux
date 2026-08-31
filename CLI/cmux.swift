@@ -35215,7 +35215,8 @@ export default CMUXSessionRestore;
                         workspaceID: nil,
                         surfaceID: nil,
                         claimNotification: false,
-                        allowCreate: false
+                        allowCreate: false,
+                        requireCurrentTurn: true
                     )
                     if codexStopDecision?.settlement == .settled,
                        codexStopDecision?.shouldNotify == true,

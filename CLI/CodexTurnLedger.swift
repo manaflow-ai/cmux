@@ -13,7 +13,7 @@ final class CodexTurnLedger {
         case promptSubmit(turnID: String?)
         case subagentStart(id: String?, turnID: String?)
         case subagentStop(id: String?, turnID: String?)
-        case stop(turnID: String?, claimNotification: Bool)
+        case stop(turnID: String?, claimNotification: Bool, requireCurrentTurn: Bool)
         case sessionEnd
         case observation
     }
@@ -127,10 +127,10 @@ final class CodexTurnLedger {
         workspaceID: String?,
         surfaceID: String?,
         invocation: CodexHookInvocation,
-        claimNotification: Bool = true, allowCreate: Bool = true
+        claimNotification: Bool = true, allowCreate: Bool = true, requireCurrentTurn: Bool = false
     ) throws -> CodexTurnLedgerDecision {
         try apply(
-            .stop(turnID: turnID, claimNotification: claimNotification),
+            .stop(turnID: turnID, claimNotification: claimNotification, requireCurrentTurn: requireCurrentTurn),
             sessionID: sessionID,
             workspaceID: workspaceID,
             surfaceID: surfaceID,
@@ -311,8 +311,14 @@ final class CodexTurnLedger {
                         shouldNotify: false
                     )
                 }
-            case .stop(let turnID, let claimNotification):
+            case .stop(let turnID, let claimNotification, let requireCurrentTurn):
                 let key = self.turnKey(turnID ?? record.activeTurnID)
+                if requireCurrentTurn,
+                   let incomingTurnID = Self.normalized(turnID),
+                   incomingTurnID != Self.normalized(record.activeTurnID),
+                   record.pendingTurns[key] == nil {
+                    return .ignored
+                }
                 let active = self.activeChildCount(record)
                 if active > 0 {
                     record.pendingTurns[key] = CodexTurnLedgerPending(turnID: Self.normalized(turnID ?? record.activeTurnID))
