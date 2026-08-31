@@ -12,13 +12,35 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `466f85867`, reachable from fork `main`.
+The submodule pinned by this branch is `fb90d3515`, reachable from fork
+branch `fix-word-selection-drag` until that branch is merged to `main`.
 It carries the renderer/API compatibility pin plus the Fish SSH feature-gating
 fix (`fd13a3fc2`): the embedded Ghostty CLI wrapper is installed whenever
 either `ssh-env` or `ssh-terminfo` is enabled. The pin includes the prior fork
 changes below, including tokened iOS render dispositions, VT formatter cursor
 restoration, VT stream-boundary visibility, and Hangul canonical font
 resolution.
+
+### Repeated word-selection drag anchor
+
+- Pull request:
+  - https://github.com/manaflow-ai/ghostty/pull/211
+- Commits:
+  - `aa2fb7d9e` (test: anchor repeated selection at second click)
+  - `fb90d3515` (fix: anchor repeated word selection at latest click)
+- File:
+  - `src/terminal/SelectionGesture.zig`
+- Summary:
+  - Moves the tracked pin and surface coordinates to every accepted repeated
+    press, so a double-click drag starts at the word under the second click.
+  - Measures the next repeat distance from the preceding press, matching the
+    moving anchor and preserving chained double/triple clicks.
+  - Adds behavior tests for the moved double-click anchor and chained repeat
+    distance.
+- Conflict note:
+  - Preserve the latest-press anchor when integrating upstream selection
+    changes. A repeat that selects the new word but drags from an older pin
+    regresses the visible selection and the next repeat's distance check.
 
 The corresponding universal ReleaseFast GhosttyKit archive is published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-466f8586749216b686c5397d9f03e10eac1955c4-crashsubdir-cmux-crash-sentry-off-v1
