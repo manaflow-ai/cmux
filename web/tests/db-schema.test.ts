@@ -23,7 +23,7 @@ describe("Cloud VM database schema", () => {
   dbTest("applies migrations and enforces create idempotency by account owner", async () => {
     if (!sql) throw new Error("test database not initialized");
 
-    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`truncate cloud_vm_state_transitions, cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
 
     const [vm] = await sql<{ id: string }[]>`
       insert into cloud_vms (
@@ -80,6 +80,10 @@ describe("Cloud VM database schema", () => {
       insert into cloud_vm_usage_events (user_id, vm_id, event_type, provider, image_id, metadata)
       values ('user-1', ${vm.id}, 'vm.created', 'e2b', 'cmuxd-ws:test', '{"source":"test"}'::jsonb)
     `;
+    await sql`
+      insert into cloud_vm_state_transitions (vm_id, billing_team_id, from_state, to_state)
+      values (${vm.id}, 'team-1', 'provisioning', 'running')
+    `;
 
     await sql`delete from cloud_vms where id = ${vm.id}`;
 
@@ -92,5 +96,12 @@ describe("Cloud VM database schema", () => {
       select vm_id::text as "usageVmId" from cloud_vm_usage_events where event_type = 'vm.created'
     `;
     expect(usageVmId).toBeNull();
+
+    const [{ transitionCount }] = await sql<{ transitionCount: string }[]>`
+      select count(*)::text as "transitionCount"
+      from cloud_vm_state_transitions
+      where vm_id = ${vm.id}
+    `;
+    expect(transitionCount).toBe("0");
   });
 });

@@ -11,10 +11,13 @@ import {
 } from "../../../../services/billing/pro";
 import {
   resolveBillingTeam,
-  type BillingTeamUserLike,
+  type BillingTeamLike,
 } from "../../../../services/billing/teamResolution";
+import {
+  emptyVmUsageStatus,
+  getVmUsageStatus,
+} from "../../../../services/billing/vmUsage";
 import { authProviderErrorResponse } from "../../../../services/vms/authErrors";
-
 
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
 
@@ -28,6 +31,7 @@ export async function GET(request: NextRequest) {
       billingManagement: "none",
       teamPlanId: FREE_PLAN_ID,
       teamBillingManagement: "none",
+      vmUsage: emptyVmUsageStatus(),
       user: null,
     });
   }
@@ -62,12 +66,21 @@ export async function GET(request: NextRequest) {
       billingManagement: "none",
       teamPlanId: FREE_PLAN_ID,
       teamBillingManagement: "none",
+      vmUsage: emptyVmUsageStatus(),
       user: null,
     });
   }
 
   const status = await resolveProPlanStatus(user);
-  const teamStatus = await resolveTeamPlanStatus(user);
+  const billingTeam = await resolveBillingTeam(user);
+  const teamStatus = await resolveTeamPlanStatus(billingTeam);
+  const vmUsage = user.isAnonymous
+    ? emptyVmUsageStatus()
+    : await getVmUsageStatus({
+      userId: user.id,
+      billingTeamId: billingTeam?.id,
+      isPro: status.isPro,
+    });
   return jsonResponse({
     authenticated: !user.isAnonymous,
     billingAvailable,
@@ -78,6 +91,7 @@ export async function GET(request: NextRequest) {
     teamBillingManagement: teamStatus.billingManagement,
     metadataChanged: status.metadataChanged,
     hasManualVmPlanOverride: status.hasManualVmPlanOverride,
+    vmUsage,
     user: {
       id: user.id,
       displayName: user.displayName,
@@ -91,8 +105,7 @@ type TeamPlanStatus = {
   readonly billingManagement: BillingManagementKind;
 };
 
-async function resolveTeamPlanStatus(user: BillingTeamUserLike): Promise<TeamPlanStatus> {
-  const team = await resolveBillingTeam(user);
+async function resolveTeamPlanStatus(team: BillingTeamLike | null): Promise<TeamPlanStatus> {
   if (!team?.id) {
     return { planId: FREE_PLAN_ID, billingManagement: "none" };
   }

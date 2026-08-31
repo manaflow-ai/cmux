@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
 
-import { billingEmailClaims, stripeSubscriptions } from "../db/schema";
+import {
+  billingEmailClaims,
+  cloudVmStateTransitions,
+  stripeSubscriptions,
+} from "../db/schema";
 import { withAccountMutationLeaseSupport } from
   "./helpers/account-mutation-db-mock";
 
@@ -13,6 +17,7 @@ let stackConfigured = true;
 let currentUser: ReturnType<typeof planUser> | null = null;
 let stripeSubscriptionRows: Array<Record<string, unknown>> = [];
 let stripeSubscriptionResults: Array<Array<Record<string, unknown>>> = [];
+let stateTransitionRows: Array<Record<string, unknown>> = [];
 let claimLookupCount = 0;
 let dbMissing = false;
 let stackAuthUnavailable = false;
@@ -37,15 +42,23 @@ mock.module("../db/client", () => ({
     return withAccountMutationLeaseSupport({
       select: () => ({
         from: (table: unknown) => ({
-          where: () => ({
-            limit: async () => {
-              if (table === billingEmailClaims) claimLookupCount += 1;
-              if (table !== stripeSubscriptions) return [];
-              return stripeSubscriptionResults.length > 0
-                ? stripeSubscriptionResults.shift()!
-                : stripeSubscriptionRows;
-            },
-          }),
+          where: () => {
+            const rows = table === cloudVmStateTransitions
+              ? stateTransitionRows
+              : table === billingEmailClaims
+              ? []
+              : table !== stripeSubscriptions
+              ? []
+              : stripeSubscriptionResults.length > 0
+              ? stripeSubscriptionResults.shift()!
+              : stripeSubscriptionRows;
+            return Object.assign(Promise.resolve(rows), {
+              limit: async () => {
+                if (table === billingEmailClaims) claimLookupCount += 1;
+                return rows;
+              },
+            });
+          },
         }),
       }),
     });
@@ -60,6 +73,7 @@ describe("billing plan route", () => {
     currentUser = planUser();
     stripeSubscriptionRows = [];
     stripeSubscriptionResults = [];
+    stateTransitionRows = [];
     claimLookupCount = 0;
     dbMissing = false;
     stackAuthUnavailable = false;
@@ -74,6 +88,92 @@ describe("billing plan route", () => {
     expect(response.planId).toBe("pro");
     expect(response.isPro).toBe(true);
     expect(response.billingManagement).toBe("stripe");
+  });
+
+  test("includes current VM usage and the Pro allowance", async () => {
+    stripeSubscriptionRows = [{
+      id: "sub_123",
+      currentPeriodEnd: new Date("2026-09-01T00:00:00Z"),
+      raw: {
+        current_period_start: Math.floor(new Date("2026-08-01T00:00:00Z").getTime() / 1_000),
+        current_period_end: Math.floor(new Date("2026-09-01T00:00:00Z").getTime() / 1_000),
+      },
+    }];
+    stateTransitionRows = [
+      {
+        id: "event-1",
+        vmId: "vm-1",
+        billingTeamId: "user-plan",
+        fromState: "provisioning",
+        toState: "running",
+        createdAt: new Date("2026-08-10T00:00:00Z"),
+      },
+      {
+        id: "event-2",
+        vmId: "vm-1",
+        billingTeamId: "user-plan",
+        fromState: "running",
+        toState: "paused",
+        createdAt: new Date("2026-08-10T02:00:00Z"),
+      },
+    ];
+
+    const response = await planResponse();
+    const usage = response.vmUsage as Record<string, unknown>;
+    expect(usage.activeComputeHours).toBe(2);
+    expect(usage.includedComputeHours).toBe(20);
+    expect(usage.overageComputeHours).toBe(0);
+    expect(usage.billingTeamId).toBe("user-plan");
+  });
+
+  test("uses the personal Pro period for VMs stored under a personal team", async () => {
+    const proSubscription = {
+      id: "sub_personal_team",
+      currentPeriodEnd: new Date("2026-09-15T00:00:00Z"),
+      raw: {
+        current_period_start: Math.floor(new Date("2026-08-15T00:00:00Z").getTime() / 1_000),
+        current_period_end: Math.floor(new Date("2026-09-15T00:00:00Z").getTime() / 1_000),
+      },
+    };
+    currentUser = planUser({
+      selectedTeam: { id: "personal-team", clientReadOnlyMetadata: {} },
+    });
+    // Pro status, Team status, Team-period lookup, then the user-scoped Pro
+    // fallback used for a personal team.
+    stripeSubscriptionResults = [[proSubscription], [], [], [proSubscription]];
+    stateTransitionRows = [
+      {
+        id: "personal-event-1",
+        vmId: "vm-personal",
+        billingTeamId: "personal-team",
+        fromState: "provisioning",
+        toState: "running",
+        createdAt: new Date("2026-08-20T00:00:00Z"),
+      },
+      {
+        id: "personal-event-2",
+        vmId: "vm-personal",
+        billingTeamId: "personal-team",
+        fromState: "running",
+        toState: "paused",
+        createdAt: new Date("2026-08-20T02:00:00Z"),
+      },
+    ];
+
+    const response = await planResponse();
+    const usage = response.vmUsage as Record<string, unknown>;
+    expect(usage.periodStart).toBe("2026-08-15T00:00:00.000Z");
+    expect(usage.periodEnd).toBe("2026-09-15T00:00:00.000Z");
+    expect(usage.activeComputeHours).toBe(2);
+    expect(usage.billingTeamId).toBe("personal-team");
+  });
+
+  test("does not transfer pending ownership during a plan read", async () => {
+    currentUser = planUser({ primaryEmailVerified: true });
+    const response = await planResponse();
+
+    expect(response.planId).toBe("free");
+    expect(claimLookupCount).toBe(0);
   });
 
   test("reports Free for Stack Pro products without Stripe subscription rows", async () => {
@@ -132,14 +232,6 @@ describe("billing plan route", () => {
 
     expect(response.teamPlanId).toBe("free");
     expect(response.teamBillingManagement).toBe("none");
-  });
-
-  test("does not transfer pending ownership during a plan read", async () => {
-    currentUser = planUser({ primaryEmailVerified: true });
-    const response = await planResponse();
-
-    expect(response.planId).toBe("free");
-    expect(claimLookupCount).toBe(0);
   });
 
   test("reports no Team billing management without a billing team", async () => {

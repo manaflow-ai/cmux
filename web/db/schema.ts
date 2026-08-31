@@ -289,6 +289,30 @@ export const cloudVmUsageEvents = pgTable(
   ],
 );
 
+/**
+ * Immutable VM lifecycle transitions.  These rows are the billing ledger;
+ * cloud_vm_usage_events remains the broader audit/telemetry stream.
+ */
+export const cloudVmStateTransitions = pgTable(
+  "cloud_vm_state_transitions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    vmId: uuid("vm_id")
+      .notNull()
+      .references(() => cloudVms.id, { onDelete: "cascade" }),
+    // VMs created before team billing was added can have a null billing team.
+    // Repository writes normalize those rows to the owning user id.
+    billingTeamId: text("billing_team_id").notNull(),
+    fromState: text("from_state").notNull(),
+    toState: text("to_state").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("cloud_vm_state_transitions_team_created_idx").on(table.billingTeamId, table.createdAt),
+    index("cloud_vm_state_transitions_vm_created_idx").on(table.vmId, table.createdAt),
+  ],
+);
+
 export const cloudVmBases = pgTable(
   "cloud_vm_bases",
   {

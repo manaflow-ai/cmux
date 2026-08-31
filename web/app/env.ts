@@ -209,6 +209,9 @@ export const env = createEnv({
     STRIPE_PRO_YEARLY_288_PRICE_ID: z.string().min(1).optional(),
     STRIPE_TEAM_MONTHLY_PRICE_ID: z.string().min(1).optional(),
     STRIPE_TEAM_YEARLY_PRICE_ID: z.string().min(1).optional(),
+    // VM overage usage records are opt-in until the metered Stripe price is
+    // provisioned and verified in production.
+    STRIPE_USAGE_REPORTING: z.enum(["0", "1"]).optional(),
     CMUX_APP_PRICING_CHECKOUT_URL: z.string().url().optional(),
     CMUX_APP_PRICING_RELAY_SECRET: z.string().min(32).optional(),
     // App Store Connect API for server-side TestFlight enrollment. Optional:
@@ -378,6 +381,7 @@ export const env = createEnv({
     ),
     STRIPE_TEAM_MONTHLY_PRICE_ID: trimEnv(process.env.STRIPE_TEAM_MONTHLY_PRICE_ID),
     STRIPE_TEAM_YEARLY_PRICE_ID: trimEnv(process.env.STRIPE_TEAM_YEARLY_PRICE_ID),
+    STRIPE_USAGE_REPORTING: trimEnv(process.env.STRIPE_USAGE_REPORTING),
     CMUX_APP_PRICING_CHECKOUT_URL: trimEnv(
       process.env.CMUX_APP_PRICING_CHECKOUT_URL,
     ),

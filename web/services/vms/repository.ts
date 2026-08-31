@@ -11,6 +11,7 @@ import {
   cloudVmBillingGrants,
   cloudVmLeases,
   cloudVmSessions,
+  cloudVmStateTransitions,
   cloudVms,
   cloudVmUsageEvents,
 } from "../../db/schema";
@@ -267,6 +268,30 @@ function dbEffect<A>(
 }
 
 type CloudDbTransaction = Parameters<Parameters<ReturnType<typeof cloudDb>["transaction"]>[0]>[0];
+
+async function insertVmStateTransition(
+  tx: CloudDbTransaction,
+  vm: Pick<CloudVmRow, "id" | "userId" | "billingTeamId">,
+  fromState: string,
+  toState: string,
+  createdAt: Date,
+): Promise<void> {
+  if (fromState === toState) return;
+  await tx.insert(cloudVmStateTransitions).values({
+    vmId: vm.id,
+    billingTeamId: vm.billingTeamId ?? vm.userId,
+    fromState,
+    toState,
+    createdAt,
+  });
+}
+
+async function insertVmCreationTransition(
+  tx: CloudDbTransaction,
+  vm: CloudVmRow,
+): Promise<void> {
+  await insertVmStateTransition(tx, vm, "created", vm.status, vm.createdAt);
+}
 
 async function assertAccountVmCreateAllowed(
   tx: CloudDbTransaction,
@@ -538,6 +563,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
               })
               .returning();
             if (!vm) throw new Error("insert returned no VM row");
+            await insertVmCreationTransition(tx, vm);
             return { inserted: true as const, vm };
           });
         } catch (err) {
@@ -643,6 +669,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
               })
               .returning();
             if (!vm) throw new Error("insert returned no VM row");
+            await insertVmCreationTransition(tx, vm);
 
             const [base] = existing?.base
               ? await tx
@@ -841,6 +868,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
             })
             .returning();
           if (!vm) throw new Error("insert returned no VM row");
+          await insertVmCreationTransition(tx, vm);
 
           const [base] = existing?.base
             ? await tx
@@ -928,6 +956,12 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
       const db = cloudDb();
       return await db.transaction(async (tx) => {
         const now = new Date();
+        const [previousVm] = await tx
+          .select()
+          .from(cloudVms)
+          .where(eq(cloudVms.id, input.vmId))
+          .for("update")
+          .limit(1);
         const [vm] = await tx
           .update(cloudVms)
           .set({
@@ -943,6 +977,9 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
           .where(eq(cloudVms.id, input.vmId))
           .returning();
         if (!vm) throw new Error(`vm row missing during base finalization: ${input.vmId}`);
+        if (previousVm) {
+          await insertVmStateTransition(tx, previousVm, previousVm.status, vm.status, now);
+        }
 
         await tx
           .update(cloudVmBaseGenerations)
@@ -993,6 +1030,12 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
       const db = cloudDb();
       await db.transaction(async (tx) => {
         const now = new Date();
+        const [previousVm] = await tx
+          .select()
+          .from(cloudVms)
+          .where(eq(cloudVms.id, input.vmId))
+          .for("update")
+          .limit(1);
         await tx
           .update(cloudVms)
           .set({
@@ -1002,6 +1045,9 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
             updatedAt: now,
           })
           .where(eq(cloudVms.id, input.vmId));
+        if (previousVm) {
+          await insertVmStateTransition(tx, previousVm, previousVm.status, "failed", now);
+        }
         await tx
           .update(cloudVmBaseGenerations)
           .set({ state: "failed", updatedAt: now })
@@ -1134,6 +1180,15 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
               ),
             )
             .returning();
+          if (reserved) {
+            await insertVmStateTransition(
+              tx,
+              reserved,
+              current.status,
+              reserved.status,
+              reserved.updatedAt,
+            );
+          }
           return reserved ?? current;
         });
       },
@@ -1157,22 +1212,39 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
   markProviderObservedStatus: (input) =>
     dbEffect("markProviderObservedStatus", async () => {
       const db = cloudDb();
-      const updated = await db
-        .update(cloudVms)
-        .set({
-          status: input.status,
-          destroyedAt: input.status === "destroyed" ? new Date() : null,
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
+      return await db.transaction(async (tx) => {
+        const [current] = await tx
+          .select()
+          .from(cloudVms)
+          .where(and(
             eq(cloudVms.id, input.id),
             eq(cloudVms.providerVmId, input.providerVmId),
-            ne(cloudVms.status, "destroyed"),
-          ),
-        )
-        .returning({ id: cloudVms.id });
-      return updated.length > 0;
+          ))
+          .for("update")
+          .limit(1);
+        if (!current || current.status === "destroyed") return false;
+
+        const now = new Date();
+        const updated = await tx
+          .update(cloudVms)
+          .set({
+            status: input.status,
+            destroyedAt: input.status === "destroyed" ? now : null,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(cloudVms.id, input.id),
+              eq(cloudVms.providerVmId, input.providerVmId),
+              ne(cloudVms.status, "destroyed"),
+            ),
+          )
+          .returning();
+        const vm = updated[0];
+        if (!vm) return false;
+        await insertVmStateTransition(tx, current, current.status, vm.status, now);
+        return true;
+      });
     }),
 
   setDisplayName: (input) =>
@@ -1189,36 +1261,60 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
   markCreateRunning: (input) =>
     dbEffect("markCreateRunning", async () => {
       const db = cloudDb();
-      const [vm] = await db
-        .update(cloudVms)
-        .set({
-          providerVmId: input.providerVmId,
-          imageId: input.image,
-          imageVersion: input.imageVersion ?? null,
-          providerMetadata: input.providerMetadata ?? {},
-          status: "running",
-          failureCode: null,
-          failureMessage: null,
-          updatedAt: new Date(),
-        })
-        .where(eq(cloudVms.id, input.id))
-        .returning();
-      if (!vm) throw new Error(`vm row missing during create finalization: ${input.id}`);
-      return vm;
+      return await db.transaction(async (tx) => {
+        const [previousVm] = await tx
+          .select()
+          .from(cloudVms)
+          .where(eq(cloudVms.id, input.id))
+          .for("update")
+          .limit(1);
+        const now = new Date();
+        const [vm] = await tx
+          .update(cloudVms)
+          .set({
+            providerVmId: input.providerVmId,
+            imageId: input.image,
+            imageVersion: input.imageVersion ?? null,
+            providerMetadata: input.providerMetadata ?? {},
+            status: "running",
+            failureCode: null,
+            failureMessage: null,
+            updatedAt: now,
+          })
+          .where(eq(cloudVms.id, input.id))
+          .returning();
+        if (!vm) throw new Error(`vm row missing during create finalization: ${input.id}`);
+        if (previousVm) {
+          await insertVmStateTransition(tx, previousVm, previousVm.status, vm.status, now);
+        }
+        return vm;
+      });
     }),
 
   markCreateFailed: (input) =>
     dbEffect("markCreateFailed", async () => {
       const db = cloudDb();
-      await db
-        .update(cloudVms)
-        .set({
-          status: "failed",
-          failureCode: input.code,
-          failureMessage: input.message,
-          updatedAt: new Date(),
-        })
-        .where(eq(cloudVms.id, input.id));
+      await db.transaction(async (tx) => {
+        const [previousVm] = await tx
+          .select()
+          .from(cloudVms)
+          .where(eq(cloudVms.id, input.id))
+          .for("update")
+          .limit(1);
+        const now = new Date();
+        await tx
+          .update(cloudVms)
+          .set({
+            status: "failed",
+            failureCode: input.code,
+            failureMessage: input.message,
+            updatedAt: now,
+          })
+          .where(eq(cloudVms.id, input.id));
+        if (previousVm) {
+          await insertVmStateTransition(tx, previousVm, previousVm.status, "failed", now);
+        }
+      });
     }),
 
   hasOwnedSnapshot: (input) =>
@@ -1259,14 +1355,26 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
   markDestroyed: (id) =>
     dbEffect("markDestroyed", async () => {
       const db = cloudDb();
-      await db
-        .update(cloudVms)
-        .set({
-          status: "destroyed",
-          destroyedAt: new Date(),
-          updatedAt: new Date(),
-        })
-        .where(eq(cloudVms.id, id));
+      await db.transaction(async (tx) => {
+        const [previousVm] = await tx
+          .select()
+          .from(cloudVms)
+          .where(eq(cloudVms.id, id))
+          .for("update")
+          .limit(1);
+        const now = new Date();
+        await tx
+          .update(cloudVms)
+          .set({
+            status: "destroyed",
+            destroyedAt: now,
+            updatedAt: now,
+          })
+          .where(eq(cloudVms.id, id));
+        if (previousVm) {
+          await insertVmStateTransition(tx, previousVm, previousVm.status, "destroyed", now);
+        }
+      });
     }),
 
   recordLease: (input) =>
