@@ -26,6 +26,7 @@ grep -Fq 'github.event.comment.user.id == github.event.issue.user.id' "$WORKFLOW
 grep -Fq "github.event.action == 'created'" "$WORKFLOW"
 grep -Fq 'id: admission' "$WORKFLOW"
 grep -Fq "admitted: \${{ steps.admission.outputs.admitted }}" "$WORKFLOW"
+grep -Fq "allowlist-ids: '38676809,67667005'" "$WORKFLOW"
 grep -Fq 'always() &&' "$WORKFLOW"
 grep -Fq 'cancel-in-progress: false' "$WORKFLOW"
 grep -Fq "group: cla-signatures-\${{ github.repository }}-\${{ github.event_name }}-\${{ github.event.pull_request.number || github.event.issue.number }}" "$WORKFLOW"

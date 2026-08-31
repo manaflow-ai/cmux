@@ -356,8 +356,12 @@ jobs:
           # Require the exact phrase below. Raw-name allowlists are disabled;
           # commit metadata is not authenticated identity evidence.
           custom-pr-sign-comment: 'I have read the CLA Document v2.2 and I hereby sign the CLA'
-          # Bot-opened PRs are intentionally fail-closed. Add only a reviewed
-          # numeric opener ID to allowlist-ids for an approved automation flow.
+          # These reviewed numeric IDs exempt only authenticated pull-request
+          # openers: @austinywang (Austin Wang, 38676809) and
+          # @azooz2003-bit (Abdulaziz Albahar, 67667005). Names, commit
+          # authors, commenters, and later collaborators do not receive an
+          # exemption. Other bot-opened PRs remain fail-closed.
+          allowlist-ids: '38676809,67667005'
           require-opener-as-author: 'true'
           # Pre-merge administrator action: before making "CLA Assistant v2" a
           # required check, verify that the `cla-signatures` branch contains
