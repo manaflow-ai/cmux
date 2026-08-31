@@ -59,6 +59,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     "workspace.updated", "mobile.sync.delta",
                     "terminal.bytes", "terminal.render_grid", "terminal.set_font",
                     "notification.dismissed", "notification.badge", "notification.feed.changed",
+                    "feed.changed",
                     "phone_push.status.changed", "caffeine.status.changed",
                     "mobile.compatible_tags.changed",
                     "browser.frame", "browser.state", "browser.closed", "browser.dialog", "browser.dialog.resolved",
@@ -69,6 +70,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     "workspace.updated", "mobile.sync.delta",
                     "terminal.render_grid", "terminal.set_font",
                     "notification.dismissed", "notification.badge", "notification.feed.changed",
+                    "feed.changed",
                     "phone_push.status.changed", "caffeine.status.changed",
                     "mobile.compatible_tags.changed",
                     "browser.frame", "browser.state", "browser.closed", "browser.dialog", "browser.dialog.resolved",
@@ -79,6 +81,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     "workspace.updated", "mobile.sync.delta",
                     "terminal.bytes", "terminal.set_font",
                     "notification.dismissed", "notification.badge", "notification.feed.changed",
+                    "feed.changed",
                     "phone_push.status.changed", "caffeine.status.changed",
                     "mobile.compatible_tags.changed",
                     "browser.frame", "browser.state", "browser.closed", "browser.dialog", "browser.dialog.resolved",
@@ -426,6 +429,28 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public internal(set) var notificationFeedStatus: MobileNotificationFeedStatus = .idle
     /// The number of currently retained unread notifications across all Macs.
     public private(set) var notificationFeedUnreadCount: Int = 0
+    /// The immutable, reverse-chronological agent workstream feed aggregated
+    /// across Macs (the Feed tab's rows).
+    public internal(set) var agentFeedItems: [MobileAgentFeedItem] = [] {
+        didSet {
+            agentFeedNeedsInputCount = agentFeedItems.lazy.filter(\.needsInput).count
+        }
+    }
+    /// The agent feed's current loading and capability state. Shares the
+    /// notification feed's status vocabulary.
+    public internal(set) var agentFeedStatus: MobileNotificationFeedStatus = .idle
+    /// The number of retained agent-feed rows awaiting user input across all Macs.
+    public private(set) var agentFeedNeedsInputCount: Int = 0
+    /// Request ids with an in-flight feed reply, so rows disable their controls.
+    public internal(set) var agentFeedPendingReplyRequestIDs: Set<String> = []
+    var agentFeedSnapshotsByMac: [String: AgentFeedMacSnapshot] = [:]
+    var agentFeedKnownRevisionsByMac: [String: Int] = [:]
+    /// Free-text terminal replies this device sent, keyed by the replied row,
+    /// so the row keeps showing what was said across snapshot refreshes.
+    var agentFeedLocalRepliesByItemID: [MobileAgentFeedItemID: String] = [:]
+    var agentFeedRefreshTasksByMac: [String: Task<Void, Never>] = [:]
+    var agentFeedRefreshPendingMacIDs: Set<String> = []
+    var agentFeedSuccessfulMacIDs: Set<String> = []
     /// The group sections the UI renders. A materialized derivation of every
     /// entry in ``workspacesByMac``. Each group's `isCollapsed` reflects this
     /// device's choice (see ``groupCollapseStore``), not the Mac's live value.
@@ -6608,6 +6633,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
         } else if event.topic == "notification.feed.changed" {
             handleNotificationFeedChangedEvent(
+                event,
+                macDeviceID: ownerKey.pairingID,
+                client: client,
+                displayName: notificationFeedDisplayNameForSecondary(
+                    macDeviceID: ownerKey.pairingID,
+                    fallback: displayName
+                )
+            )
+        } else if event.topic == "feed.changed" {
+            handleAgentFeedChangedEvent(
                 event,
                 macDeviceID: ownerKey.pairingID,
                 client: client,
@@ -12856,6 +12891,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 } else if event.topic == "notification.feed.changed",
                           let macDeviceID = self.normalizedForegroundNotificationFeedMacIDForEvent() {
                     self.handleNotificationFeedChangedEvent(
+                        event,
+                        macDeviceID: macDeviceID,
+                        client: client,
+                        displayName: self.notificationFeedDisplayNameForForeground(
+                            macDeviceID: macDeviceID
+                        )
+                    )
+                } else if event.topic == "feed.changed",
+                          let macDeviceID = self.normalizedForegroundNotificationFeedMacIDForEvent() {
+                    self.handleAgentFeedChangedEvent(
                         event,
                         macDeviceID: macDeviceID,
                         client: client,

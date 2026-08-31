@@ -142,6 +142,10 @@ private struct WorkspaceShellRenderPresentation {
     let notificationUnreadCount: Int
     let notificationFeedStatus: MobileNotificationFeedStatus
     let selectedNotificationFeedMacDeviceIDs: Set<String>?
+    let agentFeedItems: [MobileAgentFeedItem]
+    let agentFeedStatus: MobileNotificationFeedStatus
+    let agentFeedNeedsInputCount: Int
+    let agentFeedPendingReplyRequestIDs: Set<String>
     let toolbarMachineSnapshots: WorkspaceMachineSnapshots
     let canCreateWorkspaceForSelection: Bool
 }
@@ -255,6 +259,7 @@ struct WorkspaceShellView: View {
                 selection: $selectedPrimaryTab,
                 searchCoordinator: primarySearchCoordinator,
                 notificationUnreadCount: presentation.notificationUnreadCount,
+                feedNeedsInputCount: presentation.agentFeedNeedsInputCount,
                 taskComposerAction: usesCompactStack && !compactNavigationPath.isEmpty
                     ? nil
                     : taskComposerAction
@@ -262,6 +267,15 @@ struct WorkspaceShellView: View {
                 workspaceTabContent(
                     canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
                 )
+            } feed: {
+                NavigationStack {
+                    AgentFeedStoreView(
+                        store: store,
+                        items: presentation.agentFeedItems,
+                        status: presentation.agentFeedStatus,
+                        pendingReplyRequestIDs: presentation.agentFeedPendingReplyRequestIDs
+                    )
+                }
             } notifications: {
                 NavigationStack(path: $notificationNavigationPath) {
                     NotificationFeedStoreView(
@@ -861,6 +875,10 @@ struct WorkspaceShellView: View {
             notificationUnreadCount: notificationUnreadCount,
             notificationFeedStatus: store.notificationFeedStatus(scopedTo: selectedMachineIDs),
             selectedNotificationFeedMacDeviceIDs: selectedMachineIDs,
+            agentFeedItems: store.agentFeedItems,
+            agentFeedStatus: store.agentFeedStatus,
+            agentFeedNeedsInputCount: store.agentFeedNeedsInputCount,
+            agentFeedPendingReplyRequestIDs: store.agentFeedPendingReplyRequestIDs,
             toolbarMachineSnapshots: toolbarMachineSnapshots,
             canCreateWorkspaceForSelection: scope.canCreateWorkspace(
                 base: canCreateWorkspace,
@@ -994,6 +1012,9 @@ struct WorkspaceShellView: View {
             guard let workspaceID = pendingPrimarySearchWorkspaceNavigationID else { return }
             pendingPrimarySearchWorkspaceNavigationID = nil
             selectWorkspaceImmediately(workspaceID)
+        case .feed:
+            // The Feed has no search-result navigation lane yet.
+            break
         case .notifications:
             guard notificationsStackIsOnScreen else { return }
             guard let workspaceID = pendingPrimarySearchNotificationNavigationID else { return }
@@ -1065,6 +1086,7 @@ struct WorkspaceShellView: View {
     private func diagnosticPrimaryTab(_ tab: MobilePrimaryTab) -> DiagnosticPrimaryTab {
         switch tab {
         case .workspaces: .workspaces
+        case .feed: .feed
         case .notifications: .notifications
         case .search: .search
         }
