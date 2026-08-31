@@ -96,6 +96,13 @@ describe("VM active compute-hour aggregation", () => {
       event("vm-1", "running", "paused", "2026-08-01T03:00:00Z"),
     ], period)).toBe(2);
   });
+
+  test("does not double-count an identical retried transition", () => {
+    expect(calculateActiveComputeHours([
+      event("vm-1", "running", "paused", "2026-08-02T00:00:00Z"),
+      event("vm-1", "running", "paused", "2026-08-02T00:00:00Z"),
+    ], period)).toBe(24);
+  });
 });
 
 function event(

@@ -72,6 +72,7 @@ export function calculateActiveComputeHours(
   }
 
   const byVm = new Map<string, Array<VmStateTransitionEvent & { readonly timestampMs: number }>>();
+  const seenTransitions = new Map<string, Set<string>>();
   for (const event of events) {
     const vmId = typeof event.vmId === "string" ? event.vmId.trim() : "";
     if (!vmId) continue;
@@ -79,6 +80,11 @@ export function calculateActiveComputeHours(
     if (timestampMs === null) continue;
     const fromState = normalizeState(event.fromState);
     const toState = normalizeState(event.toState);
+    const vmSeenTransitions = seenTransitions.get(vmId) ?? new Set<string>();
+    const transitionKey = `${timestampMs}\u0000${fromState}\u0000${toState}`;
+    if (vmSeenTransitions.has(transitionKey)) continue;
+    vmSeenTransitions.add(transitionKey);
+    seenTransitions.set(vmId, vmSeenTransitions);
     const vmEvents = byVm.get(vmId) ?? [];
     vmEvents.push({ ...event, fromState, toState, timestampMs });
     byVm.set(vmId, vmEvents);
