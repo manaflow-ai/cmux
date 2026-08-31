@@ -137,8 +137,7 @@ private struct NotificationFeedRowLabel: View {
                 NotificationFeedHeadline(
                     title: presentation.headline,
                     createdAt: createdAt,
-                    isRead: isRead,
-                    representsWorkspace: presentation.headlineIsWorkspace
+                    isRead: isRead
                 )
 
                 NotificationFeedProvenance(
@@ -182,11 +181,13 @@ private struct NotificationFeedHeadline: View {
     let title: String
     let createdAt: Date
     let isRead: Bool
-    let representsWorkspace: Bool
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            titleText
+            Text(title)
+                .font(.subheadline)
+                .fontWeight(isRead ? .medium : .semibold)
+                .foregroundStyle(.primary)
                 .lineLimit(2)
                 .layoutPriority(1)
 
@@ -198,19 +199,6 @@ private struct NotificationFeedHeadline: View {
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
         }
-    }
-
-    private var titleText: Text {
-        let base = Text(title)
-            .font(.subheadline)
-            .fontWeight(isRead ? .medium : .semibold)
-            .foregroundStyle(.primary)
-        guard representsWorkspace else { return base }
-        return Text(Image(systemName: "rectangle.stack"))
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            + Text(" ")
-            + base
     }
 }
 

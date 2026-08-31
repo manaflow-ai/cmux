@@ -4234,6 +4234,23 @@
         }
       }
     },
+    "mobile.notificationFeed.markAllRead.confirmTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark all notifications as read?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべての通知を既読にしますか？"
+          }
+        }
+      }
+    },
     "mobile.notificationFeed.markRead": {
       "extractionState": "manual",
       "localizations": {

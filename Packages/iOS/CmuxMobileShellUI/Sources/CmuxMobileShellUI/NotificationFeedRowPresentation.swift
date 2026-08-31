@@ -15,8 +15,6 @@ struct NotificationFeedRowPresentation: Equatable, Sendable {
     /// The workspace title, falling back to the notification title when the
     /// item carries no workspace, then to the localized unknown label.
     let headline: String
-    /// Whether `headline` is a workspace title (drives the workspace marker).
-    let headlineIsWorkspace: Bool
     /// The notifying agent or app ("Claude Code"), shown only when it says
     /// something the headline does not.
     let sourceName: String?
@@ -38,7 +36,6 @@ struct NotificationFeedRowPresentation: Equatable, Sendable {
             defaultValue: "Unknown workspace"
         )
         self.headline = headline
-        headlineIsWorkspace = normalizedWorkspace != nil
         if let normalizedTitle, !notificationFeedRowMatches(normalizedTitle, headline) {
             sourceName = normalizedTitle
         } else {

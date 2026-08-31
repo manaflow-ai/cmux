@@ -4154,7 +4154,19 @@ final class cmuxUITests: XCTestCase {
 
         let markAllRead = app.buttons["MobileNotificationFeedMarkAllRead"]
         XCTAssertTrue(markAllRead.waitForExistence(timeout: 3))
+
+        // Mark-all-read is gated behind a confirmation alert. Cancel first to
+        // prove the gate protects the unread state, then confirm.
         markAllRead.tap()
+        let markAllReadAlert = app.alerts["Mark all notifications as read?"]
+        XCTAssertTrue(markAllReadAlert.waitForExistence(timeout: 3))
+        markAllReadAlert.buttons["Cancel"].tap()
+        XCTAssertTrue(markAllReadAlert.waitForNonExistence(timeout: 3))
+        XCTAssertTrue(markAllRead.waitForExistence(timeout: 3))
+
+        markAllRead.tap()
+        XCTAssertTrue(markAllReadAlert.waitForExistence(timeout: 3))
+        markAllReadAlert.buttons["Mark All Read"].tap()
         XCTAssertTrue(markAllRead.waitForNonExistence(timeout: 3))
 
         let workspacesTab = app.tabBars.buttons["Workspaces"]

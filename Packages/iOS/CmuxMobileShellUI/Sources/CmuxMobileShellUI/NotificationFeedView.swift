@@ -21,6 +21,9 @@ struct NotificationFeedView: View {
     let projection: NotificationFeedProjection
     let refreshesOnAppear: Bool
     let actions: NotificationFeedActions
+    /// Mark-all-read cannot be undone in one gesture, so the toolbar button
+    /// only arms this confirmation instead of mutating directly.
+    @State private var isConfirmingMarkAllRead = false
 
     var body: some View {
         @Bindable var projection = projection
@@ -49,7 +52,9 @@ struct NotificationFeedView: View {
         .toolbar {
             if projection.sourceUnreadCount > 0 {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button(action: actions.markAllRead) {
+                    Button {
+                        isConfirmingMarkAllRead = true
+                    } label: {
                         Label(
                             L10n.string("mobile.notificationFeed.markAllRead", defaultValue: "Mark All Read"),
                             systemImage: "envelope.open"
@@ -62,6 +67,23 @@ struct NotificationFeedView: View {
                     .accessibilityIdentifier("MobileNotificationFeedMarkAllRead")
                 }
             }
+        }
+        .alert(
+            L10n.string(
+                "mobile.notificationFeed.markAllRead.confirmTitle",
+                defaultValue: "Mark all notifications as read?"
+            ),
+            isPresented: $isConfirmingMarkAllRead
+        ) {
+            Button(
+                L10n.string("mobile.notificationFeed.markAllRead", defaultValue: "Mark All Read"),
+                role: .destructive
+            ) {
+                actions.markAllRead()
+            }
+            .accessibilityIdentifier("MobileNotificationFeedMarkAllReadConfirm")
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {}
+                .accessibilityIdentifier("MobileNotificationFeedMarkAllReadCancel")
         }
         .task {
             guard refreshesOnAppear else { return }

@@ -15,7 +15,6 @@ import Testing
         ))
 
         #expect(model.presentation.headline == "Fix login flake")
-        #expect(model.presentation.headlineIsWorkspace)
         #expect(model.presentation.sourceName == "Claude Code")
     }
 
@@ -26,7 +25,6 @@ import Testing
         ))
 
         #expect(model.presentation.headline == "resume review")
-        #expect(model.presentation.headlineIsWorkspace)
         #expect(model.presentation.sourceName == nil)
     }
 
@@ -59,7 +57,6 @@ import Testing
         ))
 
         #expect(model.presentation.headline == "Title")
-        #expect(!model.presentation.headlineIsWorkspace)
         #expect(model.presentation.sourceName == nil)
         #expect(model.presentation.computerName == "mac-a")
     }
@@ -71,7 +68,6 @@ import Testing
         ))
 
         #expect(model.presentation.headline == "Unknown workspace")
-        #expect(!model.presentation.headlineIsWorkspace)
         #expect(model.presentation.sourceName == nil)
     }
 
