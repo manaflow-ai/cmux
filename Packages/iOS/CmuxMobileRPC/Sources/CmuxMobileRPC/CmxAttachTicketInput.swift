@@ -22,38 +22,48 @@ public struct CmxAttachTicketInput {
         guard let url = URL(string: rawValue) else {
             throw MobileSyncPairingPayloadError.invalidURL
         }
-        // A future cmux release may register a new bundle-specific scheme that
-        // this build has not classified yet. It is still recognizably a cmux
-        // attach link, so preserve the actionable update path rather than
-        // reporting an unrelated QR failure.
-        if (url.host == "attach" || url.host == "pair"),
-           let scheme = url.scheme?.lowercased(),
-           scheme.hasPrefix("cmux-ios-"),
-           CmxPairingURLScheme(rawValue: scheme) == nil {
+        let scheme = url.scheme?.lowercased()
+        let knownScheme = CmxPairingURLScheme(rawValue: scheme)
+        guard url.host == "attach" || url.host == "pair" else {
+            throw MobileSyncPairingPayloadError.invalidURL
+        }
+        if knownScheme == nil, url.host == "pair" {
+            let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            guard let version = components.flatMap({ CmxPairingQRCode.attachURLVersion($0) }) else {
+                throw MobileSyncPairingPayloadError.invalidURL
+            }
             throw MobileSyncPairingPayloadError.unrecognizedURLVersion(
-                CmxPairingQRCode.version + 1
+                max(version, CmxPairingQRCode.version + 1)
             )
         }
         // Accept any classified channel's pairing scheme; cross-variant pairing
         // works when the user scans from inside the app. Official Macs emit the
         // canonical App Store scheme, while tagged DEV Macs retain exact-tag
         // routing for their development lane.
-        if CmxPairingURLScheme(rawValue: url.scheme) != nil, url.host == "pair" {
+        if knownScheme != nil, url.host == "pair" {
             return try ticket(from: MobileSyncPairingPayload.decodeURL(url))
         }
-        guard CmxPairingURLScheme(rawValue: url.scheme) != nil,
-              url.host == "attach",
+        guard url.host == "attach",
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             throw MobileSyncPairingPayloadError.invalidURL
         }
-        // A cmux attach URL without a grammar marker is still recognizably a
-        // cmux code, but this build cannot know which payload contract it uses.
-        // Surface the actionable update path instead of asking the user to pick
-        // another app or treating the code as an unrelated QR.
-        guard let version = CmxPairingQRCode.attachURLVersion(components) else {
+        let version = CmxPairingQRCode.attachURLVersion(components)
+        // A future cmux release may register a new bundle-specific scheme that
+        // this build has not classified yet. A well-formed version marker makes
+        // that an actionable compatibility failure; a bare/malformed URL stays
+        // a generic invalid-code failure.
+        let isUnknownBundleScheme = scheme?.hasPrefix("cmux-ios-") == true
+            && knownScheme == nil
+        if isUnknownBundleScheme, version != nil {
             throw MobileSyncPairingPayloadError.unrecognizedURLVersion(
-                CmxPairingQRCode.version + 1
+                max(version ?? 0, CmxPairingQRCode.version + 1)
             )
+        }
+        guard knownScheme != nil else {
+            throw MobileSyncPairingPayloadError.invalidURL
+        }
+        guard let version else {
+            throw MobileSyncPairingPayloadError.invalidURL
         }
         // A QR minted by a newer cmux whose grammar version this build does not
         // understand. Distinguished from a malformed code so the user is told

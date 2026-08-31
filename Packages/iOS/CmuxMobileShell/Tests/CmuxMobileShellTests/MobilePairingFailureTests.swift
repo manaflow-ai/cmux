@@ -322,27 +322,34 @@ import Testing
         #expect(category.guidance?.localizedCaseInsensitiveContains("Iroh") != true)
     }
 
-    @Test func invalidCodeNoLongerMentionsAPairingCode() {
-        // A stale or future QR must tell the user to update the iPhone app;
-        // there is no Mac-side app-selection remedy anymore.
+    @Test func invalidCodeUsesGenericScanGuidance() {
+        // A malformed or unrelated QR is not fixed by an app update. Keep the
+        // update action reserved for a recognized stale/future cmux payload.
         let message = MobilePairingFailureCategory.invalidCode.message
-        #expect(message.localizedCaseInsensitiveContains("latest version"))
-        #expect(message.localizedCaseInsensitiveContains("iPhone"))
+        #expect(!message.localizedCaseInsensitiveContains("latest version"))
+        #expect(!message.localizedCaseInsensitiveContains("update cmux"))
         #expect(message.localizedCaseInsensitiveContains("Tailscale"))
         #expect(!message.isEmpty)
-        #expect(MobilePairingFailureCategory.invalidCode.guidance?.localizedCaseInsensitiveContains("latest version") == true)
+        #expect(MobilePairingFailureCategory.invalidCode.guidance == nil)
     }
 
     @Test func unrecognizedVersionTellsUserToUpdateTheApp() {
         // A real cmux QR from a newer Mac whose grammar this build predates: the
         // user must be told to update, not that the code is invalid.
         let message = MobilePairingFailureCategory.unrecognizedVersion.message
-        #expect(message.lowercased().contains("newer version"))
+        #expect(message.lowercased().contains("newer"))
+        #expect(!message.localizedCaseInsensitiveContains("update cmux"))
         let guidance = MobilePairingFailureCategory.unrecognizedVersion.guidance
         #expect(guidance?.localizedCaseInsensitiveContains("latest") == true)
         #expect(guidance?.localizedCaseInsensitiveContains("iPhone") == true)
         #expect(guidance?.localizedCaseInsensitiveContains("App Store") == true)
         #expect(MobilePairingFailureCategory.unrecognizedVersion.analyticsReason == "unrecognized_version")
+    }
+
+    @Test func incompatibleBuildKeepsUpdateActionInGuidanceOnly() {
+        let category = MobilePairingFailureCategory.buildIncompatible
+        #expect(!category.message.localizedCaseInsensitiveContains("update cmux"))
+        #expect(category.guidance?.localizedCaseInsensitiveContains("update cmux") == true)
     }
 
     @Test func missingRouteFallsBackWithoutCrashingOnFormat() {

@@ -1504,7 +1504,7 @@ final class MobileHostService {
             await MobileHostService.shared.recordPairedPhoneIfNeeded(
                 request: request,
                 result: result,
-                transportAuthenticated: false
+                authorization: authorization
             )
             return result
         case .irohAdmission:
@@ -1525,7 +1525,7 @@ final class MobileHostService {
             await MobileHostService.shared.recordPairedPhoneIfNeeded(
                 request: request,
                 result: result,
-                transportAuthenticated: true
+                authorization: authorization
             )
             return result
         }

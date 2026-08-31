@@ -4733,6 +4733,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // fix is updating the app, not re-scanning, so say so instead of
                 // the generic "not a valid code" copy.
                 applyPairingValidationFailure(.unrecognizedVersion)
+            } else if case let MobileSyncPairingPayloadError.unsupportedVersion(version) = error,
+                      version > CmxPairingQRCode.version {
+                // The legacy `pair` envelope reports its newer grammar through
+                // the shared payload validator rather than the plain-URL
+                // decoder. Keep that stale-code path on the same update copy.
+                applyPairingValidationFailure(.unrecognizedVersion)
             } else {
                 applyPairingValidationFailure(.invalidCode)
             }

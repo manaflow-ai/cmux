@@ -551,18 +551,20 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         guard var request = try JSONSerialization.jsonObject(with: requestData) as? [String: Any] else {
             return AuthenticatedRequestPayload(data: requestData, stackAccessToken: nil)
         }
-        // Host status is the post-handshake identity boundary. Include the
-        // exact install identity only there so the Mac can persist the bundle
-        // that paired without bloating every RPC or trusting QR-time choices.
-        if isHostStatusRequest(request),
-           let clientID,
-           let clientBundleIdentifier {
-            var params = request["params"] as? [String: Any] ?? [:]
-            params["client_id"] = clientID
-            params["ios_bundle_identifier"] = clientBundleIdentifier
-            request["params"] = params
+        let isHostStatusRequest = isHostStatusRequest(request)
+        if isHostStatusRequest {
+            // Callers cannot smuggle an identity through a manually entered
+            // status probe. We add our immutable install identity again only
+            // after this request has an authenticated transport below.
+            Self.removeClientIdentityMetadata(from: &request)
         }
         if transportRequest.authorizationMode == .transportAdmission {
+            // Iroh admission already authenticated the peer before the RPC
+            // stream was opened, so the status response is an authenticated
+            // identity boundary even though it carries no bearer token.
+            if isHostStatusRequest {
+                addClientIdentityMetadata(to: &request)
+            }
             request.removeValue(forKey: "auth")
             return AuthenticatedRequestPayload(
                 data: try JSONSerialization.data(withJSONObject: request),
@@ -628,7 +630,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             }
         }
         if !requestNeedsAuth,
-           isHostStatusRequest(request),
+           isHostStatusRequest,
            canSendStackBearer {
             let stackAccessToken: String?
             if let hostStatusStackToken {
@@ -639,6 +641,13 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             if let stackAccessToken {
                 auth["stack_access_token"] = stackAccessToken
             }
+        }
+        // `canSendStackBearer` is only a route capability. The actual token
+        // lookup above is the authentication proof; do not disclose the
+        // install identity on a tokenless manual route.
+        if isHostStatusRequest,
+           auth["stack_access_token"] as? String != nil {
+            addClientIdentityMetadata(to: &request)
         }
         if !auth.isEmpty {
             request["auth"] = auth
@@ -801,6 +810,26 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     private static func normalizedMetadata(_ value: String?) -> String? {
         let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed?.isEmpty == false ? trimmed : nil
+    }
+
+    private static func removeClientIdentityMetadata(from request: inout [String: Any]) {
+        var params = request["params"] as? [String: Any] ?? [:]
+        params.removeValue(forKey: "client_id")
+        params.removeValue(forKey: "ios_bundle_identifier")
+        params.removeValue(forKey: "ios_bundle_id")
+        params.removeValue(forKey: "iosBundleIdentifier")
+        request["params"] = params
+    }
+
+    private func addClientIdentityMetadata(to request: inout [String: Any]) {
+        guard let clientID,
+              let clientBundleIdentifier else {
+            return
+        }
+        var params = request["params"] as? [String: Any] ?? [:]
+        params["client_id"] = clientID
+        params["ios_bundle_identifier"] = clientBundleIdentifier
+        request["params"] = params
     }
 
     private static func stringParamSelection(

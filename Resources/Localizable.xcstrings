@@ -145243,12 +145243,30 @@
             "value": "If pairing does not complete, update cmux to the latest version on your iPhone from the App Store or TestFlight, then scan again."
           }
         },
+        "ar": { "stringUnit": { "state": "translated", "value": "إذا لم يكتمل الاقتران، حدّث cmux إلى أحدث إصدار على iPhone من App Store أو TestFlight، ثم امسح الرمز مرة أخرى." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Ako se uparivanje ne dovrši, ažurirajte cmux na najnoviju verziju na iPhoneu iz App Storea ili TestFlighta, a zatim ponovo skenirajte." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Hvis parringen ikke fuldføres, skal du opdatere cmux til den nyeste version på din iPhone fra App Store eller TestFlight og derefter scanne igen." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Wenn die Kopplung nicht abgeschlossen wird, aktualisiere cmux auf deinem iPhone über den App Store oder TestFlight auf die neueste Version und scanne dann erneut." } },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "ペアリングが完了しない場合は、App Store または TestFlight で iPhone の cmux を最新バージョンに更新してから、もう一度スキャンしてください。"
           }
-        }
+        },
+        "es": { "stringUnit": { "state": "translated", "value": "Si el emparejamiento no se completa, actualiza cmux a la última versión en tu iPhone desde App Store o TestFlight y vuelve a escanear." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Si le jumelage ne se termine pas, mettez cmux à jour vers la dernière version sur votre iPhone depuis l’App Store ou TestFlight, puis scannez à nouveau." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Se l'abbinamento non viene completato, aggiorna cmux all'ultima versione sul tuo iPhone dall'App Store o TestFlight, quindi esegui di nuovo la scansione." } },
+        "km": { "stringUnit": { "state": "translated", "value": "ប្រសិនបើការផ្គូផ្គងមិនបានបញ្ចប់ សូមធ្វើបច្ចុប្បន្នភាព cmux ទៅកំណែចុងក្រោយនៅលើ iPhone របស់អ្នកពី App Store ឬ TestFlight ហើយស្កេនម្តងទៀត។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "페어링이 완료되지 않으면 App Store 또는 TestFlight에서 iPhone의 cmux를 최신 버전으로 업데이트한 다음 다시 스캔하세요." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Hvis sammenkoblingen ikke fullføres, oppdaterer du cmux til den nyeste versjonen på iPhonen fra App Store eller TestFlight, og skanner på nytt." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Jeśli parowanie się nie zakończy, uaktualnij cmux do najnowszej wersji na iPhonie z App Store lub TestFlight, a następnie zeskanuj ponownie." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Se o emparelhamento não for concluído, atualize o cmux para a versão mais recente no iPhone pela App Store ou TestFlight e escaneie novamente." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Если сопряжение не завершится, обновите cmux до последней версии на iPhone через App Store или TestFlight, затем отсканируйте код снова." } },
+        "th": { "stringUnit": { "state": "translated", "value": "หากการจับคู่ไม่เสร็จสมบูรณ์ ให้อัปเดต cmux เป็นเวอร์ชันล่าสุดบน iPhone จาก App Store หรือ TestFlight แล้วสแกนอีกครั้ง" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Eşleştirme tamamlanmazsa iPhone'unuzdaki cmux'u App Store veya TestFlight'tan en son sürüme güncelleyin ve ardından yeniden tarayın." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Якщо сполучення не завершиться, оновіть cmux до найновішої версії на iPhone з App Store або TestFlight, а потім відскануйте ще раз." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "如果配对未完成，请从 App Store 或 TestFlight 将 iPhone 上的 cmux 更新到最新版本，然后重新扫描。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "如果配對未完成，請從 App Store 或 TestFlight 將 iPhone 上的 cmux 更新到最新版本，然後重新掃描。" } }
       }
     },
     "mobile.pairing.signedInAs": {

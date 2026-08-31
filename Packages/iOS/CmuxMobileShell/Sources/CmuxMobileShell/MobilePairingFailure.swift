@@ -298,7 +298,7 @@ extension MobilePairingFailureCategory {
         case .buildIncompatible:
             return L10n.string(
                 "mobile.pairing.buildIncompatible",
-                defaultValue: "This iPhone build cannot complete pairing with that cmux build. Update cmux to the latest version on your iPhone, then scan again."
+                defaultValue: "This iPhone build cannot complete pairing with that cmux build."
             )
         case .ticketExpired:
             return L10n.string(
@@ -308,12 +308,12 @@ extension MobilePairingFailureCategory {
         case .invalidCode:
             return L10n.string(
                 "mobile.pairing.invalidCode",
-                defaultValue: "This QR could not be read by cmux. Update cmux to the latest version on your iPhone from the App Store or TestFlight, then scan the code in Tailscale Pairing."
+                defaultValue: "This isn't a cmux pairing QR. Open Tailscale Pairing on the Mac and scan the code shown there."
             )
         case .unrecognizedVersion:
             return L10n.string(
                 "mobile.pairing.unrecognizedVersion",
-                defaultValue: "This QR needs a newer version of cmux. Update cmux to the latest version on your iPhone from the App Store or TestFlight, then scan again."
+                defaultValue: "This QR uses a newer cmux pairing format."
             )
         case .loopbackRejected:
             return L10n.string(
@@ -439,10 +439,7 @@ extension MobilePairingFailureCategory {
                 defaultValue: "A connection attempt is already in progress. Give it a moment to finish; retry only if this computer stays disconnected."
             )
         case .invalidCode:
-            return L10n.string(
-                "mobile.pairing.guidance.updateApp",
-                defaultValue: "Update cmux to the latest version on your iPhone from the App Store (or TestFlight), then scan again."
-            )
+            return nil
         case .loopbackRejected, .cancelled, .unknown:
             return nil
         }

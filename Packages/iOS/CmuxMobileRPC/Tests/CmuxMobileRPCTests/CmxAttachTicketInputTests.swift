@@ -293,6 +293,22 @@ import Testing
         }
     }
 
+    @Test func malformedBundleSchemeStaysGenericInvalidURL() {
+        #expect(throws: MobileSyncPairingPayloadError.invalidURL) {
+            try CmxAttachTicketInput.decode(
+                "cmux-ios-dev.cmux.app.future://attach?r=100.64.0.5:58465"
+            )
+        }
+    }
+
+    @Test func attachURLWithoutVersionStaysGenericInvalidURL() {
+        #expect(throws: MobileSyncPairingPayloadError.invalidURL) {
+            try CmxAttachTicketInput.decode(
+                "cmux-ios://attach?r=100.64.0.5:58465"
+            )
+        }
+    }
+
     @Test func knownVersionDoesNotThrowUnrecognizedVersion() throws {
         // The current grammar version is not "newer", so it decodes normally
         // rather than tripping the unrecognized-version path.

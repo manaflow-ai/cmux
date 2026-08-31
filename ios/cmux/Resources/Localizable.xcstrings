@@ -6229,13 +6229,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This iPhone build cannot complete pairing with that cmux build. Update cmux to the latest version on your iPhone, then scan again."
+            "value": "This iPhone build cannot complete pairing with that cmux build."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この iPhone ビルドは、その cmux ビルドとのペアリングを完了できません。iPhone の cmux を最新バージョンに更新してから、もう一度スキャンしてください。"
+            "value": "この iPhone ビルドは、その cmux ビルドとのペアリングを完了できません。"
           }
         }
       }
@@ -6535,13 +6535,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This QR could not be read by cmux. Update cmux to the latest version on your iPhone from the App Store or TestFlight, then scan the code in Tailscale Pairing."
+            "value": "This isn't a cmux pairing QR. Open Tailscale Pairing on the Mac and scan the code shown there."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この QR コードを cmux で読み取れませんでした。App Store または TestFlight で iPhone の cmux を最新バージョンに更新してから、「Tailscale ペアリング」でコードをスキャンしてください。"
+            "value": "これは cmux のペアリング QR コードではありません。Mac で「Tailscale ペアリング」を開き、表示されたコードをスキャンしてください。"
           }
         }
       }
@@ -6858,13 +6858,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This QR needs a newer version of cmux. Update cmux to the latest version on your iPhone from the App Store or TestFlight, then scan again."
+            "value": "This QR uses a newer cmux pairing format."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この QR コードには新しいバージョンの cmux が必要です。App Store または TestFlight で iPhone の cmux を最新バージョンに更新してから、もう一度スキャンしてください。"
+            "value": "この QR コードは新しい cmux のペアリング形式を使用しています。"
           }
         }
       }

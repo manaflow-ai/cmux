@@ -1,12 +1,75 @@
 import CMUXMobileCore
 import Foundation
 
+/// How a paired-phone record became known to the Mac.
+enum MobilePairedPhoneRecordSource: String, Codable, Sendable {
+    case authenticatedHandshake
+    case legacyPickerMigration
+}
+
 /// The iOS application identity learned from one completed Mac pairing.
 struct MobilePairedPhoneRecord: Codable, Equatable, Sendable {
     let clientID: String
     let bundleIdentifier: String
     let accountID: String?
     let pairedAt: Date
+    let source: MobilePairedPhoneRecordSource
+    /// A stable proof boundary for the authenticated transport that observed
+    /// this install. It is intentionally not a bearer token.
+    let handshakeIdentity: String?
+
+    init(
+        clientID: String,
+        bundleIdentifier: String,
+        accountID: String?,
+        pairedAt: Date,
+        source: MobilePairedPhoneRecordSource = .authenticatedHandshake,
+        handshakeIdentity: String? = nil
+    ) {
+        self.clientID = clientID
+        self.bundleIdentifier = bundleIdentifier
+        self.accountID = accountID
+        self.pairedAt = pairedAt
+        self.source = source
+        self.handshakeIdentity = handshakeIdentity
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case clientID
+        case bundleIdentifier
+        case accountID
+        case pairedAt
+        case source
+        case handshakeIdentity
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            clientID: try container.decode(String.self, forKey: .clientID),
+            bundleIdentifier: try container.decode(String.self, forKey: .bundleIdentifier),
+            accountID: try container.decodeIfPresent(String.self, forKey: .accountID),
+            pairedAt: try container.decode(Date.self, forKey: .pairedAt),
+            source: try container.decodeIfPresent(
+                MobilePairedPhoneRecordSource.self,
+                forKey: .source
+            ) ?? .authenticatedHandshake,
+            handshakeIdentity: try container.decodeIfPresent(
+                String.self,
+                forKey: .handshakeIdentity
+            )
+        )
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(clientID, forKey: .clientID)
+        try container.encode(bundleIdentifier, forKey: .bundleIdentifier)
+        try container.encodeIfPresent(accountID, forKey: .accountID)
+        try container.encode(pairedAt, forKey: .pairedAt)
+        try container.encode(source, forKey: .source)
+        try container.encodeIfPresent(handshakeIdentity, forKey: .handshakeIdentity)
+    }
 }
 
 /// Owns the Mac's durable mapping from paired phone installs to iOS bundles.
@@ -14,8 +77,8 @@ struct MobilePairedPhoneRecord: Codable, Equatable, Sendable {
 /// The QR intentionally does not choose an iOS variant. A phone reports its
 /// exact bundle after the authenticated host handshake, and this store keeps
 /// that fact for push and paired-Mac backup routing. The old picker preference
-/// is imported once as a compatibility fallback, then never participates in a
-/// newly completed pairing.
+/// is imported once as a migration marker, but only an authenticated handshake
+/// record can ever be selected for runtime routing.
 @MainActor
 final class MobilePairedPhoneStore {
     /// The serialized records written to the Mac's defaults domain.
@@ -26,6 +89,7 @@ final class MobilePairedPhoneStore {
     private static let legacyClientID = "legacy-picker-selection"
     private static let maximumRecordCount = 16
     private static let maximumClientIDLength = 200
+    private static let maximumHandshakeIdentityLength = 512
 
     private let defaults: UserDefaults
     private let macInstanceTag: String
@@ -49,7 +113,8 @@ final class MobilePairedPhoneStore {
         clientID: String,
         bundleIdentifier: String,
         accountID: String?,
-        pairedAt: Date = Date()
+        handshakeIdentity: String? = nil,
+        pairedAt: Date = .now
     ) -> Bool {
         guard let normalizedClientID = Self.normalized(clientID),
               normalizedClientID.utf16.count <= Self.maximumClientIDLength,
@@ -59,34 +124,36 @@ final class MobilePairedPhoneStore {
         else {
             return false
         }
-        let normalizedAccountID = Self.normalized(accountID)
-        if let existing = recordsByClientID[normalizedClientID],
-           existing.bundleIdentifier == normalizedBundleIdentifier,
-           existing.accountID == normalizedAccountID {
-            return true
+        guard let normalizedAccountID = Self.normalized(accountID),
+              let normalizedHandshakeIdentity = Self.normalized(handshakeIdentity),
+              normalizedHandshakeIdentity.utf8.count <= Self.maximumHandshakeIdentityLength
+        else {
+            return false
         }
+        if let existing = recordsByClientID[normalizedClientID],
+           existing.source == .authenticatedHandshake,
+           existing.accountID == normalizedAccountID,
+           existing.handshakeIdentity == normalizedHandshakeIdentity,
+           existing.bundleIdentifier != normalizedBundleIdentifier {
+            // One authenticated transport identity cannot silently switch the
+            // app namespace underneath an existing record.
+            return false
+        }
+        let previousRecords = recordsByClientID
         // A real handshake supersedes the pre-migration picker fallback. Once
         // the phone identity is known, the stale global value must not compete
         // with it after account or variant changes.
-        let previousLegacyRecord = recordsByClientID.removeValue(
-            forKey: Self.legacyClientID
-        )
-        let previousRecord = recordsByClientID[normalizedClientID]
+        recordsByClientID.removeValue(forKey: Self.legacyClientID)
         recordsByClientID[normalizedClientID] = MobilePairedPhoneRecord(
             clientID: normalizedClientID,
             bundleIdentifier: normalizedBundleIdentifier,
             accountID: normalizedAccountID,
-            pairedAt: pairedAt
+            pairedAt: pairedAt,
+            source: .authenticatedHandshake,
+            handshakeIdentity: normalizedHandshakeIdentity
         )
         guard trimAndPersist() else {
-            if let previousRecord {
-                recordsByClientID[normalizedClientID] = previousRecord
-            } else {
-                recordsByClientID[normalizedClientID] = nil
-            }
-            if let previousLegacyRecord {
-                recordsByClientID[Self.legacyClientID] = previousLegacyRecord
-            }
+            recordsByClientID = previousRecords
             return false
         }
         return true
@@ -94,40 +161,31 @@ final class MobilePairedPhoneStore {
 
     /// Resolves the iOS bundle for push and backup requests.
     ///
-    /// A record for the current authenticated account wins over the migrated
-    /// picker value. When no handshake record exists, the old value is retained
-    /// as a one-time compatibility fallback; otherwise the Mac's lane-derived
-    /// bundle preserves the pre-migration default behavior. If more than one
-    /// install has paired, the newest completed handshake is authoritative for
-    /// the Mac's single push and backup target.
+    /// Only an authenticated record for the current account is eligible. If no
+    /// phone has completed the post-handshake identity exchange, return `nil` so
+    /// push and backup callers fail closed instead of guessing from a picker
+    /// default or the Mac's build lane.
     func targetBundleIdentifier(accountID: String?) -> String? {
-        // Migrate lazily as well as at initialization. This covers a host that
-        // starts before an older settings domain is loaded, and keeps migration
-        // deterministic for an already-live singleton.
-        migrateLegacyPickerSelection()
-        let normalizedAccountID = Self.normalized(accountID)
+        guard let normalizedAccountID = Self.normalized(accountID) else {
+            return nil
+        }
         let candidates = recordsByClientID.values.filter { record in
-            guard isBundleAllowedForMacLane(record.bundleIdentifier) else { return false }
-            guard let recordAccountID = record.accountID else { return true }
-            guard let normalizedAccountID else { return false }
-            return recordAccountID == normalizedAccountID
+            record.source == .authenticatedHandshake
+                && isBundleAllowedForMacLane(record.bundleIdentifier)
+                && record.handshakeIdentity != nil
+                && record.accountID == normalizedAccountID
         }
         if let latest = candidates.max(by: Self.recordsSortBefore) {
             return latest.bundleIdentifier
         }
-        return fallbackBundleIdentifier
-    }
-
-    /// Returns a stable snapshot for diagnostics and behavior tests.
-    var records: [MobilePairedPhoneRecord] {
-        recordsByClientID.values.sorted(by: Self.recordsSortBefore)
+        return nil
     }
 
     private var fallbackBundleIdentifier: String? {
         let normalizedTag = macInstanceTag
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
-        if normalizedTag.isEmpty || normalizedTag == "default" || normalizedTag == "nightly" {
+        if normalizedTag.isEmpty || normalizedTag == "default" {
             return "com.cmux.app"
         }
         return MobileIOSAppNamespace(
@@ -139,20 +197,31 @@ final class MobilePairedPhoneStore {
         let normalizedTag = macInstanceTag
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
-        return normalizedTag.isEmpty || normalizedTag == "default" || normalizedTag == "nightly"
+        return normalizedTag.isEmpty || normalizedTag == "default"
     }
 
     private func isBundleAllowedForMacLane(_ bundleIdentifier: String) -> Bool {
         if isOfficialMacLane {
-            return [
-                "com.cmux.app",
-                "dev.cmux.app.beta",
-                "dev.cmux.app.internal",
-                "dev.cmux.app.demo",
-            ].contains(bundleIdentifier)
+            return Self.officialIOSBundleIdentifiers.contains(bundleIdentifier)
+        }
+        let normalizedTag = macInstanceTag
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if normalizedTag == "nightly" {
+            // Nightly remains a distinct Mac namespace, but its QR is still
+            // usable by the four official iOS variants.
+            return Self.officialIOSBundleIdentifiers.contains(bundleIdentifier)
+                || bundleIdentifier == fallbackBundleIdentifier
         }
         return bundleIdentifier == fallbackBundleIdentifier
     }
+
+    private static let officialIOSBundleIdentifiers: Set<String> = [
+        "com.cmux.app",
+        "dev.cmux.app.beta",
+        "dev.cmux.app.internal",
+        "dev.cmux.app.demo",
+    ]
 }
 
 private extension MobilePairedPhoneStore {
@@ -174,7 +243,9 @@ private extension MobilePairedPhoneStore {
                 clientID: clientID,
                 bundleIdentifier: record.bundleIdentifier,
                 accountID: normalized(record.accountID),
-                pairedAt: record.pairedAt
+                pairedAt: record.pairedAt,
+                source: record.source,
+                handshakeIdentity: normalized(record.handshakeIdentity)
             )
         }
     }
@@ -183,17 +254,24 @@ private extension MobilePairedPhoneStore {
         guard let rawLegacyValue = defaults.string(forKey: Self.legacyDefaultsKey) else {
             return
         }
+        let previousRecords = recordsByClientID
         if let bundleIdentifier = Self.validBundleIdentifier(rawLegacyValue),
            isBundleAllowedForMacLane(bundleIdentifier) {
             recordsByClientID[Self.legacyClientID] = MobilePairedPhoneRecord(
                 clientID: Self.legacyClientID,
                 bundleIdentifier: bundleIdentifier,
                 accountID: nil,
-                pairedAt: .distantPast
+                pairedAt: .distantPast,
+                source: .legacyPickerMigration
             )
-            guard trimAndPersist() else { return }
+            guard trimAndPersist() else {
+                recordsByClientID = previousRecords
+                return
+            }
         }
-        // Even an invalid stale value should not remain a hidden routing input.
+        // The legacy selection is consumed exactly once. It is retained in the
+        // persisted records only as a migration marker; runtime target lookup
+        // ignores that source until a new authenticated handshake arrives.
         defaults.removeObject(forKey: Self.legacyDefaultsKey)
     }
 
@@ -202,10 +280,10 @@ private extension MobilePairedPhoneStore {
         let retained = recordsByClientID.values
             .sorted(by: Self.recordsSortBefore)
             .suffix(Self.maximumRecordCount)
+        guard let data = try? JSONEncoder().encode(Array(retained)) else { return false }
         recordsByClientID = Dictionary(
             uniqueKeysWithValues: retained.map { ($0.clientID, $0) }
         )
-        guard let data = try? JSONEncoder().encode(Array(retained)) else { return false }
         defaults.set(data, forKey: Self.defaultsKey)
         return true
     }

@@ -16,7 +16,8 @@ import Testing
             port: 59_123
         )
         let runtime = TestMobileSyncRuntime(
-            transportFactory: FixedTransportFactory(transport: transport)
+            transportFactory: FixedTransportFactory(transport: transport),
+            stackAccessTokenForStatus: "test-stack-token"
         )
         let ticket = try CmxAttachTicket(
             workspaceID: "workspace-main",
@@ -43,6 +44,49 @@ import Testing
         let request = try #require(await transport.recordedRequests().first)
         #expect(request.clientID == "phone-install-1")
         #expect(request.iosBundleIdentifier == "dev.cmux.app.demo")
+        await client.disconnect()
+    }
+
+    @Test func hostStatusOmitsPairingIdentityOnTokenlessManualRoute() async throws {
+        let transport = QueuedCancellationProbeTransport()
+        let route = try hostPortRoute(
+            kind: .tailscale,
+            host: "192.168.1.20",
+            port: 58_465
+        )
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
+            stackAccessToken: nil,
+            stackAccessTokenForStatus: nil
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: try qrPairingTicket(route: route),
+            clientID: "phone-install-1",
+            clientBundleIdentifier: "dev.cmux.app.demo",
+            allowsStackAuthFallback: true
+        )
+
+        let task = Task {
+            try await client.sendRequest(
+                MobileCoreRPCClient.requestData(
+                    method: "mobile.host.status",
+                    params: [
+                        "client_id": "spoofed",
+                        "ios_bundle_identifier": "com.cmux.app",
+                    ]
+                )
+            )
+        }
+        _ = try await transport.waitForSentRequestCount(1)
+        task.cancel()
+        _ = try? await task.value
+
+        let request = try #require(await transport.sentRequests().first)
+        #expect(request.clientID == nil)
+        #expect(request.iosBundleIdentifier == nil)
+        #expect(request.hasAuth == false)
         await client.disconnect()
     }
 

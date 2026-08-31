@@ -44,18 +44,34 @@ struct MobileHostIdentityTests {
             macInstanceTag: "default"
         )
 
-        #expect(store.targetBundleIdentifier(accountID: "account-a") == "dev.cmux.app.demo")
+        // Migration is recorded for audit/cleanup, but it is not an
+        // authenticated pairing and therefore cannot drive runtime routing.
+        #expect(store.targetBundleIdentifier(accountID: "account-a") == nil)
         #expect(defaults.string(forKey: MobilePairedPhoneStore.legacyDefaultsKey) == nil)
-        #expect(defaults.data(forKey: MobilePairedPhoneStore.defaultsKey) != nil)
+        let migrated = try #require(defaults.data(forKey: MobilePairedPhoneStore.defaultsKey))
+        let migratedRecords = try JSONDecoder().decode(
+            [MobilePairedPhoneRecord].self,
+            from: migrated
+        )
+        #expect(migratedRecords.contains {
+            $0.source == .legacyPickerMigration
+                && $0.bundleIdentifier == "dev.cmux.app.demo"
+        })
 
         store.record(
             clientID: "phone-a",
             bundleIdentifier: "dev.cmux.app.internal",
             accountID: "account-a",
+            handshakeIdentity: "stack:account-a",
             pairedAt: Date(timeIntervalSince1970: 100)
         )
         #expect(store.targetBundleIdentifier(accountID: "account-a") == "dev.cmux.app.internal")
-        #expect(store.records.allSatisfy { $0.clientID != "legacy-picker-selection" })
+        let paired = try #require(defaults.data(forKey: MobilePairedPhoneStore.defaultsKey))
+        let pairedRecords = try JSONDecoder().decode(
+            [MobilePairedPhoneRecord].self,
+            from: paired
+        )
+        #expect(pairedRecords.allSatisfy { $0.source == .authenticatedHandshake })
     }
 
     @Test func pairedPhoneBundleDrivesPushEnvelopeTarget() throws {
@@ -70,6 +86,7 @@ struct MobileHostIdentityTests {
             clientID: "phone-a",
             bundleIdentifier: "dev.cmux.app.demo",
             accountID: "account-a",
+            handshakeIdentity: "stack:account-a",
             pairedAt: Date(timeIntervalSince1970: 200)
         )
         let target = try #require(store.targetBundleIdentifier(accountID: "account-a"))
@@ -96,18 +113,107 @@ struct MobileHostIdentityTests {
         #expect(payload.targetBundleIdentifier == "dev.cmux.app.demo")
     }
 
-    @Test func officialNightlyFallsBackToCanonicalReleaseBundle() throws {
+    @Test func noHandshakeFailsClosedForEveryMacLane() throws {
+        let lanes: [(String, String)] = [
+            ("default", "com.cmux.app"),
+            ("nightly", "dev.cmux.ios.nightly"),
+            ("rc", "dev.cmux.ios.rc"),
+            ("staging", "dev.cmux.ios.staging"),
+        ]
+        for (tag, _) in lanes {
+            let suiteName = "mobile-ios-target-\(UUID().uuidString)"
+            let defaults = try #require(UserDefaults(suiteName: suiteName))
+            defer { defaults.removePersistentDomain(forName: suiteName) }
+            let store = MobilePairedPhoneStore(
+                defaults: defaults,
+                macInstanceTag: tag
+            )
+            #expect(store.targetBundleIdentifier(accountID: "account-a") == nil)
+        }
+    }
+
+    @Test func nightlyAndTaggedLanesKeepTheirDistinctBundleValidation() throws {
+        let lanes: [(String, String)] = [
+            ("nightly", "dev.cmux.ios.nightly"),
+            ("rc", "dev.cmux.ios.rc"),
+            ("staging", "dev.cmux.ios.staging"),
+        ]
+        for (tag, bundleIdentifier) in lanes {
+            let suiteName = "mobile-ios-target-\(UUID().uuidString)"
+            let defaults = try #require(UserDefaults(suiteName: suiteName))
+            defer { defaults.removePersistentDomain(forName: suiteName) }
+            let store = MobilePairedPhoneStore(
+                defaults: defaults,
+                macInstanceTag: tag
+            )
+            #expect(store.record(
+                clientID: "phone-\(tag)",
+                bundleIdentifier: bundleIdentifier,
+                accountID: "account-a",
+                handshakeIdentity: "stack:account-a",
+                pairedAt: Date(timeIntervalSince1970: 100)
+            ))
+            #expect(store.targetBundleIdentifier(accountID: "account-a") == bundleIdentifier)
+        }
+    }
+
+    @Test func repeatedPairingRefreshesRecencyAndTarget() throws {
         let suiteName = "mobile-ios-target-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let store = MobilePairedPhoneStore(
             defaults: defaults,
-            macInstanceTag: "nightly"
+            macInstanceTag: "default"
         )
-        #expect(store.targetBundleIdentifier(accountID: "account-a") == "com.cmux.app")
+        #expect(store.record(
+            clientID: "phone-a",
+            bundleIdentifier: "dev.cmux.app.demo",
+            accountID: "account-a",
+            handshakeIdentity: "stack:account-a",
+            pairedAt: Date(timeIntervalSince1970: 100)
+        ))
+        #expect(store.record(
+            clientID: "phone-b",
+            bundleIdentifier: "dev.cmux.app.internal",
+            accountID: "account-a",
+            handshakeIdentity: "stack:account-a",
+            pairedAt: Date(timeIntervalSince1970: 200)
+        ))
+        #expect(store.targetBundleIdentifier(accountID: "account-a") == "dev.cmux.app.internal")
+        #expect(store.record(
+            clientID: "phone-a",
+            bundleIdentifier: "dev.cmux.app.demo",
+            accountID: "account-a",
+            handshakeIdentity: "stack:account-a",
+            pairedAt: Date(timeIntervalSince1970: 300)
+        ))
+        #expect(store.targetBundleIdentifier(accountID: "account-a") == "dev.cmux.app.demo")
     }
 
-    @Test func taggedDevFallsBackToItsExactIOSBundle() throws {
+    @Test func oneAuthenticatedHandshakeCannotChangeItsRecordedBundle() throws {
+        let suiteName = "mobile-ios-target-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = MobilePairedPhoneStore(defaults: defaults, macInstanceTag: "default")
+
+        #expect(store.record(
+            clientID: "phone-a",
+            bundleIdentifier: "dev.cmux.app.demo",
+            accountID: "account-a",
+            handshakeIdentity: "stack:account-a",
+            pairedAt: Date(timeIntervalSince1970: 100)
+        ))
+        #expect(!store.record(
+            clientID: "phone-a",
+            bundleIdentifier: "dev.cmux.app.internal",
+            accountID: "account-a",
+            handshakeIdentity: "stack:account-a",
+            pairedAt: Date(timeIntervalSince1970: 200)
+        ))
+        #expect(store.targetBundleIdentifier(accountID: "account-a") == "dev.cmux.app.demo")
+    }
+
+    @Test func taggedDevAcceptsOnlyItsExactIOSBundle() throws {
         let suiteName = "mobile-ios-target-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -115,6 +221,18 @@ struct MobileHostIdentityTests {
             defaults: defaults,
             macInstanceTag: "feature-a"
         )
+        #expect(store.record(
+            clientID: "phone-a",
+            bundleIdentifier: "dev.cmux.ios.feature-a",
+            accountID: "account-a",
+            handshakeIdentity: "iroh:feature-a"
+        ))
+        #expect(!store.record(
+            clientID: "phone-b",
+            bundleIdentifier: "dev.cmux.app.demo",
+            accountID: "account-a",
+            handshakeIdentity: "iroh:feature-a"
+        ))
         #expect(store.targetBundleIdentifier(accountID: "account-a") == "dev.cmux.ios.feature-a")
     }
 
