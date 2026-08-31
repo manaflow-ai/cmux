@@ -12,7 +12,7 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `fb90d3515`, reachable from fork
+The submodule pinned by this branch is `3f33233aa`, reachable from fork
 branch `fix-word-selection-drag` until that branch is merged to `main`.
 It carries the renderer/API compatibility pin plus the Fish SSH feature-gating
 fix (`fd13a3fc2`): the embedded Ghostty CLI wrapper is installed whenever
@@ -28,6 +28,7 @@ resolution.
 - Commits:
   - `aa2fb7d9e` (test: anchor repeated selection at second click)
   - `fb90d3515` (fix: anchor repeated word selection at latest click)
+  - `3f33233aa` (docs: describe repeated selection anchor)
 - File:
   - `src/terminal/SelectionGesture.zig`
 - Summary:
@@ -43,9 +44,9 @@ resolution.
     regresses the visible selection and the next repeat's distance check.
 
 The corresponding universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-fb90d351590d21f5443dabd2f003e8a6b8f2c802-crashsubdir-cmux-crash-sentry-off-v1
-with SHA-256 `fda416bf7b207ecc9f6afe8b0d453b42af54d0a0d0bb81aa44c413e2084f191a`
-pinned in `scripts/ghosttykit-checksums.txt`.
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-3f33233aa5a44d675234f7c54fa3f16d84baf661-crashsubdir-cmux-crash-sentry-off-v1
+after the fork build completes. Its SHA-256 is pinned in
+`scripts/ghosttykit-checksums.txt` before merging.
 
 ### iOS tokened render disposition and nonblocking prompt reveal
 
