@@ -3,6 +3,7 @@ on:
   issue_comment:
     types: [created]
   pull_request_target:
+    branches: [main]
     types: [opened,closed,reopened,synchronize]
 
 # Jobs declare only the permissions they need.
@@ -35,8 +36,6 @@ jobs:
       queue: max
       cancel-in-progress: false
     permissions:
-      # The action inspects prior runs; its optional rerun request is best-effort.
-      actions: read
       contents: write
       issues: write
       # GitHub's pull_request_target token denied issue comments for fork PRs
@@ -44,6 +43,12 @@ jobs:
       # issues:write. Keep write until that live behavior changes.
       pull-requests: write
     steps:
+      # Immutable generation marker. The rerun job accepts only failed CLA
+      # jobs that completed this marker, so a stale run from an older workflow
+      # revision cannot execute after the policy changes below.
+      - name: "CLA generation v2"
+        run: echo "CLA generation v2"
+
       - name: "Check CLA commit limit"
         id: cla-preflight
         # The archived action reads only its first 100 commits. Fail closed
@@ -88,6 +93,336 @@ jobs:
           # follow this same fail-closed path until an authenticated signer is
           # available.
           custom-pr-sign-comment: 'I have read the CLA Document and I hereby sign the CLA'
+
+  RerunFailedCLA:
+    name: "Rerun failed CLA check"
+    needs: CLAAssistant
+    # Keep the workflow-rerun token out of the signature-writing job. The
+    # archived action still attempts its own best-effort rerun, but it has no
+    # actions permission and cannot rerun anything. This job runs only after
+    # the exact, accepted issue-comment path above succeeds.
+    if: >-
+      needs.CLAAssistant.result == 'success' &&
+      github.event_name == 'issue_comment' &&
+      github.event.issue.state == 'open' &&
+      github.event.issue.pull_request &&
+      (
+        github.event.comment.body == 'recheck' ||
+        github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA'
+      )
+    runs-on: ubuntu-latest
+    # A contributor can submit more than one valid comment while the signing
+    # job is running. Serialize reruns per PR so two comments cannot race the
+    # same workflow run. The script rechecks the run state before POSTing.
+    concurrency:
+      group: cla-rerun-${{ github.event.issue.number }}
+      cancel-in-progress: false
+    permissions:
+      # This job has no checkout and executes only the fixed script below.
+      # actions:write is required by the rerun endpoint; pull-requests:read is
+      # required to validate the live PR and its relationship to the run.
+      actions: write
+      pull-requests: read
+    steps:
+      - name: "Rerun exact failed pull_request_target run"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          COMMENT_CREATED_AT: ${{ github.event.comment.created_at }}
+          WORKFLOW_PATH: '.github/workflows/cla.yml'
+          TARGET_EVENT: 'pull_request_target'
+          TARGET_BASE_REF: 'main'
+        run: |
+          set -euo pipefail
+
+          fail() {
+            echo "::error::$1"
+            exit 1
+          }
+
+          # The job-level expression is the first gate. Repeat it here so a
+          # future edit to that expression cannot turn this token into a
+          # general-purpose workflow rerunner.
+          [[ "${EVENT_NAME}" == "issue_comment" ]] || fail "Unexpected event for CLA rerun"
+          [[ "${ISSUE_NUMBER}" =~ ^[1-9][0-9]*$ ]] || fail "Invalid issue number"
+          [[ "${PR_NUMBER}" == "${ISSUE_NUMBER}" ]] || fail "Issue and pull request numbers differ"
+          [[ "${COMMENT_BODY}" == "recheck" || "${COMMENT_BODY}" == "I have read the CLA Document and I hereby sign the CLA" ]] || fail "Comment is not an accepted CLA trigger"
+          [[ "${COMMENT_CREATED_AT}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || fail "Invalid comment timestamp"
+
+          issue_json="$(gh api "repos/${GH_REPO}/issues/${PR_NUMBER}" 2>/dev/null)" || fail "Could not query the issue"
+          issue_state="$(jq -r '.state // empty' <<<"${issue_json}")"
+          issue_pr_url="$(jq -r '.pull_request.url // empty' <<<"${issue_json}")"
+          [[ "${issue_state}" == "open" ]] || fail "The issue is not an open pull request"
+          [[ "${issue_pr_url}" == "https://api.github.com/repos/${GH_REPO}/pulls/${PR_NUMBER}" ]] || fail "The issue is not the exact repository pull request"
+
+          pr_json="$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}" 2>/dev/null)" || fail "Could not query the pull request"
+          jq -e --arg repo "${GH_REPO}" --argjson number "${PR_NUMBER}" --arg base "${TARGET_BASE_REF}" '
+            .number == $number and
+            .state == "open" and
+            .base.ref == $base and
+            (.base.repo.id | type == "number") and
+            .base.repo.full_name == $repo and
+            (.head.sha | type == "string") and
+            (.head.sha | test("^[0-9a-f]{40}$"))
+          ' <<<"${pr_json}" >/dev/null || fail "The live pull request is not valid"
+          head_sha="$(jq -r '.head.sha' <<<"${pr_json}")"
+          head_ref="$(jq -r '.head.ref // empty' <<<"${pr_json}")"
+          head_repo="$(jq -r '.head.repo.full_name // empty' <<<"${pr_json}")"
+          repo_id="$(jq -r '.base.repo.id // empty' <<<"${pr_json}")"
+          [[ "${head_ref}" != "" && "${head_repo}" != "" ]] || fail "The pull request head repository is missing"
+          [[ "${repo_id}" =~ ^[1-9][0-9]*$ ]] || fail "The pull request base repository ID is missing"
+
+          # The workflow-run list can omit pull_requests for
+          # pull_request_target runs. Resolve the commit through GitHub's PR
+          # association endpoint so an empty run association never becomes a
+          # reason to trust an unrelated run.
+          commit_prs_json="$(gh api \
+            --header 'Accept: application/vnd.github+json' \
+            "repos/${GH_REPO}/commits/${head_sha}/pulls" 2>/dev/null)" || fail "Could not query pull request associations"
+          jq -e \
+            --arg repo "${GH_REPO}" \
+            --arg pr "${PR_NUMBER}" \
+            --arg sha "${head_sha}" \
+            --arg base "${TARGET_BASE_REF}" '
+              any(.[]?;
+                (.number | tostring) == $pr and
+                .base.ref == $base and
+                .base.repo.full_name == $repo and
+                .head.sha == $sha
+              )
+            ' <<<"${commit_prs_json}" >/dev/null || fail "The current head is not associated with this pull request"
+
+          workflow_json="$(gh api --paginate --slurp "repos/${GH_REPO}/actions/workflows?per_page=100" 2>/dev/null)" || fail "Could not query repository workflows"
+          workflow_id="$(jq -r --arg path "${WORKFLOW_PATH}" '[.[] | .workflows[]? | select(.path == $path and .state == "active") | .id] | if length == 1 then .[0] else empty end' <<<"${workflow_json}")"
+          [[ "${workflow_id}" =~ ^[1-9][0-9]*$ ]] || fail "The expected CLA workflow is not active"
+
+          # Search all pages, then choose the newest completed failure created
+          # no later than this comment. Every candidate is tied to the exact
+          # workflow path, event, current PR head, and PR association.
+          runs_json="$(gh api --paginate --slurp "repos/${GH_REPO}/actions/workflows/${workflow_id}/runs?event=${TARGET_EVENT}&head_sha=${head_sha}&per_page=100" 2>/dev/null)" || fail "Could not query CLA workflow runs"
+          if ! candidate_list_json="$(jq -c \
+              --arg path "${WORKFLOW_PATH}" \
+              --arg event "${TARGET_EVENT}" \
+              --arg sha "${head_sha}" \
+              --arg pr "${PR_NUMBER}" \
+              --arg repo "${GH_REPO}" \
+              --argjson repo_id "${repo_id}" \
+              --arg base "${TARGET_BASE_REF}" \
+              --arg head_ref "${head_ref}" \
+              --arg before "${COMMENT_CREATED_AT}" '
+                [ .[] | .workflow_runs[]?
+                  | select(
+                      .path == $path and
+                      .event == $event and
+                      .head_sha == $sha and
+                      .head_branch == $head_ref and
+                      .status == "completed" and
+                      .conclusion == "failure" and
+                      (.created_at | type == "string") and
+                      .created_at <= $before and
+                      (
+                        ((.pull_requests // []) | length) == 0 or
+                        any((.pull_requests // [])[];
+                          (.number | tostring) == $pr and
+                          .base.ref == $base and
+                          .base.repo.id == $repo_id and
+                          .head.sha == $sha
+                        )
+                      )
+                    )
+                ]
+                | sort_by([.created_at, .id])
+              ' <<<"${runs_json}")"; then
+            fail "Could not validate CLA workflow run data"
+          fi
+          candidate_count="$(jq -r 'length' <<<"${candidate_list_json}")"
+          [[ "${candidate_count}" =~ ^[0-9]+$ ]] || fail "Could not count matching CLA workflow runs"
+          if [[ "${candidate_count}" == "0" ]]; then
+            # A valid signature can arrive after the check already passed.
+            # Preserve the action's historical no-op behavior in that case.
+            echo "No failed CLA run exists for this pull request head"
+            exit 0
+          fi
+          [[ "${candidate_count}" == "1" ]] || fail "Multiple failed CLA runs match this pull request head"
+          candidate_json="$(jq -c '.[0]' <<<"${candidate_list_json}")"
+          run_id="$(jq -r '.id // empty' <<<"${candidate_json}")"
+          [[ "${run_id}" =~ ^[1-9][0-9]*$ ]] || fail "The selected CLA run ID is invalid"
+
+          # Re-read the individual run. The list response is only a discovery
+          # result, not authorization to rerun it.
+          run_json="$(gh api "repos/${GH_REPO}/actions/runs/${run_id}" 2>/dev/null)" || fail "Could not query the selected CLA run"
+          jq -e \
+            --arg run_id "${run_id}" \
+            --arg path "${WORKFLOW_PATH}" \
+            --arg event "${TARGET_EVENT}" \
+            --arg sha "${head_sha}" \
+            --arg pr "${PR_NUMBER}" \
+            --arg repo "${GH_REPO}" \
+            --argjson repo_id "${repo_id}" \
+            --arg head_ref "${head_ref}" \
+            --arg workflow_id "${workflow_id}" \
+            --arg base "${TARGET_BASE_REF}" \
+            --arg before "${COMMENT_CREATED_AT}" '
+              .id == ($run_id | tonumber) and
+              .workflow_id == ($workflow_id | tonumber) and
+              .path == $path and
+              .event == $event and
+              .status == "completed" and
+              .conclusion == "failure" and
+              .head_sha == $sha and
+              .head_branch == $head_ref and
+              (.created_at | type == "string") and
+              .created_at <= $before and
+              (
+                ((.pull_requests // []) | length) == 0 or
+                any((.pull_requests // [])[];
+                  (.number | tostring) == $pr and
+                  .base.ref == $base and
+                  .base.repo.id == $repo_id and
+                  .head.sha == $sha
+                )
+              )
+            ' <<<"${run_json}" >/dev/null || fail "The selected run no longer matches the exact failed CLA check"
+
+          # Close the main TOCTOU window. A push, close, or another rerun can
+          # happen while the API calls above run. Never rerun a stale head.
+          latest_pr_json="$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}" 2>/dev/null)" || fail "Could not recheck the pull request"
+          jq -e --arg repo "${GH_REPO}" --argjson number "${PR_NUMBER}" --arg sha "${head_sha}" --arg base "${TARGET_BASE_REF}" '
+            .number == $number and
+            .state == "open" and
+            .base.ref == $base and
+            .base.repo.full_name == $repo and
+            .head.sha == $sha
+          ' <<<"${latest_pr_json}" >/dev/null || fail "The pull request changed while selecting the CLA run"
+
+          # Ensure another queued invocation did not already rerun this run.
+          final_run_json="$(gh api "repos/${GH_REPO}/actions/runs/${run_id}" 2>/dev/null)" || fail "Could not recheck the selected CLA run"
+          jq -e \
+            --arg path "${WORKFLOW_PATH}" \
+            --arg event "${TARGET_EVENT}" \
+            --arg sha "${head_sha}" \
+            --arg pr "${PR_NUMBER}" \
+            --arg repo "${GH_REPO}" \
+            --argjson repo_id "${repo_id}" \
+            --arg head_ref "${head_ref}" \
+            --arg workflow_id "${workflow_id}" \
+            --arg run_id "${run_id}" \
+            --arg base "${TARGET_BASE_REF}" \
+            --arg before "${COMMENT_CREATED_AT}" '
+              .id == ($run_id | tonumber) and
+              .workflow_id == ($workflow_id | tonumber) and
+              .path == $path and
+              .event == $event and
+              .status == "completed" and
+              .conclusion == "failure" and
+              .head_sha == $sha and
+              .head_branch == $head_ref and
+              (.created_at | type == "string") and
+              .created_at <= $before and
+              (
+                ((.pull_requests // []) | length) == 0 or
+                any((.pull_requests // [])[];
+                  (.number | tostring) == $pr and
+                  .base.ref == $base and
+                  .base.repo.id == $repo_id and
+                  .head.sha == $sha
+                )
+              )
+          ' <<<"${final_run_json}" >/dev/null || fail "The exact failed CLA run is no longer eligible"
+
+          # Rerun only the failed CLA job, rather than every job in the run.
+          # The job endpoint still requires actions:write, but it cannot
+          # accidentally restart an unrelated job added to this workflow.
+          jobs_json="$(gh api --paginate --slurp "repos/${GH_REPO}/actions/runs/${run_id}/jobs?per_page=100" 2>/dev/null)" || fail "Could not query jobs for the selected CLA run"
+          if ! cla_job_json="$(jq -c \
+              --arg run_id "${run_id}" \
+              --arg sha "${head_sha}" \
+              '[.[] | .jobs[]?
+                | select(
+                    (.run_id | tostring) == $run_id and
+                    .name == "CLA Assistant" and
+                    .workflow_name == "CLA Assistant" and
+                    .status == "completed" and
+                    .conclusion == "failure" and
+                    .head_sha == $sha and
+                    any(.steps[]?;
+                      .name == "CLA generation v2" and
+                      .status == "completed" and
+                      .conclusion == "success"
+                    )
+                  )
+              ]
+              | if length == 1 then .[0] else empty end
+            ' <<<"${jobs_json}")"; then
+            fail "Could not validate CLA job data"
+          fi
+          [[ -n "${cla_job_json}" ]] || fail "The selected run does not have exactly one failed CLA job"
+          job_id="$(jq -r '.id // empty' <<<"${cla_job_json}")"
+          [[ "${job_id}" =~ ^[1-9][0-9]*$ ]] || fail "The selected CLA job ID is invalid"
+
+          # Re-read the individual job. The jobs list is discovery only, just
+          # like the workflow-run list above.
+          job_json="$(gh api "repos/${GH_REPO}/actions/jobs/${job_id}" 2>/dev/null)" || fail "Could not query the selected CLA job"
+          jq -e \
+            --arg job_id "${job_id}" \
+            --arg run_id "${run_id}" \
+            --arg sha "${head_sha}" '
+              .id == ($job_id | tonumber) and
+              .run_id == ($run_id | tonumber) and
+              .name == "CLA Assistant" and
+              .workflow_name == "CLA Assistant" and
+              .status == "completed" and
+              .conclusion == "failure" and
+              .head_sha == $sha and
+              any(.steps[]?;
+                .name == "CLA generation v2" and
+                .status == "completed" and
+                .conclusion == "success"
+              )
+            ' <<<"${job_json}" >/dev/null || fail "The selected CLA job no longer matches the failed job in this run"
+
+          # Recheck both resources immediately before the state-changing call.
+          # This prevents a push or a concurrent rerun from making the job
+          # stale while the preceding API requests were in flight.
+          latest_pr_json="$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}" 2>/dev/null)" || fail "Could not recheck the pull request before rerun"
+          jq -e --arg repo "${GH_REPO}" --argjson number "${PR_NUMBER}" --arg sha "${head_sha}" --arg base "${TARGET_BASE_REF}" '
+            .number == $number and
+            .state == "open" and
+            .base.ref == $base and
+            .base.repo.full_name == $repo and
+            .head.sha == $sha
+          ' <<<"${latest_pr_json}" >/dev/null || fail "The pull request changed while selecting the CLA job"
+          final_job_json="$(gh api "repos/${GH_REPO}/actions/jobs/${job_id}" 2>/dev/null)" || fail "Could not recheck the selected CLA job"
+          jq -e \
+            --arg job_id "${job_id}" \
+            --arg run_id "${run_id}" \
+            --arg sha "${head_sha}" '
+              .id == ($job_id | tonumber) and
+              .run_id == ($run_id | tonumber) and
+              .name == "CLA Assistant" and
+              .workflow_name == "CLA Assistant" and
+              .status == "completed" and
+              .conclusion == "failure" and
+              .head_sha == $sha and
+              any(.steps[]?;
+                .name == "CLA generation v2" and
+                .status == "completed" and
+                .conclusion == "success"
+              )
+            ' <<<"${final_job_json}" >/dev/null || fail "The exact failed CLA job is no longer eligible"
+
+          if ! gh api \
+            --method POST \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "repos/${GH_REPO}/actions/jobs/${job_id}/rerun" >/dev/null 2>&1; then
+            fail "Could not rerun the exact failed CLA job"
+          fi
+          echo "Requested rerun for CLA job ${job_id} in workflow run ${run_id} at head ${head_sha}"
 
   LockMergedPullRequest:
     name: "Lock merged pull request"
