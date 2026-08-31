@@ -286,6 +286,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         let outputConsumerRecoveryClock: any Clock<Duration>
         private var composerMounted = false
         private var activeViewportPolicy: MobileTerminalOutputViewportPolicy = .natural
+        /// Shared by the legacy and verified apply paths: an alternating
+        /// config-theme producer mismatches on both, and the storm is per
+        /// consumer, not per path.
+        private var configThemeMismatchResetPolicy = TerminalConfigThemeMismatchResetPolicy()
         private let verifiedReplayState = VerifiedTerminalReplayStateMachine()
         private var pendingReplayViewportAnchor: VerifiedReplayCapturedViewportAnchor?
         /// Serializes the natural-grid viewport reports and their echoes. One
@@ -374,6 +378,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 outputConsumerRestartBlocked = false
                 outputConsumerRestartAttempts = 0
                 outputConsumerRecoveryAlertPending = false
+                // A new consumer generation gets a fresh mismatch budget;
+                // automatic stream restarts keep the shared one so a single
+                // storm stays bounded across restarts.
+                configThemeMismatchResetPolicy = TerminalConfigThemeMismatchResetPolicy()
             }
             guard !outputConsumerRestartBlocked else { return }
             guard let store else { return }
@@ -629,8 +637,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     case nil:
                         break
                     }
-                    if let chunkConfigTheme = chunk.terminalConfigTheme,
-                       chunkConfigTheme != store.terminalConfigTheme(for: surfaceID) {
+                    if self.shouldResetForConfigThemeMismatch(chunk, store: store) {
                         store.terminalOutputDidReset(
                             surfaceID: surfaceID,
                             streamToken: chunk.streamToken
@@ -638,9 +645,22 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         continue
                     }
                     if !chunk.data.isEmpty || chunk.terminalConfigTheme != nil {
+                        // Render-grid bytes paint absolute rows of the frame's
+                        // grid; the contract makes the surface refuse to paint
+                        // them onto a mismatched or freshly reflowed local grid
+                        // (the apply fails and the reset path replays).
+                        let renderGridContract = chunk.sourceRenderGridFrame.map {
+                            RenderGridApplyContract(
+                                columns: $0.columns,
+                                rows: $0.rows,
+                                isDelta: !$0.full
+                            )
+                        }
                         let applied = await surfaceView.processOutputAndWait(
                             chunk.data,
-                            terminalConfigTheme: chunk.terminalConfigTheme
+                            terminalConfigTheme: chunk.terminalConfigTheme,
+                            renderGridContract: renderGridContract,
+                            pushesLocalScrollbackRows: chunk.sourceRenderGridFrame?.scrolledRows ?? 0
                         )
                         guard applied else {
                             store.terminalOutputDidReset(
@@ -991,14 +1011,38 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             }
         }
 
+        /// Whether a theme-carrying chunk must be abandoned (reset plus
+        /// authoritative replay) because its config theme no longer matches
+        /// the store's newest for this surface. Bounded by
+        /// ``TerminalConfigThemeMismatchResetPolicy``: past the budget the
+        /// chunk applies with its own carried config theme, which
+        /// `processOutputAndWait(_:terminalConfigTheme:)` installs atomically
+        /// with the bytes, so an alternating theme pair cannot ping-pong
+        /// resets and replays forever.
+        private func shouldResetForConfigThemeMismatch(
+            _ chunk: MobileTerminalOutputChunk,
+            store: CMUXMobileShellStore
+        ) -> Bool {
+            guard let chunkConfigTheme = chunk.terminalConfigTheme else { return false }
+            let matchesStoreTheme = chunkConfigTheme == store.terminalConfigTheme(for: surfaceID)
+            let shouldReset = configThemeMismatchResetPolicy.shouldReset(
+                chunkMatchesStoreTheme: matchesStoreTheme
+            )
+            if !shouldReset, !matchesStoreTheme {
+                MobileDebugLog.anchormux(
+                    "terminal.output.theme_mismatch_apply surface=\(surfaceID)"
+                )
+            }
+            return shouldReset
+        }
+
         private func applyVerifiedRenderGrid(
             _ frame: MobileTerminalRenderGridFrame,
             chunk: MobileTerminalOutputChunk,
             surfaceView: GhosttySurfaceView,
             store: CMUXMobileShellStore
         ) async -> Bool {
-            if let chunkConfigTheme = chunk.terminalConfigTheme,
-               chunkConfigTheme != store.terminalConfigTheme(for: surfaceID) {
+            if shouldResetForConfigThemeMismatch(chunk, store: store) {
                 store.terminalOutputDidReset(
                     surfaceID: surfaceID,
                     streamToken: chunk.streamToken
@@ -1087,9 +1131,19 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             }
 
             if !chunk.data.isEmpty || chunk.terminalConfigTheme != nil {
+                // Same grid contract as the legacy path: the verified resize
+                // above targets the frame's grid, and painting must fail
+                // (reset + replay) if the surface could not reach it or a
+                // delta rides a reflowed grid.
                 let applied = await surfaceView.processOutputAndWait(
                     chunk.data,
-                    terminalConfigTheme: chunk.terminalConfigTheme
+                    terminalConfigTheme: chunk.terminalConfigTheme,
+                    renderGridContract: RenderGridApplyContract(
+                        columns: frame.columns,
+                        rows: frame.rows,
+                        isDelta: !frame.full
+                    ),
+                    pushesLocalScrollbackRows: chunk.sourceRenderGridFrame?.scrolledRows ?? 0
                 )
                 guard !Task.isCancelled else { return false }
                 guard applied else {

@@ -197,7 +197,6 @@ struct MobileSettingsView: View {
                         }
                     }
                 }
-                caffeineSettingsSection
                 if hasConnectionSection {
                     Button {
                         showingSetupHelp = true
@@ -789,45 +788,6 @@ struct MobileSettingsView: View {
     /// so they are hidden.
     private var hasConnectionSection: Bool {
         !connectedHostName.isEmpty || store != nil
-    }
-
-    private var caffeineLoadID: String {
-        guard let store else { return "disconnected" }
-        return [
-            store.connectedMacDeviceID ?? "unknown",
-            String(store.supportsCaffeineControl),
-            String(describing: store.connectionState),
-        ].joined(separator: ":")
-    }
-
-    @ViewBuilder
-    private var caffeineSettingsSection: some View {
-        if let store, store.connectionState == .connected {
-            MobileCaffeineSettingsContent(
-                isEnabled: store.caffeineStatus?.enabled,
-                isSupported: store.supportsCaffeineControl,
-                isBusy: store.isCaffeineMutationInFlight,
-                statusLoadFailed: caffeineStatusLoadFailed,
-                onRetryStatus: {
-                    caffeineStatusLoadFailed = false
-                    caffeineStatusRetryID &+= 1
-                },
-                onSet: { enabled in
-                    await store.setCaffeineEnabled(enabled)
-                }
-            )
-            .task(id: "\(caffeineLoadID):\(caffeineStatusRetryID)") {
-                let loadID = caffeineLoadID
-                guard store.supportsCaffeineControl else {
-                    caffeineStatusLoadFailed = false
-                    return
-                }
-                caffeineStatusLoadFailed = false
-                let didLoad = await store.refreshCaffeineStatus()
-                guard !Task.isCancelled, caffeineLoadID == loadID else { return }
-                caffeineStatusLoadFailed = !didLoad
-            }
-        }
     }
 
     /// Drives the team Picker. Reads the EFFECTIVE current team (`resolvedTeamID`,
