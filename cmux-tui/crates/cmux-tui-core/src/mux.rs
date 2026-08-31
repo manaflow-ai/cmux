@@ -10891,6 +10891,7 @@ impl Mux {
         // A fold can be blocked on the registry while the writer owns its
         // mutex. Waiting first leaves the session lease held after shutdown
         // returns when the writer cannot make progress until finalization.
+        self.journal_event_changed.notify_all();
         let roster_deadline = Instant::now() + crate::journal_hooks::SHUTDOWN_WAIT;
         self.wait_for_agent_roster_fold_worker(roster_deadline);
         if let Err(error) = self.persist_agent_roster_snapshot_until(roster_deadline) {
