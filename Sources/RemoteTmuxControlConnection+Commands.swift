@@ -110,151 +110,27 @@ extension RemoteTmuxControlConnection {
         return sendTracked("display-message -p cmux-liveness", completion: completion)
     }
 
-    /// Checks a stalled-but-alive control stream and recovers it.
+    /// Whether the stream is answering, asked once on demand.
     ///
-    /// A transport that reconnects internally never delivers the EOF that drives ssh recovery:
-    /// during a network change its process stays up and the stream simply pauses. That is the
-    /// behavior worth having, but it means a transport that is alive and *not* recovering looks
-    /// exactly like one that is idle. Nothing else in the lifecycle can tell those apart, so
-    /// without this check a wedged et connection stays `.connected` forever and the mirror
-    /// freezes with no error and no retry.
+    /// There is deliberately no periodic version of this and no recovery attached to it. cmux
+    /// used to probe a self-reconnecting transport every 30 seconds and respawn it when a probe
+    /// went unanswered, on the theory that such a transport can be alive but wedged. Measured
+    /// against et on a host that requires a second factor, the cure was far worse: an et client
+    /// riding out a network change is quiet for longer than a tick, so the probe killed the one
+    /// process that could have recovered silently, and its replacement had to bootstrap a new
+    /// session over ssh — which needs an interactive second factor nobody is there to give at
+    /// 03:00. The mirror came back dead with two orphaned clients behind it.
     ///
-    /// A silent stream alone does not say which of those two it is. A real network interruption
-    /// silences the stream too, and the transport cannot answer a probe while it is reconnecting
-    /// underneath — so treating silence as the verdict kills the process and throws away the
-    /// session it was in the middle of recovering. The unanswered probe is therefore a suspicion,
-    /// and the question that settles it is asked somewhere else: ``sessionReachability`` runs a
-    /// one-shot over ssh's shared master, a channel this stream's wedge cannot affect. A host that
-    /// answers there proves the network is fine and the stream is the broken part, which is the
-    /// case to recover. A host that does not answer is an outage, and an outage is what this
-    /// transport exists to ride out — so stay `.connected` and ask again next tick, bounded by
-    /// ``maxConsecutiveLivenessDeferrals`` so a host that is both unreachable and wedged still
-    /// gets its reconnect.
-    ///
-    /// Only reachable for `reconnectsInternally` transports: ssh gets its EOF and must keep its
-    /// existing behavior exactly, including staying quiet on an idle stream.
-    ///
-    /// - Parameter completion: `true` if the stream answered, the check did not apply, or the
-    ///   verdict was deferred; `false` if the stream was found wedged and recovery was started.
-    ///   A deferral reports `true` because `false` means "recovery has started" — callers act on
-    ///   that edge, and a deferral deliberately starts nothing.
-    func checkLivenessAndRecoverIfStalled(completion: ((Bool) -> Void)? = nil) {
-        guard transportProfile.reconnectsInternally, connectionState == .connected, !exited else {
-            completion?(true)
+    /// et answers this itself: its client exchanges keepalives every few seconds and exits when
+    /// they stop, so a quiet client is idle or reconnecting, never wedged, and its exit already
+    /// reaches ``handleStreamEnd(processGeneration:)`` like any other end of stream. Trusting
+    /// that is both simpler and strictly better informed than guessing from this side.
+    func probeLivenessOnce(completion: @escaping (Bool) -> Void) {
+        guard connectionState == .connected, !exited else {
+            completion(false)
             return
         }
-        let generation = processGeneration
-        // A previous probe left unanswered is the suspected stall. ET can accept stdin while
-        // producing no control output, so a probe can be written and simply never answered —
-        // without this the probes accumulate, every one of them still pending, and the connection
-        // sits `.connected` forever. The deadline is the next tick rather than a second timer:
-        // probe N must be answered before probe N+1 is due, which is a generous bound on a local
-        // round-trip and needs no clock of its own.
-        if livenessProbeOutstanding {
-            record("liveness-unanswered")
-            resolveSuspectedStall(generation: generation, completion: completion)
-            return
-        }
-        livenessProbeOutstanding = true
-        // A probe that cannot even be enqueued means the stream is already unusable.
-        let enqueued = probeLiveness { [weak self] answered in
-            self?.livenessProbeOutstanding = false
-            guard let self else { return }
-            guard generation == self.processGeneration else {
-                // A respawn overtook this probe; its answer says nothing about the live stream.
-                completion?(true)
-                return
-            }
-            if answered {
-                // The stream is carrying the protocol, so any run of deferred ticks is over.
-                self.livenessDeferralCount = 0
-                completion?(true)
-            } else {
-                self.recoverFromStalledTransport()
-                completion?(false)
-            }
-        }
-        if !enqueued {
-            livenessProbeOutstanding = false
-            recoverFromStalledTransport()
-            completion?(false)
-        }
-    }
-
-    /// Asks out of band whether the far end is reachable, then either recovers the stream or
-    /// defers the verdict to the next tick. See ``checkLivenessAndRecoverIfStalled(completion:)``
-    /// for why the silent stream cannot answer this itself.
-    private func resolveSuspectedStall(generation: UInt64, completion: ((Bool) -> Void)?) {
-        // One query at a time. The one-shot bounds itself with ssh's `ConnectTimeout` and
-        // `ServerAlive*` rather than a deadline of its own, so on a dead network it can outlast a
-        // tick; a second query would ask about the same outage and could recover twice for one
-        // stall. Report `true` — this tick found nothing wedged, and the query already running is
-        // the one that decides.
-        guard !livenessReachabilityQueryInFlight else {
-            completion?(true)
-            return
-        }
-        livenessReachabilityQueryInFlight = true
-        // Read the session name now: a `rename-session` during the query would otherwise change
-        // which session the answer is about.
-        let reachability = sessionReachability
-        let host = self.host
-        let sessionName = self.sessionName
-        Task { @MainActor [weak self] in
-            let reachable = await reachability(host, sessionName)
-            guard let self else { return }
-            self.livenessReachabilityQueryInFlight = false
-            // A respawn overtook the query: the stream this answer describes is gone, so acting on
-            // it would recover a stream that was already replaced.
-            guard generation == self.processGeneration, self.connectionState == .connected else {
-                completion?(true)
-                return
-            }
-            // The probe came back while the query was out. The stream is answering after all, so
-            // there is nothing to recover regardless of what the host said.
-            guard self.livenessProbeOutstanding else {
-                completion?(true)
-                return
-            }
-            if reachable {
-                self.recoverFromStalledTransport()
-                completion?(false)
-                return
-            }
-            self.livenessDeferralCount += 1
-            if self.livenessDeferralCount > Self.maxConsecutiveLivenessDeferrals {
-                // Long enough. Either the outage is not what is keeping the stream quiet, or it
-                // has lasted past anything this transport is going to recover from on its own.
-                self.record("liveness-deferral-exhausted")
-                self.recoverFromStalledTransport()
-                completion?(false)
-                return
-            }
-            self.record("liveness-deferred-unreachable")
-            completion?(true)
-        }
-    }
-
-    /// Clears the probe bookkeeping so a fresh stream is judged on its own evidence.
-    ///
-    /// Leaves ``livenessReachabilityQueryInFlight`` alone deliberately: a query that is still
-    /// running clears that itself when it lands, and clearing it here would let a second query
-    /// start while the first is outstanding.
-    func resetLivenessProbeState() {
-        livenessProbeOutstanding = false
-        livenessDeferralCount = 0
-    }
-
-    /// Replaces a transport that is alive but no longer carrying the protocol.
-    ///
-    /// Recovery is a respawn rather than an end: the remote session is very likely still there —
-    /// it is the client that is wedged — so the mirror should be reconnected, not torn down. This
-    /// routes through the same `beginReconnecting()` path as an ssh transport loss so there is one
-    /// reconnect implementation rather than a second one for this case.
-    private func recoverFromStalledTransport() {
-        guard connectionState == .connected else { return }
-        record("liveness-stalled")
-        beginReconnecting()
+        if !probeLiveness(completion: completion) { completion(false) }
     }
 
     func failPendingTrackedSends() {
