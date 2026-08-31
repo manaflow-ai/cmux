@@ -340,6 +340,10 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// Optional for backwards compatibility with sessions saved before
     /// duplicate-workspace support. nil decodes as the primary (1).
     var instanceIndex: Int?
+    /// Optional: the agent the user picked for this workspace's agent pane
+    /// ("claude", "codex"). nil — and any unknown value — means the
+    /// workspace-set template's own agent.
+    var preferredAgent: String?
     var focusedPanelId: UUID?
     var layout: SessionWorkspaceLayoutSnapshot
     var panels: [SessionPanelSnapshot]

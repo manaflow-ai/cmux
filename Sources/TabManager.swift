@@ -3050,10 +3050,10 @@ class TabManager: ObservableObject {
         // Deliberately NOT done in releaseRestoredAwayWorkspace: that discards
         // pre-restore bootstrap objects whose sessions the restored workspaces are
         // about to reattach to.
-        if let session = workspace.ownedTmuxSession {
+        for session in workspace.ownedTmuxSessions {
             TmuxSessionReaper.kill(session)
-            workspace.ownedTmuxSession = nil
         }
+        workspace.ownedTmuxSessions.removeAll()
 
         workspace.teardownAllPanels()
         workspace.teardownRemoteConnection()

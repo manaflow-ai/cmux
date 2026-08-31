@@ -301,6 +301,7 @@ extension Workspace {
             isPinned: isPinned,
             currentDirectory: currentDirectory,
             instanceIndex: instanceIndex,
+            preferredAgent: preferredAgent?.rawValue,
             focusedPanelId: focusedPanelId,
             layout: layout,
             panels: panelSnapshots,
@@ -319,6 +320,7 @@ extension Workspace {
             currentDirectory = normalizedCurrentDirectory
         }
         instanceIndex = snapshot.instanceIndex ?? 1
+        preferredAgent = snapshot.preferredAgent.flatMap(WorkspaceAgent.init(argument:))
 
         let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { ($0.id, $0) })
         let leafEntries = restoreSessionLayout(snapshot.layout)
@@ -351,7 +353,7 @@ extension Workspace {
         // correspond to anything. The launcher re-registers when the panel relaunches
         // and `tmux new-session -A` reattaches the still-live session, so dropping it
         // here loses nothing and avoids ever killing a session we no longer own.
-        ownedTmuxSession = nil
+        ownedTmuxSessions.removeAll()
         agentListeningPorts.removeAll()
         logEntries = snapshot.logEntries.map { entry in
             SidebarLogEntry(
@@ -6518,6 +6520,15 @@ final class Workspace: Identifiable, ObservableObject {
     /// primary's. Persisted so the suffix survives restarts.
     var instanceIndex: Int = 1
 
+    /// The agent this workspace's agent pane should run, when the user has
+    /// picked one (Duplicate Workspace, Rebuild Workspace Layout, Reload
+    /// Workspace Set). nil means "whatever the workspace-set template names".
+    ///
+    /// Persisted because the choice has to outlive the panes: a workspace
+    /// rebuilt from the template on a later launch — by first-select reconcile,
+    /// or by a restore — would otherwise silently revert to the template's agent.
+    var preferredAgent: WorkspaceAgent?
+
     /// The bonsplit controller managing the split panes for this workspace
     let bonsplitController: BonsplitController
 
@@ -6646,7 +6657,11 @@ final class Workspace: Identifiable, ObservableObject {
     ///
     /// Registration is the opt-in: panels that never register are never touched, and a
     /// cmux crash never reaches `closeWorkspace`, so crash-resilient reattach still works.
-    var ownedTmuxSession: String?
+    /// A set, not one name: a workspace can hold a Claude pane and a Codex pane at
+    /// once, and those are two different sessions (`orchard` and `cx-orchard`).
+    /// Keeping a single slot meant the second registration overwrote the first and
+    /// closing the workspace leaked whichever agent had registered earlier.
+    var ownedTmuxSessions: Set<String> = []
     private var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 
     private func sidebarObservationSignal<Value: Equatable>(

@@ -223,10 +223,16 @@ enum WorkspaceSetImporter {
     }
 
     /// Load and merge a workspace-set.json into the given TabManager.
+    /// `agent` re-points every agent pane this import touches — the panels it
+    /// fills into already-open workspaces, and the workspaces it creates — and is
+    /// remembered on each of them, so a workspace materialized later (first-select
+    /// reconcile, or a restore) still comes up on the chosen agent. nil leaves the
+    /// template's agent, and each workspace's existing preference, alone.
     static func importFromFile(
         at path: String? = nil,
         into tabManager: TabManager,
-        dryRun: Bool = false
+        dryRun: Bool = false,
+        agent: WorkspaceAgent? = nil
     ) -> Result<WorkspaceSetImportResult, WorkspaceSetImportError> {
         let resolvedPath = path ?? defaultPath
 
@@ -239,7 +245,9 @@ enum WorkspaceSetImporter {
             return .failure(.readError(path: resolvedPath, underlying: error.localizedDescription))
         }
 
-        let result = mergeInto(tabManager: tabManager, workspaceSet: workspaceSet, dryRun: dryRun)
+        let result = mergeInto(
+            tabManager: tabManager, workspaceSet: workspaceSet, dryRun: dryRun, agent: agent
+        )
         return .success(result)
     }
 
@@ -260,7 +268,8 @@ enum WorkspaceSetImporter {
     /// work isn't disrupted. Mirrors the per-workspace logic in `mergeInto`.
     static func reconcileWorkspace(
         _ workspace: Workspace,
-        at path: String? = nil
+        at path: String? = nil,
+        agent: WorkspaceAgent? = nil
     ) -> WorkspaceReconcileSummary? {
         let resolvedPath = path ?? defaultPath
         guard let workspaceSet = try? parseFile(at: resolvedPath) else { return nil }
@@ -274,7 +283,13 @@ enum WorkspaceSetImporter {
             templates = workspaceSet.defaultPanels
             layout = workspaceSet.defaultLayout
         }
-        guard let templates, !templates.isEmpty else { return nil }
+        guard var templates, !templates.isEmpty else { return nil }
+        var resolvedLayout = layout
+        if let resolved = resolveAgent(agent, for: workspace) {
+            let retarget = retargeted(panels: templates, layout: layout, to: resolved)
+            templates = retarget.panels
+            resolvedLayout = retarget.layout
+        }
 
         // Bootstrap-state workspaces (one untitled panel that has never been
         // opened) get the full template applied so the user sees the
@@ -290,7 +305,7 @@ enum WorkspaceSetImporter {
             for panelId in Array(workspace.panels.keys) where panelId != anchor {
                 _ = workspace.closePanel(panelId, force: true)
             }
-            applyFullTemplate(to: workspace, panels: templates, layout: layout)
+            applyFullTemplate(to: workspace, panels: templates, layout: resolvedLayout)
             return WorkspaceReconcileSummary(action: "rebuild", panelCount: templates.count)
         }
 
@@ -331,8 +346,8 @@ enum WorkspaceSetImporter {
         }
         guard var templates, !templates.isEmpty else { return nil }
         var resolvedLayout = layout
-        if let agent {
-            let retarget = retargeted(panels: templates, layout: layout, to: agent)
+        if let resolved = resolveAgent(agent, for: workspace) {
+            let retarget = retargeted(panels: templates, layout: layout, to: resolved)
             templates = retarget.panels
             resolvedLayout = retarget.layout
         }
@@ -349,6 +364,16 @@ enum WorkspaceSetImporter {
 
         applyFullTemplate(to: workspace, panels: templates, layout: resolvedLayout)
         return templates.count
+    }
+
+    /// The agent to build a workspace's panes with: an explicit pick if the caller
+    /// made one, otherwise whatever this workspace remembers, otherwise nil for the
+    /// template's own agent. An explicit pick is recorded, so it survives the next
+    /// rebuild — and the next launch.
+    static func resolveAgent(_ explicit: WorkspaceAgent?, for workspace: Workspace) -> WorkspaceAgent? {
+        guard let explicit else { return workspace.preferredAgent }
+        workspace.preferredAgent = explicit
+        return explicit
     }
 
     /// Rewrite an agent pane's template so it launches `agent` instead of the
@@ -452,7 +477,8 @@ enum WorkspaceSetImporter {
     private static func mergeInto(
         tabManager: TabManager,
         workspaceSet: WorkspaceSetFile,
-        dryRun: Bool
+        dryRun: Bool,
+        agent: WorkspaceAgent? = nil
     ) -> WorkspaceSetImportResult {
         var existingByDir: [String: Workspace] = [:]
         for ws in tabManager.tabs {
@@ -515,7 +541,13 @@ enum WorkspaceSetImporter {
                         // commands when the user opens the workspace.
                         if let templates = entryPanels, !templates.isEmpty,
                            !isWorkspaceBootstrapState(existingWs) {
-                            panelsAdded += fillMissingPanels(in: existingWs, templates: templates)
+                            var filled = templates
+                            if let resolved = resolveAgent(agent, for: existingWs) {
+                                filled = retargeted(
+                                    panels: templates, layout: nil, to: resolved
+                                ).panels
+                            }
+                            panelsAdded += fillMissingPanels(in: existingWs, templates: filled)
                         }
                     }
                     skipped.append(.init(name: entry.name, directory: entry.directory, reason: "directory_exists"))
@@ -557,6 +589,10 @@ enum WorkspaceSetImporter {
                 if let section = targetSection {
                     tabManager.moveWorkspaceToSection(tabId: ws.id, sectionId: section.id)
                 }
+
+                // A new workspace has no panes yet, so the pick can only be
+                // remembered — first-select reconcile is what applies it.
+                if let agent { ws.preferredAgent = agent }
 
                 // Leave the new workspace in bootstrap state. Template +
                 // commands (claude-pane, remote-pane lf, etc.) are deferred

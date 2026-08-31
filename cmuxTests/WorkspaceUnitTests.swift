@@ -3746,3 +3746,40 @@ final class AgentSessionNamingTests: XCTestCase {
         XCTAssertFalse(TabManager.isAgentCommand(nil))
     }
 }
+
+// MARK: - Multi-agent tmux ownership
+
+final class WorkspaceTmuxOwnershipTests: XCTestCase {
+
+    func testLanesPrefersARegisteredSessionOverTheDirectoryMatch() {
+        let workspace = UUID()
+        let lanes = ActiveLaneSnapshot.lanes(
+            from: [ActiveLaneSnapshot.Candidate(
+                workspace: workspace,
+                title: "Orchard",
+                directory: "/Users/rod/Developer/GitHub/orchard",
+                instanceIndex: 1,
+                registered: ["cx-orchard"]
+            )],
+            live: [
+                (session: "orchard", directory: "/Users/rod/Developer/GitHub/orchard"),
+                (session: "cx-orchard", directory: "/Users/rod/Developer/GitHub/orchard")
+            ]
+        )
+        XCTAssertEqual(lanes.map(\.session), ["cx-orchard"])
+    }
+
+    func testLanesIgnoresRegisteredSessionsThatAreNotLive() {
+        let lanes = ActiveLaneSnapshot.lanes(
+            from: [ActiveLaneSnapshot.Candidate(
+                workspace: UUID(),
+                title: "Orchard",
+                directory: "/Users/rod/Developer/GitHub/orchard",
+                instanceIndex: 1,
+                registered: ["cx-orchard"]
+            )],
+            live: [(session: "orchard", directory: "/Users/rod/Developer/GitHub/orchard")]
+        )
+        XCTAssertEqual(lanes.map(\.session), ["orchard"])
+    }
+}

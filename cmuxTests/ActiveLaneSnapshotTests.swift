@@ -29,12 +29,13 @@ final class ActiveLaneSnapshotTests: XCTestCase {
         instanceIndex: Int = 1,
         registered: String? = nil
     ) -> ActiveLaneSnapshot.Candidate {
-        ActiveLaneSnapshot.Candidate(
+        let registeredSessions = Set([registered].compactMap { $0 })
+        return ActiveLaneSnapshot.Candidate(
             workspace: workspace,
             title: title,
             directory: directory,
             instanceIndex: instanceIndex,
-            registered: registered
+            registered: registeredSessions
         )
     }
 

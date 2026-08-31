@@ -366,8 +366,12 @@ struct cmuxApp: App {
                 splitCommandButton(title: String(localized: "menu.app.reloadConfiguration", defaultValue: "Reload Configuration"), shortcut: menuShortcut(for: .reloadConfiguration)) {
                     GhosttyApp.shared.reloadConfiguration(source: "menu.reload_configuration")
                 }
-                Button(String(localized: "menu.app.reloadWorkspaceSet", defaultValue: "Reload Workspace Set")) {
-                    AppDelegate.shared?.reloadWorkspaceSet()
+                Menu(String(localized: "menu.app.reloadWorkspaceSet", defaultValue: "Reload Workspace Set")) {
+                    ForEach(WorkspaceAgent.allCases, id: \.self) { agent in
+                        Button(agent.panelTitle) {
+                            AppDelegate.shared?.reloadWorkspaceSet(agent: agent)
+                        }
+                    }
                 }
                 Button(String(localized: "menu.app.reloadWindowSet", defaultValue: "Reload Window Set")) {
                     AppDelegate.shared?.reloadWindowSet()

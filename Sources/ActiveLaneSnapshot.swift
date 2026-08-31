@@ -100,8 +100,9 @@ enum ActiveLaneSnapshot {
         let title: String
         let directory: String
         let instanceIndex: Int
-        /// `Workspace.ownedTmuxSession` — whatever the wrapper registered, if anything.
-        let registered: String?
+        /// `Workspace.ownedTmuxSessions` — whatever the wrappers registered, if anything.
+        /// More than one when the workspace holds both a Claude and a Codex lane.
+        let registered: Set<String>
     }
 
     /// A live tmux session and the directory it was started in.
@@ -146,9 +147,7 @@ enum ActiveLaneSnapshot {
 
         for candidate in candidates {
             var resolved: String?
-            if let registered = candidate.registered, names.contains(registered) {
-                resolved = take(registered)
-            }
+            resolved = take(candidate.registered.sorted().first { names.contains($0) && !claimed.contains($0) })
             if resolved == nil {
                 let directory = canonical(candidate.directory)
                 resolved = take(byDirectory[directory]?.first { !claimed.contains($0) })

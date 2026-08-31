@@ -3993,9 +3993,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     /// Reload workspace-set.json into the active window's TabManager.
     /// Called from the menu bar.
-    func reloadWorkspaceSet() {
+    func reloadWorkspaceSet(agent: WorkspaceAgent? = nil) {
         guard let tabManager = mainWindowContexts.values.first?.tabManager else { return }
-        let result = WorkspaceSetImporter.importFromFile(into: tabManager)
+        let result = WorkspaceSetImporter.importFromFile(into: tabManager, agent: agent)
         switch result {
         case .success(let summary):
 #if DEBUG
@@ -5226,9 +5226,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var owned: Set<String> = []
         for context in mainWindowContexts.values {
             for workspace in context.tabManager.tabs {
-                if let session = workspace.ownedTmuxSession, !session.isEmpty {
-                    owned.insert(session)
-                }
+                owned.formUnion(workspace.ownedTmuxSessions.filter { !$0.isEmpty })
             }
         }
         return owned
@@ -5298,7 +5296,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     // is exactly what makes it a usable "not yet reattached" signal. Skipping
                     // these keeps the command idempotent and safe to invoke at any time, not
                     // only after a crash.
-                    if workspace.ownedTmuxSession == name { break }
+                    if workspace.ownedTmuxSessions.contains(name) { break }
                     // One workspace per session: two workspaces on the same directory and
                     // instance would otherwise both rebuild onto the same session, and the
                     // second would steal the pane from the first.
@@ -5329,7 +5327,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 NSLog("[TmuxRecover] no template for '%@' — skipped", workspace.title)
                 continue
             }
-            workspace.ownedTmuxSession = session
+            workspace.ownedTmuxSessions.insert(session)
             workspaceSetReconciledIds.insert(workspace.id)
             recovered.append(session)
         }
@@ -5359,7 +5357,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         title: workspace.title,
                         directory: workspace.currentDirectory,
                         instanceIndex: workspace.instanceIndex,
-                        registered: workspace.ownedTmuxSession
+                        registered: workspace.ownedTmuxSessions
                     )
                 )
             }
