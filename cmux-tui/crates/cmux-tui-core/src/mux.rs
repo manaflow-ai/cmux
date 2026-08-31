@@ -5122,6 +5122,104 @@ impl Mux {
         Some((public_terminal_id, generation.to_string(), blob))
     }
 
+    /// Journal-derived agent resume plans: for every roster entry whose
+    /// adapter has a known resume interface, the latest hook-reported
+    /// session id (and cwd) for that terminal builds an exact relaunch
+    /// argv. Rows carry whether the agent process is running right now so
+    /// apply paths never double-resume a live session; the dedupe key
+    /// guards against two tabs sharing one session. The journal is the
+    /// only source: nothing is persisted twice.
+    pub(crate) fn agent_resume_plans(
+        &self,
+        only_terminal: Option<&TerminalPublicId>,
+    ) -> anyhow::Result<Vec<Value>> {
+        let entries = self.agent_roster.lock().unwrap().roster.entries.clone();
+        let Some(database) =
+            self.workspace_registry.lock().unwrap().session_journal_database_path()
+        else {
+            return Ok(Vec::new());
+        };
+        let reader = crate::workspace_registry::SessionJournalReader::open(&database)?;
+        let manifests = crate::screen_detect::manifest::ManifestSet::bundled();
+        let mut plans = Vec::new();
+        let mut resumed = HashSet::new();
+        let mut terminals: Vec<_> = entries.into_iter().collect();
+        terminals.sort_by(|left, right| left.0.cmp(&right.0));
+        for (terminal_id, entry) in terminals {
+            let Some(agent) = entry.agent else { continue };
+            if only_terminal.is_some_and(|only| only.as_str() != terminal_id) {
+                continue;
+            }
+            let subject =
+                crate::JournalSubject { kind: "terminal".into(), id: terminal_id.clone() };
+            let mut sequence = 0u64;
+            let mut session_id: Option<String> = None;
+            let mut cwd: Option<String> = None;
+            loop {
+                let page = reader.after_subjects(sequence, 256, std::slice::from_ref(&subject))?;
+                if page.records.is_empty() {
+                    break;
+                }
+                for record in &page.records {
+                    sequence = sequence.max(record.sequence);
+                    let payload = &record.payload;
+                    if payload.get("adapter").and_then(|adapter| adapter.get("id")).and_then(Value::as_str)
+                        != Some(agent.as_str())
+                    {
+                        continue;
+                    }
+                    let normalized = payload.get("normalized");
+                    if let Some(id) = normalized
+                        .and_then(|normalized| normalized.get("agent_session_id"))
+                        .and_then(Value::as_str)
+                    {
+                        session_id = Some(id.to_string());
+                    }
+                    if let Some(dir) = normalized
+                        .and_then(|normalized| normalized.get("cwd"))
+                        .and_then(Value::as_str)
+                    {
+                        cwd = Some(dir.to_string());
+                    }
+                }
+                sequence = sequence.max(page.scanned_through);
+            }
+            let Some(reference) =
+                session_id.and_then(crate::agent_resume::AgentSessionRef::id)
+            else {
+                continue;
+            };
+            let Some(plan) = crate::agent_resume::plan(&agent, &reference) else { continue };
+            if !resumed.insert(plan.dedupe_key.clone()) {
+                continue;
+            }
+            let running = TerminalPublicId::parse(terminal_id.clone())
+                .ok()
+                .and_then(|terminal_id| {
+                    self.state.lock().unwrap().terminal_catalog.get(&terminal_id).cloned()
+                })
+                .and_then(|surface| {
+                    if surface.terminal_exit().is_some() {
+                        return Some(false);
+                    }
+                    let pid = surface.process_id()?;
+                    let name = crate::platform::foreground_process_name(pid)?;
+                    Some(manifests.identify(&name).map(|manifest| manifest.id())
+                        == Some(agent.as_str()))
+                })
+                .unwrap_or(false);
+            plans.push(serde_json::json!({
+                "terminal_id": terminal_id,
+                "agent": plan.agent,
+                "argv": plan.argv,
+                "cwd": cwd,
+                "dedupe_key": plan.dedupe_key,
+                "agent_running": running,
+            }));
+        }
+        Ok(plans)
+    }
+
     /// Subscribe to agent projection commits for `agent.wait`.
     pub(crate) fn subscribe_agent_changes(&self) -> AgentChangeSubscription<'_> {
         self.agent_change_waiters.subscribe()

@@ -1,11 +1,14 @@
 {
-  "catalog_sha256": "9e0965b8bd088c5e01006366f666a0cfcb7ba4c9d83e32c008279e082bf7f4bb",
+  "catalog_sha256": "97909d6d85261213699513ec853478ec18b0994f0d96592c088dcf132227ddf8",
   "operations": {
     "agent.list": {
       "class": "read"
     },
     "agent.report": {
       "class": "mutation"
+    },
+    "agent.resume_plan": {
+      "class": "read"
     },
     "agent.wait": {
       "class": "read"

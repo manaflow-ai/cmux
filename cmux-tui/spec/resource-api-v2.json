@@ -48,6 +48,7 @@
       "enum": [
         "agent.list",
         "agent.report",
+        "agent.resume_plan",
         "agent.wait",
         "browser.activate",
         "browser.attach",
@@ -176,6 +177,7 @@
       "x-operation-classes": {
         "read": [
           "agent.list",
+          "agent.resume_plan",
           "agent.wait",
           "browser.get",
           "browser.list",

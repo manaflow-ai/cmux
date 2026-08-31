@@ -1363,6 +1363,14 @@ fn parse_agent(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usage
             }
             request(ResourceOperation::AgentList, &selectors, flags, params)
         }
+        ["resume"] => {
+            let mut params = Map::new();
+            if let Some(terminal) = flags.take("terminal") {
+                validate_prefixed_id("terminal", "term", &terminal)?;
+                params.insert("terminal_id".into(), Value::String(terminal));
+            }
+            request(ResourceOperation::AgentResumePlan, &selectors, flags, params)
+        }
         ["wait"] => {
             let mut params = Map::new();
             if let Some(terminal) = flags.take("terminal") {

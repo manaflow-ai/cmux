@@ -991,6 +991,7 @@ const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
         | ResourceOperation::BrowserClose => OperationOwner::Content,
         ResourceOperation::AgentList
         | ResourceOperation::AgentWait
+        | ResourceOperation::AgentResumePlan
         | ResourceOperation::AgentReport
         | ResourceOperation::FrontendProjectionGet
         | ResourceOperation::FrontendProjectionPut

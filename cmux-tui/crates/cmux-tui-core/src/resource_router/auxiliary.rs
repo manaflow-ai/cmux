@@ -22,6 +22,7 @@ pub(super) fn handles(operation: ResourceOperation) -> bool {
         operation,
         ResourceOperation::AgentList
             | ResourceOperation::AgentWait
+            | ResourceOperation::AgentResumePlan
             | ResourceOperation::AgentReport
             | ResourceOperation::FrontendProjectionGet
             | ResourceOperation::FrontendProjectionPut
@@ -41,6 +42,7 @@ pub(super) fn dispatch(
     match request.envelope.operation {
         ResourceOperation::AgentList => list_agents(mux, &request),
         ResourceOperation::AgentWait => wait_agent(mux, &request),
+        ResourceOperation::AgentResumePlan => resume_plan_agents(mux, &request),
         ResourceOperation::AgentReport => report_agent(mux, request),
         ResourceOperation::FrontendProjectionGet => get_frontend_projection(mux, &request),
         ResourceOperation::FrontendProjectionPut => put_frontend_projection(mux, request),
@@ -125,6 +127,16 @@ fn wait_agent(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, 
             return Ok(result);
         }
     }
+}
+
+/// Journal-derived resume plans (see `Mux::agent_resume_plans`).
+fn resume_plan_agents(
+    mux: &Arc<Mux>,
+    request: &ParsedResourceRequest,
+) -> Result<Value, ResourceError> {
+    resolve_session(mux, &request.selectors)?;
+    let terminal = request.fields.get("terminal_id").map(parse_terminal_id).transpose()?;
+    mux.agent_resume_plans(terminal.as_ref()).map(Value::Array).map_err(resource_operation_error)
 }
 
 /// Resolve everything an `agent.wait` needs up front so the detached
