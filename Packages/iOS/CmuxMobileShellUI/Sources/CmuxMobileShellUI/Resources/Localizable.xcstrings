@@ -1,6 +1,23 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "mobile.agentFeed.headline.userPrompted" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "prompted %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ にプロンプトを送信"
+          }
+        }
+      }
+    },
     "mobile.agentFeed.compose.cancel" : {
       "extractionState" : "manual",
       "localizations" : {

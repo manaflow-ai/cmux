@@ -79,7 +79,13 @@ struct AgentFeedRow: View, Equatable {
             Circle()
                 .fill(Color.secondary.opacity(0.12))
                 .frame(width: 40, height: 40)
-            TaskTemplateIcon(value: model.presentation.authorIconValue, size: 22)
+            if model.presentation.authorIsUser {
+                Image(systemName: "person.crop.circle.fill")
+                    .font(.system(size: 40))
+                    .foregroundStyle(.secondary)
+            } else {
+                TaskTemplateIcon(value: model.presentation.authorIconValue, size: 22)
+            }
         }
         .overlay(alignment: .bottomTrailing) {
             if model.item.needsInput {
@@ -222,7 +228,7 @@ private struct AgentFeedRowOutputText: View {
             Text(text)
                 .font(.subheadline)
                 .foregroundStyle(.primary)
-                .lineLimit(isExpandable && !isExpanded ? 10 : nil)
+                .lineLimit(isExpandable && !isExpanded ? 8 : nil)
                 .fixedSize(horizontal: false, vertical: true)
             if isExpandable {
                 Button {

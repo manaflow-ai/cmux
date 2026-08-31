@@ -25,10 +25,14 @@ struct AgentFeedRowModel: Identifiable, Equatable, Sendable {
 /// The precomputed strings of one X-style Feed row: author line, headline,
 /// inline output, tool line, and the resolved-decision label.
 struct AgentFeedRowPresentation: Equatable, Sendable {
-    /// The agent's display name ("Claude", "Codex", ...).
+    /// The row's display author: the agent ("Claude", "Codex", ...) — or
+    /// "You" for prompt rows, X-style, since the user authored those.
     let authorName: String
     /// The `agent:<source>` icon value consumed by ``TaskTemplateIcon``.
     let authorIconValue: String
+    /// Whether the row is authored by the user (prompt rows) and renders the
+    /// person avatar instead of the agent brand icon.
+    let authorIsUser: Bool
     /// What happened, in words ("asked to use Bash", "proposed a plan").
     let headline: String
     /// The user's ask the row responds to, quoted above the output.
@@ -48,18 +52,27 @@ struct AgentFeedRowPresentation: Equatable, Sendable {
     let replyReferenceSnippet: String?
 
     init(item: MobileAgentFeedItem) {
-        authorName = AgentFeedRowPresentation.authorName(forSource: item.source)
+        let agentName = AgentFeedRowPresentation.authorName(forSource: item.source)
+        authorIsUser = item.kind == .userPrompt
+        authorName = authorIsUser
+            ? String(
+                localized: "mobile.agentFeed.reply.youLabel",
+                defaultValue: "You",
+                bundle: .module
+            )
+            : agentName
         authorIconValue = "agent:\(item.source)"
-        headline = AgentFeedRowPresentation.headline(for: item)
+        headline = AgentFeedRowPresentation.headline(for: item, agentName: agentName)
         let output = AgentFeedRowPresentation.outputText(for: item)
         outputText = output
-        outputIsExpandable = (output?.count ?? 0) > 600
+        outputIsExpandable = (output?.count ?? 0) > 360
         quotedUserMessage = AgentFeedRowPresentation.quotedUserMessage(for: item)
         toolLine = AgentFeedRowPresentation.toolLine(for: item)
         provenance = AgentFeedRowPresentation.provenance(for: item)
         resolutionLabel = AgentFeedRowPresentation.resolutionLabel(for: item)
         if item.userReply != nil {
-            let reference = output ?? AgentFeedRowPresentation.headline(for: item)
+            let reference = output
+                ?? AgentFeedRowPresentation.headline(for: item, agentName: agentName)
             replyReferenceSnippet = AgentFeedRowPresentation.snippet(reference)
         } else {
             replyReferenceSnippet = nil
@@ -89,7 +102,7 @@ struct AgentFeedRowPresentation: Equatable, Sendable {
         }
     }
 
-    private static func headline(for item: MobileAgentFeedItem) -> String {
+    private static func headline(for item: MobileAgentFeedItem, agentName: String) -> String {
         switch item.kind {
         case .permissionRequest:
             let tool = item.toolName ?? String(
@@ -122,8 +135,8 @@ struct AgentFeedRowPresentation: Equatable, Sendable {
             )
         case .userPrompt:
             return String(
-                localized: "mobile.agentFeed.headline.userPrompt",
-                defaultValue: "received your prompt",
+                localized: "mobile.agentFeed.headline.userPrompted",
+                defaultValue: "prompted \(agentName)",
                 bundle: .module
             )
         case .assistantMessage:
