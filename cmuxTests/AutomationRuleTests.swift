@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 
@@ -143,5 +144,109 @@ struct AutomationRuleTests {
         )
         #expect(origin?.ruleID == "a")
         #expect(origin?.chain == ["a", "b"])
+    }
+
+    @Test("selector matching is deterministic and case-consistent")
+    func selectorMatchingIsDeterministic() {
+        let selectors = [
+            "Agent.NEEDS_INPUT",
+            "AGENT.*",
+            "*.NEEDS_INPUT",
+            "*NEEDS*"
+        ]
+        for selector in selectors {
+            let rule = AutomationRule(
+                id: selector,
+                when: AutomationWhen(event: selector),
+                actions: [AutomationAction(action: "notify")]
+            )
+            #expect(
+                rule.matches(event: [
+                    "name": "agent.needs_input",
+                    "category": "agent"
+                ])
+            )
+        }
+
+        let containsRule = AutomationRule(
+            id: "contains",
+            when: AutomationWhen(category: "agent"),
+            predicates: [
+                "agent": .object(["contains": .string("CoDeX")])
+            ],
+            actions: [AutomationAction(action: "notify")]
+        )
+        #expect(
+            containsRule.matches(event: [
+                "name": "agent.status",
+                "category": "agent",
+                "payload": ["agent": "codex"]
+            ])
+        )
+    }
+
+    @Test("saving a symlinked configuration updates its target")
+    func symlinkedConfigurationPreservesLink() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-automation-symlink-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let targetURL = directory.appendingPathComponent("managed/automations.json")
+        try FileManager.default.createDirectory(
+            at: targetURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let linkURL = directory.appendingPathComponent("automations.json")
+        try FileManager.default.createSymbolicLink(
+            atPath: linkURL.path,
+            withDestinationPath: targetURL.path
+        )
+
+        let store = AutomationConfigStore(fileURL: linkURL)
+        let configuration = AutomationConfiguration(
+            rules: [
+                AutomationRule(
+                    id: "managed",
+                    when: AutomationWhen(event: "agent.ready"),
+                    actions: [AutomationAction(action: "notify")]
+                )
+            ]
+        )
+        try store.save(configuration)
+        _ = try store.updateRule(id: "managed") { $0.enabled = false }
+
+        #expect(FileManager.default.fileExists(atPath: linkURL.path))
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: linkURL.path) == targetURL.path)
+        #expect(try AutomationConfigStore(fileURL: targetURL).load().rules.first?.enabled == false)
+    }
+
+    @Test("run actions terminate background descendants")
+    func processSessionCleansUpDescendants() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-automation-process-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let pidURL = directory.appendingPathComponent("child.pid")
+        let command = "sleep 5 & printf '%s' $! > '\(pidURL.path)'; exit 0"
+        let session = AutomationProcessSession(command: command, environment: [:])
+
+        _ = await session.run()
+        let clock = ContinuousClock()
+        var childPID: pid_t?
+        for _ in 0..<50 {
+            if let raw = try? String(contentsOf: pidURL, encoding: .utf8),
+               let parsed = Int32(raw.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                childPID = parsed
+                break
+            }
+            try await clock.sleep(for: .milliseconds(20))
+        }
+        let pid = try #require(childPID)
+        for _ in 0..<50 {
+            if kill(pid, 0) != 0, errno == ESRCH { break }
+            try await clock.sleep(for: .milliseconds(20))
+        }
+        #expect(kill(pid, 0) != 0)
     }
 }
