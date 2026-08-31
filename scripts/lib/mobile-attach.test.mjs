@@ -159,6 +159,27 @@ function monotonicMilliseconds() {
   ]);
 }
 
+function resolveReadinessTimeout(extraEnv = {}) {
+  const env = { ...process.env, ...extraEnv };
+  if (!Object.prototype.hasOwnProperty.call(extraEnv, "CMUX_ATTACH_READY_TIMEOUT_SECONDS")) {
+    delete env.CMUX_ATTACH_READY_TIMEOUT_SECONDS;
+  }
+  return spawnSync(
+    "bash",
+    [
+      "-c",
+      'source "$1"; cmux_attach_resolve_readiness_timeout',
+      "mobile-readiness-timeout-test",
+      validator,
+    ],
+    {
+      cwd: repoRoot,
+      encoding: "utf8",
+      env,
+    },
+  );
+}
+
 function extractShellFunction(source, name) {
   const start = source.indexOf(`${name}() {`);
   assert.notEqual(start, -1, `missing shell function ${name}`);
@@ -518,6 +539,37 @@ test("dogfood readiness clock is stable across helper processes", () => {
     secondMilliseconds >= firstMilliseconds,
     `expected monotonic clock, got ${firstMilliseconds} -> ${secondMilliseconds}`,
   );
+});
+
+test("dogfood auth readiness leaves headroom for a cold staging sign-in", () => {
+  const result = resolveReadinessTimeout();
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, "45");
+
+  const empty = resolveReadinessTimeout({
+    CMUX_ATTACH_READY_TIMEOUT_SECONDS: "",
+  });
+  assert.equal(empty.status, 0, empty.stderr);
+  assert.equal(empty.stdout, "");
+
+  const override = resolveReadinessTimeout({
+    CMUX_ATTACH_READY_TIMEOUT_SECONDS: "7",
+  });
+  assert.equal(override.status, 0, override.stderr);
+  assert.equal(override.stdout, "7");
+});
+
+test("launcher validation uses product-level readiness wording", () => {
+  const result = run(
+    "bash",
+    [path.join(repoRoot, "scripts/mobile-dev-launch.sh"), "--tag", "ready"],
+    { CMUX_ATTACH_READY_TIMEOUT_SECONDS: "invalid-secret-value" },
+  );
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /attach readiness timeout must be a positive integer/);
+  assert.doesNotMatch(result.stderr, /CMUX_ATTACH_READY_TIMEOUT_SECONDS/);
+  assert.doesNotMatch(result.stderr, /invalid-secret-value/);
 });
 
 test("dogfood readiness blocks on the post-launch usable RPC event", () => {
