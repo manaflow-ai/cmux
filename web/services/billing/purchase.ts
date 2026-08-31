@@ -382,6 +382,7 @@ export async function recordCheckoutCompletion(
             .where(
               and(
                 eq(stripeSubscriptions.customerId, customerId),
+                eq(stripeSubscriptions.id, effectiveSubscription.id),
                 eq(stripeSubscriptions.scope, "user"),
                 isNull(stripeSubscriptions.stackTeamId),
               ),
@@ -581,6 +582,7 @@ export async function recordFoundersCheckoutCompletion(
           .where(
             and(
               eq(stripeSubscriptions.customerId, customerId),
+              eq(stripeSubscriptions.id, subscription.id),
               eq(stripeSubscriptions.scope, "user"),
               isNull(stripeSubscriptions.stackTeamId),
             ),
