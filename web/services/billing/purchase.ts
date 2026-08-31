@@ -949,6 +949,27 @@ export async function claimPendingProBilling(
     await clearTransferredSourceProMetadata(transfer, db, stackApp);
     await syncTransferredStripeOwnership(transfer, dependencies.stripeClient ?? stripe);
   }
+  if (claimed > 0) {
+    // Ownership transfer and entitlement metadata are separate stores. Refresh
+    // the destination under the same account-deletion guard used by webhook
+    // fulfillment so a recovered account is immediately recognized as Pro.
+    await syncStackUserMetadataWithAccountDeletionGuard({
+      db,
+      stackUserId: user.id,
+      stackApp,
+      sync: async (freshUser, lease) => {
+        if (
+          freshUser.isAnonymous === true ||
+          freshUser.isRestricted === true ||
+          freshUser.primaryEmailVerified !== true ||
+          canonicalizeEmailForMatching(freshUser.primaryEmail ?? "") !== email
+        ) {
+          return;
+        }
+        await syncProPlanMetadata(freshUser, true, lease);
+      },
+    });
+  }
   return { claimed };
 }
 
