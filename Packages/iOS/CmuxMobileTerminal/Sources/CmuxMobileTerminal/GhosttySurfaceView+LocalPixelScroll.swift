@@ -193,32 +193,22 @@ extension GhosttySurfaceView {
             let len = min(scrollbar.len, total)
             let maxPosition = Double(total - len) * cellHeightPx
             let rowsPushedNow = pushedRowsCounter.withLock { $0 }
-            // Mid-gesture the held position is the authority: a verified
-            // replay may have reset the live viewport to the bottom between
-            // batches, and deriving from it would make the reset hijack the
-            // gesture. The exact (unrounded) position carries sub-pixel
-            // deltas across batches. A held position from an older row-space
-            // revision is first rebased content-true: pushes beyond growth
-            // evicted rows from the top of a capped scrollback, so the same
-            // content sits that many rows higher. Only an unreconcilable
-            // space (rebuilt, shrunk) falls back to the live viewport.
-            let current: Double
-            if rebaseFromHeldPosition, let held,
-               held.revision == scrollbar.row_space_revision {
-                current = min(held.positionPx, maxPosition)
-            } else if rebaseFromHeldPosition, let held,
-                      let corrected = GhosttySurfaceView.LocalPixelScrollState.rebasedHeldPositionPx(
-                          heldPositionPx: held.positionPx,
-                          heldTotal: held.total,
-                          heldRowsPushed: held.rowsPushed,
-                          scrollbarTotal: total,
-                          rowsPushedNow: rowsPushedNow,
-                          cellHeightPx: cellHeightPx
-                      ) {
-                current = min(corrected, maxPosition)
-            } else {
-                current = min(Double(scrollbar.offset) * cellHeightPx + remainder, maxPosition)
-            }
+            // Mid-gesture the held position is the authority; see
+            // `gestureBasePositionPx` for the anchoring contract (docked
+            // holds target the live tail, undocked holds keep their content,
+            // revision changes rebase content-true, unreconcilable spaces
+            // fall back to the live viewport).
+            let current = GhosttySurfaceView.LocalPixelScrollState.gestureBasePositionPx(
+                rebaseFromHeldPosition: rebaseFromHeldPosition,
+                held: held,
+                scrollbarOffset: scrollbar.offset,
+                scrollbarRevision: scrollbar.row_space_revision,
+                scrollbarTotal: total,
+                rowsPushedNow: rowsPushedNow,
+                remainderPx: remainder,
+                cellHeightPx: cellHeightPx,
+                maxPositionPx: maxPosition
+            )
             // The axis continues past scrollback-top into the top-reveal
             // zone (the keyboard-up presentation's clipped top), so the
             // oldest rows stay reachable while the keyboard is up. The grid
@@ -241,7 +231,8 @@ extension GhosttySurfaceView {
                 row += 1
                 pixelOffset = 0
             }
-            if next >= maxPosition - 0.5 {
+            let dockedAtTail = next >= maxPosition - 0.5
+            if dockedAtTail {
                 // Docked at the tail: target the absolute bottom and let
                 // Ghostty clamp the row into the active area.
                 row = total
@@ -268,13 +259,14 @@ extension GhosttySurfaceView {
                     guard $0.epoch == operation.pixelStateEpoch else { return }
                     $0.remainderPx = appliedOffset
                     $0.topRevealPx = appliedReveal
-                    $0.lastApplied = (
+                    $0.lastApplied = LocalPixelScrollState.Held(
                         row: appliedRow,
                         remainderPx: appliedOffset,
                         positionPx: appliedPosition,
                         revision: appliedRevision,
                         total: appliedTotal,
-                        rowsPushed: rowsPushedNow
+                        rowsPushed: rowsPushedNow,
+                        dockedAtTail: dockedAtTail
                     )
                 }
                 return
