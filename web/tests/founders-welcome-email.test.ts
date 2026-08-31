@@ -137,24 +137,39 @@ describe("buildFoundersWelcomeEmail", () => {
     expect(second.subject).toBe(EMAIL_SUBJECT);
   });
 
-  test("Pro uses the personal payload with only the subject changed", () => {
+  test("Pro uses the localized personal payload", async () => {
     const founders = buildFoundersWelcomeEmail({
       ...baseParams,
       to: "customer@example.com",
       sessionRef: "cs_founder",
     });
-    const pro = buildProWelcomeEmail({
+    const pro = await buildProWelcomeEmail({
       ...baseParams,
       to: "customer@example.com",
       sessionRef: "cs_pro",
+      locale: "en",
     });
     expect(pro.subject).toBe(PRO_EMAIL_SUBJECT);
     expect(pro.from).toBe(founders.from);
     expect(pro.to).toEqual(founders.to);
     expect(pro.cc).toEqual(founders.cc);
     expect(pro.replyTo).toBe(founders.replyTo);
-    expect(pro.text).toBe(founders.text);
+    expect(pro.text).toContain("Thanks for joining cmux Pro!");
+    expect(pro.text).toContain("Sign up for TestFlight: https://cmux.com/dashboard/testflight");
     expect(pro.headers[THREAD_HEADER]).toBe("founders-welcome/cs_pro");
+  });
+
+  test("loads the selected locale for the Pro subject and body", async () => {
+    const pro = await buildProWelcomeEmail({
+      ...baseParams,
+      to: "customer@example.com",
+      sessionRef: "cs_pro_ja",
+      locale: "ja",
+    });
+
+    expect(pro.subject).toBe("cmux Pro へようこそ！");
+    expect(pro.text).toContain("cmux Pro にご参加いただきありがとうございます！");
+    expect(pro.text).toContain("TestFlight に登録する：https://cmux.com/dashboard/testflight");
   });
 
   test("recipients, sender, and reply-to are preserved unchanged", () => {

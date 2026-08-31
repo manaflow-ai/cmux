@@ -181,8 +181,9 @@ describe("founders welcome route", () => {
       "lawrence@manaflow.ai",
     ]);
     expect(sentEmails[0].payload.replyTo).toBe("austin@manaflow.ai");
+    expect(sentEmails[0].payload.text).toContain("Thanks for joining cmux Pro!");
     expect(sentEmails[0].payload.text).toContain(
-      "Thank you for being one of the first ever customers of cmux :)",
+      "Sign up for TestFlight: https://cmux.com/dashboard/testflight",
     );
     expect(sentEmails[0].payload.headers["X-Entity-Ref-ID"]).toBe(
       "founders-welcome/cs_test_pro",

@@ -216,6 +216,30 @@ describe("Stripe billing webhook route", () => {
     expect(recordCheckoutCompletion).not.toHaveBeenCalled();
   });
 
+  test("uses the retrieved session marker when the event payload omits metadata", async () => {
+    currentEvent = {
+      id: "evt_retrieved_foreign",
+      type: "checkout.session.completed",
+      data: { object: { id: "cs_retrieved_foreign", metadata: {} } },
+    };
+    retrievedCheckoutSession = {
+      ...paidCheckoutSession,
+      id: "cs_retrieved_foreign",
+      metadata: { app: "other", plan: "pro" },
+      subscription: {
+        id: "sub_retrieved_foreign",
+        status: "active",
+        metadata: { app: "cmux", plan: "pro" },
+      },
+    };
+
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ skipped: "foreign_checkout" });
+    expect(recordCheckoutCompletion).not.toHaveBeenCalled();
+  });
+
   test("records cmux checkout completions", async () => {
     const response = await POST(webhookRequest());
 
@@ -276,16 +300,9 @@ describe("Stripe billing webhook route", () => {
       subscription: {
         id: "sub_founder_subscription_metadata",
         status: "active",
+        metadata: { founders_edition: "true" },
       },
       customer: { id: "cus_founder_subscription_metadata" },
-    };
-    retrievedSubscription = {
-      id: "sub_founder_subscription_metadata",
-      customer: "cus_founder_subscription_metadata",
-      status: "active",
-      metadata: { founders_edition: "true" },
-      cancel_at_period_end: false,
-      items: { data: [] },
     };
     currentEvent = {
       id: "evt_founder_subscription_metadata",

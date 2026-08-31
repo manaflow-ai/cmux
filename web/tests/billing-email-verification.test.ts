@@ -70,6 +70,28 @@ describe("purchase email verification", () => {
     expect(update).toHaveBeenCalledWith({ primaryEmailVerified: true });
   });
 
+  test("leaves anonymous accounts for the combined promotion mutation", async () => {
+    const update = mock(async () => undefined);
+    const anonymous = {
+      id: "anonymous-1",
+      primaryEmail: "buyer@example.com",
+      primaryEmailVerified: false,
+      isAnonymous: true,
+      update,
+    };
+
+    const result = await findOrCreateBillingUser(
+      {
+        listUsers: async () => [anonymous],
+        getUser: async () => anonymous,
+      } as never,
+      "buyer@example.com",
+    );
+
+    expect(result.id).toBe("anonymous-1");
+    expect(update).not.toHaveBeenCalled();
+  });
+
   test("uses the centralized server API fallback when no verified SDK field exists", async () => {
     const previousFetch = globalThis.fetch;
     const fetchMock = mock(async (rawInput: unknown, rawInit?: unknown) => {

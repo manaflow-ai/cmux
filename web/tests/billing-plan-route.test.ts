@@ -24,6 +24,7 @@ const getUser = mock(async () => {
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
   isStackConfigured: () => stackConfigured,
+  promoteStackUserFromAnonymousViaApi: async () => undefined,
   stackServerApp: stackConfigured ? { getUser } : null,
 }));
 

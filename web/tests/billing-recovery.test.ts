@@ -122,4 +122,57 @@ describe("billing purchase recovery", () => {
 
     expect(result).toBeNull();
   });
+
+  test("classifies a Founder session from expanded subscription metadata", async () => {
+    const customer = {
+      id: "cus_founder_subscription_fixture",
+      deleted: false,
+      email: "founder@example.com",
+      metadata: {},
+    };
+    const subscription = {
+      id: "sub_founder_subscription_fixture",
+      customer: customer.id,
+      status: "canceled",
+      metadata: { founders_edition: "true" },
+      cancel_at_period_end: false,
+      items: { data: [] },
+    };
+    const result = await findPaidBillingPurchaseByEmail(
+      customer.email,
+      {
+        db: {
+          select: () => {
+            throw new Error("no local database in this test");
+          },
+        } as never,
+        stripeClient: () => ({
+          customers: {
+            list: mock(async () => ({ data: [customer] })),
+          },
+          subscriptions: {
+            list: mock(async () => ({ data: [] })),
+          },
+          checkout: {
+            sessions: {
+              list: mock(async () => ({
+                data: [
+                  {
+                    id: "cs_founder_subscription_fixture",
+                    customer: customer.id,
+                    customer_details: { email: customer.email },
+                    payment_status: "paid",
+                    metadata: {},
+                    subscription,
+                  },
+                ],
+              })),
+            },
+          },
+        }) as never,
+      },
+    );
+
+    expect(result?.kind).toBe("founders_edition");
+  });
 });

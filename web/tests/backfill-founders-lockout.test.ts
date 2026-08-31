@@ -99,6 +99,7 @@ describe("Founder's lockout backfill", () => {
 
   test("apply delegates provisioning to the shared recorder", async () => {
     const stack = stackApp();
+    stack.user.primaryEmailVerified = true;
     const provider = stripeClient();
     const provision = mock(async () => undefined);
     const dependencies: FoundersBackfillDependencies = {
@@ -139,7 +140,13 @@ describe("Founder's lockout backfill", () => {
             limit: async () =>
               table === stripeCustomers
                 ? [{ stackUserId: stack.user.id, stackTeamId: null }]
-                : [{ id: "sub_fixture", stackUserId: stack.user.id, stackTeamId: null }],
+                : [{
+                    id: "sub_fixture",
+                    stackUserId: stack.user.id,
+                    stackTeamId: null,
+                    plan: "pro",
+                    scope: "user",
+                  }],
           }),
         }),
       }),
@@ -264,16 +271,18 @@ describe("Founder's lockout backfill", () => {
       metadata: { app: "other" },
       subscription: unrelatedSubscription.id,
     };
-    const subscriptionList = mock(async (options?: Record<string, unknown>) =>
-      options?.starting_after
+    const subscriptionList = mock(async (...args: unknown[]) => {
+      const options = args[0] as Record<string, unknown> | undefined;
+      return options?.starting_after
         ? { data: [founderSubscription], has_more: false }
-        : { data: [unrelatedSubscription], has_more: true },
-    );
-    const sessionList = mock(async (options?: Record<string, unknown>) =>
-      options?.starting_after
+        : { data: [unrelatedSubscription], has_more: true };
+    });
+    const sessionList = mock(async (...args: unknown[]) => {
+      const options = args[0] as Record<string, unknown> | undefined;
+      return options?.starting_after
         ? { data: [founderSession], has_more: false }
-        : { data: [unrelatedSession], has_more: true },
-    );
+        : { data: [unrelatedSession], has_more: true };
+    });
 
     const result = await runFoundersLockoutBackfill(
       {
@@ -317,7 +326,13 @@ describe("Founder's lockout backfill", () => {
             limit: async () =>
               table === stripeCustomers
                 ? [{ stackUserId: stack.user.id, stackTeamId: null }]
-                : [{ id: "sub_fixture", stackUserId: stack.user.id, stackTeamId: null }],
+                : [{
+                    id: "sub_fixture",
+                    stackUserId: stack.user.id,
+                    stackTeamId: null,
+                    plan: "pro",
+                    scope: "user",
+                  }],
           }),
         }),
       }),
