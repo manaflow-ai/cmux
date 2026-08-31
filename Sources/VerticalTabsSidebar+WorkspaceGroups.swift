@@ -14,6 +14,10 @@ extension VerticalTabsSidebar {
         let settings = renderContext.tabItemSettings
         let anchorId = group.anchorWorkspaceId
         let liveAnchorId = group.liveAnchorWorkspaceId
+        // Empty groups use their durable group id as the native drag identity;
+        // live groups use the workspace anchor. Keep the visual source state
+        // keyed to the same identity the drag monitor publishes.
+        let dragIdentity = group.isEmpty ? group.id : anchorId
         let isAnchorActive = liveAnchorId.map { tabManager.selectedTabId == $0 } ?? false
         let isMultiSelected = liveAnchorId.map { selectedTabIds.contains($0) } ?? false
             && selectedTabIds.count > 1
@@ -102,7 +106,7 @@ extension VerticalTabsSidebar {
             cwdContextMenuItems: cwdContextMenuItems,
             rowSpacing: tabRowSpacing,
             isFirstRow: renderContext.sidebarReorderIds.first == anchorId,
-            isBeingDragged: dragState.draggedTabId == anchorId,
+            isBeingDragged: dragState.draggedTabId == dragIdentity,
             topDropIndicatorVisible: topDropIndicatorVisible,
             bottomDropIndicatorVisible: bottomDropIndicatorVisible,
             colorSchemeIsDark: renderContext.environment.colorScheme == .dark
@@ -275,6 +279,7 @@ extension VerticalTabsSidebar {
         let settings = renderContext.tabItemSettings
         let anchorId = group.anchorWorkspaceId
         let liveAnchorId = group.liveAnchorWorkspaceId
+        let dragIdentity = group.isEmpty ? group.id : anchorId
         let isAnchorActive = liveAnchorId.map { tabManager.selectedTabId == $0 } ?? false
         let isMultiSelected = liveAnchorId.map { selectedTabIds.contains($0) } ?? false
             && selectedTabIds.count > 1
@@ -368,7 +373,7 @@ extension VerticalTabsSidebar {
             newWorkspacePlacement: newWorkspacePlacement,
             rowSpacing: tabRowSpacing,
             isFirstRow: renderContext.sidebarReorderIds.first == anchorId,
-            isBeingDragged: dragState.draggedTabId == anchorId,
+            isBeingDragged: dragState.draggedTabId == dragIdentity,
             topDropIndicatorVisible: topDropIndicatorVisible,
             bottomDropIndicatorVisible: bottomDropIndicatorVisible,
             shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
@@ -382,19 +387,6 @@ extension VerticalTabsSidebar {
         snapshot: SidebarWorkspaceGroupRowSnapshot
     ) -> SidebarWorkspaceGroupRowView {
         let rowId = SidebarWorkspaceRenderItemID.group(snapshot.groupId)
-        // An empty header has no live workspace capability. Carry the typed
-        // group identity so the resolver can route it through `.reorderGroup`;
-        // live groups continue to carry their anchor workspace id.
-        let dragPayloadId = snapshot.memberCount == 0
-            ? snapshot.groupId
-            : snapshot.anchorWorkspaceId
-        let onDragStart: () -> NSItemProvider = { [dragPayloadId] in
-#if DEBUG
-            cmuxDebugLog("sidebar.onDrag groupAnchor=\(dragPayloadId.uuidString.prefix(5))")
-#endif
-            dragState.beginDragging(tabId: dragPayloadId)
-            return SidebarTabDragPayload(tabId: dragPayloadId).provider()
-        }
         let header = SidebarWorkspaceGroupHeaderView(
             groupId: snapshot.groupId,
             anchorWorkspaceId: snapshot.anchorWorkspaceId,
@@ -427,7 +419,6 @@ extension VerticalTabsSidebar {
             isBeingDragged: snapshot.isBeingDragged,
             topDropIndicatorVisible: snapshot.topDropIndicatorVisible,
             bottomDropIndicatorVisible: snapshot.bottomDropIndicatorVisible,
-            onDragStart: onDragStart,
             onToggleCollapsed: { [weak tabManager, groupId = snapshot.groupId] in
                 tabManager?.toggleWorkspaceGroupCollapsed(groupId: groupId)
             },
@@ -556,7 +547,7 @@ extension VerticalTabsSidebar {
             groupId: snapshot.groupId,
             anchorWorkspaceId: snapshot.anchorWorkspaceId,
             shouldCollectWorkspaceDropTargets: snapshot.shouldCollectWorkspaceDropTargets,
-            onPointerFrameChange: { [pointerInteractionMonitor, workspaceId = snapshot.anchorWorkspaceId] frame in
+            onPointerFrameChange: { [pointerInteractionMonitor, workspaceId = snapshot.memberCount == 0 ? snapshot.groupId : snapshot.anchorWorkspaceId] frame in
                 pointerInteractionMonitor.updateFrame(frame, for: rowId, workspaceId: workspaceId)
             },
             onPointerFrameDisappear: { [pointerInteractionMonitor] in
