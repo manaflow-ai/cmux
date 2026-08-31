@@ -1683,8 +1683,50 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             reservedToolbarHeight: reservedToolbarHeight,
             toolbarFrameHeight: Self.persistentToolbarHeight,
             bottomSafeAreaInset: safeAreaInsetsBottom,
-            chromeHidden: chromeHidden
+            chromeHidden: chromeHidden,
+            topContentInset: topContentInset
         ))
+    }
+
+    /// The top safe-area band this surface underlaps for the scroll-edge
+    /// band (0 when the surface does not extend under the top bar). Pushed
+    /// by the hosting representable from SwiftUI-captured geometry: the
+    /// UIKit `safeAreaInsets.top` reads 0 once the SwiftUI hierarchy ignores
+    /// the top container edge, so the value must be captured outside that
+    /// expansion and forwarded here.
+    private(set) var topContentInset: CGFloat = 0
+
+    /// The band height actually applied to the libghostty surface by the
+    /// last geometry pass, pixel-aligned. The render layer is sized with
+    /// THIS value (not the live `topContentInset`) so the layer always
+    /// matches the exact pixel extent the renderer drew; a changed inset
+    /// converges through the next geometry pass.
+    private var appliedRenderTopInsetPts: CGFloat = 0
+
+    func setTopContentInset(_ inset: CGFloat) {
+        let clamped = max(0, inset)
+        guard abs(clamped - topContentInset) > 0.25 else { return }
+        MobileDebugLog.anchormux(
+            "scrolledge.topInset \(Int(topContentInset))->\(Int(clamped))"
+        )
+        topContentInset = clamped
+        let snapshot = viewportSnapshot()
+        layoutBottomDock(using: snapshot)
+        layoutRenderedTerminalForCurrentViewport(using: snapshot)
+        setNeedsGeometrySync()
+        setNeedsLayout()
+    }
+
+    /// The render layer rect: the grid render rect grown upward by the
+    /// applied scroll-edge band, matching the surface's inflated drawable.
+    private func rendererLayerRect(forGridRenderRect renderRect: CGRect) -> CGRect {
+        guard appliedRenderTopInsetPts > 0 else { return renderRect }
+        return CGRect(
+            x: renderRect.minX,
+            y: renderRect.minY - appliedRenderTopInsetPts,
+            width: renderRect.width,
+            height: renderRect.height + appliedRenderTopInsetPts
+        )
     }
 
     private func layoutRenderedTerminalForCurrentViewport() {
@@ -1701,7 +1743,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             "kb.renderRect \(Int(lastRenderRect.minY))->\(Int(renderRect.minY)) h=\(Int(renderRect.height))"
         )
         lastRenderRect = renderRect
-        syncRendererLayerFrame(scale: preferredScreenScale, renderRect: renderRect)
+        syncRendererLayerFrame(
+            scale: preferredScreenScale,
+            renderRect: rendererLayerRect(forGridRenderRect: renderRect)
+        )
         updateLetterboxBorder(
             renderRect: renderRect,
             isLetterboxed: snapshot.isLetterboxed(renderSize: renderRect.size)
@@ -4756,6 +4801,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         /// the daemon grants a bogus shared PTY size (the
         /// keyboard-transition font-oscillation bug).
         let measuredFontSize: Float32
+        /// The pixel-aligned scroll-edge band applied to the surface by this
+        /// pass, in points. The render layer must grow upward by exactly
+        /// this much: the drawable is this much taller than the grid box.
+        let appliedTopInsetPts: CGFloat
     }
 
     private func syncSurfaceGeometryAndWait(shouldReassertNaturalSize: Bool = true) async -> Bool {
@@ -4812,6 +4861,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let containerH = snapshot.containerSize.height
         let containerPxW = UInt32(max(1, Int((containerW * scale).rounded(.down))))
         let containerPxH = UInt32(max(1, Int((containerH * scale).rounded(.down))))
+        // The scroll-edge band above the grid, pixel-aligned at the captured
+        // scale. Applied to the surface before set_size so the drawable
+        // grows upward while the app-facing size (and therefore the grid)
+        // stays container-sized.
+        let topInsetPx = UInt32(max(0, Int((topContentInset * scale).rounded(.down))))
+        let appliedTopInsetPts = CGFloat(topInsetPx) / scale
         let eff = effectiveGrid
         let requiresExactEffectiveGrid = verifiedReplayRenderSuppressed
         let pushContentScale = abs(lastAppliedContentScale - scale) > 0.001
@@ -4822,6 +4877,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             if pushContentScale {
                 ghostty_surface_set_content_scale(surface, scale, scale)
             }
+            ghostty_surface_set_render_top_inset(surface, topInsetPx)
             ghostty_surface_set_size(surface, containerPxW, containerPxH)
             let measured = ghostty_surface_size(surface)
 
@@ -4865,7 +4921,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 cellPixelSize: cell,
                 naturalSize: natural,
                 pinnedSize: pinnedSize,
-                measuredFontSize: measuredFontSize
+                measuredFontSize: measuredFontSize,
+                appliedTopInsetPts: appliedTopInsetPts
             )
             Task { @MainActor in
                 guard let self else {
@@ -4920,15 +4977,23 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         layoutBottomDock(using: snapshot)
         let renderRect = snapshot.renderRect(forRenderSize: measuredRenderRect.size)
         lastRenderRect = renderRect
+        // The drawable this pass produced includes the scroll-edge band; the
+        // layer must grow upward by exactly that much or every present is
+        // discarded on the size check.
+        appliedRenderTopInsetPts = result.appliedTopInsetPts
         MobileDebugLog.anchormux(
             "geom container=\(Int(containerW))x\(Int(containerH)) scale=\(scale) "
             + "cellPx=\(Int(result.cellPixelSize.width))x\(Int(result.cellPixelSize.height)) "
             + "natural=\(result.naturalSize.columns)x\(result.naturalSize.rows) "
             + "eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil") "
             + "pinned=\(result.pinnedSize.map { "\(Int($0.width))x\(Int($0.height))" } ?? "nil") "
-            + "renderRect=\(Int(renderRect.width))x\(Int(renderRect.height))@\(Int(renderRect.minY))"
+            + "renderRect=\(Int(renderRect.width))x\(Int(renderRect.height))@\(Int(renderRect.minY)) "
+            + "topInset=\(Int(result.appliedTopInsetPts))"
         )
-        syncRendererLayerFrame(scale: scale, renderRect: renderRect)
+        syncRendererLayerFrame(
+            scale: scale,
+            renderRect: rendererLayerRect(forGridRenderRect: renderRect)
+        )
         updateLetterboxBorder(
             renderRect: renderRect,
             isLetterboxed: snapshot.isLetterboxed(renderSize: renderRect.size)

@@ -21,18 +21,27 @@ extension View {
     ///
     /// On iOS 27 the native opt-out is applied as well once an Xcode 27
     /// toolchain builds this target.
+    ///
+    /// `scrolledUnderContent` selects the stand-in's reported scroll state.
+    /// `false` (the default) keeps the historical contract: zero content at
+    /// rest, so the bar renders no scroll edge treatment. `true` reports a
+    /// tall content frozen mid-scroll, so the bar renders its scroll edge
+    /// effect (the iOS 26 progressive blur) over whatever visually underlaps
+    /// it — the terminal's scroll-edge band — while the frozen offset still
+    /// never emits the scroll deltas that would minimize the bar. The
+    /// association stays decoupled from the real content either way.
     @ViewBuilder
-    func mobilePinnedNavigationBar() -> some View {
+    func mobilePinnedNavigationBar(scrolledUnderContent: Bool = false) -> some View {
         #if canImport(UIKit)
         #if compiler(>=6.4)
         if #available(iOS 27.0, *) {
-            background(PinnedNavigationBarApplier())
+            background(PinnedNavigationBarApplier(scrolledUnderContent: scrolledUnderContent))
                 .toolbarMinimizeBehavior(.never, for: .navigationBar)
         } else {
-            background(PinnedNavigationBarApplier())
+            background(PinnedNavigationBarApplier(scrolledUnderContent: scrolledUnderContent))
         }
         #else
-        background(PinnedNavigationBarApplier())
+        background(PinnedNavigationBarApplier(scrolledUnderContent: scrolledUnderContent))
         #endif
         #else
         self
@@ -42,14 +51,18 @@ extension View {
 
 #if canImport(UIKit)
 private struct PinnedNavigationBarApplier: UIViewRepresentable {
+    var scrolledUnderContent: Bool = false
+
     func makeUIView(context: Context) -> PinnedNavigationBarProbeView {
         let view = PinnedNavigationBarProbeView()
         view.isUserInteractionEnabled = false
         view.backgroundColor = .clear
+        view.setScrolledUnderContent(scrolledUnderContent)
         return view
     }
 
     func updateUIView(_ view: PinnedNavigationBarProbeView, context: Context) {
+        view.setScrolledUnderContent(scrolledUnderContent)
         view.applyIfNeeded()
     }
 
@@ -59,13 +72,39 @@ private struct PinnedNavigationBarApplier: UIViewRepresentable {
 }
 
 final class PinnedNavigationBarProbeView: UIView {
-    /// The stand-in the bar tracks instead of the real content: zero content,
-    /// scrolling disabled, so the bar's scroll edge never moves.
+    /// The stand-in the bar tracks instead of the real content: scrolling
+    /// disabled, so the bar's scroll edge never moves. At rest it reports
+    /// zero content (no scroll edge treatment); in scrolled-under mode it
+    /// reports a tall content frozen mid-scroll so the bar renders its
+    /// scroll edge effect over the content that visually underlaps it.
     private let anchorScrollView: UIScrollView = {
         let scrollView = UIScrollView()
         scrollView.isScrollEnabled = false
         return scrollView
     }()
+
+    /// The mid-scroll pose: any frame/content pair that keeps the offset
+    /// strictly inside the scrollable range, so UIKit reads "content under
+    /// the bar" without ever seeing a scroll delta.
+    private static let scrolledUnderContentHeight: CGFloat = 10_000
+    private static let scrolledUnderOffset: CGFloat = 5_000
+
+    func setScrolledUnderContent(_ scrolledUnder: Bool) {
+        if scrolledUnder {
+            guard anchorScrollView.contentSize.height != Self.scrolledUnderContentHeight else { return }
+            anchorScrollView.frame = CGRect(x: 0, y: 0, width: 1, height: 100)
+            anchorScrollView.contentSize = CGSize(
+                width: 1,
+                height: Self.scrolledUnderContentHeight
+            )
+            anchorScrollView.contentOffset = CGPoint(x: 0, y: Self.scrolledUnderOffset)
+        } else {
+            guard anchorScrollView.contentSize.height != 0 else { return }
+            anchorScrollView.contentSize = .zero
+            anchorScrollView.contentOffset = .zero
+            anchorScrollView.frame = .zero
+        }
+    }
     /// The controller currently pointed at the stand-in, so teardown can
     /// release the association instead of leaving the bar tracking a
     /// deallocated probe's scroll view.
