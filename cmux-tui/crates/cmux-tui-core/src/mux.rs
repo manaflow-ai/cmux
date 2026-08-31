@@ -24008,6 +24008,63 @@ mod tests {
     }
 
     #[test]
+    fn repeated_socket_done_reports_coalesce_when_roster_replay_is_blocked() {
+        let mux = test_mux();
+        let blocked_surface = mux.new_workspace(None, None).unwrap();
+        let target_surface = mux.new_workspace(None, None).unwrap();
+        let blocked_terminal = blocked_surface.terminal_public_id().cloned().expect("terminal");
+
+        // An earlier unresolved projection prevents the roster from folding
+        // the target echo. Repeated direct Done reports must still use the
+        // durable projection as their idempotency fence.
+        mux.remove_terminal_catalog_for_test(&blocked_terminal);
+        let pending_hook = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "UserPromptSubmit",
+            Some(&blocked_terminal.to_string()),
+            serde_json::json!({}),
+        )
+        .unwrap();
+        let validated = mux.journal_kernel.validate_ingress(&pending_hook).unwrap();
+        mux.workspace_registry
+            .lock()
+            .unwrap()
+            .append_journal_ingress(&pending_hook, &validated, "test", "done-echo-prefix")
+            .unwrap();
+        mux.agent_roster_fold_worker_running.store(true, Ordering::Release);
+
+        let socket_echoes = || {
+            mux.session_journal_after(0, 1024)
+                .unwrap()
+                .records
+                .into_iter()
+                .filter(|record| {
+                    record
+                        .payload
+                        .get("adapter")
+                        .and_then(|adapter| adapter.get("id"))
+                        .and_then(Value::as_str)
+                        == Some(crate::journal_reducers::SOCKET_REPORT_ADAPTER)
+                })
+                .count()
+        };
+
+        for _ in 0..4 {
+            mux.report_agent(
+                target_surface.id,
+                AgentState::Done,
+                AgentSource::Socket,
+                Some("blocked-done-session".into()),
+            )
+            .unwrap();
+        }
+        assert_eq!(socket_echoes(), 1, "durable Done projection must bound repeated echoes");
+
+        mux.agent_roster_fold_worker_running.store(false, Ordering::Release);
+        mux.shutdown();
+    }
+
+    #[test]
     fn roster_fold_pages_to_a_target_beyond_the_first_journal_page() {
         let root = std::env::temp_dir().join(format!(
             "cmux-roster-multiple-pages-{}",
