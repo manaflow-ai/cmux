@@ -1000,9 +1000,7 @@ fn install_provider(
             } else {
                 None
             };
-            let previous_hooks = files_changed.then(|| {
-                fs::read(path).ok().map(|bytes| (bytes, existing_file_mode(path).unwrap_or(0o600)))
-            });
+            let previous_hooks = if files_changed { Some(snapshot_file(path)?) } else { None };
             if files_changed {
                 let mut encoded = serde_json::to_vec_pretty(&Value::Object(root))?;
                 encoded.push(b'\n');
@@ -1095,9 +1093,7 @@ fn uninstall_provider(
                 None
             };
             let files_changed = pending_hooks.is_some();
-            let previous_hooks = files_changed.then(|| {
-                fs::read(path).ok().map(|bytes| (bytes, existing_file_mode(path).unwrap_or(0o600)))
-            });
+            let previous_hooks = if files_changed { Some(snapshot_file(path)?) } else { None };
             if let Some(encoded) = &pending_hooks {
                 atomic_write(path, encoded, Some(0o600))?;
             }
@@ -1483,16 +1479,18 @@ fn codex_state_key_hooks_path(path: &Path, from_env_override: bool) -> PathBuf {
     }
 }
 
-/// Position of the cmux-owned matcher group within one event's group array.
-/// codex keys trust by position, so pre-existing custom groups shift our key.
-fn codex_owned_group_index(root: &Map<String, Value>, event: &str) -> Option<usize> {
+/// Position of the cmux-owned handler as (group index, hook index within that
+/// group's hooks array). codex keys trust by BOTH positions, so a foreign
+/// entry before ours in the same group shifts the key just like a preceding
+/// group does.
+fn codex_owned_hook_position(root: &Map<String, Value>, event: &str) -> Option<(usize, usize)> {
     let groups = root.get("hooks")?.get(event)?.as_array()?;
-    groups.iter().position(|group| {
-        group.get("hooks").and_then(Value::as_array).is_some_and(|hooks| {
-            hooks.iter().any(|hook| {
-                hook.get("command").and_then(Value::as_str).is_some_and(is_owned_command)
-            })
-        })
+    groups.iter().enumerate().find_map(|(group_index, group)| {
+        let hooks = group.get("hooks").and_then(Value::as_array)?;
+        let handler_index = hooks.iter().position(|hook| {
+            hook.get("command").and_then(Value::as_str).is_some_and(is_owned_command)
+        })?;
+        Some((group_index, handler_index))
     })
 }
 
@@ -1503,9 +1501,9 @@ fn codex_expected_trust_entries(
     let mut entries = BTreeMap::new();
     for event in CODEX_EVENTS {
         let label = codex_event_state_label(event)?;
-        let group_index = codex_owned_group_index(root, event)
+        let (group_index, handler_index) = codex_owned_hook_position(root, event)
             .with_context(|| format!("installed codex hook for {event} is missing"))?;
-        let key = format!("{}:{label}:{group_index}:0", key_hooks_path.display());
+        let key = format!("{}:{label}:{group_index}:{handler_index}", key_hooks_path.display());
         let hash =
             codex_trust_hash(label, &hook_command("codex", event), COMMAND_HOOK_TIMEOUT_SECONDS);
         entries.insert(key, hash);
@@ -1735,6 +1733,23 @@ fn prepare_codex_trust_state(
 
 fn commit_codex_trust_state(write: &PreparedCodexTrustWrite) -> anyhow::Result<()> {
     atomic_write(&write.config_path, write.updated.as_bytes(), Some(write.mode))
+}
+
+/// Captures a file's rollback snapshot (bytes and mode) before mutation.
+/// Only a genuine NotFound maps to None; any other read error fails the whole
+/// operation up front, because rolling back against a false None would delete
+/// a pre-existing file as if it had been absent.
+fn snapshot_file(path: &Path) -> anyhow::Result<Option<(Vec<u8>, u32)>> {
+    match fs::read(path) {
+        Ok(bytes) => {
+            let mode = existing_file_mode(path).unwrap_or(0o600);
+            Ok(Some((bytes, mode)))
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => {
+            Err(error).with_context(|| format!("snapshot {} for rollback", path.display()))
+        }
+    }
 }
 
 /// Restores hooks.json to its pre-operation content (or absence) after a
@@ -2089,6 +2104,67 @@ mod tests {
             "{stop_key}"
         );
         assert!(!state.contains_key(&format!("{}:stop:0:0", hooks_path.display())));
+    }
+
+    #[test]
+    fn codex_trust_keys_use_the_owned_hook_index_within_a_group() {
+        // Unit: a foreign hook before ours in the same group shifts the
+        // handler index; codex keys trust by group AND handler position.
+        let owned = hook_command("codex", "Stop");
+        let mixed = json!({"hooks": {"Stop": [{"hooks": [
+            {"type": "command", "command": "foreign-first", "timeout": 5},
+            {"type": "command", "command": owned, "timeout": 5},
+        ]}]}});
+        let mixed = mixed.as_object().unwrap().clone();
+        assert_eq!(codex_owned_hook_position(&mixed, "Stop"), Some((0, 1)));
+
+        // End to end: after a hand-edit inserts a foreign hook before ours,
+        // codex would look up key ...:stop:0:1 and skip the untrusted cmux
+        // hook, so status must stop claiming installed; a reinstall re-appends
+        // our handler as its own group and mints the key for that position.
+        let tmp = tempfile::tempdir().unwrap();
+        let context = context(tmp.path());
+        let install = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        assert!(!run_with_context(&install, &context).failed);
+        let hooks_path = context.home.join(".codex/hooks.json");
+        let mut edited: Value = serde_json::from_slice(&fs::read(&hooks_path).unwrap()).unwrap();
+        edited["hooks"]["Stop"][0]["hooks"]
+            .as_array_mut()
+            .unwrap()
+            .insert(0, json!({"type": "command", "command": "foreign-first", "timeout": 5}));
+        atomic_write(&hooks_path, &serde_json::to_vec_pretty(&edited).unwrap(), Some(0o600))
+            .unwrap();
+
+        let status = Plan { action: Action::Status, providers: vec!["codex".into()] };
+        let result = run_with_context(&status, &context);
+        assert_eq!(result.value["providers"][0]["state"], "partial", "{}", result.value);
+
+        assert!(!run_with_context(&install, &context).failed);
+        let state = codex_state_table(&context);
+        assert!(
+            state.contains_key(&format!("{}:stop:1:0", hooks_path.display())),
+            "reinstall must key trust by the hook's new position: {state:?}"
+        );
+        assert!(!state.contains_key(&format!("{}:stop:0:0", hooks_path.display())));
+        let result = run_with_context(&status, &context);
+        assert_eq!(result.value["providers"][0]["state"], "installed", "{}", result.value);
+    }
+
+    #[test]
+    fn snapshot_file_propagates_non_notfound_read_errors() {
+        let root = tempfile::tempdir().unwrap();
+        // A directory in place of the file is a read error that is NOT
+        // NotFound; mapping it to None would make a later rollback delete a
+        // pre-existing hooks.json as if it had been absent.
+        let dir = root.path().join("hooks.json");
+        fs::create_dir_all(&dir).unwrap();
+        let error = snapshot_file(&dir).unwrap_err();
+        assert!(error.to_string().contains("snapshot"), "{error:#}");
+
+        assert!(snapshot_file(&root.path().join("absent.json")).unwrap().is_none());
+        let file = root.path().join("present.json");
+        atomic_write(&file, b"{}", Some(0o600)).unwrap();
+        assert_eq!(snapshot_file(&file).unwrap().unwrap().0, b"{}");
     }
 
     #[test]
