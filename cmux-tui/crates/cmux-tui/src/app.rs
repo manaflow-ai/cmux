@@ -9516,7 +9516,8 @@ fn run_with_machine_updates_inner(
     let sidebar_view = config.sidebar.view;
     let fallback_cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let initial_machine_notice = initial_workspace_error
-        .or_else(|| machine_ui.as_ref().and_then(|machine| machine.notice.clone()));
+        .or_else(|| machine_ui.as_ref().and_then(|machine| machine.notice.clone()))
+        .or_else(|| config.startup_warnings.first().cloned());
     let machine_selection_intent = machine_ui.as_ref().and_then(|machine| machine.snapshot.active);
     let machine_presented = machine_ui.as_ref().and_then(|machine| machine.snapshot.active);
     let owner_machine = owner_mux
@@ -14580,6 +14581,9 @@ impl App {
         };
         let mut config = crate::config::load();
         config.apply_chrome_defaults(self.chrome);
+        if let Some(warning) = config.startup_warnings.first() {
+            self.status_message = Some(warning.clone());
+        }
         let shortcut_rows = self
             .shortcut_help
             .as_ref()

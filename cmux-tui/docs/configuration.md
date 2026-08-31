@@ -1,6 +1,6 @@
 # Configuration
 
-`cmux-tui` reads `~/.config/cmux/cmux-tui.json`, or `$XDG_CONFIG_HOME/cmux/cmux-tui.json` when `XDG_CONFIG_HOME` is set. Existing `mux.json` files are still used when `cmux-tui.json` is absent, and `cmux-tui.json` wins when both exist. Set `CMUX_TUI_CONFIG` to use another file; legacy `CMUX_MUX_CONFIG` is still accepted as a fallback. Every documented key is optional. Unknown top-level keys are rejected, logged, and cause the whole file to use defaults. Known sections are validated independently, so an invalid section is logged and replaced with that section's defaults while valid sections remain active. Section objects reject unknown keys. Action names are strict: an unknown action does not run and is ignored.
+`cmux-tui` reads `~/.config/cmux/cmux-tui.json`, or `$XDG_CONFIG_HOME/cmux/cmux-tui.json` when `XDG_CONFIG_HOME` is set. Existing `mux.json` files are still used when `cmux-tui.json` is absent, and `cmux-tui.json` wins when both exist. Set `CMUX_TUI_CONFIG` to use another file; legacy `CMUX_MUX_CONFIG` is still accepted as a fallback. Every documented key is optional. An unknown top-level key is skipped: the rest of the file stays active, and the client logs the key and shows it in the status bar (a typo never silently disables the file, and a config written for a newer cmux-tui still applies its known keys). Known sections are validated independently, so an invalid section is logged and replaced with that section's defaults while valid sections remain active. Section objects reject unknown keys. Action names are strict: an unknown action does not run and is ignored.
 
 ## Executable fields and transport rules
 
@@ -326,6 +326,15 @@ Terminal panes, the workspace sidebar, and the shortcut modal share the same `â–
 | `server.detached_owner` | boolean | `true` | Plain `cmux` starts or reuses a detached headless session owner and attaches as a client, so the session survives every client detaching. `false` hosts the session inside the first TUI process |
 
 WebSocket clients pair through a six-digit browser/TUI comparison by default. WebSocket binds must be loopback unless cmux-tui is started with `--ws-insecure-bind`. The listener has no TLS; use an authenticated TLS reverse proxy for remote access. See the [transport contract](../spec/transports.md#websocket).
+
+## Notifications
+
+| Key | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `notifications.agent_blocked` | boolean | `true` | Each attached client alerts its own host terminal (OSC 9, or OSC 99 on kitty, plus BEL) when an agent in an unfocused terminal turns blocked |
+| `notifications.agent_idle` | boolean | `true` | Same alert when an agent in an unfocused terminal ends a working or blocked run by turning idle |
+
+Alerts are per-client presentation: the client whose terminal has the agent focused never alerts. Inside tmux the escape is passthrough-wrapped and requires `allow-passthrough on`.
 
 ## Commands
 
