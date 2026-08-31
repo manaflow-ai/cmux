@@ -6229,13 +6229,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This iPhone build cannot connect to that cmux build."
+            "value": "This iPhone build cannot complete pairing with that cmux build. Update cmux to the latest version on your iPhone, then scan again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この iPhone ビルドは、その cmux ビルドに接続できません。"
+            "value": "この iPhone ビルドは、その cmux ビルドとのペアリングを完了できません。iPhone の cmux を最新バージョンに更新してから、もう一度スキャンしてください。"
           }
         }
       }
@@ -6331,13 +6331,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A DEV iPhone build connects to its same-tag DEV Mac build, plus tags granted with 'cmux mobile compatible-tags'. BETA, INTERNAL, and App Store builds connect only to Stable or Nightly."
+            "value": "Update cmux to the latest version on your iPhone, then scan again. A DEV iPhone build connects to its same-tag DEV Mac build, plus tags granted with 'cmux mobile compatible-tags'. BETA, INTERNAL, and App Store builds connect only to Stable or Nightly."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "DEV iPhone ビルドは同じタグの DEV Mac ビルドと、「cmux mobile compatible-tags」で許可されたタグに接続できます。BETA、INTERNAL、App Store ビルドは Stable または Nightly にのみ接続できます。"
+            "value": "iPhone の cmux を最新バージョンに更新してから、もう一度スキャンしてください。DEV iPhone ビルドは同じタグの DEV Mac ビルドと、「cmux mobile compatible-tags」で許可されたタグに接続できます。BETA、INTERNAL、App Store ビルドは Stable または Nightly にのみ接続できます。"
           }
         }
       }
@@ -6501,13 +6501,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Update cmux from the App Store (or TestFlight), then scan again."
+            "value": "Update cmux to the latest version on your iPhone from the App Store (or TestFlight), then scan again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "App Store（またはTestFlight）でcmuxを更新してから、もう一度スキャンしてください。"
+            "value": "App Store（またはTestFlight）で iPhone の cmux を最新バージョンに更新してから、もう一度スキャンしてください。"
           }
         }
       }
@@ -6535,13 +6535,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This isn't a cmux pairing QR. On cmux 0.64.17, scan the Pair iPhone code. On newer versions, scan the code in Tailscale Pairing."
+            "value": "This QR could not be read by cmux. Update cmux to the latest version on your iPhone from the App Store or TestFlight, then scan the code in Tailscale Pairing."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "これはcmuxのペアリングQRコードではありません。cmux 0.64.17では「Pair iPhone」のコードをスキャンします。新しいバージョンでは「Tailscale Pairing」のコードをスキャンしてください。"
+            "value": "この QR コードを cmux で読み取れませんでした。App Store または TestFlight で iPhone の cmux を最新バージョンに更新してから、「Tailscale ペアリング」でコードをスキャンしてください。"
           }
         }
       }
@@ -6858,13 +6858,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This QR needs a newer version of cmux. Update the app and try again."
+            "value": "This QR needs a newer version of cmux. Update cmux to the latest version on your iPhone from the App Store or TestFlight, then scan again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このQRコードには新しいバージョンのcmuxが必要です。アプリを更新してからもう一度お試しください。"
+            "value": "この QR コードには新しいバージョンの cmux が必要です。App Store または TestFlight で iPhone の cmux を最新バージョンに更新してから、もう一度スキャンしてください。"
           }
         }
       }

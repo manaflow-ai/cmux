@@ -16,7 +16,7 @@ private let macPairedMacPublishLog = Logger(subsystem: "com.cmuxterm.app", categ
 /// app yet, so neither delivers the Mac's route to the phone. The per-user
 /// `pairedMacs` backup IS reachable from the dev iOS build (it restores from it),
 /// so this bridges the gap until those pipelines work on dev. Every Mac build
-/// publishes into the exact iOS bundle target selected for pairing and pushes.
+/// publishes into the exact iOS bundle that completed the pairing handshake.
 ///
 /// Strictly DEV-gated and best-effort, mirroring ``PresenceHeartbeatClient``:
 /// a failure never disturbs the Mac, and Release builds never publish.
@@ -33,6 +33,9 @@ final class MacPairedMacBackupPublisher {
     /// The routes most recently published, so an unchanged status update (the
     /// common case) does not re-POST.
     private var lastPublishedRoutes: [CmxAttachRoute] = []
+    /// A target change must republish unchanged routes into the new backup
+    /// namespace (for example, after pairing a beta build after App Store).
+    private var lastPublishedBundleIdentifier: String?
 
     private init() {}
 
@@ -67,6 +70,8 @@ final class MacPairedMacBackupPublisher {
     func configure(auth: AuthCoordinator) {
         guard Self.isEnabled() else { return }
         self.auth = auth
+        lastPublishedRoutes = []
+        lastPublishedBundleIdentifier = nil
         // The iOS-pairing listener defaults ON in DEBUG builds (see
         // MobileCatalogSection.iOSPairingHost), so an attach route comes up
         // without a manual Settings toggle; we just observe and publish it.
@@ -78,7 +83,15 @@ final class MacPairedMacBackupPublisher {
         observeTask = Task { @MainActor [weak self] in
             for await status in MobileHostService.shared.statusUpdates() {
                 guard let self, !Task.isCancelled else { break }
-                guard !status.routes.isEmpty, status.routes != self.lastPublishedRoutes else { continue }
+                let accountID = self.auth?.authenticatedSessionIdentity?.accountID
+                let targetBundleIdentifier = MobileHostService.shared
+                    .pairedPhoneBundleIdentifier(accountID: accountID)
+                guard !status.routes.isEmpty,
+                      targetBundleIdentifier != nil,
+                      status.routes != self.lastPublishedRoutes
+                        || targetBundleIdentifier != self.lastPublishedBundleIdentifier else {
+                    continue
+                }
                 await self.publish(routes: status.routes)
             }
         }
@@ -93,6 +106,14 @@ final class MacPairedMacBackupPublisher {
             return // not signed in -> nothing to publish
         }
         let teamID = auth.resolvedTeamID
+        let accountID = auth.authenticatedSessionIdentity?.accountID
+        guard let targetBundleIdentifier = MobileHostService.shared
+            .pairedPhoneBundleIdentifier(accountID: accountID),
+              let targetNamespace = MobileIOSAppNamespace(
+                  bundleIdentifier: targetBundleIdentifier
+              ) else {
+            return
+        }
 
         guard var comps = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else { return }
         comps.path = (comps.path.hasSuffix("/") ? String(comps.path.dropLast()) : comps.path)
@@ -123,10 +144,6 @@ final class MacPairedMacBackupPublisher {
         ])
         guard let payload = try? JSONEncoder().encode(body) else { return }
 
-        guard let targetNamespace =
-            MobileIOSPairingTargetStore().selectedNamespace else {
-            return
-        }
         let req = Self.makeRequest(
             url: url,
             accessToken: tokens.accessToken,
@@ -142,13 +159,14 @@ final class MacPairedMacBackupPublisher {
                 return
             }
             lastPublishedRoutes = routes
+            lastPublishedBundleIdentifier = targetNamespace.bundleIdentifier
             macPairedMacPublishLog.info("published \(routes.count, privacy: .public) route(s) to paired-mac backup")
         } catch {
             macPairedMacPublishLog.warning("self-publish error: \(String(describing: error), privacy: .public)")
         }
     }
 
-    /// Builds a request for the exact iOS bundle selected by the user.
+    /// Builds a request for the exact iOS bundle that completed pairing.
     nonisolated static func makeRequest(
         url: URL,
         accessToken: String,
@@ -172,10 +190,4 @@ final class MacPairedMacBackupPublisher {
         return request
     }
 
-    /// Republishes unchanged routes after the selected iOS target changes.
-    func pairingTargetDidChange(routes: [CmxAttachRoute]) {
-        lastPublishedRoutes = []
-        guard !routes.isEmpty else { return }
-        Task { await publish(routes: routes) }
-    }
 }

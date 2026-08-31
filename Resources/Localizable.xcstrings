@@ -145234,6 +145234,23 @@
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "在 iPhone 上的 cmux 中，使用同一帳戶登入，選擇 Tailscale，然後掃描此代碼。" } }
       }
     },
+    "mobile.pairing.updateIOSAppHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "If pairing does not complete, update cmux to the latest version on your iPhone from the App Store or TestFlight, then scan again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリングが完了しない場合は、App Store または TestFlight で iPhone の cmux を最新バージョンに更新してから、もう一度スキャンしてください。"
+          }
+        }
+      }
+    },
     "mobile.pairing.signedInAs": {
       "extractionState": "manual",
       "localizations": {
@@ -145683,108 +145700,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "再試行"
-          }
-        }
-      }
-    },
-    "mobile.pairing.target.appStore": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux"
-          }
-        }
-      }
-    },
-    "mobile.pairing.target.beta": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux BETA"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux BETA"
-          }
-        }
-      }
-    },
-    "mobile.pairing.target.demo": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux DEMO"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux DEMO"
-          }
-        }
-      }
-    },
-    "mobile.pairing.target.dev": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux DEV %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux DEV %@"
-          }
-        }
-      }
-    },
-    "mobile.pairing.target.internal": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux INTERNAL"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux INTERNAL"
-          }
-        }
-      }
-    },
-    "mobile.pairing.targetApp": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open with"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "開くアプリ"
           }
         }
       }

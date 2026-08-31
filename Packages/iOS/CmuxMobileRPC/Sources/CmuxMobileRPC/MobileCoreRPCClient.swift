@@ -25,6 +25,10 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     private let runtime: any MobileSyncRuntime
     private let route: CmxAttachRoute
     private let ticket: CmxAttachTicket
+    /// Stable identity metadata sent with host-status so the Mac can bind
+    /// routing to the iOS app that actually completed pairing.
+    private let clientID: String?
+    private let clientBundleIdentifier: String?
     private let transportRequest: CmxByteTransportRequest
     /// The attach ticket this client uses to authorize RPC requests.
     public var attachTicket: CmxAttachTicket { ticket }
@@ -52,6 +56,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     ///   - runtime: The DI runtime supplying transport factory, token provider, timeouts, clock.
     ///   - route: The attach route this client connects over.
     ///   - ticket: The attach ticket authorizing requests.
+    ///   - clientID: Stable per-install iOS client identity, sent only with
+    ///     host-status metadata so the Mac can persist the pairing owner.
+    ///   - clientBundleIdentifier: Exact iOS bundle identifier for this install.
     ///   - allowsStackAuthFallback: When `true`, falls back to a Stack Auth token
     ///     on routes that allow it once the attach ticket no longer covers a request.
     ///   - legacyTailscaleAuthorizationEvidence: Exact local capability retained
@@ -66,6 +73,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         runtime: any MobileSyncRuntime,
         route: CmxAttachRoute,
         ticket: CmxAttachTicket,
+        clientID: String? = nil,
+        clientBundleIdentifier: String? = nil,
         allowsStackAuthFallback: Bool = false,
         legacyTailscaleAuthorizationEvidence: CmxLegacyTailscaleAuthorizationEvidence? = nil,
         userTailscalePairingAuthorization: CmxUserTailscalePairingAuthorization? = nil,
@@ -82,6 +91,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         self.runtime = runtime
         self.route = route
         self.ticket = ticket
+        self.clientID = Self.normalizedMetadata(clientID)
+        self.clientBundleIdentifier = Self.normalizedMetadata(clientBundleIdentifier)
         let authorizationMode: CmxTransportAuthorizationMode
         if route.kind == .iroh {
             authorizationMode = .transportAdmission
@@ -540,6 +551,17 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         guard var request = try JSONSerialization.jsonObject(with: requestData) as? [String: Any] else {
             return AuthenticatedRequestPayload(data: requestData, stackAccessToken: nil)
         }
+        // Host status is the post-handshake identity boundary. Include the
+        // exact install identity only there so the Mac can persist the bundle
+        // that paired without bloating every RPC or trusting QR-time choices.
+        if isHostStatusRequest(request),
+           let clientID,
+           let clientBundleIdentifier {
+            var params = request["params"] as? [String: Any] ?? [:]
+            params["client_id"] = clientID
+            params["ios_bundle_identifier"] = clientBundleIdentifier
+            request["params"] = params
+        }
         if transportRequest.authorizationMode == .transportAdmission {
             request.removeValue(forKey: "auth")
             return AuthenticatedRequestPayload(
@@ -774,6 +796,11 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         // attach token yet (it mints the ticket), so requiring auth routes it through
         // the Stack Auth account token: a ticket can only be created by a signed-in user.
         return method != "mobile.host.status"
+    }
+
+    private static func normalizedMetadata(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
     }
 
     private static func stringParamSelection(

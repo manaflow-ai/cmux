@@ -15,6 +15,7 @@ import Testing
         ("cmux-ios-dev.cmux.app.demo://attach?v=2&r=100.64.0.5:58465", true),
         ("cmux-ios-dev://attach?v=2&r=100.64.0.5:58465", true),
         ("cmux-ios-dev://", true),
+        ("cmux-ios-dev.cmux.app.future://attach?v=2&r=100.64.0.5:58465", true),
         ("https://example.com", false),
         ("WIFI:S:net;;", false),
         ("", false),

@@ -308,8 +308,8 @@ final class PhonePushClient {
         guard let identity = auth?.authenticatedSessionIdentity else {
             return .authenticationUnavailable
         }
-        guard let targetBundleIdentifier = MobileIOSPairingTargetStore()
-            .pushTargetNamespace?.bundleIdentifier else {
+        guard let targetBundleIdentifier = MobileHostService.shared
+            .pairedPhoneBundleIdentifier(accountID: identity.accountID) else {
             return .encodingFailed
         }
         deliveryQueue.retainOnly(
@@ -346,8 +346,8 @@ final class PhonePushClient {
         guard PhonePushConfiguration.forwardingEnabled(in: defaults),
               !ids.isEmpty,
               let identity = auth?.authenticatedSessionIdentity,
-              let targetBundleIdentifier = MobileIOSPairingTargetStore()
-                  .pushTargetNamespace?.bundleIdentifier else { return }
+              let targetBundleIdentifier = MobileHostService.shared
+                  .pairedPhoneBundleIdentifier(accountID: identity.accountID) else { return }
         deliveryQueue.retainOnly(
             accountID: identity.accountID,
             generation: identity.generation
@@ -464,11 +464,27 @@ final class PhonePushClient {
               auth.isAuthenticatedSessionIdentityCurrent(identity) else {
             return
         }
+        // Re-key restored work to the bundle that actually paired. Older
+        // envelopes either have no target or carry the removed picker value;
+        // preserving either would silently send a stale notification to the
+        // wrong APNs topic.
+        let pairedBundleIdentifier = MobileHostService.shared
+            .pairedPhoneBundleIdentifier(accountID: identity.accountID)
         let rebound = restored.compactMap { envelope -> PhonePushRequestEnvelope? in
             guard envelope.expectedAccountID == identity.accountID else {
                 return nil
             }
-            return envelope.rebound(
+            guard let pairedBundleIdentifier else { return nil }
+            let retargeted = PhonePushRequestEnvelope(
+                correlationID: envelope.correlationID,
+                expirationEpochSeconds: envelope.expirationEpochSeconds,
+                body: envelope.body,
+                coalescingID: envelope.coalescingID,
+                expectedAccountID: envelope.expectedAccountID,
+                expectedSessionGeneration: envelope.expectedSessionGeneration,
+                targetBundleIdentifier: pairedBundleIdentifier
+            )
+            return retargeted.rebound(
                 accountID: identity.accountID,
                 generation: identity.generation
             )

@@ -55,6 +55,7 @@ struct MobileHostIdentityTests {
             pairedAt: Date(timeIntervalSince1970: 100)
         )
         #expect(store.targetBundleIdentifier(accountID: "account-a") == "dev.cmux.app.internal")
+        #expect(store.records.allSatisfy { $0.clientID != "legacy-picker-selection" })
     }
 
     @Test func pairedPhoneBundleDrivesPushEnvelopeTarget() throws {
@@ -93,6 +94,28 @@ struct MobileHostIdentityTests {
             targetBundleIdentifier: target
         )
         #expect(payload.targetBundleIdentifier == "dev.cmux.app.demo")
+    }
+
+    @Test func officialNightlyFallsBackToCanonicalReleaseBundle() throws {
+        let suiteName = "mobile-ios-target-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = MobilePairedPhoneStore(
+            defaults: defaults,
+            macInstanceTag: "nightly"
+        )
+        #expect(store.targetBundleIdentifier(accountID: "account-a") == "com.cmux.app")
+    }
+
+    @Test func taggedDevFallsBackToItsExactIOSBundle() throws {
+        let suiteName = "mobile-ios-target-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = MobilePairedPhoneStore(
+            defaults: defaults,
+            macInstanceTag: "feature-a"
+        )
+        #expect(store.targetBundleIdentifier(accountID: "account-a") == "dev.cmux.ios.feature-a")
     }
 
     @Test func irohRegistrationUsesAuthoritativeAppInstanceTag() {

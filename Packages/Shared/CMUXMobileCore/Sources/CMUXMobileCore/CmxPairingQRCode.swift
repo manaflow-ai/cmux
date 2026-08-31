@@ -51,8 +51,12 @@ import Foundation
 /// Plain text is also smaller, which lowers the QR version (fewer, larger
 /// modules) and makes the code scan faster from a Mac screen.
 ///
-/// Compatibility: the Mac pairing window emits only a Tailscale pairing
-/// payload. v3 remains decodable for existing Iroh links and explicit
+/// Compatibility: the Mac pairing window emits one canonical Tailscale pairing
+/// payload for official Macs (the App Store scheme). The in-app scanner accepts
+/// that URL from every official iOS variant; the system camera may route it only
+/// to the App Store build, which is intentional because in-app scan is the
+/// supported cross-variant flow. Tagged DEV Macs still emit their exact tagged
+/// scheme. v3 remains decodable for existing Iroh links and explicit
 /// device-attach flows. Workspace-scoped tickets, dev loopback tickets, and
 /// every RPC consumer keep the compact v1 JSON payload
 /// (``CmxAttachTicketCompactCoder``), and the decoder keeps accepting both that
@@ -124,10 +128,12 @@ public struct CmxPairingQRCode: Sendable {
             })
             items = compatibilityItems
         }
-        // The scheme is channel-specific (see ``CmxPairingURLScheme``): a dev
-        // Mac's QR opens the dev iOS build, a release Mac's QR opens the
-        // release build, and the system camera can no longer hand a beta/prod
-        // code to a dev build that also claimed the scheme.
+        // Official Macs use the canonical App Store scheme so one QR is valid
+        // inside App Store, BETA, INTERNAL, and DEMO builds. Tagged DEV Macs
+        // keep their exact scheme. Each bundle registers only its own scheme,
+        // so the system camera can never hand this beta/prod code to a dev
+        // build that also claimed the scheme; cross-variant routing is
+        // deliberately owned by the in-app scanner.
         return "\(scheme)://attach?" + items.joined(separator: "&")
     }
 

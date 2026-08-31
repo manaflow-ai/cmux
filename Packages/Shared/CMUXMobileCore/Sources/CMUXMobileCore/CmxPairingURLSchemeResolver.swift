@@ -1,17 +1,18 @@
 import Foundation
 
-/// Resolves the pairing target for the current process without global state.
+/// Resolves the pairing scheme for the current process without global state.
 public struct CmxPairingURLSchemeResolver: Sendable {
     private let currentIOSBundleIdentifier: String?
     private let targetIOSBundleIdentifier: String?
     private let macInstanceTag: String?
     private let isDevelopmentBuild: Bool
 
-    /// Captures the current app identity and any explicit Mac pairing target.
+    /// Captures the current app identity and any explicit automation override.
     ///
-    /// A Mac may set `CMUX_IOS_PAIRING_BUNDLE_IDENTIFIER` to any authoritative
-    /// release-lane bundle id. Tagged Mac builds otherwise target their exact
-    /// same-tag iOS bundle.
+    /// `CMUX_IOS_PAIRING_BUNDLE_IDENTIFIER` remains an automation-only override
+    /// for scripts and tests. Normal official Macs emit the canonical App Store
+    /// scheme; tagged Mac builds otherwise target their exact same-tag iOS
+    /// bundle.
     public init(
         bundle: Bundle = .main,
         environment: [String: String] = ProcessInfo.processInfo.environment
@@ -51,12 +52,21 @@ public struct CmxPairingURLSchemeResolver: Sendable {
                 iOSBundleIdentifier: targetIOSBundleIdentifier
             )
         }
-        if macInstanceTag == nil || macInstanceTag?.isEmpty == true {
+        let normalizedTag = macInstanceTag?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if normalizedTag == nil || normalizedTag?.isEmpty == true {
             return CmxPairingURLScheme(
                 iOSBundleIdentifier: isDevelopmentBuild
                     ? "dev.cmux.ios"
                     : "com.cmux.app"
             )
+        }
+        // Stable and Nightly are official Mac lanes even when a launcher
+        // happens to provide the lane name through CMUX_TAG. They must emit the
+        // one canonical release QR, never a synthetic tagged-DEV destination.
+        if normalizedTag == "default" || normalizedTag == "nightly" {
+            return CmxPairingURLScheme(iOSBundleIdentifier: "com.cmux.app")
         }
         guard let namespace = MobileIOSAppNamespace(
             pairedMacInstanceTag: macInstanceTag

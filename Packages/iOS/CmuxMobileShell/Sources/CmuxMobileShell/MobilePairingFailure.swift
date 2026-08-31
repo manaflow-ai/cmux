@@ -298,7 +298,7 @@ extension MobilePairingFailureCategory {
         case .buildIncompatible:
             return L10n.string(
                 "mobile.pairing.buildIncompatible",
-                defaultValue: "This iPhone build cannot connect to that cmux build."
+                defaultValue: "This iPhone build cannot complete pairing with that cmux build. Update cmux to the latest version on your iPhone, then scan again."
             )
         case .ticketExpired:
             return L10n.string(
@@ -308,12 +308,12 @@ extension MobilePairingFailureCategory {
         case .invalidCode:
             return L10n.string(
                 "mobile.pairing.invalidCode",
-                defaultValue: "This isn't a cmux pairing QR. On cmux 0.64.17, scan the Pair iPhone code. On newer versions, scan the code in Tailscale Pairing."
+                defaultValue: "This QR could not be read by cmux. Update cmux to the latest version on your iPhone from the App Store or TestFlight, then scan the code in Tailscale Pairing."
             )
         case .unrecognizedVersion:
             return L10n.string(
                 "mobile.pairing.unrecognizedVersion",
-                defaultValue: "This QR needs a newer version of cmux. Update the app and try again."
+                defaultValue: "This QR needs a newer version of cmux. Update cmux to the latest version on your iPhone from the App Store or TestFlight, then scan again."
             )
         case .loopbackRejected:
             return L10n.string(
@@ -411,7 +411,7 @@ extension MobilePairingFailureCategory {
         case .buildIncompatible:
             return L10n.string(
                 "mobile.pairing.guidance.buildIncompatible",
-                defaultValue: "DEV iPhone builds connect to any DEV Mac build. BETA, INTERNAL, and App Store builds connect only to Stable or Nightly."
+                defaultValue: "Update cmux to the latest version on your iPhone, then scan again. DEV iPhone builds connect to any DEV Mac build. BETA, INTERNAL, and App Store builds connect only to Stable or Nightly."
             )
         case .ticketExpired, .unsupportedRoute, .noSupportedRoute:
             return L10n.string(
@@ -421,7 +421,7 @@ extension MobilePairingFailureCategory {
         case .unrecognizedVersion:
             return L10n.string(
                 "mobile.pairing.guidance.updateApp",
-                defaultValue: "Update cmux from the App Store (or TestFlight), then scan again."
+                defaultValue: "Update cmux to the latest version on your iPhone from the App Store (or TestFlight), then scan again."
             )
         case .macUpdateRequired:
             return L10n.string(
@@ -438,7 +438,12 @@ extension MobilePairingFailureCategory {
                 "mobile.pairing.guidance.connectAttemptGated",
                 defaultValue: "A connection attempt is already in progress. Give it a moment to finish; retry only if this computer stays disconnected."
             )
-        case .invalidCode, .loopbackRejected, .cancelled, .unknown:
+        case .invalidCode:
+            return L10n.string(
+                "mobile.pairing.guidance.updateApp",
+                defaultValue: "Update cmux to the latest version on your iPhone from the App Store (or TestFlight), then scan again."
+            )
+        case .loopbackRejected, .cancelled, .unknown:
             return nil
         }
     }

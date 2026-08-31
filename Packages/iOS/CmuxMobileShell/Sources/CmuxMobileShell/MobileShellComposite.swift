@@ -1056,6 +1056,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private let multiMacAggregationDefaults: UserDefaults
     let hiddenMacStore: any PairedMacHiddenStoring
     let clientID: String
+    /// Exact iOS bundle identifier reported to the Mac after pairing.
+    let clientBundleIdentifier: String
     /// Delivers the email path of Send Feedback (`/api/feedback`). `nil` when the
     /// web API base URL is unavailable; the email path then fails closed and the
     /// UI surfaces an error rather than silently dropping the report.
@@ -1808,6 +1810,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.diagnosticLog = diagnosticLog
         self.feedbackEmailSubmitter = feedbackEmailSubmitter
         self.feedbackStampProvider = feedbackStampProvider
+        self.clientBundleIdentifier = feedbackStampProvider().bundleIdentifier
         // Distinguish "key absent" (an install that predates the hint and may
         // already have a paired Mac in SQLite) from "key present and false" (we
         // determined there is no paired Mac). didSet is not called for these
@@ -5120,6 +5123,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             runtime: runtime,
             route: route,
             ticket: ticket,
+            clientID: clientID,
+            clientBundleIdentifier: clientBundleIdentifier,
             allowsStackAuthFallback: MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
             legacyTailscaleAuthorizationEvidence: legacyTailscaleAuthorizationEvidence,
             irohDirectOnlyDialCandidates: directOnlyCandidates,
@@ -9737,6 +9742,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 runtime: runtime,
                 route: route,
                 ticket: ticket,
+                clientID: clientID,
+                clientBundleIdentifier: clientBundleIdentifier,
                 allowsStackAuthFallback: routeAllowsStackAuthFallbackOverride
                     ?? MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
                 legacyTailscaleAuthorizationEvidence: legacyTailscaleAuthorizationEvidence,

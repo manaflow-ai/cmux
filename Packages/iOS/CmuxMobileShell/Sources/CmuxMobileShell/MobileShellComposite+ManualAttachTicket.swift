@@ -127,6 +127,8 @@ extension MobileShellComposite {
                 runtime: runtime,
                 route: route,
                 ticket: probeTicket,
+                clientID: clientID,
+                clientBundleIdentifier: clientBundleIdentifier,
                 allowsStackAuthFallback: true,
                 connectAttemptRegistry: connectAttemptRegistry,
                 stackTokenGate: stackTokenGate,

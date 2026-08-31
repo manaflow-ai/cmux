@@ -50,7 +50,7 @@ import Testing
         #expect(!category.isAuthorizationFailure)
         #expect(category.analyticsReason == "tailscale_unavailable")
         #expect(category.message.localizedCaseInsensitiveContains("Tailscale"))
-        #expect(category.guidance?.contains("Pair iPhone") == true)
+        #expect(category.guidance?.localizedCaseInsensitiveContains("scan") == true)
     }
 
     @Test func connectionRefusedMeansListenerNotRunning() throws {
@@ -193,7 +193,7 @@ import Testing
 
         #expect(category == .buildIncompatible)
         #expect(category.analyticsReason == "build_incompatible")
-        #expect(category.message.contains("cannot connect"))
+        #expect(category.message.localizedCaseInsensitiveContains("pairing"))
         #expect(category.guidance?.contains("any DEV Mac build") == true)
         #expect(!category.isAuthorizationFailure)
     }
@@ -323,13 +323,14 @@ import Testing
     }
 
     @Test func invalidCodeNoLongerMentionsAPairingCode() {
-        // There is no pairing-code secret anymore (the v2 QR carries bare routes
-        // and the host authorizes by Stack account). The copy must not imply a
-        // wrong "code" was entered.
+        // A stale or future QR must tell the user to update the iPhone app;
+        // there is no Mac-side app-selection remedy anymore.
         let message = MobilePairingFailureCategory.invalidCode.message
-        #expect(!message.lowercased().contains("pairing code"))
+        #expect(message.localizedCaseInsensitiveContains("latest version"))
+        #expect(message.localizedCaseInsensitiveContains("iPhone"))
         #expect(message.localizedCaseInsensitiveContains("Tailscale"))
         #expect(!message.isEmpty)
+        #expect(MobilePairingFailureCategory.invalidCode.guidance?.localizedCaseInsensitiveContains("latest version") == true)
     }
 
     @Test func unrecognizedVersionTellsUserToUpdateTheApp() {
@@ -339,7 +340,7 @@ import Testing
         #expect(message.lowercased().contains("newer version"))
         let guidance = MobilePairingFailureCategory.unrecognizedVersion.guidance
         #expect(guidance?.localizedCaseInsensitiveContains("latest") == true)
-        #expect(guidance?.localizedCaseInsensitiveContains("iOS") == true)
+        #expect(guidance?.localizedCaseInsensitiveContains("iPhone") == true)
         #expect(guidance?.localizedCaseInsensitiveContains("App Store") == true)
         #expect(MobilePairingFailureCategory.unrecognizedVersion.analyticsReason == "unrecognized_version")
     }

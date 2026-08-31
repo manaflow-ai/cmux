@@ -438,6 +438,8 @@ final class MobileHostService {
     private let callbackQueue = DispatchQueue(label: "dev.cmux.mobile.host-listener")
     private let routeResolver = MobileRouteResolver()
     private let ticketStore = MobileAttachTicketStore()
+    /// Durable source of truth for the iOS bundle that completed pairing.
+    let pairedPhoneStore = MobilePairedPhoneStore()
     private var listener: NWListener?
     private var listenerGeneration = UUID()
     private var listenerUsesEphemeralFallback = false
@@ -1498,7 +1500,13 @@ final class MobileHostService {
     ) async -> MobileHostRPCResult {
         switch authorization {
         case .stackBearer:
-            return await stackStatus(request)
+            let result = await stackStatus(request)
+            await MobileHostService.shared.recordPairedPhoneIfNeeded(
+                request: request,
+                result: result,
+                transportAuthenticated: false
+            )
+            return result
         case .irohAdmission:
             let phonePushStatus = await MainActor.run {
                 (
@@ -1506,7 +1514,7 @@ final class MobileHostService {
                     PhonePushClient.shared.queuePersistenceStatus
                 )
             }
-            return MobileHostPublicStatusCache.result(
+            let result = MobileHostPublicStatusCache.result(
                 includeIdentity: true,
                 additionalCapabilities: supportsArtifactLane
                     ? Set([irohArtifactLaneCapability])
@@ -1514,6 +1522,12 @@ final class MobileHostService {
                 phonePushAdmission: phonePushStatus.0,
                 phonePushQueuePersistenceStatus: phonePushStatus.1
             )
+            await MobileHostService.shared.recordPairedPhoneIfNeeded(
+                request: request,
+                result: result,
+                transportAuthenticated: true
+            )
+            return result
         }
     }
 
@@ -1654,7 +1668,7 @@ final class MobileHostService {
         clientIDsByConnectionID[connectionID] = clientIDs
     }
 
-    private nonisolated static func clientID(from params: [String: Any]) -> String? {
+    nonisolated static func clientID(from params: [String: Any]) -> String? {
         let trimmed = (params["client_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed?.isEmpty == false ? trimmed : nil
     }

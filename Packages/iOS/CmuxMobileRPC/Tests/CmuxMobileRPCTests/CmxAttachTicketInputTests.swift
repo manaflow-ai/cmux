@@ -244,6 +244,31 @@ import Testing
         }
     }
 
+    @Test(arguments: [
+        "com.cmux.app",
+        "dev.cmux.app.beta",
+        "dev.cmux.app.internal",
+        "dev.cmux.app.demo",
+    ])
+    func oneCanonicalQRPayloadParsesInEveryReleaseVariant(
+        bundleIdentifier: String
+    ) throws {
+        let canonicalQR = "cmux-ios-com.cmux.app://attach?v=2&"
+            + "r=100.64.0.5:58465"
+        #expect(
+            CmxPairingURLScheme(iOSBundleIdentifier: bundleIdentifier)?.isRelease
+                == true
+        )
+        let decoded = try CmxAttachTicketInput.decode(canonicalQR)
+        #expect(decoded.routes.count == 1)
+        #expect(decoded.routes.first?.endpoint == .hostPort(
+            host: "100.64.0.5",
+            port: 58465
+        ))
+        // The scanner policy is scheme-agnostic; each release app receives the
+        // same raw URL and therefore the same decoded route payload.
+    }
+
     @Test func newerGrammarVersionThrowsUnrecognizedVersion() {
         // A QR minted by a newer cmux whose grammar version this build predates
         // (the field report: beta 1.0.2 scanned a v2 QR a newer Mac emitted).
@@ -254,6 +279,16 @@ import Testing
         #expect(throws: MobileSyncPairingPayloadError.unrecognizedURLVersion(newerVersion)) {
             try CmxAttachTicketInput.decode(
                 "cmux-ios://attach?v=\(newerVersion)&r=100.64.0.5:58465"
+            )
+        }
+    }
+
+    @Test func unknownFutureBundleSchemeUsesUpdateGuidancePath() {
+        #expect(throws: MobileSyncPairingPayloadError.unrecognizedURLVersion(
+            CmxPairingQRCode.version + 1
+        )) {
+            try CmxAttachTicketInput.decode(
+                "cmux-ios-dev.cmux.app.future://attach?v=2&r=100.64.0.5:58465"
             )
         }
     }

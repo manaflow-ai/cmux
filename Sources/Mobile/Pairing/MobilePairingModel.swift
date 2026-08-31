@@ -41,7 +41,7 @@ final class MobilePairingModel {
 
     /// A minted ticket ready for display.
     struct Ready: Equatable {
-        /// The `cmux-ios://attach?...` URL encoded into the QR code.
+        /// The canonical attach URL encoded into the QR code.
         let attachURL: String
         /// Reachable Tailscale `host:port` routes represented by the code.
         let tailscaleLines: [String]
@@ -86,14 +86,8 @@ final class MobilePairingModel {
     private(set) var state: State = .loading
     /// The signed-in account email, shown in the checklist. `nil` when signed out.
     private(set) var signedInEmail: String?
-    /// Exact iOS apps this Mac build can intentionally address.
-    let availableIOSAppTargets: [MobileIOSAppTarget]
-    /// The exact iOS app addressed by newly minted QR codes.
-    private(set) var selectedIOSAppTarget: MobileIOSAppTarget
-
     private let host: MobileHostService
     private let ticketTTL: TimeInterval
-    private let iosAppTargetStore: MobileIOSPairingTargetStore
     /// Observes host status while a code is shown and tracks new connections.
     /// Cancelled on each refresh.
     private var connectionObservationTask: Task<Void, Never>?
@@ -116,41 +110,9 @@ final class MobilePairingModel {
     init(host: MobileHostService? = nil, ticketTTL: TimeInterval = 600) {
         self.host = host ?? .shared
         self.ticketTTL = ticketTTL
-        let targetStore = MobileIOSPairingTargetStore()
-        iosAppTargetStore = targetStore
-        let targets = targetStore.availableNamespaces.map { namespace in
-            MobileIOSAppTarget(
-                bundleIdentifier: namespace.bundleIdentifier,
-                displayName: Self.targetDisplayName(
-                    bundleIdentifier: namespace.bundleIdentifier
-                )
-            )
-        }
-        availableIOSAppTargets = targets
-        selectedIOSAppTarget = targets.first {
-            $0.bundleIdentifier
-                == targetStore.selectedNamespace?.bundleIdentifier
-        } ?? targets[0]
     }
 
     private var coordinator: AuthCoordinator? { AppDelegate.shared?.auth?.coordinator }
-
-    /// Selects one exact iOS app and regenerates the pairing code for it.
-    func selectIOSAppTarget(_ target: MobileIOSAppTarget) async {
-        guard availableIOSAppTargets.contains(target),
-              selectedIOSAppTarget != target,
-              let namespace = MobileIOSAppNamespace(
-                  bundleIdentifier: target.bundleIdentifier
-              ),
-              iosAppTargetStore.select(namespace) else {
-            return
-        }
-        selectedIOSAppTarget = target
-        MacPairedMacBackupPublisher.shared.pairingTargetDidChange(
-            routes: host.statusSnapshot().routes
-        )
-        await refresh()
-    }
 
     /// Re-evaluates sign-in state and, when signed in, brings the listener up
     /// and mints a fresh attach ticket. Safe to call repeatedly (Refresh button,
@@ -205,7 +167,7 @@ final class MobilePairingModel {
                 terminalID: nil,
                 ttl: ticketTTL,
                 routeDisclosureMode: routePlan.disclosureMode,
-                pairingURLScheme: selectedIOSAppTarget.pairingURLScheme
+                pairingURLScheme: CmxPairingURLSchemeResolver().resolved
             )
             guard generation == refreshGeneration else { return }
             guard let attachURL = payload["attach_url"] as? String, !attachURL.isEmpty else {
@@ -240,40 +202,6 @@ final class MobilePairingModel {
                     defaultValue: "Could not generate a pairing code. Try again."
                 )
             )
-        }
-    }
-
-    private static func targetDisplayName(
-        bundleIdentifier: String
-    ) -> String {
-        switch bundleIdentifier {
-        case "com.cmux.app":
-            return String(
-                localized: "mobile.pairing.target.appStore",
-                defaultValue: "cmux"
-            )
-        case "dev.cmux.app.beta":
-            return String(
-                localized: "mobile.pairing.target.beta",
-                defaultValue: "cmux BETA"
-            )
-        case "dev.cmux.app.internal":
-            return String(
-                localized: "mobile.pairing.target.internal",
-                defaultValue: "cmux INTERNAL"
-            )
-        case "dev.cmux.app.demo":
-            return String(
-                localized: "mobile.pairing.target.demo",
-                defaultValue: "cmux DEMO"
-            )
-        default:
-            let format = String(
-                localized: "mobile.pairing.target.dev",
-                defaultValue: "cmux DEV %@"
-            )
-            let tag = bundleIdentifier.split(separator: ".").last ?? ""
-            return String(format: format, locale: .current, String(tag))
         }
     }
 

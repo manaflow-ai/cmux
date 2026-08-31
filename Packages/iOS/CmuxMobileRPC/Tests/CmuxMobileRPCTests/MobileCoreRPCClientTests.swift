@@ -5,6 +5,47 @@ import Testing
 @testable import CmuxMobileRPC
 
 @Suite struct MobileCoreRPCClientTests {
+    @Test func hostStatusCarriesTheExactPairingAppIdentity() async throws {
+        let transport = ControllableResponseTransport(
+            closeEndsReceive: true,
+            automaticallyRespondingRequestIDs: ["pairing-status"]
+        )
+        let route = try hostPortRoute(
+            kind: .debugLoopback,
+            host: "127.0.0.1",
+            port: 59_123
+        )
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: FixedTransportFactory(transport: transport)
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-main",
+            terminalID: nil,
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route]
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            clientID: "phone-install-1",
+            clientBundleIdentifier: "dev.cmux.app.demo",
+            allowsStackAuthFallback: true
+        )
+
+        _ = try await client.sendRequest(
+            MobileCoreRPCClient.requestData(
+                method: "mobile.host.status",
+                id: "pairing-status"
+            )
+        )
+        let request = try #require(await transport.recordedRequests().first)
+        #expect(request.clientID == "phone-install-1")
+        #expect(request.iosBundleIdentifier == "dev.cmux.app.demo")
+        await client.disconnect()
+    }
+
     @Test func connectedTransportReceivesLiveSessionPurposeUpdates()
         async throws {
         let transport = SessionPurposeRecordingTransport(

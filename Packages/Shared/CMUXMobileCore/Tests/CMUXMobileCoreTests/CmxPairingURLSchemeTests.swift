@@ -95,6 +95,37 @@ import Testing
             )
         }
     }
+
+    @Test func officialMacUsesOneCanonicalSchemeForEveryReleaseVariant() {
+        let resolver = CmxPairingURLSchemeResolver(
+            currentIOSBundleIdentifier: nil,
+            targetIOSBundleIdentifier: nil,
+            macInstanceTag: nil,
+            isDevelopmentBuild: false
+        )
+        #expect(resolver.resolved?.rawValue == "cmux-ios-com.cmux.app")
+        for bundleIdentifier in [
+            "com.cmux.app",
+            "dev.cmux.app.beta",
+            "dev.cmux.app.internal",
+            "dev.cmux.app.demo",
+        ] {
+            #expect(
+                CmxPairingURLScheme(
+                    rawValue: resolver.resolved?.rawValue
+                ) != nil,
+                "the canonical scheme must be accepted by \(bundleIdentifier)'s scanner policy"
+            )
+        }
+        #expect(
+            CmxPairingURLSchemeResolver(
+                currentIOSBundleIdentifier: nil,
+                targetIOSBundleIdentifier: nil,
+                macInstanceTag: "nightly",
+                isDevelopmentBuild: true
+            ).resolved?.rawValue == "cmux-ios-com.cmux.app"
+        )
+    }
     #endif
 
     @Test func parserAcceptsNamespacedSchemes() {

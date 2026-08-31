@@ -28,8 +28,11 @@ extension TerminalController {
             }
             pairingURLScheme = parsed
         } else {
-            pairingURLScheme =
-                MobileIOSPairingTargetStore().selectedPairingURLScheme
+            // Official Macs emit one canonical App Store scheme; tagged DEV
+            // Macs resolve to their exact matching development scheme. The
+            // scanner accepts every release scheme, so this choice only affects
+            // system-camera routing and never limits in-app pairing.
+            pairingURLScheme = CmxPairingURLSchemeResolver().resolved
         }
         let rawTarget = v2OptionalTrimmedRawString(params, "target")
         let target: MobileAttachTarget?

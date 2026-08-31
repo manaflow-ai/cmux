@@ -9,6 +9,7 @@ actor ControllableResponseTransport: CmxByteTransport {
     private var queuedFrames: [Data] = []
     private var receiveWaiters: [CheckedContinuation<Data?, Never>] = []
     private var sentRequestIDs: [String] = []
+    private var sentRequests: [RecordedRPCRequest] = []
     private var sendCountWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
     private var firstSendContinuation: CheckedContinuation<Void, Never>?
     private var firstSendReleased = false
@@ -38,6 +39,7 @@ actor ControllableResponseTransport: CmxByteTransport {
         for payload in try MobileSyncFrameCodec.decodeFrames(from: &buffer) {
             let request = try recordedRPCRequest(from: payload)
             requests.append(request)
+            sentRequests.append(request)
             sentRequestIDs.append(request.id ?? "")
         }
         let ready = sendCountWaiters.filter { sentRequestIDs.count >= $0.0 }
@@ -67,6 +69,10 @@ actor ControllableResponseTransport: CmxByteTransport {
 
     func sentIDs() -> [String] {
         sentRequestIDs
+    }
+
+    func recordedRequests() -> [RecordedRPCRequest] {
+        sentRequests
     }
 
     func releaseFirstSend() {

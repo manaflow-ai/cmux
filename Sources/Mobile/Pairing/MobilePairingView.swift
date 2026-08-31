@@ -226,9 +226,14 @@ struct MobilePairingView: View {
         .multilineTextAlignment(.center)
         .fixedSize(horizontal: false, vertical: true)
 
-        if model.availableIOSAppTargets.count > 1 {
-            pairingTargetPicker
-        }
+        Text(String(
+            localized: "mobile.pairing.updateIOSAppHint",
+            defaultValue: "If pairing does not complete, update cmux to the latest version on your iPhone from the App Store or TestFlight, then scan again."
+        ))
+        .cmuxFont(.caption)
+        .foregroundStyle(.secondary)
+        .multilineTextAlignment(.center)
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private var waitingIndicator: some View {
@@ -246,37 +251,6 @@ struct MobilePairingView: View {
         }
         .buttonStyle(.bordered)
         .controlSize(.small)
-    }
-
-    private var pairingTargetPicker: some View {
-        HStack(spacing: 6) {
-            Text(String(
-                localized: "mobile.pairing.targetApp",
-                defaultValue: "Open with"
-            ))
-                .cmuxFont(.caption)
-                .foregroundStyle(.secondary)
-            Picker(
-                String(
-                    localized: "mobile.pairing.targetApp",
-                    defaultValue: "Open with"
-                ),
-                selection: Binding(
-                    get: { model.selectedIOSAppTarget },
-                    set: { target in
-                        Task { await model.selectIOSAppTarget(target) }
-                    }
-                )
-            ) {
-                ForEach(model.availableIOSAppTargets) { target in
-                    Text(target.displayName).tag(target)
-                }
-            }
-            .labelsHidden()
-            .pickerStyle(.menu)
-            .controlSize(.small)
-            .fixedSize()
-        }
     }
 
     // MARK: No reachable Tailscale route
