@@ -74,12 +74,15 @@ describe("billing purchase recovery", () => {
         } as never,
         stripeClient: () => ({
           customers: {
-            list: mock(async (options?: Record<string, unknown>) => ({
-              data:
-                options?.email === "billingfixture@googlemail.com"
-                  ? [customer]
-                  : [],
-            })),
+            list: mock(async (...args: unknown[]) => {
+              const options = (args[0] ?? {}) as Record<string, unknown>;
+              return {
+                data:
+                  options.email === "billingfixture@googlemail.com"
+                    ? [customer]
+                    : [],
+              };
+            }),
           },
           subscriptions: {
             list: mock(async () => ({ data: [subscription] })),
@@ -333,5 +336,55 @@ describe("billing purchase recovery", () => {
 
     expect(result).toBeNull();
     expect(sessionsList).toHaveBeenCalledTimes(2);
+  });
+
+  test("does not recover foreign billing history with Founder metadata", async () => {
+    const customer = {
+      id: "cus_foreign_founder_fixture",
+      deleted: false,
+      email: "foreign-founder@example.com",
+      metadata: {},
+    };
+    const subscription = {
+      id: "sub_foreign_founder_fixture",
+      customer: customer.id,
+      status: "active",
+      metadata: { app: "other", founders_edition: "true" },
+      cancel_at_period_end: false,
+      items: { data: [] },
+    };
+    const session = {
+      id: "cs_foreign_founder_fixture",
+      customer: customer.id,
+      customer_details: { email: customer.email },
+      payment_status: "paid",
+      metadata: { app: "other", founders_edition: "true" },
+      subscription: subscription.id,
+    };
+    const result = await findPaidBillingPurchaseByEmail(
+      customer.email,
+      {
+        db: {
+          select: () => {
+            throw new Error("no local database in this test");
+          },
+        } as never,
+        stripeClient: () => ({
+          customers: {
+            list: mock(async () => ({ data: [customer] })),
+          },
+          subscriptions: {
+            list: mock(async () => ({ data: [subscription] })),
+          },
+          checkout: {
+            sessions: {
+              list: mock(async () => ({ data: [session] })),
+            },
+          },
+        }) as never,
+      },
+    );
+
+    expect(result).toBeNull();
   });
 });

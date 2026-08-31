@@ -228,4 +228,28 @@ describe("billing complete route", () => {
     expect(recordCheckoutCompletion).not.toHaveBeenCalled();
     expect(response.headers.get("location")).toBe("https://cmux.test/pricing?billing=error");
   });
+
+  test("rejects a foreign session when its expanded subscription says Founder", async () => {
+    retrievedSession = {
+      id: "cs_foreign_founder",
+      payment_status: "paid",
+      client_reference_id: "foreign-user",
+      metadata: { app: "other", plan: "pro" },
+      subscription: {
+        id: "sub_foreign_founder",
+        metadata: { app: "cmux", founders_edition: "true" },
+      },
+      customer: { id: "cus_foreign_founder" },
+    };
+
+    const response = await GET(
+      new NextRequest(
+        "https://cmux.test/api/billing/complete?session_id=cs_foreign_founder",
+      ),
+    );
+
+    expect(recordFoundersCheckoutCompletion).not.toHaveBeenCalled();
+    expect(recordCheckoutCompletion).not.toHaveBeenCalled();
+    expect(response.headers.get("location")).toBe("https://cmux.test/pricing?billing=error");
+  });
 });

@@ -265,6 +265,18 @@ describe("billing email matching", () => {
     ).toBe(false);
   });
 
+  test("does not let Founder metadata override a foreign session marker", () => {
+    expect(
+      isCmuxCheckoutSession(
+        {
+          client_reference_id: "foreign-user",
+          metadata: { app: "other", founders_edition: "true" },
+        },
+        { metadata: { app: "cmux", founders_edition: "true" } },
+      ),
+    ).toBe(false);
+  });
+
   test("chooses the undotted Gmail account when a duplicate alias exists", async () => {
     const undotted = {
       id: "real",
