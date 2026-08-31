@@ -3852,6 +3852,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             autoCloseEmptyPanes: true,
             contentViewLifecycle: .keepAllAlive,
             newTabPosition: .current,
+            tabBarVisibility: Self.tabBarVisibility(defaults: closeTabWarningDefaults),
             appearance: appearance
         )
         self.bonsplitController = BonsplitController(
@@ -4168,6 +4169,18 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         guard configuration.allowCloseTabs != allowCloseTabs else { return }
         configuration.allowCloseTabs = allowCloseTabs
         bonsplitController.configuration = configuration
+    }
+
+    func refreshTabBarVisibility() {
+        let visibility = Self.tabBarVisibility(defaults: closeTabWarningDefaults)
+        var configuration = bonsplitController.configuration
+        guard configuration.tabBarVisibility != visibility else { return }
+        configuration.tabBarVisibility = visibility
+        bonsplitController.configuration = configuration
+    }
+
+    static func tabBarVisibility(defaults: UserDefaults) -> TabBarVisibility {
+        AppCatalogSection().tabBarVisibility.value(in: defaults).bonsplitVisibility
     }
 
     func applySurfaceTabBarButtons(
@@ -14585,4 +14598,15 @@ extension Workspace: BonsplitDelegate {
     }
 
     // No post-close polling refresh loop: we rely on view invariants and Ghostty's wakeups.
+}
+
+extension PaneTabBarVisibility {
+    var bonsplitVisibility: TabBarVisibility {
+        switch self {
+        case .always:
+            return .always
+        case .multipleTabs:
+            return .multipleTabs
+        }
+    }
 }

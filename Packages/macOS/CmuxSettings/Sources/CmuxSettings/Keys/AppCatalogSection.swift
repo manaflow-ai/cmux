@@ -155,6 +155,15 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "hideTabCloseButton"
     )
 
+    /// Pane tab bar visibility. Maps to bonsplit's `TabBarVisibility` at
+    /// the split-controller boundary; `.multipleTabs` hides the bar until a
+    /// pane has two or more tabs.
+    public let tabBarVisibility = DefaultsKey<PaneTabBarVisibility>(
+        id: "app.tabBarVisibility",
+        defaultValue: .always,
+        userDefaultsKey: "paneTabBarVisibility"
+    )
+
     public let renameSelectsExistingName = DefaultsKey<Bool>(
         id: "app.renameSelectsExistingName",
         defaultValue: true,

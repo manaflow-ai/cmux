@@ -504,6 +504,13 @@ final class CmuxSettingsFileStore {
             let mode = value ? WorkspacePresentationModeSettings.Mode.minimal : .standard
             snapshot.managedUserDefaults[WorkspacePresentationModeSettings.modeKey] = .string(mode.rawValue)
         }
+        if let raw = jsonString(section["tabBarVisibility"]) {
+            if let visibility = PaneTabBarVisibility(rawValue: raw) {
+                snapshot.managedUserDefaults[AppCatalogSection().tabBarVisibility.userDefaultsKey] = .string(visibility.rawValue)
+            } else {
+                logInvalid("app.tabBarVisibility", sourcePath: sourcePath)
+            }
+        }
         if let value = jsonBool(section["keepWorkspaceOpenWhenClosingLastSurface"]) {
             snapshot.managedUserDefaults[SettingCatalog().app.keepWorkspaceOpenWhenClosingLastSurface.userDefaultsKey] = .bool(!value)
         }

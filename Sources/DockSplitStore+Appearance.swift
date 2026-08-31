@@ -37,7 +37,7 @@ extension DockSplitStore {
             autoCloseEmptyPanes: true,
             contentViewLifecycle: .keepAllAlive,
             newTabPosition: .current,
-            tabBarVisibility: .always,
+            tabBarVisibility: AppCatalogSection().tabBarVisibility.value(in: .standard).bonsplitVisibility,
             appearance: makeAppearance(from: config)
         )
     }
