@@ -29,8 +29,9 @@ use crate::{AgentSource, AgentState, JournalSubject};
 pub(crate) const AGENT_ROSTER_REDUCER_ID: &str = "agent_roster";
 /// Bump to discard persisted snapshots and re-fold from the journal head.
 /// Version 2 added the agent adapter id to roster entries. Version 3
-/// added screen-detected events and hook/screen/socket arbitration.
-pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 4;
+/// added screen-detected events and hook/screen/socket arbitration. Version 5
+/// adds durable plugin-exit fences so late observations cannot resurrect rows.
+pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 5;
 /// Stable envelope used by userland agent plugins. The producer id is the
 /// plugin identity; the payload id must match it before the event is folded.
 pub(crate) const AGENT_PLUGIN_FORMAT: &str = "cmux.agent-plugin.v1";
@@ -289,6 +290,17 @@ pub(crate) struct RosterEntry {
     pub(crate) updated_at_ms: u64,
 }
 
+/// Restart fences retained after a plugin child exits. A tagged observation
+/// proves its process generation. An untagged observation cannot prove that a
+/// replacement exists, so it stays fenced after the first untagged exit.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+struct PluginExitFence {
+    #[serde(default)]
+    highest_tagged_generation: Option<u64>,
+    #[serde(default)]
+    untagged_exit_at_ms: Option<u64>,
+}
+
 impl RosterEntry {
     pub(crate) fn agent_state(&self) -> AgentState {
         agent_state_from_str(&self.state).unwrap_or(AgentState::Unknown)
@@ -316,6 +328,10 @@ pub(crate) enum RosterDelta {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub(crate) struct AgentRoster {
     pub(crate) entries: HashMap<String, RosterEntry>,
+    /// Durable producer fences. The map is keyed by validated plugin id and
+    /// grows only when a configured producer is observed by the journal.
+    #[serde(default)]
+    plugin_exit_fences: HashMap<String, PluginExitFence>,
 }
 
 impl AgentRoster {
@@ -340,6 +356,11 @@ impl AgentRoster {
             {
                 return Vec::new();
             }
+            self.record_plugin_exit_fence(
+                plugin_id,
+                generation.and_then(|value| value.parse::<u64>().ok()),
+                cutoff,
+            );
             let retired = self
                 .entries
                 .iter()
@@ -366,6 +387,14 @@ impl AgentRoster {
                     Some(RosterDelta::Remove { terminal_id, source: AgentSource::Plugin })
                 })
                 .collect();
+        }
+        if event.plugin_event()
+            && self.plugin_observation_is_fenced(
+                event.producer_id,
+                event.normalized("plugin_generation"),
+            )
+        {
+            return Vec::new();
         }
         let Some(terminal_id) = event.terminal_id() else { return Vec::new() };
         let (state, source, producer, producer_generation, session, agent, updated_at_ms) =
@@ -554,6 +583,43 @@ impl AgentRoster {
     /// events yet, so the host retires entries explicitly.
     pub(crate) fn retire_terminal(&mut self, terminal_id: &str) -> bool {
         self.entries.remove(terminal_id).is_some()
+    }
+
+    fn record_plugin_exit_fence(
+        &mut self,
+        plugin_id: &str,
+        generation: Option<u64>,
+        cutoff_ms: u64,
+    ) {
+        let fence = self.plugin_exit_fences.entry(plugin_id.to_string()).or_default();
+        match generation {
+            Some(generation) => {
+                if fence.highest_tagged_generation.is_none_or(|current| generation > current) {
+                    fence.highest_tagged_generation = Some(generation);
+                }
+            }
+            None => {
+                if fence.highest_tagged_generation.is_none() {
+                    fence.untagged_exit_at_ms =
+                        Some(fence.untagged_exit_at_ms.unwrap_or_default().max(cutoff_ms));
+                }
+            }
+        }
+    }
+
+    fn plugin_observation_is_fenced(&self, plugin_id: &str, generation: Option<&str>) -> bool {
+        let Some(fence) = self.plugin_exit_fences.get(plugin_id) else { return false };
+        match generation.and_then(|value| value.parse::<u64>().ok()) {
+            Some(generation) => {
+                fence.highest_tagged_generation.is_some_and(|highest| generation <= highest)
+            }
+            // An untagged event cannot prove that it belongs to a child that
+            // started after any observed exit. Once a tagged child has also
+            // exited, reject it for the same reason.
+            None => {
+                fence.highest_tagged_generation.is_some() || fence.untagged_exit_at_ms.is_some()
+            }
+        }
     }
 
     pub(crate) fn snapshot(&self) -> Value {
@@ -1095,6 +1161,69 @@ mod tests {
                 .is_empty()
         );
         assert!(!roster.entries.contains_key("term_a"));
+    }
+
+    #[test]
+    fn newer_plugin_generation_can_claim_after_an_exit_fence() {
+        let subjects = terminal_subject("term_a");
+        let payload = |generation: &str, observed_at_ms: u64| {
+            json!({
+                "format": AGENT_PLUGIN_FORMAT,
+                "plugin": {"id":"screen_detector","version":1},
+                "adapter": {"id":"codex","version":1},
+                "event":"state.changed",
+                "normalized": {
+                    "state":"working",
+                    "source_session":"pid:42",
+                    "plugin_generation":generation,
+                    "observed_at_ms": observed_at_ms.to_string()
+                }
+            })
+        };
+        let exit = |generation: &str, observed_at_ms: u64| {
+            json!({
+                "format": crate::agent_hooks::AGENT_HOOK_FORMAT,
+                "adapter":{"id":"cmux","version":1},
+                "native_event": crate::agent_hooks::AGENT_PLUGIN_EXIT_NATIVE_EVENT,
+                "normalized": {
+                    "plugin_id":"screen_detector",
+                    "plugin_generation":generation,
+                    "observed_at_ms": observed_at_ms.to_string()
+                },
+                "native":{}
+            })
+        };
+        let mut roster = AgentRoster::default();
+        let old = payload("1", 100);
+        roster.apply(&RosterEvent {
+            producer_id: "screen_detector",
+            kind: "plugin.screen_detector.agent.state.changed",
+            subjects: &subjects,
+            payload: &old,
+            committed_at_ms: 100,
+        });
+        let old_exit = exit("1", 200);
+        roster.apply(&RosterEvent {
+            producer_id: AGENT_HOOK_PRODUCER_ID,
+            kind: "agent.plugin.exited",
+            subjects: &[],
+            payload: &old_exit,
+            committed_at_ms: 200,
+        });
+        let replacement = payload("2", 150);
+        assert_eq!(
+            roster
+                .apply(&RosterEvent {
+                    producer_id: "screen_detector",
+                    kind: "plugin.screen_detector.agent.state.changed",
+                    subjects: &subjects,
+                    payload: &replacement,
+                    committed_at_ms: 300,
+                })
+                .len(),
+            1
+        );
+        assert_eq!(roster.entries["term_a"].producer_generation.as_deref(), Some("2"));
     }
 
     #[test]
