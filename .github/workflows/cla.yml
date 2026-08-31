@@ -17,7 +17,7 @@ permissions: {}
 # changes for every unrelated commit on main and would strand valid failed
 # checks on open pull requests.
 env:
-  CLA_GENERATION: 'v2.2-action-09d64fa8ba8b77ae253f354be6e1564d49317fa3'
+  CLA_GENERATION: 'v2.2-action-c327a6f4071730000bf03f9f85c87d30e1fe8084'
 
 jobs:
   CLACommentGate:
@@ -231,7 +231,7 @@ jobs:
         # so a branch move cannot change the code executed by this workflow.
         # The fork's default branch must be protected before this check is made
         # required in repository rulesets.
-        uses: manaflow-ai/cla-github-action@09d64fa8ba8b77ae253f354be6e1564d49317fa3 # v0.0.1
+        uses: manaflow-ai/cla-github-action@c327a6f4071730000bf03f9f85c87d30e1fe8084 # v0.0.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
