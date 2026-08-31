@@ -291,23 +291,30 @@ struct AgentFeedRowPresentation: Equatable, Sendable {
     }
 
     /// Parses a plan payload: parsed plan text passes through; an ExitPlanMode
-    /// JSON envelope from an older Mac yields its `plan` field.
+    /// JSON envelope (possibly double-encoded by an intermediary) yields its
+    /// `plan` field. JSON-shaped text never renders raw.
     private static func planText(from raw: String?) -> String? {
-        guard let normalized = normalized(raw) else { return nil }
-        guard looksLikeJSON(normalized) else { return normalized }
-        guard let data = normalized.data(using: .utf8),
-              let parsed = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
-        else { return nil }
-        if let dict = parsed as? [String: Any] {
-            for key in ["plan", "planText", "text"] {
-                if let plan = dict[key] as? String {
-                    return Self.normalized(plan)
+        var candidate = normalized(raw)
+        // Each pass unwraps one encoding level: a fragment string re-enters
+        // the loop; a dict yields the plan body.
+        for _ in 0..<3 {
+            guard let current = candidate else { return nil }
+            guard looksLikeJSON(current) else { return current }
+            guard let data = current.data(using: .utf8),
+                  let parsed = try? JSONSerialization.jsonObject(
+                      with: data,
+                      options: [.fragmentsAllowed]
+                  ) else { return nil }
+            if let dict = parsed as? [String: Any] {
+                for key in ["plan", "planText", "text"] {
+                    if let plan = dict[key] as? String {
+                        return normalized(plan)
+                    }
                 }
+                return nil
             }
-            return nil
-        }
-        if let string = parsed as? String {
-            return Self.normalized(string)
+            guard let inner = parsed as? String else { return nil }
+            candidate = normalized(inner)
         }
         return nil
     }
