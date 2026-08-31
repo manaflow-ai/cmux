@@ -44,7 +44,7 @@ import Testing
         #expect(coordinator.activeNativeSearchText() == "release")
     }
 
-    @Test func dismissedSearchCommitsNativeDraft() {
+    @Test func dismissedSearchResetsDraftAndCommittedQuery() {
         let coordinator = MobilePrimarySearchCoordinator(initialScope: .notifications)
         coordinator.synchronizeSelection(.notifications)
         coordinator.setPresentation(true)
@@ -56,9 +56,31 @@ import Testing
 
         coordinator.setPresentation(false)
 
-        #expect(coordinator.notifications == "alerts")
-        #expect(coordinator.activeNativeSearchText() == "alerts")
-        #expect(coordinator.searchDestinationText(for: .notifications) == "alerts")
+        #expect(coordinator.notifications == "")
+        #expect(coordinator.activeNativeSearchText() == "")
+        #expect(coordinator.searchDestinationText(for: .notifications) == "")
+    }
+
+    @Test func dismissedSearchClearsPreviouslySubmittedQuery() {
+        let coordinator = MobilePrimarySearchCoordinator()
+        coordinator.synchronizeSelection(.workspaces)
+        coordinator.setPresentation(true)
+        coordinator.updateNativeSearchText(
+            "docs",
+            for: .workspaces,
+            activationGeneration: coordinator.activationGeneration
+        )
+        #expect(coordinator.commitSubmit() == .workspaces)
+        #expect(coordinator.workspaces == "docs")
+
+        coordinator.setPresentation(true)
+        #expect(coordinator.activeNativeSearchText() == "docs")
+
+        coordinator.setPresentation(false)
+
+        #expect(coordinator.workspaces == "")
+        #expect(coordinator.activeNativeSearchText() == "")
+        #expect(coordinator.searchDestinationText(for: .workspaces) == "")
     }
 
     @Test func nativeNotificationSearchBoundsDisplayedDraftAndCommittedQuery() {
@@ -181,7 +203,7 @@ import Testing
         #expect(coordinator.searchDestinationText(for: .notifications) == "alerts")
     }
 
-    @Test func falseLifecycleCallbackAfterObservedSearchDismissesAndCommitsDraft() {
+    @Test func falseLifecycleCallbackAfterObservedSearchDismissesAndResetsQuery() {
         let coordinator = MobilePrimarySearchCoordinator(initialScope: .notifications)
         coordinator.synchronizeSelection(.notifications)
         coordinator.setPresentation(true)
@@ -195,14 +217,14 @@ import Testing
 
         coordinator.updateLifecycle(scope: .notifications, isSearching: false)
         coordinator.updateNativeSearchText(
-            "",
+            "late platform write",
             for: .notifications,
             activationGeneration: activation
         )
 
-        #expect(coordinator.notifications == "alerts")
-        #expect(coordinator.activeNativeSearchText() == "alerts")
-        #expect(coordinator.searchDestinationText(for: .notifications) == "alerts")
+        #expect(coordinator.notifications == "")
+        #expect(coordinator.activeNativeSearchText() == "")
+        #expect(coordinator.searchDestinationText(for: .notifications) == "")
     }
 
     @Test func notificationDeepLinkUsesNotificationSearchOnlyWhenThatSearchScopeIsMounted() {
