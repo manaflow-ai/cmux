@@ -144,17 +144,10 @@ final class CLISocketSentryTelemetry {
         let cliErrorMetadata = metadata(for: classificationCandidate)
         let dataKeys = Set(data.keys)
         let isAgentHookStage = stage.hasPrefix("agent-hook-")
-        let isExpectedStructuredCLIError =
-            noiseFilter.isExpectedCLISocketTransportFailure(
-                stage: stage,
-                message: errorDescription,
-                dataKeys: dataKeys,
-                cliErrorCode: cliErrorMetadata.code,
-                socketPathMissing: cliErrorMetadata.socketPathMissing
-            ) ||
-            (isAgentHookStage &&
-                (noiseFilter.isExpectedCLIErrorCode(cliErrorMetadata.code) ||
-                    cliErrorMetadata.socketPathMissing))
+        let isExpectedAgentHookCLIError =
+            isAgentHookStage &&
+            (noiseFilter.isExpectedCLIErrorCode(cliErrorMetadata.code) ||
+                cliErrorMetadata.socketPathMissing)
         let hasStructuredCLIErrorCode = cliErrorMetadata.code?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         let isExpectedLegacyCLIError: Bool
         if !hasStructuredCLIErrorCode, let legacyMessage = cliErrorMetadata.legacyMessage {
@@ -178,7 +171,7 @@ final class CLISocketSentryTelemetry {
             cliErrorCode: cliErrorMetadata.code,
             socketPathMissing: cliErrorMetadata.socketPathMissing
         )
-        guard !isExpectedStructuredCLIError,
+        guard !isExpectedAgentHookCLIError,
               !isExpectedLegacyCLIError,
               !isExpectedTransportFailure else {
             return
