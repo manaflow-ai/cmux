@@ -3046,15 +3046,36 @@ impl Terminal {
 
     /// Select the logical line containing an absolute screen coordinate.
     pub fn select_line_screen(&self, point: SelectionPoint) -> Result<Option<SelectionRange>> {
+        self.select_line_screen_with_whitespace(point, ptr::null(), 0)
+    }
+
+    /// Select a logical line without trimming its leading or trailing cells.
+    /// This is used only as the blank-line fallback for a triple-click drag.
+    pub fn select_line_screen_untrimmed(
+        &self,
+        point: SelectionPoint,
+    ) -> Result<Option<SelectionRange>> {
+        // A non-null pointer with a zero length tells Ghostty to use an
+        // explicitly empty whitespace set instead of its default trim set.
+        const EMPTY_WHITESPACE: u32 = 0;
+        self.select_line_screen_with_whitespace(point, &EMPTY_WHITESPACE, 0)
+    }
+
+    fn select_line_screen_with_whitespace(
+        &self,
+        point: SelectionPoint,
+        whitespace: *const u32,
+        whitespace_len: usize,
+    ) -> Result<Option<SelectionRange>> {
         let grid_ref = self
             .grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, point.column, u64::from(point.row))
             .ok_or(Error::InvalidValue)?;
         let options = sys::GhosttyTerminalSelectLineOptions {
             size: size_of::<sys::GhosttyTerminalSelectLineOptions>(),
             ref_: grid_ref,
-            whitespace: ptr::null(),
-            whitespace_len: 0,
-            semantic_prompt_boundary: false,
+            whitespace,
+            whitespace_len,
+            semantic_prompt_boundary: true,
         };
         let mut selection = sys::GhosttySelection {
             size: size_of::<sys::GhosttySelection>(),
