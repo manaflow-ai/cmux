@@ -9,6 +9,20 @@ WORKFLOW="$ROOT_DIR/.github/workflows/cla.yml"
 test -f "$WORKFLOW"
 command -v jq >/dev/null
 
+# The pull_request CI workflow executes this harness against PR-controlled
+# workflow text. It must never receive Actions write authority. Only the
+# isolated CLA rerun job may have that permission.
+python3 - "$ROOT_DIR/.github/workflows/ci.yml" <<'PY'
+import sys
+import yaml
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    document = yaml.safe_load(handle)
+permissions = document.get("permissions", {})
+if permissions.get("actions") == "write":
+    raise SystemExit("CI must not grant top-level actions: write to pull_request jobs")
+PY
+
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 rerun_script="$work/rerun.sh"
