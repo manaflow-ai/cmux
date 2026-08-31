@@ -141,7 +141,10 @@ mod tests {
             "claude blocked",
             Some("ws · needs input"),
         );
-        assert_eq!(sequence, b"\x1b]9;claude blocked: ws \u{b7} needs input\x1b\\\x07");
+        assert_eq!(
+            sequence,
+            "\x1b]9;claude blocked: ws \u{b7} needs input\x1b\\\x07".as_bytes()
+        );
     }
 
     #[test]

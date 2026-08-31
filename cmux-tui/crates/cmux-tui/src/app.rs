@@ -42958,7 +42958,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn replaced_session_ignores_old_surface_lane_completion() {
         let first = Mux::new("surface-lane-generation-first", SurfaceOptions::default());
         let first_surface = first.new_workspace(None, Some((80, 24))).unwrap();
