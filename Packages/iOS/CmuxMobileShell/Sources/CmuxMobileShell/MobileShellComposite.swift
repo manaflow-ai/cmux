@@ -9971,15 +9971,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // kind today, so any that exist are stale earlier-protocol state
             // carrying a dead dial URL, and the resolved URL below is the
             // single source of truth for which relay this build dials.
-            //
-            // Debug loopback rides alongside, exactly as it rode alongside
-            // iroh: it is the same-machine dev lane (compiled out of
-            // production route sets) that simulator auto-pair depends on,
-            // not a cross-method fallback, and it dials first because a
-            // same-machine hop should never pay the relay round trip.
-            let loopback = supportedRoutes.filter { $0.kind == .debugLoopback }
-            guard let relayRoute = Self.synthesizedRelayRoute() else { return loopback }
-            return loopback + [relayRoute]
+            return Self.relayMethodDialRoutes(
+                from: supportedRoutes,
+                hostDeviceID: pairedMacDeviceID ?? ticket.macDeviceID
+            )
         }
         if ticketMethod == .tailscale {
             let authorizedTailscale = supportedRoutes.filter { route in
@@ -10002,6 +9997,40 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Iroh endpoint advertising no relays and no direct addresses must
         // not starve it or a dev simulator can never pair.
         return supportedRoutes.filter { $0.kind == .iroh || $0.kind == .debugLoopback }
+    }
+
+    /// The Relay method's dial set for one connect attempt.
+    ///
+    /// Debug loopback rides alongside, exactly as it rode alongside iroh: it
+    /// is the same-machine dev lane (compiled out of production route sets)
+    /// that simulator auto-pair depends on, not a cross-method fallback, and
+    /// it dials first because a same-machine hop should never pay the relay
+    /// round trip.
+    ///
+    /// The synthesized relay route joins only when the attempt knows which
+    /// host it is dialing: the relay session is minted against one exact host
+    /// device id, and `RelayClientTransportFactory` refuses a request with no
+    /// peer binding (an unbound relay dial could reach the wrong Mac). A
+    /// pairing input that carries no device id (an anonymous v2/v3 QR ticket,
+    /// whose identity arrives only post-handshake from `mobile.host.status`)
+    /// must therefore skip the relay route instead of spending a websocket
+    /// dial that fails at the factory before other routes get a turn.
+    static func relayMethodDialRoutes(
+        from routes: [CmxAttachRoute],
+        hostDeviceID: String?,
+        relayRoute: CmxAttachRoute? = MobileShellComposite.synthesizedRelayRoute()
+    ) -> [CmxAttachRoute] {
+        let loopback = routes.filter { $0.kind == .debugLoopback }
+        let trimmedHostDeviceID = hostDeviceID?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmedHostDeviceID.isEmpty else {
+            MobileDebugLog.anchormux(
+                "relay.route_skipped reason=no_host_device_id"
+            )
+            return loopback
+        }
+        guard let relayRoute else { return loopback }
+        return loopback + [relayRoute]
     }
 
     /// The one WebSocket route the Relay method dials, resolved through

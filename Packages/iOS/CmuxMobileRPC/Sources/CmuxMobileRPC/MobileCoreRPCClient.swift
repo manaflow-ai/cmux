@@ -112,9 +112,19 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         } else {
             authorizationMode = .stackBearer
         }
+        // Thread the ticket's host identity into the transport request as a
+        // real peer binding: `expectedPeerDeviceID` is documented as "when
+        // known", so an anonymous ticket (a v2/v3 pairing QR carries no device
+        // id until host status authenticates it) must yield `nil`, not the
+        // empty string, and identity-requiring factories (the relay) refuse
+        // both instead of dialing unbound.
+        let ticketPeerDeviceID = ticket.macDeviceID
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let transportRequest = CmxByteTransportRequest(
             route: route,
-            expectedPeerDeviceID: ticket.macDeviceID,
+            expectedPeerDeviceID: ticketPeerDeviceID.isEmpty
+                ? nil
+                : ticketPeerDeviceID,
             authorizationMode: authorizationMode,
             sessionPurpose: sessionPurpose,
             irohDirectOnlyDialCandidates: route.kind == .iroh
