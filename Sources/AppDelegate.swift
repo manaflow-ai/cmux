@@ -683,8 +683,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var tabManager: TabManager?
     weak var notificationStore: TerminalNotificationStore?
     weak var sidebarState: SidebarState?
-    /// Owns provider-specific context-pressure state for every managed agent pane.
-    lazy var agentContextManagementCoordinator = AgentContextManagementCoordinator()
+    /// Composition-root-owned context-pressure service for managed agent panes.
+    /// The reference is immutable so window/workspace lifetime cannot replace
+    /// the service underneath an in-flight recovery decision.
+    let agentContextManagementCoordinator = AgentContextManagementCoordinator()
 #if DEBUG
     private(set) var pullRequestProbeService = PullRequestProbeService(debugLog: { cmuxDebugLog($0) })
 #else

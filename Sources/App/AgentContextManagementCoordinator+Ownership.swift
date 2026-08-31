@@ -10,28 +10,40 @@ extension AgentContextManagementCoordinator {
     }
 
     func owner(for panelId: UUID, preferredWorkspaceID: UUID?) -> PanelOwner? {
+        if let cached = ownerReferencesByPanelID[panelId]?.resolved,
+           cached.contains(panelId: panelId),
+           preferredWorkspaceID == nil || cached.workspaceID == preferredWorkspaceID {
+            return cached
+        }
+        ownerReferencesByPanelID.removeValue(forKey: panelId)
+
+        let resolved: PanelOwner?
         if let preferredWorkspaceID,
            let manager = AppDelegate.shared?.tabManagerFor(tabId: preferredWorkspaceID),
            let workspace = manager.workspacesById[preferredWorkspaceID],
            workspace.panels[panelId] is TerminalPanel {
-            return .workspace(workspace)
-        }
-        if let preferredWorkspaceID,
+            resolved = .workspace(workspace)
+        } else if let preferredWorkspaceID,
            let dock = DockSplitStore.liveStores.first(where: {
                $0.workspaceId == preferredWorkspaceID && $0.panels[panelId] is TerminalPanel
            }) {
-            return .dock(dock)
-        }
-        if let dock = DockSplitStore.liveStores.first(where: {
+            resolved = .dock(dock)
+        } else if let dock = DockSplitStore.liveStores.first(where: {
             $0.panels[panelId] is TerminalPanel
         }) {
-            return .dock(dock)
-        }
-        guard let located = AppDelegate.shared?.workspaceContainingPanel(
+            resolved = .dock(dock)
+        } else if let located = AppDelegate.shared?.workspaceContainingPanel(
             panelId: panelId,
             preferredWorkspaceId: preferredWorkspaceID
-        ) else { return nil }
-        return .workspace(located.workspace)
+        ) {
+            resolved = .workspace(located.workspace)
+        } else {
+            resolved = nil
+        }
+        if let resolved {
+            ownerReferencesByPanelID[panelId] = WeakPanelOwnerReference(owner: resolved)
+        }
+        return resolved
     }
 
     func bindingDidChange(panelId: UUID) {
@@ -39,6 +51,7 @@ extension AgentContextManagementCoordinator {
         // registered. Preserve state until a later lifecycle/shell signal
         // can resolve the new owner; explicit close paths call remove.
         guard let owner = owner(for: panelId, preferredWorkspaceID: nil) else {
+            ownerReferencesByPanelID.removeValue(forKey: panelId)
             return
         }
         guard let binding = owner.binding(panelId: panelId),
@@ -134,10 +147,12 @@ extension AgentContextManagementCoordinator {
     }
 
     func resetForUnboundSession(panelId: UUID) {
+        let currentOwner = owner(for: panelId, preferredWorkspaceID: nil)
+        ownerReferencesByPanelID.removeValue(forKey: panelId)
         cancelPreservationVerification(panelId: panelId)
         states.removeValue(forKey: panelId)
         userInputObservedBeforePressure.remove(panelId)
-        if let owner = owner(for: panelId, preferredWorkspaceID: nil) {
+        if let owner = currentOwner {
             owner.setContextPressureMonitoringEnabled(panelId: panelId, enabled: false)
             owner.clearPressureStatus(key: Self.statusKey(for: panelId), panelId: panelId)
         }

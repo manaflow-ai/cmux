@@ -8,6 +8,22 @@ extension AgentContextManagementCoordinator {
         case workspace(Workspace)
         case dock(DockSplitStore)
 
+        var identity: ObjectIdentifier {
+            switch self {
+            case .workspace(let workspace): ObjectIdentifier(workspace)
+            case .dock(let dock): ObjectIdentifier(dock)
+            }
+        }
+
+        func contains(panelId: UUID) -> Bool {
+            switch self {
+            case .workspace(let workspace):
+                workspace.panels[panelId] is TerminalPanel
+            case .dock(let dock):
+                dock.panels[panelId] is TerminalPanel
+            }
+        }
+
         var workspaceID: UUID {
             switch self {
             case .workspace(let workspace): workspace.id

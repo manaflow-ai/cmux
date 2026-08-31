@@ -6,6 +6,32 @@ import os
 /// Main-actor owner for context pressure state and recovery actions across managed panes.
 @MainActor
 final class AgentContextManagementCoordinator {
+    /// Weak panel-to-owner references keep lifecycle lookups bounded without
+    /// retaining workspaces or Dock stores past their owning window.
+    final class WeakPanelOwnerReference {
+        weak var workspace: Workspace?
+        weak var dock: DockSplitStore?
+
+        init(owner: PanelOwner) {
+            switch owner {
+            case .workspace(let workspace):
+                self.workspace = workspace
+            case .dock(let dock):
+                self.dock = dock
+            }
+        }
+
+        var resolved: PanelOwner? {
+            if let workspace {
+                return .workspace(workspace)
+            }
+            if let dock {
+                return .dock(dock)
+            }
+            return nil
+        }
+    }
+
     let policy = AgentContextInjectionPolicy()
     let handoffVerifier: AgentContextHandoffVerifier
     private let notificationCenter: NotificationCenter
@@ -19,6 +45,9 @@ final class AgentContextManagementCoordinator {
     /// task runs. Retain that cancellation edge so a late pressure event cannot
     /// authorize automation after the user already took the keyboard.
     var userInputObservedBeforePressure: Set<UUID> = []
+    /// Derived ownership index used by settings-wide reevaluation. Entries are
+    /// weak and are invalidated whenever a panel leaves its current owner.
+    var ownerReferencesByPanelID: [UUID: WeakPanelOwnerReference] = [:]
     static let logger = Logger(subsystem: "com.cmuxterm.app", category: "AgentContextManagement")
     private var settingsObserver: NSObjectProtocol?
     private var userDefaultsObserver: NSObjectProtocol?
@@ -300,6 +329,7 @@ final class AgentContextManagementCoordinator {
                 states[panelId] = state
             }
         } else {
+            ownerReferencesByPanelID.removeValue(forKey: panelId)
             cancelPreservationVerification(panelId: panelId)
             states.removeValue(forKey: panelId)
             userInputObservedBeforePressure.remove(panelId)
@@ -329,16 +359,28 @@ final class AgentContextManagementCoordinator {
     }
 
     private func reevaluateAll() {
-        // Evaluation can invalidate a binding and remove its state. Iterate a
-        // snapshot so fail-closed cleanup never mutates the dictionary being
-        // traversed.
+        // Resolve each owner once. `owner(for:)` is backed by a weak panel
+        // index, so a settings change is O(P) rather than scanning every Dock
+        // for every panel (O(P×D)). Evaluation can invalidate a binding and
+        // remove its state, so iterate snapshots and group by owner.
+        var groupedOwners: [ObjectIdentifier: (owner: PanelOwner, panelIDs: [UUID])] = [:]
         for panelId in Array(states.keys) {
-            guard let owner = owner(for: panelId, preferredWorkspaceID: nil) else { continue }
-            owner.setContextPressureMonitoringEnabled(
-                panelId: panelId,
-                enabled: settings.isEnabled
-            )
-            evaluate(surfaceID: panelId, owner: owner)
+            guard let owner = owner(for: panelId, preferredWorkspaceID: nil) else {
+                ownerReferencesByPanelID.removeValue(forKey: panelId)
+                continue
+            }
+            let ownerID = owner.identity
+            groupedOwners[ownerID, default: (owner: owner, panelIDs: [])].panelIDs.append(panelId)
+        }
+        for group in groupedOwners.values {
+            let owner = group.owner
+            for panelId in group.panelIDs {
+                owner.setContextPressureMonitoringEnabled(
+                    panelId: panelId,
+                    enabled: settings.isEnabled
+                )
+                evaluate(surfaceID: panelId, owner: owner)
+            }
         }
     }
 
