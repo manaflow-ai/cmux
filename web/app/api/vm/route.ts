@@ -485,7 +485,7 @@ export async function POST(request: Request): Promise<Response> {
             return vmActiveLimitExceededResponse({
               limit: err.limit,
               planId: entitlements.planId,
-              retryAction: "Run `cmux vm ls`, then stop or delete an active VM with `cmux vm rm <id>` before creating another. Paused VMs do not count against this limit.",
+              retryAction: "Run `cmux vm ls`, then delete an active VM with `cmux vm rm <id>` before creating another, or upgrade your plan.",
             });
           }
           if (isVmCreateCreditsInsufficientError(err)) {

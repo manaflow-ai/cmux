@@ -7,6 +7,7 @@ import type {
   ExecResult,
   ProviderId,
   SSHEndpoint,
+  VMHandle,
   VMStatus,
 } from "./drivers";
 import {
@@ -229,6 +230,63 @@ export function homeVolumeTemplateForUser(userId: string): string {
   return `${homeVolumeNameForUser(userId)}-{machine}`;
 }
 
+/**
+ * The home volume a destroyed machine owns exclusively, or null when there is
+ * nothing safe to delete. Per-machine volumes are marked at create
+ * (`providerMetadata.homeVolumePerMachine`); rows created before that marker
+ * existed are recognized by the per-machine naming scheme
+ * (`<user-home>-<machine>`). The shared per-user volume never matches: other
+ * machines, including future ones, mount it.
+ */
+export function machineOwnedHomeVolume(
+  vm: Pick<CloudVmRow, "userId" | "providerMetadata">,
+  providerVmId: string,
+): string | null {
+  const metadata = vm.providerMetadata ?? {};
+  const homeVolume = metadata["homeVolume"];
+  if (typeof homeVolume !== "string" || homeVolume.length === 0) return null;
+  const sharedName = homeVolumeNameForUser(vm.userId);
+  if (homeVolume === sharedName) return null;
+  if (metadata["homeVolumePerMachine"] === true) return homeVolume;
+  return providerVmId && homeVolume === `${sharedName}-${providerVmId}` ? homeVolume : null;
+}
+
+/**
+ * Best-effort provider rollback of a just-created machine the workflow could
+ * not finalize: the sandbox, and any per-machine home volume the create
+ * provisioned (nothing ever reattaches it, but its storage keeps billing). A
+ * shared per-user home is never deleted here — the next create reattaches it
+ * by name.
+ */
+function rollbackProviderCreate(
+  providers: VmProviderGatewayShape,
+  provider: ProviderId,
+  handle: VMHandle,
+): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    yield* providers.destroy(provider, handle.providerVmId).pipe(Effect.catchAll(() => Effect.void));
+    const metadata = handle.providerMetadata ?? {};
+    const homeVolume = metadata["homeVolume"];
+    if (
+      metadata["homeVolumePerMachine"] === true &&
+      typeof homeVolume === "string" &&
+      homeVolume.length > 0 &&
+      providers.deleteHomeVolume
+    ) {
+      yield* providers.deleteHomeVolume(provider, homeVolume).pipe(
+        Effect.catchAll((err) =>
+          Effect.sync(() => {
+            console.error(
+              `[vm] create rollback leaked home volume ${homeVolume} for ${handle.providerVmId}`,
+              errorMessage(err.cause),
+            );
+          }),
+        ),
+      );
+    }
+  });
+}
+
 export function createVm(input: {
   readonly userId: string;
   readonly billingCustomerType: BillingCustomerType;
@@ -345,7 +403,7 @@ export function createVm(input: {
     ).pipe(
       Effect.catchAll((err) =>
         Effect.gen(function* () {
-          yield* providers.destroy(input.provider, handle.providerVmId).pipe(Effect.catchAll(() => Effect.void));
+          yield* rollbackProviderCreate(providers, input.provider, handle);
           yield* refundCredit(billing, repo, create.vm, creditReservation);
           yield* repo.markCreateFailed({
             id: create.vm.id,
@@ -533,7 +591,7 @@ function finishBaseCreate(
     ).pipe(
       Effect.catchAll((err) =>
         Effect.gen(function* () {
-          yield* providers.destroy(input.provider, handle.providerVmId).pipe(Effect.catchAll(() => Effect.void));
+          yield* rollbackProviderCreate(providers, input.provider, handle);
           yield* refundCredit(billing, repo, create.vm, creditReservation);
           yield* repo.markBaseCreateFailed({
             baseId: create.base.id,
@@ -817,7 +875,7 @@ export function forkVm(input: {
       ).pipe(
         Effect.catchAll((err) =>
           Effect.gen(function* () {
-            yield* providers.destroy(source.provider, handle.providerVmId).pipe(Effect.catchAll(() => Effect.void));
+            yield* rollbackProviderCreate(providers, source.provider, handle);
             yield* refundCredit(billing, repo, create.vm, creditReservation);
             yield* repo.markCreateFailed({
               id: create.vm.id,
@@ -1351,10 +1409,65 @@ export function destroyVm(input: {
         return Effect.fail(err);
       }),
     );
-    yield* Effect.sync(() => {
+    const destroyedProviderVmId = vm.providerVmId ?? input.providerVmId;
+    // This callback is advisory progress reporting. A failure must not skip
+    // the mandatory volume cleanup or DB finalization now that the provider
+    // machine is gone. Keep the failure observable in the usage ledger, but
+    // leave destroy successful because those mandatory operations are the
+    // authoritative outcome.
+    try {
       input.afterProviderDestroy?.();
-    });
-    yield* repo.markDestroyed(vm.id);
+    } catch (err) {
+      const message = errorMessage(err);
+      console.error(
+        `[vm] afterProviderDestroy hook failed for ${destroyedProviderVmId}`,
+        message,
+      );
+      yield* repo.recordUsageEvent({
+        userId: input.userId,
+        billingTeamId: vm.billingTeamId,
+        billingPlanId: vm.billingPlanId,
+        vmId: vm.id,
+        eventType: "vm.destroy.after_provider_destroy_failed",
+        provider: vm.provider,
+        imageId: vm.imageId,
+        metadata: { message },
+      }).pipe(Effect.catchAll(() => Effect.void));
+    }
+    // The sandbox is gone; a per-machine home volume must go with it or its
+    // storage bills forever. The volume delete never fails the destroy — the
+    // machine is already unrecoverable — but a failed delete is recorded as a
+    // usage event so the leaked volume is findable instead of silent.
+    const homeVolume = machineOwnedHomeVolume(vm, destroyedProviderVmId);
+    let homeVolumeDeleted = false;
+    if (homeVolume && providers.deleteHomeVolume) {
+      homeVolumeDeleted = yield* providers.deleteHomeVolume(vm.provider, homeVolume).pipe(
+        Effect.as(true),
+        Effect.catchAll((err) =>
+          Effect.gen(function* () {
+            console.error(
+              `[vm] home volume delete failed for ${destroyedProviderVmId} (${homeVolume})`,
+              errorMessage(err.cause),
+            );
+            yield* repo.recordUsageEvent({
+              userId: input.userId,
+              billingTeamId: vm.billingTeamId,
+              billingPlanId: vm.billingPlanId,
+              vmId: vm.id,
+              eventType: "vm.home_volume.delete_failed",
+              provider: vm.provider,
+              imageId: vm.imageId,
+              metadata: { homeVolume, message: errorMessage(err.cause) },
+            }).pipe(Effect.catchAll(() => Effect.void));
+            return false;
+          }),
+        ),
+      );
+    }
+    // The provider-side machine is gone at this point, so a lost DB write would
+    // leave a ghost row counting against the active-VM limit. Retry the write;
+    // the provider-status reconciler is the backstop if it still fails.
+    yield* repo.markDestroyed(vm.id).pipe(Effect.retry({ times: 2 }));
     yield* repo.recordUsageEvent({
       userId: input.userId,
       billingTeamId: vm.billingTeamId,
@@ -1363,6 +1476,7 @@ export function destroyVm(input: {
       eventType: "vm.destroyed",
       provider: vm.provider,
       imageId: vm.imageId,
+      ...(homeVolume ? { metadata: { homeVolume, homeVolumeDeleted } } : {}),
     }).pipe(Effect.catchAll(() => Effect.void));
   });
 }
