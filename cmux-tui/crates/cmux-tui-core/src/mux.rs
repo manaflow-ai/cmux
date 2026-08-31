@@ -1351,10 +1351,9 @@ enum AgentReportOrigin {
     RosterFold,
 }
 
-/// The portion of an agent report that must be folded after all report
-/// serialization locks are released. Keeping this receipt separate from the
-/// resource transaction prevents a socket fence from being held while the
-/// journal reducer takes its own lock.
+/// The portion of an agent report that must be folded after the resource
+/// transaction commits. Keeping this receipt separate lets the reducer use
+/// its bounded journal path while the external report fence remains held.
 struct AgentReportFoldReceipt {
     ingress: crate::JournalIngress,
     sequence: u64,
@@ -2269,6 +2268,9 @@ pub struct Mux {
     /// A single coalesced worker drains replay work that exceeds the bounded
     /// synchronous report budget. The journal remains the source of truth.
     agent_roster_fold_worker_running: AtomicBool,
+    /// Signals shutdown waiters after the coalesced roster worker releases
+    /// its ownership flag. The fold mutex is the associated wait lock.
+    agent_roster_fold_worker_changed: Condvar,
     /// Weak self-reference used to start the reducer worker from `&self`
     /// entrypoints without creating a reference cycle. It is initialized once
     /// immediately after the owning `Arc<Mux>` is constructed.
@@ -2685,6 +2687,7 @@ impl Mux {
             agent_roster: Mutex::new(agent_roster),
             agent_roster_fold: Mutex::new(()),
             agent_roster_fold_worker_running: AtomicBool::new(false),
+            agent_roster_fold_worker_changed: Condvar::new(),
             self_reference: OnceLock::new(),
             agent_records: Mutex::new(agent_records),
             agent_hook_fences: Mutex::new(agent_hook_fences),
@@ -5886,7 +5889,10 @@ impl Mux {
         // complete roster for every poll made callback cost grow with the
         // number of terminals.
         let _fold = self.agent_roster_fold.lock().unwrap();
-        let mut read_cursor = self.agent_roster.lock().unwrap().cursor;
+        let (mut read_cursor, defer_record_cache) = {
+            let host = self.agent_roster.lock().unwrap();
+            (host.cursor, host.startup_replay_pending)
+        };
         if target_sequence <= read_cursor {
             return AgentRosterFoldProgress::ReachedTarget;
         }
@@ -5972,8 +5978,10 @@ impl Mux {
                         matches!(delta, crate::journal_reducers::RosterDelta::Remove { .. })
                     });
                 }
-                for delta in deltas {
-                    self.apply_roster_delta_to_record_cache(delta);
+                if !defer_record_cache {
+                    for delta in deltas {
+                        self.apply_roster_delta_to_record_cache(delta);
+                    }
                 }
                 read_cursor = record.sequence;
                 advanced = true;
@@ -6041,15 +6049,43 @@ impl Mux {
         }
 
         let Some(mux) = self.self_reference.get().cloned() else {
-            self.agent_roster_fold_worker_running.store(false, Ordering::Release);
+            self.mark_agent_roster_fold_worker_stopped();
             return;
         };
         if let Err(error) = std::thread::Builder::new()
             .name("agent-roster-fold".into())
             .spawn(move || Self::run_agent_roster_fold_worker(mux))
         {
-            self.agent_roster_fold_worker_running.store(false, Ordering::Release);
+            self.mark_agent_roster_fold_worker_stopped();
             eprintln!("cmux-tui: could not start agent roster fold worker: {error}");
+        }
+    }
+
+    fn mark_agent_roster_fold_worker_stopped(&self) {
+        let _fold = self.agent_roster_fold.lock().unwrap();
+        self.agent_roster_fold_worker_running.store(false, Ordering::Release);
+        self.agent_roster_fold_worker_changed.notify_all();
+    }
+
+    fn wait_for_agent_roster_fold_worker(&self, deadline: Instant) {
+        let mut fold = self.agent_roster_fold.lock().unwrap();
+        while self.agent_roster_fold_worker_running.load(Ordering::Acquire) {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                eprintln!(
+                    "cmux-tui: agent roster fold worker did not stop before shutdown deadline"
+                );
+                break;
+            }
+            let (next, result) =
+                self.agent_roster_fold_worker_changed.wait_timeout(fold, remaining).unwrap();
+            fold = next;
+            if result.timed_out() && self.agent_roster_fold_worker_running.load(Ordering::Acquire) {
+                eprintln!(
+                    "cmux-tui: agent roster fold worker did not stop before shutdown deadline"
+                );
+                break;
+            }
         }
     }
 
@@ -6057,7 +6093,7 @@ impl Mux {
         loop {
             let Some(mux) = mux.upgrade() else { return };
             if mux.shutting_down.load(Ordering::Acquire) {
-                mux.agent_roster_fold_worker_running.store(false, Ordering::Release);
+                mux.mark_agent_roster_fold_worker_stopped();
                 return;
             }
 
@@ -6125,21 +6161,41 @@ impl Mux {
                     if mux.journal_event_epoch() != observed_epoch {
                         continue;
                     }
-                    let startup_replay_completed = {
-                        let mut host = mux.agent_roster.lock().unwrap();
-                        if host.startup_replay_pending && host.cursor >= current_head {
-                            host.startup_replay_pending = false;
-                            true
-                        } else {
-                            false
-                        }
-                    };
-                    if startup_replay_completed {
+                    let startup_replay_ready =
+                        mux.agent_roster.lock().unwrap().startup_replay_pending;
+                    if startup_replay_ready {
+                        // Keep the pending marker set while reconciling. A
+                        // concurrent direct report can update the cache before
+                        // its journal echo is folded; the second epoch check
+                        // then makes this pass retry without exposing a
+                        // partially replayed cache.
                         mux.reconcile_agent_record_cache_from_roster();
+                        if mux.journal_event_epoch() != observed_epoch {
+                            continue;
+                        }
+                        let current_head = match mux
+                            .workspace_registry
+                            .lock()
+                            .unwrap()
+                            .session_journal_after(0, 1)
+                        {
+                            Ok(page) => page.head_sequence,
+                            Err(error) => {
+                                eprintln!(
+                                    "cmux-tui: rechecking the agent roster journal head after cache reconciliation failed: {error}"
+                                );
+                                continue;
+                            }
+                        };
+                        if mux.agent_roster.lock().unwrap().cursor < current_head {
+                            continue;
+                        }
+                        mux.agent_roster.lock().unwrap().startup_replay_pending = false;
                     }
 
-                    mux.agent_roster_fold_worker_running.store(false, Ordering::Release);
-                    if mux.journal_event_epoch() != observed_epoch
+                    mux.mark_agent_roster_fold_worker_stopped();
+                    if !mux.shutting_down.load(Ordering::Acquire)
+                        && mux.journal_event_epoch() != observed_epoch
                         && mux
                             .agent_roster_fold_worker_running
                             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
@@ -6286,14 +6342,16 @@ impl Mux {
                     )
                 })
                 .or_else(|| {
-                    host.roster.last_socket_report(terminal_id.as_str()).map(|(state, session)| {
-                        (
-                            state.to_string(),
-                            AgentSource::Socket.as_str().to_string(),
-                            session.map(str::to_owned),
-                            None,
-                        )
-                    })
+                    host.roster.last_external_report(terminal_id.as_str()).map(
+                        |(source, state, session)| {
+                            (
+                                state.to_string(),
+                                source.to_string(),
+                                session.map(str::to_owned),
+                                None,
+                            )
+                        },
+                    )
                 });
             previous
         };
@@ -6512,6 +6570,7 @@ impl Mux {
             AgentSource::Hook,
             Some(marker),
             true,
+            Some(&*fences),
             Some(hook_state),
             Some(sequence),
             AgentReportOrigin::RosterFold,
@@ -9901,6 +9960,7 @@ impl Mux {
             false,
             None,
             None,
+            None,
             AgentReportOrigin::Direct,
             None,
         )
@@ -9913,6 +9973,7 @@ impl Mux {
         source: AgentSource,
         session: Option<String>,
         sequence_lock_held: bool,
+        held_fences: Option<&HashMap<TerminalPublicId, HookFence>>,
         hook_state: Option<crate::workspace_registry::AgentHookProjectionState>,
         journal_sequence: Option<u64>,
         origin: AgentReportOrigin,
@@ -9936,6 +9997,8 @@ impl Mux {
         let external_sequence_guard = (source != AgentSource::Hook && !sequence_lock_held)
             .then(|| self.agent_hook_fences.lock().unwrap());
         let commit_sequence_lock_held = sequence_lock_held || external_sequence_guard.is_some();
+        let held_fences =
+            held_fences.or_else(|| external_sequence_guard.as_ref().map(|guard| &**guard));
         let (echo_sequence, echo_timestamp, echo_ingress) = if source != AgentSource::Hook {
             let terminal_id = {
                 let state_guard = self.state.lock().unwrap();
@@ -9978,6 +10041,7 @@ impl Mux {
             &mutation,
             &fingerprint,
             commit_sequence_lock_held,
+            held_fences,
             hook_state.as_ref(),
             echo_sequence,
             origin,
@@ -9985,7 +10049,6 @@ impl Mux {
             echo_timestamp,
             echo_ingress.as_ref(),
         );
-        drop(external_sequence_guard);
         let (_, record, fold_receipt) = commit_result?;
         if let Some(receipt) = fold_receipt {
             self.fold_agent_roster(
@@ -9997,6 +10060,7 @@ impl Mux {
                 },
             );
         }
+        drop(external_sequence_guard);
         let record = record.context("fresh raw agent report unexpectedly replayed")?;
         if source != AgentSource::Hook {
             // A successful report means this terminal is available. Retry only
@@ -10063,6 +10127,7 @@ impl Mux {
             mutation,
             &fingerprint,
             external_sequence_guard.is_some(),
+            external_sequence_guard.as_ref().map(|guard| &**guard),
             None,
             journal_sequence,
             AgentReportOrigin::Direct,
@@ -10070,10 +10135,6 @@ impl Mux {
             reported_at_ms,
             echo_ingress.as_ref(),
         );
-        drop(external_sequence_guard);
-        if result.is_ok() && source != AgentSource::Hook {
-            let _ = self.retry_pending_agent_hooks_for_terminal(terminal_id);
-        }
         match result {
             Ok((commit, _, fold_receipt)) => {
                 if let Some(receipt) = fold_receipt {
@@ -10086,9 +10147,16 @@ impl Mux {
                         },
                     );
                 }
+                drop(external_sequence_guard);
+                if source != AgentSource::Hook {
+                    let _ = self.retry_pending_agent_hooks_for_terminal(terminal_id);
+                }
                 Ok(commit)
             }
-            Err(error) => Err(error),
+            Err(error) => {
+                drop(external_sequence_guard);
+                Err(error)
+            }
         }
     }
 
@@ -10103,6 +10171,7 @@ impl Mux {
         mutation: &WorkspaceMutation,
         fingerprint: &Value,
         sequence_lock_held: bool,
+        held_fences: Option<&HashMap<TerminalPublicId, HookFence>>,
         hook_state: Option<&crate::workspace_registry::AgentHookProjectionState>,
         journal_sequence: Option<u64>,
         origin: AgentReportOrigin,
@@ -10167,35 +10236,50 @@ impl Mux {
                 (surface, (*terminal_id).clone())
             }
         };
-        let roster = self.agent_roster.lock().unwrap();
-        if roster.roster.is_retired(terminal_id.as_str()) {
-            anyhow::bail!("terminal {terminal_id} has been retired");
-        }
-        let durable_hook_session =
-            roster.roster.ended_hook_session(terminal_id.as_str()).map(str::to_owned);
-        let durable_hook_end = durable_hook_session.is_some();
-        drop(roster);
+        let (durable_hook_session, durable_external_session, durable_external_end) = {
+            let roster = self.agent_roster.lock().unwrap();
+            if roster.roster.is_retired(terminal_id.as_str()) {
+                anyhow::bail!("terminal {terminal_id} has been retired");
+            }
+            let durable_hook_session =
+                roster.roster.ended_hook_session(terminal_id.as_str()).map(str::to_owned);
+            let durable_external_session =
+                roster.roster.ended_external_session(terminal_id.as_str()).map(str::to_owned);
+            let durable_external_end = roster
+                .roster
+                .last_external_report(terminal_id.as_str())
+                .is_some_and(|(_, state, _)| state == AgentState::Done.as_str());
+            (durable_hook_session, durable_external_session, durable_external_end)
+        };
+        // A caller-held fence is just as authoritative as one acquired in
+        // this function. Clone the entry before any later mutable insertion
+        // so the validation decision cannot race or borrow the guard.
+        let current_fence = held_fences
+            .or_else(|| sequence_guard.as_ref().map(|guard| &**guard))
+            .and_then(|fences| fences.get(&terminal_id))
+            .cloned();
+        let ended_fence = current_fence.as_ref().filter(|fence| fence.ended);
         let mut direct_hook_state = None;
         if source != AgentSource::Hook {
-            let ended_fence = sequence_guard
-                .as_ref()
-                .and_then(|guard| guard.get(&terminal_id))
-                .filter(|fence| fence.ended);
             let new_lifecycle_session = source_session.as_deref().is_some_and(|session| {
                 !session.is_empty()
                     && !session.starts_with("cmux-hook-sequence:")
                     && !session.starts_with("cmux-hook-ended:")
                     && !ended_fence.is_some_and(|fence| session == fence.session_id)
                     && !durable_hook_session.as_deref().is_some_and(|old| session == old)
+                    && !durable_external_session.as_deref().is_some_and(|old| session == old)
             });
-            if (durable_hook_end || ended_fence.is_some()) && !new_lifecycle_session {
+            if (durable_hook_session.is_some() || durable_external_end || ended_fence.is_some())
+                && !new_lifecycle_session
+                && !(durable_external_end
+                    && durable_hook_session.is_none()
+                    && ended_fence.is_none()
+                    && agent_state == AgentState::Done
+                    && durable_external_session.as_deref() == source_session.as_deref())
+            {
                 anyhow::bail!("agent_session_ended");
             }
-        } else if let Some(fence) = sequence_guard
-            .as_ref()
-            .and_then(|guard| guard.get(&terminal_id))
-            .filter(|fence| fence.ended)
-        {
+        } else if let Some(fence) = ended_fence {
             let supplied_session = source_session.as_deref().filter(|session| {
                 !session.is_empty()
                     && !session.starts_with("cmux-hook-sequence:")
@@ -10257,10 +10341,7 @@ impl Mux {
             // is only a compatibility fallback when no identity was
             // supplied, while durable hook state carries the fence itself.
             source_session.clone().or_else(|| {
-                sequence_guard
-                    .as_ref()
-                    .and_then(|guard| guard.get(&terminal_id))
-                    .map(|fence| format!("cmux-hook-sequence:{}", fence.sequence))
+                current_fence.as_ref().map(|fence| format!("cmux-hook-sequence:{}", fence.sequence))
             })
         };
         let now = reported_at_ms.unwrap_or_else(now_ms);
@@ -10401,9 +10482,8 @@ impl Mux {
         drop(records);
         drop(state);
         drop(registry);
-        // The fence protects the commit only. Release it before folding the
-        // journal row so a future fold implementation cannot re-enter the
-        // report serialization domain.
+        // Keep the fence through the synchronous fold. The fold publishes the
+        // durable receipt that the next external report uses for coalescing.
         drop(sequence_guard);
         let publish_echo = !commit.replayed && echo_sequence.is_some();
         if publish_echo {
@@ -10592,6 +10672,7 @@ impl Mux {
         self.journal_event_changed.notify_all();
         self.journal_kernel.wake_waiters();
         let hook_deadline = Instant::now() + crate::journal_hooks::SHUTDOWN_WAIT;
+        self.wait_for_agent_roster_fold_worker(hook_deadline);
         if !self.journal_hook_runtime.shutdown_until(hook_deadline) {
             eprintln!("cmux-tui: journal hook workers did not stop before the shutdown deadline");
         }
@@ -23476,10 +23557,24 @@ mod tests {
             true,
         )
         .unwrap();
-        let surface_id = reopened.resource_surface_for_terminal(&terminal_id).unwrap();
-        let records = reopened.list_agents(Some(surface_id), None);
-        assert_eq!(records.len(), 1);
-        assert_eq!(records[0].agent.as_deref(), Some("claude"));
+        // A restarted daemon without a live host record detaches the
+        // terminal topology. The durable roster and compatibility cache must
+        // still retain the identity independently of that host state.
+        let roster = reopened.agent_roster.lock().unwrap();
+        assert_eq!(
+            roster
+                .roster
+                .entries
+                .get(terminal_id.as_str())
+                .and_then(|entry| entry.agent.as_deref()),
+            Some("claude")
+        );
+        drop(roster);
+        let records = reopened.agent_records.lock().unwrap();
+        assert_eq!(
+            records.get(&terminal_id).and_then(|record| record.agent.as_deref()),
+            Some("claude")
+        );
         reopened.shutdown();
         drop(reopened);
         std::fs::remove_dir_all(root).unwrap();
@@ -24270,6 +24365,16 @@ mod tests {
         .unwrap();
         mux.append_journal_ingress(&end, "test", "authority-scope-end").unwrap();
 
+        // Keep a live external projection on a different terminal. Ending
+        // one terminal must not clear this unrelated compatibility record.
+        mux.report_agent(
+            compatibility_surface.id,
+            AgentState::Working,
+            AgentSource::Socket,
+            Some("compatibility-session".into()),
+        )
+        .unwrap();
+
         // Direct hook reports are rejected because they have no durable
         // journal event to replay after restart.
         assert!(
@@ -24285,11 +24390,17 @@ mod tests {
         drop(mux);
 
         let reopened = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
-        assert!(reopened.list_agents(Some(ended_surface.id), None).is_empty());
-        let compatibility_surface = reopened
-            .resource_surface_for_terminal(&compatibility_terminal)
-            .expect("compatibility terminal restored");
-        assert!(reopened.list_agents(Some(compatibility_surface), None).is_empty());
+        let records = reopened.agent_records.lock().unwrap();
+        assert!(!records.contains_key(&ended_terminal));
+        assert_eq!(
+            records.get(&compatibility_terminal).map(|record| (
+                record.state,
+                record.source,
+                record.session.as_deref()
+            )),
+            Some((AgentState::Working, AgentSource::Socket, Some("compatibility-session")))
+        );
+        drop(records);
         reopened.shutdown();
         drop(reopened);
         std::fs::remove_dir_all(root).unwrap();

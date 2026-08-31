@@ -32,7 +32,9 @@ pub(crate) const AGENT_ROSTER_REDUCER_ID: &str = "agent_roster";
 /// added a global authority bit. Version 5 removes that global bit and scopes
 /// compatibility cleanup to each terminal's durable removal fence. Version 6
 /// retains the last socket semantic receipt after a Done entry is removed.
-pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 6;
+/// Version 7 makes that receipt source-neutral for socket and detection
+/// adapters.
+pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 7;
 
 /// Retirement tombstones protect delayed journal rows after a terminal leaves
 /// the resource tree. Keep each exact tombstone while its journal rows may be
@@ -138,7 +140,8 @@ struct RosterFence {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct SocketReportReceipt {
+struct ExternalReportReceipt {
+    source: String,
     state: String,
     session: Option<String>,
 }
@@ -195,12 +198,13 @@ pub(crate) struct AgentRoster {
     /// retirement, so delayed records from that terminal cannot recreate it.
     #[serde(default)]
     retired_terminals: BTreeMap<String, u64>,
-    /// The last accepted socket state remains after a Done report removes
+    /// The last accepted external state remains after a Done report removes
     /// the live roster entry. This receipt is bounded by terminal lifecycle,
     /// and lets repeated polls reuse the same semantic transition instead of
-    /// appending another journal row on every poll.
+    /// appending another journal row on every poll. It covers socket and
+    /// screen-detection adapters.
     #[serde(default)]
-    socket_receipts: HashMap<String, SocketReportReceipt>,
+    external_receipts: HashMap<String, ExternalReportReceipt>,
 }
 
 impl AgentRoster {
@@ -243,6 +247,26 @@ impl AgentRoster {
                 .and_then(|value| value.parse::<u64>().ok())
                 .unwrap_or(event.committed_at_ms);
             let session = event.normalized("source_session").map(str::to_string);
+            if self
+                .external_receipts
+                .get(terminal_id)
+                .is_some_and(|receipt| receipt.state == AgentState::Done.as_str())
+            {
+                // An external Done closes that source session. A later
+                // report must prove a distinct non-empty session before it
+                // can start a new lifecycle on the same terminal.
+                let fresh_session = session.as_deref().is_some_and(|session| {
+                    !session.is_empty()
+                        && self
+                            .external_receipts
+                            .get(terminal_id)
+                            .and_then(|receipt| receipt.session.as_deref())
+                            != Some(session)
+                });
+                if !fresh_session {
+                    return Vec::new();
+                }
+            }
             if self.hook_fences.get(terminal_id).is_some_and(|fence| {
                 fence.ended
                     && event
@@ -300,7 +324,7 @@ impl AgentRoster {
             // A hook event claims this terminal's lifecycle. Any socket
             // receipt from the previous lifecycle must not suppress a later
             // socket transition after the hook state is gone.
-            self.socket_receipts.remove(terminal_id);
+            self.external_receipts.remove(terminal_id);
             (state, AgentSource::Hook, public_session, agent, event.committed_at_ms)
         };
         if source != AgentSource::Hook
@@ -313,17 +337,33 @@ impl AgentRoster {
             // overwrite it (mirrors the projection commit precedence).
             return Vec::new();
         }
-        if source == AgentSource::Socket {
-            self.socket_receipts.insert(
-                terminal_id.to_string(),
-                SocketReportReceipt { state: state.as_str().to_string(), session: session.clone() },
-            );
+        let external_receipt_changed = if source != AgentSource::Hook {
+            let receipt = ExternalReportReceipt {
+                source: source.as_str().to_string(),
+                state: state.as_str().to_string(),
+                session: session.clone(),
+            };
+            let changed = self.external_receipts.get(terminal_id) != Some(&receipt);
+            if changed {
+                self.external_receipts.insert(terminal_id.to_string(), receipt);
+            }
+            changed
+        } else {
+            false
+        };
+        if state == AgentState::Done && source != AgentSource::Hook && !external_receipt_changed {
+            // A repeated external Done is already represented by its durable
+            // receipt. Do not emit another removal delta.
+            return Vec::new();
         }
         if state == AgentState::Done {
             // An ended agent leaves the roster entirely; the done state is
             // still committed to the durable projection by the host so
             // history and remote caches converge.
-            return if self.entries.remove(terminal_id).is_some() {
+            return if self.entries.remove(terminal_id).is_some()
+                || source == AgentSource::Hook
+                || external_receipt_changed
+            {
                 vec![RosterDelta::Remove { terminal_id: terminal_id.to_string() }]
             } else {
                 Vec::new()
@@ -361,7 +401,7 @@ impl AgentRoster {
     /// events yet, so the host retires entries explicitly.
     pub(crate) fn retire_terminal(&mut self, terminal_id: &str, retired_at: u64) -> bool {
         let removed_entry = self.entries.remove(terminal_id).is_some();
-        let removed_socket_receipt = self.socket_receipts.remove(terminal_id).is_some();
+        let removed_external_receipt = self.external_receipts.remove(terminal_id).is_some();
         // A retired terminal is no longer allowed to receive socket echoes,
         // and its ended hook fence is redundant with the retirement cursor.
         let removed_fence = self.hook_fences.remove(terminal_id).is_some();
@@ -377,7 +417,7 @@ impl AgentRoster {
                 true
             }
         };
-        removed_entry || removed_fence || removed_socket_receipt || retired_changed
+        removed_entry || removed_fence || removed_external_receipt || retired_changed
     }
 
     /// Remove retirement fences whose source records are covered by a sealed
@@ -399,6 +439,10 @@ impl AgentRoster {
     pub(crate) fn has_terminal_removal_fence(&self, terminal_id: &str) -> bool {
         self.retired_terminals.contains_key(terminal_id)
             || self.hook_fences.get(terminal_id).is_some_and(|fence| fence.ended)
+            || self
+                .external_receipts
+                .get(terminal_id)
+                .is_some_and(|receipt| receipt.state == AgentState::Done.as_str())
     }
 
     /// Return every terminal represented by durable roster state. Startup
@@ -407,11 +451,15 @@ impl AgentRoster {
     /// being rebuilt.
     pub(crate) fn fenced_terminal_ids(&self) -> Vec<String> {
         let mut ids = Vec::with_capacity(
-            self.entries.len() + self.hook_fences.len() + self.retired_terminals.len(),
+            self.entries.len()
+                + self.hook_fences.len()
+                + self.retired_terminals.len()
+                + self.external_receipts.len(),
         );
         ids.extend(self.entries.keys().cloned());
         ids.extend(self.hook_fences.keys().cloned());
         ids.extend(self.retired_terminals.keys().cloned());
+        ids.extend(self.external_receipts.keys().cloned());
         ids.sort_unstable();
         ids.dedup();
         ids
@@ -428,13 +476,23 @@ impl AgentRoster {
             .map(|fence| fence.session_id.as_str())
     }
 
-    /// Return the last accepted socket state for idempotency checks. The
+    /// Return the last accepted external state for idempotency checks. The
     /// receipt survives live-entry removal, but only semantic fields are
     /// retained because report timestamps are intentionally non-semantic.
-    pub(crate) fn last_socket_report(&self, terminal_id: &str) -> Option<(&str, Option<&str>)> {
-        self.socket_receipts
+    pub(crate) fn last_external_report(
+        &self,
+        terminal_id: &str,
+    ) -> Option<(&str, &str, Option<&str>)> {
+        self.external_receipts.get(terminal_id).map(|receipt| {
+            (receipt.source.as_str(), receipt.state.as_str(), receipt.session.as_deref())
+        })
+    }
+
+    pub(crate) fn ended_external_session(&self, terminal_id: &str) -> Option<&str> {
+        self.external_receipts
             .get(terminal_id)
-            .map(|receipt| (receipt.state.as_str(), receipt.session.as_deref()))
+            .filter(|receipt| receipt.state == AgentState::Done.as_str())
+            .and_then(|receipt| receipt.session.as_deref())
     }
 
     pub(crate) fn snapshot(&self) -> Value {
@@ -561,6 +619,49 @@ mod tests {
         assert_eq!(deltas.len(), 1);
         assert_eq!(roster.entries["term_a"].agent_source(), AgentSource::Detected);
         assert_eq!(roster.entries["term_a"].session.as_deref(), Some("screen-1"));
+    }
+
+    #[test]
+    fn external_done_fence_survives_restart_and_requires_a_new_session() {
+        let subjects = terminal_subject("term_a");
+        let done = json!({
+            "adapter": {"id": DETECTED_REPORT_ADAPTER, "version": 1},
+            "normalized": {
+                "state": "done",
+                "source": "detected",
+                "source_session": "screen-1"
+            }
+        });
+        let mut roster = AgentRoster::default();
+
+        assert_eq!(
+            roster.apply(&hook_event(1, "agent.state.changed", &subjects, &done)),
+            vec![RosterDelta::Remove { terminal_id: "term_a".into() }]
+        );
+        assert!(roster.entries.is_empty());
+        assert!(roster.has_terminal_removal_fence("term_a"));
+
+        let mut restored = AgentRoster::restore(&roster.snapshot().to_string()).unwrap();
+        assert!(restored.apply(&hook_event(2, "agent.state.changed", &subjects, &done)).is_empty());
+
+        let mut stale_working = done.clone();
+        stale_working["normalized"]["state"] = json!("working");
+        assert!(
+            restored
+                .apply(&hook_event(3, "agent.state.changed", &subjects, &stale_working))
+                .is_empty()
+        );
+
+        let mut fresh_working = stale_working;
+        fresh_working["normalized"]["source_session"] = json!("screen-2");
+        assert_eq!(
+            restored.apply(&hook_event(4, "agent.state.changed", &subjects, &fresh_working)),
+            vec![RosterDelta::Upsert {
+                terminal_id: "term_a".into(),
+                entry: restored.entries["term_a"].clone(),
+            }]
+        );
+        assert_eq!(restored.entries["term_a"].session.as_deref(), Some("screen-2"));
     }
 
     #[test]
