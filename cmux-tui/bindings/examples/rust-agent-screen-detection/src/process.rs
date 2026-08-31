@@ -161,14 +161,17 @@ fn process_candidates(process: &ForegroundProcess) -> Vec<String> {
             }
         }
     }
-    if let Some(cmdline) = process.cmdline.as_deref()
+    // Herdr's final fallback inspects only argv[0] from a raw command line.
+    // Scanning every token lets ordinary option values or model text claim an
+    // agent identity. Use this path only when the structured argv is absent.
+    if process.argv.is_empty()
+        && let Some(cmdline) = process.cmdline.as_deref()
         && !is_eval_invocation(&runtime, &process.argv)
         && !is_runtime_or_shell(&runtime)
+        && let Some(token) = shell_words(cmdline).into_iter().next()
     {
-        for token in shell_words(cmdline) {
-            for candidate in path_candidates(&token) {
-                push(candidate);
-            }
+        for candidate in path_candidates(&token) {
+            push(candidate);
         }
     }
 
