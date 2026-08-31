@@ -131,8 +131,12 @@ export const CMUX_HOME_BINDFS_COMMAND =
 // volume keep /home/cmux on the (chown-capable) rootfs and need no view. Skipped work
 // on pre-layout sandboxes (volume still at /root): no backing mount exists there.
 export const CMUX_CLOUD_USER_SETUP_COMMAND = [
+  // uid 1001 first on both families for cross-image consistency; the unpinned forms
+  // are last resorts when 1001 is taken (the bindfs view maps by name, so a machine
+  // whose cmux landed on another uid still works).
   `id -u ${CMUX_CLOUD_USER} >/dev/null 2>&1` +
     ` || useradd -m -u 1001 -s /bin/bash ${CMUX_CLOUD_USER} 2>/dev/null` +
+    ` || adduser -D -u 1001 -s /bin/bash ${CMUX_CLOUD_USER} 2>/dev/null` +
     ` || useradd -m -s /bin/bash ${CMUX_CLOUD_USER} 2>/dev/null` +
     ` || adduser -D -s /bin/bash ${CMUX_CLOUD_USER} 2>/dev/null || true`,
   `mkdir -p ${CMUX_CLOUD_HOME} /etc/sudoers.d`,

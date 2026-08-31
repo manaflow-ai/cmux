@@ -103,8 +103,10 @@ today. The per-provider delivery mechanisms stay what they are:
 The daemon's remote state dir must live on the persistent volume (the machine's
 home: `/home/cmux` on blaxel — the daemon and every terminal pane run as the
 non-root `cmux` user with passwordless sudo; sandboxes created before that
-change keep their volume at `/root` and stay root until resurrected — hence the
-HOME-derived default `~/.local/state/cmux/remote` already qualifies)
+change keep their volume at `/root` and stay root until resurrected, and a
+machine where the user is unusable — missing user or runuser, or a failed
+bindfs identity view — degrades to a root daemon rather than failing — hence
+the HOME-derived default `~/.local/state/cmux/remote` already qualifies)
 so daemon identity and enrolled devices survive sandbox resurrection. Session
 state (`--state`) lives there too, so workspace layout restores from the
 journal checkpoint after a daemon restart; running processes do not survive a
