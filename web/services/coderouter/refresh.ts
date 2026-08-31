@@ -237,6 +237,10 @@ async function postForm(
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams(body),
     cache: "no-store",
+    // A refresh body carries the refresh token; a 307/308 would replay it to
+    // wherever the provider points. Token endpoints never redirect
+    // legitimately, so fail instead of following.
+    redirect: "error",
     signal: AbortSignal.timeout(10_000),
   });
   return await providerJson(response);
@@ -252,6 +256,9 @@ async function postJson(
     headers: { "content-type": "application/json", ...extraHeaders },
     body: JSON.stringify(body),
     cache: "no-store",
+    // Same rationale as postForm: never replay a refresh token to a
+    // redirect target.
+    redirect: "error",
     signal: AbortSignal.timeout(10_000),
   });
   return await providerJson(response);

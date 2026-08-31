@@ -74,7 +74,17 @@ export async function mintVmModelPlaneEnv(
     const entitlement = await dependencies.entitlement(input.stackUserId, input.teamId);
     if (!entitlement.allowed) return null;
   }
-  const origin = new URL(input.requestUrl).origin;
+  const url = new URL(input.requestUrl);
+  // The route token rides this origin as a bearer from inside the machine, so
+  // it must never leave over cleartext. Loopback stays allowed for local dev
+  // (the same rule the cr CLI enforces for --server).
+  if (
+    url.protocol !== "https:" &&
+    !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
+  ) {
+    throw new Error("coderouter model-plane origin must use HTTPS");
+  }
+  const origin = url.origin;
   const { token } = await dependencies.issueToken(
     input.teamId,
     input.stackUserId,

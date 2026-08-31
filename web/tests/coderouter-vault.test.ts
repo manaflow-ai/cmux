@@ -32,7 +32,7 @@ describe("coderouter vault", () => {
       accountId: "claude-account-1",
       email: "person@example.com",
       subscriptionType: "max",
-      expiresAt: Date.now() + 3_600_000,
+      expiresAt: Number.MAX_SAFE_INTEGER,
     };
     expect(parseCredential(claude)).toEqual(claude);
     expect(

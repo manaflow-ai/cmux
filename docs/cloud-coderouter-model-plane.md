@@ -117,7 +117,7 @@ surface (`Sources/Cloud/*`, `CLI/CMUXCLI+VMTui.swift`,
 `docs/cli-contract.md`, plus the `capabilities` field on `GET /api/vm`). This
 issue owns the plane behind it: `web/services/coderouter/**`, `web/app/v1/**`,
 the baked images, and the DB migration. This PR touches **no Swift and none of
-#11061's files** — the only shared file is `web/app/api/vm/route.ts`, which
+the PR #11061 files** — the only shared file is `web/app/api/vm/route.ts`, which
 this PR does not modify (the mint call predates both).
 
 Sequencing for the visible bits: folding `cr usage`-style quota into the
@@ -126,13 +126,13 @@ machine rows extends `GET /api/vm` (a `modelPlane` block next to #11061's
 already available via `accountsWithUsage`, now Claude-inclusive. Two stale
 doc/skill passages saying "set up CodeRouter on the machine yourself"
 (`skills/cmux-cloud-vm/SKILL.md`, `docs/cloud-cmux-tui-daemon.md`) are inside
-#11061's diff; correcting them is deferred to that branch or a trailing PR to
-avoid a needless conflict.
+the PR #11061 diff; correcting them is deferred to that branch or a trailing
+PR to avoid a needless conflict.
 
 ## What ships in this slice
 
-Cloud VMs already came up with codex, pi, and opencode routed (#10961,
-#11099). Claude Code was installed on every image but unwired — no Anthropic
+Cloud VMs already came up with codex, pi, and opencode routed (PRs #10961
+and #11099). Claude Code was installed on every image but unwired — no Anthropic
 data plane existed. This PR completes the set:
 
 - **`claude` vault provider** (`web/services/coderouter/types.ts`,

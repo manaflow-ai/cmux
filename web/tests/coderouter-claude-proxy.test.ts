@@ -11,6 +11,7 @@ type UpstreamCall = {
   url: string;
   headers: Headers;
   body: unknown;
+  signal: AbortSignal | null | undefined;
 };
 
 let selectInputs: SelectInput[] = [];
@@ -31,6 +32,7 @@ beforeAll(() => {
       body: bodyBytes && bodyBytes.byteLength > 0
         ? JSON.parse(new TextDecoder().decode(bodyBytes))
         : null,
+      signal: init?.signal,
     });
     const status = upstreamStatuses.shift() ?? 200;
     return new Response('{"type":"message"}', {
@@ -125,6 +127,8 @@ describe("claude messages proxy", () => {
     expect(call.headers.get("anthropic-beta")).toBe("oauth-2025-04-20");
     expect(call.headers.get("anthropic-version")).toBe("2023-06-01");
     expect(call.body).toMatchObject({ model: "claude-sonnet-5" });
+    // The caller's abort must propagate to the provider request.
+    expect(call.signal).toBeInstanceOf(AbortSignal);
   });
 
   test("appends the OAuth beta to client-sent beta capabilities", async () => {

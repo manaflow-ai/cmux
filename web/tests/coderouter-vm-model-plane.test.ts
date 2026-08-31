@@ -41,6 +41,20 @@ describe("mintVmModelPlaneEnv", () => {
     expect(labeled).toBe(VM_ROUTE_TOKEN_LABEL);
   });
 
+  test("refuses to mint against a cleartext origin, but allows loopback dev", async () => {
+    await expect(
+      mintVmModelPlaneEnv(
+        { teamId: "team-1", stackUserId: "user-1", requestUrl: "http://cmux.example/api/vm" },
+        deps({}),
+      ),
+    ).rejects.toThrow("HTTPS");
+    const env = await mintVmModelPlaneEnv(
+      { teamId: "team-1", stackUserId: "user-1", requestUrl: "http://localhost:3777/api/vm" },
+      deps({}),
+    );
+    expect(env?.CMUX_CODEROUTER_URL).toBe("http://localhost:3777");
+  });
+
   test("returns null when the kill switch disables it", async () => {
     const env = await mintVmModelPlaneEnv(
       { teamId: "team-1", stackUserId: "user-1", requestUrl: "https://cmux.example/api/vm" },

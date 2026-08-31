@@ -38,16 +38,19 @@ beforeAll(() => {
   sql = postgres(databaseURL, { max: 4 });
 });
 
+async function deleteTeamRows(): Promise<void> {
+  if (!sql) return;
+  await sql`delete from coderouter_route_tokens where team_id = ${TEAM}`;
+  await sql`delete from coderouter_accounts where team_id = ${TEAM}`;
+}
+
 afterAll(async () => {
+  await deleteTeamRows();
   await closeCloudDbForTests();
   await sql?.end({ timeout: 5 });
 });
 
-beforeEach(async () => {
-  if (!sql) return;
-  await sql`delete from coderouter_route_tokens where team_id = ${TEAM}`;
-  await sql`delete from coderouter_accounts where team_id = ${TEAM}`;
-});
+beforeEach(deleteTeamRows);
 
 /** What the machine's shells see after sourcing the baked agent-config.sh. */
 function materializeMachineEnv(

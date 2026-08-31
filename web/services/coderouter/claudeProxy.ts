@@ -152,7 +152,7 @@ async function proxyClaudeRequestWith(
       "unauthorized",
       401,
       undefined,
-      "This machine has no model-plane credential. Recreate it from cmux, or set ANTHROPIC_AUTH_TOKEN to a valid route token.",
+      "This machine has no model-plane credential. Recreate it from cmux to mint a fresh one.",
       false,
     );
   }
@@ -235,8 +235,10 @@ async function proxyClaudeRequestWith(
     }
     if (credential.provider !== "claude") continue;
     try {
-      upstream = await sendClaude(target, request.url, forwardedHeaders, bodyBytes, credential);
+      upstream = await sendClaude(target, request, forwardedHeaders, bodyBytes, credential);
     } catch (error) {
+      // A caller that hung up gets no retries on its dime.
+      if (request.signal.aborted) throw error;
       failureStage = "upstream_transport";
       reportCoderouterFailure("upstream_transport", error, {
         provider: "claude",
@@ -265,7 +267,7 @@ async function proxyClaudeRequestWith(
         if (refreshed.provider === "claude") {
           upstream = await sendClaude(
             target,
-            request.url,
+            request,
             forwardedHeaders,
             bodyBytes,
             refreshed,
@@ -357,7 +359,7 @@ async function proxyClaudeRequestWith(
 
 async function sendClaude(
   target: ClaudeMessagesTarget,
-  requestUrl: string,
+  request: Request,
   forwardedHeaders: Headers,
   bodyBytes: ArrayBuffer,
   credential: { accessToken: string },
@@ -368,11 +370,14 @@ async function sendClaude(
   // OAuth beta capability must always be present alongside the bearer token.
   headers.delete("x-api-key");
   ensureCommaHeaderValue(headers, "anthropic-beta", CLAUDE_OAUTH_BETA);
-  return await fetch(upstreamUrl(target, requestUrl), {
+  // The caller's abort propagates upstream so a disconnected machine does not
+  // keep a provider request streaming to nobody.
+  return await fetch(upstreamUrl(target, request.url), {
     method: "POST",
     headers,
     body: bodyBytes,
     cache: "no-store",
+    signal: request.signal,
   });
 }
 
