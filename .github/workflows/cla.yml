@@ -26,15 +26,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: "CLA Assistant"
-        # The action locks every `closed` event, so only run that path for a
-        # merged pull request. This keeps declined pull requests unlockable.
+        # The action handles signing and status updates. Merged pull requests
+        # use the explicit lock step below because the archived action sends
+        # an invalid lock request.
         if: >-
           (
             github.event_name == 'pull_request_target' &&
-            (
-              github.event.action != 'closed' ||
-              github.event.pull_request.merged == true
-            )
+            github.event.action != 'closed'
           ) ||
           (
             github.event_name == 'issue_comment' &&
@@ -50,8 +48,28 @@ jobs:
         with:
           path-to-signatures: 'signatures/version1/cla.json'
           path-to-document: 'https://github.com/manaflow-ai/cmux/blob/main/CLA.md'
+          # The archived action calls the lock endpoint without the required
+          # lock_reason. Disable that broken path and use the explicit step
+          # below, which supplies a valid reason and fails on API errors.
+          lock-pullrequest-aftermerge: 'false'
           # signatures live on the unprotected cla-signatures branch so required checks on main don't block the bot's signature commits
           branch: 'cla-signatures'
           # Keep this list explicit. A username prefix is not proof that an
           # account is a GitHub bot and would let a human bypass the CLA.
           allowlist: lawrencecchen,github-actions[bot],chatmux-connections[bot]
+
+      - name: "Lock merged pull request"
+        if: >-
+          github.event_name == 'pull_request_target' &&
+          github.event.action == 'closed' &&
+          github.event.pull_request.merged == true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: >-
+          gh api --method PUT
+          --header 'Accept: application/vnd.github+json'
+          --header 'X-GitHub-Api-Version: 2022-11-28'
+          "repos/${GH_REPO}/issues/${PR_NUMBER}/lock"
+          --field lock_reason=resolved
