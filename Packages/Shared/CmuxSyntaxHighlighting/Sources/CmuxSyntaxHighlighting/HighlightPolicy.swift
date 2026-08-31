@@ -17,13 +17,17 @@ public struct HighlightPolicy: Sendable {
     /// Creates a policy with the default ceilings.
     public init() {}
 
-    /// Counts lines as one plus the number of `\n` characters.
+    /// Counts lines as one plus the number of `\n` bytes.
+    ///
+    /// Scans UTF-8 code units, not `Character` grapheme clusters: a newline
+    /// is a single-byte ASCII `0x0A`, so grapheme decoding adds cost without
+    /// changing the count.
     public func lineCount(in content: String) -> Int {
-        content.reduce(into: 1) { count, character in
-            if character == "\n" {
-                count += 1
-            }
+        var lines = 1
+        for byte in content.utf8 where byte == 0x0A {
+            lines += 1
         }
+        return lines
     }
 
     /// Returns whether `content` should be token-colored for `language`.
@@ -32,9 +36,11 @@ public struct HighlightPolicy: Sendable {
         guard content.utf8.count <= Self.maximumHighlightedBytes else { return false }
 
         var lines = 1
-        for character in content where character == "\n" {
-            lines += 1
-            guard lines <= Self.maximumHighlightedLines else { return false }
+        for byte in content.utf8 {
+            if byte == 0x0A {
+                lines += 1
+                guard lines <= Self.maximumHighlightedLines else { return false }
+            }
         }
         return true
     }

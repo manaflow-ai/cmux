@@ -10,18 +10,60 @@ struct FilePreviewLineIndex: Equatable, Sendable {
     }
 
     init(string: String) {
-        let nsString = string as NSString
+        // Native UTF-16 iteration, not `NSString.character(at:)` message sends:
+        // initial builds scan File Preview buffers up to 16 MB.
         var offsets = [0]
-        let length = nsString.length
         var index = 0
-        while index < length {
-            if nsString.character(at: index) == 10 {
+        for unit in string.utf16 {
+            if unit == 10 {
                 offsets.append(index + 1)
             }
             index += 1
         }
         lineStartOffsets = offsets
-        loadedUTF16Length = length
+        loadedUTF16Length = index
+    }
+
+    /// Applies one text-storage edit incrementally instead of rescanning the
+    /// whole buffer.
+    ///
+    /// Line starts at or before `location` are untouched, starts inside the
+    /// replaced range are dropped and re-derived from `replacement`, and every
+    /// start after the replaced range shifts by the edit's net length delta.
+    /// A whole-document replace degenerates to the full `init(string:)` scan,
+    /// which is the only remaining O(n) path (initial load / wholesale set).
+    ///
+    /// - Parameters:
+    ///   - location: post-edit UTF-16 offset where the replacement begins.
+    ///   - oldLength: UTF-16 length of the range that was replaced.
+    ///   - replacement: the text now occupying the edited range.
+    mutating func applyEdit(
+        atUTF16Location location: Int,
+        replacingUTF16Length oldLength: Int,
+        replacement: String
+    ) {
+        let replacementUnits = replacement.utf16
+        let replacementLength = replacementUnits.count
+        let delta = replacementLength - oldLength
+        let upperBound = location + oldLength
+
+        var result: [Int] = []
+        result.reserveCapacity(lineStartOffsets.count)
+        for start in lineStartOffsets where start <= location {
+            result.append(start)
+        }
+        var index = 0
+        for unit in replacementUnits {
+            if unit == 10 {
+                result.append(location + index + 1)
+            }
+            index += 1
+        }
+        for start in lineStartOffsets where start > upperBound {
+            result.append(start + delta)
+        }
+        lineStartOffsets = result
+        loadedUTF16Length += delta
     }
 
     func offset(forLine requestedLine: Int) -> Int {

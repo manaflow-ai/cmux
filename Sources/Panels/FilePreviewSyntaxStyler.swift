@@ -20,6 +20,11 @@ final class FilePreviewSyntaxStyler {
     private var lastHighlightingEnabled = true
     private var lastHighlightedDefaultColor: NSColor?
     private var lastHighlightedFontPointSize: CGFloat?
+    /// Whether the last applied styling pass produced token colors (`false`
+    /// means the buffer renders the uniform default style). While `false`, a
+    /// content revision alone never warrants another full-range attribute
+    /// sweep: inserted text inherits the attributes at the insertion point.
+    private var lastAppliedHighlighted = false
 
     deinit {
         highlightTask?.cancel()
@@ -50,14 +55,28 @@ final class FilePreviewSyntaxStyler {
         let language = catalog.language(for: URL(fileURLWithPath: filePath))
         let fontPointSize = (textView.font
             ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)).pointSize
+        let stylingParametersMatch = lastHighlightedLanguage == language
+            && lastHighlightedTheme == theme
+            && lastHighlightingEnabled == enabled
+            && lastHighlightedDefaultColor == defaultColor
+            && lastHighlightedFontPointSize == fontPointSize
         if !force,
-           lastHighlightedContentRevision == contentRevision,
-           lastHighlightedLanguage == language,
-           lastHighlightedTheme == theme,
-           lastHighlightingEnabled == enabled,
-           lastHighlightedDefaultColor == defaultColor,
-           lastHighlightedFontPointSize == fontPointSize {
+           stylingParametersMatch,
+           lastHighlightedContentRevision == contentRevision {
             return
+        }
+
+        // Fast path for buffers already rendering the default style
+        // (highlighting off, or over the policy ceilings): editing only
+        // changes the revision, and typed text inherits the default
+        // attributes, so skip the full-range attribute reset entirely. The
+        // policy is re-checked so an edit that brings the buffer back under
+        // the ceilings resumes highlighting.
+        if stylingParametersMatch, !lastAppliedHighlighted {
+            if !enabled || !policy.shouldHighlight(content: textView.string, language: language) {
+                lastHighlightedContentRevision = contentRevision
+                return
+            }
         }
 
         highlightTask?.cancel()
@@ -66,6 +85,7 @@ final class FilePreviewSyntaxStyler {
 
         guard enabled else {
             applyDefaultStyle(to: textView, color: defaultColor)
+            lastAppliedHighlighted = false
             recordAppliedState(
                 contentRevision: contentRevision,
                 language: language,
@@ -82,6 +102,7 @@ final class FilePreviewSyntaxStyler {
         let text = textView.string
         guard policy.shouldHighlight(content: text, language: language) else {
             applyDefaultStyle(to: textView, color: defaultColor)
+            lastAppliedHighlighted = false
             recordAppliedState(
                 contentRevision: contentRevision,
                 language: language,
@@ -105,7 +126,7 @@ final class FilePreviewSyntaxStyler {
             guard !Task.isCancelled,
                   self.highlightGeneration == generation,
                   let textView else { return }
-            self.applyHighlightedText(
+            self.lastAppliedHighlighted = self.applyHighlightedText(
                 highlighted,
                 to: textView,
                 defaultColor: defaultColor
@@ -121,17 +142,19 @@ final class FilePreviewSyntaxStyler {
         }
     }
 
+    @discardableResult
     func applyHighlightedText(
         _ highlighted: HighlightedText?,
         to textView: NSTextView,
         defaultColor: NSColor
-    ) {
-        guard let storage = textView.textStorage else { return }
+    ) -> Bool {
+        guard let storage = textView.textStorage else { return false }
         let selectedRanges = textView.selectedRanges
         let effectivePointSize = (textView.font
             ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)).pointSize
         let fonts = SyntaxFonts(pointSize: effectivePointSize)
         storage.beginEditing()
+        let appliedHighlighted: Bool
         if let highlighted, highlighted.value.length == storage.length {
             let full = NSRange(location: 0, length: highlighted.value.length)
             highlighted.value.enumerateAttributes(in: full, options: []) { attributes, range, _ in
@@ -140,14 +163,17 @@ final class FilePreviewSyntaxStyler {
                     range: range
                 )
             }
+            appliedHighlighted = true
         } else {
             let full = NSRange(location: 0, length: storage.length)
             storage.addAttribute(.foregroundColor, value: defaultColor, range: full)
             storage.addAttribute(.font, value: fonts.regular, range: full)
             storage.removeAttribute(.backgroundColor, range: full)
+            appliedHighlighted = false
         }
         storage.endEditing()
         restoreSelection(selectedRanges, in: textView)
+        return appliedHighlighted
     }
 
     private func recordAppliedState(

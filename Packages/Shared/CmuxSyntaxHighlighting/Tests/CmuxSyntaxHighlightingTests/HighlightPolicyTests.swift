@@ -49,4 +49,13 @@ struct HighlightPolicyTests {
         #expect(policy.lineCount(in: "one") == 1)
         #expect(policy.lineCount(in: "one\ntwo\nthree") == 3)
     }
+
+    @Test("Line counting scans UTF-8 bytes, not grapheme clusters")
+    func countsLinesOverMultiByteGraphemes() {
+        // Each 😀 is one grapheme cluster built from four UTF-8 bytes; the
+        // newline scan must not depend on grapheme decoding.
+        let emojiLines = "😀\n😀\n😀"
+        #expect(policy.lineCount(in: emojiLines) == 3)
+        #expect(policy.shouldHighlight(content: emojiLines, language: "swift"))
+    }
 }

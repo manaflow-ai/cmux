@@ -100,6 +100,45 @@ struct FilePreviewCodeViewTests {
         #expect(index.lineNumber(containingUTF16Offset: index.offset(forLine: 12)) == 12)
     }
 
+    @Test("Incremental line-index edits match a full rebuild")
+    func incrementalLineIndexEditsMatchFullRebuild() {
+        var index = FilePreviewLineIndex(string: "alpha\nbeta\ngamma\ndelta")
+        var mirror = "alpha\nbeta\ngamma\ndelta"
+
+        func expectMirrored() {
+            let rebuilt = FilePreviewLineIndex(string: mirror)
+            #expect(index.lineStartOffsets == rebuilt.lineStartOffsets)
+            #expect(index.lineCount == rebuilt.lineCount)
+            #expect(index.loadedUTF16Length == rebuilt.loadedUTF16Length)
+        }
+
+        func edit(_ location: Int, _ oldLength: Int, _ replacement: String) {
+            mirror = (mirror as NSString).replacingCharacters(
+                in: NSRange(location: location, length: oldLength),
+                with: replacement
+            )
+            index.applyEdit(
+                atUTF16Location: location,
+                replacingUTF16Length: oldLength,
+                replacement: replacement
+            )
+        }
+
+        edit(5, 0, "\n") // insert a newline mid-document
+        expectMirrored()
+        edit(0, 0, "// header\n") // prepend lines
+        expectMirrored()
+        edit(6, 1, "X") // same-length replace inside a line
+        expectMirrored()
+        edit(5, 1, "\n") // replace a character with a newline
+        expectMirrored()
+        edit(0, 11, "") // delete a range spanning newlines
+        expectMirrored()
+        edit(3, 4, "beta\nbeta\nbeta") // splice newlines in via replacement
+        expectMirrored()
+        #expect(index.lineNumber(containingUTF16Offset: 2) == 1)
+    }
+
     @Test("Indent columns count spaces and tabs")
     func indentColumnsCountSpacesAndTabs() {
         let spaced = "        hello" as NSString
@@ -179,30 +218,31 @@ struct FilePreviewCodeViewTests {
         let textView = SavingTextView.makeFilePreviewTextView()
         scrollView.documentView = textView
         let gutter = FilePreviewLineNumberGutterView(scrollView: scrollView, orientation: .verticalRuler)
-        let content = String(repeating: "line\n", count: 120)
+        textView.string = String(repeating: "line\n", count: 120)
 
-        gutter.reloadLineIndex(from: content, contentRevision: 1, textFont: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular))
+        gutter.reloadLineIndex(from: textView.string, textFont: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular))
         let compactThickness = gutter.ruleThickness
-        gutter.reloadLineIndex(from: content, contentRevision: 1, textFont: NSFont.monospacedSystemFont(ofSize: 28, weight: .regular))
+        gutter.reloadLineIndex(from: textView.string, textFont: NSFont.monospacedSystemFont(ofSize: 28, weight: .regular))
 
         #expect(gutter.ruleThickness > compactThickness)
     }
 
-    @Test("Gutter rebuilds when a legacy panel has no content revision")
-    func gutterRebuildsWithoutContentRevision() {
+    @Test("Gutter tracks line count through wholesale content replaces")
+    func gutterTracksWholesaleContentReplaces() {
         let scrollView = NSScrollView()
         let textView = SavingTextView.makeFilePreviewTextView()
         scrollView.documentView = textView
         let gutter = FilePreviewLineNumberGutterView(scrollView: scrollView, orientation: .verticalRuler)
         let font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
 
-        gutter.reloadLineIndex(from: "line", contentRevision: 0, textFont: font)
+        // Legacy callers without a published revision replace the whole
+        // string; the storage-edit observation path must keep the index in
+        // sync so the gutter re-measures for the wider line count.
+        textView.string = "line"
+        gutter.reloadLineIndex(from: textView.string, textFont: font)
         let oneLineThickness = gutter.ruleThickness
-        gutter.reloadLineIndex(
-            from: String(repeating: "line\n", count: 120),
-            contentRevision: 0,
-            textFont: font
-        )
+        textView.string = String(repeating: "line\n", count: 120)
+        gutter.reloadLineIndex(from: textView.string, textFont: font)
 
         #expect(gutter.ruleThickness > oneLineThickness)
     }
@@ -324,6 +364,84 @@ struct FilePreviewCodeViewTests {
         #expect(oversized == nil)
     }
 
+    @Test("Fallback styling skips full-range sweeps on later edits")
+    func fallbackStylingSkipsRedundantPasses() throws {
+        let textView = SavingTextView.makeFilePreviewTextView()
+        textView.string = "let x = 1"
+        let styler = FilePreviewSyntaxStyler()
+        let storage = try #require(textView.textStorage)
+
+        // Highlighting disabled: the buffer takes the uniform default style.
+        styler.schedule(
+            for: textView,
+            contentRevision: 1,
+            filePath: "/tmp/example.swift",
+            enabled: false,
+            defaultColor: .textColor,
+            theme: .dark,
+            force: true
+        )
+
+        let counter = EditNotificationCounter()
+        let observer = NotificationCenter.default.addObserver(
+            forName: NSTextStorage.didProcessEditingNotification,
+            object: storage,
+            queue: nil
+        ) { _ in
+            counter.increment()
+        }
+
+        // Editing while the buffer already renders the default style must
+        // not rewrite attributes over the whole document: the only storage
+        // edit is the inserted text itself.
+        textView.insertText("\nlet y = 2", replacementRange: NSRange(location: 9, length: 0))
+        styler.schedule(
+            for: textView,
+            contentRevision: 2,
+            filePath: "/tmp/example.swift",
+            enabled: false,
+            defaultColor: .textColor,
+            theme: .dark,
+            force: true
+        )
+
+        NotificationCenter.default.removeObserver(observer)
+        #expect(counter.value == 1)
+    }
+
+    @Test("Highlighting resumes after an oversized buffer shrinks")
+    func highlightingResumesAfterOversizedBufferShrinks() async throws {
+        let textView = SavingTextView.makeFilePreviewTextView()
+        let styler = FilePreviewSyntaxStyler()
+        textView.string = String(repeating: "a", count: HighlightPolicy.maximumHighlightedBytes + 1)
+        styler.schedule(
+            for: textView,
+            contentRevision: 1,
+            filePath: "/tmp/example.swift",
+            enabled: true,
+            defaultColor: .textColor,
+            theme: .dark,
+            force: true
+        )
+        // Over the byte ceiling: fallback styling applies synchronously.
+        #expect(distinctForegroundColors(in: textView).count == 1)
+
+        // Shrink back under the ceiling; the policy re-check must resume
+        // token coloring rather than staying parked in fallback mode.
+        textView.string = "{\"ok\": true}"
+        styler.schedule(
+            for: textView,
+            contentRevision: 2,
+            filePath: "/tmp/example.swift",
+            enabled: true,
+            defaultColor: .textColor,
+            theme: .dark,
+            force: true
+        )
+        await styler.waitForScheduledHighlight()
+        #expect(distinctForegroundColors(in: textView).count >= 2)
+    }
+
     private func distinctForegroundColors(in textView: NSTextView) -> Set<String> {
         guard let storage = textView.textStorage else { return [] }
         var colors: Set<String> = []
@@ -333,5 +451,23 @@ struct FilePreviewCodeViewTests {
             colors.insert(String(describing: attribute))
         }
         return colors
+    }
+}
+
+/// Counts `NSTextStorage` edit notifications from a `@Sendable` observer.
+private final class EditNotificationCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    var value: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return count
+    }
+
+    func increment() {
+        lock.lock()
+        defer { lock.unlock() }
+        count += 1
     }
 }

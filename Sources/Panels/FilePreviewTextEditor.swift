@@ -153,11 +153,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             defaultColor: themeForegroundColor,
             force: contentChanged
         )
-        Self.refreshChrome(
-            on: scrollView,
-            textView: textView,
-            contentRevision: panel.textContentRevision
-        )
+        Self.refreshChrome(on: scrollView, textView: textView)
     }
 
     static func applyTheme(
@@ -235,15 +231,13 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
 
     static func refreshChrome(
         on scrollView: NSScrollView,
-        textView: NSTextView,
-        contentRevision: Int
+        textView: NSTextView
     ) {
-        if let gutter = scrollView.verticalRulerView as? FilePreviewLineNumberGutterView {
-            gutter.reloadLineIndex(
-                from: textView.string,
-                contentRevision: contentRevision,
-                textFont: textView.font
-            )
+        // Skip all line-index maintenance while the ruler is hidden; the
+        // gutter flags a full rebuild for when line numbers come back on.
+        if scrollView.rulersVisible,
+           let gutter = scrollView.verticalRulerView as? FilePreviewLineNumberGutterView {
+            gutter.reloadLineIndex(from: textView.string, textFont: textView.font)
         }
         // The overlay geometry can change without a text change (for example
         // after wrapping or resizing), so frame synchronization is unconditional.
@@ -280,8 +274,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             if let scrollView = textView.enclosingScrollView {
                 FilePreviewTextEditor<PanelModel>.refreshChrome(
                     on: scrollView,
-                    textView: textView,
-                    contentRevision: panel.textContentRevision
+                    textView: textView
                 )
             }
         }
@@ -304,8 +297,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             if let scrollView = textView.enclosingScrollView {
                 FilePreviewTextEditor<PanelModel>.refreshChrome(
                     on: scrollView,
-                    textView: textView,
-                    contentRevision: panel.textContentRevision
+                    textView: textView
                 )
             }
         }

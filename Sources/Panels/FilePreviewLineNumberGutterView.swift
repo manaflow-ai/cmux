@@ -5,6 +5,11 @@ import CmuxSyntaxHighlighting
 ///
 /// Fills with the editor surface so numbers sit in the margin instead of on
 /// AppKit's default contrasting ruler strip.
+///
+/// The line index is maintained incrementally from text-storage edit
+/// notifications (`NSText.didProcessEditingNotification`) so typing never
+/// rescans the whole buffer; a keystroke splices a few line-start offsets
+/// instead of walking up to 16 MB of text on the main actor.
 final class FilePreviewLineNumberGutterView: NSRulerView {
     var tokenTheme: TokenTheme = .dark {
         didSet { needsDisplay = true }
@@ -18,13 +23,21 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
     private static let horizontalPadding: CGFloat = 10
 
     private var lineIndex = FilePreviewLineIndex(string: "")
-    private var indexedContentRevision: Int?
+    /// Set when edits were skipped (ruler hidden) and the index must be
+    /// rebuilt before its next use.
+    private var needsFullRebuild = true
+    private var observedStorage: NSTextStorage?
+    private var storageObserver: (any NSObjectProtocol)?
 
     override var isOpaque: Bool {
         drawsEditorBackground && editorBackgroundColor.alphaComponent >= 0.999
     }
 
     override var wantsUpdateLayer: Bool { false }
+
+    override var clientView: NSView? {
+        didSet { observeStorage(of: clientView) }
+    }
 
     override init(scrollView: NSScrollView?, orientation: NSRulerView.Orientation) {
         super.init(scrollView: scrollView, orientation: orientation)
@@ -40,18 +53,73 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
         super.init(coder: coder)
     }
 
-    func reloadLineIndex(
-        from string: String,
-        contentRevision: Int,
-        textFont: NSFont?
-    ) {
-        // `0` is the compatibility value for panels that do not publish
-        // revisions, so retain correctness by rebuilding for those callers.
-        if contentRevision == 0 || indexedContentRevision != contentRevision {
+    deinit {
+        if let storageObserver {
+            NotificationCenter.default.removeObserver(storageObserver)
+        }
+    }
+
+    /// Reconciles the index against `string`.
+    ///
+    /// While storage observation is live, per-edit increments keep the index
+    /// exact and this is a no-op scan; a full rebuild happens only after
+    /// skipped edits (ruler hidden) or on first attach.
+    func reloadLineIndex(from string: String, textFont: NSFont?) {
+        if needsFullRebuild || observedStorage == nil {
             lineIndex = FilePreviewLineIndex(string: string)
-            indexedContentRevision = contentRevision
+            needsFullRebuild = false
         }
         updateRuleThickness(for: textFont)
+        needsDisplay = true
+    }
+
+    /// Subscribes to the client text view's storage edits.
+    private func observeStorage(of view: NSView?) {
+        if let storageObserver {
+            NotificationCenter.default.removeObserver(storageObserver)
+        }
+        storageObserver = nil
+        observedStorage = nil
+        guard let textView = view as? NSTextView,
+              let storage = textView.textStorage else {
+            needsFullRebuild = true
+            return
+        }
+        observedStorage = storage
+        lineIndex = FilePreviewLineIndex(string: textView.string)
+        needsFullRebuild = false
+        updateRuleThickness(for: textView.font)
+        // `queue: nil` delivers synchronously on the posting (main) thread, so
+        // the index is exact before the next layout/draw pass reads it.
+        storageObserver = NotificationCenter.default.addObserver(
+            forName: NSTextStorage.didProcessEditingNotification,
+            object: storage,
+            queue: nil
+        ) { [weak self] notification in
+            MainActor.assumeIsolated {
+                self?.applyStorageEdit(from: notification)
+            }
+        }
+    }
+
+    /// Applies one storage edit to the index. Skips maintenance while the
+    /// ruler is hidden (the index is unread then) and flags a rebuild for the
+    /// next time it becomes visible.
+    private func applyStorageEdit(from notification: Notification) {
+        guard scrollView?.rulersVisible == true else {
+            needsFullRebuild = true
+            return
+        }
+        guard let storage = notification.object as? NSTextStorage,
+              storage.editedMask.contains(.editedCharacters) else { return }
+        let range = storage.editedRange
+        let replacement = (storage.string as NSString).substring(with: range)
+        lineIndex.applyEdit(
+            atUTF16Location: range.location,
+            replacingUTF16Length: range.length - storage.changeInLength,
+            replacement: replacement
+        )
+        updateRuleThickness(for: (clientView as? NSTextView)?.font)
         needsDisplay = true
     }
 
