@@ -7,6 +7,9 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKFLOW="$ROOT_DIR/.github/workflows/cla.yml"
 test -f "$WORKFLOW"
 command -v jq >/dev/null
+grep -Fq "group: cla-signatures-\${{ github.repository }}-\${{ github.event.pull_request.number }}" "$WORKFLOW"
+grep -Fq '      issues: write' "$WORKFLOW"
+grep -Fq '      pull-requests: read' "$WORKFLOW"
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
