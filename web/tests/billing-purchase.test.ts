@@ -20,6 +20,7 @@ const {
   applySubscriptionUpdate,
   canonicalizeEmailForMatching,
   findBillingUserByEmail,
+  findUserIdByEmail,
   isCmuxCheckoutSession,
   isActiveStripeSubscriptionStatus,
   latestStripeSubscriptionForSession,
@@ -303,6 +304,47 @@ describe("billing email matching", () => {
     );
     expect(user?.id).toBe("real");
     expect(getUser).not.toHaveBeenCalled();
+  });
+
+  test("finds a dotted Gmail account through the paginated canonical fallback", async () => {
+    const dotted = {
+      id: "dotted-only",
+      primaryEmail: "billing.fixture@gmail.com",
+      primaryEmailVerified: true,
+      update: mock(async () => undefined),
+    };
+    const listUsers = mock(async (...args: unknown[]) => {
+      const options = (args[0] ?? {}) as { query?: string };
+      return options.query ? [] : [dotted];
+    });
+
+    const user = await findBillingUserByEmail(
+      { listUsers, getUser: async () => dotted } as never,
+      "billingfixture@gmail.com",
+    );
+
+    expect(user?.id).toBe("dotted-only");
+    expect(listUsers).toHaveBeenCalledWith({
+      limit: 100,
+      includeAnonymous: true,
+      includeRestricted: true,
+    });
+  });
+
+  test("uses the same canonical fallback when checking email ownership", async () => {
+    const listUsers = mock(async (...args: unknown[]) => {
+      const options = (args[0] ?? {}) as { query?: string };
+      return options.query
+        ? []
+        : [{ id: "dotted-owner", primaryEmail: "billing.fixture@gmail.com" }];
+    });
+
+    await expect(
+      findUserIdByEmail(
+        { listUsers } as never,
+        "billingfixture@gmail.com",
+      ),
+    ).resolves.toBe("dotted-owner");
   });
 });
 

@@ -43,6 +43,7 @@ import { captureAscError } from "../errors";
 import {
   canonicalizeEmailForMatching,
   emailVariantsForMatching,
+  isGmailAddress,
 } from "./emailMatching";
 import {
   isUnsupportedVerificationFieldError,
@@ -63,6 +64,8 @@ export const ACTIVE_STRIPE_SUBSCRIPTION_STATUSES = new Set([
 ]);
 const DELETED_ACCOUNT_ACTOR_ID = "deleted-account";
 const PURCHASE_MAGIC_LINK_CALLBACK = "https://cmux.com/handler/after-sign-in";
+const STACK_USER_LOOKUP_PAGE_SIZE = 100;
+const MAX_STACK_USER_LOOKUP_PAGES = 100;
 
 type BillingDb = ReturnType<typeof cloudDb>;
 type BillingDbClient = Pick<BillingDb, "select" | "insert" | "update">;
@@ -135,6 +138,10 @@ type StackBillingUserLookup = {
   readonly setPrimaryEmail?: StackPurchaseUser["setPrimaryEmail"];
 };
 
+type StackBillingUserList = readonly StackBillingUserLookup[] & {
+  readonly nextCursor?: string | null;
+};
+
 type StackBillingTeam = {
   readonly id: string;
   readonly clientReadOnlyMetadata?: unknown;
@@ -146,11 +153,12 @@ type StackBillingTeam = {
 export type StackBillingApp = {
   getUser(id: string): Promise<StackBillingUser | null>;
   listUsers?(options?: {
+    cursor?: string;
     query?: string;
     limit?: number;
     includeAnonymous?: boolean;
     includeRestricted?: boolean;
-  }): Promise<readonly StackBillingUserLookup[]>;
+  }): Promise<StackBillingUserList>;
   createUser?(options: {
     primaryEmail?: string | null;
     primaryEmailAuthEnabled?: boolean;
@@ -487,6 +495,7 @@ export async function recordCheckoutCompletion(
       db,
       customerId,
       stackUserId,
+      user,
       checkoutEmailValue,
     );
   }
@@ -730,6 +739,7 @@ export async function recordFoundersCheckoutCompletion(
     db,
     customerId,
     user.id,
+    user,
     email,
   );
   return lockedResult.result;
@@ -883,6 +893,7 @@ export async function recordProCheckoutCompletionByEmail(
       db,
       customerId,
       existingUser.id,
+      existingUser,
       email,
     );
     await syncResolvedStripeOwnership(
@@ -899,21 +910,25 @@ async function resolveBillingEmailClaimsForCustomer(
   db: BillingDb,
   customerId: string,
   targetStackUserId: string,
+  targetUser: ProBillingClaimUser | null | undefined,
   email?: string | null,
 ): Promise<void> {
+  const verifiedTargetEmail = targetUser ? verifiedClaimEmail(targetUser) : null;
+  if (
+    !verifiedTargetEmail ||
+    !email ||
+    canonicalizeEmailForMatching(email) !== verifiedTargetEmail
+  ) {
+    // A paid checkout can create an unverified shell. It must not consume a
+    // claim because only Stack verification proves that this user controls the
+    // mailbox and may receive ownership.
+    return;
+  }
   const basePredicate = and(
     eq(billingEmailClaims.stripeCustomerId, customerId),
     eq(billingEmailClaims.plan, PRO_PLAN_ID),
     isNull(billingEmailClaims.claimedByUserId),
   );
-  if (!email) {
-    await db
-      .update(billingEmailClaims)
-      .set({ claimedByUserId: targetStackUserId, claimedAt: new Date() })
-      .where(basePredicate);
-    return;
-  }
-
   // Claims written by older deployments may retain dotted Gmail spelling.
   // Restrict the read in SQL, then compare canonically for those legacy rows so
   // a recovery for one mailbox cannot consume an unrelated claim.
@@ -1073,28 +1088,38 @@ export async function findBillingUserByEmail(
   stackApp: StackBillingApp,
   email: string,
 ): Promise<StackBillingUser | null> {
-  if (!stackApp.listUsers) {
+  const listUsers = stackApp.listUsers;
+  if (!listUsers) {
     throw new Error("Stack Auth server SDK cannot list users");
   }
+  // Stack's implementation reads private state through `this`; keep the
+  // receiver when passing the method to the paginated lookup helper.
+  const boundListUsers = listUsers.bind(stackApp);
   const matchingEmail = canonicalizeEmailForMatching(email);
   const literalEmail = email.trim().toLowerCase();
   const queries = emailVariantsForMatching(literalEmail);
   const candidateByID = new Map<string, StackBillingUserLookup>();
   for (const query of queries) {
-    const users = await stackApp.listUsers({
+    await collectBillingUserLookupCandidates(
+      boundListUsers,
       query,
-      limit: 20,
-      includeAnonymous: true,
-      includeRestricted: true,
-    });
-    for (const candidate of users) {
-      if (
-        candidate.primaryEmail &&
-        canonicalizeEmailForMatching(candidate.primaryEmail) === matchingEmail
-      ) {
-        candidateByID.set(candidate.id, candidate);
-      }
-    }
+      matchingEmail,
+      candidateByID,
+      20,
+    );
+  }
+  if (candidateByID.size === 0 && isGmailAddress(literalEmail)) {
+    // Stack's free-text query is literal and does not understand Gmail's
+    // dot-insensitive namespace. Scan the provider's paginated user list as a
+    // bounded fallback, then apply the canonical comparison locally. An
+    // incomplete scan fails closed instead of creating the wrong account.
+    await collectBillingUserLookupCandidates(
+      boundListUsers,
+      undefined,
+      matchingEmail,
+      candidateByID,
+      STACK_USER_LOOKUP_PAGE_SIZE,
+    );
   }
   const candidates = [...candidateByID.values()].sort(compareStackUserLookup);
   for (const candidate of candidates) {
@@ -2624,30 +2649,70 @@ export async function findUserIdByEmail(
   stackApp: StackBillingApp | null | undefined,
   email: string,
 ): Promise<string | null> {
-  if (!stackApp?.listUsers) {
+  const listUsers = stackApp?.listUsers;
+  if (!listUsers) {
     throw new Error("Stack Auth server SDK cannot list users");
   }
+  const boundListUsers = listUsers.bind(stackApp);
   const normalizedEmail = canonicalizeEmailForMatching(email);
   const literalEmail = email.trim().toLowerCase();
   const queries = emailVariantsForMatching(literalEmail);
   const ownersByID = new Map<string, StackBillingUserLookup>();
   for (const query of queries) {
-    const users = await stackApp.listUsers({
+    await collectBillingUserLookupCandidates(
+      boundListUsers,
       query,
-      limit: 20,
-      includeAnonymous: true,
-      includeRestricted: true,
-    });
-    for (const user of users) {
-      if (
-        user.primaryEmail &&
-        canonicalizeEmailForMatching(user.primaryEmail) === normalizedEmail
-      ) {
-        ownersByID.set(user.id, user);
-      }
-    }
+      normalizedEmail,
+      ownersByID,
+      20,
+    );
+  }
+  if (ownersByID.size === 0 && isGmailAddress(literalEmail)) {
+    await collectBillingUserLookupCandidates(
+      boundListUsers,
+      undefined,
+      normalizedEmail,
+      ownersByID,
+      STACK_USER_LOOKUP_PAGE_SIZE,
+    );
   }
   return [...ownersByID.values()].sort(compareStackUserLookup)[0]?.id ?? null;
+}
+
+async function collectBillingUserLookupCandidates(
+  listUsers: NonNullable<StackBillingApp["listUsers"]>,
+  query: string | undefined,
+  matchingEmail: string,
+  candidates: Map<string, StackBillingUserLookup>,
+  limit: number,
+): Promise<void> {
+  let cursor: string | undefined;
+  const seenCursors = new Set<string>();
+  for (let page = 0; page < MAX_STACK_USER_LOOKUP_PAGES; page += 1) {
+    const users = (await listUsers({
+      ...(query ? { query } : {}),
+      ...(cursor ? { cursor } : {}),
+      limit,
+      includeAnonymous: true,
+      includeRestricted: true,
+    })) as StackBillingUserList;
+    for (const candidate of users) {
+      if (
+        candidate.primaryEmail &&
+        canonicalizeEmailForMatching(candidate.primaryEmail) === matchingEmail
+      ) {
+        candidates.set(candidate.id, candidate);
+      }
+    }
+    const nextCursor = users.nextCursor ?? null;
+    if (!nextCursor) return;
+    if (seenCursors.has(nextCursor)) {
+      throw new Error("Stack Auth user lookup pagination looped");
+    }
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
+  }
+  throw new Error("Stack Auth user lookup exceeded its bounded page budget");
 }
 
 function compareStackUserLookup(

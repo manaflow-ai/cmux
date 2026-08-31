@@ -117,6 +117,46 @@ describe("email verification recovery", () => {
     expect(result).toEqual({ delivery: "sent" });
   });
 
+  test("finds a differently dotted Gmail account with the paginated fallback", async () => {
+    const sendVerificationEmail = mock(async () => undefined);
+    const listContactChannels = mock(async () => [
+      {
+        value: "John.Doe@gmail.com",
+        isVerified: false,
+        usedForAuth: true,
+        sendVerificationEmail,
+      },
+    ]);
+    const listUsers = mock(async (...args: unknown[]) => {
+      const options = (args[0] ?? {}) as { query?: string };
+      return options.query
+        ? []
+        : [{ primaryEmail: "John.Doe@gmail.com", listContactChannels }];
+    }) as unknown as Parameters<
+      typeof requestEmailVerificationRecovery
+    >[1]["stackApp"]["listUsers"];
+
+    const result = await Effect.runPromise(
+      requestEmailVerificationRecovery(
+        {
+          email: "johndoe@gmail.com",
+          callbackURL: "https://cmux.test/handler/email-verification",
+        },
+        { stackApp: { listUsers } },
+      ),
+    );
+
+    expect(result).toEqual({ delivery: "sent" });
+    expect(sendVerificationEmail).toHaveBeenCalledWith({
+      callbackUrl: "https://cmux.test/handler/email-verification",
+    });
+    expect(listUsers).toHaveBeenCalledWith({
+      limit: 100,
+      includeAnonymous: true,
+      includeRestricted: true,
+    });
+  });
+
   test("maps Stack failures to a typed unavailable error", async () => {
     const program = requestEmailVerificationRecovery(
       {

@@ -24,6 +24,15 @@ export function canonicalizeEmailForMatching(value: string): string {
   return `${mailbox}@gmail.com`;
 }
 
+/** Return whether an address belongs to Gmail's dot-insensitive namespace. */
+export function isGmailAddress(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  const at = normalized.lastIndexOf("@");
+  if (at <= 0 || at === normalized.length - 1) return false;
+  const domain = normalized.slice(at + 1);
+  return domain === "gmail.com" || domain === "googlemail.com";
+}
+
 /**
  * Return the spellings that provider lookups may use for one mailbox.
  * Canonical comparison still happens after the lookup, but querying both
@@ -35,12 +44,7 @@ export function emailVariantsForMatching(value: string): readonly string[] {
   const variants = new Set<string>([canonical, normalized]);
   const at = normalized.lastIndexOf("@");
   const canonicalAt = canonical.lastIndexOf("@");
-  if (
-    at > 0 &&
-    canonicalAt > 0 &&
-    (normalized.slice(at + 1) === "gmail.com" ||
-      normalized.slice(at + 1) === "googlemail.com")
-  ) {
+  if (at > 0 && canonicalAt > 0 && isGmailAddress(normalized)) {
     const localParts = new Set([
       normalized.slice(0, at),
       canonical.slice(0, canonicalAt),
