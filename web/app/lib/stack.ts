@@ -69,6 +69,53 @@ export async function markStackUserEmailVerifiedViaApi(
   userId: string,
   email: string,
 ): Promise<void> {
+  await updateStackUserViaApi(
+    userId,
+    {
+      primary_email: email,
+      primary_email_verified: true,
+      primary_email_auth_enabled: true,
+    },
+    "Stack Auth email verification update failed",
+  );
+}
+
+/**
+ * Convert an anonymous checkout user into a normal verified account.
+ *
+ * `is_anonymous: false` is intentionally sent in the same server mutation as
+ * the paid email. Omitting `password` preserves any password already stored on
+ * the account, so a customer can keep using the credential they set before
+ * checkout.
+ */
+export async function promoteStackUserFromAnonymousViaApi(
+  userId: string,
+  email: string,
+): Promise<void> {
+  await updateStackUserViaApi(
+    userId,
+    {
+      primary_email: email,
+      primary_email_verified: true,
+      primary_email_auth_enabled: true,
+      is_anonymous: false,
+    },
+    "Stack Auth anonymous user promotion failed",
+  );
+}
+
+type StackUserApiPatch = {
+  readonly primary_email?: string;
+  readonly primary_email_verified?: boolean;
+  readonly primary_email_auth_enabled?: boolean;
+  readonly is_anonymous?: false;
+};
+
+async function updateStackUserViaApi(
+  userId: string,
+  patch: StackUserApiPatch,
+  failureMessage: string,
+): Promise<void> {
   if (!projectId || !secretServerKey) {
     throw new Error("Stack Auth is not configured");
   }
@@ -116,18 +163,23 @@ export async function markStackUserEmailVerifiedViaApi(
         "x-stack-secret-server-key": secretServerKey,
         "x-stack-override-error-status": "true",
       },
-      body: JSON.stringify({
-        primary_email: email,
-        primary_email_verified: true,
-        primary_email_auth_enabled: true,
-      }),
+      body: JSON.stringify(patch),
       signal: AbortSignal.timeout(10_000),
     },
   );
   if (!response.ok) {
     // Do not include response bodies: Stack can echo account data or provider
     // details, and this helper is called from webhook/recovery code paths.
-    throw new Error("Stack Auth email verification update failed");
+    const error = new Error(failureMessage) as Error & {
+      code?: string;
+      status?: number;
+    };
+    const knownError =
+      response.headers.get("x-hexclave-known-error") ??
+      response.headers.get("x-stack-known-error");
+    if (knownError) error.code = knownError;
+    error.status = response.status;
+    throw error;
   }
 }
 

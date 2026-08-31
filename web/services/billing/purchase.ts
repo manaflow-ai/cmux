@@ -1,7 +1,10 @@
 import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import type Stripe from "stripe";
 
-import { getStackServerApp } from "../../app/lib/stack";
+import {
+  getStackServerApp,
+  promoteStackUserFromAnonymousViaApi,
+} from "../../app/lib/stack";
 import { cloudDb } from "../../db/client";
 import {
   accountDeletionTombstones,
@@ -52,6 +55,7 @@ export const ACTIVE_STRIPE_SUBSCRIPTION_STATUSES = new Set([
   "past_due",
 ]);
 const DELETED_ACCOUNT_ACTOR_ID = "deleted-account";
+const PURCHASE_MAGIC_LINK_CALLBACK = "https://cmux.com/handler/after-sign-in";
 
 type BillingDb = ReturnType<typeof cloudDb>;
 type BillingDbClient = Pick<BillingDb, "select" | "insert" | "update">;
@@ -950,7 +954,9 @@ export async function claimPendingProBilling(
   for (const claim of claims) {
     if (claim.claimedByUserId) continue;
     const source = await stackApp.getUser(claim.stackUserId);
-    if (!source || source.id === user.id || source.isAnonymous !== true) continue;
+    if (!source || (source.id !== user.id && source.isAnonymous !== true)) {
+      continue;
+    }
     const transfer = await repository.transferClaim(claim, user.id);
     if (!transfer) continue;
     claimed += 1;
@@ -2235,6 +2241,37 @@ async function attachPurchaseEmailOrRecordClaim(
   mutationLease: AccountDeletionUserMutationLease,
 ): Promise<void> {
   const purchaseEmail = canonicalizeEmailForMatching(input.email);
+  if (input.user.isAnonymous === true) {
+    // Stack does not promote anonymous users when an email is attached through
+    // the ordinary user update API. Use Hexclave's server endpoint so the
+    // email, verification, auth capability, and anonymous flag change in one
+    // mutation. The password field is omitted, which preserves any password
+    // the buyer already set.
+    if (
+      input.user.primaryEmail &&
+      canonicalizeEmailForMatching(input.user.primaryEmail) !== purchaseEmail
+    ) {
+      await mutationLease.refresh();
+      const inserted = await recordBillingEmailClaim(db, input);
+      if (inserted) {
+        await requestPurchaseMagicLink(input.stackApp, input.email, mutationLease);
+      }
+      return;
+    }
+    try {
+      await mutationLease.refresh();
+      await promoteStackUserFromAnonymousViaApi(input.user.id, input.email);
+      await requestPurchaseMagicLink(input.stackApp, input.email, mutationLease);
+    } catch (error) {
+      if (!isEmailAlreadyUsedError(error)) throw error;
+      await mutationLease.refresh();
+      const inserted = await recordBillingEmailClaim(db, input);
+      if (inserted) {
+        await requestPurchaseMagicLink(input.stackApp, input.email, mutationLease);
+      }
+    }
+    return;
+  }
   if (input.user.primaryEmail) {
     // A purchase can be the first authoritative verification for an existing
     // but unverified Stack account. Keep the account's original spelling and
@@ -2378,7 +2415,7 @@ async function recordBillingEmailClaim(
     stripeCustomerId: string;
     stackUserId: string;
   },
-): Promise<void> {
+): Promise<boolean> {
   const matchingEmail = canonicalizeEmailForMatching(input.email);
   const existing = await db
     .select({
@@ -2401,13 +2438,38 @@ async function recordBillingEmailClaim(
         !claim.email ||
         canonicalizeEmailForMatching(claim.email) === matchingEmail,
     )
-  ) return;
+  ) return false;
   await db.insert(billingEmailClaims).values({
     email: matchingEmail,
     stripeCustomerId: input.stripeCustomerId,
     stackUserId: input.stackUserId,
     plan: PRO_PLAN_ID,
   });
+  return true;
+}
+
+/** Send one best-effort sign-in link after parking or promoting a purchase. */
+async function requestPurchaseMagicLink(
+  stackApp: StackBillingApp | null | undefined,
+  email: string,
+  mutationLease: AccountDeletionUserMutationLease,
+): Promise<void> {
+  if (!stackApp?.sendMagicLinkEmail) return;
+  await mutationLease.refresh();
+  try {
+    const result = await stackApp.sendMagicLinkEmail(email, {
+      callbackUrl: PURCHASE_MAGIC_LINK_CALLBACK,
+    });
+    if (isFailedStackResult(result)) {
+      throw new Error("Stack sign-in link request failed");
+    }
+  } catch {
+    // The billing rows are already durable. A failed message can be retried by
+    // the recovery endpoint, so email delivery must not roll back a purchase.
+    console.warn("billing.purchase.magic_link_failed", {
+      failure: "provider_unavailable",
+    });
+  }
 }
 
 async function stackUserIdForStripeCustomer(
@@ -2619,6 +2681,15 @@ function isEmailAlreadyUsedError(error: unknown): boolean {
   }
   const text = error instanceof Error ? `${error.name} ${error.message}` : String(error);
   return /already.{0,40}(used|taken|exists)|CONTACT_CHANNEL_ALREADY_USED_FOR_AUTH_BY_SOMEONE_ELSE/i.test(text);
+}
+
+function isFailedStackResult(value: unknown): boolean {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      "status" in value &&
+      (value as { status?: unknown }).status === "error",
+  );
 }
 
 function isStackUserUniqueConflict(error: unknown): boolean {
