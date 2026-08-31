@@ -47,17 +47,17 @@ jobs:
       )
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
-    # Public issue comments use one bounded admission group. Pull-request
-    # lifecycle events, including every edited event, retain one group per PR
-    # so a new merge or synchronize event cannot replace another PR's required
-    # work. The expression uses only the event name and trusted PR number,
-    # never comment text.
+    # All accepted events for one repository pull request share one bounded
+    # admission group. This serializes comments with lifecycle events for the
+    # same PR while keeping independent PRs independent. The group uses only
+    # the repository and trusted issue or pull-request number, never comment
+    # text or a per-event value.
     # GitHub's default `single` queue permits one running and one pending run.
     # A trusted webhook classifier is required if exact-byte admission without
     # case-variant starvation is needed.
     concurrency:
       group: >-
-        cla-admission-${{ github.event_name }}-${{ github.event_name == 'issue_comment' && 'comments' || github.event.pull_request.number }}
+        cla-admission-${{ github.repository }}-${{ github.event.issue.number || github.event.pull_request.number }}
       cancel-in-progress: false
     permissions: {}
     steps:

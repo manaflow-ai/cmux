@@ -20,7 +20,7 @@ fi
 grep -Fq 'name: "CLA Assistant v2"' "$WORKFLOW"
 grep -Fq 'name: "CLA Assistant"' "$WORKFLOW"
 grep -Fq 'group: >-' "$WORKFLOW"
-grep -Fq "cla-admission-\${{ github.event_name }}-\${{ github.event_name == 'issue_comment' && 'comments' || github.event.pull_request.number }}" "$WORKFLOW"
+grep -Fq "cla-admission-\${{ github.repository }}-\${{ github.event.issue.number || github.event.pull_request.number }}" "$WORKFLOW"
 grep -Fq 'github.event.comment.body == '\''recheck'\''' "$WORKFLOW"
 grep -Fq 'github.event.comment.body == '\''I have read the CLA Document v2.2 and I hereby sign the CLA'\''' "$WORKFLOW"
 grep -Fq 'always() &&' "$WORKFLOW"
@@ -39,7 +39,6 @@ if grep -Fq 'cla-trigger-${{ github.run_id }}' "$WORKFLOW"; then
 fi
 gate_group_block="$(awk '/^  CLACommentGate:/ { in_job=1; next } in_job && /^  [A-Za-z0-9_]+:/ { exit } in_job && /^    concurrency:$/ { in_group=1; next } in_group && /^    [A-Za-z0-9_]+:/ { exit } in_group { print }' "$WORKFLOW")"
 if [[ "$gate_group_block" == *'github.run_'* ||
-      "$gate_group_block" == *'github.event.issue.number'* ||
       "$gate_group_block" == *'github.event.comment.body }}'* ||
       "$gate_group_block" == *'github.event.pull_request.head.sha'* ]]; then
   echo 'FAIL: CLA admission group contains an unbounded or raw event value' >&2
