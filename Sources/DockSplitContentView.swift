@@ -142,7 +142,7 @@ final class DockPointerInteractionHostView: NSView {
     private var applicationResignActiveObserver: NSObjectProtocol?
     // The reference is immutable and its methods marshal all handle access to
     // the MainActor, which makes it safe to request from `deinit`.
-    nonisolated(unsafe) private var teardownBox = DockPointerTeardownBox()
+    nonisolated(unsafe) private let teardownBox = DockPointerTeardownBox()
 
     deinit {
         if Thread.isMainThread {
@@ -203,21 +203,27 @@ final class DockPointerInteractionHostView: NSView {
     /// Rebinds the deinit cleanup to the store currently used by this host.
     /// SwiftUI may reuse the AppKit view while replacing its store.
     func refreshTeardownCleanup() {
-        guard let registeredWindow else {
+        guard registeredWindow != nil
+            || registrationToken != nil
+            || windowResignKeyObserver != nil
+            || applicationResignActiveObserver != nil else {
             teardownBox.replace(with: nil)
             return
         }
-        guard let registrationToken else {
-            teardownBox.replace(with: nil)
-            return
-        }
+        let registeredWindow = self.registeredWindow
+        let registrationToken = self.registrationToken
         let ownerStore = store
         let ownerRouter = router
         let installedWindowObserver = windowResignKeyObserver
         let installedApplicationObserver = applicationResignActiveObserver
         teardownBox.replace(with: { [weak ownerStore, weak ownerRouter, weak registeredWindow] in
             ownerStore?.cancelDockPointerInteraction(window: registeredWindow)
-            ownerRouter?.unregister(token: registrationToken, in: registeredWindow)
+            if let registrationToken {
+                ownerRouter?.unregister(
+                    token: registrationToken,
+                    in: registeredWindow
+                )
+            }
             if let installedWindowObserver {
                 NotificationCenter.default.removeObserver(installedWindowObserver)
             }
@@ -231,6 +237,12 @@ final class DockPointerInteractionHostView: NSView {
         // A host can move between windows while a pointer sequence is in
         // flight. Clear the coordinator unconditionally before rebinding.
         teardownBox.perform()
+        if let windowResignKeyObserver {
+            NotificationCenter.default.removeObserver(windowResignKeyObserver)
+        }
+        if let applicationResignActiveObserver {
+            NotificationCenter.default.removeObserver(applicationResignActiveObserver)
+        }
         registeredWindow = nil
         registrationToken = nil
         windowResignKeyObserver = nil
