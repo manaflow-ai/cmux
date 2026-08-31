@@ -378,6 +378,27 @@ extension AgentNotificationRegressionTests {
     }
 
     @Test
+    func testMobileTerminalResolutionFollowsMovedSurface() throws {
+        let fixture = try makeLiveRetargetFixture()
+        defer { fixture.restore() }
+
+        // The reply relay carries the workspace captured when the notification
+        // was created, but the surface may have moved (or the workspace may
+        // have been recreated) before the Mac sweeps the inbox. The stable
+        // surface identity must select its current workspace.
+        let resolved = TerminalController.shared.mobileResolveWorkspaceAndSurface(
+            params: [
+                "workspace_id": fixture.claimedWorkspace.id.uuidString,
+                "surface_id": fixture.panelId.uuidString,
+            ],
+            requireTerminal: true
+        )
+
+        #expect(resolved?.workspace.id == fixture.owningWorkspace.id)
+        #expect(resolved?.surfaceId == fixture.panelId)
+    }
+
+    @Test
     func testCreateForTargetRejectsSurfaceOutsideClaimedWorkspace() throws {
         let fixture = try makeLiveRetargetFixture()
         defer { fixture.restore() }
