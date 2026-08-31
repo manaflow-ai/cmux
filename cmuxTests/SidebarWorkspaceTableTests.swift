@@ -10,7 +10,7 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite
+@Suite(.serialized)
 struct SidebarWorkspaceTableTests {
     @Test
     @MainActor
@@ -562,7 +562,7 @@ struct SidebarWorkspaceTableTests {
 
     @Test
     @MainActor
-    func workspaceWriterUsesTheRequestedRowWhileAnEarlierWriterIsRetained() throws {
+    func workspaceWriterUsesTheRequestedRowWhileAnEarlierWriterIsRetained() async throws {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
         let first = makeRowConfiguration()
@@ -574,6 +574,7 @@ struct SidebarWorkspaceTableTests {
             selectedWorkspaceId: nil,
             selectedScrollTargetWorkspaceId: nil
         )
+        await flushStagedTableMutations()
 
         let type = NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
         let firstWriter = try #require(
@@ -1886,7 +1887,7 @@ struct SidebarWorkspaceTableTests {
 }
 
 #if DEBUG
-@Suite
+@Suite(.serialized)
 struct SidebarWorkspaceTableResizeLifecycleTests {
     @Test
     @MainActor
