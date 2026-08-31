@@ -37,16 +37,17 @@ struct ComputerBuildBadge: View {
 /// explanation lives in the computer's detail view.
 struct ComputerUpdateRequiredBadge: View {
     var body: some View {
-        Label(
-            L10n.string(
+        // Explicit HStack instead of Label: the default label style leaves a
+        // visibly loose gap between the glyph and the text at caption size.
+        HStack(spacing: 4) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .imageScale(.small)
+            Text(L10n.string(
                 "mobile.computers.updateRequiredBadge",
                 defaultValue: "Update required"
-            ),
-            systemImage: "exclamationmark.triangle.fill"
-        )
+            ))
+        }
         .font(.caption2.weight(.semibold))
-        .labelStyle(.titleAndIcon)
-        .imageScale(.small)
         .lineLimit(1)
         // The warning must never compress into a meaningless fragment when
         // the title row is crowded; the computer name truncates instead.
@@ -55,6 +56,7 @@ struct ComputerUpdateRequiredBadge: View {
         .padding(.vertical, 2)
         .background(Color.orange.opacity(0.18), in: Capsule())
         .foregroundStyle(.orange)
+        .accessibilityElement(children: .combine)
         .accessibilityIdentifier("MobileComputerUpdateRequiredBadge")
     }
 }
