@@ -101,6 +101,7 @@ pub(crate) fn scan(
             Some(manifest) if quiesced || identity_edge => {
                 let Ok(Ok(screen)) = surface.try_with_terminal(|terminal| terminal.viewport_text())
                 else {
+                    tracker.note_evaluation_failure(terminal_id);
                     continue;
                 };
                 let title = surface.title();
