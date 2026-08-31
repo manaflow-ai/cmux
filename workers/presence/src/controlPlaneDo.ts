@@ -7,10 +7,9 @@
 //
 // Authorization happens in the worker before anything reaches this object
 // (same trust model as TeamPresence): the worker verifies the Stack bearer
-// token, resolves the account, and forwards the verified account id plus a
-// stream deadline (token expiry capped at MAX_SUBSCRIBE_AGE_MS). The DO uses
-// ONLY the connecting client's own bearer token for upstream calls, stored
-// per-socket and deleted on close/expiry.
+// token and resolves the account. Control-plane sockets are intentionally
+// long-lived; the DO uses ONLY the connecting client's own bearer token for
+// upstream calls, stored per-socket and deleted on close.
 
 import { DurableObject } from "cloudflare:workers";
 import { bearerToken } from "./auth";
@@ -23,8 +22,6 @@ import {
   type CtlSocket,
   type CtlStorage,
 } from "./controlPlane";
-import { resolveSubscribeDeadline } from "./core";
-import { MAX_SUBSCRIBE_AGE_MS } from "./do";
 
 export interface ControlPlaneEnv {
   /** Vercel web API origin the DO proxies (dev/prod), e.g. https://cmux.com.
@@ -55,7 +52,7 @@ function wrapSocket(ws: WebSocket): CtlSocket {
       try {
         const attachment = ws.deserializeAttachment() as CtlAttachment | null;
         return attachment && typeof attachment.sessionId === "string"
-          && typeof attachment.expiresAt === "number"
+          && (attachment.expiresAt === undefined || typeof attachment.expiresAt === "number")
           ? attachment
           : null;
       } catch {
@@ -80,11 +77,22 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
     now: () => Date.now(),
     upstream: async (path, init) => {
       const base = (this.env.CMUX_WEB_BASE_URL ?? PRODUCTION_WEB_BASE_URL).replace(/\/+$/, "");
-      const response = await fetch(`${base}${path}`, {
-        method: init.method,
-        headers: init.headers,
-        ...(init.body !== undefined ? { body: init.body } : {}),
-      });
+      let response: Response;
+      try {
+        response = await fetch(`${base}${path}`, {
+          method: init.method,
+          headers: init.headers,
+          ...(init.body !== undefined ? { body: init.body } : {}),
+        });
+      } catch (error) {
+        // Preserve connection-level failures for the core's one immediate
+        // retry, while leaving a safe, token-free breadcrumb in the DO tail.
+        console.error(
+          `control-plane upstream ${init.method} ${path} network failure`,
+          String(error).slice(0, 300),
+        );
+        throw error;
+      }
       // A connection-level failure throws out of fetch (the core's retry-once
       // trigger); any HTTP response resolves and is never retried.
       const json = await response.json().catch(() => null);
@@ -128,13 +136,6 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
     // Verified by the worker; never client input.
     const accountId = request.headers.get("x-control-account-id")?.trim();
     if (!accountId) return json({ error: "account_required" }, 403);
-    const now = Date.now();
-    const expiresAt = resolveSubscribeDeadline(
-      request.headers.get("x-presence-expires-at"),
-      now,
-      MAX_SUBSCRIBE_AGE_MS,
-    );
-    if (expiresAt === null) return json({ error: "subscription_expired" }, 401);
     // The DO keeps the connection's own bearer for its upstream proxy calls.
     const bearer = bearerToken(request);
     if (!bearer) return json({ error: "unauthorized" }, 401);
@@ -145,7 +146,7 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
 
     const connected = this.ctx.getWebSockets().filter((ws) => {
       const attachment = wrapSocket(ws).getAttachment();
-      return attachment !== null && attachment.expiresAt > now;
+      return attachment !== null;
     }).length;
     if (connected >= MAX_CONTROL_SUBSCRIBERS_PER_ACCOUNT) {
       return json({ error: "too_many_subscribers" }, 429);
@@ -158,7 +159,6 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
     this.ctx.acceptWebSocket(server);
     await this.core.handleConnect(wrapSocket(server), {
       sessionId: crypto.randomUUID(),
-      expiresAt,
       bearer,
       ...(refresh ? { refresh } : {}),
       ...(namespace ? { namespace } : {}),

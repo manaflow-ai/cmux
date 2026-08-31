@@ -99,7 +99,7 @@ struct MacComputerRow: View {
                     if let buildLabel = computer.buildLabel {
                         ComputerBuildBadge(label: buildLabel)
                     }
-                    if isSeededOnDeviceList {
+                    if showsListAuthWarning {
                         listAuthWarningButton
                     }
                 }
@@ -141,11 +141,13 @@ struct MacComputerRow: View {
         }
     }
 
-    /// Whether the account device list marks this Mac `seeded`: present in
-    /// the directory but never confirmed by its own control-plane hello,
-    /// i.e. probably running a pre-list-auth cmux build.
-    private var isSeededOnDeviceList: Bool {
-        MobileMacListAuthState.shared.isSeeded(deviceID: computer.deviceId)
+    /// Whether the account device list has a compatibility warning for this
+    /// Mac, either because it has not confirmed list-auth yet or because its
+    /// reported version is below the server's current minimum.
+    private var showsListAuthWarning: Bool {
+        guard let entry = MobileMacListAuthState.shared.entry(deviceID: computer.deviceId)
+        else { return false }
+        return entry.status == "seeded" || entry.isOutdated
     }
 
     /// Seeded rows carry a compact warning triangle beside the name; the
@@ -173,11 +175,7 @@ struct MacComputerRow: View {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(.orange)
                 }
-                Text(L10n.string(
-                    "computers.listauth.unverified.detail",
-                    defaultValue:
-                        "It may be running an older cmux version. Update the Mac, or if it's already updated, open cmux on it once to verify."
-                ))
+                Text(listAuthWarningMessage)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -189,9 +187,37 @@ struct MacComputerRow: View {
     }
 
     private var listAuthWarningTitle: String {
-        L10n.string(
+        if MobileMacListAuthState.shared.entry(deviceID: computer.deviceId)?.isOutdated == true {
+            return L10n.string(
+                "computers.version.outdated.title",
+                defaultValue: "Mac update required"
+            )
+        }
+        return L10n.string(
             "computers.listauth.unverified.title",
             defaultValue: "Not verified on the new connection system yet"
+        )
+    }
+
+    private var listAuthWarningMessage: String {
+        guard let entry = MobileMacListAuthState.shared.entry(deviceID: computer.deviceId),
+              entry.isOutdated,
+              let installed = entry.appVersion,
+              let required = entry.minimumSupportedVersion
+        else {
+            return L10n.string(
+                "computers.listauth.unverified.detail",
+                defaultValue:
+                    "It may be running an older cmux version. Update the Mac, or if it's already updated, open cmux on it once to verify."
+            )
+        }
+        return String(
+            format: L10n.string(
+                "computers.version.outdated.detail",
+                defaultValue: "This Mac is running %@. Update it to %@ or later."
+            ),
+            installed,
+            required
         )
     }
 

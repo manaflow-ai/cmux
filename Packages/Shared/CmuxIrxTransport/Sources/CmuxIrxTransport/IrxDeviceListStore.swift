@@ -19,6 +19,7 @@ public actor IrxDeviceListStore {
         var rev: Int
         var issuedAt: Date
         var ttlSeconds: Int
+        var minimumSupportedMacVersion: String?
         var receivedAtWall: Date
     }
 
@@ -105,6 +106,7 @@ public actor IrxDeviceListStore {
             rev: persisted.rev,
             issuedAt: persisted.issuedAt,
             ttlSeconds: persisted.ttlSeconds,
+            minimumSupportedMacVersion: persisted.minimumSupportedMacVersion,
             receivedAtWall: persisted.receivedAtWall,
             receivedAtMonotonic: receivedAtMonotonic
         )
@@ -125,6 +127,7 @@ public actor IrxDeviceListStore {
             rev: snapshot.rev,
             issuedAt: snapshot.issuedAt,
             ttlSeconds: snapshot.ttlSeconds,
+            minimumSupportedMacVersion: snapshot.minimumSupportedMacVersion,
             receivedAtWall: snapshot.receivedAtWall
         )
         guard let data = try? JSONEncoder().encode(persisted) else { return }

@@ -201,6 +201,16 @@ class Harness {
     return socket;
   }
 
+  async connectLongLived(sessionId: string): Promise<FakeSocket> {
+    const socket = new FakeSocket();
+    this.socketList.push(socket);
+    await this.core.handleConnect(socket, {
+      sessionId,
+      bearer: `token-${sessionId}`,
+    });
+    return socket;
+  }
+
   async send(socket: FakeSocket, frame: unknown): Promise<void> {
     await this.core.handleMessage(socket, JSON.stringify(frame));
   }
@@ -344,9 +354,41 @@ describe("hello fact streaming", () => {
     // Upstream recovers; the alarm completes the snapshot.
     harness.serveDiscovery(() => discoveryResponse(42));
     await harness.core.handleAlarm();
-    expect(socket.types()).toEqual(["hello_ack", "error", "directory", "snapshot_complete"]);
+    expect(socket.types()).toEqual(["hello_ack", "error", "directory", "snapshot_complete", "ping"]);
     expect(socket.frame("snapshot_complete")?.rev).toBe(42);
     expect(socket.getAttachment()?.snapshotPending).toBe(false);
+  });
+
+  it("answers the application heartbeat without routing it as a durable fact", async () => {
+    const harness = new Harness();
+    harness.serveDiscovery(() => discoveryResponse(42));
+    const socket = await harness.connect("s1");
+    await harness.hello(socket, { endpointId: ENDPOINT_A, haveRev: null, wantPasses: false });
+    socket.clearFrames();
+
+    await harness.core.handleMessage(socket, JSON.stringify({
+      v: 1,
+      type: "ping",
+      payload: { at: new Date(T0).toISOString() },
+    }));
+
+    expect(socket.types()).toEqual(["pong"]);
+  });
+
+  it("keeps a production-style control socket alive without a subscription deadline", async () => {
+    const harness = new Harness();
+    harness.serveDiscovery(() => discoveryResponse(42));
+    const socket = await harness.connectLongLived("s1");
+    await harness.hello(socket, { endpointId: ENDPOINT_A, haveRev: null, wantPasses: false });
+    socket.clearFrames();
+
+    // A long-lived control attachment has no expiry sweep even after the
+    // short-lived deadlines used by the legacy test adapter would have passed.
+    harness.now += 2 * 60 * 60 * 1_000;
+    await harness.core.handleAlarm();
+
+    expect(socket.closes).toEqual([]);
+    expect(socket.types()).toContain("ping");
   });
 
   it("ignores a duplicate hello (reconnect is the resync path)", async () => {
@@ -556,7 +598,7 @@ describe("alarm-driven refresh", () => {
     await harness.core.handleAlarm();
 
     for (const socket of [first, second]) {
-      expect(socket.types()).toEqual(["hint_update"]);
+      expect(socket.types()).toEqual(["hint_update", "ping"]);
       const update = socket.frame("hint_update") as { rev: number; payload: Record<string, unknown> };
       expect(update.rev).toBe(43);
       expect(update.payload.homeRelayUrl).toBe(RELAY_2);
@@ -574,7 +616,7 @@ describe("alarm-driven refresh", () => {
     await harness.core.handleAlarm();
 
     for (const socket of [first, second]) {
-      expect(socket.types()).toEqual(["directory"]);
+      expect(socket.types()).toEqual(["directory", "ping"]);
       const directory = socket.frame("directory") as { rev: number; payload: { bindings: unknown[] } };
       expect(directory.rev).toBe(44);
       expect(directory.payload.bindings).toHaveLength(2);
@@ -585,8 +627,8 @@ describe("alarm-driven refresh", () => {
     const harness = new Harness();
     const [first, second] = await snapshottedPair(harness);
     await harness.core.handleAlarm();
-    expect(first.frames).toHaveLength(0);
-    expect(second.frames).toHaveLength(0);
+    expect(first.types()).toEqual(["ping"]);
+    expect(second.types()).toEqual(["ping"]);
     expect(harness.discoveryCalls()).toHaveLength(1); // it did re-fetch
   });
 

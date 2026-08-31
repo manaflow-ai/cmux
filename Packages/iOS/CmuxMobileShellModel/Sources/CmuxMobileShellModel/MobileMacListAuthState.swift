@@ -22,11 +22,44 @@ public final class MobileMacListAuthState {
         public var revoked: Bool
         /// Whether the lease the entry came from is currently fresh.
         public var isFresh: Bool
+        /// Version reported by the Mac's control-plane hello, including an
+        /// optional `+build` suffix.
+        public var appVersion: String?
+        /// Server-advertised minimum Mac version for this account.
+        public var minimumSupportedVersion: String?
 
-        public init(status: String, revoked: Bool, isFresh: Bool) {
+        public init(
+            status: String,
+            revoked: Bool,
+            isFresh: Bool,
+            appVersion: String? = nil,
+            minimumSupportedVersion: String? = nil
+        ) {
             self.status = status
             self.revoked = revoked
             self.isFresh = isFresh
+            self.appVersion = appVersion
+            self.minimumSupportedVersion = minimumSupportedVersion
+        }
+
+        /// True only when both versions are known and the Mac is below the
+        /// server floor. Malformed or channel-only values stay informational.
+        public var isOutdated: Bool {
+            guard let appVersion, let minimumSupportedVersion,
+                  let installed = Self.numericVersion(appVersion),
+                  let required = Self.numericVersion(minimumSupportedVersion)
+            else { return false }
+            return installed.lexicographicallyPrecedes(required)
+        }
+
+        private static func numericVersion(_ raw: String) -> [Int]? {
+            let core = raw.split(separator: "+", maxSplits: 1).first.map(String.init) ?? raw
+            let parts = core.split(separator: ".", omittingEmptySubsequences: false)
+            guard !parts.isEmpty,
+                  parts.allSatisfy({ !$0.isEmpty && Int($0) != nil }) else { return nil }
+            var values = parts.map { Int($0)! }
+            while values.count < 3 { values.append(0) }
+            return values
         }
     }
 
@@ -40,21 +73,26 @@ public final class MobileMacListAuthState {
     /// Whether ANY device list has been received or restored this session.
     /// False on a fresh install pre-hello (the dial bootstrap window).
     public private(set) var hasSnapshot = false
+    /// Account-level minimum Mac version from the latest directory fact.
+    public private(set) var minimumSupportedMacVersion: String?
 
     public init() {}
 
     public func replace(
         entriesByEndpointID: [String: Entry],
-        entriesByDeviceID: [String: Entry]
+        entriesByDeviceID: [String: Entry],
+        minimumSupportedMacVersion: String? = nil
     ) {
         self.entriesByEndpointID = entriesByEndpointID
         self.entriesByDeviceID = entriesByDeviceID
+        self.minimumSupportedMacVersion = minimumSupportedMacVersion
         hasSnapshot = true
     }
 
     public func clear() {
         entriesByEndpointID = [:]
         entriesByDeviceID = [:]
+        minimumSupportedMacVersion = nil
         hasSnapshot = false
     }
 

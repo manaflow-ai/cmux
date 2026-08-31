@@ -242,6 +242,25 @@ public actor IrxControlPlaneClient {
         }
         do {
             switch probe.type {
+            case "ping":
+                // Cloudflare Workers' hibernation API does not expose a
+                // portable server-side RFC6455 ping, so the DO uses a small
+                // application heartbeat. Reply immediately without routing
+                // it through the durable fact decoder.
+                guard let socket else { return }
+                let pong = Data("{\"v\":1,\"type\":\"pong\",\"payload\":{}}".utf8)
+                do {
+                    try await socket.send(
+                        .string(String(decoding: pong, as: UTF8.self)))
+                    journal.record("control-plane", "pong-sent")
+                } catch {
+                    journal.record(
+                        "control-plane", "pong-failed",
+                        ["error": String(describing: error)]
+                    )
+                }
+            case "pong":
+                journal.record("control-plane", "pong-received")
             case "hello_ack":
                 let ack = try Self.decoder.decode(CTLHelloACK.self, from: data)
                 // List-auth additions (serverCapabilities, minimum version)

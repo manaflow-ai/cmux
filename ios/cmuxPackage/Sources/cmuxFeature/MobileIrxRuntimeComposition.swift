@@ -366,7 +366,12 @@ public actor MobileIrxRuntimeComposition {
         var byDevice: [String: MobileMacListAuthState.Entry] = [:]
         for (endpointIDHex, entry) in snapshot.entries {
             let projected = MobileMacListAuthState.Entry(
-                status: entry.status, revoked: entry.revoked, isFresh: fresh)
+                status: entry.status,
+                revoked: entry.revoked,
+                isFresh: fresh,
+                appVersion: entry.appVersion,
+                minimumSupportedVersion: snapshot.minimumSupportedMacVersion
+            )
             byEndpoint[endpointIDHex] = projected
             if let deviceID = entry.deviceID {
                 byDevice[deviceID] = projected
@@ -374,7 +379,10 @@ public actor MobileIrxRuntimeComposition {
         }
         await MainActor.run {
             MobileMacListAuthState.shared.replace(
-                entriesByEndpointID: byEndpoint, entriesByDeviceID: byDevice)
+                entriesByEndpointID: byEndpoint,
+                entriesByDeviceID: byDevice,
+                minimumSupportedMacVersion: snapshot.minimumSupportedMacVersion
+            )
         }
     }
 

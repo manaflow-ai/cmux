@@ -123,7 +123,7 @@ public actor IrxPeerEngine {
     /// This is the ONLY dial path; `explicit` overrides a parked denial and
     /// replaces any in-flight attempt.
     public func ensureSession(explicit: Bool = false, trigger: String) async throws -> IrxClientSession {
-        if let session, await !session.connection.isClosed {
+        if let session, await !session.connection.isClosed, !explicit {
             return session
         }
         if let parkedCode, !explicit {
@@ -195,11 +195,17 @@ public actor IrxPeerEngine {
     public func foregroundKick(staleAfter: Duration = .seconds(15)) {
         Task {
             if let session = await self.currentSessionForKick() {
-                let last = await session.connection.lastPongAt
-                let stale = last.map { ContinuousClock.now - $0 > staleAfter } ?? true
-                if stale {
+                // Liveness evidence is a recent pong OR a recent admission: a
+                // just-established session has no pong yet and must not be
+                // executed as a zombie while its first keepalive is in flight
+                // (that exact race produced the foreground redial storm).
+                let now = ContinuousClock.now
+                let pongAge = (await session.connection.lastPongAt).map { now - $0 }
+                let sessionAge = Duration.seconds(
+                    Date().timeIntervalSince(session.establishedAt))
+                let liveness = pongAge.map { min($0, sessionAge) } ?? sessionAge
+                if liveness > staleAfter {
                     self.record("foreground-stale-redial", [:])
-                    await session.connection.close(code: .explicitRedial, origin: .local)
                     _ = try? await self.ensureSession(explicit: true, trigger: "foreground-stale")
                     return
                 }
@@ -258,12 +264,26 @@ public actor IrxPeerEngine {
     }
 
     private func adopt(_ established: IrxClientSession) {
+        let previous = session
         session = established
         backoff = config.initialBackoff
         parkedCode = nil
         setState(.ready(session: established.admit.session))
         watchTermination(of: established)
         startKeepalive(of: established)
+        // Replacement is make-before-break. The new session is published and
+        // keepalive-armed before the old connection is closed, so a planned
+        // RPC/client handoff cannot create a peer-visible outage. The old
+        // termination watcher is already cancelled by watchTermination.
+        if let previous,
+           previous.admit.session != established.admit.session {
+            Task {
+                await previous.connection.close(
+                    code: .explicitRedial,
+                    origin: .local
+                )
+            }
+        }
     }
 
     private func startKeepalive(of established: IrxClientSession) {

@@ -23715,6 +23715,40 @@
           }
         }
       }
+    },
+    "computers.version.outdated.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac update required"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac のアップデートが必要です"
+          }
+        }
+      }
+    },
+    "computers.version.outdated.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac is running %@. Update it to %@ or later."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac は %@ を実行しています。%@ 以降にアップデートしてください。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

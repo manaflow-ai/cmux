@@ -56,6 +56,9 @@ public struct IrxDeviceListSnapshot: Equatable, Sendable {
     /// Server stamp: when the server issued this directory fact.
     public var issuedAt: Date
     public var ttlSeconds: Int
+    /// Server-advertised minimum Mac version, when available. Kept alongside
+    /// the lease so the UI can explain an outdated host after relaunch.
+    public var minimumSupportedMacVersion: String?
     /// Wall receipt, persisted so a relaunch can bound the lease.
     public var receivedAtWall: Date
     /// Monotonic receipt, the freshness anchor for this process.
@@ -66,6 +69,7 @@ public struct IrxDeviceListSnapshot: Equatable, Sendable {
         rev: Int,
         issuedAt: Date,
         ttlSeconds: Int,
+        minimumSupportedMacVersion: String? = nil,
         receivedAtWall: Date,
         receivedAtMonotonic: ContinuousClock.Instant
     ) {
@@ -73,6 +77,7 @@ public struct IrxDeviceListSnapshot: Equatable, Sendable {
         self.rev = rev
         self.issuedAt = issuedAt
         self.ttlSeconds = ttlSeconds
+        self.minimumSupportedMacVersion = minimumSupportedMacVersion
         self.receivedAtWall = receivedAtWall
         self.receivedAtMonotonic = receivedAtMonotonic
     }
@@ -191,6 +196,7 @@ extension IrxDeviceListSnapshot {
             rev: fact.rev,
             issuedAt: fact.payload.issuedAt ?? receivedAtWall,
             ttlSeconds: fact.payload.ttlSeconds ?? Self.defaultTTLSeconds,
+            minimumSupportedMacVersion: fact.payload.minimumSupportedVersion?.mac,
             receivedAtWall: receivedAtWall,
             receivedAtMonotonic: receivedAtMonotonic
         )
