@@ -35,14 +35,16 @@ struct CodexTurnLifecycleCoordinator {
         sessionID: String,
         turnID: String?,
         workspaceID: String?,
-        surfaceID: String?
+        surfaceID: String?,
+        allowCreate: Bool = true
     ) -> CodexTurnLedgerDecision {
         (try? ledger.promptSubmit(
             sessionID: sessionID,
             turnID: turnID,
             workspaceID: workspaceID,
             surfaceID: surfaceID,
-            invocation: invocation
+            invocation: invocation,
+            allowCreate: allowCreate
         )) ?? .ignored
     }
 

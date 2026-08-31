@@ -75,14 +75,16 @@ final class CodexTurnLedger {
         turnID: String?,
         workspaceID: String?,
         surfaceID: String?,
-        invocation: CodexHookInvocation
+        invocation: CodexHookInvocation,
+        allowCreate: Bool = true
     ) throws -> CodexTurnLedgerDecision {
         try apply(
             .promptSubmit(turnID: turnID),
             sessionID: sessionID,
             workspaceID: workspaceID,
             surfaceID: surfaceID,
-            invocation: invocation
+            invocation: invocation,
+            allowCreate: allowCreate
         )
     }
     func subagentStart(

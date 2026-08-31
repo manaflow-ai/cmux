@@ -174,12 +174,29 @@ extension GhosttyTerminalView {
                 for: hostedView,
                 boundTo: host
             )
+            let isCurrentPortalHost = terminalSurface.ownsPortalHost(
+                hostId: hostId,
+                instanceSerial: host.instanceSerial
+            )
             // Only the current portal owner may publish a ring. A host that is
             // still the bound owner may also publish a hide, which clears a
             // stale ring during a hand-off without allowing an old coordinator
             // to resurrect one on the replacement host.
-            if hostOwnsPortal || (!coordinator.desiredShowsUnreadNotificationRing && hasCurrentHostEntry) {
+            if hostOwnsPortal || (
+                !coordinator.desiredShowsUnreadNotificationRing
+                    && hasCurrentHostEntry
+                    && isCurrentPortalHost
+            ) {
                 hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
+            }
+
+            if !coordinator.desiredVisibleInUI,
+               hasCurrentHostEntry,
+               isCurrentPortalHost {
+                TerminalWindowPortalRegistry.updateEntryVisibility(
+                    for: hostedView,
+                    visibleInUI: false
+                )
             }
 
             switch immediateHostedStateAction(

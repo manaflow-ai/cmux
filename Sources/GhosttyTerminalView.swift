@@ -13570,7 +13570,14 @@ struct GhosttyTerminalView: NSViewRepresentable {
         let host = nsView as? HostContainerView
         let wasBoundToDismantledHost: Bool = {
             guard let host, let hostedView else { return false }
-            return TerminalWindowPortalRegistry.hasEntry(for: hostedView, boundTo: host)
+            guard TerminalWindowPortalRegistry.hasEntry(for: hostedView, boundTo: host),
+                  let terminalSurface = hostedView.terminalSurface else {
+                return false
+            }
+            return terminalSurface.ownsPortalHost(
+                hostId: ObjectIdentifier(host),
+                instanceSerial: host.instanceSerial
+            )
         }()
 #if DEBUG
         if let hostedView {
