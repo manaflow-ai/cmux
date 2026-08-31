@@ -40,7 +40,10 @@ extension TerminalNotificationSocketActionTests {
     }
 
     func testNotificationCreateForCallerRejectsAmbiguousReportedTTY() async throws {
-        let fixture = try makeSocketFixture(name: "notify-ambiguous-tty")
+        let fixture = try makeSocketFixture(
+            name: "notify-ambiguous-tty",
+            eagerLoadTerminal: true
+        )
         defer { fixture.cleanup() }
 
         let focusedSurfaceId = fixture.surfaceId

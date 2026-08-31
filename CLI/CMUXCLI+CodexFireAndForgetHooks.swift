@@ -2,6 +2,8 @@ import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
+    private static let codexSettledStopMaximumRetries = 3
+
     /// Schedules the normal Codex Stop path after the final child exits.
     ///
     /// Native child hooks must acknowledge the lifecycle write quickly, so the
@@ -13,6 +15,11 @@ extension CMUXCLI {
         environment: [String: String],
         telemetry: CLISocketSentryTelemetry
     ) {
+        let retryCount = Int(environment["CMUX_CODEX_SETTLED_STOP_RETRY_COUNT"] ?? "0") ?? 0
+        guard retryCount < Self.codexSettledStopMaximumRetries else {
+            telemetry.breadcrumb("codex-hook.settled-stop.retry-limit-reached")
+            return
+        }
         let selfPath: String = {
             if let first = ProcessInfo.processInfo.arguments.first,
                first.hasPrefix("/"),
@@ -49,6 +56,7 @@ extension CMUXCLI {
         ]
         var childEnvironment = environment
         childEnvironment["CMUX_CODEX_SETTLED_CHILD_STOP"] = "1"
+        childEnvironment["CMUX_CODEX_SETTLED_STOP_RETRY_COUNT"] = String(retryCount + 1)
         process.environment = childEnvironment
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice

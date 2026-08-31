@@ -268,6 +268,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CODEX_HOME"] = root.appendingPathComponent("codex-home", isDirectory: true).path
         environment["CMUX_CODEX_TURN_LEDGER_PATH"] = ledgerPath.path
+        // Keep this deterministic fixture in-process; retry scheduling is
+        // covered by the production retry-limit path separately.
+        environment["CMUX_CODEX_SETTLED_STOP_RETRY_COUNT"] = "3"
         environment.removeValue(forKey: "CMUX_CODEX_PID")
 
         for (index, subcommand) in ["subagent-start", "subagent-stop"].enumerated() {

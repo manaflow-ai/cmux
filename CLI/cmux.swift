@@ -34556,8 +34556,7 @@ export default CMUXSessionRestore;
             if case .codexSubagentStop = action,
                decision.ownership == .foreground,
                decision.settlement == .settled,
-               decision.shouldNotify,
-               !skipCodexLegacyPromptStop {
+               decision.shouldNotify {
                 spawnDetachedCodexSettledStop(
                     payload: rawInput,
                     environment: env,
@@ -35219,8 +35218,7 @@ export default CMUXSessionRestore;
                         requireCurrentTurn: true
                     )
                     if codexStopDecision?.settlement == .settled,
-                       codexStopDecision?.shouldNotify == true,
-                       !skipCodexLegacyPromptStop {
+                       codexStopDecision?.shouldNotify == true {
                         // Re-run the normal projection out of band; it will
                         // re-resolve the pane and still fail closed if proof
                         // remains unavailable.
@@ -35409,7 +35407,12 @@ export default CMUXSessionRestore;
                     sessionID: sessionId,
                     turnID: input.turnId,
                     workspaceID: workspaceId,
-                    surfaceID: surfaceId
+                    surfaceID: surfaceId,
+                    // Tokenized Codex launches must not let a delayed Stop
+                    // for an older turn settle the currently active turn.
+                    // Legacy unwrapped launches retain their historical
+                    // unseen-turn compatibility path.
+                    requireCurrentTurn: codexLifecycle.usesLegacyIdentity == false
                 )
             }
             if def.name == "codex",
