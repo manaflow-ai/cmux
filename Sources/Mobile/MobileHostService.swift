@@ -410,17 +410,23 @@ final class MobileHostService {
     /// degrades to identity-free and the phone's identity-recovery retry
     /// picks it up later). A flood of unique garbage tokens therefore cannot
     /// queue unbounded Stack lookups behind this verb.
-    nonisolated static func networkStatusResult(for request: MobileHostRPCRequest) async -> MobileHostRPCResult {
+    nonisolated static func networkStatusResult(for request: MobileHostRPCRequest) async -> MobileHostStatusResolution {
         let trimmedToken = request.auth?.stackAccessToken?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmedToken?.isEmpty == false else {
-            return MobileHostPublicStatusCache.result(includeIdentity: false)
+            return MobileHostStatusResolution(
+                result: MobileHostPublicStatusCache.result(includeIdentity: false),
+                authenticatedSessionIdentity: nil
+            )
         }
-        let verified = await MobileHostService.shared.verifiedStackCaller(for: request)
-        if !verified {
+        let verifiedIdentity = await MobileHostService.shared.verifiedStackCaller(for: request)
+        if verifiedIdentity == nil {
             mobileHostLog.error("mobile host status identity withheld: stack verification failed")
         }
-        guard verified else {
-            return MobileHostPublicStatusCache.result(includeIdentity: false)
+        guard let verifiedIdentity else {
+            return MobileHostStatusResolution(
+                result: MobileHostPublicStatusCache.result(includeIdentity: false),
+                authenticatedSessionIdentity: nil
+            )
         }
         let phonePushStatus = await MainActor.run {
             (
@@ -428,10 +434,13 @@ final class MobileHostService {
                 PhonePushClient.shared.queuePersistenceStatus
             )
         }
-        return MobileHostPublicStatusCache.result(
-            includeIdentity: true,
-            phonePushAdmission: phonePushStatus.0,
-            phonePushQueuePersistenceStatus: phonePushStatus.1
+        return MobileHostStatusResolution(
+            result: MobileHostPublicStatusCache.result(
+                includeIdentity: true,
+                phonePushAdmission: phonePushStatus.0,
+                phonePushQueuePersistenceStatus: phonePushStatus.1
+            ),
+            authenticatedSessionIdentity: verifiedIdentity
         )
     }
 
@@ -523,6 +532,15 @@ final class MobileHostService {
         await auth.awaitBootstrapped()
         guard auth.isAuthenticated else { return nil }
         return auth.currentUser?.id
+    }
+
+    /// Captures the account and auth generation that currently owns this Mac.
+    /// Callers retain this value across an awaited verification and compare it
+    /// again on the main actor before committing account-scoped state.
+    func authenticatedSessionIdentity() async -> AuthenticatedSessionIdentity? {
+        guard let auth else { return nil }
+        await auth.awaitBootstrapped()
+        return auth.authenticatedSessionIdentity
     }
 
     /// This Mac's authenticated Stack email, or `nil` when signed out or before
@@ -1425,7 +1443,7 @@ final class MobileHostService {
                         for: request,
                         authorization: authorization,
                         supportsArtifactLane: artifactTransfers != nil,
-                        stackStatus: { request in
+                        stackStatusResolution: { request in
                             await MobileHostService.networkStatusResult(for: request)
                         }
                     )
@@ -1498,16 +1516,38 @@ final class MobileHostService {
         supportsArtifactLane: Bool = false,
         stackStatus: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
     ) async -> MobileHostRPCResult {
+        await connectionStatusResult(
+            for: request,
+            authorization: authorization,
+            supportsArtifactLane: supportsArtifactLane,
+            stackStatusResolution: { request in
+                MobileHostStatusResolution(
+                    result: await stackStatus(request),
+                    authenticatedSessionIdentity: nil
+                )
+            }
+        )
+    }
+
+    nonisolated static func connectionStatusResult(
+        for request: MobileHostRPCRequest,
+        authorization: MobileHostConnectionAuthorizationContext,
+        supportsArtifactLane: Bool = false,
+        stackStatusResolution: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostStatusResolution
+    ) async -> MobileHostRPCResult {
         switch authorization {
         case .stackBearer:
-            let result = await stackStatus(request)
+            let resolution = await stackStatusResolution(request)
             await MobileHostService.shared.recordPairedPhoneIfNeeded(
                 request: request,
-                result: result,
-                authorization: authorization
+                result: resolution.result,
+                authorization: authorization,
+                authenticatedSessionIdentity: resolution.authenticatedSessionIdentity
             )
-            return result
+            return resolution.result
         case .irohAdmission:
+            let authenticatedSessionIdentity = await MobileHostService.shared
+                .authenticatedSessionIdentity()
             let phonePushStatus = await MainActor.run {
                 (
                     PhonePushClient.shared.currentAdmission(),
@@ -1525,7 +1565,8 @@ final class MobileHostService {
             await MobileHostService.shared.recordPairedPhoneIfNeeded(
                 request: request,
                 result: result,
-                authorization: authorization
+                authorization: authorization,
+                authenticatedSessionIdentity: authenticatedSessionIdentity
             )
             return result
         }
@@ -1707,28 +1748,37 @@ final class MobileHostService {
     /// never an unbounded queue of attacker-minted token verifications. The
     /// legitimate client recovers via its identity-recovery retry once its
     /// token is cache-verified by the authorized verbs that follow connect.
-    func verifiedStackCaller(for request: MobileHostRPCRequest) async -> Bool {
+    func verifiedStackCaller(for request: MobileHostRPCRequest) async -> AuthenticatedSessionIdentity? {
         if devStackTokenAuthorized(request) {
-            return true
+            return await authenticatedSessionIdentity()
         }
-        if let cachedVerdict = await MobileHostStackAuthVerifier.shared.cachedVerdict(auth: request.auth) {
-            return cachedVerdict
+        if let cachedRemoteUserID = await MobileHostStackAuthVerifier.shared
+            .cachedRemoteUserID(auth: request.auth),
+           let identity = await authenticatedSessionIdentity(),
+           cachedRemoteUserID == identity.accountID {
+            return identity
         }
         guard await MobileHostStatusVerificationLimiter.shared.acquire() else {
             mobileHostLog.error("mobile host status identity withheld: verification limiter saturated")
-            return false
+            return nil
         }
-        let verified: Bool
+        let remoteUserID: String
         do {
-            try await Self.verifyStackAuthOffMainActor(auth: request.auth)
-            verified = true
+            remoteUserID = try await Self.verifiedStackAccountIDOffMainActor(
+                auth: request.auth
+            )
         } catch {
-            verified = false
+            await MobileHostStatusVerificationLimiter.shared.release()
+            return nil
         }
         // Non-throwing actor call: runs even if this task was cancelled
         // mid-verification, so a slot can never leak.
         await MobileHostStatusVerificationLimiter.shared.release()
-        return verified
+        guard let identity = await authenticatedSessionIdentity(),
+              remoteUserID == identity.accountID else {
+            return nil
+        }
+        return identity
     }
 
     private func authorizationError(for request: MobileHostRPCRequest) async -> MobileHostRPCResult? {
@@ -1787,6 +1837,14 @@ final class MobileHostService {
     private nonisolated static func verifyStackAuthOffMainActor(auth: MobileHostRPCAuth?) async throws {
         try await Task.detached(priority: .utility) {
             try await MobileHostStackAuthVerifier.shared.verify(auth: auth)
+        }.value
+    }
+
+    private nonisolated static func verifiedStackAccountIDOffMainActor(
+        auth: MobileHostRPCAuth?
+    ) async throws -> String {
+        try await Task.detached(priority: .utility) {
+            try await MobileHostStackAuthVerifier.shared.verifiedRemoteUserID(auth: auth)
         }.value
     }
 

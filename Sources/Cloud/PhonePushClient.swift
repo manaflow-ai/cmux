@@ -90,6 +90,10 @@ final class PhonePushClient {
     private var presenceCache = MacPresenceDecisionCache()
     private var authLifecycleTask: Task<Void, Never>?
     private var activeIdentity: AuthenticatedSessionIdentity?
+    /// Restored events held outside the delivery queue until an authenticated
+    /// phone target is known. Keeping them here avoids sending a nil/stale APNs
+    /// namespace and preserves the durable snapshot across the handshake.
+    private var unresolvedRestoredEnvelopes: [PhonePushRequestEnvelope] = []
     private var pendingPersistenceSnapshot: [PhonePushRequestEnvelope]?
     private var persistenceTask: Task<Void, Never>?
     private var suppressQueuePersistence = false
@@ -133,6 +137,7 @@ final class PhonePushClient {
         self.auth = auth
         authLifecycleTask?.cancel()
         cancelInMemoryQueue()
+        unresolvedRestoredEnvelopes = []
         activeIdentity = nil
         authLifecycleTask = Task { [weak self, weak auth] in
             guard let self, let auth else { return }
@@ -305,6 +310,7 @@ final class PhonePushClient {
     private func enqueue(
         _ payload: PhonePushPayload
     ) -> PhonePushForwardAdmission {
+        pairedPhoneTargetDidChange()
         guard let identity = auth?.authenticatedSessionIdentity else {
             return .authenticationUnavailable
         }
@@ -343,6 +349,7 @@ final class PhonePushClient {
     }
 
     func forwardDismissed(ids: [String], badgeCount: Int) {
+        pairedPhoneTargetDidChange()
         guard PhonePushConfiguration.forwardingEnabled(in: defaults),
               !ids.isEmpty,
               let identity = auth?.authenticatedSessionIdentity,
@@ -405,6 +412,7 @@ final class PhonePushClient {
     /// Cancels in-flight retries and atomically clears credential-free storage.
     func cancelPendingDeliveries() {
         cancelInMemoryQueue()
+        unresolvedRestoredEnvelopes = []
         pendingPersistenceSnapshot = []
         schedulePersistence([])
     }
@@ -438,6 +446,7 @@ final class PhonePushClient {
             // cancels work enqueued between restore and first yield.
             activeIdentity = identity
             cancelInMemoryQueue()
+            unresolvedRestoredEnvelopes = []
             await clearPersistedQueue()
             deliveryQueue.start()
             return
@@ -445,6 +454,7 @@ final class PhonePushClient {
         guard let identity else {
             activeIdentity = nil
             cancelInMemoryQueue()
+            unresolvedRestoredEnvelopes = []
             await clearPersistedQueue()
             deliveryQueue.start()
             return
@@ -467,28 +477,33 @@ final class PhonePushClient {
         // Re-key restored work to the bundle that actually paired. Older
         // envelopes either have no target or carry the removed picker value;
         // preserving either would silently send a stale notification to the
-        // wrong APNs topic.
+        // wrong APNs topic. If the phone has not completed its status
+        // handshake yet, hold the events outside the delivery queue and leave
+        // the durable snapshot untouched until that handshake arrives.
         let pairedBundleIdentifier = MobileHostService.shared
             .pairedPhoneBundleIdentifier(accountID: identity.accountID)
-        let rebound = restored.compactMap { envelope -> PhonePushRequestEnvelope? in
-            guard envelope.expectedAccountID == identity.accountID else {
-                return nil
+        let accountScoped = restored.filter {
+            $0.expectedAccountID == identity.accountID
+        }
+        guard let pairedBundleIdentifier else {
+            unresolvedRestoredEnvelopes = accountScoped.map { envelope in
+                reboundEnvelope(
+                    envelope,
+                    targetBundleIdentifier: nil,
+                    identity: identity
+                )
             }
-            guard let pairedBundleIdentifier else { return nil }
-            let retargeted = PhonePushRequestEnvelope(
-                correlationID: envelope.correlationID,
-                expirationEpochSeconds: envelope.expirationEpochSeconds,
-                body: envelope.body,
-                coalescingID: envelope.coalescingID,
-                expectedAccountID: envelope.expectedAccountID,
-                expectedSessionGeneration: envelope.expectedSessionGeneration,
-                targetBundleIdentifier: pairedBundleIdentifier
-            )
-            return retargeted.rebound(
-                accountID: identity.accountID,
-                generation: identity.generation
+            activeIdentity = identity
+            return
+        }
+        let rebound = accountScoped.map { envelope in
+            reboundEnvelope(
+                envelope,
+                targetBundleIdentifier: pairedBundleIdentifier,
+                identity: identity
             )
         }
+        unresolvedRestoredEnvelopes = []
         deliveryQueue.restore(rebound)
         deliveryQueue.retainOnly(
             accountID: identity.accountID,
@@ -498,12 +513,59 @@ final class PhonePushClient {
         deliveryQueue.start()
     }
 
+    /// Moves events held during startup into the serial delivery queue once a
+    /// completed host-status handshake records an iOS bundle.
+    func pairedPhoneTargetDidChange() {
+        guard PhonePushConfiguration.forwardingEnabled(in: defaults),
+              !unresolvedRestoredEnvelopes.isEmpty,
+              let identity = activeIdentity,
+              auth?.isAuthenticatedSessionIdentityCurrent(identity) == true,
+              let targetBundleIdentifier = MobileHostService.shared
+                  .pairedPhoneBundleIdentifier(accountID: identity.accountID) else {
+            return
+        }
+        let rebound = unresolvedRestoredEnvelopes.map { envelope in
+            reboundEnvelope(
+                envelope,
+                targetBundleIdentifier: targetBundleIdentifier,
+                identity: identity
+            )
+        }
+        unresolvedRestoredEnvelopes = []
+        deliveryQueue.restore(rebound)
+        deliveryQueue.retainOnly(
+            accountID: identity.accountID,
+            generation: identity.generation
+        )
+        deliveryQueue.start()
+    }
+
     private func handleAuthTransition(
         _ identity: AuthenticatedSessionIdentity?,
         auth: AuthCoordinator
     ) async {
         guard identity != activeIdentity else { return }
+        if let identity,
+           let previousIdentity = activeIdentity,
+           identity.accountID == previousIdentity.accountID,
+           !unresolvedRestoredEnvelopes.isEmpty {
+            // A same-account token refresh changes the generation but does not
+            // invalidate a queue that is waiting only for the phone's bundle.
+            // Rebind the held envelopes in memory and keep the durable file for
+            // the eventual authenticated pairing.
+            unresolvedRestoredEnvelopes = unresolvedRestoredEnvelopes.map { envelope in
+                reboundEnvelope(
+                    envelope,
+                    targetBundleIdentifier: nil,
+                    identity: identity
+                )
+            }
+            activeIdentity = identity
+            pairedPhoneTargetDidChange()
+            return
+        }
         cancelInMemoryQueue()
+        unresolvedRestoredEnvelopes = []
         pendingPersistenceSnapshot = []
         activeIdentity = identity
         await clearPersistedQueue()
@@ -525,6 +587,22 @@ final class PhonePushClient {
         suppressQueuePersistence = true
         deliveryQueue.cancelAll()
         suppressQueuePersistence = false
+    }
+
+    private func reboundEnvelope(
+        _ envelope: PhonePushRequestEnvelope,
+        targetBundleIdentifier: String?,
+        identity: AuthenticatedSessionIdentity
+    ) -> PhonePushRequestEnvelope {
+        PhonePushRequestEnvelope(
+            correlationID: envelope.correlationID,
+            expirationEpochSeconds: envelope.expirationEpochSeconds,
+            body: envelope.body,
+            coalescingID: envelope.coalescingID,
+            expectedAccountID: identity.accountID,
+            expectedSessionGeneration: identity.generation,
+            targetBundleIdentifier: targetBundleIdentifier
+        )
     }
 
     private func drainPersistence() async {

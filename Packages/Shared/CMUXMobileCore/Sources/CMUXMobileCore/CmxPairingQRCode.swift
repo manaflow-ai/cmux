@@ -54,7 +54,8 @@ import Foundation
 /// Compatibility: the Mac pairing window emits one canonical Tailscale pairing
 /// payload for official Macs (the App Store scheme). The in-app scanner accepts
 /// that URL from every official iOS variant; the system camera may route it only
-/// to the App Store build, which is intentional because in-app scan is the
+/// to the App Store build, but a tokenless Tailscale URL opened externally is
+/// held at the in-app scanner boundary for security. In-app scan is the
 /// supported cross-variant flow. Tagged DEV Macs still emit their exact tagged
 /// scheme. v3 remains decodable for existing Iroh links and explicit
 /// device-attach flows. Workspace-scoped tickets, dev loopback tickets, and

@@ -78,6 +78,9 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
     /// this build understands (the Mac is on a newer cmux). The fix is updating
     /// the phone app, not re-scanning.
     case unrecognizedVersion
+    /// A tokenless Tailscale URL was opened by the system camera or another
+    /// app. It must be entered through cmux's scanner to authorize the route.
+    case externalCodeRequiresInAppScan
     /// The scanned/pasted code only points back at the Mac itself (loopback),
     /// which the phone can never dial.
     case loopbackRejected
@@ -132,6 +135,8 @@ extension MobilePairingFailureCategory: DiagnosticFailureProviding {
             .identityMismatch
         case .invalidCode, .unrecognizedVersion:
             .protocolViolation
+        case .externalCodeRequiresInAppScan:
+            .unsupportedRoute
         case .loopbackRejected, .unsupportedRoute, .noSupportedRoute,
              .macUpdateRequired:
             .unsupportedRoute
@@ -168,6 +173,7 @@ extension MobilePairingFailureCategory {
         case .ticketExpired: return "ticket_expired"
         case .invalidCode: return "invalid_code"
         case .unrecognizedVersion: return "unrecognized_version"
+        case .externalCodeRequiresInAppScan: return "external_code_requires_in_app_scan"
         case .loopbackRejected: return "loopback_rejected"
         case .macUpdateRequired: return "mac_update_required"
         case .unsupportedRoute: return "unsupported_route"
@@ -315,6 +321,11 @@ extension MobilePairingFailureCategory {
                 "mobile.pairing.unrecognizedVersion",
                 defaultValue: "This QR uses a newer cmux pairing format."
             )
+        case .externalCodeRequiresInAppScan:
+            return L10n.string(
+                "mobile.pairing.externalCodeRequiresInAppScan",
+                defaultValue: "This pairing link was opened outside cmux."
+            )
         case .loopbackRejected:
             return L10n.string(
                 "mobile.pairing.loopbackRejected",
@@ -422,6 +433,11 @@ extension MobilePairingFailureCategory {
             return L10n.string(
                 "mobile.pairing.guidance.updateApp",
                 defaultValue: "Update cmux to the latest version on your iPhone from the App Store (or TestFlight), then scan again."
+            )
+        case .externalCodeRequiresInAppScan:
+            return L10n.string(
+                "mobile.pairing.guidance.externalCodeRequiresInAppScan",
+                defaultValue: "Open cmux on your iPhone, choose Tailscale, and scan the code with the in-app scanner."
             )
         case .macUpdateRequired:
             return L10n.string(

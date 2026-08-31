@@ -57,6 +57,13 @@ struct MobileHostIdentityTests {
             $0.source == .legacyPickerMigration
                 && $0.bundleIdentifier == "dev.cmux.app.demo"
         })
+        #expect(store.recordLegacyCompatibility(
+            clientID: nil,
+            accountID: "account-a",
+            handshakeIdentity: "stack:account-a",
+            pairedAt: Date(timeIntervalSince1970: 50)
+        ))
+        #expect(store.targetBundleIdentifier(accountID: "account-a") == "dev.cmux.app.demo")
 
         store.record(
             clientID: "phone-a",
@@ -129,6 +136,27 @@ struct MobileHostIdentityTests {
                 macInstanceTag: tag
             )
             #expect(store.targetBundleIdentifier(accountID: "account-a") == nil)
+        }
+    }
+
+    @Test func legacyCompatibilityHandshakeUsesTheHistoricalLaneTarget() throws {
+        let lanes: [(String, String)] = [
+            ("default", "com.cmux.app"),
+            ("nightly", "com.cmux.app"),
+            ("rc", "dev.cmux.ios.rc"),
+            ("staging", "dev.cmux.ios.staging"),
+        ]
+        for (tag, expectedBundle) in lanes {
+            let suiteName = "mobile-ios-target-\(UUID().uuidString)"
+            let defaults = try #require(UserDefaults(suiteName: suiteName))
+            defer { defaults.removePersistentDomain(forName: suiteName) }
+            let store = MobilePairedPhoneStore(defaults: defaults, macInstanceTag: tag)
+            #expect(store.recordLegacyCompatibility(
+                clientID: nil,
+                accountID: "account-a",
+                handshakeIdentity: "stack:account-a"
+            ))
+            #expect(store.targetBundleIdentifier(accountID: "account-a") == expectedBundle)
         }
     }
 

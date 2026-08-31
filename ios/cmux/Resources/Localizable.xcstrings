@@ -6546,6 +6546,40 @@
         }
       }
     },
+    "mobile.pairing.externalCodeRequiresInAppScan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This pairing link was opened outside cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このペアリングリンクは cmux の外部から開かれました。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.guidance.externalCodeRequiresInAppScan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open cmux on your iPhone, choose Tailscale, and scan the code with the in-app scanner."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone で cmux を開き、Tailscale を選択して、アプリ内スキャナーでコードをスキャンしてください。"
+          }
+        }
+      }
+    },
     "mobile.pairing.localNetworkPermission": {
       "extractionState": "manual",
       "localizations": {

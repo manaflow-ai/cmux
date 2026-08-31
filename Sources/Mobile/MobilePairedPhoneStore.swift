@@ -69,10 +69,12 @@ final class MobilePairedPhoneStore {
             return false
         }
         let previousRecords = recordsByClientID
-        // A real handshake supersedes the pre-migration picker fallback. Once
-        // the phone identity is known, the stale global value must not compete
+        // A modern handshake supersedes every compatibility marker. Once the
+        // phone identity is known, no stale picker-derived value may compete
         // with it after account or variant changes.
-        recordsByClientID.removeValue(forKey: Self.legacyClientID)
+        recordsByClientID = recordsByClientID.filter {
+            $0.value.source == .authenticatedHandshake
+        }
         recordsByClientID[normalizedClientID] = MobilePairedPhoneRecord(
             clientID: normalizedClientID,
             bundleIdentifier: normalizedBundleIdentifier,
@@ -88,18 +90,65 @@ final class MobilePairedPhoneStore {
         return true
     }
 
+    /// Records a completed authenticated handshake from an iOS build that
+    /// predates the bundle-identity status metadata. The legacy target is used
+    /// only after this authenticated handshake and is superseded as soon as a
+    /// modern client reports its exact bundle.
+    @discardableResult
+    func recordLegacyCompatibility(
+        clientID: String?,
+        accountID: String?,
+        handshakeIdentity: String?,
+        pairedAt: Date = .now
+    ) -> Bool {
+        guard let normalizedAccountID = Self.normalized(accountID),
+              let normalizedHandshakeIdentity = Self.normalized(handshakeIdentity),
+              normalizedHandshakeIdentity.utf8.count <= Self.maximumHandshakeIdentityLength,
+              let bundleIdentifier = legacyCompatibilityBundleIdentifier,
+              isBundleAllowedForMacLane(bundleIdentifier) else {
+            return false
+        }
+        guard !recordsByClientID.values.contains(where: {
+            $0.source == .authenticatedHandshake
+                && $0.accountID == normalizedAccountID
+        }) else {
+            // A legacy client must never displace an exact modern target that
+            // has already completed the bundle-identity handshake.
+            return false
+        }
+        let legacyClientID = Self.legacyCompatibilityClientID(for: clientID)
+        let previousRecords = recordsByClientID
+        recordsByClientID = recordsByClientID.filter {
+            $0.value.source != .legacyPickerMigration
+        }
+        recordsByClientID[legacyClientID] = MobilePairedPhoneRecord(
+            clientID: legacyClientID,
+            bundleIdentifier: bundleIdentifier,
+            accountID: normalizedAccountID,
+            pairedAt: pairedAt,
+            source: .legacyCompatibility,
+            handshakeIdentity: normalizedHandshakeIdentity
+        )
+        guard trimAndPersist() else {
+            recordsByClientID = previousRecords
+            return false
+        }
+        return true
+    }
+
     /// Resolves the iOS bundle for push and backup requests.
     ///
-    /// Only an authenticated record for the current account is eligible. If no
-    /// phone has completed the post-handshake identity exchange, return `nil` so
-    /// push and backup callers fail closed instead of guessing from a picker
-    /// default or the Mac's build lane.
+    /// Only a record created by an authenticated status handshake for the
+    /// current account is eligible. Modern records carry the exact bundle;
+    /// legacy-compatibility records are limited to pre-metadata clients and are
+    /// superseded by the first modern handshake.
     func targetBundleIdentifier(accountID: String?) -> String? {
         guard let normalizedAccountID = Self.normalized(accountID) else {
             return nil
         }
         let candidates = recordsByClientID.values.filter { record in
-            record.source == .authenticatedHandshake
+            (record.source == .authenticatedHandshake
+                || record.source == .legacyCompatibility)
                 && isBundleAllowedForMacLane(record.bundleIdentifier)
                 && record.handshakeIdentity != nil
                 && record.accountID == normalizedAccountID
@@ -120,6 +169,20 @@ final class MobilePairedPhoneStore {
         return MobileIOSAppNamespace(
             pairedMacInstanceTag: macInstanceTag
         )?.bundleIdentifier
+    }
+
+    /// Historical official Macs used the App Store target when talking to an
+    /// iOS client that predates bundle metadata. This compatibility value is
+    /// reachable only through `recordLegacyCompatibility`, after auth proves a
+    /// real handshake; it is never a standalone runtime fallback.
+    private var legacyCompatibilityBundleIdentifier: String? {
+        let normalizedTag = macInstanceTag
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if normalizedTag.isEmpty || normalizedTag == "default" || normalizedTag == "nightly" {
+            return "com.cmux.app"
+        }
+        return fallbackBundleIdentifier
     }
 
     private var isOfficialMacLane: Bool {
@@ -151,6 +214,13 @@ final class MobilePairedPhoneStore {
         "dev.cmux.app.internal",
         "dev.cmux.app.demo",
     ]
+
+    private static func legacyCompatibilityClientID(for clientID: String?) -> String {
+        let suffix = normalized(clientID) ?? "default"
+        let prefix = "legacy-compatible-"
+        let budget = maxClientIDLength - prefix.utf16.count
+        return prefix + String(suffix.prefix(budget))
+    }
 }
 
 private extension MobilePairedPhoneStore {

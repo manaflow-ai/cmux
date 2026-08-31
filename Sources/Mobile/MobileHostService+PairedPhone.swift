@@ -1,9 +1,12 @@
 import Foundation
+import CmuxAuthRuntime
 
 @MainActor
 extension MobileHostService {
     /// Returns the bundle selected by the most recent authenticated pairing for
-    /// `accountID`. Missing identity is deliberately fail-closed.
+    /// `accountID`. A legacy-compatibility record is eligible only after an
+    /// authenticated status handshake from a pre-metadata client; before that,
+    /// missing identity is deliberately fail-closed.
     func pairedPhoneBundleIdentifier(accountID: String?) -> String? {
         pairedPhoneStore.targetBundleIdentifier(accountID: accountID)
     }
@@ -14,14 +17,16 @@ extension MobileHostService {
     func recordPairedPhoneIfNeeded(
         request: MobileHostRPCRequest,
         result: MobileHostRPCResult,
-        authorization: MobileHostConnectionAuthorizationContext
+        authorization: MobileHostConnectionAuthorizationContext,
+        authenticatedSessionIdentity verifiedSessionIdentity: AuthenticatedSessionIdentity?
     ) async {
-        guard let clientID = Self.clientID(from: request.params),
-              let bundleIdentifier = Self.iosBundleIdentifier(from: request.params),
-              Self.statusResultIncludesIdentity(result),
-              let accountID = await currentAuthenticatedLocalUserID() else {
+        guard Self.statusResultIncludesIdentity(result),
+              let verifiedSessionIdentity,
+              let currentSessionIdentity = await self.authenticatedSessionIdentity(),
+              currentSessionIdentity == verifiedSessionIdentity else {
             return
         }
+        let accountID = verifiedSessionIdentity.accountID
         guard let handshakeIdentity = Self.authenticatedHandshakeIdentity(
             authorization: authorization,
             request: request,
@@ -30,12 +35,41 @@ extension MobileHostService {
             return
         }
         let previousTarget = pairedPhoneStore.targetBundleIdentifier(accountID: accountID)
-        guard pairedPhoneStore.record(
-            clientID: clientID,
-            bundleIdentifier: bundleIdentifier,
-            accountID: accountID,
-            handshakeIdentity: handshakeIdentity
-        ) else { return }
+        let hasClientIDField = request.params["client_id"] != nil
+        let hasBundleIdentifierField = request.params.keys.contains {
+            $0 == "ios_bundle_identifier"
+                || $0 == "ios_bundle_id"
+                || $0 == "iosBundleIdentifier"
+        }
+        let didRecord: Bool
+        if hasClientIDField || hasBundleIdentifierField {
+            // A modern client must provide both halves of its immutable app
+            // identity. A partial claim is rejected rather than silently
+            // downgrading to the legacy target.
+            guard let clientID = Self.clientID(from: request.params),
+                  let bundleIdentifier = Self.iosBundleIdentifier(from: request.params) else {
+                return
+            }
+            didRecord = pairedPhoneStore.record(
+                clientID: clientID,
+                bundleIdentifier: bundleIdentifier,
+                accountID: accountID,
+                handshakeIdentity: handshakeIdentity
+            )
+        } else {
+            // Older iOS clients do not send bundle metadata. Their status
+            // response is still authenticated, so retain the migrated/historic
+            // target for compatibility until a modern app reports its bundle.
+            didRecord = pairedPhoneStore.recordLegacyCompatibility(
+                clientID: Self.clientID(from: request.params),
+                accountID: accountID,
+                handshakeIdentity: handshakeIdentity
+            )
+        }
+        guard didRecord else { return }
+        // A startup queue may be waiting for this first authenticated target;
+        // re-key it before the next push producer runs.
+        PhonePushClient.shared.pairedPhoneTargetDidChange()
         guard pairedPhoneStore.targetBundleIdentifier(accountID: accountID) != previousTarget else {
             return
         }

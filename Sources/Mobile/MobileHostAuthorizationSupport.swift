@@ -64,26 +64,22 @@ actor MobileHostStackAuthVerifier {
     private static let cacheTTLSeconds: TimeInterval = 60
     private static let refreshAheadWindowSeconds: TimeInterval = 15
 
-    /// The verification verdict for `auth`'s token using only the cache, or
-    /// `nil` when no fresh cached binding exists (deciding would need a Stack
-    /// network lookup). Lets the unauthenticated status path answer
-    /// already-verified callers without spending a capped network slot.
-    func cachedVerdict(auth: MobileHostRPCAuth?) async -> Bool? {
-        guard let accessToken = auth?.stackAccessToken else {
-            return false
-        }
-        guard let cached = cache[Self.cacheKey(for: accessToken)],
+    /// Returns the cached Stack account subject without consulting the current
+    /// Mac account. The caller compares both values in one final snapshot so a
+    /// sign-out/account switch cannot rebind a verified status response.
+    func cachedRemoteUserID(auth: MobileHostRPCAuth?) -> String? {
+        guard let accessToken = auth?.stackAccessToken,
+              let cached = cache[Self.cacheKey(for: accessToken)],
               cached.expiresAt > Date() else {
             return nil
         }
-        let localUserID = await currentAuthenticatedLocalUserID()
-        return (try? MobileHostAuthorizationPolicy.authorizeStackUserID(
-            localUserID: localUserID,
-            remoteUserID: cached.userID
-        )) != nil
+        return cached.userID
     }
 
-    func verify(auth: MobileHostRPCAuth?) async throws {
+    /// Verifies the bearer and returns the account subject proven by Stack.
+    /// Local-account matching is performed by the caller that needs to retain
+    /// the exact authenticated session snapshot.
+    func verifiedRemoteUserID(auth: MobileHostRPCAuth?) async throws -> String {
         guard let accessToken = auth?.stackAccessToken else {
             throw MobileHostAuthorizationError.missingStackTokens
         }
@@ -94,16 +90,23 @@ actor MobileHostStackAuthVerifier {
         cache = cache.filter { $0.value.expiresAt > now }
         if let cached = cache[cacheKey], cached.expiresAt > now {
             remoteUserID = cached.userID
-            // Refresh-ahead: when the cached binding is near expiry, re-verify in
-            // the background so an actively-typing client never blocks a keystroke
-            // on the network round-trip. Every mobile request now requires Stack
-            // auth, so the verification must stay off the critical path.
             if cached.expiresAt.timeIntervalSince(now) < Self.refreshAheadWindowSeconds {
                 scheduleRefreshAhead(cacheKey: cacheKey, accessToken: accessToken)
             }
         } else {
-            remoteUserID = try await fetchAndCacheRemoteUserID(cacheKey: cacheKey, accessToken: accessToken)
+            remoteUserID = try await fetchAndCacheRemoteUserID(
+                cacheKey: cacheKey,
+                accessToken: accessToken
+            )
         }
+        guard let remoteUserID else {
+            throw MobileHostAuthorizationError.invalidStackUser
+        }
+        return remoteUserID
+    }
+
+    func verify(auth: MobileHostRPCAuth?) async throws {
+        let remoteUserID = try await verifiedRemoteUserID(auth: auth)
 
         let localUserID = await currentAuthenticatedLocalUserID()
         try MobileHostAuthorizationPolicy.authorizeStackUserID(

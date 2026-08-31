@@ -4669,12 +4669,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @discardableResult
     public func connectPairingURLResult(
         _ rawValue: String? = nil,
-        userEnteredPairingCode: Bool = false
+        userEnteredPairingCode: Bool = false,
+        externalURL: Bool = false
     ) async -> MobilePairingURLConnectionResult {
         await connectPairingURLResult(
             rawValue,
             acceptedVersionWarning: false,
-            userEnteredPairingCode: userEnteredPairingCode
+            userEnteredPairingCode: userEnteredPairingCode,
+            externalURL: externalURL
         )
     }
 
@@ -4682,7 +4684,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func connectPairingURLResult(
         _ rawValue: String? = nil,
         acceptedVersionWarning: Bool,
-        userEnteredPairingCode: Bool = false
+        userEnteredPairingCode: Bool = false,
+        externalURL: Bool = false
     ) async -> MobilePairingURLConnectionResult {
         MobileDebugLog.shared.append(
             "pairing.qr_connect.begin user_entered=\(userEnteredPairingCode) accepted_version_warning=\(acceptedVersionWarning)"
@@ -4761,6 +4764,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 "pairing.account_preflight.failed category=\(emailFailure)"
             )
             applyPairingValidationFailure(emailFailure)
+            if connectionState != .connected {
+                connectionState = .disconnected
+                macConnectionStatus = .unavailable
+                clearRemoteConnectionContext()
+            }
+            return .failed
+        }
+
+        if MobilePairingURLAuthorizationPolicy.requiresInAppScan(
+            ticket: ticket,
+            userEnteredPairingCode: userEnteredPairingCode,
+            externalURL: externalURL
+        ) {
+            // A custom-scheme URL can be launched by any app or website. Only
+            // the in-app scanner proves the user physically read this exact
+            // Tailscale destination from their Mac, so external opens fail
+            // closed with a direct route back to that scanner.
+            applyPairingValidationFailure(.externalCodeRequiresInAppScan)
             if connectionState != .connected {
                 connectionState = .disconnected
                 macConnectionStatus = .unavailable

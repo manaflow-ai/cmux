@@ -297,6 +297,7 @@ import Testing
             .ticketExpired,
             .invalidCode,
             .unrecognizedVersion,
+            .externalCodeRequiresInAppScan,
             .macUpdateRequired,
             .unsupportedRoute,
             .noSupportedRoute,
@@ -350,6 +351,44 @@ import Testing
         let category = MobilePairingFailureCategory.buildIncompatible
         #expect(!category.message.localizedCaseInsensitiveContains("update cmux"))
         #expect(category.guidance?.localizedCaseInsensitiveContains("update cmux") == true)
+    }
+
+    @Test func externalSystemCameraOpenExplainsTheInAppScanBoundary() {
+        let category = MobilePairingFailureCategory.externalCodeRequiresInAppScan
+        #expect(category.message.localizedCaseInsensitiveContains("outside cmux"))
+        #expect(category.guidance?.localizedCaseInsensitiveContains("in-app scanner") == true)
+        #expect(!category.guidance!.localizedCaseInsensitiveContains("update cmux"))
+    }
+
+    @Test func tokenlessTailscaleURLRequiresExplicitInAppScan() throws {
+        let route = try CmxAttachRoute(
+            id: "tailscale",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.5", port: 58_465)
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "",
+            macDisplayName: nil,
+            routes: [route],
+            authToken: nil
+        )
+        #expect(MobilePairingURLAuthorizationPolicy.requiresInAppScan(
+            ticket: ticket,
+            userEnteredPairingCode: false,
+            externalURL: true
+        ))
+        #expect(!MobilePairingURLAuthorizationPolicy.requiresInAppScan(
+            ticket: ticket,
+            userEnteredPairingCode: true,
+            externalURL: true
+        ))
+        #expect(!MobilePairingURLAuthorizationPolicy.requiresInAppScan(
+            ticket: ticket,
+            userEnteredPairingCode: false,
+            externalURL: false
+        ))
     }
 
     @Test func missingRouteFallsBackWithoutCrashingOnFormat() {
