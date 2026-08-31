@@ -228,17 +228,11 @@ impl AgentRoster {
         let socket_echo = event.adapter_id() == Some(SOCKET_REPORT_ADAPTER);
         let detected_echo = event.adapter_id() == Some(DETECTED_REPORT_ADAPTER);
         let external_echo = socket_echo || detected_echo;
-        if let Some(retired_at) = self.retired_terminals.get(terminal_id).copied() {
-            // A terminal can only become live again through a newer explicit
-            // session start. All other delayed records remain fenced forever.
-            if external_echo
-                || event.kind != "agent.session.started"
-                || event.sequence <= retired_at
-            {
-                return Vec::new();
-            }
-            self.retired_terminals.remove(terminal_id);
-            self.hook_fences.remove(terminal_id);
+        if self.retired_terminals.contains_key(terminal_id) {
+            // The resource registry permanently tombstones a terminal public
+            // id. No delayed journal row can create a new lifecycle for that
+            // id, including a later session-start event.
+            return Vec::new();
         }
         let (state, source, session, agent, updated_at_ms) = if external_echo {
             // Socket echo: explicit state and timestamp carried in the
