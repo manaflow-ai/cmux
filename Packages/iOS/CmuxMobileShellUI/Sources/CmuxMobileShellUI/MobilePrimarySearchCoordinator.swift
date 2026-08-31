@@ -36,7 +36,7 @@ final class MobilePrimarySearchCoordinator {
 
     func setPresentation(_ presented: Bool) {
         if isPresented, !presented {
-            commitNativeDraft(for: scope)
+            resetSearchQuery(for: scope)
             beginDeactivation(for: scope)
         }
         isPresented = presented
@@ -65,7 +65,7 @@ final class MobilePrimarySearchCoordinator {
             platformSearchingScope = scope
         } else if phase == .active(scope) {
             guard platformSearchingScope == scope else { return }
-            commitNativeDraft(for: scope)
+            resetSearchQuery(for: scope)
             beginDeactivation(for: scope)
         }
     }
@@ -178,6 +178,16 @@ final class MobilePrimarySearchCoordinator {
             searchQueryBounds.normalizedFilterText(nativeSearchText(for: scope)).value,
             for: scope
         )
+    }
+
+    /// Dismissing search without submitting (the search tab's round X, or a
+    /// platform-driven end of searching) cancels the query outright: draft and
+    /// committed text both clear so the scope returns to its unfiltered list
+    /// and the next activation starts empty. Submit and in-search navigation
+    /// keep committing through ``commitNativeDraft(for:)``.
+    private func resetSearchQuery(for scope: MobilePrimarySearchScope) {
+        setCommittedSearchText("", for: scope)
+        setNativeSearchText("", for: scope)
     }
 
     private func syncNativeSearchText(fromCommittedQueryFor scope: MobilePrimarySearchScope) {
