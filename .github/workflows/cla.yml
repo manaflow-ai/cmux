@@ -19,14 +19,14 @@ env:
 # Bound workflow admission before any job-level `if` or runner allocation.
 # The body comparisons are only a coarse classifier because GitHub expression
 # string comparisons ignore case. The shell gate below remains the exact
-# authority. Keep the untrusted body out of the group name so a commenter
-# cannot create an unbounded set of concurrency groups. GitHub's default
-# `single` queue permits one running and one pending run per classifier.
+# authority. Every value in this key comes from a fixed event type, action, or
+# boolean classifier, so public issue comments cannot create one concurrency
+# group per pull request. GitHub's default `single` queue permits one running
+# and one pending run per classifier. A trusted webhook classifier is required
+# if exact-byte admission without case-variant starvation is needed.
 concurrency:
   group: >-
-    cla-v2-${{ github.event_name }}-
-    ${{ github.event.issue.pull_request && github.event.issue.number || github.event.pull_request.number || 'noise' }}-
-    ${{ github.event.action }}-
+    cla-v2-admission-${{ github.event_name }}-${{ github.event.action }}-
     ${{ github.event.comment.body == 'recheck' }}-
     ${{ github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA' }}
   cancel-in-progress: false
@@ -133,6 +133,9 @@ jobs:
     permissions:
       contents: write
       issues: write
+      # The maintained action does not call the commit-status API. GitHub
+      # creates the job check run itself, so statuses:write would add an
+      # unused write capability without changing the displayed CLA result.
       # GitHub's pull_request_target token denied issue comments for fork PRs
       # with this set to read, despite the endpoint documentation allowing
       # issues:write. Keep write until that live behavior changes.
@@ -244,8 +247,11 @@ jobs:
 
   # Compatibility check for the current ruleset. It mirrors the v2 action
   # result under the old context while administrators migrate the required
-  # check to "CLA Assistant v2". `always()` is required so a failed v2 action
-  # cannot turn this old required context into a skipped-success check.
+  # check to "CLA Assistant v2". It runs only for pull-request lifecycle
+  # events because issue_comment checks attach to the default branch SHA, not
+  # the pull request head, and cannot safely refresh the old required context.
+  # `always()` is required so a failed v2 action cannot turn this old required
+  # context into a skipped-success check.
   CLACompatibility:
     name: "CLA Assistant"
     needs:
@@ -254,24 +260,11 @@ jobs:
     if: >-
       always() &&
       needs.CLACommentGate.result == 'success' &&
+      github.event_name == 'pull_request_target' &&
       (
-        (
-          github.event_name == 'pull_request_target' &&
-          (
-            github.event.action == 'opened' ||
-            github.event.action == 'reopened' ||
-            github.event.action == 'synchronize'
-          )
-        ) ||
-        (
-          github.event_name == 'issue_comment' &&
-          github.event.issue.state == 'open' &&
-          github.event.issue.pull_request &&
-          (
-            github.event.comment.body == 'recheck' ||
-            github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA'
-          )
-        )
+        github.event.action == 'opened' ||
+        github.event.action == 'reopened' ||
+        github.event.action == 'synchronize'
       )
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5

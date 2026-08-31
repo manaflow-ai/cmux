@@ -14,8 +14,9 @@ test -f "$WORKFLOW"
 grep -Fq 'name: "CLA Assistant v2"' "$WORKFLOW"
 grep -Fq 'name: "CLA Assistant"' "$WORKFLOW"
 grep -Fq 'group: >-' "$WORKFLOW"
-grep -Fq 'github.event.issue.pull_request && github.event.issue.number' "$WORKFLOW"
-grep -Fq 'github.event.pull_request.number ||' "$WORKFLOW"
+grep -Fq 'cla-v2-admission-${{ github.event_name }}-${{ github.event.action }}-' "$WORKFLOW"
+grep -Fq 'github.event.comment.body == '\''recheck'\''' "$WORKFLOW"
+grep -Fq 'github.event.comment.body == '\''I have read the CLA Document v2.2 and I hereby sign the CLA'\''' "$WORKFLOW"
 grep -Fq 'always() &&' "$WORKFLOW"
 grep -Fq 'cancel-in-progress: false' "$WORKFLOW"
 grep -Fq "path-to-signatures: 'signatures/version2/cla.json'" "$WORKFLOW"
@@ -27,6 +28,8 @@ if grep -Fq 'cla-trigger-${{ github.run_id }}' "$WORKFLOW"; then
 fi
 group_block="$(awk '/^concurrency:$/ { in_group=1; next } in_group && /^jobs:$/ { exit } in_group { print }' "$WORKFLOW")"
 if [[ "$group_block" == *'github.run_'* ||
+      "$group_block" == *'github.event.issue.number'* ||
+      "$group_block" == *'github.event.pull_request.number'* ||
       "$group_block" == *'github.event.comment.body }}'* ||
       "$group_block" == *'github.event.pull_request.head.sha'* ]]; then
   echo 'FAIL: CLA admission group contains an unbounded or raw event value' >&2
@@ -124,3 +127,10 @@ for result in success failure skipped; do
   fi
 done
 echo "PASS: compatibility result mirror"
+
+compat_block="$(awk '/^  CLACompatibility:/ { in_job=1; next } in_job && /^  [A-Za-z0-9_]+:/ { exit } in_job { print }' "$WORKFLOW")"
+if [[ "$compat_block" == *"github.event_name == 'issue_comment'"* ]]; then
+  echo 'FAIL: compatibility context must not pretend issue-comment checks are PR-head checks' >&2
+  exit 1
+fi
+echo "PASS: compatibility event scope"
