@@ -165,8 +165,9 @@ jobs:
 
       - name: "Validate CLA pull request"
         id: cla-preflight
-        # The archived action reads only its first 100 commits. Fail closed
-        # instead of allowing an unsigned committer beyond that limit through.
+        # The maintained action bounds its commit-identity pagination at 1,000
+        # commits. Keep the same fail-closed limit here so the preflight and
+        # action operate on the same contribution envelope.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
@@ -211,8 +212,8 @@ jobs:
             echo "::error::Could not determine the pull request commit count"
             exit 1
           fi
-          if (( commit_count > 100 )); then
-            echo "::error title=Pull request commit limit::This pull request has ${commit_count} commits. Split it into 100 or fewer commits before requesting a CLA check."
+          if (( commit_count > 1000 )); then
+            echo "::error title=Pull request commit limit::This pull request has ${commit_count} commits. Split it into 1,000 or fewer commits before requesting a CLA check."
             exit 1
           fi
 
