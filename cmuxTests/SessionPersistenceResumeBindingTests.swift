@@ -83,6 +83,44 @@ import Testing
         #expect(startupInput.contains("/home/remote/project"), Comment(rawValue: startupInput))
     }
 
+    @Test func localHookRefreshDoesNotInheritRemoteRestorePolicy() throws {
+        let sessionID = "same-session-execution-boundary"
+        let remoteContext = SurfaceResumeRemoteContext(
+            workspaceID: UUID(),
+            surfaceID: UUID(),
+            persistentPTYSessionID: "remote-pty"
+        )
+        let remoteBinding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume \(sessionID)",
+            cwd: "/home/remote/project",
+            checkpointId: sessionID,
+            source: "agent-hook",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "codex",
+                arguments: ["codex", "resume", sessionID],
+                workingDirectory: "/home/remote/project"
+            ),
+            restoreWorkingDirectorySelection: .exact("/home/remote/project"),
+            launchFlavor: .persistentSSH(remoteContext)
+        )
+        let localRefresh = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume \(sessionID)",
+            checkpointId: sessionID,
+            source: "agent-hook",
+            launchFlavor: .local
+        )
+
+        let snapshot = try #require(
+            localRefresh.managedRestorableAgentSnapshot(replacing: remoteBinding)
+        )
+        #expect(snapshot.workingDirectory == nil)
+        #expect(snapshot.launchCommand == nil)
+        #expect(snapshot.restoreWorkingDirectorySelection == nil)
+    }
+
     @MainActor
     @Test func resumeBindingSelectionChangesAutosaveFingerprint() throws {
         let manager = TabManager(autoWelcomeIfNeeded: false)
