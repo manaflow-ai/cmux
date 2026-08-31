@@ -878,9 +878,25 @@ struct MacComputerDetailView: View {
         } header: {
             Text(L10n.string("mobile.computers.section.presence", defaultValue: "Presence (from server)"))
         } footer: {
-            Text(L10n.string("mobile.computers.presenceFooter",
-                defaultValue: "Presence is the Mac's own heartbeat to the presence service, which is currently a DEV-only feature. Stable cmux Macs don't announce it yet, so a Mac you're connected to may show no server heartbeat. If presence says online but This phone is not connected, the Mac is reachable elsewhere but not from your phone, usually a Tailscale or route problem."))
+            Text(Self.presenceFooter())
         }
+    }
+
+    /// The presence-section footer, gated per distribution channel: team
+    /// builds name the DEV-only rollout precisely, while the public App Store
+    /// app explains the same missing-heartbeat case without internal
+    /// build-lane vocabulary (Guideline 2.2).
+    static func presenceFooter(buildType: MobileBuildType = .current()) -> String {
+        guard buildType.usesInternalBuildVocabulary else {
+            return L10n.string(
+                "mobile.computers.presenceFooter.official",
+                defaultValue: "Presence is the Mac's own heartbeat to the presence service. Not every Mac reports it yet, so a Mac you're connected to may show no server heartbeat. If presence says online but This phone is not connected, the Mac is reachable elsewhere but not from your phone, usually a Tailscale or route problem."
+            )
+        }
+        return L10n.string(
+            "mobile.computers.presenceFooter",
+            defaultValue: "Presence is the Mac's own heartbeat to the presence service, which is currently a DEV-only feature. Stable cmux Macs don't announce it yet, so a Mac you're connected to may show no server heartbeat. If presence says online but This phone is not connected, the Mac is reachable elsewhere but not from your phone, usually a Tailscale or route problem."
+        )
     }
 
     @ViewBuilder
