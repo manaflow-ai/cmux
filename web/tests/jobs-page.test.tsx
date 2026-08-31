@@ -213,8 +213,10 @@ describe("jobs page", () => {
           catalog.jobs.foundingDesigner.applyEmailSubject,
         )}`,
       );
-      expect(html).not.toContain(catalog.jobs.aboutTitle);
-      expect(html).not.toContain(catalog.jobs.applyTitle);
+      expect(catalog.jobs).not.toHaveProperty("aboutTitle");
+      expect(catalog.jobs).not.toHaveProperty("applyTitle");
+      expect(catalog.jobs.foundingDesigner).not.toHaveProperty("aboutTitle");
+      expect(catalog.jobs.foundingDesigner).not.toHaveProperty("applyTitle");
     }
   });
 
