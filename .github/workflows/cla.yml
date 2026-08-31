@@ -14,7 +14,7 @@ permissions: {}
 # changes for every unrelated commit on main and would strand valid failed
 # checks on open pull requests.
 env:
-  CLA_GENERATION: 'v2.2-action-49f01032e93ef115a238cd55ab9171ee3bd02435'
+  CLA_GENERATION: 'v2.2-action-ab07d43ac2d351da27b9c305592f5171534d3f41'
 
 jobs:
   CLACommentGate:
@@ -119,12 +119,13 @@ jobs:
           )
         )
       )
-    # Signature updates share one file. The default Actions concurrency
-    # policy permits one running and one pending run; a newer pending event
-    # replaces the older one. This bounds public issue-comment admission
-    # without canceling a run that may be writing the ledger.
+    # Serialize duplicate events for one PR, but let independent PRs proceed.
+    # The maintained action uses bounded optimistic locking when their writes
+    # race on the shared signatures branch. The default Actions policy keeps
+    # one running and one pending event for this PR and never cancels a run
+    # that may be writing the ledger.
     concurrency:
-      group: cla-signatures
+      group: cla-signatures-${{ github.repository }}-${{ github.event.pull_request.number || github.event.issue.number }}
       cancel-in-progress: false
     permissions:
       contents: write
@@ -218,7 +219,7 @@ jobs:
         # so a branch move cannot change the code executed by this workflow.
         # The fork's default branch must be protected before this check is made
         # required in repository rulesets.
-        uses: manaflow-ai/cla-github-action@49f01032e93ef115a238cd55ab9171ee3bd02435
+        uses: manaflow-ai/cla-github-action@ab07d43ac2d351da27b9c305592f5171534d3f41
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -365,7 +366,7 @@ jobs:
             *) fail "Comment author association is invalid" ;;
           esac
           case "${SIGNATURE_RECORDED}" in
-            true|false) ;;
+            true|false|'') ;;
             *) fail "The CLA action did not provide a valid signature result" ;;
           esac
           if [[ "${COMMENT_BODY}" == "I have read the CLA Document v2.2 and I hereby sign the CLA" &&
@@ -462,17 +463,20 @@ jobs:
             head_owner="${head_repo%%/*}"
             head_name="${head_repo#*/}"
             [[ -n "${head_owner}" && -n "${head_name}" ]] || fail "The pull request head repository name is invalid"
-            open_prs_json="$(gh api \
+            open_prs_page="$(gh api \
               --method GET \
-              --paginate \
-              --slurp \
               --header 'Accept: application/vnd.github+json' \
               --raw-field state=open \
               --raw-field base="${TARGET_BASE_REF}" \
               --raw-field head="${head_owner}:${head_ref}" \
               --raw-field per_page=100 \
+              --raw-field page=1 \
               "repos/${GH_REPO}/pulls" 2>/dev/null)" || fail "Could not query live open pull requests for this head"
-            jq -e 'type == "array" and all(.[]; type == "array")' <<<"${open_prs_json}" >/dev/null || fail "Could not validate live open pull requests"
+            jq -e 'type == "array"' <<<"${open_prs_page}" >/dev/null || fail "Could not validate live open pull requests"
+            open_pr_count="$(jq -r 'length' <<<"${open_prs_page}")"
+            [[ "${open_pr_count}" =~ ^[0-9]+$ ]] || fail "Could not count live open pull requests"
+            (( open_pr_count < 100 )) || fail "Too many open pull requests share this head; push a new head or ask an administrator to resolve the association before requesting a rerun"
+            open_prs_json="$(jq -c '[.]' <<<"${open_prs_page}")"
             if ! matching_open_prs_json="$(jq -c \
                 --arg repo "${GH_REPO}" \
                 --arg sha "${head_sha}" \
@@ -507,7 +511,17 @@ jobs:
           }
           validate_live_open_head_association
 
-          workflow_json="$(gh api --paginate --slurp "repos/${GH_REPO}/actions/workflows?per_page=100" 2>/dev/null)" || fail "Could not query repository workflows"
+          workflow_page="$(gh api \
+            --method GET \
+            --header 'Accept: application/vnd.github+json' \
+            --raw-field per_page=100 \
+            --raw-field page=1 \
+            "repos/${GH_REPO}/actions/workflows" 2>/dev/null)" || fail "Could not query repository workflows"
+          jq -e 'type == "object" and (.workflows | type == "array")' <<<"${workflow_page}" >/dev/null || fail "Could not validate repository workflows"
+          workflow_count="$(jq -r '.workflows | length' <<<"${workflow_page}")"
+          [[ "${workflow_count}" =~ ^[0-9]+$ ]] || fail "Could not count repository workflows"
+          (( workflow_count < 100 )) || fail "Too many active repository workflows; ask an administrator to reduce the workflow list before requesting a rerun"
+          workflow_json="$(jq -c '[.]' <<<"${workflow_page}")"
           workflow_id="$(jq -r --arg path "${WORKFLOW_PATH}" '[.[] | .workflows[]? | select(.path == $path and .state == "active") | .id] | if length == 1 then .[0] else empty end' <<<"${workflow_json}")"
           [[ "${workflow_id}" =~ ^[1-9][0-9]*$ ]] || fail "The expected CLA workflow is not active"
 
@@ -523,7 +537,18 @@ jobs:
           # above and the exact run head-repository binding below. The run's
           # head_sha is retained as an execution identity and is not assumed to
           # equal the source PR SHA.
-          runs_json="$(gh api --paginate --slurp "repos/${GH_REPO}/actions/workflows/${workflow_id}/runs?event=${TARGET_EVENT}&per_page=100" 2>/dev/null)" || fail "Could not query CLA workflow runs"
+          runs_page="$(gh api \
+            --method GET \
+            --header 'Accept: application/vnd.github+json' \
+            --raw-field event="${TARGET_EVENT}" \
+            --raw-field per_page=100 \
+            --raw-field page=1 \
+            "repos/${GH_REPO}/actions/workflows/${workflow_id}/runs" 2>/dev/null)" || fail "Could not query CLA workflow runs"
+          jq -e 'type == "object" and (.workflow_runs | type == "array")' <<<"${runs_page}" >/dev/null || fail "Could not validate CLA workflow runs"
+          run_count="$(jq -r '.workflow_runs | length' <<<"${runs_page}")"
+          [[ "${run_count}" =~ ^[0-9]+$ ]] || fail "Could not count CLA workflow runs"
+          (( run_count < 100 )) || fail "Too many CLA workflow runs to inspect safely; push a new commit or ask an administrator to prune old runs before requesting a rerun"
+          runs_json="$(jq -c '[.]' <<<"${runs_page}")"
           if ! candidate_list_json="$(jq -c \
               --arg path "${WORKFLOW_PATH}" \
               --arg event "${TARGET_EVENT}" \
@@ -895,7 +920,17 @@ jobs:
           # Rerun only the failed CLA job, rather than every job in the run.
           # The job endpoint still requires actions:write, but it cannot
           # accidentally restart an unrelated job added to this workflow.
-          jobs_json="$(gh api --paginate --slurp "repos/${GH_REPO}/actions/runs/${run_id}/jobs?per_page=100" 2>/dev/null)" || fail "Could not query jobs for the selected CLA run"
+          jobs_page="$(gh api \
+            --method GET \
+            --header 'Accept: application/vnd.github+json' \
+            --raw-field per_page=100 \
+            --raw-field page=1 \
+            "repos/${GH_REPO}/actions/runs/${run_id}/jobs" 2>/dev/null)" || fail "Could not query jobs for the selected CLA run"
+          jq -e 'type == "object" and (.jobs | type == "array")' <<<"${jobs_page}" >/dev/null || fail "Could not validate jobs for the selected CLA run"
+          job_count="$(jq -r '.jobs | length' <<<"${jobs_page}")"
+          [[ "${job_count}" =~ ^[0-9]+$ ]] || fail "Could not count jobs for the selected CLA run"
+          (( job_count < 100 )) || fail "Too many jobs in the selected CLA run; ask an administrator to inspect it before requesting a rerun"
+          jobs_json="$(jq -c '[.]' <<<"${jobs_page}")"
           if ! cla_job_json="$(jq -c \
               --arg run_id "${run_id}" \
               --arg run_sha "${run_execution_sha}" \

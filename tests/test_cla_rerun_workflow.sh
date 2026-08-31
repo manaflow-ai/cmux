@@ -48,7 +48,7 @@ export COMMENT_AUTHOR_LOGIN=contributor
 export COMMENT_AUTHOR_TYPE=User
 export COMMENT_AUTHOR_ASSOCIATION=NONE
 export WORKFLOW_PATH=.github/workflows/cla.yml
-export CLA_GENERATION=v2.2-action-49f01032e93ef115a238cd55ab9171ee3bd02435
+export CLA_GENERATION=v2.2-action-ab07d43ac2d351da27b9c305592f5171534d3f41
 export TARGET_EVENT=pull_request_target
 export TARGET_BASE_REF=main
 export SIGNATURE_RECORDED=false
@@ -143,27 +143,27 @@ gh() {
         printf '%s\n' "$association_call" >"${FAKE_ASSOC_CALL_FILE}"
       fi
       if [[ "${FAKE_MODE}" == ambiguous-association || ( "${FAKE_MODE}" == late-ambiguous && "$association_call" -gt 1 ) ]]; then
-        jq -nc '[[
+        jq -nc '[
           {number:123,state:"open",base:{ref:"main",repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",repo:{id:200,full_name:"contributor/cmux"}}},
           {number:124,state:"open",base:{ref:"main",repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",repo:{id:200,full_name:"contributor/cmux"}}}
-        ]]'
+        ]'
       else
-        jq -nc --arg head_repo "$live_head_repo" --argjson head_repo_id "$live_head_repo_id" '[[{number:123,state:"open",base:{ref:"main",repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",repo:{id:$head_repo_id,full_name:$head_repo}}}]]'
+        jq -nc --arg head_repo "$live_head_repo" --argjson head_repo_id "$live_head_repo_id" '[{number:123,state:"open",base:{ref:"main",repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",repo:{id:$head_repo_id,full_name:$head_repo}}}]'
       fi
       ;;
-    repos/manaflow-ai/cmux/actions/workflows\?per_page=100)
-      printf '[{"workflows":[{"id":300,"path":".github/workflows/cla.yml","state":"active"}]}]\n'
+    repos/manaflow-ai/cmux/actions/workflows)
+      printf '{"workflows":[{"id":300,"path":".github/workflows/cla.yml","state":"active"}]}\n'
       ;;
-    repos/manaflow-ai/cmux/actions/workflows/300/runs\?event=pull_request_target\&per_page=100)
+    repos/manaflow-ai/cmux/actions/workflows/300/runs)
       if [[ "${FAKE_MODE}" == duplicate-runs ]]; then
         jq -nc --arg head_repo "$run_head_repo" --argjson head_repo_id "$run_head_repo_id" --argjson head_repo_null "$run_head_repository_null" --arg run_sha "$run_sha" --arg path "$run_path" --argjson run_prs "$run_prs" \
-          '[{workflow_runs:[
+          '{workflow_runs:[
             {id:400,workflow_id:300,path:$path,event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:(if $head_repo_null then null else {id:$head_repo_id,full_name:$head_repo} end),pull_requests:$run_prs,created_at:"2026-08-31T07:00:00Z"},
             {id:401,workflow_id:300,path:$path,event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:(if $head_repo_null then null else {id:$head_repo_id,full_name:$head_repo} end),pull_requests:$run_prs,created_at:"2026-08-31T07:30:00Z"}
-          ]}]'
+          ]}'
       else
         jq -nc --arg head_repo "$run_head_repo" --argjson head_repo_id "$run_head_repo_id" --argjson head_repo_null "$run_head_repository_null" --arg run_sha "$run_sha" --arg path "$run_path" --argjson run_prs "$run_prs" \
-          '[{workflow_runs:[{id:400,workflow_id:300,path:$path,event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:(if $head_repo_null then null else {id:$head_repo_id,full_name:$head_repo} end),pull_requests:$run_prs,created_at:"2026-08-31T07:00:00Z"}]}]'
+          '{workflow_runs:[{id:400,workflow_id:300,path:$path,event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:(if $head_repo_null then null else {id:$head_repo_id,full_name:$head_repo} end),pull_requests:$run_prs,created_at:"2026-08-31T07:00:00Z"}]}'
       fi
       ;;
     repos/manaflow-ai/cmux/actions/runs/400|repos/manaflow-ai/cmux/actions/runs/401)
@@ -176,15 +176,15 @@ gh() {
       jq -nc --argjson run_id "$run_id" --arg created_at "$created_at" --arg head_repo "$run_head_repo" --argjson head_repo_id "$run_head_repo_id" --argjson head_repo_null "$run_head_repository_null" --arg run_sha "$run_sha" --arg path "$run_path" --argjson run_prs "$run_prs" \
         '{id:$run_id,workflow_id:300,path:$path,event:"pull_request_target",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:(if $head_repo_null then null else {id:$head_repo_id,full_name:$head_repo} end),pull_requests:$run_prs,created_at:$created_at}'
       ;;
-    repos/manaflow-ai/cmux/actions/runs/400/jobs\?per_page=100|repos/manaflow-ai/cmux/actions/runs/401/jobs\?per_page=100)
+    repos/manaflow-ai/cmux/actions/runs/400/jobs|repos/manaflow-ai/cmux/actions/runs/401/jobs)
       local run_id=400
       local job_id=500
-      if [[ "$endpoint" == repos/manaflow-ai/cmux/actions/runs/401/jobs\?per_page=100 ]]; then
+      if [[ "$endpoint" == repos/manaflow-ai/cmux/actions/runs/401/jobs ]]; then
         run_id=401
         job_id=501
       fi
       jq -nc --argjson run_id "$run_id" --argjson job_id "$job_id" --arg marker "$marker" --arg run_sha "$run_sha" \
-        '[{jobs:[{id:$job_id,run_id:$run_id,name:"CLA Assistant v2",workflow_name:"CLA Assistant v2",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[{name:$marker,status:"completed",conclusion:"success"}]}]}]'
+        '{jobs:[{id:$job_id,run_id:$run_id,name:"CLA Assistant v2",workflow_name:"CLA Assistant v2",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[{name:$marker,status:"completed",conclusion:"success"}]}]}'
       ;;
     repos/manaflow-ai/cmux/actions/jobs/500|repos/manaflow-ai/cmux/actions/jobs/501)
       local job_id=500
