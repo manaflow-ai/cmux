@@ -707,7 +707,12 @@ struct WorkspaceShellView: View {
                 safeAreaContext: splitColumnVisibility == .detailOnly ? .fullWidth : .splitSidebarVisible
             )
             #if os(iOS)
-            .toolbarVisibility(splitColumnVisibility == .detailOnly ? .hidden : .visible, for: .tabBar)
+            // Constant visibility: toggling the tab bar with the sidebar made
+            // the floating tab pill re-land on the toolbar row after the
+            // sidebar reappeared, overlapping the sidebar's trailing items.
+            // A tab bar that never remounts keeps its own row above the
+            // toolbar across sidebar toggles.
+            .toolbarVisibility(.visible, for: .tabBar)
             #endif
         }
         .navigationSplitViewStyle(.balanced)
