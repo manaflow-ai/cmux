@@ -28,7 +28,7 @@ grep -Fq 'id: admission' "$WORKFLOW"
 grep -Fq "admitted: \${{ steps.admission.outputs.admitted }}" "$WORKFLOW"
 grep -Fq 'always() &&' "$WORKFLOW"
 grep -Fq 'cancel-in-progress: false' "$WORKFLOW"
-grep -Fq "group: cla-signatures-\${{ github.repository }}-\${{ github.event.pull_request.number || github.event.issue.number }}" "$WORKFLOW"
+grep -Fq "group: cla-signatures-\${{ github.repository }}-\${{ github.event_name }}-\${{ github.event.pull_request.number || github.event.issue.number }}" "$WORKFLOW"
 for job in CLACommentGate CLAAssistant CLACompatibility RerunFailedCLA LockMergedPullRequest; do
   job_block="$(awk -v job="$job" '$0 == "  " job ":" { in_job=1; next } in_job && /^  [A-Za-z0-9_]+:/ { exit } in_job { print }' "$WORKFLOW")"
   if [[ "$job_block" != *"    runs-on: \${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"* ]]; then
@@ -57,6 +57,16 @@ if [[ "$gate_group_block" != *$'\n    concurrency:'* ||
       "$gate_group_block" != *"group: cla-admission-\${{ github.repository }}-\${{ github.event_name }}-\${{ github.event.issue.number || github.event.pull_request.number }}"* ||
       "$gate_group_block" != *$'cancel-in-progress: false'* ]]; then
   echo 'FAIL: CLA admission gate must use a bounded per-PR non-canceling queue' >&2
+  exit 1
+fi
+if [[ "$gate_group_block" != *"github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA'"* ||
+      "$gate_group_block" != *"github.event.comment.body == 'recheck'"* ]]; then
+  echo 'FAIL: the job-level gate must keep ordinary comments out of the admission queue' >&2
+  exit 1
+fi
+assistant_group_block="$(awk '/^  CLAAssistant:/ { in_job=1; next } in_job && /^  [A-Za-z0-9_]+:/ { exit } in_job { print }' "$WORKFLOW")"
+if [[ "$assistant_group_block" != *"group: cla-signatures-\${{ github.repository }}-\${{ github.event_name }}-\${{ github.event.pull_request.number || github.event.issue.number }}"* ]]; then
+  echo 'FAIL: signer concurrency must partition lifecycle and comment events' >&2
   exit 1
 fi
 if rg -n -- '--paginate|--slurp' "$WORKFLOW" >/dev/null; then

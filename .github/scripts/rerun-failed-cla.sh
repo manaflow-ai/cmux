@@ -43,27 +43,39 @@ readonly SIGNATURES_PATH='signatures/version2/cla.json'
 readonly MAX_RUN_PAGES=10
 readonly MAX_LEDGER_BYTES=1000000
 readonly MAX_LEDGER_SIGNATURES=10000
+# GitHub wraps Contents API Base64 responses with newlines. Allow that
+# transport overhead while bounding the raw field before normalization.
+readonly MAX_LEDGER_RAW_BYTES=2000000
 
 validate_triggering_signature_record() {
-  local ledger_response ledger_content ledger_json ledger_encoded_bytes ledger_decoded_bytes
+  local ledger_response ledger_content ledger_content_compact ledger_json ledger_raw_bytes ledger_encoded_bytes ledger_decoded_bytes
   ledger_response="$(gh api \
     --method GET \
     --header 'Accept: application/vnd.github+json' \
     --raw-field ref="${SIGNATURES_BRANCH}" \
     "repos/${GH_REPO}/contents/${SIGNATURES_PATH}" 2>/dev/null)" || fail "Could not query the trusted CLA signature ledger"
   jq -e '.type == "file" and .encoding == "base64" and (.content | type == "string") and (.content | length > 0)' <<<"${ledger_response}" >/dev/null || fail "The trusted CLA signature ledger response is malformed"
-  ledger_encoded_bytes="$(jq -r '.content | length' <<<"${ledger_response}")"
+  ledger_content="$(jq -r '.content' <<<"${ledger_response}")"
+  ledger_raw_bytes="$(printf '%s' "${ledger_content}" | wc -c | tr -d '[:space:]')"
+  [[ "${ledger_raw_bytes}" =~ ^[0-9]+$ ]] || fail "Could not measure the trusted CLA signature ledger"
+  (( ledger_raw_bytes <= MAX_LEDGER_RAW_BYTES )) || fail "The trusted CLA signature ledger response is too large"
+  # The Contents API inserts line breaks into Base64 content. Remove only
+  # transport whitespace before applying the encoded-size limit; otherwise a
+  # valid near-limit ledger is rejected solely because it is wrapped.
+  ledger_content_compact="$(printf '%s' "${ledger_content}" | LC_ALL=C tr -d '[:space:]')"
+  [[ "${ledger_content_compact}" =~ ^[A-Za-z0-9+/]+={0,2}$ ]] || fail "The trusted CLA signature ledger is not valid base64"
+  ledger_encoded_bytes="$(printf '%s' "${ledger_content_compact}" | wc -c | tr -d '[:space:]')"
   [[ "${ledger_encoded_bytes}" =~ ^[0-9]+$ ]] || fail "Could not measure the trusted CLA signature ledger"
+  (( ledger_encoded_bytes % 4 == 0 )) || fail "The trusted CLA signature ledger is not valid base64"
   # The maintained action rejects ledgers larger than 1 MB. Enforce the same
   # bound before decoding, so a malformed Contents response cannot make this
   # privileged job retain an unbounded payload.
   (( ledger_encoded_bytes <= ((MAX_LEDGER_BYTES + 2) * 4 / 3 + 4) )) || fail "The trusted CLA signature ledger exceeds the 1 MB limit; ask an administrator to compact or migrate it before signing"
-  ledger_content="$(jq -r '.content' <<<"${ledger_response}")"
   if ! ledger_json="$(
     if base64 --decode >/dev/null 2>&1 <<<''; then
-      base64 --decode <<<"${ledger_content}"
+      printf '%s' "${ledger_content_compact}" | base64 --decode
     else
-      base64 -D <<<"${ledger_content}"
+      printf '%s' "${ledger_content_compact}" | base64 -D
     fi
   )"; then
     fail "The trusted CLA signature ledger is not valid base64"

@@ -41,7 +41,19 @@ jobs:
         github.event.action == 'created' &&
         github.event.issue.state == 'open' &&
         github.event.issue.pull_request &&
-        github.event.comment.user.type == 'User'
+        github.event.comment.user.type == 'User' &&
+        (
+          github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA' ||
+          (
+            github.event.comment.body == 'recheck' &&
+            (
+              github.event.comment.user.id == github.event.issue.user.id ||
+              github.event.comment.author_association == 'OWNER' ||
+              github.event.comment.author_association == 'MEMBER' ||
+              github.event.comment.author_association == 'COLLABORATOR'
+            )
+          )
+        )
       )
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
@@ -203,13 +215,16 @@ jobs:
           )
         )
       )
-    # Serialize duplicate events for one PR, but let independent PRs proceed.
+    # Serialize duplicate events for one PR and event class, but let
+    # independent PRs and lifecycle events proceed. Keeping comments and
+    # pull_request_target runs in separate queues prevents public comments
+    # from replacing a pending lifecycle validation.
     # The maintained action uses bounded optimistic locking when their writes
     # race on the shared signatures branch. The default Actions policy keeps
     # one running and one pending event for this PR and never cancels a run
     # that may be writing the ledger.
     concurrency:
-      group: cla-signatures-${{ github.repository }}-${{ github.event.pull_request.number || github.event.issue.number }}
+      group: cla-signatures-${{ github.repository }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.issue.number }}
       cancel-in-progress: false
     permissions:
       contents: write

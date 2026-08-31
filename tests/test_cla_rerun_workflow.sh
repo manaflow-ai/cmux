@@ -173,8 +173,30 @@ gh() {
       ;;
     repos/manaflow-ai/cmux/contents/signatures/version2/cla.json)
       ledger_content="{\"signedContributors\":[{\"name\":\"${ledger_login}\",\"id\":${ledger_id},\"comment_id\":${ledger_comment_id},\"created_at\":\"2026-08-31T08:00:00Z\",\"repoId\":100,\"pullRequestNo\":123}]}"
-      encoded_ledger="$(printf '%s' "$ledger_content" | base64 | tr -d '\n')"
-      jq -nc --arg content "$encoded_ledger" '{type:"file",encoding:"base64",content:$content}'
+      if [[ "${FAKE_MODE}" == wrapped-ledger || "${FAKE_MODE}" == oversized-ledger ]]; then
+        local target_bytes=1000000
+        [[ "${FAKE_MODE}" == oversized-ledger ]] && target_bytes=1000001
+        local padding=$((target_bytes - ${#ledger_content} - 13))
+        local padding_text
+        (( padding > 0 )) || {
+          echo "ledger fixture core unexpectedly exceeds target size" >&2
+          return 1
+        }
+        padding_text="$(printf '%*s' "$padding" '' | tr ' ' 'A')"
+        ledger_content="${ledger_content%?},\"padding\":\"${padding_text}\"}"
+      fi
+      if [[ "${FAKE_MODE}" == malformed-ledger ]]; then
+        encoded_ledger='not-valid-base64'
+      elif [[ "${FAKE_MODE}" == wrapped-ledger || "${FAKE_MODE}" == oversized-ledger ]]; then
+        encoded_ledger="$(printf '%s' "$ledger_content" | base64)"
+      else
+        encoded_ledger="$(printf '%s' "$ledger_content" | base64 | tr -d '\n')"
+      fi
+      # Stream the potentially near-limit fixture through jq instead of
+      # passing it as an argv value, which exceeds macOS ARG_MAX.
+      printf '{"type":"file","encoding":"base64","content":'
+      printf '%s' "$encoded_ledger" | jq -Rs .
+      printf '}\n'
       ;;
     repos/manaflow-ai/cmux/pulls)
       local association_call=1
@@ -320,6 +342,11 @@ run_case() {
     if [[ "$mode" == unbound-signer ]]; then
       signature_recorded=true
     fi
+  elif [[ "$mode" == wrapped-ledger || "$mode" == oversized-ledger || "$mode" == malformed-ledger ]]; then
+    comment_author=coauthor
+    comment_author_id=400
+    comment_body='I have read the CLA Document v2.2 and I hereby sign the CLA'
+    signature_recorded=true
   fi
   : >"$work/posts-$mode"
   printf '0\n' >"$work/association-$mode"
@@ -394,6 +421,9 @@ run_case unbound-signer 1 "signing comment was not the signature persisted" 0
 run_case duplicate-runs 0 "Requested rerun for CLA job 501 in workflow run 401" 1 \
   "repos/manaflow-ai/cmux/actions/jobs/501/rerun"
 run_case job-missing-head-repository 0 "Requested rerun for CLA job 500 in workflow run 400" 1
+run_case wrapped-ledger 0 "Requested rerun for CLA job 500 in workflow run 400" 1
+run_case oversized-ledger 1 "exceeds the 1 MB limit" 0
+run_case malformed-ledger 1 "not valid base64" 0
 run_case compatibility-failed 0 "Requested rerun for failed CLA jobs (v2 and compatibility) in workflow run 400" 1 \
   "repos/manaflow-ai/cmux/actions/runs/400/rerun-failed-jobs"
 run_case unexpected-failure 1 "unexpected failed job" 0
