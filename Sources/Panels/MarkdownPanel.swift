@@ -567,6 +567,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         let loadGeneration = textLoadGeneration
         let editGeneration = textEditGeneration
         let fileURL = URL(fileURLWithPath: filePath)
+        let requestedFileState = FilePreviewFileState.capture(path: filePath)
         let textLoader = textLoader
         return textLoadCoordinator.submit(load: {
             await textLoader(fileURL)
@@ -576,7 +577,8 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
                 result,
                 replacingDirtyContent: replacingDirtyContent,
                 loadGeneration: loadGeneration,
-                editGeneration: editGeneration
+                editGeneration: editGeneration,
+                requestedFileState: requestedFileState
             )
         }
     }
@@ -585,7 +587,8 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         _ result: FilePreviewTextLoader.Result,
         replacingDirtyContent: Bool,
         loadGeneration: Int,
-        editGeneration: Int
+        editGeneration: Int,
+        requestedFileState: FilePreviewFileState
     ) {
         guard loadGeneration == textLoadGeneration else { return }
         if replacingDirtyContent, editGeneration != textEditGeneration {
@@ -595,7 +598,17 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
             _ = loadFileContent(replacingDirtyContent: false)
             return
         }
-        lastObservedFileState = .capture(path: filePath)
+        // A read can finish after an external replacement/deletion. Do not
+        // advance the observer fingerprint to the post-read state while still
+        // applying bytes from the earlier request: the queued watcher callback
+        // may then look unchanged and skip the refresh. Re-read against the
+        // newer fingerprint first, preserving the latest on-disk content.
+        let postReadFileState = FilePreviewFileState.capture(path: filePath)
+        guard postReadFileState == requestedFileState else {
+            _ = loadFileContent(replacingDirtyContent: replacingDirtyContent)
+            return
+        }
+        lastObservedFileState = postReadFileState
         guard case .loaded(let newContent, let encoding) = result else {
             guard replacingDirtyContent || !isDirty else {
                 isFileUnavailable = true

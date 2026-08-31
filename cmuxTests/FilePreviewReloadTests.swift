@@ -362,7 +362,7 @@ struct FilePreviewReloadTests {
             .appending(path: "cmux-markdown-read-race-\(UUID().uuidString).md")
         defer { try? FileManager.default.removeItem(at: fileURL) }
         let before = "# Before\n"
-        let after = "# After\n"
+        let after = "# After updated\n"
         try before.write(to: fileURL, atomically: true, encoding: .utf8)
 
         let loader = ControlledMarkdownTextLoader(
