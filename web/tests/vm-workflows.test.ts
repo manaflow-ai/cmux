@@ -5141,6 +5141,43 @@ describe("destroyVm home volume cleanup", () => {
     expect(destroyedEvent?.metadata).toEqual({ homeVolume: volume, homeVolumeDeleted: false });
   });
 
+  test("still deletes the volume and finalizes the row when afterProviderDestroy throws", async () => {
+    const userId = "user-volume-hook-failure";
+    const volume = "cmux-home-abcdef123456-noble-wren";
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000145",
+      userId,
+      provider: "blaxel",
+      providerVmId: "noble-wren",
+      status: "running",
+      providerMetadata: { homeVolume: volume, homeVolumePerMachine: true },
+    });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const destroyedIds: string[] = [];
+    const deletedVolumes: string[] = [];
+    const repo = testWorkflowRepo({ vm, usageEvents, destroyedIds });
+    const provider = destroyGateway({ deletedVolumes });
+    const hookError = new Error("tombstone refresh failed");
+
+    await Effect.runPromise(
+      destroyVm({
+        userId,
+        providerVmId: "noble-wren",
+        afterProviderDestroy: () => {
+          throw hookError;
+        },
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(provider.destroyedVmIds).toEqual(["noble-wren"]);
+    expect(deletedVolumes).toEqual([volume]);
+    expect(destroyedIds).toEqual([vm.id]);
+    const hookEvent = usageEvents.find(
+      (event) => event.eventType === "vm.destroy.after_provider_destroy_failed",
+    );
+    expect(hookEvent?.metadata).toEqual({ message: hookError.message });
+  });
+
   test("retries a transiently failing markDestroyed write", async () => {
     const userId = "user-volume-retry";
     const vm = testCloudVmRow({
