@@ -386,15 +386,24 @@ nonisolated struct AutomationRule: Codable, Equatable, Sendable, Identifiable {
         guard !trimmed.isEmpty else { return false }
         if trimmed == "*" { return true }
         if trimmed.hasPrefix("*") && trimmed.hasSuffix("*") {
-            return actual.localizedCaseInsensitiveContains(String(trimmed.dropFirst().dropLast()))
+            return actual.range(
+                of: String(trimmed.dropFirst().dropLast()),
+                options: [.caseInsensitive]
+            ) != nil
         }
         if trimmed.hasPrefix("*") {
-            return actual.lowercased().hasSuffix(String(trimmed.dropFirst()).lowercased())
+            return actual.range(
+                of: String(trimmed.dropFirst()),
+                options: [.caseInsensitive, .anchored, .backwards]
+            ) != nil
         }
         if trimmed.hasSuffix("*") {
-            return actual.lowercased().hasPrefix(String(trimmed.dropLast()).lowercased())
+            return actual.range(
+                of: String(trimmed.dropLast()),
+                options: [.caseInsensitive, .anchored]
+            ) != nil
         }
-        return actual == trimmed
+        return actual.compare(trimmed, options: [.caseInsensitive]) == .orderedSame
     }
 
     private static func value(
@@ -475,7 +484,7 @@ nonisolated struct AutomationRule: Codable, Equatable, Sendable, Identifiable {
             if let value = operators["equals"] { return matchesValue(actual, expected: value) }
             if let value = operators["contains"] {
                 if let actualString = actual.stringValue, let expectedString = value.stringValue {
-                    return actualString.localizedCaseInsensitiveContains(expectedString)
+                    return actualString.range(of: expectedString, options: [.caseInsensitive]) != nil
                 }
                 if let actualArray = actual.arrayValue {
                     return actualArray.contains { matchesValue($0, expected: value) }

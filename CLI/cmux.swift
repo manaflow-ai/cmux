@@ -2220,6 +2220,16 @@ final class SocketClient {
               !ruleID.isEmpty else {
             return command
         }
+        let origin = automationOriginPayload(ruleID: ruleID)
+        guard let data = try? JSONSerialization.data(withJSONObject: origin, options: []),
+              let encoded = String(data: data, encoding: .utf8) else {
+            return command
+        }
+        return "__cmux_automation_origin \(Data(encoded.utf8).base64EncodedString()) \(command)"
+    }
+
+    /// Builds the automation-origin envelope shared by v1 and v2 requests.
+    private static func automationOriginPayload(ruleID: String) -> [String: Any] {
         let rawChain = ProcessInfo.processInfo.environment["CMUX_AUTOMATION_CHAIN"] ?? ruleID
         let chain: [String]
         if let data = rawChain.data(using: .utf8),
@@ -2228,15 +2238,10 @@ final class SocketClient {
         } else {
             chain = rawChain.split(separator: ",").map(String.init).filter { !$0.isEmpty }
         }
-        let origin: [String: Any] = [
+        return [
             "rule_id": ruleID,
             "chain": chain.isEmpty ? [ruleID] : chain
         ]
-        guard let data = try? JSONSerialization.data(withJSONObject: origin, options: []),
-              let encoded = String(data: data, encoding: .utf8) else {
-            return command
-        }
-        return "__cmux_automation_origin \(Data(encoded.utf8).base64EncodedString()) \(command)"
     }
 
     func sendOneWay(command: String, writeTimeout: TimeInterval) throws {
@@ -2930,18 +2935,7 @@ final class SocketClient {
         ]
         if let ruleID = ProcessInfo.processInfo.environment["CMUX_AUTOMATION_RULE_ID"],
            !ruleID.isEmpty {
-            let rawChain = ProcessInfo.processInfo.environment["CMUX_AUTOMATION_CHAIN"] ?? ruleID
-            let chain: [String]
-            if let data = rawChain.data(using: .utf8),
-               let decoded = try? JSONSerialization.jsonObject(with: data) as? [String] {
-                chain = decoded.filter { !$0.isEmpty }
-            } else {
-                chain = rawChain.split(separator: ",").map(String.init).filter { !$0.isEmpty }
-            }
-            request["automation_origin"] = [
-                "rule_id": ruleID,
-                "chain": chain.isEmpty ? [ruleID] : chain
-            ]
+            request["automation_origin"] = Self.automationOriginPayload(ruleID: ruleID)
         }
         guard JSONSerialization.isValidJSONObject(request) else {
             throw CLIError(message: "Failed to encode v2 request")

@@ -32,22 +32,43 @@
     "automation.error.encodeRPC": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Failed to encode automation RPC request" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "自動化 RPC リクエストをエンコードできませんでした" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Could not prepare the automation action. Check the rule configuration and try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "自動化アクションを準備できませんでした。ルール設定を確認して、もう一度お試しください。" } }
       }
     },
     "automation.error.engineUnavailable": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Automation engine is not available" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "自動化エンジンを利用できません" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Automation is unavailable. Check ~/.cmuxterm/automations.json, then run cmux automation reload." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "自動化を利用できません。~/.cmuxterm/automations.json を確認して、cmux automation reload を実行してください。" } }
       }
     },
     "automation.error.focusSuppressed": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Automation RPC requires allow_focus=true for %@" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "自動化 RPC で %@ を実行するには allow_focus=true が必要です" } }
+        "en": { "stringUnit": { "state": "translated", "value": "This automation action requires permission to focus or select a surface. Update the rule to allow focus, then try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "この自動化アクションにはサーフェスをフォーカスまたは選択する権限が必要です。ルールでフォーカスを許可して、もう一度お試しください。" } }
+      }
+    },
+    "automation.error.unsupportedVersion": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unsupported automation configuration version %lld" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "サポートされていない自動化設定バージョン %lld です" } }
+      }
+    },
+    "automation.error.invalidRule": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Invalid automation rule: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "無効な自動化ルール: %@" } }
+      }
+    },
+    "automation.error.fileTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Automation configuration is larger than 4 MiB" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "自動化設定が 4 MiB を超えています" } }
       }
     },
     "automation.error.missingRuleID": {
@@ -60,8 +81,8 @@
     "automation.error.ruleNotFound": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Automation rule not found" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "自動化ルールが見つかりません" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Automation rule not found: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "自動化ルールが見つかりません: %@" } }
       }
     },
     "automation.error.testEventObject": {
@@ -95,15 +116,8 @@
     "cli.automation.output.rule": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "%@ [%@] when %@" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@ [%@] 条件: %@" } }
-      }
-    },
-    "cli.automation.output.reloaded": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Reloaded %@ automation rule(s)" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "自動化ルールを %@ 件再読み込みしました" } }
+        "en": { "stringUnit": { "state": "translated", "value": "%1$@ [%2$@] when %3$@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%1$@ [%2$@] 条件: %3$@" } }
       }
     },
     "cli.automation.output.reloadRequested": {

@@ -1,19 +1,4 @@
-import Darwin
 import Foundation
-
-/// The bounded result returned by an automation process or webhook action.
-nonisolated struct AutomationActionExecutionResult: Sendable {
-    let succeeded: Bool
-    let detail: String
-
-    static func success(_ detail: String = "ok") -> AutomationActionExecutionResult {
-        AutomationActionExecutionResult(succeeded: true, detail: detail)
-    }
-
-    static func failure(_ detail: String) -> AutomationActionExecutionResult {
-        AutomationActionExecutionResult(succeeded: false, detail: detail)
-    }
-}
 
 /// A bounded in-process bridge from ``CmuxEventBus`` to configured actions.
 ///
@@ -24,6 +9,7 @@ nonisolated struct AutomationActionExecutionResult: Sendable {
 @MainActor
 final class AutomationEngine {
     typealias NotificationHandler = @MainActor (UUID, UUID?, String, String, String) -> Void
+    typealias RPCRunner = @Sendable (String, [String: Any], Bool, CmuxAutomationEventOrigin) async -> String
     typealias ProcessRunner = @Sendable (String, [String: String]) async -> AutomationActionExecutionResult
     typealias WebhookRunner = @Sendable (URL, [String: String], Data) async -> AutomationActionExecutionResult
     typealias WorkspaceTagsResolver = @MainActor (UUID) -> [String]
@@ -36,9 +22,11 @@ final class AutomationEngine {
     private let configStore: AutomationConfigStore
     private let eventBus: CmuxEventBus
     private let notificationHandler: NotificationHandler
+    private let rpcRunner: RPCRunner
     private let processRunner: ProcessRunner?
     private let webhookRunner: WebhookRunner?
     private let workspaceTagsResolver: WorkspaceTagsResolver
+    private let payloadRedactor = AutomationPayloadRedactor()
 
     private var rules: [AutomationRule] = []
     private var rulesByEventName: [String: [AutomationRule]] = [:]
@@ -55,8 +43,8 @@ final class AutomationEngine {
     private var pendingTagResolutions = Set<UUID>()
     private var lastSequence: Int64?
     private var restartTask: Task<Void, Never>?
-    private var restartAttempt = 0
     private var reloadTask: Task<Void, Never>?
+    private var enabledUpdateTasks: [UUID: Task<Void, Never>] = [:]
 
     init(
         configStore: AutomationConfigStore = AutomationConfigStore(),
@@ -71,6 +59,14 @@ final class AutomationEngine {
                 retargetsToLiveSurfaceOwner: true
             )
         },
+        rpcRunner: @escaping RPCRunner = { method, params, allowFocus, origin in
+            await TerminalController.shared.performAutomationRPC(
+                method: method,
+                params: params,
+                allowFocus: allowFocus,
+                origin: origin
+            )
+        },
         processRunner: ProcessRunner? = nil,
         webhookRunner: WebhookRunner? = nil,
         workspaceTagsResolver: @escaping WorkspaceTagsResolver = { _ in [] }
@@ -78,6 +74,7 @@ final class AutomationEngine {
         self.configStore = configStore
         self.eventBus = eventBus
         self.notificationHandler = notificationHandler
+        self.rpcRunner = rpcRunner
         self.processRunner = processRunner
         self.webhookRunner = webhookRunner
         self.workspaceTagsResolver = workspaceTagsResolver
@@ -89,6 +86,7 @@ final class AutomationEngine {
         restartTask?.cancel()
         reloadTask?.cancel()
         firingTasks.values.forEach { $0.cancel() }
+        enabledUpdateTasks.values.forEach { $0.cancel() }
     }
 
     /// Starts the live subscription. Calling this more than once is harmless.
@@ -100,6 +98,8 @@ final class AutomationEngine {
 
     private func installSubscription(afterSequence: Int64?) {
         guard shouldRun, rules.contains(where: \.enabled) else { return }
+        restartTask?.cancel()
+        restartTask = nil
         let filters = subscriptionFilters()
         let snapshot = eventBus.subscribe(
             afterSequence: afterSequence,
@@ -108,8 +108,6 @@ final class AutomationEngine {
         )
         subscription = snapshot.subscription
         let subscription = snapshot.subscription
-        restartTask?.cancel()
-        restartTask = nil
         for event in snapshot.replay {
             receive(event)
         }
@@ -137,20 +135,16 @@ final class AutomationEngine {
         eventTask = nil
         guard shouldRun else { return }
         // A slow consumer closes its bounded queue. Re-arm from the current
-        // tail with bounded exponential backoff; an event flood must not turn
-        // recovery into an allocation loop.
+        // tail through one coalesced, event-driven task. The subscription's
+        // bounded queue remains the admission/backpressure boundary; no timer
+        // or polling loop is needed to recover it.
         guard restartTask == nil else { return }
-        let delay = min(5.0, 0.25 * pow(2.0, Double(min(restartAttempt, 5))))
-        restartAttempt = min(restartAttempt + 1, 5)
         let cursor = lastSequence
         restartTask = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-            } catch {
-                return
-            }
-            guard let self, self.shouldRun else { return }
+            guard let self else { return }
             self.restartTask = nil
+            await Task.yield()
+            guard self.shouldRun else { return }
             self.installSubscription(afterSequence: cursor)
         }
     }
@@ -171,6 +165,9 @@ final class AutomationEngine {
         eventTask = nil
         firingTasks.values.forEach { $0.cancel() }
         firingTasks.removeAll(keepingCapacity: true)
+        enabledUpdateTasks.values.forEach { $0.cancel() }
+        enabledUpdateTasks.removeAll(keepingCapacity: true)
+        concurrentFirings = 0
         workspaceTagsCache.removeAll(keepingCapacity: true)
         pendingTagResolutions.removeAll(keepingCapacity: true)
     }
@@ -230,6 +227,7 @@ final class AutomationEngine {
         rulesByCategory.removeAll(keepingCapacity: true)
         unindexedRules.removeAll(keepingCapacity: true)
         fireDatesByRuleID.removeAll(keepingCapacity: true)
+        concurrentFirings = 0
         workspaceTagsCache.removeAll(keepingCapacity: true)
         pendingTagResolutions.removeAll(keepingCapacity: true)
         if let subscription {
@@ -239,6 +237,8 @@ final class AutomationEngine {
         }
         eventTask?.cancel()
         eventTask = nil
+        restartTask?.cancel()
+        restartTask = nil
     }
 
     private func rebuildRuleIndexes() {
@@ -307,7 +307,7 @@ final class AutomationEngine {
 
     func showPayload(id: String) -> [String: Any]? {
         guard let rule = rule(withID: id),
-              let data = try? JSONEncoder().encode(rule),
+              let data = try? JSONEncoder().encode(payloadRedactor.rule(rule)),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return nil
         }
@@ -316,26 +316,12 @@ final class AutomationEngine {
 
     func scheduleSetEnabled(id: String, enabled: Bool) -> Bool {
         guard rules.contains(where: { $0.id == id }) else { return false }
-        Task { @MainActor [weak self] in
+        let taskID = UUID()
+        let task = Task { @MainActor [weak self] in
+            defer { self?.enabledUpdateTasks.removeValue(forKey: taskID) }
             guard let self else { return }
             do {
-                let rule = try await self.configStore.updateRuleOffMain(id: id) { rule in
-                    rule.enabled = enabled
-                }
-                if let index = self.rules.firstIndex(where: { $0.id == id }) {
-                    self.rules[index] = rule
-                }
-                self.rebuildRuleIndexes()
-                if self.shouldRun {
-                    if let subscription = self.subscription {
-                        self.eventBus.unsubscribe(subscription)
-                        subscription.close()
-                        self.subscription = nil
-                    }
-                    self.eventTask?.cancel()
-                    self.eventTask = nil
-                    self.installSubscription(afterSequence: nil)
-                }
+                _ = try await self.setEnabled(id: id, enabled: enabled).get()
             } catch {
                 self.record(
                     ruleID: id,
@@ -346,6 +332,7 @@ final class AutomationEngine {
                 )
             }
         }
+        enabledUpdateTasks[taskID] = task
         return true
     }
 
@@ -389,8 +376,8 @@ final class AutomationEngine {
             "id": rule.id,
             "enabled": rule.enabled,
             "matched": matches,
-            "event": normalized,
-            "actions": rule.actions.map(Self.actionPayload),
+            "event": payloadRedactor.event(normalized),
+            "actions": rule.actions.map(payloadRedactor.actionPayload),
             "dry_run": true,
             "reason": matches ? "matched" : "predicate_mismatch"
         ]
@@ -485,8 +472,12 @@ final class AutomationEngine {
             concurrentFirings += 1
             let firingID = UUID()
             let firingTask = Task { @MainActor [weak self] in
+                defer {
+                    self?.concurrentFirings = max(0, (self?.concurrentFirings ?? 1) - 1)
+                    self?.firingTasks.removeValue(forKey: firingID)
+                }
+                guard !Task.isCancelled else { return }
                 await self?.execute(rule: rule, event: normalized, chain: chain)
-                self?.firingTasks.removeValue(forKey: firingID)
             }
             firingTasks[firingID] = firingTask
         }
@@ -524,7 +515,6 @@ final class AutomationEngine {
     }
 
     private func execute(rule: AutomationRule, event: [String: Any], chain: [String]) async {
-        defer { concurrentFirings = max(0, concurrentFirings - 1) }
         var failure: String?
         for action in rule.actions {
             guard !Task.isCancelled else { return }
@@ -611,7 +601,7 @@ final class AutomationEngine {
             ?? nestedFocus
             ?? false
         let origin = CmuxAutomationEventOrigin(ruleID: rule.id, chain: chain)
-        let response = await TerminalController.shared.performAutomationRPC(
+        let response = await rpcRunner(
             method: method,
             params: params,
             allowFocus: allowFocus,
@@ -695,6 +685,11 @@ final class AutomationEngine {
         return await runWebhook(url: url, headers: headers, data: data)
     }
 
+#if compiler(>=6.2)
+    @concurrent
+#else
+    @Sendable
+#endif
     nonisolated private func runProcess(
         command: String,
         environment: [String: String],
@@ -705,29 +700,17 @@ final class AutomationEngine {
             environment: environment
         )
         return await withTaskCancellationHandler(operation: {
-            await withTaskGroup(of: AutomationActionExecutionResult.self) { group in
-                group.addTask {
-                    await session.run()
-                }
-                group.addTask {
-                    do {
-                        let nanoseconds = UInt64(timeoutSeconds * 1_000_000_000)
-                        try await Task.sleep(nanoseconds: nanoseconds)
-                        await session.terminate()
-                        return .failure("command timed out after \(timeoutSeconds) seconds")
-                    } catch {
-                        return .success("process timeout cancelled")
-                    }
-                }
-                let result = await group.next() ?? .failure("process did not return a result")
-                group.cancelAll()
-                return result
-            }
+            await session.run(timeoutSeconds: timeoutSeconds)
         }, onCancel: {
-            Task { await session.terminate() }
+            session.cancel()
         })
     }
 
+#if compiler(>=6.2)
+    @concurrent
+#else
+    @Sendable
+#endif
     nonisolated private func runWebhook(
         url: URL,
         headers: [String: String],
@@ -866,97 +849,7 @@ final class AutomationEngine {
         )
     }
 
-    private static func actionPayload(_ action: AutomationAction) -> [String: Any] {
-        var payload: [String: Any] = ["action": action.action]
-        for (key, value) in action.parameters { payload[key] = value.foundationObject }
-        return payload
-    }
-
     private static func rateLimitPayload(_ limit: AutomationRateLimit) -> [String: Any] {
         ["interval_seconds": limit.intervalSeconds, "maximum": limit.maximum]
-    }
-}
-
-/// Owns one shell process and exposes a cancellable termination stream.
-/// Keeping the Foundation Process inside an actor avoids crossing its
-/// non-Sendable handle between the firing task and the timeout task.
-actor AutomationProcessSession {
-    private let process: Process
-    private let command: String
-    private let environment: [String: String]
-    private var ownedProcessGroupID: pid_t?
-
-    init(command: String, environment: [String: String]) {
-        self.command = command
-        self.environment = environment
-        self.process = Process()
-        self.ownedProcessGroupID = nil
-    }
-
-    func run() async -> AutomationActionExecutionResult {
-        let (stream, continuation) = AsyncStream<Int32>.makeStream(
-            bufferingPolicy: .bufferingNewest(1)
-        )
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", command]
-        process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, new in new }
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        process.terminationHandler = { process in
-            continuation.yield(process.terminationStatus)
-            continuation.finish()
-        }
-        do {
-            try process.run()
-            let processID = process.processIdentifier
-            // Foundation has no pre-exec hook on macOS. Move the shell into a
-            // private process group immediately after launch and keep the
-            // single-PID fallback when the OS refuses setpgid.
-            if processID > 1, setpgid(processID, processID) == 0 {
-                ownedProcessGroupID = processID
-            }
-        } catch {
-            process.terminationHandler = nil
-            continuation.finish()
-            return .failure("could not run command: \(error.localizedDescription)")
-        }
-        for await status in stream {
-            guard status == 0 else {
-                return .failure("command exited with status \(status)")
-            }
-            return .success("command completed")
-        }
-        return .failure("process ended without a termination status")
-    }
-
-    func terminate() {
-        guard process.isRunning else { return }
-        if let ownedProcessGroupID, ownedProcessGroupID > 1 {
-            _ = kill(-ownedProcessGroupID, SIGTERM)
-            _ = kill(-ownedProcessGroupID, SIGKILL)
-        }
-        process.terminate()
-    }
-}
-
-/// A bounded, JSON-friendly record retained by the engine's firing ring.
-nonisolated struct AutomationFiringRecord: Sendable {
-    let occurredAt: Date
-    let ruleID: String
-    let eventName: String
-    let status: String
-    let detail: String
-    let chain: [String]
-
-    var payload: [String: Any] {
-        [
-            "occurred_at": CmuxEventBus.isoTimestamp(occurredAt),
-            "rule_id": ruleID,
-            "event": eventName,
-            "status": status,
-            "detail": detail,
-            "chain": chain
-        ]
     }
 }

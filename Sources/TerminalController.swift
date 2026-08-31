@@ -2173,10 +2173,7 @@ class TerminalController {
                 return v2Error(
                     id: request.id.map(\.foundationObject),
                     code: "focus_suppressed",
-                    message: String(
-                        localized: "automation.error.focusSuppressed",
-                        defaultValue: "Automation RPC requires allow_focus=true for \(request.method)"
-                    ).replacingOccurrences(of: "%@", with: request.method),
+                    message: Self.automationFocusSuppressedMessage(),
                     data: nil
                 )
             }
@@ -2494,10 +2491,7 @@ class TerminalController {
             return v2Error(
                 id: request.id.map(\.foundationObject),
                 code: "focus_suppressed",
-                message: String(
-                    localized: "automation.error.focusSuppressed",
-                    defaultValue: "Automation RPC requires allow_focus=true for \(request.method)"
-                ).replacingOccurrences(of: "%@", with: request.method),
+                message: Self.automationFocusSuppressedMessage(),
                 data: nil
             )
         }

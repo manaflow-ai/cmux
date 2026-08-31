@@ -4,6 +4,13 @@ import CmuxControlSocket
 extension TerminalController {
     private nonisolated static let automationCommandEnvelopePrefix = "__cmux_automation_origin "
 
+    nonisolated static func automationFocusSuppressedMessage() -> String {
+        String(
+            localized: "automation.error.focusSuppressed",
+            defaultValue: "This automation action requires permission to focus or select a surface. Update the rule to allow focus, then try again."
+        )
+    }
+
     nonisolated static func automationCommandEnvelope(
         from command: String
     ) -> (command: String, origin: CmuxAutomationEventOrigin)? {
@@ -61,7 +68,7 @@ extension TerminalController {
         guard let automationEngine else {
             return .err(
                 code: "unavailable",
-                message: String(localized: "automation.error.engineUnavailable", defaultValue: "Automation engine is not available"),
+                message: String(localized: "automation.error.engineUnavailable", defaultValue: "Automation is unavailable. Check ~/.cmuxterm/automations.json, then run cmux automation reload."),
                 data: nil
             )
         }
@@ -81,7 +88,7 @@ extension TerminalController {
               let payload = automationEngine.showPayload(id: id) else {
             return .err(
                 code: "not_found",
-                message: String(localized: "automation.error.ruleNotFound", defaultValue: "Automation rule not found"),
+                message: String(localized: "automation.error.ruleNotFound", defaultValue: "Automation rule not found: \(id)"),
                 data: ["id": id]
             )
         }
@@ -108,7 +115,7 @@ extension TerminalController {
               let payload = automationEngine.testPayload(id: id, event: event) else {
             return .err(
                 code: "not_found",
-                message: String(localized: "automation.error.ruleNotFound", defaultValue: "Automation rule not found"),
+                message: String(localized: "automation.error.ruleNotFound", defaultValue: "Automation rule not found: \(id)"),
                 data: ["id": id]
             )
         }
@@ -127,14 +134,14 @@ extension TerminalController {
         guard let automationEngine else {
             return .err(
                 code: "unavailable",
-                message: String(localized: "automation.error.engineUnavailable", defaultValue: "Automation engine is not available"),
+                message: String(localized: "automation.error.engineUnavailable", defaultValue: "Automation is unavailable. Check ~/.cmuxterm/automations.json, then run cmux automation reload."),
                 data: nil
             )
         }
         guard automationEngine.scheduleSetEnabled(id: id, enabled: enabled) else {
             return .err(
                 code: "not_found",
-                message: String(localized: "automation.error.ruleNotFound", defaultValue: "Automation rule not found"),
+                message: String(localized: "automation.error.ruleNotFound", defaultValue: "Automation rule not found: \(id)"),
                 data: ["id": id]
             )
         }
@@ -150,7 +157,7 @@ extension TerminalController {
         guard let automationEngine else {
             return .err(
                 code: "unavailable",
-                message: String(localized: "automation.error.engineUnavailable", defaultValue: "Automation engine is not available"),
+                message: String(localized: "automation.error.engineUnavailable", defaultValue: "Automation is unavailable. Check ~/.cmuxterm/automations.json, then run cmux automation reload."),
                 data: nil
             )
         }
@@ -163,14 +170,13 @@ extension TerminalController {
         guard let automationEngine else {
             return .err(
                 code: "unavailable",
-                message: String(localized: "automation.error.engineUnavailable", defaultValue: "Automation engine is not available"),
+                message: String(localized: "automation.error.engineUnavailable", defaultValue: "Automation is unavailable. Check ~/.cmuxterm/automations.json, then run cmux automation reload."),
                 data: nil
             )
         }
         automationEngine.scheduleReload()
         return .ok([
-            "reloading": true,
-            "rule_count": automationEngine.listPayload().count
+            "reloading": true
         ])
     }
 
@@ -194,7 +200,7 @@ extension TerminalController {
               let line = String(data: data, encoding: .utf8) else {
             return "ERROR: " + String(
                 localized: "automation.error.encodeRPC",
-                defaultValue: "Failed to encode automation RPC request"
+                defaultValue: "Could not prepare the automation action. Check the rule configuration and try again."
             )
         }
         return await CmuxAutomationInvocationContext.$focusAllowed.withValue(allowFocus) {

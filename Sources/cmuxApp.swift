@@ -208,7 +208,7 @@ struct cmuxApp: App {
         _focusHistoryMenuInvalidator = StateObject(wrappedValue: focusHistoryMenuInvalidator)
         let automationEngine = AutomationEngine(
             workspaceTagsResolver: { [weak tabManager] workspaceID in
-                guard let workspace = tabManager?.tabs.first(where: { $0.id == workspaceID }) else {
+                guard let workspace = tabManager?.workspacesById[workspaceID] else {
                     return []
                 }
                 return workspace.sidebarStatusEntriesInDisplayOrder().flatMap { entry in

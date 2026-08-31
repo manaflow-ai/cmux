@@ -34,7 +34,7 @@ extension CMUXCLI {
             )
         case "logs":
             var params: [String: Any] = [:]
-            if let rawLimit = optionValue(rest, name: "--limit"), let limit = Int(rawLimit) {
+            if let limit = try automationLimit(from: rest) {
                 params["limit"] = limit
             }
             response = try client.sendV2(method: "automation.logs", params: params)
@@ -67,25 +67,23 @@ extension CMUXCLI {
         do {
             configuration = try store.load()
         } catch {
-            throw CLIError(message: error.localizedDescription)
+            throw CLIError(message: String(describing: error))
         }
         guard let rule = configuration.rules.first(where: { $0.id == id }) else {
-            throw CLIError(message: automationLocalized(
+            let format = automationLocalized(
                 "automation.error.ruleNotFound",
-                defaultValue: "Automation rule not found: \(id)"
-            ).replacingOccurrences(of: "%@", with: id))
+                defaultValue: "Automation rule not found: %@"
+            )
+            throw CLIError(message: String.localizedStringWithFormat(format, id))
         }
         let matched = rule.matches(event: event)
+        let redactor = AutomationPayloadRedactor()
         let payload: [String: Any] = [
             "id": id,
             "enabled": rule.enabled,
             "matched": matched,
-            "event": event,
-            "actions": rule.actions.map { action in
-                var result: [String: Any] = ["action": action.action]
-                for (key, value) in action.parameters { result[key] = value.foundationObject }
-                return result
-            },
+            "event": redactor.event(event),
+            "actions": rule.actions.map(redactor.actionPayload),
             "dry_run": true,
             "reason": matched ? "matched" : "predicate_mismatch"
         ]
@@ -151,36 +149,21 @@ extension CMUXCLI {
                 let event = rule["event"] as? String ?? rule["category"] as? String ?? "*"
                 let format = String(
                     localized: "cli.automation.output.rule",
-                    defaultValue: "%@ [%@] when %@"
+                    defaultValue: "%1$@ [%2$@] when %3$@"
                 )
-                print(replacingFirstPlaceholder(
-                    replacingFirstPlaceholder(
-                        replacingFirstPlaceholder(format, with: id),
-                        with: enabled
-                    ),
-                    with: event
-                ))
+                print(String.localizedStringWithFormat(format, id, enabled, event))
             }
         case "reload":
-            if (response["reloading"] as? Bool) == true {
-                print(String(
-                    localized: "cli.automation.output.reloadRequested",
-                    defaultValue: "Automation configuration reload requested"
-                ))
-                return
-            }
-            let count = response["rule_count"] as? Int ?? 0
-            let format = String(
-                localized: "cli.automation.output.reloaded",
-                defaultValue: "Reloaded %@ automation rule(s)"
-            )
-            print(replacingFirstPlaceholder(format, with: String(count)))
+            print(String(
+                localized: "cli.automation.output.reloadRequested",
+                defaultValue: "Automation configuration reload requested"
+            ))
         case "enable", "disable":
             let id = response["id"] as? String ?? "?"
             let format = (response["enabled"] as? Bool) == true
                 ? String(localized: "cli.automation.output.enabled", defaultValue: "Enabled %@")
                 : String(localized: "cli.automation.output.disabled", defaultValue: "Disabled %@")
-            print(replacingFirstPlaceholder(format, with: id))
+            print(String.localizedStringWithFormat(format, id))
         default:
             print(jsonString(response))
         }
@@ -208,7 +191,7 @@ extension CMUXCLI {
     private func automationLocalized(_ key: String, defaultValue: String) -> String {
         switch key {
         case "automation.error.ruleNotFound":
-            return String(localized: "automation.error.ruleNotFound", defaultValue: "Automation rule not found")
+            return String(localized: "automation.error.ruleNotFound", defaultValue: "Automation rule not found: %@")
         case "cli.automation.error.eventFlag":
             return String(localized: "cli.automation.error.eventFlag", defaultValue: "automation test requires --event <json>")
         case "cli.automation.error.eventObject":
@@ -220,8 +203,27 @@ extension CMUXCLI {
         }
     }
 
-    private func replacingFirstPlaceholder(_ value: String, with replacement: String) -> String {
-        guard let range = value.range(of: "%@") else { return value }
-        return value.replacingCharacters(in: range, with: replacement)
+    private func automationLimit(from args: [String]) throws -> Int? {
+        guard let index = args.firstIndex(where: { $0 == "--limit" || $0.hasPrefix("--limit=") }) else {
+            return nil
+        }
+        let argument = args[index]
+        let rawLimit: String
+        if argument == "--limit" {
+            let valueIndex = index + 1
+            guard valueIndex < args.count, !args[valueIndex].hasPrefix("--") else {
+                throw CLIError(message: Self.automationUsage())
+            }
+            rawLimit = args[valueIndex]
+        } else {
+            rawLimit = String(argument.dropFirst("--limit=".count))
+            guard !rawLimit.isEmpty else {
+                throw CLIError(message: Self.automationUsage())
+            }
+        }
+        guard let limit = Int(rawLimit) else {
+            throw CLIError(message: Self.automationUsage())
+        }
+        return limit
     }
 }

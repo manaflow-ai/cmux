@@ -52,21 +52,33 @@ final class AutomationConfigStore {
     }
 
     /// Loads and decodes the configuration on a utility task.
+#if compiler(>=6.2)
+    @concurrent
+#else
+    @Sendable
+#endif
     nonisolated func loadOffMain() async throws -> AutomationConfiguration {
         let url = fileURL
+        let fileManager = fileManager
         return try await Task.detached(priority: .utility) {
-            try AutomationConfigStore(fileURL: url).load()
+            try AutomationConfigStore(fileURL: url, fileManager: fileManager).load()
         }.value
     }
 
     /// Updates one rule off the main actor and returns the persisted snapshot.
+#if compiler(>=6.2)
+    @concurrent
+#else
+    @Sendable
+#endif
     nonisolated func updateRuleOffMain(
         id: String,
         _ update: @escaping @Sendable (inout AutomationRule) -> Void
     ) async throws -> AutomationRule {
         let url = fileURL
+        let fileManager = fileManager
         return try await Task.detached(priority: .utility) {
-            try AutomationConfigStore(fileURL: url).updateRule(id: id, update)
+            try AutomationConfigStore(fileURL: url, fileManager: fileManager).updateRule(id: id, update)
         }.value
     }
 
@@ -77,32 +89,36 @@ final class AutomationConfigStore {
         }
         try validate(configuration)
         let data = try encoder.encode(configuration)
+        // Resolve a symlink before replacing the file. Replacing `fileURL`
+        // directly would unlink a dotfiles-managed configuration and publish
+        // a regular file in its place.
+        let destinationURL = resolvedDestinationURL()
         try fileManager.createDirectory(
-            at: fileURL.deletingLastPathComponent(),
+            at: destinationURL.deletingLastPathComponent(),
             withIntermediateDirectories: true,
             attributes: [.posixPermissions: NSNumber(value: 0o700)]
         )
         try fileManager.setAttributes(
             [.posixPermissions: NSNumber(value: 0o700)],
-            ofItemAtPath: fileURL.deletingLastPathComponent().path
+            ofItemAtPath: destinationURL.deletingLastPathComponent().path
         )
-        let temporaryURL = fileURL
+        let temporaryURL = destinationURL
             .deletingLastPathComponent()
-            .appendingPathComponent(".\(fileURL.lastPathComponent).\(UUID().uuidString).tmp")
+            .appendingPathComponent(".\(destinationURL.lastPathComponent).\(UUID().uuidString).tmp")
         defer { try? fileManager.removeItem(at: temporaryURL) }
         try data.write(to: temporaryURL, options: .atomic)
         try fileManager.setAttributes(
             [.posixPermissions: NSNumber(value: 0o600)],
             ofItemAtPath: temporaryURL.path
         )
-        if fileManager.fileExists(atPath: fileURL.path) {
-            _ = try fileManager.replaceItemAt(fileURL, withItemAt: temporaryURL)
+        if fileManager.fileExists(atPath: destinationURL.path) {
+            _ = try fileManager.replaceItemAt(destinationURL, withItemAt: temporaryURL)
         } else {
-            try fileManager.moveItem(at: temporaryURL, to: fileURL)
+            try fileManager.moveItem(at: temporaryURL, to: destinationURL)
         }
         try fileManager.setAttributes(
             [.posixPermissions: NSNumber(value: 0o600)],
-            ofItemAtPath: fileURL.path
+            ofItemAtPath: destinationURL.path
         )
     }
 
@@ -114,6 +130,23 @@ final class AutomationConfigStore {
         update(&configuration.rules[index])
         try save(configuration)
         return configuration.rules[index]
+    }
+
+    /// Resolves the final symlink component even when its target is dangling.
+    /// `URL.resolvingSymlinksInPath()` intentionally leaves a dangling final
+    /// link untouched, which would make an atomic save replace the link itself.
+    private func resolvedDestinationURL() -> URL {
+        var candidate = fileURL
+        var visited = Set<URL>()
+        while let destination = try? fileManager.destinationOfSymbolicLink(atPath: candidate.path) {
+            let normalized = candidate.standardizedFileURL
+            guard visited.insert(normalized).inserted else { break }
+            candidate = URL(
+                fileURLWithPath: destination,
+                relativeTo: candidate.deletingLastPathComponent()
+            ).standardizedFileURL
+        }
+        return candidate.resolvingSymlinksInPath()
     }
 
     private func validate(_ configuration: AutomationConfiguration) throws {
@@ -168,26 +201,6 @@ final class AutomationConfigStore {
                     throw AutomationConfigStoreError.invalidRule("rule \(rule.id) has unknown action \(action.action)")
                 }
             }
-        }
-    }
-}
-
-enum AutomationConfigStoreError: Error, LocalizedError, Equatable {
-    case unsupportedVersion(Int)
-    case ruleNotFound(String)
-    case invalidRule(String)
-    case fileTooLarge
-
-    var errorDescription: String? {
-        switch self {
-        case .unsupportedVersion(let version):
-            return "Unsupported automation configuration version \(version)"
-        case .ruleNotFound(let id):
-            return "Automation rule not found: \(id)"
-        case .invalidRule(let message):
-            return "Invalid automation rule: \(message)"
-        case .fileTooLarge:
-            return "Automation configuration is larger than 4 MiB"
         }
     }
 }

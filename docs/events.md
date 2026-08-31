@@ -388,7 +388,7 @@ it to third-party services without an explicit user opt-in.
 Events emitted while an automation action is executing carry an envelope field
 such as:
 
-~~~json
+```json
 {
   "automation_origin": {
     "rule_id": "surface-needs-input",
@@ -396,7 +396,7 @@ such as:
     "depth": 1
   }
 }
-~~~
+```
 
 The automation engine uses this bounded chain to stop a rule from triggering
 itself or participating in a cycle. Other event consumers may ignore the field.

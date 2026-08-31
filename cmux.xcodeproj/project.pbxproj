@@ -259,10 +259,17 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		961300000000000000000003 /* AttributedString+SidebarRowLinks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 961300000000000000000004 /* AttributedString+SidebarRowLinks.swift */; };
 		D9FEC58D5BACCF76459F1BBE /* AuthEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43430FA5929121E2EAAB3091 /* AuthEnvironment.swift */; };
 		A47E00010000000000000001 /* AuthEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A47E00010000000000000002 /* AuthEnvironmentTests.swift */; };
+		A10649160000000000000001 /* AutomationActionExecutionResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10649120000000000000001 /* AutomationActionExecutionResult.swift */; };
 		A10649050000000000000001 /* AutomationConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10649040000000000000001 /* AutomationConfigStore.swift */; };
 		A10649060000000000000001 /* AutomationConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10649040000000000000001 /* AutomationConfigStore.swift */; };
+		A10649170000000000000001 /* AutomationConfigStoreError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10649150000000000000001 /* AutomationConfigStoreError.swift */; };
+		A10649180000000000000001 /* AutomationConfigStoreError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10649150000000000000001 /* AutomationConfigStoreError.swift */; };
 		A106490A0000000000000001 /* AutomationEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10649090000000000000001 /* AutomationEngine.swift */; };
+		A10649190000000000000001 /* AutomationFiringRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10649130000000000000001 /* AutomationFiringRecord.swift */; };
 		A10649080000000000000001 /* AutomationInvocationContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10649070000000000000001 /* AutomationInvocationContext.swift */; };
+		A10649220000000000000001 /* AutomationPayloadRedactor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10649210000000000000001 /* AutomationPayloadRedactor.swift */; };
+		A10649230000000000000001 /* AutomationPayloadRedactor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10649210000000000000001 /* AutomationPayloadRedactor.swift */; };
+		A10649200000000000000001 /* AutomationProcessSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10649140000000000000001 /* AutomationProcessSession.swift */; };
 		A10649020000000000000001 /* AutomationRule.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10649010000000000000001 /* AutomationRule.swift */; };
 		A10649030000000000000001 /* AutomationRule.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10649010000000000000001 /* AutomationRule.swift */; };
 		A10649110000000000000001 /* AutomationRuleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10649100000000000000001 /* AutomationRuleTests.swift */; };
@@ -3170,9 +3177,14 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		961300000000000000000004 /* AttributedString+SidebarRowLinks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/AttributedString+SidebarRowLinks.swift"; sourceTree = "<group>"; };
 		43430FA5929121E2EAAB3091 /* AuthEnvironment.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AuthEnvironment.swift; sourceTree = "<group>"; };
 		A47E00010000000000000002 /* AuthEnvironmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthEnvironmentTests.swift; sourceTree = "<group>"; };
+		A10649120000000000000001 /* AutomationActionExecutionResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationActionExecutionResult.swift; sourceTree = "<group>"; };
 		A10649040000000000000001 /* AutomationConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationConfigStore.swift; sourceTree = "<group>"; };
+		A10649150000000000000001 /* AutomationConfigStoreError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationConfigStoreError.swift; sourceTree = "<group>"; };
 		A10649090000000000000001 /* AutomationEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationEngine.swift; sourceTree = "<group>"; };
+		A10649130000000000000001 /* AutomationFiringRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationFiringRecord.swift; sourceTree = "<group>"; };
 		A10649070000000000000001 /* AutomationInvocationContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationInvocationContext.swift; sourceTree = "<group>"; };
+		A10649210000000000000001 /* AutomationPayloadRedactor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationPayloadRedactor.swift; sourceTree = "<group>"; };
+		A10649140000000000000001 /* AutomationProcessSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationProcessSession.swift; sourceTree = "<group>"; };
 		A10649010000000000000001 /* AutomationRule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationRule.swift; sourceTree = "<group>"; };
 		A10649100000000000000001 /* AutomationRuleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationRuleTests.swift; sourceTree = "<group>"; };
 		B9000011A1B2C3D4E5F60719 /* AutomationSocketUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationSocketUITests.swift; sourceTree = "<group>"; };
@@ -6791,6 +6803,11 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D0B10011A1B2C3D4E5F60001 /* BonsplitTabBarDebug.swift */,
 				A10649010000000000000001 /* AutomationRule.swift */,
 				A10649040000000000000001 /* AutomationConfigStore.swift */,
+				A10649120000000000000001 /* AutomationActionExecutionResult.swift */,
+				A10649150000000000000001 /* AutomationConfigStoreError.swift */,
+				A10649130000000000000001 /* AutomationFiringRecord.swift */,
+				A10649140000000000000001 /* AutomationProcessSession.swift */,
+				A10649210000000000000001 /* AutomationPayloadRedactor.swift */,
 				A10649070000000000000001 /* AutomationInvocationContext.swift */,
 				A10649090000000000000001 /* AutomationEngine.swift */,
 				A106490B0000000000000001 /* TerminalController+Automation.swift */,
@@ -7880,6 +7897,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A106490D0000000000000001 /* CMUXCLI+Automation.swift */,
 				A10649010000000000000001 /* AutomationRule.swift */,
 				A10649040000000000000001 /* AutomationConfigStore.swift */,
+				A10649150000000000000001 /* AutomationConfigStoreError.swift */,
+				A10649210000000000000001 /* AutomationPayloadRedactor.swift */,
 				B9000055A1B2C3D4E5F60719 /* CMUXCLI+Process.swift */,
 				A10240020000000000000001 /* CodexTeamsAppServerProcess.swift */,
 				A10240070000000000000001 /* CodexTeamsAppServerSupervisor.swift */,
@@ -9292,9 +9311,14 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5001A00A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift in Sources */,
 				961300000000000000000003 /* AttributedString+SidebarRowLinks.swift in Sources */,
 					D9FEC58D5BACCF76459F1BBE /* AuthEnvironment.swift in Sources */,
+				A10649160000000000000001 /* AutomationActionExecutionResult.swift in Sources */,
 				A10649050000000000000001 /* AutomationConfigStore.swift in Sources */,
+				A10649170000000000000001 /* AutomationConfigStoreError.swift in Sources */,
 				A106490A0000000000000001 /* AutomationEngine.swift in Sources */,
+				A10649190000000000000001 /* AutomationFiringRecord.swift in Sources */,
 				A10649080000000000000001 /* AutomationInvocationContext.swift in Sources */,
+				A10649220000000000000001 /* AutomationPayloadRedactor.swift in Sources */,
+				A10649200000000000000001 /* AutomationProcessSession.swift in Sources */,
 				A10649020000000000000001 /* AutomationRule.swift in Sources */,
 					C0DE35860000000000000001 /* BackgroundWorkspacePrimeCoordinator.swift in Sources */,
 					A50012F1 /* Backport.swift in Sources */,
@@ -10946,6 +10970,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				89930002AABBCCDDEEFF0002 /* AgentProcessBindingResolution.swift in Sources */,
 				394139F275D94FB49356E9C7 /* AgentSurfaceResumeBindingClearOutcome.swift in Sources */,
 				A10649060000000000000001 /* AutomationConfigStore.swift in Sources */,
+				A10649180000000000000001 /* AutomationConfigStoreError.swift in Sources */,
+				A10649230000000000000001 /* AutomationPayloadRedactor.swift in Sources */,
 				A10649030000000000000001 /* AutomationRule.swift in Sources */,
 				805500000000000000000004 /* BrowserValueTextFormatter.swift in Sources */,
 				89930005AABBCCDDEEFF0001 /* ClaudeHookSessionStore+SupersededCleanup.swift in Sources */,
