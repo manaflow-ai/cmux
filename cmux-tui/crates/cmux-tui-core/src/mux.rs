@@ -6477,7 +6477,7 @@ impl Mux {
         // receipt for repeated reports.
         let durable_previous = self
             .workspace_registry
-            .lock_until(Instant::now() + JOURNAL_DURABLE_WAIT)?
+            .lock_until(Instant::now() + crate::journal_ingress::JOURNAL_DURABLE_WAIT)?
             .public_agent_projections(Some(terminal_id), None)?
             .into_iter()
             .next()
