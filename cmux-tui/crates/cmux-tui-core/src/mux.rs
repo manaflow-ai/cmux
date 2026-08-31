@@ -6480,6 +6480,14 @@ impl Mux {
                         )
                     })
             });
+        #[cfg(test)]
+        if session == Some("repeat-session") {
+            eprintln!(
+                "agent-report-echo diagnostic: previous={previous:?} state={} source={} session={session:?} revision={resource_revision}",
+                state.as_str(),
+                source.as_str(),
+            );
+        }
         let unchanged = previous.as_ref().is_some_and(
             |(previous_state, previous_source, previous_session, _)| {
                 previous_state == state.as_str()
