@@ -4,6 +4,9 @@ import Foundation
 public struct AgentWorkingDirectoryOptionPolicy: Sendable {
     /// Options whose cwd value is stored in the following token or after `=`.
     public let valueOptions: Set<String>
+    /// Options that are unambiguously cwd-bearing and may be removed without
+    /// comparing their value to a captured directory.
+    public let unconditionallyRemovableValueOptions: Set<String>
     /// Short options whose cwd value may be attached to the option token.
     public let attachedShortValueOptions: Set<String>
 
@@ -21,22 +24,29 @@ public struct AgentWorkingDirectoryOptionPolicy: Sendable {
             "--work-dir",
             "--workspace",
         ]
+        var unconditionallyRemovableValueOptions = valueOptions
         var attachedShortValueOptions: Set<String> = []
 
         switch agentKind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "codex":
             valueOptions.insert("-C")
+            unconditionallyRemovableValueOptions.insert("-C")
             attachedShortValueOptions.insert("-C")
         case "kimi", "qoder":
             valueOptions.insert("-w")
+            unconditionallyRemovableValueOptions.insert("-w")
             attachedShortValueOptions.insert("-w")
         case .some(_):
+            // Unknown agents may use `-C` for a non-cwd setting. Keep the
+            // legacy value-matching behavior instead of stripping it blindly.
             valueOptions.insert("-C")
         case .none:
+            // Without an agent kind, `-C` remains ambiguous as well.
             valueOptions.insert("-C")
         }
 
         self.valueOptions = valueOptions
+        self.unconditionallyRemovableValueOptions = unconditionallyRemovableValueOptions
         self.attachedShortValueOptions = attachedShortValueOptions
     }
 }

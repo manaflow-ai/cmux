@@ -256,15 +256,17 @@ public enum AgentLaunchSanitizer {
         guard removeAllWorkingDirectoryOptions || savedWorkingDirectory != nil else {
             return args
         }
-        let shouldRemoveValue: (String) -> Bool = { value in
-            removeAllWorkingDirectoryOptions || savedWorkingDirectory.map {
-                workingDirectoryValue(value, matches: $0)
-            } == true
-        }
         let optionPolicy = AgentWorkingDirectoryOptionPolicy(agentKind: agentKind)
         let valueOptions = optionPolicy.valueOptions
+        let unconditionallyRemovableValueOptions = optionPolicy.unconditionallyRemovableValueOptions
         let attachedShortValueOptions = optionPolicy.attachedShortValueOptions
         let optionPrefixes = valueOptions.map { "\($0)=" }
+        let shouldRemoveValue: (String, String) -> Bool = { option, value in
+            (removeAllWorkingDirectoryOptions && unconditionallyRemovableValueOptions.contains(option)) ||
+                savedWorkingDirectory.map {
+                    workingDirectoryValue(value, matches: $0)
+                } == true
+        }
         var result: [String] = []
         var index = 0
         while index < args.count {
@@ -275,7 +277,8 @@ public enum AgentLaunchSanitizer {
             }
             if valueOptions.contains(arg) {
                 guard index + 1 < args.count else {
-                    if removeAllWorkingDirectoryOptions {
+                    if removeAllWorkingDirectoryOptions &&
+                        unconditionallyRemovableValueOptions.contains(arg) {
                         index += 1
                         continue
                     }
@@ -284,20 +287,23 @@ public enum AgentLaunchSanitizer {
                     continue
                 }
                 let value = args[index + 1]
-                if value == "--", removeAllWorkingDirectoryOptions {
+                if value == "--",
+                   removeAllWorkingDirectoryOptions &&
+                    unconditionallyRemovableValueOptions.contains(arg) {
                     // The cwd option is incomplete. Remove only that option so
                     // the boundary and every payload token after it stay opaque.
                     index += 1
                     continue
                 }
-                if shouldRemoveValue(value) {
+                if shouldRemoveValue(arg, value) {
                     index += 2
                     continue
                 }
             }
             if let prefix = optionPrefixes.first(where: { arg.hasPrefix($0) }) {
+                let option = String(prefix.dropLast())
                 let value = String(arg.dropFirst(prefix.count))
-                if shouldRemoveValue(value) {
+                if shouldRemoveValue(option, value) {
                     index += 1
                     continue
                 }
@@ -306,7 +312,7 @@ public enum AgentLaunchSanitizer {
                 arg.count > $0.count && arg.hasPrefix($0)
             }) {
                 let value = String(arg.dropFirst(option.count))
-                if shouldRemoveValue(value) {
+                if shouldRemoveValue(option, value) {
                     index += 1
                     continue
                 }

@@ -78,9 +78,7 @@ private nonisolated struct NeverDirectoryProbe: GitReferenceStorageProbing {
             commonDirectory: "/repo/.git"
         )
 
-        let selected = selector.select(repository: repository)
-        #expect(selected != nil)
-        guard let selected else { return }
+        let selected = try #require(selector.select(repository: repository))
         let marker = try selected.run(
             arguments: ["marker"],
             in: URL(fileURLWithPath: repository.workTreeRoot, isDirectory: true)

@@ -732,6 +732,15 @@ struct AgentLaunchSanitizerTests {
                 removeAllWorkingDirectoryOptions: true
             ) == ["custom-agent", "-Color", "always"]
         )
+        let unknownAgentConfig = ["custom-agent", "-C", "/etc/custom-agent.conf", "--session", "session-id"]
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: unknownAgentConfig,
+                workingDirectory: nil,
+                agentKind: "custom-agent",
+                removeAllWorkingDirectoryOptions: true
+            ) == unknownAgentConfig
+        )
     }
 
     @Test(
