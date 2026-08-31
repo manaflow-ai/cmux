@@ -131,6 +131,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let sessionIds = ["codex-stale-subagent-start", "codex-stale-subagent-stop"]
         let settledSessionId = sessionIds[1]
         let settledTurnId = "turn-1"
+        let parentStopSessionId = "codex-stale-parent-stop"
+        let parentStopTurnId = "turn-parent-stop"
         let ledgerPath = root.appendingPathComponent("codex-turn-ledger.json")
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -143,7 +145,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         // These values are fixture metadata only; keep them independent of the
         // host clock because this test does not exercise freshness boundaries.
         let now: TimeInterval = 4_000_000_000
-        let storedSessions = Dictionary(uniqueKeysWithValues: sessionIds.map { sessionId in
+        let storedSessions = Dictionary(uniqueKeysWithValues: (sessionIds + [parentStopSessionId]).map { sessionId in
             (
                 sessionId,
                 [
@@ -172,8 +174,24 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "notifiedTurnIDs": [],
             "updatedAt": now,
         ]
+        let parentStopLedgerRecord: [String: Any] = [
+            "workspaceID": workspaceId,
+            "surfaceID": staleSurfaceId,
+            "owner": [:],
+            "activeTurnID": parentStopTurnId,
+            "activeChildrenByTurn": [:],
+            "unknownChildrenByTurn": [:],
+            "terminalChildrenByTurn": [:],
+            "pendingTurns": [parentStopTurnId: ["turnID": parentStopTurnId]],
+            "settledTurnIDs": [],
+            "notifiedTurnIDs": [],
+            "updatedAt": now,
+        ]
         let ledgerObject: [String: Any] = [
-            "records": [settledSessionId: ledgerRecord],
+            "records": [
+                settledSessionId: ledgerRecord,
+                parentStopSessionId: parentStopLedgerRecord,
+            ],
             "surfaceOwners": [:],
         ]
         try JSONSerialization.data(withJSONObject: ledgerObject, options: [.prettyPrinted])
@@ -248,6 +266,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
             XCTAssertEqual(result.stdout, "{}\n")
         }
 
+        let parentStopResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "stop"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(parentStopSessionId)","cwd":"\#(root.path)","hook_event_name":"Stop","turn_id":"\#(parentStopTurnId)","last_assistant_message":"done"}"#,
+            timeout: 5
+        )
+        XCTAssertFalse(parentStopResult.timedOut, parentStopResult.stderr)
+        XCTAssertEqual(parentStopResult.status, 0, parentStopResult.stderr)
+        XCTAssertEqual(parentStopResult.stdout, "{}\n")
+
         wait(for: [serverHandled], timeout: 5)
         let journalCommands = state.commands.filter { $0.contains("agent_journal_append") }
         XCTAssertFalse(
@@ -267,6 +296,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
             try JSONSerialization.jsonObject(with: ledgerData) as? [String: Any]
         )
         let records = try XCTUnwrap(ledger["records"] as? [String: Any])
+        XCTAssertNil(
+            records[sessionIds[0]],
+            "An unresolved child start without an existing ledger session must stay diagnostic-only"
+        )
         let settledRecord = try XCTUnwrap(records[settledSessionId] as? [String: Any])
         let activeChildren = (settledRecord["activeChildrenByTurn"] as? [String: [String]]) ?? [:]
         XCTAssertTrue(
@@ -276,6 +309,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(
             (settledRecord["settledTurnIDs"] as? [String])?.contains(settledTurnId) == true,
             "An unresolved SubagentStop must still settle the pending turn by session identity"
+        )
+        let parentStopRecord = try XCTUnwrap(records[parentStopSessionId] as? [String: Any])
+        XCTAssertTrue(
+            (parentStopRecord["settledTurnIDs"] as? [String])?.contains(parentStopTurnId) == true,
+            "An unresolved parent Stop must still settle the ledger by session identity"
         )
         XCTAssertTrue(
             AgentJournalAppendCapture.captures(in: state.commands).contains {
