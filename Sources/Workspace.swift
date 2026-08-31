@@ -1729,7 +1729,13 @@ extension Workspace {
                       resumeBinding.permitsTransportOnlyPersistentSSHRestore else {
                     return nil
                 }
-                return resumeBinding
+                // Keep the authenticated PTY reattach, but make the fallback
+                // itself an unavailable restore recipe.  Passing the original
+                // exact binding here would let `persistentSSHResumeCommand`
+                // combine it with the retained agent snapshot and replay agent
+                // startup input even when auto-resume/approval explicitly
+                // rejected that launch.
+                return resumeBinding.invalidatingAgentRestoreRecipe()
             }()
             let restoredPersistentSSHResumeCommand: String? = if let restoredRemotePTYSessionID {
                 persistentSSHResumeCommand(
