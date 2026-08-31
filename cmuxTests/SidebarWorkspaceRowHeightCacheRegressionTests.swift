@@ -131,6 +131,7 @@ struct SidebarWorkspaceRowHeightCacheRegressionTests {
         let cell = SidebarWorkspaceRowTableCellView()
         cell.configure(
             model: tailModel,
+            environment: SidebarWorkspaceRowSuspensionTests.tableEnvironment,
             actions: SidebarWorkspaceRowSuspensionTests.makeActions(model: tailModel),
             isPointerHovering: false,
             contextMenuDidOpen: {},
