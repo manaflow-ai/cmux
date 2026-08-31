@@ -156,8 +156,8 @@
       "free": {
         "name": "Free",
         "body": "You are currently on the Free plan. Upgrade when you need Pro limits and hosted features.",
-        "upsellTitle": "Upgrade when you need cloud agents or shared CodeRouter.",
-        "upsellBody": "Choose Pro for personal cloud features, or Team for shared CodeRouter with anonymous aggregate usage and cost analytics.",
+        "upsellTitle": "Upgrade when you need cloud agents.",
+        "upsellBody": "Choose Pro for personal cloud features, or Team for your whole team with centralized billing.",
         "testflightTitle": "Get the cmux iOS app",
         "testflightBody": "The iOS beta is available through TestFlight for active personal Pro subscribers.",
         "testflightCta": "Join the iOS beta"
@@ -430,10 +430,10 @@
   },
   "pricing": {
     "metaTitle": "Pricing — cmux",
-    "metaDescription": "cmux is a free, open source macOS terminal for AI coding agents. Upgrade to Pro for Cloud VMs, cmux Vault session backup, and CodeRouter. Enterprise adds SSO and self-hosting.",
-    "metaDescriptionShort": "cmux is a free, open source macOS terminal. Pro adds Cloud VMs, Vault session backup, and CodeRouter; Enterprise adds SSO and self-hosting.",
-    "metaDescriptionNoVault": "cmux is a free, open source macOS terminal for AI coding agents. Upgrade to Pro for Cloud VMs and CodeRouter. Enterprise adds SSO and self-hosting.",
-    "metaDescriptionNoVaultShort": "cmux is a free, open source macOS terminal. Pro adds Cloud VMs and CodeRouter; Enterprise adds SSO and self-hosting.",
+    "metaDescription": "cmux is a free, open source macOS terminal for AI coding agents. Upgrade to Pro for isolated Cloud VMs and cmux Vault session backup. Enterprise adds SSO and self-hosting.",
+    "metaDescriptionShort": "cmux is a free, open source macOS terminal. Pro adds Cloud VMs and Vault session backup; Enterprise adds SSO and self-hosting.",
+    "metaDescriptionNoVault": "cmux is a free, open source macOS terminal for AI coding agents. Upgrade to Pro for isolated Cloud VMs. Enterprise adds SSO and self-hosting.",
+    "metaDescriptionNoVaultShort": "cmux is a free, open source macOS terminal. Pro adds isolated Cloud VMs; Enterprise adds SSO and self-hosting.",
     "title": "Pricing",
     "perMonth": "/mo",
     "perMonthBilledYearly": "/mo, billed yearly",
@@ -458,7 +458,7 @@
         "Run Claude Code, Codex, Gemini, and any CLI agent with your own keys",
         "Vertical tabs, workspaces, split panes, and completion notifications",
         "Browser panels, a scriptable socket API, and custom skills",
-        "Local session history and a one-time Cloud VM trial",
+        "Local session history",
         "Community support on Discord and GitHub"
       ]
     },
@@ -469,8 +469,7 @@
       "featuresLead": "Everything in Free, plus:",
       "features": [
         "Cloud agents on Cloud VMs in isolated remote sandboxes",
-        "20 active compute-hours per month on a 4 vCPU / 16 GB VM, then usage-based",
-        "CodeRouter: route across provider accounts with failover, usage, and cost analytics",
+        "Up to 5 active Cloud VMs at a time",
         "The cmux iOS app and email support"
       ],
       "vaultFeatures": [
@@ -487,7 +486,8 @@
       "cta": "Get Teams",
       "featuresLead": "Everything in Pro, plus:",
       "features": [
-        "Team-wide CodeRouter with anonymous aggregate usage and cost analytics"
+        "Centralized billing for your whole team",
+        "Priority support"
       ]
     },
     "enterprise": {
@@ -497,11 +497,10 @@
       "featuresLead": "Everything in Team, plus:",
       "features": [
         "Self-hosted Cloud execution and networking, so nothing leaves your network",
-        "Self-hosted CodeRouter with org-wide usage and cost analytics",
         "SSO and SAML sign-in",
         "Centralized admin and shared team rules",
         "Audit logs for terminal sessions, network requests, and browser activity",
-        "Committed cloud usage and volume pricing",
+        "Custom VM limits and volume pricing",
         "SOC 2 and an SLA, with dedicated support"
       ]
     },
@@ -555,24 +554,17 @@
         },
         {
           "label": "Cloud agents on Cloud VMs",
-          "free": "1 VM trial",
-          "pro": "20 hrs/mo, then usage-based",
-          "team": "20 hrs/mo, then usage-based",
-          "enterprise": "Committed usage"
-        },
-        {
-          "label": "Concurrent Cloud VMs",
-          "free": "1",
-          "pro": "Usage-based",
-          "team": "Usage-based",
-          "enterprise": "Custom"
-        },
-        {
-          "label": "CodeRouter: routing and usage analytics",
           "free": "false",
           "pro": "true",
           "team": "true",
           "enterprise": "true"
+        },
+        {
+          "label": "Concurrent Cloud VMs",
+          "free": "false",
+          "pro": "Up to 5",
+          "team": "Up to 5",
+          "enterprise": "Custom"
         },
         {
           "label": "iOS app",
@@ -611,7 +603,7 @@
           "enterprise": "true"
         },
         {
-          "label": "Committed usage and volume pricing",
+          "label": "Volume pricing",
           "free": "false",
           "pro": "false",
           "team": "false",
@@ -633,41 +625,17 @@
         }
       ]
     },
-    "sizes": {
-      "title": "Cloud VM sizes",
-      "body": "Pick a VM size per agent. You are billed per active compute-hour, and idle VMs suspend automatically. Pro includes 20 hours per month on the 4 vCPU / 16 GB size.",
-      "colSize": "Size",
-      "colUse": "Best for",
-      "colRate": "Per active hour",
-      "rows": [
-        {
-          "size": "2 vCPU / 8 GB",
-          "use": "Light agents and quick tasks",
-          "rate": "$0.20"
-        },
-        {
-          "size": "4 vCPU / 16 GB",
-          "use": "Standard development",
-          "rate": "$0.40"
-        },
-        {
-          "size": "8 vCPU / 32 GB",
-          "use": "Heavy builds and parallel agents",
-          "rate": "$0.80"
-        }
-      ]
-    },
     "help": "Questions? Join our <discord>Discord</discord>, open a <github>GitHub issue</github>, or <email>email us</email>.",
     "faq": {
       "title": "FAQ",
       "items": [
         {
           "q": "Is the terminal really free?",
-          "a": "Yes. The macOS app is open source and free forever. Local agents run with your own API keys at no cost to you. You only pay when you run agents on Cloud VMs."
+          "a": "Yes. The macOS app is open source and free forever. Local agents run with your own API keys at no cost to you. Cloud VMs are part of the paid plans."
         },
         {
           "q": "What are Cloud VMs?",
-          "a": "Remote Linux sandboxes where agents clone repositories, run commands, and open pull requests in the cloud, without touching your machine. They cover parallel work, background jobs, and PR review. Idle VMs suspend automatically, so you are only billed for active compute-hours."
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro and Team include up to 5 active machines."
         },
         {
           "q": "What is cmux Vault?",
@@ -675,16 +643,12 @@
           "vault": true
         },
         {
-          "q": "What is CodeRouter?",
-          "a": "CodeRouter routes each request across provider accounts with failover and gives you usage and cost analytics in one place. Bring your own provider accounts. Enterprise can self-host CodeRouter for org-wide control."
-        },
-        {
           "q": "Do I still need Tailscale for the iOS app?",
-          "a": "Yes, for now. Pair your iPhone with your Mac over your own networking, like Tailscale, on any plan; Enterprise can self-host. Hosted networking with zero setup is on the roadmap."
+          "a": "No. The iOS app pairs with your Mac over the built-in cmux iroh network. You can also bring your own networking, like Tailscale. Enterprise can self-host."
         },
         {
           "q": "How does billing work?",
-          "a": "Pro is $30/mo, or $24/mo when billed annually (a 20% savings), and includes 20 active compute-hours per month on the 4 vCPU / 16 GB Cloud VM. Beyond that, cloud usage is billed per active compute-hour by VM size (see Cloud VM sizes above). Idle VMs suspend automatically, and running agents in parallel just uses more hours. The terminal and local agents stay free."
+          "a": "Pro is $30/mo, or $24/mo when billed annually (a 20% savings). Team is $35/user/mo, or $28/user/mo when billed annually. Paid plans include up to 5 active Cloud VMs, with no metering or overages. The terminal and local agents stay free."
         },
         {
           "q": "Can I self-host the cloud?",
@@ -692,7 +656,7 @@
         },
         {
           "q": "Do you have a team plan?",
-          "a": "Yes. Team is $35/user/mo, or $28/user/mo when billed annually, and adds shared CodeRouter with anonymous aggregate usage and cost analytics."
+          "a": "Yes. Team is $35/user/mo, or $28/user/mo when billed annually, with centralized billing for your whole team and priority support."
         }
       ]
     },
@@ -3015,7 +2979,7 @@
       },
       "modelGateway": {
         "title": "Model gateway",
-        "body": "Route across providers with usage and cost analytics, plus 20 compute-hours a month.",
+        "body": "Hosted model routing across your connected provider accounts.",
         "action": "Open model gateway"
       },
       "aiAccounts": {
