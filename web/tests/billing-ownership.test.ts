@@ -1,6 +1,44 @@
 import { describe, expect, mock, test } from "bun:test";
 
+import { accountDeletionTombstones, accountMutationLeases } from "../db/schema";
 import { claimPendingProBilling } from "../services/billing/purchase";
+
+function metadataDb() {
+  let operationId: string | null = null;
+  const select = () => ({
+    from: (table: unknown) => ({
+      where: () => ({
+        limit: async () => {
+          if (table === accountMutationLeases && operationId) {
+            return [{ operationId }];
+          }
+          if (table === accountDeletionTombstones) return [];
+          return [];
+        },
+      }),
+    }),
+  });
+  const tx = {
+    execute: async () => undefined,
+    select,
+    delete: () => ({
+      where: async () => {
+        operationId = null;
+      },
+    }),
+    insert: () => ({
+      values: async (values: { operationId?: string }) => {
+        operationId = values.operationId ?? null;
+      },
+    }),
+    update: () => ({ set: () => ({ where: async () => undefined }) }),
+  };
+  return {
+    ...tx,
+    transaction: async <T>(callback: (transaction: typeof tx) => Promise<T>) =>
+      await callback(tx),
+  };
+}
 
 describe("billing email claim resolution", () => {
   test("consumes a claim when the anonymous source was promoted in place", async () => {
@@ -33,7 +71,7 @@ describe("billing email claim resolution", () => {
         isRestricted: false,
       },
       {
-        db: {} as never,
+        db: metadataDb() as never,
         stackApp: {
           getUser: async () => ({
             id: transfer.sourceStackUserId,
@@ -94,6 +132,7 @@ describe("billing email claim resolution", () => {
     const transferClaim = mock(async () => transfer);
     const customerUpdate = mock(async () => ({}));
     const subscriptionUpdate = mock(async () => ({}));
+    const targetUpdate = mock(async () => undefined);
 
     const result = await claimPendingProBilling(
       {
@@ -104,15 +143,26 @@ describe("billing email claim resolution", () => {
         isRestricted: false,
       },
       {
-        db: {} as never,
+        db: metadataDb() as never,
         stackApp: {
-          getUser: async () => ({
-            id: "anonymous-1",
-            isAnonymous: true,
-            primaryEmail: null,
-            clientReadOnlyMetadata: {},
-            update: mock(async () => undefined),
-          }),
+          getUser: async (id: string) =>
+            id === "target-1"
+              ? {
+                  id: "target-1",
+                  isAnonymous: false,
+                  isRestricted: false,
+                  primaryEmail: "Billing.Fixture@Gmail.com",
+                  primaryEmailVerified: true,
+                  clientReadOnlyMetadata: {},
+                  update: targetUpdate,
+                }
+              : {
+                  id: "anonymous-1",
+                  isAnonymous: true,
+                  primaryEmail: null,
+                  clientReadOnlyMetadata: {},
+                  update: mock(async () => undefined),
+                },
         } as never,
         ownershipRepository: { findClaims, transferClaim },
         stripeClient: () => ({
@@ -145,6 +195,9 @@ describe("billing email claim resolution", () => {
     });
     expect(subscriptionUpdate).toHaveBeenCalledWith("sub-1", {
       metadata: { app: "cmux", plan: "pro", stackUserId: "target-1" },
+    });
+    expect(targetUpdate).toHaveBeenCalledWith({
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
     });
   });
 
