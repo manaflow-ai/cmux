@@ -328,13 +328,15 @@ impl AgentRoster {
             (state, AgentSource::Hook, public_session, agent, event.committed_at_ms)
         };
         if source != AgentSource::Hook
-            && self
-                .entries
-                .get(terminal_id)
-                .is_some_and(|entry| entry.agent_source() == AgentSource::Hook)
+            && self.entries.get(terminal_id).is_some_and(|entry| {
+                entry.agent_source() == AgentSource::Hook
+                    || (entry.agent_source() == AgentSource::Socket
+                        && source == AgentSource::Detected)
+            })
         {
-            // Hook state is live agent truth; socket reports cannot
-            // overwrite it (mirrors the projection commit precedence).
+            // Hook state is live agent truth. A structured socket report also
+            // outranks the screen detector, so neither lower-authority source
+            // can replace a stronger live projection.
             return Vec::new();
         }
         let external_receipt_changed = if source != AgentSource::Hook {
@@ -619,6 +621,37 @@ mod tests {
         assert_eq!(deltas.len(), 1);
         assert_eq!(roster.entries["term_a"].agent_source(), AgentSource::Detected);
         assert_eq!(roster.entries["term_a"].session.as_deref(), Some("screen-1"));
+    }
+
+    #[test]
+    fn detected_echo_cannot_replace_socket_authority() {
+        let subjects = terminal_subject("term_a");
+        let socket = json!({
+            "adapter": {"id": SOCKET_REPORT_ADAPTER, "version": 1},
+            "normalized": {
+                "state": "working",
+                "source": "socket",
+                "source_session": "socket-1"
+            }
+        });
+        let detected = json!({
+            "adapter": {"id": DETECTED_REPORT_ADAPTER, "version": 1},
+            "normalized": {
+                "state": "blocked",
+                "source": "detected",
+                "source_session": "screen-1"
+            }
+        });
+        let mut roster = AgentRoster::default();
+        assert_eq!(
+            roster.apply(&hook_event(1, "agent.state.changed", &subjects, &socket)).len(),
+            1
+        );
+        assert!(
+            roster.apply(&hook_event(2, "agent.state.changed", &subjects, &detected)).is_empty()
+        );
+        assert_eq!(roster.entries["term_a"].agent_source(), AgentSource::Socket);
+        assert_eq!(roster.entries["term_a"].state, AgentState::Working.as_str());
     }
 
     #[test]

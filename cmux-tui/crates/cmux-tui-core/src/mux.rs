@@ -6392,7 +6392,15 @@ impl Mux {
             previous.as_ref().is_some_and(|(_, previous_source, _, _)| {
                 previous_source == AgentSource::Hook.as_str() && source != AgentSource::Hook
             });
-        if unchanged || repeated_external_done || hook_owned_external_report {
+        let socket_owned_detected_report =
+            previous.as_ref().is_some_and(|(_, previous_source, _, _)| {
+                previous_source == AgentSource::Socket.as_str() && source == AgentSource::Detected
+            });
+        if unchanged
+            || repeated_external_done
+            || hook_owned_external_report
+            || socket_owned_detected_report
+        {
             return None;
         }
         let previous = previous
@@ -10373,14 +10381,15 @@ impl Mux {
         let now = reported_at_ms.unwrap_or_else(now_ms);
         let mut records = self.agent_records.lock().unwrap();
         let lower_authority_report_ignored = records.get(&terminal_id).is_some_and(|existing| {
-            existing.source == AgentSource::Hook
+            (existing.source == AgentSource::Hook
                 && source != AgentSource::Hook
-                && !effective_hook_state.is_some_and(|state| state.ended)
+                && !effective_hook_state.is_some_and(|state| state.ended))
+                || (existing.source == AgentSource::Socket && source == AgentSource::Detected)
         });
         // Hook-owned state remains a semantic no-op for lower-authority
-        // detected and socket reports. A socket-owned report still refreshes
-        // its durable timestamp; the echo key below coalesces only when that
-        // complete payload is equal.
+        // reports. Structured socket state also outranks screen detection.
+        // A socket-owned report still refreshes its durable timestamp; the
+        // echo key below coalesces only when that complete payload is equal.
         let record = match records.get(&terminal_id) {
             Some(existing) if lower_authority_report_ignored => existing.clone(),
             _ => TerminalAgentRecord {
