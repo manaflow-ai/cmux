@@ -16792,7 +16792,9 @@ impl App {
     }
 
     fn terminal_active_screen(&self, surface: SurfaceId) -> Option<Screen> {
-        self.session.surface(surface).and_then(|handle| handle.with_terminal(|terminal| terminal.active_screen()))
+        self.session
+            .surface(surface)
+            .and_then(|handle| handle.with_terminal(|terminal| terminal.active_screen()))
     }
 
     fn selection_repeat_allowed(
@@ -20601,18 +20603,20 @@ impl App {
             }
             MouseEventKind::Down(MouseButton::Middle) => {
                 self.reset_selection_click_sequence();
-                Ok(if self.begin_pty_mouse_drag_with_admission(
-                    mouse.column,
-                    mouse.row,
-                    MouseButton::Middle,
-                    mouse.modifiers,
-                    terminal_admission,
-                ) != PtyMousePressResult::NotOwned
-                {
-                    RenderAction::Draw
-                } else {
-                    RenderAction::None
-                })
+                Ok(
+                    if self.begin_pty_mouse_drag_with_admission(
+                        mouse.column,
+                        mouse.row,
+                        MouseButton::Middle,
+                        mouse.modifiers,
+                        terminal_admission,
+                    ) != PtyMousePressResult::NotOwned
+                    {
+                        RenderAction::Draw
+                    } else {
+                        RenderAction::None
+                    },
+                )
             }
             MouseEventKind::Drag(MouseButton::Middle) => {
                 self.forward_pty_mouse_drag(
@@ -22145,9 +22149,7 @@ impl App {
                     );
                     self.selection_mode = mode;
                     self.selection_mode_surface = Some(area.surface);
-                    if let Some(selection) =
-                        self.selection_for_click(area.surface, cell, mode)
-                    {
+                    if let Some(selection) = self.selection_for_click(area.surface, cell, mode) {
                         self.replace_selection(Some(selection));
                     }
                     self.drag = Some(Drag::Select { content, source_x, auto_scroll: None, col });
@@ -22199,23 +22201,25 @@ impl App {
             }
             Some(Drag::Select { content, source_x, .. }) => {
                 let fallback = (*content, *source_x);
-                let selection_surface =
-                    self.selection_mode_surface.or_else(|| self.selection.map(|selection| selection.surface));
+                let selection_surface = self
+                    .selection_mode_surface
+                    .or_else(|| self.selection.map(|selection| selection.surface));
                 let (content, source_x) = selection_surface
                     .and_then(|surface| self.current_selection_geometry(surface))
                     .unwrap_or(fallback);
                 let cx = x.clamp(content.x, content.x + content.width.saturating_sub(1));
                 let cy = y.clamp(content.y, content.y + content.height.saturating_sub(1));
                 let col = source_x.saturating_add(cx - content.x);
-                let offset =
-                    selection_surface.map(|surface| self.surface_scroll_offset(surface)).unwrap_or(0);
+                let offset = selection_surface
+                    .map(|surface| self.surface_scroll_offset(surface))
+                    .unwrap_or(0);
                 let current = (col, offset + (cy - content.y) as u64);
                 let mode = selection_surface
                     .filter(|surface| self.selection_mode_surface == Some(*surface))
                     .and_then(|surface| {
                         self.selection_click_sequence
                             .as_ref()
-                            .filter(|sequence| sequence.surface == *surface)
+                            .filter(|sequence| sequence.surface == surface)
                             .map(|sequence| sequence.mode)
                     })
                     .unwrap_or(SelectionMode::Cell);
