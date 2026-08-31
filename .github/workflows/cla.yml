@@ -38,21 +38,10 @@ jobs:
       ) ||
       (
         github.event_name == 'issue_comment' &&
+        github.event.action == 'created' &&
         github.event.issue.state == 'open' &&
         github.event.issue.pull_request &&
-        github.event.comment.user.type == 'User' &&
-        (
-          github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA' ||
-          (
-            github.event.comment.body == 'recheck' &&
-            (
-              github.event.comment.user.id == github.event.issue.user.id ||
-              github.event.comment.author_association == 'OWNER' ||
-              github.event.comment.author_association == 'MEMBER' ||
-              github.event.comment.author_association == 'COLLABORATOR'
-            )
-          )
-        )
+        github.event.comment.user.type == 'User'
       )
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
@@ -66,8 +55,11 @@ jobs:
       group: cla-admission-${{ github.repository }}-${{ github.event_name }}-${{ github.event.issue.number || github.event.pull_request.number }}
       cancel-in-progress: false
     permissions: {}
+    outputs:
+      admitted: ${{ steps.admission.outputs.admitted }}
     steps:
       - name: "Validate exact CLA trigger"
+        id: admission
         env:
           EVENT_NAME: ${{ github.event_name }}
           EVENT_ACTION: ${{ github.event.action }}
@@ -79,50 +71,79 @@ jobs:
           COMMENT_AUTHOR_ASSOCIATION: ${{ github.event.comment.author_association }}
         run: |
           set -euo pipefail
+
+          fail() {
+            echo "::error::$1"
+            exit 1
+          }
+
+          # Actions supplies GITHUB_OUTPUT. A missing output file is a runner
+          # protocol failure, so do not let a dependent privileged job run
+          # without an explicit admission result.
+          [[ -n "${GITHUB_OUTPUT+x}" && -n "${GITHUB_OUTPUT}" ]] || fail "GITHUB_OUTPUT is unavailable"
+          [[ -n "${EVENT_NAME+x}" && -n "${EVENT_ACTION+x}" ]] || fail "The event metadata is incomplete"
+
           if [[ "${EVENT_NAME}" == "issue_comment" ]]; then
-            if [[ "${COMMENT_AUTHOR_TYPE}" != "User" || -z "${COMMENT_AUTHOR_LOGIN}" ]]; then
-              echo "::error::Bot and malformed comments cannot trigger the CLA action"
-              exit 1
-            fi
+            [[ "${EVENT_ACTION}" == "created" ]] || fail "The issue-comment event action is not supported"
+            [[ -n "${COMMENT_BODY+x}" &&
+               -n "${COMMENT_AUTHOR_TYPE+x}" &&
+               -n "${COMMENT_AUTHOR_ID+x}" &&
+               -n "${COMMENT_AUTHOR_LOGIN+x}" &&
+               -n "${PR_AUTHOR_ID+x}" &&
+               -n "${COMMENT_AUTHOR_ASSOCIATION+x}" ]] || fail "The issue-comment metadata is incomplete"
+            [[ "${COMMENT_AUTHOR_TYPE}" == "User" && -n "${COMMENT_AUTHOR_LOGIN}" ]] ||
+              fail "Bot and malformed comments cannot trigger the CLA action"
             case "${COMMENT_AUTHOR_LOGIN,,}" in
               *"[bot]")
-                echo "::error::Bot comments cannot trigger the CLA action"
-                exit 1
+                fail "Bot comments cannot trigger the CLA action"
                 ;;
             esac
-            if [[ "${COMMENT_BODY}" != "recheck" &&
-                  "${COMMENT_BODY}" != "I have read the CLA Document v2.2 and I hereby sign the CLA" ]]; then
-              echo "::error::The comment is not an exact CLA declaration or recheck command"
-              exit 1
+            [[ "${COMMENT_AUTHOR_ID}" =~ ^[1-9][0-9]*$ ]] || fail "The issue-comment author ID is malformed"
+            [[ "${PR_AUTHOR_ID}" =~ ^[1-9][0-9]*$ ]] || fail "The pull request author ID is malformed"
+            [[ -n "${COMMENT_AUTHOR_ASSOCIATION}" &&
+               "${COMMENT_AUTHOR_ASSOCIATION}" != *$'\n'* &&
+               "${COMMENT_AUTHOR_ASSOCIATION}" != *$'\r'* ]] ||
+              fail "The issue-comment author association is malformed"
+
+            if [[ "${COMMENT_BODY}" == "I have read the CLA Document v2.2 and I hereby sign the CLA" ]]; then
+              printf 'admitted=true\n' >>"${GITHUB_OUTPUT}"
+              exit 0
             fi
             if [[ "${COMMENT_BODY}" == "recheck" ]]; then
-              if [[ "${COMMENT_AUTHOR_TYPE}" != "User" ||
-                    ! "${COMMENT_AUTHOR_ID}" =~ ^[1-9][0-9]*$ ||
-                    ! "${PR_AUTHOR_ID}" =~ ^[1-9][0-9]*$ ]]; then
-                echo "::error::Only the pull request author or a trusted repository participant may request a CLA rerun"
-                exit 1
+              if [[ "${COMMENT_AUTHOR_ID}" == "${PR_AUTHOR_ID}" ]]; then
+                printf 'admitted=true\n' >>"${GITHUB_OUTPUT}"
+                exit 0
               fi
               if [[ "${COMMENT_AUTHOR_ID}" != "${PR_AUTHOR_ID}" ]]; then
                 case "${COMMENT_AUTHOR_ASSOCIATION}" in
-                  OWNER|MEMBER|COLLABORATOR) ;;
+                  OWNER|MEMBER|COLLABORATOR)
+                    printf 'admitted=true\n' >>"${GITHUB_OUTPUT}"
+                    exit 0
+                    ;;
                   *)
-                    echo "::error::Only the pull request author or a trusted repository participant may request a CLA rerun"
-                    exit 1
+                    # A well-formed but unauthorized recheck is ordinary
+                    # discussion and must not reach the privileged signer.
+                    printf 'admitted=false\n' >>"${GITHUB_OUTPUT}"
+                    exit 0
                     ;;
                 esac
               fi
             fi
+            # All other well-formed human comments are ordinary discussion.
+            printf 'admitted=false\n' >>"${GITHUB_OUTPUT}"
+            exit 0
           elif [[ "${EVENT_NAME}" == "pull_request_target" ]]; then
             case "${EVENT_ACTION}" in
-              opened|edited|reopened|synchronize) ;;
+              opened|edited|reopened|synchronize)
+                printf 'admitted=true\n' >>"${GITHUB_OUTPUT}"
+                exit 0
+                ;;
               *)
-                echo "::error::The pull request event is not an accepted CLA trigger"
-                exit 1
+                fail "The pull request event is not an accepted CLA trigger"
                 ;;
             esac
           else
-            echo "::error::The event is not an accepted CLA trigger"
-            exit 1
+            fail "The event is not an accepted CLA trigger"
           fi
 
   CLAAssistant:
@@ -146,6 +167,13 @@ jobs:
     # result before any privileged step can run.
     if: >-
       always() &&
+      (
+        needs.CLACommentGate.result == 'failure' ||
+        (
+          needs.CLACommentGate.result == 'success' &&
+          needs.CLACommentGate.outputs.admitted == 'true'
+        )
+      ) &&
       (
         (
           github.event_name == 'pull_request_target' &&
@@ -201,10 +229,11 @@ jobs:
         if: always()
         env:
           GATE_RESULT: ${{ needs.CLACommentGate.result }}
+          ADMITTED: ${{ needs.CLACommentGate.outputs.admitted }}
         run: |
           set -euo pipefail
-          if [[ "${GATE_RESULT}" != "success" ]]; then
-            echo "::error::CLA trigger admission did not pass (gate: ${GATE_RESULT})"
+          if [[ "${GATE_RESULT}" != "success" || "${ADMITTED}" != "true" ]]; then
+            echo "::error::CLA trigger admission did not pass (gate: ${GATE_RESULT}, admitted: ${ADMITTED})"
             exit 1
           fi
 

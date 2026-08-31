@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Exercise the unprivileged CLA trigger admission gate. The shell gate must
-# reject case variants and wrapped comments. The job-level expression is a
-# coarse prefilter; exact admission runs before the signer queue.
+# Exercise the unprivileged CLA trigger admission gate. The shell gate emits a
+# true/false admission result, rejects malformed metadata, and keeps ordinary
+# human comments out of the privileged signer queue.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -23,6 +23,9 @@ grep -Fq 'name: "CLA Assistant"' "$WORKFLOW"
 grep -Fq 'github.event.comment.body == '\''recheck'\''' "$WORKFLOW"
 grep -Fq 'github.event.comment.body == '\''I have read the CLA Document v2.2 and I hereby sign the CLA'\''' "$WORKFLOW"
 grep -Fq 'github.event.comment.user.id == github.event.issue.user.id' "$WORKFLOW"
+grep -Fq "github.event.action == 'created'" "$WORKFLOW"
+grep -Fq 'id: admission' "$WORKFLOW"
+grep -Fq "admitted: \${{ steps.admission.outputs.admitted }}" "$WORKFLOW"
 grep -Fq 'always() &&' "$WORKFLOW"
 grep -Fq 'cancel-in-progress: false' "$WORKFLOW"
 grep -Fq "group: cla-signatures-\${{ github.repository }}-\${{ github.event.pull_request.number || github.event.issue.number }}" "$WORKFLOW"
@@ -35,8 +38,11 @@ for job in CLACommentGate CLAAssistant CLACompatibility RerunFailedCLA LockMerge
 done
 assistant_block="$(awk '/^  CLAAssistant:/ { in_job=1; next } in_job && /^  [A-Za-z0-9_]+:/ { exit } in_job { print }' "$WORKFLOW")"
 if [[ "$assistant_block" != *$'    if: >-\n      always() &&'* ||
+      "$assistant_block" != *"needs.CLACommentGate.result == 'failure'"* ||
+      "$assistant_block" != *"needs.CLACommentGate.outputs.admitted == 'true'"* ||
       "$assistant_block" != *'      - name: "Require CLA admission"'* ||
-      "$assistant_block" != *'        if: always()'* ]]; then
+      "$assistant_block" != *'        if: always()'* ||
+      "$assistant_block" != *"          ADMITTED: \${{ needs.CLACommentGate.outputs.admitted }}"* ]]; then
   echo 'FAIL: CLA assistant must expose a failed check when admission fails' >&2
   exit 1
 fi
@@ -81,8 +87,10 @@ awk '
 ' "$WORKFLOW" >"$admission_script"
 bash -n "$admission_script"
 for gate_result in success failure skipped; do
+  admitted=true
+  [[ "$gate_result" == success ]] || admitted=false
   set +e
-  output="$(GATE_RESULT="$gate_result" bash "$admission_script" 2>&1)"
+  output="$(GATE_RESULT="$gate_result" ADMITTED="$admitted" bash "$admission_script" 2>&1)"
   status=$?
   set -e
   if [[ "$gate_result" == success && "$status" -ne 0 ]]; then
@@ -93,12 +101,21 @@ for gate_result in success failure skipped; do
     exit 1
   fi
 done
+set +e
+output="$(GATE_RESULT=success ADMITTED=false bash "$admission_script" 2>&1)"
+status=$?
+set -e
+if [[ "$status" -eq 0 || "$output" != *"admitted: false"* ]]; then
+  echo 'FAIL: admission guard accepted a false admission output' >&2
+  exit 1
+fi
 echo "PASS: admission result guard"
 
 run_case() {
   local mode="$1"
   local expected_status="$2"
   local expected_text="$3"
+  local expected_admitted="$4"
   local event_name=issue_comment
   local event_action=created
   local comment_body=recheck
@@ -107,13 +124,16 @@ run_case() {
   local pr_author_id=300
   local comment_author_type=User
   local comment_author_association=NONE
-  local output status
+  local output status output_file actual_admitted
+  output_file="$work/output-$mode"
+  rm -f "$output_file"
   case "$mode" in
     exact-sign) comment_body='I have read the CLA Document v2.2 and I hereby sign the CLA' ;;
     legacy-sign) comment_body='I have read the CLA Document and I hereby sign the CLA' ;;
     uppercase-recheck) comment_body=RECHECK ;;
     padded-sign) comment_body=' I have read the CLA Document v2.2 and I hereby sign the CLA ' ;;
     wrapped-sign) comment_body='Please sign: I have read the CLA Document v2.2 and I hereby sign the CLA' ;;
+    ordinary-comment) comment_body='Thanks for the review!' ;;
     untrusted-recheck) comment_author_id=301 ;;
     trusted-recheck) comment_author_id=301; comment_author_association=MEMBER ;;
     bot-comment) comment_author_login='github-actions[bot]'; comment_author_type=Bot ;;
@@ -126,6 +146,7 @@ run_case() {
   esac
   set +e
   output="$(
+    GITHUB_OUTPUT="$output_file" \
     EVENT_NAME="$event_name" \
     EVENT_ACTION="$event_action" \
     COMMENT_BODY="$comment_body" \
@@ -148,24 +169,73 @@ run_case() {
     echo "$output" >&2
     exit 1
   fi
+  if [[ "$expected_admitted" == none ]]; then
+    if [[ -s "$output_file" ]]; then
+      echo "FAIL: $mode unexpectedly wrote an admission result" >&2
+      cat "$output_file" >&2
+      exit 1
+    fi
+  else
+    if [[ ! -s "$output_file" ]]; then
+      echo "FAIL: $mode did not write admitted=$expected_admitted" >&2
+      exit 1
+    fi
+    actual_admitted="$(<"$output_file")"
+    if [[ "$actual_admitted" != "admitted=$expected_admitted" ]]; then
+      echo "FAIL: $mode wrote '$actual_admitted', expected admitted=$expected_admitted" >&2
+      exit 1
+    fi
+  fi
   echo "PASS: $mode"
 }
 
-run_case exact-recheck 0 ""
-run_case exact-sign 0 ""
-run_case legacy-sign 1 "exact CLA declaration"
-run_case uppercase-recheck 1 "exact CLA declaration"
-run_case untrusted-recheck 1 "Only the pull request author or a trusted repository participant"
-run_case trusted-recheck 0 ""
-run_case bot-comment 1 "Bot and malformed comments"
-run_case padded-sign 1 "exact CLA declaration"
-run_case wrapped-sign 1 "exact CLA declaration"
-run_case pull-opened 0 ""
-run_case pull-edited 0 ""
-run_case pull-reopened 0 ""
-run_case pull-synchronize 0 ""
-run_case pull-closed 1 "accepted CLA trigger"
-run_case wrong-event 1 "accepted CLA trigger"
+run_case exact-recheck 0 "" true
+run_case exact-sign 0 "" true
+run_case legacy-sign 0 "" false
+run_case uppercase-recheck 0 "" false
+run_case untrusted-recheck 0 "" false
+run_case trusted-recheck 0 "" true
+run_case bot-comment 1 "Bot" none
+run_case padded-sign 0 "" false
+run_case wrapped-sign 0 "" false
+run_case ordinary-comment 0 "" false
+run_case pull-opened 0 "" true
+run_case pull-edited 0 "" true
+run_case pull-reopened 0 "" true
+run_case pull-synchronize 0 "" true
+run_case pull-closed 1 "accepted CLA trigger" none
+run_case wrong-event 1 "accepted CLA trigger" none
+
+# Missing runner metadata is an infrastructure/malformed-event failure, not a
+# false admission. The gate must fail closed before a privileged dependency.
+set +e
+output="$(
+  GITHUB_OUTPUT="$work/output-missing-author" \
+  EVENT_NAME=issue_comment EVENT_ACTION=created COMMENT_BODY='ordinary' \
+  COMMENT_AUTHOR_LOGIN=contributor PR_AUTHOR_ID=300 COMMENT_AUTHOR_TYPE=User \
+  COMMENT_AUTHOR_ASSOCIATION=NONE bash -u "$gate_script" 2>&1
+)"
+status=$?
+set -e
+if [[ "$status" -eq 0 || "$output" != *"metadata is incomplete"* ]]; then
+  echo 'FAIL: missing comment metadata did not fail closed' >&2
+  echo "$output" >&2
+  exit 1
+fi
+set +e
+output="$(
+  EVENT_NAME=issue_comment EVENT_ACTION=created COMMENT_BODY=ordinary \
+  COMMENT_AUTHOR_ID=300 COMMENT_AUTHOR_LOGIN=contributor PR_AUTHOR_ID=300 \
+  COMMENT_AUTHOR_TYPE=User COMMENT_AUTHOR_ASSOCIATION=NONE bash -u "$gate_script" 2>&1
+)"
+status=$?
+set -e
+if [[ "$status" -eq 0 || "$output" != *"GITHUB_OUTPUT is unavailable"* ]]; then
+  echo 'FAIL: missing GITHUB_OUTPUT did not fail closed' >&2
+  echo "$output" >&2
+  exit 1
+fi
+echo "PASS: malformed and infrastructure admission failures"
 
 # The compatibility check must fail closed when the v2 action fails or is
 # skipped. A skipped dependency must never become a successful old required
