@@ -105,6 +105,7 @@ type SessionOverrides = {
   subscription?: string | { metadata?: Record<string, string> | null } | null;
   customer_details?: { email?: string | null; name?: string | null } | null;
   payment_status?: string | null;
+  locale?: string | null;
 };
 
 function checkoutCompletedEvent(
@@ -225,6 +226,30 @@ describe("founders welcome route", () => {
     expect(sentEmails[0].options.idempotencyKey).toBe(
       "founders-welcome/cs_test_pro",
     );
+  });
+
+  test("preserves regional locale keys and accepts lowercase Stripe aliases", async () => {
+    const cases = [
+      { locale: "pt-BR", subject: "Boas-vindas ao cmux Pro 🎉" },
+      { locale: "zh-cn", subject: "欢迎加入 cmux Pro 🎉" },
+      { locale: "zh-TW", subject: "歡迎加入 cmux Pro 🎉" },
+    ];
+
+    for (const [index, testCase] of cases.entries()) {
+      const response = await POST(
+        signedRequest(
+          checkoutCompletedEvent({
+            id: `cs_test_regional_${index}`,
+            metadata: { stackUserId: "user-1", plan: "pro", app: "cmux" },
+            locale: testCase.locale,
+          }),
+        ),
+      );
+
+      expect(response.status).toBe(200);
+      expect(sentEmails[index]?.payload.subject).toBe(testCase.subject);
+    }
+    expect(resendSend).toHaveBeenCalledTimes(cases.length);
   });
 
   test("sends the personal Pro email when metadata is only on the expanded subscription", async () => {

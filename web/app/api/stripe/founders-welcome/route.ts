@@ -311,17 +311,23 @@ function localeForSession(session: StripeSessionPayload | undefined): Locale {
       ? (session as { locale?: unknown }).locale
       : undefined;
   if (typeof value !== "string") return "en";
-  const normalized = value.trim().toLowerCase();
+  const trimmed = value.trim();
+  const normalized = trimmed.toLowerCase();
   const aliases: Record<string, Locale> = {
     "en-gb": "en",
     "es-419": "es",
     "fr-ca": "fr",
     nb: "no",
     pt: "pt-BR",
+    "pt-br": "pt-BR",
     zh: "zh-CN",
+    "zh-cn": "zh-CN",
     "zh-hk": "zh-TW",
+    "zh-tw": "zh-TW",
   };
-  const aliased = aliases[normalized] ?? normalized;
+  // Keep the catalog's case-sensitive regional keys when Stripe already
+  // supplied one, while accepting lowercase provider aliases as well.
+  const aliased = aliases[normalized] ?? trimmed;
   return (locales as readonly string[]).includes(aliased)
     ? (aliased as Locale)
     : "en";
