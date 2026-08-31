@@ -18,8 +18,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: "CLA Assistant"
+        # The action locks every `closed` event, so only run that path for a
+        # merged pull request. This keeps declined pull requests unlockable.
         if: >-
-          github.event_name == 'pull_request_target' ||
+          (
+            github.event_name == 'pull_request_target' &&
+            (
+              github.event.action != 'closed' ||
+              github.event.pull_request.merged == true
+            )
+          ) ||
           (
             github.event_name == 'issue_comment' &&
             github.event.issue.pull_request &&
