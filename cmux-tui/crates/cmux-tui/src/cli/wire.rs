@@ -222,6 +222,7 @@ fn response_read_timeout(plan: &RequestPlan, signal_interrupt_armed: bool) -> Op
         WireOperation::Typed(
             cmux_tui_core::resource::ResourceOperation::TerminalWait
                 | cmux_tui_core::resource::ResourceOperation::TerminalWaitExit
+                | cmux_tui_core::resource::ResourceOperation::AgentWait
         )
     ) {
         return plan
@@ -857,7 +858,11 @@ mod tests {
 
     #[test]
     fn terminal_wait_transport_timeout_follows_the_operation_timeout() {
-        for operation in [ResourceOperation::TerminalWait, ResourceOperation::TerminalWaitExit] {
+        for operation in [
+            ResourceOperation::TerminalWait,
+            ResourceOperation::TerminalWaitExit,
+            ResourceOperation::AgentWait,
+        ] {
             let bounded = RequestPlan {
                 operation: WireOperation::Typed(operation),
                 params: json!({"timeout_ms":"5000"}),
