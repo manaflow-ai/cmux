@@ -10883,12 +10883,17 @@ impl Mux {
         self.journal_event_changed.notify_all();
         self.journal_kernel.wake_waiters();
         let hook_deadline = Instant::now() + crate::journal_hooks::SHUTDOWN_WAIT;
-        self.wait_for_agent_roster_fold_worker(hook_deadline);
         if !self.journal_hook_runtime.shutdown_until(hook_deadline) {
             eprintln!("cmux-tui: journal hook workers did not stop before the shutdown deadline");
         }
         self.finalize_terminal_journal("shutdown");
-        if let Err(error) = self.persist_agent_roster_snapshot_until(hook_deadline) {
+        // Stop the journal writer before waiting for the detached roster fold.
+        // A fold can be blocked on the registry while the writer owns its
+        // mutex. Waiting first leaves the session lease held after shutdown
+        // returns when the writer cannot make progress until finalization.
+        let roster_deadline = Instant::now() + crate::journal_hooks::SHUTDOWN_WAIT;
+        self.wait_for_agent_roster_fold_worker(roster_deadline);
+        if let Err(error) = self.persist_agent_roster_snapshot_until(roster_deadline) {
             eprintln!(
                 "cmux-tui: persisting the agent roster snapshot during shutdown failed: {error}"
             );
