@@ -93,6 +93,11 @@ jobs:
     # smoke test and open-PR sweep complete.
     name: "CLA Assistant v2"
     needs: CLACommentGate
+    outputs:
+      # The rerun worker may use this only as proof that this exact action run
+      # persisted a new signature. A comment by itself is not authorization
+      # for a job with actions:write.
+      signature_recorded: ${{ steps.cla_action.outputs.signature_recorded }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     # Filter before concurrency admission. Otherwise arbitrary issue comments
@@ -209,6 +214,7 @@ jobs:
           fi
 
       - name: "CLA Assistant v2"
+        id: cla_action
         # Use the reviewed in-organization action fork. Pin the runtime commit
         # so a branch move cannot change the code executed by this workflow.
         # The fork's default branch must be protected before this check is made
@@ -287,9 +293,10 @@ jobs:
     # Keep the workflow-rerun token out of the signature-writing job. This
     # isolated fixed shell is the only job that can rerun a failed check, and
     # it runs only after the exact accepted issue-comment path reaches the
-    # assistant. The assistant normally fails while contributors are unsigned,
-    # so allow both success and failure results below; the shell repeats every
-    # identity and run validation before using actions:write.
+    # assistant. A signing declaration may authorize a rerun only when the
+    # action output proves that this run persisted a new signature. `recheck`
+    # remains available to the PR author or a trusted repository participant
+    # for a normal failed-check refresh.
     if: >-
       always() &&
       (
@@ -301,7 +308,10 @@ jobs:
       github.event.issue.pull_request &&
       (
         github.event.comment.body == 'recheck' ||
-        github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA'
+        (
+          github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA' &&
+          needs.CLAAssistant.outputs.signature_recorded == 'true'
+        )
       )
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
@@ -330,6 +340,7 @@ jobs:
           PR_NUMBER: ${{ github.event.issue.number }}
           COMMENT_BODY: ${{ github.event.comment.body }}
           COMMENT_CREATED_AT: ${{ github.event.comment.created_at }}
+          COMMENT_AUTHOR_ID: ${{ github.event.comment.user.id }}
           COMMENT_AUTHOR_LOGIN: ${{ github.event.comment.user.login }}
           COMMENT_AUTHOR_TYPE: ${{ github.event.comment.user.type }}
           COMMENT_AUTHOR_ASSOCIATION: ${{ github.event.comment.author_association }}
@@ -337,6 +348,7 @@ jobs:
           CLA_GENERATION: ${{ env.CLA_GENERATION }}
           TARGET_EVENT: 'pull_request_target'
           TARGET_BASE_REF: 'main'
+          SIGNATURE_RECORDED: ${{ needs.CLAAssistant.outputs.signature_recorded }}
         run: |
           set -euo pipefail
 
@@ -353,6 +365,7 @@ jobs:
           [[ "${PR_NUMBER}" == "${ISSUE_NUMBER}" ]] || fail "Issue and pull request numbers differ"
           [[ "${COMMENT_BODY}" == "recheck" || "${COMMENT_BODY}" == "I have read the CLA Document v2.2 and I hereby sign the CLA" ]] || fail "Comment is not an accepted CLA trigger"
           [[ "${COMMENT_CREATED_AT}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || fail "Invalid comment timestamp"
+          [[ "${COMMENT_AUTHOR_ID}" =~ ^[1-9][0-9]*$ ]] || fail "Comment author ID is invalid"
           [[ -n "${COMMENT_AUTHOR_LOGIN}" ]] || fail "Comment author is missing"
           [[ "${COMMENT_AUTHOR_TYPE}" == "User" ]] || fail "Comment author is not a human user"
           case "${COMMENT_AUTHOR_LOGIN,,}" in
@@ -362,6 +375,14 @@ jobs:
             OWNER|MEMBER|COLLABORATOR|CONTRIBUTOR|FIRST_TIME_CONTRIBUTOR|FIRST_TIMER|NONE) ;;
             *) fail "Comment author association is invalid" ;;
           esac
+          case "${SIGNATURE_RECORDED}" in
+            true|false) ;;
+            *) fail "The CLA action did not provide a valid signature result" ;;
+          esac
+          if [[ "${COMMENT_BODY}" == "I have read the CLA Document v2.2 and I hereby sign the CLA" &&
+                "${SIGNATURE_RECORDED}" != "true" ]]; then
+            fail "The signing comment did not result in a persisted signature"
+          fi
           [[ "${CLA_GENERATION}" =~ ^v[0-9]+\.[0-9]+-action-[0-9a-f]{7,40}$ ]] || fail "Invalid CLA generation marker"
 
           issue_json="$(gh api "repos/${GH_REPO}/issues/${PR_NUMBER}" 2>/dev/null)" || fail "Could not query the issue"
@@ -381,7 +402,8 @@ jobs:
             (.head.sha | test("^[0-9a-f]{40}$")) and
             (.head.repo.id | type == "number") and
             (.head.repo.full_name | type == "string") and
-            (.user.login | type == "string")
+            (.user.login | type == "string") and
+            (.user.id | type == "number")
           ' <<<"${pr_json}" >/dev/null || fail "The live pull request is not valid"
           head_sha="$(jq -r '.head.sha' <<<"${pr_json}")"
           head_ref="$(jq -r '.head.ref // empty' <<<"${pr_json}")"
@@ -389,14 +411,16 @@ jobs:
           head_repo_id="$(jq -r '.head.repo.id // empty' <<<"${pr_json}")"
           repo_id="$(jq -r '.base.repo.id // empty' <<<"${pr_json}")"
           pr_author_login="$(jq -r '.user.login // empty' <<<"${pr_json}")"
+          pr_author_id="$(jq -r '.user.id // empty' <<<"${pr_json}")"
           [[ "${head_ref}" != "" && "${head_repo}" != "" ]] || fail "The pull request head repository is missing"
           [[ "${head_repo_id}" =~ ^[1-9][0-9]*$ ]] || fail "The pull request head repository ID is missing"
           [[ "${repo_id}" =~ ^[1-9][0-9]*$ ]] || fail "The pull request base repository ID is missing"
           [[ "${pr_author_login}" != "" ]] || fail "The pull request author is missing"
+          [[ "${pr_author_id}" =~ ^[1-9][0-9]*$ ]] || fail "The pull request author ID is missing"
           # A contributor may recheck their own pull request. A different
           # commenter must be a trusted repository participant, which limits
           # unauthenticated users to the harmless no-op path.
-          if [[ "${COMMENT_BODY}" == "recheck" && "${COMMENT_AUTHOR_LOGIN}" != "${pr_author_login}" ]]; then
+          if [[ "${COMMENT_BODY}" == "recheck" && "${COMMENT_AUTHOR_ID}" != "${pr_author_id}" ]]; then
             case "${COMMENT_AUTHOR_ASSOCIATION}" in
               OWNER|MEMBER|COLLABORATOR) ;;
               *) fail "Only the pull request author or a trusted repository participant may request a CLA rerun" ;;

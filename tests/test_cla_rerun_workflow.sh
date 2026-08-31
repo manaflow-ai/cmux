@@ -43,6 +43,7 @@ export ISSUE_NUMBER=123
 export PR_NUMBER=123
 export COMMENT_BODY=recheck
 export COMMENT_CREATED_AT=2026-08-31T08:00:00Z
+export COMMENT_AUTHOR_ID=300
 export COMMENT_AUTHOR_LOGIN=contributor
 export COMMENT_AUTHOR_TYPE=User
 export COMMENT_AUTHOR_ASSOCIATION=NONE
@@ -50,6 +51,7 @@ export WORKFLOW_PATH=.github/workflows/cla.yml
 export CLA_GENERATION=v2.2-action-49f01032e93ef115a238cd55ab9171ee3bd02435
 export TARGET_EVENT=pull_request_target
 export TARGET_BASE_REF=main
+export SIGNATURE_RECORDED=false
 
 # This stub models the API fields used by the rerun guard. In particular, a
 # fork-only commit has no result from /commits/:sha/pulls, while the workflow
@@ -120,7 +122,7 @@ gh() {
       ;;
     repos/manaflow-ai/cmux/pulls/123)
       jq -nc --arg state "$live_state" --arg base "$live_base" --arg head_repo "$live_head_repo" --argjson head_repo_id "$live_head_repo_id" \
-        '{number:123,state:$state,user:{login:"contributor"},base:{ref:$base,repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",repo:{id:$head_repo_id,full_name:$head_repo}}}'
+        '{number:123,state:$state,user:{id:300,login:"contributor"},base:{ref:$base,repo:{id:100,full_name:"manaflow-ai/cmux"}},head:{ref:"feature",sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",repo:{id:$head_repo_id,full_name:$head_repo}}}'
       ;;
     repos/manaflow-ai/cmux/commits/*/pulls)
       if [[ "${FAKE_MODE}" == same-repo-empty ]]; then
@@ -208,11 +210,18 @@ run_case() {
   local expected_text="$3"
   local expected_posts="$4"
   local expected_post="${5:-}"
-  local output status posts comment_author=contributor comment_type=User comment_association=NONE comment_body=recheck
+  local output status posts comment_author=contributor comment_author_id=300 comment_type=User comment_association=NONE comment_body=recheck signature_recorded=false
   if [[ "$mode" == untrusted-recheck ]]; then
     comment_author=untrusted-user
+    comment_author_id=301
   elif [[ "$mode" == external-signer ]]; then
     comment_author=coauthor
+    comment_author_id=400
+    comment_body='I have read the CLA Document v2.2 and I hereby sign the CLA'
+    signature_recorded=true
+  elif [[ "$mode" == unrecorded-signer ]]; then
+    comment_author=coauthor
+    comment_author_id=400
     comment_body='I have read the CLA Document v2.2 and I hereby sign the CLA'
   fi
   : >"$work/posts-$mode"
@@ -223,9 +232,11 @@ run_case() {
     FAKE_POST_FILE="$work/posts-$mode" \
     FAKE_ASSOC_CALL_FILE="$work/association-$mode" \
     COMMENT_BODY="$comment_body" \
+    COMMENT_AUTHOR_ID="$comment_author_id" \
     COMMENT_AUTHOR_LOGIN="$comment_author" \
     COMMENT_AUTHOR_TYPE="$comment_type" \
     COMMENT_AUTHOR_ASSOCIATION="$comment_association" \
+    SIGNATURE_RECORDED="$signature_recorded" \
     bash "$rerun_script" 2>&1
   )"
   status=$?
@@ -273,5 +284,6 @@ run_case untrusted-recheck 1 "Only the pull request author or a trusted reposito
 run_case suffixed-path 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case late-ambiguous 1 "Expected exactly one open pull request for this head" 0
 run_case external-signer 0 "Requested rerun for CLA job 500 in workflow run 400" 1
+run_case unrecorded-signer 1 "did not result in a persisted signature" 0
 run_case duplicate-runs 0 "Requested rerun for CLA job 501 in workflow run 401" 1 \
   "repos/manaflow-ai/cmux/actions/jobs/501/rerun"
