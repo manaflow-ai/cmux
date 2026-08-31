@@ -483,6 +483,65 @@ describe("recordFoundersCheckoutCompletion", () => {
     });
   });
 
+  test("does not verify an existing Founder account before the deletion guard", async () => {
+    const update = mock(async () => undefined);
+    const createUser = mock(async () => {
+      throw new Error("must not create while deleting");
+    });
+    const user = {
+      id: "founder_deleting",
+      primaryEmail: "buyer@example.com",
+      primaryEmailVerified: false,
+      primaryEmailAuthEnabled: true,
+      isAnonymous: false,
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
+      update,
+    };
+    selectResults = Array.from({ length: 20 }, () => []);
+
+    const result = await recordFoundersCheckoutCompletion(
+      {
+        session: {
+          id: "cs_deleting",
+          customer: "cus_deleting",
+          customer_details: { email: "buyer@example.com" },
+          metadata: { founders_edition: "true" },
+          subscription: "sub_deleting",
+        } as never,
+        subscription: {
+          id: "sub_deleting",
+          customer: "cus_deleting",
+          status: "active",
+          metadata: { founders_edition: "true" },
+          cancel_at_period_end: false,
+          items: { data: [] },
+        } as never,
+        customer: {
+          id: "cus_deleting",
+          deleted: false,
+          email: "buyer@example.com",
+        } as never,
+      },
+      {
+        db: fakeDb() as never,
+        stackApp: {
+          getUser: async () => user,
+          listUsers: async () => [user],
+          createUser,
+        } as never,
+      },
+    );
+
+    expect(result).toEqual({
+      skipped: "account_deletion_in_progress",
+      stackUserId: "founder_deleting",
+      subscriptionId: "sub_deleting",
+    });
+    expect(update).not.toHaveBeenCalled();
+    expect(createUser).not.toHaveBeenCalled();
+    expect(inserts).toHaveLength(0);
+  });
+
   test("skips a Founder session without an email before Stack mutation", async () => {
     const createUser = mock(async () => {
       throw new Error("must not create");

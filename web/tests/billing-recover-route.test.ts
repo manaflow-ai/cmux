@@ -78,6 +78,26 @@ describe("billing recovery route", () => {
     });
   });
 
+  test("does not send authentication mail when paid provisioning is blocked", async () => {
+    const sendMagicLink = mock(async () => undefined);
+    const sendVerification = mock(async () => ({
+      delivery: "accepted" as const,
+    }));
+    const response = await makeBillingRecoveryHandler(
+      dependencies({
+        recoverPaid: mock(async () => ({
+          skipped: "account_deletion_in_progress" as const,
+        })),
+        sendMagicLink,
+        sendVerification,
+      }),
+    )(request("deleting@example.com"));
+
+    expect(response.status).toBe(202);
+    expect(sendMagicLink).not.toHaveBeenCalled();
+    expect(sendVerification).not.toHaveBeenCalled();
+  });
+
   test("sends standard verification when no paid purchase is found", async () => {
     const deps = dependencies();
     const response = await makeBillingRecoveryHandler(deps)(
