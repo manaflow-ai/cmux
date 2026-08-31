@@ -44,8 +44,7 @@ struct NotificationFeedView: View {
                 }
             )
         }
-        .navigationTitle(L10n.string("mobile.notificationFeed.title", defaultValue: "Notifications"))
-        .navigationBarTitleDisplayMode(.large)
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if projection.sourceUnreadCount > 0 {
                 ToolbarItem(placement: .topBarTrailing) {
