@@ -394,8 +394,8 @@ describe("recordFoundersCheckoutCompletion", () => {
     });
     expect(createUser).toHaveBeenCalledWith({
       primaryEmail: "buyer@example.com",
-      primaryEmailAuthEnabled: true,
-      primaryEmailVerified: true,
+      primaryEmailAuthEnabled: false,
+      primaryEmailVerified: false,
     });
     expect(
       inserts.some(

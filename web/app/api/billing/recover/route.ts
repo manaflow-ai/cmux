@@ -26,7 +26,12 @@ export const BILLING_RECOVERY_RESPONSE_MESSAGE =
 type PaidRecoveryResult =
   | false
   | true
-  | { readonly deliveryEmail: string | null };
+  | { readonly deliveryEmail: string | null }
+  | {
+      readonly skipped:
+        | "account_deletion_in_progress"
+        | "no_customer_email";
+    };
 
 type RateLimitCheck = typeof checkVercelRateLimit;
 
@@ -53,6 +58,9 @@ const productionDependencies: BillingRecoveryRouteDependencies = {
     if (!purchase) return false;
     const completion = await provisionPaidBillingPurchase(purchase, { stackApp });
     if (!completion || !("scope" in completion) || completion.scope !== "user") {
+      if (completion && "skipped" in completion) {
+        return { skipped: completion.skipped };
+      }
       return { deliveryEmail: email };
     }
     const user = await stackApp.getUser(completion.stackUserId);
@@ -107,7 +115,7 @@ export function makeBillingRecoveryHandler(
         const verificationURL = emailVerificationCallbackURL(request);
         try {
           const paid = await dependencies.recoverPaid(email);
-          if (paid) {
+          if (paid && !(typeof paid === "object" && "skipped" in paid)) {
             const candidateDeliveryEmail =
               typeof paid === "object" ? paid.deliveryEmail : null;
             const deliveryEmail =
@@ -118,7 +126,7 @@ export function makeBillingRecoveryHandler(
               email: deliveryEmail,
               callbackURL,
             });
-          } else {
+          } else if (!paid) {
             await dependencies.sendVerification({
               email,
               callbackURL: verificationURL,

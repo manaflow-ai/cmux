@@ -13,6 +13,8 @@ import {
   stripeSubscriptions,
 } from "../../db/schema";
 import {
+  withAccountDeletionUserMutation,
+  AccountDeletionMutationBlockedError,
   type AccountDeletionUserMutationLease,
   accountDeletionAdvisoryLockKey,
   accountDeletionUserHash,
@@ -498,13 +500,14 @@ export async function recordFoundersCheckoutCompletion(
 
   const stackApp = dependencies.stackApp ?? getStackServerApp();
   if (!stackApp) throw new Error("Stack Auth is not configured");
-  const user = await findOrCreateBillingUser(
-    stackApp,
-    email,
-  );
+  const db = dependencies.db ?? cloudDb();
+  // Resolve the account without changing Stack state. Verification and
+  // anonymous promotion happen later, after the deletion guard is held by the
+  // metadata sync. A missing account is created as an unverified shell under a
+  // canonical-email lease so concurrent paid webhooks cannot create twins.
+  const user = await findOrCreateCheckoutBillingUser(stackApp, db, email);
   if (!user) throw new Error("Stack Auth did not return a billing user");
 
-  const db = dependencies.db ?? cloudDb();
   // Resolve the only potentially external owner lookup before taking the
   // database advisory lock. The locked transaction re-checks the row and
   // fails closed if ownership changed while the Stack request was in flight.
@@ -712,8 +715,9 @@ export async function recordProCheckoutCompletionByEmail(
   if (!subscription) throw new Error("Stripe Pro checkout is missing a subscription");
   const stackApp = dependencies.stackApp ?? getStackServerApp();
   if (!stackApp) throw new Error("Stack Auth is not configured");
-  const existingUser = await findOrCreateBillingUser(
+  const existingUser = await findOrCreateCheckoutBillingUser(
     stackApp,
+    dependencies.db ?? cloudDb(),
     email,
   );
   if (!existingUser) throw new Error("Stack Auth did not return a billing user");
@@ -814,6 +818,81 @@ async function resolveBillingEmailClaimsForCustomer(
           isNull(billingEmailClaims.claimedByUserId),
         ),
       );
+  }
+}
+
+/**
+ * Resolve a checkout account without changing an existing Stack identity.
+ *
+ * Verification and anonymous promotion run in the post-commit metadata
+ * mutation, where the account-deletion lease is already held. A new account
+ * starts as an unverified shell under a canonical-email lease; the same
+ * post-commit mutation enables sign-in and verifies the paid address.
+ */
+async function findOrCreateCheckoutBillingUser(
+  stackApp: StackBillingApp,
+  db: BillingDb,
+  email: string,
+): Promise<StackBillingUser> {
+  const existing = await findBillingUserByEmail(stackApp, email);
+  if (existing) return existing;
+  if (!stackApp.createUser) {
+    throw new Error("Stack Auth server SDK cannot create users");
+  }
+
+  const emailLockKey = `billing-email:${canonicalizeEmailForMatching(email)}`;
+  try {
+    return await withAccountDeletionUserMutation(
+      db,
+      emailLockKey,
+      async (lease) => {
+        // A concurrent webhook may have created the canonical account while
+        // the first read was in flight. Re-read while the email lease is held
+        // before creating another identity.
+        const raced = await findBillingUserByEmail(stackApp, email);
+        if (raced) return raced;
+
+        await lease.refresh();
+        try {
+          return await createUnverifiedCheckoutUser(stackApp, email);
+        } catch (error) {
+          // Stack enforces a unique email independently of our lease. If a
+          // different worker won that race, return its account and let the
+          // deletion-guarded post-commit mutation finish provisioning it.
+          if (!isEmailAlreadyUsedError(error)) throw error;
+          const winner = await findBillingUserByEmail(stackApp, email);
+          if (winner) return winner;
+          throw error;
+        }
+      },
+    );
+  } catch (error) {
+    if (error instanceof AccountDeletionMutationBlockedError) {
+      throw new Error("Checkout account creation is blocked by account deletion", {
+        cause: error,
+      });
+    }
+    throw error;
+  }
+}
+
+async function createUnverifiedCheckoutUser(
+  stackApp: StackBillingApp,
+  email: string,
+): Promise<StackBillingUser> {
+  const primaryEmail = email.trim();
+  try {
+    return await stackApp.createUser!({
+      primaryEmail,
+      primaryEmailAuthEnabled: false,
+      primaryEmailVerified: false,
+    });
+  } catch (error) {
+    // Older Stack SDKs can reject the explicit verification field. Keep the
+    // shell unverified by omitting optional flags, then let the guarded
+    // metadata mutation enable and verify it.
+    if (!isUnsupportedVerificationFieldError(error)) throw error;
+    return await stackApp.createUser!({ primaryEmail });
   }
 }
 
