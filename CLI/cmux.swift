@@ -27,6 +27,9 @@ struct CLIError: Error, CustomStringConvertible {
     let exitCode: Int32
     /// Structured v2 protocol error code when the failure came from a v2 error response.
     let v2Code: String?
+    /// Whether this error was decoded directly from a socket v2 error response.
+    /// Local CLI sentinels may reuse ``v2Code`` for their own exit-status contract.
+    let isStructuredProtocolResponse: Bool
     /// Cloud VM backend error code (e.g. "vm_create_failed") passed through the
     /// v2 error's data payload, so callers can make idempotency decisions
     /// structurally instead of parsing display text.
@@ -37,12 +40,14 @@ struct CLIError: Error, CustomStringConvertible {
         message: String,
         exitCode: Int32 = 1,
         v2Code: String? = nil,
+        isStructuredProtocolResponse: Bool = false,
         vmBackendCode: String? = nil,
         socketFailureKind: SocketFailureKind? = nil
     ) {
         self.message = message
         self.exitCode = exitCode
         self.v2Code = v2Code
+        self.isStructuredProtocolResponse = isStructuredProtocolResponse
         self.vmBackendCode = vmBackendCode
         self.socketFailureKind = socketFailureKind
     }
@@ -4049,6 +4054,7 @@ final class SocketClient {
                     details: safeV2Details(error["details"])
                 ),
                 v2Code: error["code"] as? String,
+                isStructuredProtocolResponse: true,
                 vmBackendCode: data?["backend_code"] as? String
             )
         }
@@ -4464,7 +4470,7 @@ struct CMUXCLI {
 
     private func hasStructuredCLIError(_ error: Error) -> Bool {
         guard let cliError = error as? CLIError else { return false }
-        return cliError.v2Code != nil || cliError.socketFailureKind != nil
+        return cliError.isStructuredProtocolResponse || cliError.socketFailureKind != nil
     }
 
     private struct VMCreateIdempotencyStore: Codable {
