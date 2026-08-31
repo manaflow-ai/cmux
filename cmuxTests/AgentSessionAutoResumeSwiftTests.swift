@@ -2356,6 +2356,100 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
     }
 
     @MainActor
+    @Test func remoteDirectoryNamespacedResumeKeepsAuthenticatedLaunchDirectory() throws {
+        let defaultsName = "cmux-remote-authenticated-launch-cwd-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+        let localDirectory = "/Users/alice/development"
+        let runtimeDirectory = "/repo-runtime"
+        let launchDirectory = "/repo-launch"
+        let remoteCommand = "ssh cmux-remote"
+        let sessionId = "grok-authenticated-launch-cwd-\(UUID().uuidString)"
+        let source = Workspace(
+            workingDirectory: localDirectory,
+            initialTerminalCommand: remoteCommand,
+            agentSessionAutoResumeDefaults: defaults
+        )
+        defer { source.teardownAllPanels() }
+        let sourcePanelId = try #require(source.focusedPanelId)
+        source.configureRemoteConnection(
+            remoteWorkspaceConfiguration(command: remoteCommand),
+            autoConnect: false
+        )
+        #expect(source.updateRemotePanelDirectory(panelId: sourcePanelId, directory: runtimeDirectory))
+        source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
+        source.setRestoredAgentSnapshotForTesting(
+            SessionRestorableAgentSnapshot(
+                kind: .grok,
+                sessionId: sessionId,
+                workingDirectory: runtimeDirectory,
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: "grok",
+                    executablePath: "grok",
+                    arguments: ["grok", "--cwd", launchDirectory],
+                    workingDirectory: launchDirectory,
+                    environment: [:],
+                    capturedAt: 1_777_777_777,
+                    source: "process"
+                ),
+                registration: .builtInGrok
+            ),
+            panelId: sourcePanelId
+        )
+        let authenticatedBinding = SurfaceResumeBindingSnapshot(
+            kind: "grok",
+            command: "grok --resume \(sessionId) --cwd '\(launchDirectory)'",
+            cwd: launchDirectory,
+            checkpointId: sessionId,
+            source: "agent-hook",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "grok",
+                executablePath: "grok",
+                arguments: ["grok", "--cwd", launchDirectory],
+                workingDirectory: launchDirectory
+            ),
+            restoreWorkingDirectorySelection: .exact(launchDirectory),
+            autoResume: true,
+            launchFlavor: .persistentSSH(SurfaceResumeRemoteContext(
+                workspaceID: source.id,
+                surfaceID: sourcePanelId,
+                persistentPTYSessionID: "grok-authenticated-pty"
+            ))
+        )
+        #expect(source.setSurfaceResumeBinding(authenticatedBinding, panelId: sourcePanelId))
+
+        let snapshot = source.sessionSnapshot(includeScrollback: false)
+        #expect(snapshot.panels.first?.directoryIsTrustedRemoteReport == true)
+        #expect(snapshot.panels.first?.terminal?.workingDirectory == runtimeDirectory)
+        #expect(
+            snapshot.panels.first?.terminal?.resumeBinding?.restoreWorkingDirectorySelection ==
+                .exact(launchDirectory)
+        )
+
+        try withRestoredRemoteSurfaceSnapshot(
+            snapshot,
+            sourcePanelId: sourcePanelId,
+            autoResumeAgentSessions: true
+        ) { restored, restoredPanelId, restoredPanel, resumeSnapshot in
+            let restoredAgent = try #require(
+                restored.restoredAgentSnapshotsByPanelId[restoredPanelId]
+            )
+            #expect(restoredAgent.restoreWorkingDirectorySelection == .exact(launchDirectory))
+            #expect(restoredAgent.workingDirectory == launchDirectory)
+            let restoredBinding = try #require(resumeSnapshot.binding)
+            #expect(
+                restoredBinding.restoreWorkingDirectorySelection == .exact(launchDirectory)
+            )
+            #expect(restoredBinding.cwd == launchDirectory)
+            let startupInput = try #require(restoredPanel.surface.initialInput)
+            #expect(startupInput.contains(launchDirectory), Comment(rawValue: startupInput))
+            #expect(!startupInput.contains(localDirectory), Comment(rawValue: startupInput))
+        }
+    }
+
+    @MainActor
     @Test func remoteAutoResumeWithoutTrustedDirectoryRejectsRecordedLocalCwd() throws {
         let defaultsName = "cmux-remote-untrusted-cwd-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: defaultsName))

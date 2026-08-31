@@ -710,6 +710,14 @@ struct AgentLaunchSanitizerTests {
         )
         #expect(
             AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: ["qoder", "--workspace", "/tmp/other", "--cwd", "/tmp/project"],
+                workingDirectory: nil,
+                agentKind: "qoder",
+                removeAllWorkingDirectoryOptions: true
+            ) == ["qoder", "--workspace", "/tmp/other"]
+        )
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
                 from: ["grok", "-r", "session", "--cwd", "--model", "grok-4"],
                 workingDirectory: nil,
                 removeAllWorkingDirectoryOptions: true
