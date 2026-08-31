@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { JobRolePage, jobRoleMetadata } from "./job-role-page";
+import { JobsPageContent, jobsMetadata } from "./job-role-page";
 
 const path = "/jobs";
 
@@ -8,19 +8,12 @@ export async function generateMetadata({
 }: {
   params: Promise<{ locale: string }>;
 }): Promise<Metadata> {
-  return jobRoleMetadata({
+  return jobsMetadata({
     params,
     path,
-    namespace: "jobs",
   });
 }
 
 export default function JobsPage() {
-  return (
-    <JobRolePage
-      namespace="jobs"
-      roleLinkHref="/jobs/founding-designer"
-      showRoleDirectory
-    />
-  );
+  return <JobsPageContent />;
 }

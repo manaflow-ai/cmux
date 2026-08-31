@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { JobRolePage, jobRoleMetadata } from "../job-role-page";
+import { JobsPageContent, jobRoleMetadata } from "../job-role-page";
 
 const path = "/jobs/founding-designer";
 
@@ -16,11 +16,5 @@ export async function generateMetadata({
 }
 
 export default function FoundingDesignerPage() {
-  return (
-    <JobRolePage
-      namespace="jobs.foundingDesigner"
-      backHref="/jobs"
-      roleLinkHref="/jobs"
-    />
-  );
+  return <JobsPageContent />;
 }

@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
-import { Link } from "@/i18n/navigation";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 import {
   jobsContentLocales,
@@ -16,16 +15,30 @@ import {
 
 export type JobRoleNamespace = "jobs" | "jobs.foundingDesigner";
 
-type JobRolePageProps = {
-  namespace: JobRoleNamespace;
-  backHref?: string;
-  roleLinkHref: string;
-  showRoleDirectory?: boolean;
-};
-
 const focusRingClass =
   "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-foreground";
 const applicationEmail = "founders@cmux.com";
+
+export async function jobsMetadata({
+  params,
+  path,
+}: {
+  params: Promise<{ locale: string }>;
+  path: string;
+}): Promise<Metadata> {
+  const { locale } = await params;
+  const contentLocale = hasFallbackContent(locale, jobsContentLocales)
+    ? locale
+    : "en";
+  const t = await getTranslations({ locale: contentLocale, namespace: "jobs" });
+
+  return buildJobMetadata({
+    contentLocale,
+    path,
+    title: `${t("title")} / ${t("foundingDesigner.title")} — ${t("section")}`,
+    description: `${t("tagline")} ${t("intro")}`,
+  });
+}
 
 export async function jobRoleMetadata({
   params,
@@ -41,16 +54,31 @@ export async function jobRoleMetadata({
     ? locale
     : "en";
   const t = await getTranslations({ locale: contentLocale, namespace });
-  const title = t("metaTitle");
-  const description = seoDescription(contentLocale, t("metaDescription"), {
+
+  return buildJobMetadata({
+    contentLocale,
+    path,
+    title: t("metaTitle"),
+    description: t("metaDescription"),
+  });
+}
+
+function buildJobMetadata({
+  contentLocale,
+  path,
+  title,
+  description: authoredDescription,
+}: {
+  contentLocale: string;
+  path: string;
+  title: string;
+  description: string;
+}): Metadata {
+  const description = seoDescription(contentLocale, authoredDescription, {
     minLength: 110,
     appendLocalizedContext: false,
   });
-  const alternates = buildAlternates(
-    contentLocale,
-    path,
-    jobsContentLocales,
-  );
+  const alternates = buildAlternates(contentLocale, path, jobsContentLocales);
 
   return {
     title: { absolute: title },
@@ -66,18 +94,8 @@ export async function jobRoleMetadata({
   };
 }
 
-export function JobRolePage({
-  namespace,
-  backHref,
-  roleLinkHref,
-  showRoleDirectory = false,
-}: JobRolePageProps) {
-  const t = useTranslations(namespace);
-  const whatYoullDo = t.raw("whatYoullDoItems") as string[];
-  const whoWereLookingFor = t.raw("whoWereLookingForItems") as string[];
-  const applyHref = `mailto:${applicationEmail}?subject=${encodeURIComponent(
-    t("applyEmailSubject"),
-  )}`;
+export function JobsPageContent() {
+  const t = useTranslations("jobs");
 
   return (
     <div className="min-h-screen">
@@ -87,234 +105,159 @@ export function JobRolePage({
         aria-labelledby="jobs-title"
         className="mx-auto w-full max-w-6xl px-6 py-14 sm:py-20"
       >
-        {backHref ? (
-          <Link
-            href={backHref}
-            className={`mb-8 inline-flex items-center gap-2 text-sm text-muted transition-colors hover:text-foreground ${focusRingClass}`}
+        <header className="max-w-3xl">
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted">
+            {t("section")}
+          </p>
+          <h1
+            id="jobs-title"
+            className="mt-4 text-4xl font-medium tracking-[-0.04em] text-balance sm:text-6xl"
           >
-            <span aria-hidden="true">←</span>
-            {t("backToAllRoles")}
-          </Link>
-        ) : null}
+            {t("eyebrow")}
+          </h1>
+          <p className="mt-6 max-w-2xl text-xl leading-relaxed sm:text-2xl">
+            {t("tagline")}
+          </p>
+          <p className="mt-6 max-w-2xl text-[15px] leading-7 text-muted">
+            {t("intro")}
+          </p>
+        </header>
 
-        <div className="grid gap-12 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,22rem)] lg:gap-20">
-          <header className="max-w-3xl">
-            <p className="mb-4 text-sm font-medium tracking-tight text-muted">
-              {t("eyebrow")}
-            </p>
-            <h1
-              id="jobs-title"
-              className="max-w-3xl text-4xl font-medium tracking-[-0.04em] text-balance sm:text-6xl"
-            >
-              {t("title")}
-            </h1>
-            <p className="mt-6 max-w-2xl text-xl leading-relaxed sm:text-2xl">
-              {t("tagline")}
-            </p>
-            <div className="mt-8 max-w-2xl space-y-4 text-[15px] leading-7 text-muted">
-              <p>{t("intro")}</p>
-              <p>{t("hiring")}</p>
-            </div>
-          </header>
-
-          <aside
-            aria-labelledby="role-details-title"
-            className="self-start lg:sticky lg:top-20"
-          >
-            <div className="border border-border bg-code-bg/40 p-5 sm:p-6">
-              <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted">
-                {t("details")}
-              </p>
-              <h2
-                id="role-details-title"
-                className="mt-3 text-xl font-medium tracking-tight"
-              >
-                {t("roleTitle")}
-              </h2>
-
-              <dl className="mt-6 space-y-4 text-sm">
-                <div>
-                  <dt className="text-muted">{t("compensationLabel")}</dt>
-                  <dd className="mt-1 font-medium tabular-nums">
-                    {t("compensation")}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-muted">{t("benefitsLabel")}</dt>
-                  <dd className="mt-1 font-medium">{t("benefits")}</dd>
-                </div>
-                <div>
-                  <dt className="text-muted">{t("locationLabel")}</dt>
-                  <dd className="mt-1 font-medium">{t("location")}</dd>
-                </div>
-              </dl>
-
-              <a
-                href={applyHref}
-                aria-label={t("applyAriaLabel")}
-                className={`mt-7 inline-flex min-h-11 w-full items-center justify-center gap-2 bg-foreground px-4 py-3 text-sm font-medium transition-colors hover:bg-foreground/85 ${focusRingClass}`}
-                style={{ color: "var(--background)", textDecoration: "none" }}
-              >
-                {t("applyCta")}
-                <ArrowIcon />
-              </a>
-
-              <div className="mt-6 border-t border-border pt-5">
-                <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted">
-                  {t("otherRoleEyebrow")}
-                </p>
-                <Link
-                  href={roleLinkHref}
-                  className={`mt-3 inline-flex items-center gap-2 text-sm font-medium underline decoration-link-underline underline-offset-4 transition-colors hover:decoration-foreground ${focusRingClass}`}
-                >
-                  {t("otherRoleTitle")}
-                  <ArrowIcon />
-                </Link>
-              </div>
-            </div>
-          </aside>
+        <div className="mt-20 space-y-28 sm:mt-28 sm:space-y-36">
+          <JobRoleSection namespace="jobs" roleId="founding-engineer" />
+          <JobRoleSection
+            namespace="jobs.foundingDesigner"
+            roleId="founding-designer"
+          />
         </div>
+      </main>
+    </div>
+  );
+}
 
-        {showRoleDirectory ? (
-          <section
-            aria-labelledby="open-roles-title"
-            className="mt-14 border-y border-border py-8 sm:mt-16 sm:py-10"
-          >
-            <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between sm:gap-10">
-              <div>
-                <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted">
-                  {t("openRolesEyebrow")}
-                </p>
-                <h2
-                  id="open-roles-title"
-                  className="mt-3 text-2xl font-medium tracking-tight"
-                >
-                  {t("openRolesTitle")}
-                </h2>
-                <p className="mt-2 max-w-md text-[15px] leading-7 text-muted">
-                  {t("openRolesBody")}
-                </p>
-              </div>
+function JobRoleSection({
+  namespace,
+  roleId,
+}: {
+  namespace: JobRoleNamespace;
+  roleId: string;
+}) {
+  const t = useTranslations(namespace);
+  const whatYoullDo = t.raw("whatYoullDoItems") as string[];
+  const whoWereLookingFor = t.raw("whoWereLookingForItems") as string[];
+  const applyHref = `mailto:${applicationEmail}?subject=${encodeURIComponent(
+    t("applyEmailSubject"),
+  )}`;
 
-              <div className="grid w-full gap-3 sm:max-w-xl sm:grid-cols-2">
-                <Link
-                  href="/jobs"
-                  aria-current="page"
-                  className={`group flex min-h-14 items-center justify-between gap-4 border border-foreground bg-code-bg/40 px-4 py-3 text-sm font-medium transition-colors hover:bg-code-bg ${focusRingClass}`}
-                >
-                  <span>{t("roleTitle")}</span>
-                  <ArrowIcon />
-                </Link>
-                <Link
-                  href="/jobs/founding-designer"
-                  className={`group flex min-h-14 items-center justify-between gap-4 border border-border px-4 py-3 text-sm font-medium transition-colors hover:border-foreground ${focusRingClass}`}
-                >
-                  <span>{t("otherRoleTitle")}</span>
-                  <ArrowIcon />
-                </Link>
-              </div>
-            </div>
-          </section>
-        ) : null}
+  return (
+    <section
+      id={roleId}
+      aria-labelledby={`${roleId}-title`}
+      className="scroll-mt-24"
+    >
+      <header className="max-w-3xl">
+        <h2
+          id={`${roleId}-title`}
+          className="text-3xl font-medium tracking-[-0.035em] text-balance sm:text-5xl"
+        >
+          {t("roleTitle")}
+        </h2>
+        <p className="mt-5 max-w-2xl text-lg leading-8 text-muted">
+          {t("hiring")}
+        </p>
+      </header>
 
-        <div className="mt-16 grid gap-14 border-t border-border pt-12 lg:mt-20">
-          <div className="max-w-3xl">
-            <section aria-labelledby="what-youll-do-title">
-              <h2
-                id="what-youll-do-title"
-                className="text-2xl font-medium tracking-tight"
+      <div className="mt-12 grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(17rem,20rem)] lg:gap-16">
+        <div className="min-w-0">
+          <div className="grid gap-x-12 gap-y-14 md:grid-cols-2">
+            <section aria-labelledby={`${roleId}-what-youll-do-title`}>
+              <h3
+                id={`${roleId}-what-youll-do-title`}
+                className="text-xl font-medium tracking-tight"
               >
                 {t("whatYoullDo")}
-              </h2>
-              <ul className="mt-6 space-y-4 text-[15px] leading-7 text-muted">
-                {whatYoullDo.map((item) => (
-                  <li key={item} className="flex gap-3">
-                    <span
-                      aria-hidden="true"
-                      className="mt-[0.72rem] h-1.5 w-1.5 shrink-0 rounded-full bg-foreground/45"
-                    />
-                    <span>{item}</span>
-                  </li>
-                ))}
-              </ul>
+              </h3>
+              <JobList items={whatYoullDo} />
             </section>
 
-            <section
-              aria-labelledby="who-were-looking-for-title"
-              className="mt-14 border-t border-border pt-10"
-            >
-              <h2
-                id="who-were-looking-for-title"
-                className="text-2xl font-medium tracking-tight"
+            <section aria-labelledby={`${roleId}-who-were-looking-for-title`}>
+              <h3
+                id={`${roleId}-who-were-looking-for-title`}
+                className="text-xl font-medium tracking-tight"
               >
                 {t("whoWereLookingFor")}
-              </h2>
+              </h3>
               <p className="mt-5 text-[15px] leading-7 text-muted">
                 {t("whoIntro")}
               </p>
               <p className="mt-6 text-[15px] font-medium leading-7">
                 {t("excitedLead")}
               </p>
-              <ul className="mt-4 space-y-4 text-[15px] leading-7 text-muted">
-                {whoWereLookingFor.map((item) => (
-                  <li key={item} className="flex gap-3">
-                    <span
-                      aria-hidden="true"
-                      className="mt-[0.72rem] h-1.5 w-1.5 shrink-0 rounded-full bg-foreground/45"
-                    />
-                    <span>{item}</span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-
-            <section
-              aria-labelledby="about-cmux-title"
-              className="mt-14 border-t border-border pt-10"
-            >
-              <h2
-                id="about-cmux-title"
-                className="text-2xl font-medium tracking-tight"
-              >
-                {t("aboutTitle")}
-              </h2>
-              <p className="mt-5 text-[15px] leading-7 text-muted">
-                {t("aboutBody")}
-              </p>
+              <JobList items={whoWereLookingFor} compact />
             </section>
           </div>
         </div>
 
-        <section
-          aria-labelledby="apply-title"
-          className="mt-16 border-t border-border pt-10 sm:mt-20"
+        <aside
+          aria-labelledby={`${roleId}-details-title`}
+          className="order-first self-start lg:order-last lg:sticky lg:top-20"
         >
-          <div className="flex flex-col gap-6 border border-border p-5 sm:flex-row sm:items-center sm:justify-between sm:p-8">
-            <div>
-              <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted">
-                {t("applyEyebrow")}
-              </p>
-              <h2
-                id="apply-title"
-                className="mt-3 text-2xl font-medium tracking-tight"
-              >
-                {t("applyTitle")}
-              </h2>
-              <p className="mt-3 max-w-xl text-[15px] leading-7 text-muted">
-                {t("applyBody")}
-              </p>
-            </div>
+          <div className="bg-code-bg/50 p-5 sm:p-6">
+            <h3
+              id={`${roleId}-details-title`}
+              className="text-xs font-medium uppercase tracking-[0.14em] text-muted"
+            >
+              {t("details")}
+            </h3>
+
+            <dl className="mt-6 space-y-4 text-sm">
+              <div>
+                <dt className="text-muted">{t("compensationLabel")}</dt>
+                <dd className="mt-1 font-medium tabular-nums">
+                  {t("compensation")}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted">{t("benefitsLabel")}</dt>
+                <dd className="mt-1 font-medium">{t("benefits")}</dd>
+              </div>
+              <div>
+                <dt className="text-muted">{t("locationLabel")}</dt>
+                <dd className="mt-1 font-medium">{t("location")}</dd>
+              </div>
+            </dl>
+
             <a
               href={applyHref}
-              className={`inline-flex min-h-11 shrink-0 items-center justify-center gap-2 border border-foreground px-4 py-3 text-sm font-medium transition-colors hover:bg-foreground hover:text-background ${focusRingClass}`}
+              aria-label={t("applyAriaLabel")}
+              className={`mt-7 inline-flex min-h-11 w-full items-center justify-center gap-2 bg-foreground px-4 py-3 text-sm font-medium transition-colors hover:bg-foreground/85 ${focusRingClass}`}
+              style={{ color: "var(--background)", textDecoration: "none" }}
             >
               {t("applyCta")}
               <ArrowIcon />
             </a>
           </div>
-        </section>
-      </main>
-    </div>
+        </aside>
+      </div>
+    </section>
+  );
+}
+
+function JobList({ items, compact = false }: { items: string[]; compact?: boolean }) {
+  return (
+    <ul
+      className={`${compact ? "mt-4" : "mt-6"} space-y-4 text-[15px] leading-7 text-muted`}
+    >
+      {items.map((item) => (
+        <li key={item} className="flex gap-3">
+          <span
+            aria-hidden="true"
+            className="mt-[0.72rem] h-1.5 w-1.5 shrink-0 rounded-full bg-foreground/45"
+          />
+          <span>{item}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
 

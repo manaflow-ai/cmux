@@ -82,30 +82,43 @@ const {
 } = await import("../app/[locale]/(landing)/jobs/founding-designer/page");
 
 describe("jobs page", () => {
-  test("renders the complete English role copy and application CTA", () => {
+  test("renders both roles in one English page with application CTAs", () => {
     activeLocale = "en";
     const html = renderToStaticMarkup(<JobsPage />);
 
     expect(html).toContain("Founding Engineer");
+    expect(html).toContain("Founding Designer");
     expect(html).toContain(
       "Hundreds of thousands of developers use cmux to drive their agentic coding workflows.",
     );
     expect(html).toContain("Build frontier devtools across the stack");
+    expect(html).toContain("Design frontier devtools across the stack");
     expect(html).toContain("Using 10B+ tokens a day.");
+    expect(html).toContain(
+      "You are a walking encyclopedia of design components from all sorts of apps.",
+    );
     expect(html).toContain("$130k–$170k + 0.5%–1.5% equity");
     expect(html).toContain("San Francisco");
-    expect(html).toContain("About cmux");
-    expect(html).toContain("Open roles");
-    expect(html).toContain("Build the future with us.");
-    expect(html).toContain('href="/jobs/founding-designer"');
-    expect(html).toContain('aria-current="page"');
-    expect(html).toContain(">Email<");
+    expect(html).toContain('id="founding-engineer"');
+    expect(html).toContain('id="founding-designer"');
+    expect(html.match(/>Email</g)).toHaveLength(2);
     expect(html).not.toContain("Email founders@cmux.com");
     expect(html).toContain(
       `href="mailto:founders@cmux.com?subject=${encodeURIComponent(
         enMessages.jobs.applyEmailSubject,
       )}"`,
     );
+    expect(html).toContain(
+      `href="mailto:founders@cmux.com?subject=${encodeURIComponent(
+        enMessages.jobs.foundingDesigner.applyEmailSubject,
+      )}"`,
+    );
+    expect(html).not.toContain("About cmux");
+    expect(html).not.toContain("Open roles");
+    expect(html).not.toContain("Interested?");
+    expect(html).not.toContain("Come build with us.");
+    expect(html).not.toContain("border-t");
+    expect(html).not.toContain("border-y");
     expect(html).toContain("focus-visible:outline-2");
     expect(html).toContain('aria-labelledby="jobs-title"');
   });
@@ -118,14 +131,21 @@ describe("jobs page", () => {
     expect(html).toContain("仕事内容");
     expect(html).toContain("数十万人の開発者が");
     expect(html).toContain("$130k〜$170k + 株式 0.5%〜1.5%");
-    expect(html).toContain("募集中のポジション");
-    expect(html).toContain("一緒に未来をつくりませんか。");
     expect(html).toContain("Founding Designer");
-    expect(html).toContain(">メールする<");
+    expect(html).toContain("デザインコンポーネントを知り尽くしている");
+    expect(html.match(/>メールする</g)).toHaveLength(2);
     expect(html).not.toContain("founders@cmux.com にメールする");
     expect(html).toContain(
       `subject=${encodeURIComponent(jaMessages.jobs.applyEmailSubject)}`,
     );
+    expect(html).toContain(
+      `subject=${encodeURIComponent(
+        jaMessages.jobs.foundingDesigner.applyEmailSubject,
+      )}`,
+    );
+    expect(html).not.toContain("cmux について");
+    expect(html).not.toContain("募集中のポジション");
+    expect(html).not.toContain("興味がありますか？");
     expect(html).not.toContain("What you'll do");
   });
 
@@ -133,24 +153,34 @@ describe("jobs page", () => {
     activeLocale = "zh-CN";
     const simplified = renderToStaticMarkup(<JobsPage />);
     expect(simplified).toContain("我们正在招聘");
-    expect(simplified).toContain("开放职位");
     expect(simplified).toContain("Founding Designer");
-    expect(simplified).toContain(">发送邮件<");
+    expect(simplified).toContain("设计覆盖整个技术栈的前沿开发者工具");
+    expect(simplified.match(/>发送邮件</g)).toHaveLength(2);
     expect(simplified).toContain(
       `href="mailto:founders@cmux.com?subject=${encodeURIComponent(
         messagesByLocale["zh-CN"].jobs.applyEmailSubject,
+      )}"`,
+    );
+    expect(simplified).toContain(
+      `href="mailto:founders@cmux.com?subject=${encodeURIComponent(
+        messagesByLocale["zh-CN"].jobs.foundingDesigner.applyEmailSubject,
       )}"`,
     );
 
     activeLocale = "zh-TW";
     const traditional = renderToStaticMarkup(<JobsPage />);
     expect(traditional).toContain("我們正在招募");
-    expect(traditional).toContain("開放職缺");
     expect(traditional).toContain("Founding Designer");
-    expect(traditional).toContain(">寄送電子郵件<");
+    expect(traditional).toContain("打造橫跨整個技術堆疊的前沿開發者工具");
+    expect(traditional.match(/>寄送電子郵件</g)).toHaveLength(2);
     expect(traditional).toContain(
       `href="mailto:founders@cmux.com?subject=${encodeURIComponent(
         messagesByLocale["zh-TW"].jobs.applyEmailSubject,
+      )}"`,
+    );
+    expect(traditional).toContain(
+      `href="mailto:founders@cmux.com?subject=${encodeURIComponent(
+        messagesByLocale["zh-TW"].jobs.foundingDesigner.applyEmailSubject,
       )}"`,
     );
   });
@@ -171,12 +201,20 @@ describe("jobs page", () => {
       const html = renderToStaticMarkup(<JobsPage />);
       expect(html).toContain(catalog.jobs.section);
       expect(html).toContain(catalog.jobs.title);
+      expect(html).toContain(catalog.jobs.foundingDesigner.title);
       expect(html).toContain(catalog.jobs.applyCta);
       expect(html).toContain(
         `mailto:founders@cmux.com?subject=${encodeURIComponent(
           catalog.jobs.applyEmailSubject,
         )}`,
       );
+      expect(html).toContain(
+        `mailto:founders@cmux.com?subject=${encodeURIComponent(
+          catalog.jobs.foundingDesigner.applyEmailSubject,
+        )}`,
+      );
+      expect(html).not.toContain(catalog.jobs.aboutTitle);
+      expect(html).not.toContain(catalog.jobs.applyTitle);
     }
   });
 
@@ -186,26 +224,28 @@ describe("jobs page", () => {
       params: Promise.resolve({ locale: "en" }),
     });
     expect(english.title).toEqual({
-      absolute: "Founding Engineer jobs at cmux",
+      absolute: "Founding Engineer / Founding Designer — Jobs",
     });
     expect(english.alternates).toEqual(expectedAlternates("/jobs", "en"));
-    expect(english.description).toContain("future of coding with AI");
+    expect(english.description).toContain("Help us build the future of coding with AI.");
 
     const japanese = await generateMetadata({
       params: Promise.resolve({ locale: "ja" }),
     });
     expect(japanese.title).toEqual({
-      absolute: "Founding Engineer の採用情報 — cmux",
+      absolute: "Founding Engineer / Founding Designer — 採用情報",
     });
     expect(japanese.alternates).toMatchObject({
       canonical: "https://cmux.com/ja/jobs",
     });
-    expect(japanese.description).toContain("AI コーディングの未来");
+    expect(japanese.description).toContain("AI とコーディングの未来をつくる。");
 
     const chinese = await generateMetadata({
       params: Promise.resolve({ locale: "zh-CN" }),
     });
-    expect(chinese.title).toEqual({ absolute: "cmux 创始工程师招聘" });
+    expect(chinese.title).toEqual({
+      absolute: "Founding Engineer / Founding Designer — 招聘",
+    });
     expect(chinese.alternates).toMatchObject({
       canonical: "https://cmux.com/zh-CN/jobs",
       languages: {
@@ -216,11 +256,11 @@ describe("jobs page", () => {
     expect(chinese.description).toContain("AI 编程的未来");
   });
 
-  test("renders the English founding designer role and links the roles together", () => {
+  test("renders both roles when visiting the founding designer route", () => {
     activeLocale = "en";
     const html = renderToStaticMarkup(<FoundingDesignerPage />);
 
-    expect(html).toContain("About the role");
+    expect(html).toContain("Founding Engineer");
     expect(html).toContain("Founding Designer");
     expect(html).toContain(
       "Design frontier devtools across the stack: cmux macOS, cmux TUI, cmux Windows/Linux, cmux iOS, cmux Cloud, cmux.com, chatmux, and more.",
@@ -230,32 +270,34 @@ describe("jobs page", () => {
     );
     expect(html).toContain("Typography, motion, and systems thinking");
     expect(html).toContain("$130k–$170k + 0.5%–1.5% equity");
-    expect(html).toContain(">Email<");
+    expect(html.match(/>Email</g)).toHaveLength(2);
     expect(html).not.toContain("Email founders@cmux.com");
-    expect(html).toContain('href="/jobs"');
-    expect(html).toContain("Founding Engineer");
     expect(html).toContain(
       `subject=${encodeURIComponent(
         enMessages.jobs.foundingDesigner.applyEmailSubject,
       )}`,
     );
+    expect(html).not.toContain("About cmux");
+    expect(html).not.toContain("Interested?");
   });
 
   test("renders the authored Japanese founding designer presentation", () => {
     activeLocale = "ja";
     const html = renderToStaticMarkup(<FoundingDesignerPage />);
 
-    expect(html).toContain("役割について");
+    expect(html).toContain("Founding Engineer");
     expect(html).toContain("Founding Designer");
     expect(html).toContain("デザインコンポーネントを知り尽くしている");
     expect(html).toContain("タイポグラフィ、モーション、システム思考");
-    expect(html).toContain(">メールする<");
+    expect(html.match(/>メールする</g)).toHaveLength(2);
     expect(html).not.toContain("founders@cmux.com にメールする");
     expect(html).toContain(
       `subject=${encodeURIComponent(
         jaMessages.jobs.foundingDesigner.applyEmailSubject,
       )}`,
     );
+    expect(html).not.toContain("cmux について");
+    expect(html).not.toContain("興味がありますか？");
     expect(html).not.toContain("What you'll do");
   });
 
