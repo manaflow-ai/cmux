@@ -16,7 +16,8 @@ permissions:
   actions: read
   contents: write
   issues: write
-  pull-requests: read
+  # PR timeline comments use the pull-request permission on GitHub's token.
+  pull-requests: write
   statuses: write
 
 jobs:
