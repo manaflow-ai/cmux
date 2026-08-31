@@ -6456,30 +6456,31 @@ impl Mux {
         source: AgentSource,
         session: Option<&str>,
     ) -> Option<String> {
-        // Resource revisions are durable and strictly monotonic. Include the
-        // current revision in a transition key so an ABA sequence cannot
-        // reuse the key from an earlier cycle after the compatibility cache
-        // returns to the same state (working -> blocked -> working ->
-        // blocked). Repeated polls of one semantic state still return early
-        // through `unchanged`, so unrelated revisions do not create echo
-        // rows for steady-state reports.
-        let resource_revision = self.state.lock().unwrap().resource_revision;
+        // The durable projection is updated before its echo is folded. Read
+        // it first so a blocked roster replay still has a stable semantic
+        // receipt for repeated reports.
+        let durable_previous = self
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .public_agent_projections(Some(terminal_id), None)
+            .ok()
+            .and_then(|mut projections| projections.pop())
+            .map(|record| (record.state, record.source, record.source_session, record.agent));
         // The compatibility cache is updated as part of the direct resource
         // commit, before its journal echo is folded. Prefer it for admission
         // so an unfinished reducer tail cannot make an ABA sequence reuse an
         // older idempotency key (working -> blocked -> working).
-        let previous = self
-            .agent_records
-            .lock()
-            .unwrap()
-            .get(terminal_id)
-            .map(|record| {
-                (
-                    record.state.as_str().to_string(),
-                    record.source.as_str().to_string(),
-                    record.session.clone(),
-                    record.agent.clone(),
-                )
+        let previous = durable_previous
+            .or_else(|| {
+                self.agent_records.lock().unwrap().get(terminal_id).map(|record| {
+                    (
+                        record.state.as_str().to_string(),
+                        record.source.as_str().to_string(),
+                        record.session.clone(),
+                        record.agent.clone(),
+                    )
+                })
             })
             .or_else(|| {
                 let host = self.agent_roster.lock().unwrap();
@@ -6549,7 +6550,7 @@ impl Mux {
         // journal cursor would make an unrelated event defeat coalescing and
         // turn a steady socket poll into one durable row per event elsewhere.
         let material = format!(
-            "agent-report-echo-v3|{terminal_id}|{}|{}|{:?}|revision={resource_revision}|{previous}",
+            "agent-report-echo-v4|{terminal_id}|{}|{}|{:?}|{previous}",
             state.as_str(),
             source.as_str(),
             session,
