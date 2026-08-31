@@ -11,17 +11,17 @@ command -v jq >/dev/null
 
 # The pull_request CI workflow executes this harness against PR-controlled
 # workflow text. It must never receive Actions write authority. Only the
-# isolated CLA rerun job may have that permission.
-python3 - "$ROOT_DIR/.github/workflows/ci.yml" <<'PY'
-import sys
-import yaml
-
-with open(sys.argv[1], encoding="utf-8") as handle:
-    document = yaml.safe_load(handle)
-permissions = document.get("permissions", {})
-if permissions.get("actions") == "write":
-    raise SystemExit("CI must not grant top-level actions: write to pull_request jobs")
-PY
+# isolated CLA rerun job may have that permission. Use awk here because this
+# check runs before CI installs its optional Python dependencies.
+if awk '
+  /^permissions:[[:space:]]*$/ { in_permissions=1; next }
+  in_permissions && /^[^[:space:]]/ { in_permissions=0 }
+  in_permissions && /^[[:space:]]+actions:[[:space:]]*write([[:space:]]*#.*)?$/ { found=1 }
+  END { exit found ? 0 : 1 }
+' "$ROOT_DIR/.github/workflows/ci.yml"; then
+  echo "CI must not grant top-level actions: write to pull_request jobs" >&2
+  exit 1
+fi
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
