@@ -1738,37 +1738,33 @@ struct ContentView: View {
     }
 
     private var sidebarView: some View {
-        let sidebar = VerticalTabsSidebar(
-            updateViewModel: updateViewModel,
-            fileExplorerState: fileExplorerState,
-            featureFlags: featureFlags,
-            isPresented: sidebarState.isVisible,
-            sidebarUnread: sidebarUnread,
-            titlebarControlsLayoutModel: titlebarControlsLayoutModel,
-            windowId: windowId,
-            onSendFeedback: presentFeedbackComposer,
-            onToggleSidebar: { sidebarState.toggle() },
-            onNewTab: {
-                AppDelegate.shared?.performNewWorkspaceAction(
-                    tabManager: tabManager,
-                    debugSource: "titlebar.hiddenNewWorkspace"
-                )
-            },
-            observedWindowReference: observedWindowReference,
-            chromeBackgroundColor: windowAppearanceSnapshot.resolvedChromeBackgroundColor,
-            selection: $sidebarSelectionState.selection,
-            selectedTabIds: $selectedTabIds, lastSidebarSelectionIndex: $lastSidebarSelectionIndex, sidebarRenderWorkerClient: $sidebarRenderWorkerClient
-        )
-        return Group {
-            if featureFlags.isAppKitSidebarListEnabled {
-                // FLAG(sidebar-appkit-list-experiment): parent-driven
-                // re-evaluations (divider width ticks, unrelated ContentView
-                // state churn) skip the sidebar subtree; all sidebar content
-                // flows through tracked dependencies that bypass the gate.
-                sidebar.equatable()
-            } else {
-                sidebar
-            }
+        SidebarWorkspaceTableEnvironmentReader { tableEnvironment in
+            let sidebar = VerticalTabsSidebar(
+                updateViewModel: updateViewModel,
+                fileExplorerState: fileExplorerState,
+                featureFlags: featureFlags,
+                isPresented: sidebarState.isVisible,
+                sidebarUnread: sidebarUnread,
+                titlebarControlsLayoutModel: titlebarControlsLayoutModel,
+                windowId: windowId,
+                onSendFeedback: presentFeedbackComposer,
+                onToggleSidebar: { sidebarState.toggle() },
+                onNewTab: {
+                    AppDelegate.shared?.performNewWorkspaceAction(
+                        tabManager: tabManager,
+                        debugSource: "titlebar.hiddenNewWorkspace"
+                    )
+                },
+                observedWindowReference: observedWindowReference,
+                tableEnvironment: tableEnvironment,
+                chromeBackgroundColor: windowAppearanceSnapshot.resolvedChromeBackgroundColor,
+                selection: $sidebarSelectionState.selection,
+                selectedTabIds: $selectedTabIds, lastSidebarSelectionIndex: $lastSidebarSelectionIndex, sidebarRenderWorkerClient: $sidebarRenderWorkerClient
+            )
+            // The environment reader owns the Equatable boundary for both
+            // renderers, so its broad environment projection cannot rebuild
+            // this O(workspaces) subtree for unrelated key changes.
+            sidebar
         }
         .modifier(SidebarWidthFrameModifier(layout: sidebarLayout))
         .frame(maxHeight: .infinity, alignment: .topLeading)
@@ -10878,6 +10874,7 @@ struct VerticalTabsSidebar: View, Equatable {
             && lhs.sidebarUnread === rhs.sidebarUnread
             && lhs.titlebarControlsLayoutModel === rhs.titlebarControlsLayoutModel
             && lhs.isPresented == rhs.isPresented
+            && lhs.tableEnvironment.hasEquivalentPresentation(to: rhs.tableEnvironment)
             && lhs.chromeBackgroundColor.isEqual(rhs.chromeBackgroundColor)
     }
 
@@ -10892,6 +10889,8 @@ struct VerticalTabsSidebar: View, Equatable {
     let onToggleSidebar: () -> Void
     let onNewTab: () -> Void
     let observedWindowReference: WeakWindowReference
+    /// Compact value projection resolved above this O(workspaces) view.
+    let tableEnvironment: SidebarWorkspaceTableEnvironmentSnapshot
     let chromeBackgroundColor: NSColor
     var observedWindow: NSWindow? { observedWindowReference.window }
     @EnvironmentObject var tabManager: TabManager
@@ -10994,10 +10993,7 @@ struct VerticalTabsSidebar: View, Equatable {
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
-    @Environment(\.sidebarLazyContractProbe) private var sidebarLazyContractProbe
 #endif
-    @Environment(\.colorScheme) private var sidebarColorScheme
-    @Environment(\.cmuxGlobalFontMagnificationPercent) private var sidebarGlobalFontMagnificationPercent
 
     // The provider to actually render. Built-in views are always honored; only
     // the hosted-extension selection falls back to the default workspaces
@@ -11403,18 +11399,6 @@ struct VerticalTabsSidebar: View, Equatable {
                 visibleWorkspaceRowIds: visibleWorkspaceRowIds
             )
         } ?? []
-#if DEBUG
-        let tableEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
-            colorScheme: sidebarColorScheme,
-            globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent,
-            lazyContractProbe: sidebarLazyContractProbe
-        )
-#else
-        let tableEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
-            colorScheme: sidebarColorScheme,
-            globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent
-        )
-#endif
         let renderContext = WorkspaceListRenderContext(
             environment: tableEnvironment,
             tabs: tabs,
@@ -12201,7 +12185,6 @@ struct VerticalTabsSidebar: View, Equatable {
             isFirstRow: input.index == 0,
             shortcutHintText: hintText,
             showsShortcutHints: input.showsModifierShortcutHints,
-            colorSchemeIsDark: environment.colorScheme == .dark,
             globalFontMagnificationPercent: environment.globalFontMagnificationPercent,
             isChecklistExpanded: input.isChecklistExpanded,
             checklistAddFieldActivationToken: input.checklistAddFieldActivationToken,
@@ -12638,7 +12621,7 @@ struct VerticalTabsSidebar: View, Equatable {
         showsAgentActivity: Bool
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
 #if DEBUG
-        sidebarLazyContractProbe.workspaceSnapshotBuild?()
+        tableEnvironment.lazyContractProbe.workspaceSnapshotBuild?()
 #endif
         return SidebarWorkspaceSnapshotFactory(
             workspace: workspace,
@@ -14494,7 +14477,7 @@ struct VerticalTabsSidebar: View, Equatable {
         unreadSummariesByWorkspaceId: [UUID: SidebarWorkspaceUnreadSummary]
     ) -> SidebarWorkspaceRowInput {
 #if DEBUG
-        sidebarLazyContractProbe.workspaceRowInputProjection?()
+        tableEnvironment.lazyContractProbe.workspaceRowInputProjection?()
 #endif
         let signpost = SidebarProfilingSignposts.begin("sidebar-workspace-row", "index=\(renderContext.tabIndexById[tab.id] ?? -1) workspace=\(sidebarShortTabId(tab.id)) selected=\(tabManager.selectedTabId == tab.id)")
         defer { SidebarProfilingSignposts.end(signpost) }

@@ -63,7 +63,8 @@ final class SidebarRowChecklistSection: NSView {
         let firstUncheckedText: String?
         let isActive: Bool
         let isMultiSelected: Bool
-        let colorSchemeIsDark: Bool
+        let primaryTextColor: NSColor
+        let secondaryTextColor: NSColor
         let settings: SidebarTabItemSettingsSnapshot
         let magnificationPercent: Int
         let isExpanded: Bool
@@ -108,6 +109,11 @@ final class SidebarRowChecklistSection: NSView {
         let previousWorkspaceId = self.model?.workspaceId
         self.model = model
         self.actions = actions
+        // Cache the exact rendered outputs, not just light/dark. Accessibility
+        // contrast and any future semantic-palette inputs can change these
+        // colors without changing the row model.
+        let primary = palette.secondary(0.9)
+        let secondary = palette.secondary(0.65)
         let key = ConfigureKey(
             workspaceId: model.workspaceId,
             items: model.snapshot.checklistItems,
@@ -117,7 +123,8 @@ final class SidebarRowChecklistSection: NSView {
             firstUncheckedText: model.snapshot.checklistFirstUncheckedText,
             isActive: model.isActive,
             isMultiSelected: model.isMultiSelected,
-            colorSchemeIsDark: model.colorSchemeIsDark,
+            primaryTextColor: primary,
+            secondaryTextColor: secondary,
             settings: model.settings,
             magnificationPercent: model.globalFontMagnificationPercent,
             isExpanded: model.isChecklistExpanded,
@@ -191,9 +198,6 @@ final class SidebarRowChecklistSection: NSView {
         }
 
         // Same color/font roles the legacy section receives from TabItemView.
-        let primary = palette.secondary(0.9)
-        let secondary = palette.secondary(0.65)
-
         summaryLine.isHidden = snapshot.checklistTotalCount == 0
         if !summaryLine.isHidden {
             summaryLine.configure(

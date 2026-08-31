@@ -144,22 +144,25 @@ final class SidebarLazyLayoutScaleTests {
         let unread = SidebarUnreadModel()
         let counter = RowBodyCounter()
 
-        let root = VerticalTabsSidebar(
-            updateViewModel: UpdateStateModel(),
-            fileExplorerState: FileExplorerState(),
-            sidebarUnread: unread,
-            titlebarControlsLayoutModel: TitlebarControlsLayoutModel(),
-            windowId: UUID(),
-            onSendFeedback: {},
-            onToggleSidebar: {},
-            onNewTab: {},
-            observedWindowReference: WeakWindowReference(),
-            chromeBackgroundColor: .black,
-            selection: .constant(.tabs),
-            selectedTabIds: .constant([]),
-            lastSidebarSelectionIndex: .constant(nil),
-            sidebarRenderWorkerClient: .constant(nil)
-        )
+        let root = SidebarWorkspaceTableEnvironmentReader { tableEnvironment in
+            VerticalTabsSidebar(
+                updateViewModel: UpdateStateModel(),
+                fileExplorerState: FileExplorerState(),
+                sidebarUnread: unread,
+                titlebarControlsLayoutModel: TitlebarControlsLayoutModel(),
+                windowId: UUID(),
+                onSendFeedback: {},
+                onToggleSidebar: {},
+                onNewTab: {},
+                observedWindowReference: WeakWindowReference(),
+                tableEnvironment: tableEnvironment,
+                chromeBackgroundColor: .black,
+                selection: .constant(.tabs),
+                selectedTabIds: .constant([]),
+                lastSidebarSelectionIndex: .constant(nil),
+                sidebarRenderWorkerClient: .constant(nil)
+            )
+        }
         .frame(width: 280)
         .environmentObject(tabManager)
         .environmentObject(CmuxConfigStore())

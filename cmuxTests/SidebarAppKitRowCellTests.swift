@@ -1,22 +1,75 @@
 import AppKit
 import CmuxSidebar
+import CmuxWorkspaces
 import SwiftUI
 import Testing
 @testable import cmux_DEV
 
+extension EnvironmentValues {
+    static func sidebarTableTestValues(
+        colorScheme: ColorScheme,
+        colorSchemeContrast: ColorSchemeContrast = .standard
+    ) -> Self {
+        var values = Self()
+        values.colorScheme = colorScheme
+        // `colorSchemeContrast` is read-only in production. Its writable mirror
+        // is used only by tests that need to simulate the accessibility setting.
+        values._colorSchemeContrast = colorSchemeContrast
+        return values
+    }
+}
+
+/// Behavior tests for the pure-AppKit sidebar cells: hover enforcement,
+/// palette parity, and optimistic selection paint semantics.
 /// Behavior tests for the pure-AppKit workspace row cell: hover enforcement
 /// (authoritative sweep) and optimistic selection paint semantics.
 @Suite(.serialized)
 @MainActor
 struct SidebarAppKitRowCellTests {
+    fileprivate static var tableEnvironment: SidebarWorkspaceTableEnvironmentSnapshot {
+        SidebarWorkspaceTableEnvironmentSnapshot(
+            environment: .sidebarTableTestValues(colorScheme: .dark),
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe()
+        )
+    }
+
+    private static func makeGroupHeaderModel(
+        groupId: UUID,
+        anchorWorkspaceId: UUID,
+        isAnchorActive: Bool,
+        shortcutHintText: String? = nil
+    ) -> SidebarGroupHeaderRowModel {
+        SidebarGroupHeaderRowModel(
+            groupId: groupId, anchorWorkspaceId: anchorWorkspaceId,
+            name: "for next version stuff", iconSymbol: "folder", tintHex: nil,
+            isCollapsed: false, isPinned: false,
+            isAnchorActive: isAnchorActive,
+            isMultiSelected: false,
+            multiSelectionBackgroundStyle: .clear,
+            memberCount: 1, anchorUnreadCount: 0,
+            canMarkRead: false, canMarkUnread: true, hasLatestNotifications: false,
+            canMarkAllRead: false, canMarkAllUnread: true,
+            shortcutHintText: shortcutHintText, shortcutHintXOffset: 0, shortcutHintYOffset: 0,
+            fontScale: 1, globalFontMagnificationPercent: 100, cwdContextMenuItems: [],
+            rowSpacing: 2, isFirstRow: true, isBeingDragged: false,
+            topDropIndicatorVisible: false, bottomDropIndicatorVisible: false,
+            colorSchemeIsDark: true
+        )
+    }
+
     private static func makeSnapshot(
         title: String = "Workspace",
         customDescription: String? = nil,
         isPinned: Bool = false,
         metadataEntries: [SidebarStatusEntry] = [],
-        metadataBlocks: [SidebarMetadataBlock] = []
+        progress: SidebarProgressState? = nil,
+        metadataBlocks: [SidebarMetadataBlock] = [],
+        checklistItems: [WorkspaceChecklistItem] = []
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
-        SidebarWorkspaceSnapshotBuilder.Snapshot(
+        let completedCount = checklistItems.count { $0.state == .completed }
+        let firstUncheckedText = checklistItems.first { $0.state != .completed }?.text
+        return SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: SidebarWorkspaceSnapshotFactory.presentationKey(
                 settings: SidebarTabItemSettingsSnapshot(defaults: UserDefaults(suiteName: UUID().uuidString)!),
                 showsAgentActivity: false
@@ -34,7 +87,7 @@ struct SidebarAppKitRowCellTests {
             metadataEntries: metadataEntries,
             metadataBlocks: metadataBlocks,
             latestLog: nil,
-            progress: nil,
+            progress: progress,
             activeCodingAgentCount: 0,
             compactGitBranchSummaryText: nil,
             compactDirectoryCandidates: [],
@@ -48,10 +101,10 @@ struct SidebarAppKitRowCellTests {
             taskStatus: nil,
             todoStatusMenuModel: nil,
             hasManualTaskStatus: false,
-            checklistItems: [],
-            checklistCompletedCount: 0,
-            checklistTotalCount: 0,
-            checklistFirstUncheckedText: nil
+            checklistItems: checklistItems,
+            checklistCompletedCount: completedCount,
+            checklistTotalCount: checklistItems.count,
+            checklistFirstUncheckedText: firstUncheckedText
         )
     }
 
@@ -63,8 +116,10 @@ struct SidebarAppKitRowCellTests {
         settings: SidebarTabItemSettingsSnapshot? = nil,
         customDescription: String? = nil,
         metadataEntries: [SidebarStatusEntry] = [],
+        progress: SidebarProgressState? = nil,
         metadataBlocks: [SidebarMetadataBlock] = [],
         shortcutHintText: String? = nil,
+        checklistItems: [WorkspaceChecklistItem] = [],
         isMarkdownExpanded: Bool = false
     ) -> SidebarWorkspaceRowModel {
         let resolvedSettings = settings
@@ -76,7 +131,9 @@ struct SidebarAppKitRowCellTests {
                 customDescription: customDescription,
                 isPinned: isPinned,
                 metadataEntries: metadataEntries,
-                metadataBlocks: metadataBlocks
+                progress: progress,
+                metadataBlocks: metadataBlocks,
+                checklistItems: checklistItems
             ),
             settings: resolvedSettings,
             isActive: isActive,
@@ -95,7 +152,6 @@ struct SidebarAppKitRowCellTests {
             isFirstRow: true,
             shortcutHintText: shortcutHintText,
             showsShortcutHints: shortcutHintText != nil,
-            colorSchemeIsDark: true,
             globalFontMagnificationPercent: 100,
             isChecklistExpanded: false,
             checklistAddFieldActivationToken: 0,
@@ -181,7 +237,7 @@ struct SidebarAppKitRowCellTests {
             allRemoteContextMenuTargetsDisconnected: false,
             contextMenuPinState: nil,
             workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot(items: []),
-            colorScheme: model.colorSchemeIsDark ? .dark : .light,
+            colorScheme: tableEnvironment.colorScheme,
             refreshSnapshot: {},
             readSelectedTabIds: { [] },
             writeSelectedTabIds: { _ in },
@@ -220,6 +276,7 @@ struct SidebarAppKitRowCellTests {
 
     fileprivate static func configuredCell(
         model: SidebarWorkspaceRowModel,
+        environment: SidebarWorkspaceTableEnvironmentSnapshot? = nil,
         tab: Workspace? = nil,
         tabManager: TabManager? = nil,
         onOpenWorkspaceDescriptionURL: @escaping (URL) -> Void = { _ in },
@@ -228,6 +285,7 @@ struct SidebarAppKitRowCellTests {
         let cell = SidebarWorkspaceRowTableCellView()
         cell.configure(
             model: model,
+            environment: environment ?? tableEnvironment,
             actions: makeActions(
                 model: model,
                 tab: tab,
@@ -244,6 +302,35 @@ struct SidebarAppKitRowCellTests {
 
     fileprivate static func descendants(of view: NSView) -> [NSView] {
         view.subviews + view.subviews.flatMap { descendants(of: $0) }
+    }
+
+    private static func resolvedTextColor(
+        in view: NSView,
+        matching text: String
+    ) throws -> NSColor {
+        let field = try #require(
+            descendants(of: view)
+                .compactMap { $0 as? NSTextField }
+                .first { $0.stringValue == text }
+        )
+        var resolvedColor: NSColor?
+        field.effectiveAppearance.performAsCurrentDrawingAppearance {
+            resolvedColor = field.textColor?.usingColorSpace(.sRGB)
+        }
+        return try #require(resolvedColor)
+    }
+
+    private static func appKitColor(from resolved: Color.Resolved) throws -> NSColor {
+        let colorSpace = try #require(CGColorSpace(name: CGColorSpace.extendedLinearSRGB))
+        let components = [
+            CGFloat(resolved.linearRed),
+            CGFloat(resolved.linearGreen),
+            CGFloat(resolved.linearBlue),
+            CGFloat(resolved.opacity),
+        ]
+        let cgColor = try #require(CGColor(colorSpace: colorSpace, components: components))
+        let color = try #require(NSColor(cgColor: cgColor))
+        return try #require(color.usingColorSpace(.sRGB))
     }
 
     private static func textView(in cell: SidebarWorkspaceRowTableCellView, linkedTo url: URL) -> SidebarRowTextView? {
@@ -726,9 +813,14 @@ struct SidebarAppKitRowCellTests {
             excluding: background
         )
 
+        // The row palette snapshots SwiftUI's secondary color (including its
+        // semantic alpha) and multiplies that alpha for the description. Do
+        // the same for the expected raster instead of replacing the semantic
+        // alpha with 0.95, which would be a different color on macOS.
+        let tableSecondary = Self.tableEnvironment.secondaryTextColor
         let resolvedProse = cmuxCompositedNSColor(
             try Self.resolvedColor(
-                NSColor.secondaryLabelColor.withAlphaComponent(0.95),
+                tableSecondary.withAlphaComponent(tableSecondary.alphaComponent * 0.95),
                 in: darkAppearance
             ),
             over: background
@@ -743,7 +835,7 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
-    func rowPaletteSemanticColorsRemainDynamicAcrossAppearances() throws {
+    func rowPaletteSemanticColorsStayBoundToConfiguredScheme() throws {
         let lightAppearance = try #require(NSAppearance(named: .aqua))
         let darkAppearance = try #require(NSAppearance(named: .darkAqua))
         let semanticColor = NSColor(name: nil) { appearance in
@@ -751,19 +843,24 @@ struct SidebarAppKitRowCellTests {
                 ? .white
                 : .black
         }
-        let palette = SidebarRowPalette(model: Self.makeModel())
+        let palette = SidebarRowPalette(
+            environment: Self.tableEnvironment,
+            model: Self.makeModel()
+        )
+        let expectedDark = try Self.resolvedColor(semanticColor, in: darkAppearance)
         let colors = [
-            (palette.semantic(semanticColor), CGFloat(1)),
-            (palette.semantic(semanticColor, opacity: 0.6), CGFloat(0.6)),
+            (palette.semantic(semanticColor), expectedDark),
+            (palette.semantic(semanticColor, opacity: 0.6), expectedDark.withAlphaComponent(0.6)),
         ]
 
-        for (color, expectedAlpha) in colors {
+        for (color, expected) in colors {
             let light = try Self.resolvedColor(color, in: lightAppearance)
             let dark = try Self.resolvedColor(color, in: darkAppearance)
 
-            #expect(Self.distance(light, dark) > 1)
-            #expect(abs(light.alphaComponent - expectedAlpha) < 0.001)
-            #expect(abs(dark.alphaComponent - expectedAlpha) < 0.001)
+            #expect(Self.distance(light, dark) < 0.001)
+            #expect(Self.distance(dark, expected) < 0.001)
+            #expect(abs(light.alphaComponent - expected.alphaComponent) < 0.001)
+            #expect(abs(dark.alphaComponent - expected.alphaComponent) < 0.001)
         }
     }
 
@@ -797,6 +894,7 @@ struct SidebarAppKitRowCellTests {
         )
         cell.configure(
             model: selectedModel,
+            environment: Self.tableEnvironment,
             actions: Self.makeActions(
                 model: selectedModel,
                 onOpenWorkspaceDescriptionURL: { openedURL = $0 }
@@ -855,6 +953,7 @@ struct SidebarAppKitRowCellTests {
         )
         cell.configure(
             model: secondModel,
+            environment: Self.tableEnvironment,
             actions: Self.makeActions(
                 model: secondModel,
                 onOpenWorkspaceDescriptionURL: { openedURL = $0 }
@@ -1201,6 +1300,7 @@ struct SidebarAppKitRowCellTests {
         )
         cell.configure(
             model: replacementModel,
+            environment: Self.tableEnvironment,
             actions: Self.makeActions(
                 model: replacementModel,
                 onOpenWorkspaceDescriptionURL: { openedURL = $0 }
@@ -1231,6 +1331,7 @@ struct SidebarAppKitRowCellTests {
         )
         cell.configure(
             model: clearedModel,
+            environment: Self.tableEnvironment,
             actions: Self.makeActions(
                 model: clearedModel,
                 onOpenWorkspaceDescriptionURL: { openedURL = $0 }
@@ -1295,6 +1396,7 @@ struct SidebarAppKitRowCellTests {
         )
         cell.configure(
             model: shrunkModel,
+            environment: Self.tableEnvironment,
             actions: Self.makeActions(model: shrunkModel, onOpenStatusURL: { openedURL = $0 }),
             isPointerHovering: false,
             contextMenuDidOpen: {},
@@ -1816,9 +1918,13 @@ struct SidebarAppKitRowCellTests {
     @Test
     func shortcutHintPillKeepsVisibleDuringFadeOut() async throws {
         let pill = SidebarShortcutHintPillView(reduceMotionProvider: { false })
-        pill.configure(text: "⌘1", fontSize: 10, emphasis: 1)
+        pill.configure(
+            text: "⌘1", fontSize: 10, emphasis: 1, textColor: .labelColor
+        )
 
-        pill.configure(text: nil, fontSize: 10, emphasis: 1)
+        pill.configure(
+            text: nil, fontSize: 10, emphasis: 1, textColor: .labelColor
+        )
 
         #expect(!pill.isHidden)
         let clock = ContinuousClock()
@@ -1835,7 +1941,9 @@ struct SidebarAppKitRowCellTests {
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        pill.configure(text: "⌘1", fontSize: 9, emphasis: 1)
+        pill.configure(
+            text: "⌘1", fontSize: 9, emphasis: 1, textColor: .labelColor
+        )
         CATransaction.commit()
 
         let hasOpacityAnimation = (pill.layer?.animationKeys() ?? []).contains { key in
@@ -1848,12 +1956,16 @@ struct SidebarAppKitRowCellTests {
     func shortcutHintPillAppliesReducedMotionVisibilityImmediately() {
         let pill = SidebarShortcutHintPillView(reduceMotionProvider: { true })
 
-        pill.configure(text: "⌘1", fontSize: 9, emphasis: 1)
+        pill.configure(
+            text: "⌘1", fontSize: 9, emphasis: 1, textColor: .labelColor
+        )
         #expect(!pill.isHidden)
         #expect(pill.layer?.opacity == 1)
         #expect((pill.layer?.animationKeys() ?? []).isEmpty)
 
-        pill.configure(text: nil, fontSize: 9, emphasis: 1)
+        pill.configure(
+            text: nil, fontSize: 9, emphasis: 1, textColor: .labelColor
+        )
         #expect(pill.isHidden)
         #expect(pill.layer?.opacity == 0)
         #expect((pill.layer?.animationKeys() ?? []).isEmpty)
@@ -1870,6 +1982,7 @@ struct SidebarAppKitRowCellTests {
         let replacement = Self.makeModel(workspaceId: workspaceId)
         cell.configure(
             model: replacement,
+            environment: Self.tableEnvironment,
             actions: Self.makeActions(model: replacement),
             isPointerHovering: false,
             contextMenuDidOpen: {},
@@ -1884,7 +1997,9 @@ struct SidebarAppKitRowCellTests {
     func shortcutHintPillNeverInterceptsPointerEvents() {
         let pill = SidebarShortcutHintPillView()
         pill.frame = NSRect(x: 0, y: 0, width: 32, height: 18)
-        pill.configure(text: "⌘1", fontSize: 9, emphasis: 1)
+        pill.configure(
+            text: "⌘1", fontSize: 9, emphasis: 1, textColor: .labelColor
+        )
         pill.layoutSubtreeIfNeeded()
 
         #expect(pill.hitTest(NSPoint(x: 16, y: 9)) == nil)
@@ -1893,7 +2008,9 @@ struct SidebarAppKitRowCellTests {
     @Test
     func shortcutHintPillUsesCompactHorizontalPadding() throws {
         let pill = SidebarShortcutHintPillView()
-        pill.configure(text: "⌘1", fontSize: 9, emphasis: 1)
+        pill.configure(
+            text: "⌘1", fontSize: 9, emphasis: 1, textColor: .labelColor
+        )
         let label = try #require(Self.descendants(of: pill).compactMap { $0 as? NSTextField }.first)
 
         #expect(pill.fittingPillSize().width == ceil(label.sidebarNaturalCellSize.width) + 8)
@@ -1903,7 +2020,9 @@ struct SidebarAppKitRowCellTests {
     func shortcutHintPillClipsMaterialToItsCapsule() throws {
         let pill = SidebarShortcutHintPillView()
         pill.frame = NSRect(x: 0, y: 0, width: 36, height: 18)
-        pill.configure(text: "⌘1", fontSize: 10, emphasis: 1)
+        pill.configure(
+            text: "⌘1", fontSize: 10, emphasis: 1, textColor: .labelColor
+        )
         pill.layoutSubtreeIfNeeded()
 
         let material = try #require(Self.descendants(of: pill).compactMap { $0 as? NSVisualEffectView }.first)
@@ -1942,6 +2061,452 @@ struct SidebarAppKitRowCellTests {
         activeCell.showOptimisticDeselection()
         #expect(activeApplied == [false])
         #expect(activeCell.currentModelForMeasurement?.isActive == true)
+    }
+
+    @Test
+    func groupHeaderOptimisticDeselectionBailoutRestoresStoredActivePaint() throws {
+        let header = SidebarGroupHeaderTableCellView()
+        let model = Self.makeGroupHeaderModel(
+            groupId: UUID(),
+            anchorWorkspaceId: UUID(),
+            isAnchorActive: true
+        )
+        header.configurePresentation(model: model, environment: Self.tableEnvironment)
+
+        header.showOptimisticDeselection()
+        header.clearOptimisticAnchorActive()
+
+        let backgroundView = try #require(header.subviews.first)
+        let backgroundColor = try #require(backgroundView.layer?.backgroundColor)
+        #expect(NSColor(cgColor: backgroundColor)?.alphaComponent ?? 0 > 0)
+    }
+
+    @Test
+    func groupHeaderReplacementDeselectionClearsOptimisticInactivePaint() throws {
+        let header = SidebarGroupHeaderTableCellView()
+        let model = Self.makeGroupHeaderModel(
+            groupId: UUID(),
+            anchorWorkspaceId: UUID(),
+            isAnchorActive: false
+        )
+        header.configurePresentation(model: model, environment: Self.tableEnvironment)
+
+        let backgroundView = try #require(header.subviews.first)
+        header.showOptimisticAnchorActive()
+        let optimisticColor = try #require(backgroundView.layer?.backgroundColor)
+        #expect(NSColor(cgColor: optimisticColor)?.alphaComponent ?? 0 > 0)
+
+        // A rapid replacement click invokes the same peel method as the
+        // controller's plain-click preview loop. The stored model is still
+        // inactive, so the optimistic active paint must be removed immediately.
+        header.showOptimisticDeselection()
+        let peeledColor = try #require(backgroundView.layer?.backgroundColor)
+        #expect(NSColor(cgColor: peeledColor)?.alphaComponent ?? 1 < 0.01)
+    }
+
+    @Test
+    func groupHeaderTitleMatchesDefaultWorkspaceTitleAcrossSelectionInDarkMode() throws {
+        let appearance = try #require(NSAppearance(named: .darkAqua))
+        let workspaceCell = Self.configuredCell(model: Self.makeModel())
+        let headerCell = SidebarGroupHeaderTableCellView()
+        let groupId = UUID()
+        let anchorWorkspaceId = UUID()
+        let inactiveHeader = Self.makeGroupHeaderModel(
+            groupId: groupId,
+            anchorWorkspaceId: anchorWorkspaceId,
+            isAnchorActive: false
+        )
+        let activeHeader = Self.makeGroupHeaderModel(
+            groupId: groupId,
+            anchorWorkspaceId: anchorWorkspaceId,
+            isAnchorActive: true
+        )
+        headerCell.configurePresentation(
+            model: inactiveHeader,
+            environment: Self.tableEnvironment
+        )
+
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 120))
+        root.addSubview(workspaceCell)
+        root.addSubview(headerCell)
+        let window = NSWindow(
+            contentRect: root.bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.appearance = appearance
+        window.contentView = root
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        let workspaceTitleColor = try Self.resolvedTextColor(
+            in: workspaceCell,
+            matching: "Workspace"
+        )
+        let inactiveHeaderColor = try Self.resolvedTextColor(
+            in: headerCell,
+            matching: inactiveHeader.name
+        )
+
+        headerCell.showOptimisticAnchorActive()
+        let optimisticActiveHeaderColor = try Self.resolvedTextColor(
+            in: headerCell,
+            matching: inactiveHeader.name
+        )
+
+        headerCell.configurePresentation(
+            model: activeHeader,
+            environment: Self.tableEnvironment
+        )
+        let activeHeaderColor = try Self.resolvedTextColor(
+            in: headerCell,
+            matching: activeHeader.name
+        )
+
+        headerCell.showOptimisticDeselection()
+        let optimisticInactiveHeaderColor = try Self.resolvedTextColor(
+            in: headerCell,
+            matching: activeHeader.name
+        )
+
+        #expect(inactiveHeaderColor == workspaceTitleColor)
+        #expect(optimisticActiveHeaderColor == workspaceTitleColor)
+        #expect(activeHeaderColor == workspaceTitleColor)
+        #expect(optimisticInactiveHeaderColor == workspaceTitleColor)
+    }
+
+    @Test
+    func groupHeaderUnreadBadgeRepaintsWhenEnvironmentAccentChanges() throws {
+        let firstAccent = NSColor(srgbRed: 0.9, green: 0.1, blue: 0.2, alpha: 1)
+        let secondAccent = NSColor(srgbRed: 0.1, green: 0.7, blue: 0.25, alpha: 1)
+        let firstEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
+            environment: .sidebarTableTestValues(colorScheme: .light),
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe(),
+            systemAccentColor: firstAccent
+        )
+        let secondEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
+            environment: .sidebarTableTestValues(colorScheme: .light),
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe(),
+            systemAccentColor: secondAccent
+        )
+        #expect(!firstEnvironment.hasEquivalentPresentation(to: secondEnvironment))
+
+        var model = Self.makeGroupHeaderModel(
+            groupId: UUID(),
+            anchorWorkspaceId: UUID(),
+            isAnchorActive: false
+        )
+        model.anchorUnreadCount = 3
+        let header = SidebarGroupHeaderTableCellView()
+        header.configurePresentation(model: model, environment: firstEnvironment)
+        let badge = try #require(
+            header.subviews.compactMap { $0 as? SidebarRowUnreadBadgeView }.first
+        )
+        let firstFill = try #require(badge.layer?.backgroundColor)
+        let firstRenderedColor = try #require(NSColor(cgColor: firstFill))
+
+        header.configurePresentation(model: model, environment: secondEnvironment)
+        let secondFill = try #require(badge.layer?.backgroundColor)
+        let secondRenderedColor = try #require(NSColor(cgColor: secondFill))
+
+        #expect(Self.distance(firstRenderedColor, firstEnvironment.accentColor) < 0.001)
+        #expect(Self.distance(secondRenderedColor, secondEnvironment.accentColor) < 0.001)
+        #expect(Self.distance(firstRenderedColor, secondRenderedColor) > 0.1)
+    }
+
+    @Test
+    func shortcutHintMaterialUsesTableAppearanceWhenBackingAppearanceDiffers() throws {
+        let tableEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
+            environment: .sidebarTableTestValues(colorScheme: .light),
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe()
+        )
+        let headerCell = SidebarGroupHeaderTableCellView()
+        headerCell.configurePresentation(
+            model: Self.makeGroupHeaderModel(
+                groupId: UUID(),
+                anchorWorkspaceId: UUID(),
+                isAnchorActive: false,
+                shortcutHintText: "⌘1"
+            ),
+            environment: tableEnvironment
+        )
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 80))
+        root.addSubview(headerCell)
+        let window = NSWindow(
+            contentRect: root.bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.appearance = try #require(NSAppearance(named: .darkAqua))
+        window.contentView = root
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        let material = try #require(
+            Self.descendants(of: headerCell)
+                .compactMap { $0 as? NSVisualEffectView }
+                .first
+        )
+        #expect(
+            material.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .aqua,
+            "The shortcut material must use the table's light appearance, not its dark backing window."
+        )
+    }
+
+    @Test
+    func shortcutHintUsesOpaqueFallbackForIncreasedContrastAppearanceMismatch() throws {
+        let tableEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
+            environment: .sidebarTableTestValues(
+                colorScheme: .light,
+                colorSchemeContrast: .increased
+            ),
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe()
+        )
+        let headerCell = SidebarGroupHeaderTableCellView()
+        headerCell.configurePresentation(
+            model: Self.makeGroupHeaderModel(
+                groupId: UUID(),
+                anchorWorkspaceId: UUID(),
+                isAnchorActive: false,
+                shortcutHintText: "⌘1"
+            ),
+            environment: tableEnvironment
+        )
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 80))
+        root.addSubview(headerCell)
+        let window = NSWindow(
+            contentRect: root.bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.appearance = try #require(NSAppearance(named: .darkAqua))
+        window.contentView = root
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        let material = try #require(
+            Self.descendants(of: headerCell)
+                .compactMap { $0 as? NSVisualEffectView }
+                .first
+        )
+        let pill = try #require(material.superview as? SidebarShortcutHintPillView)
+        let opaqueBackdrop = try #require(
+            Self.descendants(of: pill).first { view in
+                guard view !== material,
+                      !view.isHidden,
+                      let backgroundColor = view.layer?.backgroundColor,
+                      let color = NSColor(cgColor: backgroundColor)?.usingColorSpace(.sRGB) else {
+                    return false
+                }
+                return color.alphaComponent == 1
+            }
+        )
+        let backgroundColor = try #require(opaqueBackdrop.layer?.backgroundColor)
+        let fallbackColor = try #require(NSColor(cgColor: backgroundColor)?.usingColorSpace(.sRGB))
+        let expectedColor = try #require(NSColor.white.usingColorSpace(.sRGB))
+
+        #expect(material.appearance == nil)
+        #expect(fallbackColor == expectedColor)
+    }
+
+    @Test
+    func tablePaletteMatchesIncreasedContrastSwiftUISemantics() throws {
+        let swiftUIEnvironment = EnvironmentValues.sidebarTableTestValues(
+            colorScheme: .dark,
+            colorSchemeContrast: .increased
+        )
+
+        let tableEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
+            environment: swiftUIEnvironment,
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe()
+        )
+        let standardTableEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
+            environment: .sidebarTableTestValues(colorScheme: .dark),
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe()
+        )
+        let expectedPrimary = try Self.appKitColor(
+            from: Color.primary.resolve(in: swiftUIEnvironment)
+        )
+        let expectedSecondary = try Self.appKitColor(
+            from: Color.secondary.resolve(in: swiftUIEnvironment)
+        )
+        let actualPrimary = try #require(tableEnvironment.primaryTextColor.usingColorSpace(.sRGB))
+        let actualSecondary = try #require(tableEnvironment.secondaryTextColor.usingColorSpace(.sRGB))
+
+        #expect(tableEnvironment.colorSchemeContrast == .increased)
+        #expect(!tableEnvironment.hasEquivalentPresentation(to: standardTableEnvironment))
+        #expect(actualPrimary == expectedPrimary)
+        #expect(actualSecondary == expectedSecondary)
+
+        let headerModel = Self.makeGroupHeaderModel(
+            groupId: UUID(),
+            anchorWorkspaceId: UUID(),
+            isAnchorActive: false
+        )
+        let workspaceCell = Self.configuredCell(
+            model: Self.makeModel(),
+            environment: tableEnvironment
+        )
+        let headerCell = SidebarGroupHeaderTableCellView()
+        headerCell.configurePresentation(model: headerModel, environment: tableEnvironment)
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 120))
+        root.addSubview(workspaceCell)
+        root.addSubview(headerCell)
+        let window = NSWindow(
+            contentRect: root.bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.appearance = NSAppearance(named: .aqua)
+        window.contentView = root
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        let workspaceTitleColor = try Self.resolvedTextColor(in: workspaceCell, matching: "Workspace")
+        let headerTitleColor = try Self.resolvedTextColor(in: headerCell, matching: headerModel.name)
+        #expect(workspaceTitleColor == expectedPrimary)
+        #expect(headerTitleColor == expectedPrimary)
+    }
+
+    @Test
+    func checklistPaletteReconfiguresWhenContrastChanges() throws {
+        let checklistText = "Verify contrast repaint"
+        let model = Self.makeModel(
+            checklistItems: [WorkspaceChecklistItem(text: checklistText)]
+        )
+        let standardSwiftUIEnvironment = EnvironmentValues.sidebarTableTestValues(
+            colorScheme: .dark
+        )
+        let increasedSwiftUIEnvironment = EnvironmentValues.sidebarTableTestValues(
+            colorScheme: .dark,
+            colorSchemeContrast: .increased
+        )
+        let standardTableEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
+            environment: standardSwiftUIEnvironment,
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe()
+        )
+        let increasedTableEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
+            environment: increasedSwiftUIEnvironment,
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe()
+        )
+        let expectedStandard = try Self.appKitColor(
+            from: Color.secondary.resolve(in: standardSwiftUIEnvironment)
+        )
+        let expectedIncreased = try Self.appKitColor(
+            from: Color.secondary.resolve(in: increasedSwiftUIEnvironment)
+        )
+        let cell = Self.configuredCell(
+            model: model,
+            environment: standardTableEnvironment
+        )
+
+        let standardColor = try Self.resolvedTextColor(
+            in: cell,
+            matching: checklistText
+        )
+        cell.configure(
+            model: model,
+            environment: increasedTableEnvironment,
+            actions: Self.makeActions(model: model),
+            isPointerHovering: false,
+            contextMenuDidOpen: {},
+            contextMenuDidClose: {}
+        )
+        let increasedColor = try Self.resolvedTextColor(
+            in: cell,
+            matching: checklistText
+        )
+
+        #expect(expectedStandard != expectedIncreased)
+        #expect(standardColor == expectedStandard)
+        #expect(increasedColor == expectedIncreased)
+    }
+
+    @Test
+    func inactiveSecondaryOpacityMultipliesResolvedSemanticAlpha() throws {
+        let tableEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
+            environment: .sidebarTableTestValues(
+                colorScheme: .dark,
+                colorSchemeContrast: .increased
+            ),
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe()
+        )
+        let description = "Contrast-aware description"
+        let metadataEntries = (0..<4).map {
+            SidebarStatusEntry(key: "key-\($0)", value: "value-\($0)")
+        }
+        let model = Self.makeModel(
+            customDescription: description,
+            metadataEntries: metadataEntries,
+            progress: SidebarProgressState(value: 0.5, label: "Halfway")
+        )
+        let cell = Self.configuredCell(
+            model: model,
+            environment: tableEnvironment
+        )
+        let semanticSecondary = try #require(
+            tableEnvironment.secondaryTextColor.usingColorSpace(.sRGB)
+        )
+
+        let descriptionField = try #require(
+            Self.descendants(of: cell)
+                .compactMap { $0 as? NSTextField }
+                .first { $0.stringValue == description }
+        )
+        let descriptionColor = try #require(
+            descriptionField.attributedStringValue.attribute(
+                .foregroundColor,
+                at: 0,
+                effectiveRange: nil
+            ) as? NSColor
+        )
+
+        let metadataToggle = try #require(
+            Self.descendants(of: cell)
+                .compactMap { $0 as? SidebarRowLinkButton }
+                .first { !$0.isHidden && !$0.attributedTitle.string.isEmpty }
+        )
+        let metadataToggleColor = try #require(
+            metadataToggle.attributedTitle.attribute(
+                .foregroundColor,
+                at: 0,
+                effectiveRange: nil
+            ) as? NSColor
+        )
+
+        let progressView = try #require(
+            Self.descendants(of: cell)
+                .compactMap { $0 as? SidebarRowProgressView }
+                .first { !$0.isHidden }
+        )
+        let progressTrack = try #require(progressView.subviews.first)
+        let progressTrackCGColor = try #require(progressTrack.layer?.backgroundColor)
+        let progressTrackColor = try #require(NSColor(cgColor: progressTrackCGColor))
+
+        #expect(abs(descriptionColor.alphaComponent - semanticSecondary.alphaComponent * 0.95) < 0.001)
+        #expect(abs(metadataToggleColor.alphaComponent - semanticSecondary.alphaComponent * 0.9) < 0.001)
+        #expect(abs(progressTrackColor.alphaComponent - semanticSecondary.alphaComponent * 0.2) < 0.001)
     }
 
     @Test
@@ -2069,37 +2634,40 @@ struct SidebarPinnedIndicatorColorTests {
             model: SidebarAppKitRowCellTests.makeModel(isPinned: true)
         )
         let groupCell = SidebarGroupHeaderTableCellView()
-        groupCell.configurePresentation(model: SidebarGroupHeaderRowModel(
-            groupId: UUID(),
-            anchorWorkspaceId: UUID(),
-            name: "Group",
-            iconSymbol: "folder",
-            tintHex: nil,
-            isCollapsed: false,
-            isPinned: true,
-            isAnchorActive: false,
-            isMultiSelected: false,
-            multiSelectionBackgroundStyle: .clear,
-            memberCount: 1,
-            anchorUnreadCount: 0,
-            canMarkRead: false,
-            canMarkUnread: false,
-            hasLatestNotifications: false,
-            canMarkAllRead: false,
-            canMarkAllUnread: false,
-            shortcutHintText: nil,
-            shortcutHintXOffset: 0,
-            shortcutHintYOffset: 0,
-            fontScale: 1,
-            globalFontMagnificationPercent: 100,
-            cwdContextMenuItems: [],
-            rowSpacing: 2,
-            isFirstRow: true,
-            isBeingDragged: false,
-            topDropIndicatorVisible: false,
-            bottomDropIndicatorVisible: false,
-            colorSchemeIsDark: false
-        ))
+        groupCell.configurePresentation(
+            model: SidebarGroupHeaderRowModel(
+                groupId: UUID(),
+                anchorWorkspaceId: UUID(),
+                name: "Group",
+                iconSymbol: "folder",
+                tintHex: nil,
+                isCollapsed: false,
+                isPinned: true,
+                isAnchorActive: false,
+                isMultiSelected: false,
+                multiSelectionBackgroundStyle: .clear,
+                memberCount: 1,
+                anchorUnreadCount: 0,
+                canMarkRead: false,
+                canMarkUnread: false,
+                hasLatestNotifications: false,
+                canMarkAllRead: false,
+                canMarkAllUnread: false,
+                shortcutHintText: nil,
+                shortcutHintXOffset: 0,
+                shortcutHintYOffset: 0,
+                fontScale: 1,
+                globalFontMagnificationPercent: 100,
+                cwdContextMenuItems: [],
+                rowSpacing: 2,
+                isFirstRow: true,
+                isBeingDragged: false,
+                topDropIndicatorVisible: false,
+                bottomDropIndicatorVisible: false,
+                colorSchemeIsDark: true
+            ),
+            environment: SidebarAppKitRowCellTests.tableEnvironment
+        )
 
         let workspacePin = try #require(
             SidebarAppKitRowCellTests.descendants(of: workspaceCell)

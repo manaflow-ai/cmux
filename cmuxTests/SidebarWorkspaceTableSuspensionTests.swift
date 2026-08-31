@@ -225,7 +225,7 @@ struct SidebarWorkspaceTableSuspensionTests {
             groupId: nil,
             isPinned: false,
             environment: SidebarWorkspaceTableEnvironmentSnapshot(
-                colorScheme: .light,
+                environment: .sidebarTableTestValues(colorScheme: .light),
                 globalFontMagnificationPercent: 100,
                 lazyContractProbe: SidebarLazyContractProbe()
             )
@@ -306,7 +306,7 @@ struct SidebarWorkspaceTableSuspensionTests {
             groupId: nil,
             isPinned: false,
             environment: SidebarWorkspaceTableEnvironmentSnapshot(
-                colorScheme: .light,
+                environment: .sidebarTableTestValues(colorScheme: .light),
                 globalFontMagnificationPercent: 100,
                 lazyContractProbe: SidebarLazyContractProbe()
             )
@@ -544,7 +544,7 @@ struct SidebarWorkspaceTableSuspensionTests {
             groupId: nil,
             isPinned: false,
             environment: SidebarWorkspaceTableEnvironmentSnapshot(
-                colorScheme: .light,
+                environment: .sidebarTableTestValues(colorScheme: .light),
                 globalFontMagnificationPercent: 100,
                 lazyContractProbe: SidebarLazyContractProbe()
             )
@@ -627,7 +627,7 @@ struct SidebarWorkspaceTableSuspensionTests {
             groupId: nil,
             isPinned: false,
             environment: SidebarWorkspaceTableEnvironmentSnapshot(
-                colorScheme: .light,
+                environment: .sidebarTableTestValues(colorScheme: .light),
                 globalFontMagnificationPercent: 100,
                 lazyContractProbe: SidebarLazyContractProbe()
             )
@@ -682,6 +682,7 @@ struct SidebarWorkspaceTableSuspensionTests {
         var collapseToggles = 0
         cell.configure(
             model: makeGroupHeaderModel(),
+            environment: makeTableEnvironment(),
             actions: makeGroupHeaderActions { collapseToggles += 1 },
             isPointerHovering: false,
             contextMenuDidOpen: {},
@@ -708,6 +709,68 @@ struct SidebarWorkspaceTableSuspensionTests {
     }
 
     @Test
+    func groupHeaderUsesTableLightPaletteWhenBackingAppearanceIsDark() async throws {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let model = makeGroupHeaderModel()
+        let environment = SidebarWorkspaceTableEnvironmentSnapshot(
+            environment: .sidebarTableTestValues(colorScheme: .light),
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe()
+        )
+        let row = SidebarWorkspaceTableRowConfiguration(
+            groupHeaderModel: model,
+            actions: makeGroupHeaderActions {},
+            environment: environment
+        )
+        let darkAppearance = try #require(NSAppearance(named: .darkAqua))
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.appearance = darkAppearance
+        window.contentView = container
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        controller.apply(
+            rows: [row],
+            actions: makeTableActions(),
+            workspaceIds: [model.anchorWorkspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+
+        let cell = try #require(
+            container.tableView.view(atColumn: 0, row: 0, makeIfNecessary: false)
+                as? SidebarGroupHeaderTableCellView
+        )
+        let nameField = try #require(
+            Self.descendants(of: cell)
+                .compactMap { $0 as? NSTextField }
+                .first { $0.stringValue == model.name }
+        )
+        var resolvedColor: NSColor?
+        nameField.effectiveAppearance.performAsCurrentDrawingAppearance {
+            resolvedColor = nameField.textColor?.usingColorSpace(.sRGB)
+        }
+        let color = try #require(resolvedColor)
+        let expected = try #require(environment.primaryTextColor.usingColorSpace(.sRGB))
+
+        #expect(
+            color == expected,
+            "The table's explicit light palette must win over a transient dark backing appearance."
+        )
+    }
+
+    @Test
     func optimisticHeaderBailoutRestoresStoredActivePaint() throws {
         let cell = SidebarGroupHeaderTableCellView(
             frame: NSRect(x: 0, y: 0, width: 320, height: 44)
@@ -715,6 +778,7 @@ struct SidebarWorkspaceTableSuspensionTests {
         let model = makeGroupHeaderModel(isAnchorActive: true)
         cell.configure(
             model: model,
+            environment: makeTableEnvironment(),
             actions: makeGroupHeaderActions {},
             isPointerHovering: false,
             contextMenuDidOpen: {},
@@ -741,7 +805,8 @@ struct SidebarWorkspaceTableSuspensionTests {
         let model = makeGroupHeaderModel()
         let actions = makeGroupHeaderActions {}
         cell.configure(
-            model: model, actions: actions, isPointerHovering: false,
+            model: model, environment: makeTableEnvironment(),
+            actions: actions, isPointerHovering: false,
             contextMenuDidOpen: {}, contextMenuDidClose: {}
         )
         let background = try #require(cell.subviews.first)
@@ -751,7 +816,8 @@ struct SidebarWorkspaceTableSuspensionTests {
 
         cell.suspendPresentation()
         cell.configure(
-            model: model, actions: actions, isPointerHovering: false,
+            model: model, environment: makeTableEnvironment(),
+            actions: actions, isPointerHovering: false,
             contextMenuDidOpen: {}, contextMenuDidClose: {}
         )
         let restoredAlpha = NSColor(cgColor: try #require(background.layer?.backgroundColor))?.alphaComponent
@@ -837,7 +903,7 @@ struct SidebarWorkspaceTableSuspensionTests {
         fixedHeight: CGFloat? = nil
     ) -> SidebarWorkspaceTableRowConfiguration {
         let environment = SidebarWorkspaceTableEnvironmentSnapshot(
-            colorScheme: .light,
+            environment: .sidebarTableTestValues(colorScheme: .light),
             globalFontMagnificationPercent: 100,
             lazyContractProbe: SidebarLazyContractProbe()
         )
@@ -852,6 +918,16 @@ struct SidebarWorkspaceTableSuspensionTests {
         ) { _, _ in
             AnyView(TestRowContent(token: contentToken, fixedHeight: fixedHeight))
         }
+    }
+
+    private func makeTableEnvironment(
+        colorScheme: ColorScheme = .light
+    ) -> SidebarWorkspaceTableEnvironmentSnapshot {
+        SidebarWorkspaceTableEnvironmentSnapshot(
+            environment: .sidebarTableTestValues(colorScheme: colorScheme),
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe()
+        )
     }
 
     private func makeGroupHeaderModel(isAnchorActive: Bool = false) -> SidebarGroupHeaderRowModel {

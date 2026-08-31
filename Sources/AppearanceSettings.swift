@@ -363,8 +363,8 @@ final class AppearanceSettingsUserDefaultsObserver {
 /// at the window root via `.environment(\.colorScheme, ...)` so it propagates
 /// to every descendant that reads the ambient color scheme. Re-resolution is
 /// keyed off `.systemAppearanceDidChange`, which `SystemAppearanceObserver`
-/// posts whenever the effective appearance actually changes while in system
-/// mode.
+/// posts whenever the effective appearance changes in system mode or AppKit
+/// reports a system-color change (including an accent-color update).
 private struct AppearanceColorSchemeModifier: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
     @State private var systemAppearanceGeneration = 0

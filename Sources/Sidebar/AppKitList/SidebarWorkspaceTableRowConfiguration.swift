@@ -38,7 +38,7 @@ struct SidebarWorkspaceTableRowConfiguration {
     let appKitWorkspaceUnreadRebuild: (@MainActor (SidebarUnreadSnapshot) -> SidebarWorkspaceRowModel)?
     let appKitGroupHeaderUnreadRebuild: (@MainActor (SidebarUnreadSnapshot) -> SidebarGroupHeaderRowModel)?
 
-    private let environment: SidebarWorkspaceTableEnvironmentSnapshot
+    let environment: SidebarWorkspaceTableEnvironmentSnapshot
     private let equivalenceValue: Any
     private let isEquivalentValue: (Any) -> Bool
     private let isHeightEquivalentValue: (Any) -> Bool
@@ -191,7 +191,7 @@ struct SidebarWorkspaceTableRowConfiguration {
     /// would both re-measure the whole tail and drop the content-matched
     /// entries the stale-width `height(for:)` fallback depends on.
     func hasEquivalentHeightContent(to other: Self) -> Bool {
-        environment.hasEquivalentPresentation(to: other.environment)
+        environment.hasEquivalentGeometry(to: other.environment)
             && isHeightEquivalentValue(other.equivalenceValue)
     }
 

@@ -69,6 +69,8 @@ final class FilePreviewPDFSharingPresenter: NSObject {
     }
 }
 
+// Isolated conformances are Swift 6.2 syntax; retain the legacy spelling for the
+// Xcode 16.2 compiler used by the macOS 14 compatibility lane.
 #if compiler(>=6.2)
 extension FilePreviewPDFSharingPresenter: @MainActor NSSharingServicePickerDelegate {
     func sharingServicePicker(

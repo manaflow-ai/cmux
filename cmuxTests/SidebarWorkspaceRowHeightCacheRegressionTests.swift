@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import Testing
 @testable import cmux_DEV
 
@@ -130,6 +131,7 @@ struct SidebarWorkspaceRowHeightCacheRegressionTests {
         let cell = SidebarWorkspaceRowTableCellView()
         cell.configure(
             model: tailModel,
+            environment: SidebarWorkspaceRowSuspensionTests.tableEnvironment,
             actions: SidebarWorkspaceRowSuspensionTests.makeActions(model: tailModel),
             isPointerHovering: false,
             contextMenuDidOpen: {},
@@ -150,7 +152,7 @@ struct SidebarWorkspaceRowHeightCacheRegressionTests {
             groupId: nil,
             isPinned: false,
             environment: SidebarWorkspaceTableEnvironmentSnapshot(
-                colorScheme: .light,
+                environment: .sidebarTableTestValues(colorScheme: .light),
                 globalFontMagnificationPercent: 100,
                 lazyContractProbe: SidebarLazyContractProbe()
             )

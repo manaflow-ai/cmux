@@ -132,21 +132,30 @@ struct SystemAppearanceObserverTests {
         }
     }
 
+    @MainActor
     private final class Harness {
         var modeRawValue: String? = AppearanceMode.system.rawValue
         var prefersDark = false
         var startObservationReturnsNil = false
         var startObservationCallCount = 0
+        var startSystemColorsObservationCallCount = 0
         var events: [String] = []
         var onPostSystemAppearanceDidChange: (() -> Void)?
         private(set) var appearanceChangedHandler: (@MainActor () -> Void)?
+        private(set) var systemColorsChangedHandler: (@MainActor () -> Void)?
         let observation = ObservationToken()
+        let systemColorsObservation = SystemColorsToken()
 
         lazy var environment = SystemAppearanceObserver.Environment(
             startEffectiveAppearanceObservation: { [unowned self] handler in
                 self.startObservationCallCount += 1
                 self.appearanceChangedHandler = handler
                 return self.startObservationReturnsNil ? nil : self.observation
+            },
+            startSystemColorsObservation: { [unowned self] handler in
+                self.startSystemColorsObservationCallCount += 1
+                self.systemColorsChangedHandler = handler
+                return self.startObservationReturnsNil ? nil : self.systemColorsObservation
             },
             currentAppearanceModeRawValue: { [unowned self] in
                 self.modeRawValue
@@ -168,20 +177,37 @@ struct SystemAppearanceObserverTests {
         func fireEffectiveAppearanceChanged() {
             appearanceChangedHandler?()
         }
+
+        @MainActor
+        func fireSystemColorsChanged() {
+            systemColorsChangedHandler?()
+        }
+    }
+
+    @MainActor
+    private final class SystemColorsToken: SystemColorsObservation {
+        private(set) var invalidateCallCount = 0
+
+        func invalidate() {
+            invalidateCallCount += 1
+        }
     }
 
     // (a) System-mode appearance flip posts the notification exactly once.
     @Test
-    func systemModeAppearanceFlipPostsNotificationExactlyOnce() {
+    func systemModeAppearanceFlipPostsNotificationExactlyOnce() async {
         let harness = Harness()
         let observer = SystemAppearanceObserver(environment: harness.environment)
 
         observer.startObserving()
         #expect(harness.startObservationCallCount == 1)
+        #expect(harness.startSystemColorsObservationCallCount == 1)
         #expect(harness.events == ["effectivePrefersDark(false)"])
 
         harness.prefersDark = true
         harness.fireEffectiveAppearanceChanged()
+        await Task.yield()
+        await Task.yield()
 
         #expect(harness.events == [
             "effectivePrefersDark(false)",
@@ -190,6 +216,55 @@ struct SystemAppearanceObserverTests {
             "postSystemAppearanceDidChange",
         ])
         #expect(harness.events.filter { $0 == "postSystemAppearanceDidChange" }.count == 1)
+    }
+
+    @Test
+    func systemColorsChangePostsAppearanceNotificationWithoutThemeSync() async {
+        let harness = Harness()
+        let observer = SystemAppearanceObserver(environment: harness.environment)
+
+        observer.startObserving()
+        harness.fireSystemColorsChanged()
+        await Task.yield()
+        await Task.yield()
+
+        #expect(harness.events == [
+            "effectivePrefersDark(false)",
+            "postSystemAppearanceDidChange",
+        ])
+    }
+
+    @Test
+    func systemColorsChangeAlsoInvalidatesExplicitAppearanceMode() async {
+        let harness = Harness()
+        harness.modeRawValue = AppearanceMode.dark.rawValue
+        let observer = SystemAppearanceObserver(environment: harness.environment)
+
+        observer.startObserving()
+        harness.fireSystemColorsChanged()
+        await Task.yield()
+        await Task.yield()
+
+        #expect(harness.events == [
+            "effectivePrefersDark(false)",
+            "postSystemAppearanceDidChange",
+        ])
+    }
+
+    @Test
+    func systemColorsNotificationBurstCoalescesIntoOneRefresh() async {
+        let harness = Harness()
+        let observer = SystemAppearanceObserver(environment: harness.environment)
+
+        observer.startObserving()
+        harness.fireSystemColorsChanged()
+        harness.fireSystemColorsChanged()
+        harness.fireSystemColorsChanged()
+        await Task.yield()
+        await Task.yield()
+
+        #expect(harness.events.filter { $0 == "postSystemAppearanceDidChange" }.count == 1)
+        #expect(harness.events.filter { $0 == "synchronizeTerminalTheme" }.isEmpty)
     }
 
     // (b) Explicit (non-system) mode: a KVO fire produces no notification and
@@ -210,7 +285,7 @@ struct SystemAppearanceObserverTests {
     }
 
     @Test
-    func explicitModeFireInvalidatesCachedBaselineBeforeReturningToSystem() {
+    func explicitModeFireInvalidatesCachedBaselineBeforeReturningToSystem() async {
         let harness = Harness()
         harness.prefersDark = true
         let observer = SystemAppearanceObserver(environment: harness.environment)
@@ -227,6 +302,8 @@ struct SystemAppearanceObserverTests {
         harness.modeRawValue = AppearanceMode.system.rawValue
         harness.prefersDark = true
         harness.fireEffectiveAppearanceChanged()
+        await Task.yield()
+        await Task.yield()
 
         #expect(harness.events == [
             "effectivePrefersDark(true)",
@@ -239,7 +316,7 @@ struct SystemAppearanceObserverTests {
     // (c) An unchanged value is coalesced (no duplicate post) — including
     // immediately after a real prior transition.
     @Test
-    func unchangedResolvedAppearanceIsCoalesced() {
+    func unchangedResolvedAppearanceIsCoalesced() async {
         let harness = Harness()
         let observer = SystemAppearanceObserver(environment: harness.environment)
 
@@ -251,6 +328,8 @@ struct SystemAppearanceObserverTests {
 
         harness.prefersDark = true
         harness.fireEffectiveAppearanceChanged()
+        await Task.yield()
+        await Task.yield()
 
         #expect(harness.events.filter { $0 == "postSystemAppearanceDidChange" }.count == 1)
         #expect(harness.events.filter { $0 == "synchronizeTerminalTheme" }.count == 1)
@@ -259,13 +338,14 @@ struct SystemAppearanceObserverTests {
         // seeded at startObserving() — fire the same (now-current) value again
         // immediately after a real transition and confirm it's a no-op.
         harness.fireEffectiveAppearanceChanged()
+        await Task.yield()
 
         #expect(harness.events.filter { $0 == "postSystemAppearanceDidChange" }.count == 1)
     }
 
     // (f) Re-entrant fire during postSystemAppearanceDidChange() does not loop.
     @Test
-    func reentrantFireDuringPostDoesNotLoop() {
+    func reentrantFireDuringPostDoesNotLoop() async {
         let harness = Harness()
         let observer = SystemAppearanceObserver(environment: harness.environment)
 
@@ -282,6 +362,8 @@ struct SystemAppearanceObserverTests {
         observer.startObserving()
         harness.prefersDark = true
         harness.fireEffectiveAppearanceChanged()
+        await Task.yield()
+        await Task.yield()
 
         #expect(harness.events == [
             "effectivePrefersDark(false)",
@@ -291,6 +373,22 @@ struct SystemAppearanceObserverTests {
             "effectivePrefersDark(true)",
         ])
         #expect(reentrantFireCount == 1)
+        #expect(harness.events.filter { $0 == "postSystemAppearanceDidChange" }.count == 1)
+    }
+
+    @Test
+    func effectiveAppearanceAndSystemColorsChangesShareOneRefresh() async {
+        let harness = Harness()
+        let observer = SystemAppearanceObserver(environment: harness.environment)
+
+        observer.startObserving()
+        harness.prefersDark = true
+        harness.fireEffectiveAppearanceChanged()
+        harness.fireSystemColorsChanged()
+        await Task.yield()
+        await Task.yield()
+
+        #expect(harness.events.filter { $0 == "synchronizeTerminalTheme" }.count == 1)
         #expect(harness.events.filter { $0 == "postSystemAppearanceDidChange" }.count == 1)
     }
 
@@ -306,6 +404,7 @@ struct SystemAppearanceObserverTests {
 
         harness.prefersDark = true
         harness.fireEffectiveAppearanceChanged()
+        harness.fireSystemColorsChanged()
 
         #expect(harness.events == eventsAfterStop)
     }
@@ -323,10 +422,12 @@ struct SystemAppearanceObserverTests {
         observer.stopObserving()
 
         #expect(harness.observation.invalidateCallCount == 1)
+        #expect(harness.systemColorsObservation.invalidateCallCount == 1)
 
         observer.startObserving()
 
         #expect(harness.startObservationCallCount == 2)
+        #expect(harness.startSystemColorsObservationCallCount == 2)
     }
 
     @Test

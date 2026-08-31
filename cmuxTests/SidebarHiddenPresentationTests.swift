@@ -112,7 +112,7 @@ struct SidebarHiddenPresentationTests {
             groupId: nil,
             isPinned: false,
             environment: SidebarWorkspaceTableEnvironmentSnapshot(
-                colorScheme: .light,
+                environment: .sidebarTableTestValues(colorScheme: .light),
                 globalFontMagnificationPercent: 100,
                 lazyContractProbe: SidebarLazyContractProbe()
             )
@@ -395,13 +395,13 @@ struct SidebarHiddenPresentationTests {
     ) -> SidebarWorkspaceTableRowConfiguration {
 #if DEBUG
         let environment = SidebarWorkspaceTableEnvironmentSnapshot(
-            colorScheme: .light,
+            environment: .sidebarTableTestValues(colorScheme: .light),
             globalFontMagnificationPercent: 100,
             lazyContractProbe: SidebarLazyContractProbe()
         )
 #else
         let environment = SidebarWorkspaceTableEnvironmentSnapshot(
-            colorScheme: .light,
+            environment: .sidebarTableTestValues(colorScheme: .light),
             globalFontMagnificationPercent: 100
         )
 #endif
