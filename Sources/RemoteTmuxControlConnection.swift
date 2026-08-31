@@ -265,12 +265,10 @@ final class RemoteTmuxControlConnection {
     private static let reconnectMaxDelaySeconds: Double = 10
     /// Cap on captured stderr (bytes) so a noisy/hostile remote can't grow it unbounded.
     private static let maxStderrBytes = 8 * 1024
-    /// Cap queued stdin bytes while the dedicated writer is backpressured. One
-    /// accepted manual-input event may contain 256 KiB of raw bytes; `send-keys -H`
-    /// expands that to roughly three times its size, so retain bounded framing
-    /// headroom for the complete atomic batch.
-    static let maxPendingStdinBytes =
-        RemoteTmuxPaneInputForwarder.defaultMaximumPendingBytes * 4
+    /// Cap queued stdin bytes while the dedicated writer is backpressured.
+    /// The package-owned framing policy sizes this for one complete maximum
+    /// logical input after `send-keys -H` encoding and command framing.
+    static let maxPendingStdinBytes = RemoteTmuxSendKeysBatchBuilder.writerPendingByteLimit
     /// Cap pending stdout between SSH's pipe callback and the main-actor parser.
     /// Initial attach can legitimately burst one `capture-pane -S 5000` block per
     /// mirrored pane, so the chunk cap absorbs pipe delivery jitter while the byte

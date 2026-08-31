@@ -327,7 +327,9 @@ struct WorkspaceRemoteDaemonRecoveryTests {
                     timestamp: Date()
                 )
             )
+            let remoteNotificationKey = "remote-host:\(host)"
             let unrelatedNotificationID = UUID()
+            let matchingNotificationIDs = [UUID(), UUID()]
             store.replaceNotificationsForTesting([
                 TerminalNotification(
                     id: unrelatedNotificationID,
@@ -340,9 +342,32 @@ struct WorkspaceRemoteDaemonRecoveryTests {
                     createdAt: Date(),
                     isRead: false
                 ),
+                TerminalNotification(
+                    id: matchingNotificationIDs[0],
+                    tabId: workspace.id,
+                    surfaceId: nil,
+                    correlationKey: remoteNotificationKey,
+                    title: "Recovered remote error",
+                    subtitle: "Remove",
+                    body: "First stale remote failure",
+                    createdAt: Date(),
+                    isRead: false
+                ),
+                TerminalNotification(
+                    id: matchingNotificationIDs[1],
+                    tabId: workspace.id,
+                    surfaceId: nil,
+                    correlationKey: remoteNotificationKey,
+                    title: "Recovered remote error",
+                    subtitle: "Remove",
+                    body: "Second stale remote failure",
+                    createdAt: Date(),
+                    isRead: false
+                ),
             ])
+            #expect(store.notifications.contains { $0.id == matchingNotificationIDs[0] })
+            #expect(store.notifications.contains { $0.id == matchingNotificationIDs[1] })
 
-            let remoteNotificationKey = "remote-host:\(host)"
             let failureDetail = "ssh: connect to host example.com port 22: Operation timed out"
             workspace.applyRemoteConnectionStateUpdate(.error, detail: failureDetail, target: target)
 

@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import CmuxTerminal
 import os
 
@@ -25,7 +26,7 @@ final class RemoteTmuxPaneInputForwarder: Sendable {
     /// Matches the control connection's bounded stdin budget. The byte
     /// reservation happens before the MainActor hop, where that later budget
     /// cannot protect a stalled consumer.
-    static let defaultMaximumPendingBytes = 256 * 1024
+    static let defaultMaximumPendingBytes = RemoteTmuxSendKeysBatchBuilder.maximumInputBytes
 
     // Ghostty's synchronous callback needs a non-blocking byte/epoch reservation before the actor hop.
     private let state: OSAllocatedUnfairLock<State>

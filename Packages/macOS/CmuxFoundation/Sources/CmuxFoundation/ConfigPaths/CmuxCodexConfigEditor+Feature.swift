@@ -26,6 +26,7 @@ extension CmuxCodexConfigEditor {
             "features.hooks = true",
             Self.cmuxCodexHooksFeatureEnd,
         ]
+        let rootEnd = lines.firstIndex(where: { tomlLineIsAnyTableHeader($0) }) ?? lines.endIndex
 
         if let featuresStart = lines.firstIndex(where: { tomlLineIsTable("features", line: $0) }) {
             let featuresEnd = tomlTableEndIndex(in: lines, after: featuresStart)
@@ -43,7 +44,8 @@ extension CmuxCodexConfigEditor {
             } else {
                 lines.insert(contentsOf: insertedLines, at: featuresStart + 1)
             }
-        } else if let dottedHooksIndex = lines.firstIndex(where: { tomlLineDefinesDottedFeaturesKey("hooks", line: $0) }) {
+        } else if let dottedHooksIndex = lines[..<rootEnd]
+            .firstIndex(where: { tomlLineDefinesDottedFeaturesKey("hooks", line: $0) }) {
             if !tomlLineDefinesDottedFeaturesTrueKey("hooks", line: lines[dottedHooksIndex]) {
                 let previousLine = lines[dottedHooksIndex]
                 lines.replaceSubrange(
@@ -51,7 +53,8 @@ extension CmuxCodexConfigEditor {
                     with: codexHooksFeatureLines(settingLine: "features.hooks = true", previousLine: previousLine)
                 )
             }
-        } else if let firstDottedFeaturesIndex = lines.firstIndex(where: { tomlLineDefinesAnyDottedFeaturesKey($0) }) {
+        } else if let firstDottedFeaturesIndex = lines[..<rootEnd]
+            .firstIndex(where: { tomlLineDefinesAnyDottedFeaturesKey($0) }) {
             lines.insert(contentsOf: insertedDottedLines, at: firstDottedFeaturesIndex)
         } else {
             if !lines.isEmpty, lines.last?.isEmpty == false {

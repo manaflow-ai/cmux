@@ -118,6 +118,32 @@ struct CmuxCodexConfigEditorTests {
         #expect(uninstalled == expected)
     }
 
+    @Test("Custom dotted features settings stay inside their table")
+    func customDottedFeaturesSettingsRemainUnchanged() {
+        let original = #"""
+        [custom]
+        features.hooks = "keep"
+        features.codex_hooks = "keep"
+        """# + "\n"
+
+        let installed = editor.installingHooks(in: original, trustEntries: [])
+
+        let expectedInstalled = #"""
+        [custom]
+        features.hooks = "keep"
+        features.codex_hooks = "keep"
+
+        [features]
+        # cmux-codex-hooks-feature-78f1e4ba-66df-4d35-93c1-67fdf1cbb7df begin
+        hooks = true
+        # cmux-codex-hooks-feature-78f1e4ba-66df-4d35-93c1-67fdf1cbb7df end
+        """# + "\n"
+        #expect(installed.content == expectedInstalled)
+
+        let uninstalled = editor.uninstallingHooks(from: installed.content)
+        #expect(uninstalled == original)
+    }
+
     @Test("Stale trust cleanup preserves escaped quoted user table headers")
     func staleTrustCleanupStopsAtEscapedQuotedUserTableHeader() {
         let original = #"""

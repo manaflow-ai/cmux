@@ -272,43 +272,6 @@ import Testing
         #expect(RemoteTmuxHost.controlModeLineSafeName("work\nbad") == nil)
     }
 
-    @Test func sendKeysHexArgumentsAreLowercaseSpaceSeparatedBytes() {
-        #expect(RemoteTmuxControlConnection.hexByteArguments(Data([0x00, 0x0f, 0x10, 0xff])) == "00 0f 10 ff")
-        #expect(RemoteTmuxControlConnection.hexByteArguments(Data()) == "")
-    }
-
-    @Test @MainActor func sendKeysPreserves9994BytePayload() async throws {
-        let data = Data((0 ..< 9_994).map { UInt8($0 % 251) })
-        let emission = try await captureSendKeysWire(paneId: 7, data: data)
-
-        #expect(emission.accepted)
-        #expect(emission.commands.allSatisfy { $0.utf8.count < 30_000 })
-        #expect(try decodeHexArguments(from: emission.commands, paneId: 7) == data)
-    }
-
-    @Test @MainActor func sendKeysSplits9995BytePayloadBelowControlCommandLimit() async throws {
-        let data = Data((0 ..< 9_995).map { UInt8($0 % 251) })
-        let emission = try await captureSendKeysWire(paneId: 7, data: data)
-
-        #expect(emission.accepted)
-        #expect(emission.commands.count > 1)
-        #expect(emission.commands.allSatisfy { $0.utf8.count < 30_000 })
-        #expect(try decodeHexArguments(from: emission.commands, paneId: 7) == data)
-    }
-
-    @Test @MainActor func sendKeysPreservesNonzeroBasedDataSlice() async throws {
-        let backing = Data((0 ..< 10_006).map { UInt8($0 % 251) })
-        let firstPayloadIndex = backing.index(backing.startIndex, offsetBy: 11)
-        let data = backing[firstPayloadIndex..<backing.endIndex]
-        #expect(data.startIndex == firstPayloadIndex)
-
-        let emission = try await captureSendKeysWire(paneId: 7, data: data)
-
-        #expect(emission.accepted)
-        #expect(emission.commands.allSatisfy { $0.utf8.count < 30_000 })
-        #expect(try decodeHexArguments(from: emission.commands, paneId: 7) == data)
-    }
-
     @Test @MainActor func sendKeysRejectsOverBudgetLogicalInputWithoutPartialDelivery() async throws {
         let data = Data((0 ..< 9_995).map { UInt8($0 % 251) })
         let writerBudget = 30_000
@@ -335,27 +298,6 @@ import Testing
 
         #expect(emission.accepted)
         #expect(try decodeHexArguments(from: emission.commands, paneId: 7) == data)
-    }
-
-    @Test @MainActor func sendKeysRejectsOneByteAboveRawAdmissionWithoutWireEmission() async throws {
-        let rawAdmissionLimit = RemoteTmuxPaneInputForwarder.defaultMaximumPendingBytes
-        let data = Data(repeating: 0xa5, count: rawAdmissionLimit + 1)
-
-        let emission = try await captureSendKeysWire(
-            paneId: 7,
-            data: data,
-            maxPendingBytes: RemoteTmuxControlConnection.maxPendingStdinBytes
-        )
-
-        #expect(!emission.accepted)
-        #expect(emission.commands.isEmpty)
-    }
-
-    @Test @MainActor func sendKeysAcceptsEmptyPayloadWithoutWritingACommand() async throws {
-        let emission = try await captureSendKeysWire(paneId: 7, data: Data())
-
-        #expect(emission.accepted)
-        #expect(emission.commands.isEmpty)
     }
 
     @Test @MainActor func pastePaneRejectsDisconnectedControlStream() {
@@ -523,7 +465,7 @@ import Testing
     private func captureSendKeysWire(
         paneId: Int,
         data: Data,
-        maxPendingBytes: Int = 1 << 16
+        maxPendingBytes: Int
     ) async throws -> (accepted: Bool, commands: [String]) {
         let connection = RemoteTmuxControlConnection(
             host: RemoteTmuxHost(destination: "user@input-transport"),
