@@ -44,6 +44,21 @@ extension MobileShellComposite {
         } else {
             terminalRenderGridHistoryContinuityBySurfaceID.removeValue(forKey: renderGrid.surfaceID)
         }
+        recordTerminalRenderGridRevisionContinuity(renderGrid)
+    }
+
+    /// Record the chain identity the next live delta must extend. Legacy
+    /// frames without a revision identity clear the record so legacy deltas
+    /// keep flowing under the history chain alone.
+    private func recordTerminalRenderGridRevisionContinuity(
+        _ renderGrid: MobileTerminalRenderGridFrame
+    ) {
+        guard !renderGrid.renderEpoch.isEmpty else {
+            terminalRenderGridRevisionContinuityBySurfaceID.removeValue(forKey: renderGrid.surfaceID)
+            return
+        }
+        terminalRenderGridRevisionContinuityBySurfaceID[renderGrid.surfaceID] =
+            MobileTerminalRenderGridRevisionContinuity(delivered: renderGrid)
     }
 
     private func renderGridEventDeliveryDecision(
@@ -246,6 +261,42 @@ extension MobileShellComposite {
                 #endif
                 return
             }
+        }
+        // Chain-link every delta (any anchor or screen) to the exact frame it
+        // was diffed against: the revision base changes on every emitted
+        // frame, so this also catches missed in-place repaints that leave the
+        // history count unchanged (silent stale rows). Replaceable whole-
+        // viewport patches repaint every row and need no base. Skipped while
+        // a replay barrier is active for the same reason as the history chain.
+        if !renderGrid.full,
+           !renderGrid.isReplaceableViewportPatchForMobileDelivery,
+           terminalReplayBarrierTokensBySurfaceID[renderGrid.surfaceID] == nil,
+           !MobileTerminalRenderGridRevisionContinuity.admits(
+               renderGrid,
+               delivered: terminalRenderGridRevisionContinuityBySurfaceID[renderGrid.surfaceID]
+           ) {
+            let delivered = terminalRenderGridRevisionContinuityBySurfaceID[renderGrid.surfaceID]
+            let baseText = renderGrid.deltaBaseRenderRevision.map(String.init) ?? "nil"
+            let deliveredText: String
+            if let delivered {
+                deliveredText = "\(delivered.renderEpoch.prefix(8)):\(delivered.renderRevision)"
+            } else {
+                deliveredText = "nil"
+            }
+            MobileDebugLog.anchormux(
+                "sync.render_grid_revision_chain_break surface=\(renderGrid.surfaceID) " +
+                    "base=\(baseText) epoch=\(renderGrid.renderEpoch.prefix(8)) " +
+                    "delivered=\(deliveredText) seq=\(renderGrid.stateSeq)"
+            )
+            terminalOutputNeedsReplay(surfaceID: renderGrid.surfaceID)
+            #if DEBUG
+            MobileLatencyTrace.stamp(
+                "gate",
+                "s=\(renderGrid.surfaceID.prefix(8).lowercased()) " +
+                    "seq=\(renderGrid.stateSeq) out=replay_req"
+            )
+            #endif
+            return
         }
         let activeReplayBarrierToken = terminalReplayBarrierTokensBySurfaceID[renderGrid.surfaceID]
         let bypassLiveBaselineBarrier = source == "event"
@@ -614,6 +665,7 @@ extension MobileShellComposite {
         rebaseTerminalReplayStaleFloor(surfaceID: surfaceID)
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalRenderGridHistoryContinuityBySurfaceID.removeValue(forKey: surfaceID)
+        terminalRenderGridRevisionContinuityBySurfaceID.removeValue(forKey: surfaceID)
         terminalMirrorHydrationNeededSurfaceIDs.insert(surfaceID)
         terminalAlternateRenderGridBaselineSurfaceIDs.remove(surfaceID)
         terminalFullReplacementSeqBySurfaceID.removeValue(forKey: surfaceID)
