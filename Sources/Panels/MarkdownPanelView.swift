@@ -103,6 +103,21 @@ struct MarkdownPanelView: View {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+
+            if panel.displayMode == .preview, let searchState = panel.searchState {
+                BrowserSearchOverlay(
+                    panelId: panel.id,
+                    searchState: searchState,
+                    focusRequestGeneration: panel.searchFocusRequestGeneration,
+                    canApplyFocusRequest: { generation in
+                        panel.canApplySearchFocusRequest(generation)
+                    },
+                    onNext: { panel.findNext() },
+                    onPrevious: { panel.findPrevious() },
+                    onClose: { panel.hideFind() },
+                    onFieldDidFocus: {}
+                )
+            }
         }
     }
 

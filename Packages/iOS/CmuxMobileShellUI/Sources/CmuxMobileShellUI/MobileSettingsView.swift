@@ -25,6 +25,9 @@ struct MobileSettingsView: View {
     @Environment(MobileConnectionMethodStore.self) private var connectionMethodStore:
         MobileConnectionMethodStore?
     @Environment(ToastCenter.self) private var toasts
+    /// Optional like the other app-root stores; without it the row falls
+    /// back to the channel-gated binary catalog (never-fetched policy).
+    @Environment(MobileWhatsNewCenter.self) private var whatsNewCenter: MobileWhatsNewCenter?
     @Environment(\.irohSettingsController) private var irohSettingsController
     @Environment(\.mobileDiagnosticLog) private var diagnosticLog
     let connectedHostName: String
@@ -51,8 +54,6 @@ struct MobileSettingsView: View {
 #endif
     @State private var showingOnboarding = false
     @State private var showingSetupHelp = false
-    @State private var caffeineStatusLoadFailed = false
-    @State private var caffeineStatusRetryID = 0
     #if DEBUG
     @State private var showingToastGallery = false
     /// Seconds between tapping "Run Toast Demo" and the first toast, so you
@@ -65,6 +66,27 @@ struct MobileSettingsView: View {
         return NavigationStack {
             Form {
                 MobileSettingsAccountSection(signOut: signOut)
+
+                // Directly under the account card so release notices stay
+                // discoverable after their one-time launch sheet is
+                // dismissed (HIG: keep skippable onboarding-style content
+                // findable in a settings area). Hidden entirely when the
+                // channel gate leaves nothing to list — on the official App
+                // Store app that is the default state, because What's New
+                // announces team-lane features (Guideline 2.2).
+                if hasWhatsNewArchive {
+                    Section {
+                        NavigationLink {
+                            MobileWhatsNewListView()
+                        } label: {
+                            Label(
+                                L10n.string("mobile.settings.whatsNew", defaultValue: "What's New"),
+                                systemImage: "megaphone"
+                            )
+                        }
+                        .accessibilityIdentifier("MobileSettingsWhatsNewRow")
+                    }
+                }
 
                 // Stack team switcher. Only shown when the user belongs to more than
                 // one team. Rendered as an INLINE picker — each team is a row with a
@@ -142,7 +164,6 @@ struct MobileSettingsView: View {
                         }
                     }
                 }
-                caffeineSettingsSection
                 if hasConnectionSection {
                     Button {
                         showingSetupHelp = true
@@ -279,6 +300,22 @@ struct MobileSettingsView: View {
                         range: MobileDisplaySettings.unreadIndicatorLeftShiftRange,
                         identifier: "MobileSettingsUnreadIndicatorLeftness"
                     )
+
+                    Toggle(isOn: $displaySettings.forceRebuildKeyboardDock) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(L10n.string(
+                                "mobile.settings.rebuildKeyboardDock",
+                                defaultValue: "Rebuilt Keyboard Pinning"
+                            ))
+                            Text(L10n.string(
+                                "mobile.settings.rebuildKeyboardDockCaption",
+                                defaultValue: "Use the rebuilt keyboard path instead of the default (iOS 26 and earlier). Reopen the workspace to apply."
+                            ))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("MobileSettingsRebuildKeyboardDock")
                 }
 
                 Section(L10n.string(
@@ -297,6 +334,19 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsShellIconLab")
+
+                    NavigationLink {
+                        UnreadIndicatorLabView()
+                    } label: {
+                        Label(
+                            L10n.string(
+                                "mobile.settings.unreadIndicatorLab",
+                                defaultValue: "Unread Indicator Lab"
+                            ),
+                            systemImage: "circle.badge"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsUnreadIndicatorLab")
                 }
                 #endif
 
@@ -474,6 +524,9 @@ struct MobileSettingsView: View {
                     ),
                     connectionMethod: connectionMethodStore?.method ?? .automatic,
                     onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
+                    onEnablePush: {
+                        await pushCoordinator.enable(trigger: "onboarding_replay")
+                    },
                     onReachedConnection: {},
                     onSkip: { showingOnboarding = false },
                     onRetryConnection: retryAutomaticConnection,
@@ -516,6 +569,18 @@ struct MobileSettingsView: View {
                 count: value ? 1 : 0
             )
         }
+    }
+
+    /// Whether the What's New row has anything to open. The center's archive
+    /// is already channel-gated; the centerless fallback applies the same
+    /// gate to the binary catalog. Officially distributed builds default to
+    /// empty here, so the row (like the launch sheet) only appears when a
+    /// remote entry explicitly targets their channel.
+    private var hasWhatsNewArchive: Bool {
+        if let whatsNewCenter {
+            return !whatsNewCenter.archivePages.isEmpty
+        }
+        return !MobileWhatsNewCatalog.channelVisibleEntries().isEmpty
     }
 
     private func recordBooleanSetting(
@@ -693,45 +758,6 @@ struct MobileSettingsView: View {
     /// so they are hidden.
     private var hasConnectionSection: Bool {
         !connectedHostName.isEmpty || store != nil
-    }
-
-    private var caffeineLoadID: String {
-        guard let store else { return "disconnected" }
-        return [
-            store.connectedMacDeviceID ?? "unknown",
-            String(store.supportsCaffeineControl),
-            String(describing: store.connectionState),
-        ].joined(separator: ":")
-    }
-
-    @ViewBuilder
-    private var caffeineSettingsSection: some View {
-        if let store, store.connectionState == .connected {
-            MobileCaffeineSettingsContent(
-                isEnabled: store.caffeineStatus?.enabled,
-                isSupported: store.supportsCaffeineControl,
-                isBusy: store.isCaffeineMutationInFlight,
-                statusLoadFailed: caffeineStatusLoadFailed,
-                onRetryStatus: {
-                    caffeineStatusLoadFailed = false
-                    caffeineStatusRetryID &+= 1
-                },
-                onSet: { enabled in
-                    await store.setCaffeineEnabled(enabled)
-                }
-            )
-            .task(id: "\(caffeineLoadID):\(caffeineStatusRetryID)") {
-                let loadID = caffeineLoadID
-                guard store.supportsCaffeineControl else {
-                    caffeineStatusLoadFailed = false
-                    return
-                }
-                caffeineStatusLoadFailed = false
-                let didLoad = await store.refreshCaffeineStatus()
-                guard !Task.isCancelled, caffeineLoadID == loadID else { return }
-                caffeineStatusLoadFailed = !didLoad
-            }
-        }
     }
 
     /// Drives the team Picker. Reads the EFFECTIVE current team (`resolvedTeamID`,

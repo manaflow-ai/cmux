@@ -352,20 +352,37 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
 
         // Pinned keyboard dismiss button on the left
         let dismissButton = UIButton(type: .system)
-        dismissButton.setImage(UIImage(systemName: "keyboard.chevron.compact.down", withConfiguration: Self.accessoryButtonSymbolConfig), for: .normal)
+        // Constructed in the SHOW state (keyboard down): `setKeyboardShown`
+        // only fires on visibility TRANSITIONS, so a surface that opens with
+        // the keyboard down would otherwise keep whatever glyph was built
+        // here — a workspace used to open showing "hide" while nothing was
+        // up. The host syncs the real state right after the toolbar installs.
+        dismissButton.setImage(UIImage(systemName: "keyboard", withConfiguration: Self.accessoryButtonSymbolConfig), for: .normal)
         dismissButton.tintColor = themeChromeColor.withAlphaComponent(0.78)
         dismissButton.addTarget(self, action: #selector(handleHideKeyboard), for: .touchUpInside)
         dismissButton.accessibilityIdentifier = "terminal.inputAccessory.hideKeyboard"
-        dismissButton.accessibilityLabel = String(localized: "terminal.input_accessory.hideKeyboard", defaultValue: "Hide Keyboard")
+        dismissButton.accessibilityLabel = String(localized: "terminal.input_accessory.showKeyboard", defaultValue: "Show Keyboard")
         dismissButton.translatesAutoresizingMaskIntoConstraints = false
         self.dismissButton = dismissButton
 
-        // Scrollable action buttons
-        let scrollView = UIScrollView()
+        // Scrollable action buttons. The fade subclass dissolves keys under
+        // the leading edge (against the pinned composer button) incrementally
+        // as the row scrolls, instead of hard-clipping them.
+        let scrollView = AccessoryEdgeFadeScrollView()
         scrollView.showsHorizontalScrollIndicator = false
         scrollView.showsVerticalScrollIndicator = false
         scrollView.alwaysBounceHorizontal = true
         scrollView.translatesAutoresizingMaskIntoConstraints = false
+        // The scroll view's FRAME starts flush at the composer button's
+        // trailing edge; the 4pt visual gap the frame constant used to carry
+        // lives INSIDE the scroll view as a leading content inset. At rest the
+        // bar reads identically (first key sits 4pt after the composer, offset
+        // -4), but a scrolled key now travels through that gap and dissolves
+        // AT the composer's edge, fading into the empty gap instead of
+        // clipping against an invisible line 4pt short of the button.
+        scrollView.contentInsetAdjustmentBehavior = .never
+        scrollView.contentInset.left = 4
+        scrollView.contentOffset = CGPoint(x: -4, y: 0)
 
         let stack = UIStackView()
         stack.axis = .horizontal
@@ -423,7 +440,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
 
         // A short fixed-height strip pinned to the container's BOTTOM (minus
         // ``dockedBottomPadding``) that holds the button row. The host pins that
-        // bottom edge through the composer to `keyboardLayoutGuide.topAnchor`, so
+        // bottom edge through the composer to its keyboard-driven dock edge, so
         // bottom-pinning the controls keeps them glued to the system keyboard edge.
         // `dockedBottomPadding` lifts the strip off the very bottom edge so the
         // controls have breathing room.
@@ -462,13 +479,13 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
 
             // Pinned composer toggle: directly after the nub (same 6pt gap the
             // scroll view used to take), centered on the shared strip line. The
-            // scroll view starts after it with the 4pt inter-button spacing the
-            // stack uses, so the bar reads identically to before — only now the
-            // composer can never scroll away.
+            // scroll view starts FLUSH after it; the 4pt inter-button gap is a
+            // leading content inset (see above) so scrolled keys fade out at
+            // the composer's edge rather than at a line 4pt short of it.
             composerButton.leadingAnchor.constraint(equalTo: nub.trailingAnchor, constant: 6),
             composerButton.centerYAnchor.constraint(equalTo: buttonRow.centerYAnchor),
 
-            scrollView.leadingAnchor.constraint(equalTo: composerButton.trailingAnchor, constant: 4),
+            scrollView.leadingAnchor.constraint(equalTo: composerButton.trailingAnchor),
             scrollTrailingConstraint,
             scrollView.topAnchor.constraint(equalTo: buttonRow.topAnchor),
             scrollView.bottomAnchor.constraint(equalTo: buttonRow.bottomAnchor),
@@ -698,8 +715,8 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         // keyboard's `inputAccessoryView`; `GhosttySurfaceView` docks
         // `toolbarView` persistently at the bottom so it survives keyboard
         // dismissal. Leaving `inputAccessoryView` nil means the keyboard shows
-        // without its own accessory (the docked bar rides above it via
-        // `keyboardLayoutGuide`).
+        // without its own accessory (the docked bar rides above it on the
+        // host's notification-driven keyboard edge).
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleAccessoryConfigurationChanged),

@@ -17,7 +17,8 @@ public struct SocketControlServerEvents: Sendable {
     public let breadcrumb: @Sendable (_ message: String, _ data: [String: any Sendable]) -> Void
 
     /// Reports a listener failure. The host decides whether to escalate the
-    /// breadcrumb to a captured error (the app applies a per-key cooldown).
+    /// breadcrumb to a captured error (the app dedupes through
+    /// ``SocketListenerFailureCaptureGate``).
     /// `data` already contains the listener-state snapshot fields plus
     /// `stage`/`errno` entries; `stage` and `errnoCode` are passed discretely
     /// so the host can build its dedupe key without re-parsing the dictionary.
