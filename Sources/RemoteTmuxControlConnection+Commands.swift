@@ -85,54 +85,6 @@ extension RemoteTmuxControlConnection {
         return true
     }
 
-    /// Asks tmux to answer, so a stalled-but-alive transport can be told from a healthy one.
-    ///
-    /// This is the liveness check a transport that owns its own reconnection needs. cmux's
-    /// recovery is built on stdout EOF, but such a transport produces no EOF for a network
-    /// drop — the stream pauses and resumes — so EOF cannot be the trigger and a stall must
-    /// not be mistaken for death. What is left is asking the far end a question:
-    ///
-    /// - the process is still alive, and
-    /// - a control-mode round-trip completes.
-    ///
-    /// `display-message -p` is the cheapest question that proves both. It is a read, so it
-    /// moves no client size and mutates nothing, and it resolves through the same
-    /// `%begin`/`%end` correlation as any other command — which is why this reuses
-    /// ``sendTracked(_:completion:)`` rather than inventing a heartbeat with its own timer
-    /// and its own failure modes.
-    ///
-    /// - Parameter completion: `true` when tmux answered, `false` when the block resolved as
-    ///   an error or the stream reset before answering. Not called at all if the command
-    ///   could not be enqueued, which the `false` return reports.
-    @discardableResult
-    func probeLiveness(completion: @escaping (Bool) -> Void) -> Bool {
-        guard !exited else { return false }
-        return sendTracked("display-message -p cmux-liveness", completion: completion)
-    }
-
-    /// Whether the stream is answering, asked once on demand.
-    ///
-    /// There is deliberately no periodic version of this and no recovery attached to it. cmux
-    /// used to probe a self-reconnecting transport every 30 seconds and respawn it when a probe
-    /// went unanswered, on the theory that such a transport can be alive but wedged. Measured
-    /// against et on a host that requires a second factor, the cure was far worse: an et client
-    /// riding out a network change is quiet for longer than a tick, so the probe killed the one
-    /// process that could have recovered silently, and its replacement had to bootstrap a new
-    /// session over ssh — which needs an interactive second factor nobody is there to give at
-    /// 03:00. The mirror came back dead with two orphaned clients behind it.
-    ///
-    /// et answers this itself: its client exchanges keepalives every few seconds and exits when
-    /// they stop, so a quiet client is idle or reconnecting, never wedged, and its exit already
-    /// reaches ``handleStreamEnd(processGeneration:)`` like any other end of stream. Trusting
-    /// that is both simpler and strictly better informed than guessing from this side.
-    func probeLivenessOnce(completion: @escaping (Bool) -> Void) {
-        guard connectionState == .connected, !exited else {
-            completion(false)
-            return
-        }
-        if !probeLiveness(completion: completion) { completion(false) }
-    }
-
     func failPendingTrackedSends() {
         let completions = Array(trackedSendCompletions.values)
         trackedSendCompletions.removeAll()
