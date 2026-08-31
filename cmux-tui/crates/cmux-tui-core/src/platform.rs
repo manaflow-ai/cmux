@@ -761,11 +761,64 @@ fn process_name(pid: u32) -> Option<String> {
 }
 
 #[cfg(target_os = "macos")]
+fn process_argv0(pid: u32) -> Option<String> {
+    let pid = libc::c_int::try_from(pid).ok()?;
+    let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid];
+    let mut size: libc::size_t = 0;
+    // SAFETY: a null buffer queries the required size for this sysctl.
+    let queried = unsafe {
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            mib.len() as libc::c_uint,
+            std::ptr::null_mut(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if queried != 0 || size < size_of::<libc::c_int>() {
+        return None;
+    }
+    let mut buffer = vec![0u8; size];
+    // SAFETY: the buffer spans `size` bytes and sysctl updates `size` to
+    // the bytes actually written.
+    let fetched = unsafe {
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            mib.len() as libc::c_uint,
+            buffer.as_mut_ptr().cast(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if fetched != 0 {
+        return None;
+    }
+    buffer.truncate(size);
+    // Layout: argc (c_int), exec_path NUL-terminated, NUL padding, then
+    // argv[0] NUL-terminated.
+    let rest = buffer.get(size_of::<libc::c_int>()..)?;
+    let exec_end = rest.iter().position(|&byte| byte == 0)?;
+    let mut offset = exec_end;
+    while rest.get(offset) == Some(&0) {
+        offset += 1;
+    }
+    let argv0_end = rest.get(offset..)?.iter().position(|&byte| byte == 0)? + offset;
+    let argv0 = std::str::from_utf8(rest.get(offset..argv0_end)?).ok()?.trim();
+    (!argv0.is_empty()).then(|| argv0.to_string())
+}
+
+#[cfg(target_os = "macos")]
 fn process_name(pid: u32) -> Option<String> {
-    // The kernel's process name (how `ps` shows it) beats the executable
-    // path basename: launchers install version-named binaries (claude's is
-    // `.../versions/2.1.251`), and the exec image name still reads as the
-    // agent. Fall back to the path for names the 32-byte field truncates.
+    // argv[0] is the only identity that survives version-named launcher
+    // binaries: claude execs `.../versions/2.1.251`, so both the kernel
+    // comm and the executable path read as the version while argv[0] still
+    // says `claude` (herdr reads argv the same way, via KERN_PROCARGS2).
+    // The kernel name and the executable path remain the fallbacks.
+    if let Some(argv0) = process_argv0(pid) {
+        return Some(argv0);
+    }
     let pid = libc::c_int::try_from(pid).ok()?;
     let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::zeroed();
     let size = libc::c_int::try_from(size_of::<libc::proc_bsdinfo>()).ok()?;
