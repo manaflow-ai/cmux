@@ -25,6 +25,9 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// Registers this Mac's cloud machines with the catalog and starts polling.
     func start(catalog: SurfaceCatalog) {
         self.catalog = catalog
+        // Block observers are retained by NotificationCenter: drop the previous
+        // tokens so a re-start never leaves stale callbacks registered.
+        if let accessObserver { NotificationCenter.default.removeObserver(accessObserver) }
         accessObserver = NotificationCenter.default.addObserver(
             forName: .cmuxCloudVMAccessDidEnd,
             object: nil,
@@ -34,6 +37,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         }
         // A Ghostty config reload can change the resolved theme; re-push it so remote
         // panes keep matching the local ones (connect-time push covers new links).
+        if let themeObserver { NotificationCenter.default.removeObserver(themeObserver) }
         themeObserver = NotificationCenter.default.addObserver(
             forName: .ghosttyConfigDidReload,
             object: nil,

@@ -42,10 +42,12 @@ actor CloudMachineLinkManager {
     /// its cmux-tui session defaults (`set-default-colors`) so remote panes render with
     /// the local theme. Injected so tests need no Ghostty runtime.
     private let hostThemeColors: @Sendable () async -> (foreground: String, background: String)?
-    /// One theme-push chain per machine: each push awaits the previous one and reads the
-    /// colors only after it finishes, so rapid config reloads coalesce into an ordered,
-    /// latest-wins sequence instead of overlapping commands racing out of order.
-    private var themePushes: [String: Task<Void, Never>] = [:]
+    /// Theme-push coalescing: at most ONE in-flight push and ONE queued rerun per
+    /// machine. A reload burst collapses to a single trailing push that reads the
+    /// colors when it runs, so the machine always ends on the latest theme and the
+    /// link never accumulates a backlog of defaults commands.
+    private var themePushInFlight: Set<String> = []
+    private var themePushQueued: Set<String> = []
 
     init(
         paths: CloudTuiClientPaths = CloudTuiClientPaths(),
@@ -144,7 +146,9 @@ actor CloudMachineLinkManager {
     func disconnect(machineID: String) async {
         connecting[machineID]?.cancel()
         connecting[machineID] = nil
-        themePushes.removeValue(forKey: machineID)?.cancel()
+        // An in-flight drain notices the removed link on its next run; dropping the
+        // queued mark keeps it from issuing one more command to a machine being cut.
+        themePushQueued.remove(machineID)
         if let link = links.removeValue(forKey: machineID) {
             await link.disconnect()
         }
@@ -180,29 +184,42 @@ actor CloudMachineLinkManager {
 
     /// Fire-and-forget: theme parity is cosmetic, so a machine that predates
     /// the defaults verb (or a link that just dropped) must not fail the operation
-    /// that connected it. Pushes chain per machine: each awaits its predecessor and
-    /// reads the colors only then, so a burst of config reloads settles on the
-    /// latest theme instead of racing commands out of order.
+    /// that connected it. While a push is in flight, further requests only mark a
+    /// rerun; the trailing run reads the colors when it starts, so a reload burst
+    /// costs at most one extra command and always lands on the latest theme.
     private func pushHostTheme(machineID: String, socketPath: String) {
+        guard links[machineID] != nil else { return }
+        guard !themePushInFlight.contains(machineID) else {
+            themePushQueued.insert(machineID)
+            return
+        }
+        themePushInFlight.insert(machineID)
+        Task { await self.drainThemePushes(machineID: machineID, socketPath: socketPath) }
+    }
+
+    private func drainThemePushes(machineID: String, socketPath: String) async {
+        repeat {
+            themePushQueued.remove(machineID)
+            await runThemePush(machineID: machineID, socketPath: socketPath)
+        } while themePushQueued.contains(machineID)
+        themePushInFlight.remove(machineID)
+    }
+
+    private func runThemePush(machineID: String, socketPath: String) async {
         guard let link = links[machineID] else { return }
-        let previous = themePushes[machineID]
-        themePushes[machineID] = Task { [hostThemeColors] in
-            await previous?.value
-            guard !Task.isCancelled else { return }
-            guard let colors = await hostThemeColors(),
-                  let arguments = CloudTuiCommandLine.setDefaultColorsArguments(
-                      socketPath: socketPath, foreground: colors.foreground, background: colors.background
-                  ) else { return }
-            do {
-                _ = try await link.run(arguments: arguments)
-                #if DEBUG
-                cmuxDebugLog("cloud.link.theme machine=\(machineID) fg=\(colors.foreground) bg=\(colors.background)")
-                #endif
-            } catch {
-                #if DEBUG
-                cmuxDebugLog("cloud.link.themeFailed machine=\(machineID) error=\(CloudMachineLink.errorText(error))")
-                #endif
-            }
+        guard let colors = await hostThemeColors(),
+              let arguments = CloudTuiCommandLine.setDefaultColorsArguments(
+                  socketPath: socketPath, foreground: colors.foreground, background: colors.background
+              ) else { return }
+        do {
+            _ = try await link.run(arguments: arguments)
+            #if DEBUG
+            cmuxDebugLog("cloud.link.theme machine=\(machineID) fg=\(colors.foreground) bg=\(colors.background)")
+            #endif
+        } catch {
+            #if DEBUG
+            cmuxDebugLog("cloud.link.themeFailed machine=\(machineID) error=\(CloudMachineLink.errorText(error))")
+            #endif
         }
     }
 
