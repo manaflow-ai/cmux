@@ -88,6 +88,64 @@ public enum RelayConnectAuth {
         return (URL(string: RelayProtocol.defaultRelayURL), "production-default")
         #endif
     }
+
+    /// The resolved relay origin's liveness endpoint, for the launch-time TLS
+    /// pre-warm: same host and port as the wss dial target, https scheme
+    /// (wss→https; the loopback-dev ws→http), fixed `/healthz` path, no query
+    /// or fragment. The worker serves it unauthenticated.
+    public static func healthzURL(forRelayURL relayURL: URL) -> URL? {
+        guard var components = URLComponents(
+            url: relayURL,
+            resolvingAgainstBaseURL: false
+        ), let scheme = components.scheme?.lowercased() else { return nil }
+        switch scheme {
+        case "wss", "https":
+            components.scheme = "https"
+        case "ws", "http":
+            components.scheme = "http"
+        default:
+            return nil
+        }
+        components.path = "/healthz"
+        components.query = nil
+        components.fragment = nil
+        return components.url
+    }
+}
+
+/// Launch-time TLS pre-warm for the relay dial path.
+///
+/// One fire-and-forget HEAD to the resolved relay origin's `/healthz`, issued
+/// on the SAME `URLSession` the relay WebSocket transport dials with, so DNS,
+/// TCP, and the TLS session are already established in that session's
+/// connection pool when the first `wss` dial starts. No retries, no error
+/// surfacing, bounded timeout: a failed pre-warm costs nothing, the dial just
+/// pays the ordinary handshake.
+///
+/// Privacy: the request carries NO token, cookie, or identifying header. It
+/// reveals to the relay origin, which the app is about to dial anyway, only
+/// that an app instance launched.
+public enum RelayTLSPrewarm {
+    /// Fires the pre-warm and returns the URL it hit (nil when the relay URL
+    /// cannot be resolved; nothing is sent then).
+    @discardableResult
+    public static func fire(
+        urlSession: URLSession,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> URL? {
+        guard let relayURL = RelayConnectAuth.resolvedRelayURL(
+            environment: environment
+        ).url, let healthzURL = RelayConnectAuth.healthzURL(forRelayURL: relayURL) else {
+            return nil
+        }
+        var request = URLRequest(url: healthzURL)
+        request.httpMethod = "HEAD"
+        request.timeoutInterval = 5
+        // A plain (completion-less) task: the response and any error are
+        // deliberately dropped.
+        urlSession.dataTask(with: request).resume()
+        return healthzURL
+    }
 }
 
 /// The host admits each client session END TO END: the client's first frame
