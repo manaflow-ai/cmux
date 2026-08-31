@@ -1353,13 +1353,7 @@ struct cmuxApp: App {
     }
 
     private func performSplitFromMenu(direction: SplitDirection) {
-        let action: KeyboardShortcutSettings.Action? = switch direction {
-        case .right: .splitRight
-        case .down: .splitDown
-        // Left/up have no separate configurable action; use the
-        // direction-agnostic surface-command gate.
-        case .left, .up: nil
-        }
+        let action: KeyboardShortcutSettings.Action? = nil
         if appDelegate.routeSplitToFocusedDock(
             kind: .terminal,
             direction: direction,
@@ -1375,13 +1369,7 @@ struct cmuxApp: App {
     }
 
     private func performBrowserSplitFromMenu(direction: SplitDirection) {
-        let action: KeyboardShortcutSettings.Action? = switch direction {
-        case .right: .splitBrowserRight
-        case .down: .splitBrowserDown
-        // Left/up have no separate configurable action; use the
-        // direction-agnostic surface-command gate.
-        case .left, .up: nil
-        }
+        let action: KeyboardShortcutSettings.Action? = nil
         if appDelegate.routeSplitToFocusedDock(
             kind: .browser,
             direction: direction,

@@ -83,7 +83,10 @@ extension AppDelegate {
         preferredWindow: NSWindow?,
         allowMissingDestinationSplit: Bool = true
     ) -> Bool {
-        if let dock = focusedDockStoreForMenu(preferredWindow: preferredWindow) {
+        if let dock = focusedDockStoreForShortcut(
+            action: movement.shortcutAction,
+            preferredWindow: preferredWindow
+        ) ?? focusedDockStoreForMenu(preferredWindow: preferredWindow) {
             return dock.performShortcutCommand(
                 .moveSurfaceToPane(
                     movement,

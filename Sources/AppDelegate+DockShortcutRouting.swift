@@ -147,13 +147,24 @@ extension AppDelegate {
         return dockStoreForShortcut(context: context)
     }
 
-    /// Returns the Dock for menu enablement without traversing responder,
-    /// panel, or Bonsplit collections in the normal delivered-focus state.
-    /// Commands and action execution intentionally share the same resolver;
-    /// the responder fallback is consulted only while a focus handoff is still
-    /// pending.
+    /// Returns the Dock for menu enablement from the delivered focus snapshot.
+    /// This path is intentionally bounded: Commands must not traverse a Dock's
+    /// responder, panel, or Bonsplit collections while rebuilding the menu.
+    /// Menu action execution calls this same resolver, so enablement and the
+    /// mutation target cannot disagree.
     func focusedDockStoreForMenu(preferredWindow: NSWindow?) -> DockSplitStore? {
-        focusedDockStoreForShortcut(preferredWindow: preferredWindow)
+        guard let context = preferredRegisteredMainWindowContext(
+            preferredWindow: preferredWindow
+        ),
+        let sidebarState = context.fileExplorerState,
+        sidebarState.isVisible,
+        context.keyboardFocusCoordinator.focusedRightSidebarMode == .dock,
+        let dock = existingWindowDock(forWindowId: context.windowId),
+        !dock.isRetired,
+        dock.isVisibleInUI else {
+            return nil
+        }
+        return dock
     }
 
     /// Clears a Dock pointer-origin transaction when a key event begins in the
@@ -203,6 +214,7 @@ extension AppDelegate {
                       $0.id == dock.workspaceId
                   }),
                   workspace._dockSplit === dock,
+                  dock.isVisibleInUI,
                   DockSplitStore.liveStore(containingPanel: panelId) === dock else {
                 return false
             }
@@ -377,9 +389,18 @@ extension AppDelegate {
                 ) ? preferredDock : nil
             }
         } else {
-            store = focusedDockStoreForSurfaceCommand(
-                preferredWindow: preferredWindow
-            )
+            if action == nil {
+                // Menu/compatibility callers have no event-scoped binding;
+                // use the delivered menu snapshot. Configured shortcuts use
+                // the responder-aware resolver below.
+                store = focusedDockStoreForSurfaceCommand(
+                    preferredWindow: preferredWindow
+                )
+            } else {
+                store = focusedDockStoreForShortcut(
+                    preferredWindow: preferredWindow
+                )
+            }
         }
         guard let store else {
             return false
