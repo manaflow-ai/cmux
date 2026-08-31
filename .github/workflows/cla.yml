@@ -100,10 +100,6 @@ jobs:
       group: cla-signatures
       cancel-in-progress: false
     permissions:
-      # The archived action still performs a read-only workflow lookup before
-      # it records a completed signature. Remove this once the in-org fork is
-      # deployed, because the isolated rerun job owns the write permission.
-      actions: read
       contents: write
       issues: write
       # GitHub's pull_request_target token denied issue comments for fork PRs
@@ -185,104 +181,34 @@ jobs:
             exit 1
           fi
 
-      - name: "Validate historical CLA declarations"
-        # The archived action rescans old comments on every event and accepts
-        # trimmed, lower-case, and wrapped declarations. Reject those bodies
-        # before it can turn a non-exact historical comment into a signature.
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
-          CLA_SIGN_PHRASE: 'I have read the CLA Document and I hereby sign the CLA'
-        run: |
-          set -euo pipefail
-          if ! comments_json="$(gh api --paginate --slurp \
-            "repos/${GH_REPO}/issues/${PR_NUMBER}/comments?per_page=100" 2>/dev/null)"; then
-            echo "::error::Could not query pull request comments for CLA validation"
-            exit 1
-          fi
-          if ! jq -e 'type == "array" and all(.[]; type == "array")' <<<"${comments_json}" >/dev/null; then
-            echo "::error::Could not validate pull request comment data"
-            exit 1
-          fi
-          comment_count="$(jq '[.[] | .[]?] | length' <<<"${comments_json}")"
-          if ! [[ "${comment_count}" =~ ^[0-9]+$ ]]; then
-            echo "::error::Could not count pull request comments for CLA validation"
-            exit 1
-          fi
-          if (( comment_count > 1000 )); then
-            echo "::error title=Pull request comment limit::This pull request has more than 1000 comments. Remove old comments before requesting a CLA check."
-            exit 1
-          fi
-          unsafe_comments="$(jq -r --arg phrase "${CLA_SIGN_PHRASE}" '
-            [ .[] | .[]?
-              | (.body // "") as $body
-              | ($body | ascii_downcase | gsub("^\\s+|\\s+$"; "")) as $normalized
-              | ($phrase | ascii_downcase) as $expected
-              | ($normalized == $expected or
-                 ($normalized | test("^.*i\\s*have\\s*read\\s*the\\s*cla\\s*document\\s*and\\s*i\\s*hereby\\s*sign\\s*the\\s*cla.*$"))) as $signature_candidate
-              | (($body | test("CLA Assistant Lite bot"; "i"))) as $marker_candidate
-              | ((.user.login // "") | ascii_downcase) as $login
-              | (.user.type // "") as $type
-              | (.user.id // 0) as $user_id
-              | ($user_id | type == "number" and . == 41898282) as $canonical_bot_id
-              | ($login == "github-actions[bot]" and
-                 $type == "Bot" and
-                 $canonical_bot_id and
-                 $marker_candidate) as $canonical_bot_comment
-              | select(
-                  ($signature_candidate and
-                  ($canonical_bot_comment | not) and
-                   ($body != $phrase or $type != "User" or
-                    ($login | endswith("[bot]")))) or
-                  ($marker_candidate and
-                   ($canonical_bot_comment | not))
-                )
-              | {id: (.id // 0), author: (.user.login // "unknown")}
-            ]
-            | .[]? | @json
-          ' <<<"${comments_json}")" || {
-            echo "::error::Could not validate historical CLA declarations"
-            exit 1
-          }
-          if [[ -n "${unsafe_comments}" ]]; then
-            echo "::error::A historical pull request comment matches an archived CLA signature or bot-marker pattern without a trusted exact identity. Delete it or post the exact declaration, then request the check again."
-            printf '%s\n' "${unsafe_comments}" >&2
-            exit 1
-          fi
-
       - name: "CLA Assistant v2"
-        # The action handles signing and status updates. Merged pull requests
-        # use the explicit lock step below because the archived action sends
-        # an invalid lock request.
-        uses: contributor-assistant/github-action@ca4a40a7d1004f18d9960b404b97e5f30a505a08 # v2.6.1
+        # Use the reviewed in-organization action fork. Pin the runtime commit
+        # so a branch move cannot change the code executed by this workflow.
+        # The fork's default branch must be protected before this check is made
+        # required in repository rulesets.
+        uses: manaflow-ai/cla-github-action@b7a9d19a189cb373b70454143eebeb71ffdb524e
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           path-to-signatures: 'signatures/version1/cla.json'
           path-to-document: 'https://github.com/manaflow-ai/cmux/blob/${{ github.workflow_sha }}/CLA.md'
-          # The archived action calls the lock endpoint without the required
-          # lock_reason. Disable that broken path and use the explicit step
-          # below, which supplies a valid reason and fails on API errors.
+          # Merged pull requests use the explicit lock step below, which
+          # supplies a valid lock reason and fails on API errors.
           lock-pullrequest-aftermerge: 'false'
           # signatures live on the unprotected cla-signatures branch so required checks on main don't block the bot's signature commits
           branch: 'cla-signatures'
-          # Pin the policy branch explicitly. The maintained action preserves
-          # upstream compatibility when this input is omitted.
+          # Pin the policy branch explicitly.
           required-base-ref: 'main'
-          # Require the exact phrase below. Do not use the action's raw-name
-          # allowlist: an unlinked commit identity can spoof it. Automated PRs
-          # follow this same fail-closed path until an authenticated signer is
-          # available.
+          # Require the exact phrase below. Raw-name allowlists are disabled;
+          # commit metadata is not authenticated identity evidence.
           custom-pr-sign-comment: 'I have read the CLA Document and I hereby sign the CLA'
 
   RerunFailedCLA:
     name: "Rerun failed CLA check"
     needs: CLAAssistant
-    # Keep the workflow-rerun token out of the signature-writing job. The
-    # archived action still attempts its own best-effort rerun, but it has no
-    # actions permission and cannot rerun anything. This job runs only after
-    # the exact, accepted issue-comment path above succeeds.
+    # Keep the workflow-rerun token out of the signature-writing job. This
+    # isolated fixed shell is the only job that can rerun a failed check, and
+    # it runs only after the exact accepted issue-comment path succeeds.
     if: >-
       needs.CLAAssistant.result == 'success' &&
       github.event_name == 'issue_comment' &&
@@ -529,12 +455,11 @@ jobs:
                         (.head_repository == null and
                          $head_repo == $repo and
                          $head_repo_id == $repo_id)
-                      ) and
-                      # An empty association list has no source-PR proof. In
-                      # that fallback mode, require the run execution SHA to
-                      # equal the current live PR head so a reused branch
-                      # cannot select an older failed run after a push.
-                      .head_sha == $sha
+                      )
+                      # The source-commit association is checked again after
+                      # selecting the run when its execution SHA differs.
+                      # Keep the candidate discoverable so a valid GitHub
+                      # association can prove that execution identity.
                     else any($prs[]?;
                       (.number | type == "number") and
                       (.number | tostring) == $pr and
@@ -611,8 +536,7 @@ jobs:
                        (.head_repository == null and
                         $head_repo == $repo and
                         $head_repo_id == $repo_id)
-                     ) and
-                     .head_sha == $sha
+                     )
                    else any($prs[]?;
                      (.number | type == "number") and
                      (.number | tostring) == $pr and
@@ -668,6 +592,57 @@ jobs:
           run_head_branch="$(jq -r '.head_branch // empty' <<<"${candidate_json}")"
           [[ -n "${run_head_branch}" && "${run_head_branch}" != *$'\n'* && "${run_head_branch}" != *$'\r'* ]] || fail "The selected CLA run head branch is invalid"
 
+          # A run with a populated pull_requests array already carries an
+          # authenticated source-PR association. Some GitHub API responses
+          # omit that array, so prove a differing execution SHA through the
+          # commit association endpoint before allowing the fallback. A bare
+          # branch/repository match is not enough because a branch can be
+          # reused after a push.
+          validate_run_source_binding() {
+            local run_payload="$1"
+            local execution_sha pull_requests_type pull_request_count
+            local execution_prs_json
+            execution_sha="$(jq -r '.head_sha // empty' <<<"${run_payload}")"
+            [[ "${execution_sha}" =~ ^[0-9a-f]{40}$ ]] || fail "The workflow run execution SHA is invalid"
+            pull_requests_type="$(jq -r 'if .pull_requests == null then "null" else (.pull_requests | type) end' <<<"${run_payload}")"
+            case "${pull_requests_type}" in
+              null) pull_request_count=0 ;;
+              array) pull_request_count="$(jq -r '.pull_requests | length' <<<"${run_payload}")" ;;
+              *) fail "The workflow run pull request association is malformed" ;;
+            esac
+            [[ "${pull_request_count}" =~ ^[0-9]+$ ]] || fail "The workflow run pull request association count is invalid"
+            (( pull_request_count == 0 )) || return 0
+            [[ "${execution_sha}" == "${head_sha}" ]] && return 0
+
+            execution_prs_json="$(gh api \
+              --header 'Accept: application/vnd.github+json' \
+              "repos/${GH_REPO}/commits/${execution_sha}/pulls" 2>/dev/null)" || fail "Could not query workflow execution pull request associations"
+            jq -e \
+              --arg repo "${GH_REPO}" \
+              --arg pr "${PR_NUMBER}" \
+              --arg sha "${head_sha}" \
+              --arg base "${TARGET_BASE_REF}" \
+              --arg head_ref "${head_ref}" \
+              --arg head_repo "${head_repo}" \
+              --argjson head_repo_id "${head_repo_id}" \
+              --argjson repo_id "${repo_id}" '
+                type == "array" and
+                any(.[]?;
+                  (.number | type == "number") and
+                  (.number | tostring) == $pr and
+                  .base.ref == $base and
+                  .base.repo.full_name == $repo and
+                  (.base.repo.id | type == "number") and
+                  .base.repo.id == $repo_id and
+                  .head.ref == $head_ref and
+                  .head.sha == $sha and
+                  (.head.repo.id | type == "number") and
+                  .head.repo.id == $head_repo_id and
+                  .head.repo.full_name == $head_repo
+                )
+              ' <<<"${execution_prs_json}" >/dev/null || fail "The workflow execution SHA is not associated with the current pull request"
+          }
+
           # Re-read the individual run. The list response is only a discovery
           # result, not authorization to rerun it.
           run_json="$(gh api "repos/${GH_REPO}/actions/runs/${run_id}" 2>/dev/null)" || fail "Could not query the selected CLA run"
@@ -703,8 +678,7 @@ jobs:
                       (.head_repository == null and
                        $head_repo == $repo and
                        $head_repo_id == $repo_id)
-                    ) and
-                    .head_sha == $sha
+                    )
                   else any($prs[]?;
                     (.number | type == "number") and
                     (.number | tostring) == $pr and
@@ -735,6 +709,7 @@ jobs:
               .created_at <= $before and
               run_binds_to_pr
             ' <<<"${run_json}" >/dev/null || fail "The selected run no longer matches the exact failed CLA check"
+          validate_run_source_binding "${run_json}"
 
           # Close the main TOCTOU window. A push, close, or another rerun can
           # happen while the API calls above run. Never rerun a stale head.
@@ -786,8 +761,7 @@ jobs:
                       (.head_repository == null and
                        $head_repo == $repo and
                        $head_repo_id == $repo_id)
-                    ) and
-                    .head_sha == $sha
+                    )
                   else any($prs[]?;
                     (.number | type == "number") and
                     (.number | tostring) == $pr and
@@ -818,6 +792,7 @@ jobs:
               .created_at <= $before and
               run_binds_to_pr
           ' <<<"${final_run_json}" >/dev/null || fail "The exact failed CLA run is no longer eligible"
+          validate_run_source_binding "${final_run_json}"
 
           # Rerun only the failed CLA job, rather than every job in the run.
           # The job endpoint still requires actions:write, but it cannot
