@@ -64,6 +64,25 @@ import Testing
         #expect(constrained.launchCommand == nil)
     }
 
+    @Test func exactRestoreWithoutLaunchCapturePreservesBindingEnvironment() throws {
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume remote-session",
+            cwd: "/home/remote/project",
+            checkpointId: "remote-session",
+            source: "agent-hook",
+            environment: ["CODEX_HOME": "/home/remote/.codex"],
+            restoreWorkingDirectorySelection: .exact("/home/remote/project")
+        )
+
+        let startupInput = try #require(binding.remoteStartupInput())
+        #expect(
+            startupInput.contains("CODEX_HOME=/home/remote/.codex"),
+            Comment(rawValue: startupInput)
+        )
+        #expect(startupInput.contains("/home/remote/project"), Comment(rawValue: startupInput))
+    }
+
     @MainActor
     @Test func resumeBindingSelectionChangesAutosaveFingerprint() throws {
         let manager = TabManager(autoWelcomeIfNeeded: false)

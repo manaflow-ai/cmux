@@ -59,6 +59,24 @@ struct AgentRestoreWorkingDirectorySelectionTests {
         )
     }
 
+    @Test("A blank fallback proposal is treated as having no preferred directory")
+    func retainsStoredFallbackWhenProposalIsBlank() {
+        let stored = AgentRestoreWorkingDirectorySelection.recordedFallback(
+            preferred: "/home/remote/project"
+        )
+        let restricted = stored.restricted(
+            by: .recordedFallback(preferred: "   ")
+        )
+
+        #expect(restricted == stored)
+        #expect(
+            restricted.resolved(
+                snapshotWorkingDirectory: "/Users/local/snapshot",
+                launchWorkingDirectory: nil
+            ) == "/home/remote/project"
+        )
+    }
+
     @Test("Exact nil never falls back to captured cwd values")
     func exactNilDoesNotFallBack() {
         #expect(
