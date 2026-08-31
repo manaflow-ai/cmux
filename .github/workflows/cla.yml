@@ -281,54 +281,58 @@ jobs:
           # Resolve it through the live open-PR list instead. The head filter
           # is owner:ref, so the result must contain exactly one PR with the
           # exact number, SHA, head repository, and base repository. This
-          # rejects duplicate or cross-PR matches before any run is selected.
-          [[ "${head_repo}" == */* && "${head_repo}" != */*/* ]] || fail "The pull request head repository name is invalid"
-          head_owner="${head_repo%%/*}"
-          head_name="${head_repo#*/}"
-          [[ -n "${head_owner}" && -n "${head_name}" ]] || fail "The pull request head repository name is invalid"
-          open_prs_json="$(gh api \
-            --method GET \
-            --paginate \
-            --slurp \
-            --header 'Accept: application/vnd.github+json' \
-            --raw-field state=open \
-            --raw-field base="${TARGET_BASE_REF}" \
-            --raw-field head="${head_owner}:${head_ref}" \
-            --raw-field per_page=100 \
-            "repos/${GH_REPO}/pulls" 2>/dev/null)" || fail "Could not query live open pull requests for this head"
-          jq -e 'type == "array" and all(.[]; type == "array")' <<<"${open_prs_json}" >/dev/null || fail "Could not validate live open pull requests"
-          if ! matching_open_prs_json="$(jq -c \
-              --arg repo "${GH_REPO}" \
-              --arg pr "${PR_NUMBER}" \
-              --arg sha "${head_sha}" \
-              --arg base "${TARGET_BASE_REF}" \
-              --arg head_ref "${head_ref}" \
-              --arg head_repo "${head_repo}" \
-              --argjson head_repo_id "${head_repo_id}" \
-              --argjson repo_id "${repo_id}" '
-                [ .[] | .[]?
-                  | select(
-                      (.number | type == "number") and
-                      .state == "open" and
-                      .base.ref == $base and
-                      .base.repo.full_name == $repo and
-                      (.base.repo.id | type == "number") and
-                      .base.repo.id == $repo_id and
-                      .head.ref == $head_ref and
-                      .head.sha == $sha and
-                      .head.repo.full_name == $head_repo and
-                      (.head.repo.id | type == "number") and
-                      .head.repo.id == $head_repo_id
-                    )
-                ]
-                | sort_by(.number)
-              ' <<<"${open_prs_json}")"; then
-            fail "Could not validate live open pull request data"
-          fi
-          open_association_count="$(jq -r 'length' <<<"${matching_open_prs_json}")"
-          [[ "${open_association_count}" =~ ^[0-9]+$ ]] || fail "Could not count live open pull request associations"
-          [[ "${open_association_count}" == "1" ]] || fail "Expected exactly one open pull request for this head"
-          jq -e --argjson number "${PR_NUMBER}" '.[0].number == $number' <<<"${matching_open_prs_json}" >/dev/null || fail "The live head is associated with a different pull request"
+          # rejects duplicate or cross-PR matches before a run is selected,
+          # and the helper is called again immediately before the POST.
+          validate_live_open_head_association() {
+            local head_owner head_name open_prs_json matching_open_prs_json open_association_count
+            [[ "${head_repo}" == */* && "${head_repo}" != */*/* ]] || fail "The pull request head repository name is invalid"
+            head_owner="${head_repo%%/*}"
+            head_name="${head_repo#*/}"
+            [[ -n "${head_owner}" && -n "${head_name}" ]] || fail "The pull request head repository name is invalid"
+            open_prs_json="$(gh api \
+              --method GET \
+              --paginate \
+              --slurp \
+              --header 'Accept: application/vnd.github+json' \
+              --raw-field state=open \
+              --raw-field base="${TARGET_BASE_REF}" \
+              --raw-field head="${head_owner}:${head_ref}" \
+              --raw-field per_page=100 \
+              "repos/${GH_REPO}/pulls" 2>/dev/null)" || fail "Could not query live open pull requests for this head"
+            jq -e 'type == "array" and all(.[]; type == "array")' <<<"${open_prs_json}" >/dev/null || fail "Could not validate live open pull requests"
+            if ! matching_open_prs_json="$(jq -c \
+                --arg repo "${GH_REPO}" \
+                --arg sha "${head_sha}" \
+                --arg base "${TARGET_BASE_REF}" \
+                --arg head_ref "${head_ref}" \
+                --arg head_repo "${head_repo}" \
+                --argjson head_repo_id "${head_repo_id}" \
+                --argjson repo_id "${repo_id}" '
+                  [ .[] | .[]?
+                    | select(
+                        (.number | type == "number") and
+                        .state == "open" and
+                        .base.ref == $base and
+                        .base.repo.full_name == $repo and
+                        (.base.repo.id | type == "number") and
+                        .base.repo.id == $repo_id and
+                        .head.ref == $head_ref and
+                        .head.sha == $sha and
+                        .head.repo.full_name == $head_repo and
+                        (.head.repo.id | type == "number") and
+                        .head.repo.id == $head_repo_id
+                      )
+                  ]
+                  | sort_by(.number)
+                ' <<<"${open_prs_json}")"; then
+              fail "Could not validate live open pull request data"
+            fi
+            open_association_count="$(jq -r 'length' <<<"${matching_open_prs_json}")"
+            [[ "${open_association_count}" =~ ^[0-9]+$ ]] || fail "Could not count live open pull request associations"
+            [[ "${open_association_count}" == "1" ]] || fail "Expected exactly one open pull request for this head"
+            jq -e --argjson number "${PR_NUMBER}" '.[0].number == $number' <<<"${matching_open_prs_json}" >/dev/null || fail "The live head is associated with a different pull request"
+          }
+          validate_live_open_head_association
 
           workflow_json="$(gh api --paginate --slurp "repos/${GH_REPO}/actions/workflows?per_page=100" 2>/dev/null)" || fail "Could not query repository workflows"
           workflow_id="$(jq -r --arg path "${WORKFLOW_PATH}" '[.[] | .workflows[]? | select(.path == $path and .state == "active") | .id] | if length == 1 then .[0] else empty end' <<<"${workflow_json}")"
@@ -622,6 +626,11 @@ jobs:
                 .conclusion == "success"
               )
             ' <<<"${final_job_json}" >/dev/null || fail "The exact failed CLA job is no longer eligible"
+
+          # Repeat the positive live-PR association check after all discovery
+          # calls. A second open PR for the same fork ref and SHA must stop the
+          # rerun even if it appeared while the earlier checks were running.
+          validate_live_open_head_association
 
           if ! gh api \
             --method POST \
