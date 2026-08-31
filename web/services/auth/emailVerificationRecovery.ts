@@ -1,7 +1,10 @@
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 
-import { canonicalizeEmailForMatching } from "../billing/emailMatching";
+import {
+  canonicalizeEmailForMatching,
+  emailVariantsForMatching,
+} from "../billing/emailMatching";
 
 type RecoveryContactChannel = {
   readonly value: string;
@@ -52,13 +55,25 @@ export function requestEmailVerificationRecovery(
   const normalizedEmail = canonicalizeEmailForMatching(input.email);
   return Effect.tryPromise({
     try: async () => {
-      const users = await dependencies.stackApp.listUsers({
-        query: normalizedEmail,
-        limit: 20,
-        includeAnonymous: true,
-        includeRestricted: true,
-      });
-      for (const user of users) {
+      // Stack's email query is literal. Gmail aliases compare equal for
+      // ownership, but a dotted account is not returned by a query for its
+      // undotted spelling (and googlemail.com is a separate search value).
+      // Query every bounded provider spelling, then canonicalize locally.
+      const usersByLiteralEmail = new Map<string, RecoveryUser>();
+      for (const query of emailVariantsForMatching(input.email)) {
+        const users = await dependencies.stackApp.listUsers({
+          query,
+          limit: 20,
+          includeAnonymous: true,
+          includeRestricted: true,
+        });
+        for (const user of users) {
+          const literalEmail = user.primaryEmail?.trim().toLowerCase();
+          if (!literalEmail) continue;
+          usersByLiteralEmail.set(literalEmail, user);
+        }
+      }
+      for (const user of usersByLiteralEmail.values()) {
         if (
           canonicalizeEmailForMatching(user.primaryEmail ?? "") !==
           normalizedEmail
