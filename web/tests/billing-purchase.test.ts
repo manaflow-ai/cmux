@@ -321,10 +321,29 @@ describe("Founder success read-back", () => {
           id: "cs_fixture",
           customer: "cus_fixture",
           subscription: null,
+          metadata: { founders_edition: "true" },
         } as never,
         fakeDb() as never,
       ),
     ).resolves.toEqual(row);
+  });
+
+  test("does not use customer fallback for a non-Founder checkout without a subscription id", async () => {
+    const unrelatedRow = { id: "sub_pro", status: "active" };
+    selectResults = [[unrelatedRow]];
+
+    await expect(
+      latestStripeSubscriptionForSession(
+        {
+          id: "cs_pro_fixture",
+          customer: "cus_fixture",
+          subscription: null,
+          metadata: { app: "cmux", plan: "pro" },
+        } as never,
+        fakeDb() as never,
+      ),
+    ).resolves.toBeNull();
+    expect(selectResults).toEqual([[unrelatedRow]]);
   });
 
   test("does not substitute a different customer subscription for a known id", async () => {

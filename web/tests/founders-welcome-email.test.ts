@@ -9,7 +9,10 @@ import {
   buildProWelcomeEmail,
   foundersThreadRef,
 } from "../app/api/stripe/founders-welcome/welcome-email";
-import { welcomeTriggerForMetadata } from "../app/api/stripe/founders-welcome/welcome-trigger";
+import {
+  welcomeTriggerForCheckout,
+  welcomeTriggerForMetadata,
+} from "../app/api/stripe/founders-welcome/welcome-trigger";
 
 // Regression coverage for the Founder's Edition welcome email collapsing into a
 // single Gmail conversation. Gmail threads messages that share a normalized
@@ -77,6 +80,26 @@ describe("welcomeTriggerForMetadata", () => {
     expect(welcomeTriggerForMetadata({})).toBe("other");
     expect(welcomeTriggerForMetadata(null)).toBe("other");
     expect(welcomeTriggerForMetadata(undefined)).toBe("other");
+  });
+});
+
+describe("welcomeTriggerForCheckout", () => {
+  test("falls back to expanded subscription metadata when session metadata is empty", () => {
+    expect(
+      welcomeTriggerForCheckout(
+        {},
+        { app: "cmux", plan: "pro", stackUserId: "user-1" },
+      ),
+    ).toBe("pro_plan");
+  });
+
+  test("does not let subscription metadata override a foreign session marker", () => {
+    expect(
+      welcomeTriggerForCheckout(
+        { app: "other", plan: "pro" },
+        { app: "cmux", plan: "pro" },
+      ),
+    ).toBe("other");
   });
 });
 

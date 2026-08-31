@@ -69,6 +69,7 @@ afterAll(() => {
 type SessionOverrides = {
   id?: string;
   metadata?: Record<string, string> | null;
+  subscription?: string | { metadata?: Record<string, string> | null } | null;
   customer_details?: { email?: string | null; name?: string | null } | null;
   payment_status?: string | null;
 };
@@ -191,6 +192,25 @@ describe("founders welcome route", () => {
     expect(sentEmails[0].options.idempotencyKey).toBe(
       "founders-welcome/cs_test_pro",
     );
+  });
+
+  test("sends the personal Pro email when metadata is only on the expanded subscription", async () => {
+    const response = await POST(
+      signedRequest(
+        checkoutCompletedEvent({
+          id: "cs_test_pro_subscription_metadata",
+          metadata: {},
+          subscription: {
+            metadata: { stackUserId: "user-1", plan: "pro", app: "cmux" },
+          },
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, sent: true });
+    expect(resendSend).toHaveBeenCalledTimes(1);
+    expect(sentEmails[0].payload.subject).toBe("Welcome to cmux Pro 🎉");
   });
 
   test("also sends the personal Pro email after an async payment succeeds", async () => {
