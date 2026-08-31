@@ -42,6 +42,10 @@ actor CloudMachineLinkManager {
     /// its cmux-tui session defaults (`set-default-colors`) so remote panes render with
     /// the local theme. Injected so tests need no Ghostty runtime.
     private let hostThemeColors: @Sendable () async -> (foreground: String, background: String)?
+    /// One theme-push chain per machine: each push awaits the previous one and reads the
+    /// colors only after it finishes, so rapid config reloads coalesce into an ordered,
+    /// latest-wins sequence instead of overlapping commands racing out of order.
+    private var themePushes: [String: Task<Void, Never>] = [:]
 
     init(
         paths: CloudTuiClientPaths = CloudTuiClientPaths(),
@@ -140,6 +144,7 @@ actor CloudMachineLinkManager {
     func disconnect(machineID: String) async {
         connecting[machineID]?.cancel()
         connecting[machineID] = nil
+        themePushes.removeValue(forKey: machineID)?.cancel()
         if let link = links.removeValue(forKey: machineID) {
             await link.disconnect()
         }
@@ -174,11 +179,16 @@ actor CloudMachineLinkManager {
     // MARK: - internals
 
     /// Fire-and-forget: theme parity is cosmetic, so a machine that predates
-    /// `set-default-colors` (or a link that just dropped) must not fail the operation
-    /// that connected it.
+    /// the defaults verb (or a link that just dropped) must not fail the operation
+    /// that connected it. Pushes chain per machine: each awaits its predecessor and
+    /// reads the colors only then, so a burst of config reloads settles on the
+    /// latest theme instead of racing commands out of order.
     private func pushHostTheme(machineID: String, socketPath: String) {
         guard let link = links[machineID] else { return }
-        Task { [hostThemeColors] in
+        let previous = themePushes[machineID]
+        themePushes[machineID] = Task { [hostThemeColors] in
+            await previous?.value
+            guard !Task.isCancelled else { return }
             guard let colors = await hostThemeColors(),
                   let arguments = CloudTuiCommandLine.setDefaultColorsArguments(
                       socketPath: socketPath, foreground: colors.foreground, background: colors.background

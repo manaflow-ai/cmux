@@ -80,7 +80,14 @@ extension Workspace {
     ) -> Bool {
         let catalog = SurfaceCatalog.shared
         guard let provider = catalog.provider(for: resource.machine) else { return false }
-        let remoteWorkspaceID = resource.remoteWorkspaces.first?.id
+        // The attach pane shows the TERMINAL, not one of its views, so with
+        // multiple views there is no single "anchor's" remote workspace. Prefer
+        // the daemon-focused workspace among the anchor's own views (the one the
+        // user is most plausibly working in), else its first view in daemon
+        // order; a viewless pool terminal passes nil and the provider falls back
+        // to the machine's focused workspace.
+        let anchorWorkspaces = resource.remoteWorkspaces
+        let remoteWorkspaceID = (anchorWorkspaces.first(where: \.focused) ?? anchorWorkspaces.first)?.id
         let machine = resource.machine
         Task { @MainActor in
             do {
