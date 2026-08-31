@@ -145446,16 +145446,124 @@
     "mobile.pairing.manual.title": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكنك المسح؟ أدخل عنوان IP الرقمي لـ Tailscale لهذا الـ Mac والمنفذ:"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ne možete skenirati? Unesite numeričku Tailscale IP adresu i port ovog Maca:"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kan du ikke scanne? Indtast denne Macs numeriske Tailscale-IP-adresse og port:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du kannst nicht scannen? Gib die numerische Tailscale-IP-Adresse und den Port dieses Mac ein:"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Can't scan? Add this Mac manually:"
+            "value": "Can't scan? Enter this Mac's numeric Tailscale IP and port:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿No puedes escanear? Introduce la dirección IP numérica de Tailscale y el puerto de este Mac:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de scanner ? Saisissez l’adresse IP Tailscale numérique et le port de ce Mac :"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non riesci a scansionare? Inserisci l’indirizzo IP numerico Tailscale e la porta di questo Mac:"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "スキャンできない場合は、この Mac を手動で追加します:"
+            "value": "スキャンできない場合は、この Mac の数値 Tailscale IP アドレスとポートを入力してください："
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្កេនមិនបានមែនទេ? បញ្ចូល IP Tailscale ជាលេខ និងច្រករបស់ Mac នេះ៖"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스캔할 수 없나요? 이 Mac의 숫자 Tailscale IP와 포트를 입력하세요:"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kan du ikke skanne? Skriv inn det numeriske Tailscale-IP-et og porten til denne Mac-en:"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie możesz zeskanować? Wpisz numeryczny adres IP Tailscale i port tego Maca:"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não consegue escanear? Digite o IP numérico do Tailscale e a porta deste Mac:"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удаётся отсканировать? Введите числовой IP-адрес Tailscale и порт этого Mac:"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สแกนไม่ได้ใช่ไหม ป้อน IP Tailscale แบบตัวเลขและพอร์ตของ Mac เครื่องนี้:"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarayamıyor musunuz? Bu Mac'in sayısal Tailscale IP adresini ve bağlantı noktasını girin:"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдається відсканувати? Введіть числову IP-адресу Tailscale і порт цього Mac:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法扫描？请输入这台 Mac 的数字 Tailscale IP 和端口："
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法掃描？請輸入這部 Mac 的數字 Tailscale IP 與連接埠："
           }
         }
       }

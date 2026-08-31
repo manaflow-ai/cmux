@@ -85,6 +85,7 @@ extension GhosttySurfaceView {
         let workQueue = outputQueue
         let gate = viewportRestoreGate
         let pixelState = localPixelScrollState
+        let pushedRowsCounter = localScrollbackRowsPushed
         #if DEBUG
         let enqueuedAt = CACurrentMediaTime()
         #endif
@@ -96,7 +97,8 @@ extension GhosttySurfaceView {
                 operation: operation,
                 deltaPixels: deltaPixels,
                 rebaseFromHeldPosition: rebaseFromHeldPosition,
-                pixelState: pixelState
+                pixelState: pixelState,
+                pushedRowsCounter: pushedRowsCounter
             )
             gate.withLock {
                 $0.appliedInteractionGeneration = max(
@@ -167,7 +169,10 @@ extension GhosttySurfaceView {
         operation: LocalPixelScrollSurfaceOperation,
         deltaPixels: Double,
         rebaseFromHeldPosition: Bool,
-        pixelState: OSAllocatedUnfairLock<LocalPixelScrollState>
+        pixelState: OSAllocatedUnfairLock<LocalPixelScrollState>,
+        // lint:allow lock - the view's cumulative push counter threaded to the
+        // serial batch; same discipline as pixelState above.
+        pushedRowsCounter: OSAllocatedUnfairLock<UInt64>
     ) {
         let size = ghostty_surface_size(operation.surface)
         let cellHeightPx = Double(size.cell_height_px)
@@ -187,18 +192,30 @@ extension GhosttySurfaceView {
             let total = scrollbar.total
             let len = min(scrollbar.len, total)
             let maxPosition = Double(total - len) * cellHeightPx
+            let rowsPushedNow = pushedRowsCounter.withLock { $0 }
             // Mid-gesture the held position is the authority: a verified
             // replay may have reset the live viewport to the bottom between
             // batches, and deriving from it would make the reset hijack the
             // gesture. The exact (unrounded) position carries sub-pixel
-            // deltas across batches, and the anchor is only trusted while
-            // its row space is unchanged: replays repaint in place and keep
-            // the revision, while eviction or reflow renumber rows, so a
-            // revision change falls back to the live viewport.
+            // deltas across batches. A held position from an older row-space
+            // revision is first rebased content-true: pushes beyond growth
+            // evicted rows from the top of a capped scrollback, so the same
+            // content sits that many rows higher. Only an unreconcilable
+            // space (rebuilt, shrunk) falls back to the live viewport.
             let current: Double
             if rebaseFromHeldPosition, let held,
                held.revision == scrollbar.row_space_revision {
                 current = min(held.positionPx, maxPosition)
+            } else if rebaseFromHeldPosition, let held,
+                      let corrected = GhosttySurfaceView.LocalPixelScrollState.rebasedHeldPositionPx(
+                          heldPositionPx: held.positionPx,
+                          heldTotal: held.total,
+                          heldRowsPushed: held.rowsPushed,
+                          scrollbarTotal: total,
+                          rowsPushedNow: rowsPushedNow,
+                          cellHeightPx: cellHeightPx
+                      ) {
+                current = min(corrected, maxPosition)
             } else {
                 current = min(Double(scrollbar.offset) * cellHeightPx + remainder, maxPosition)
             }
@@ -256,18 +273,19 @@ extension GhosttySurfaceView {
                         remainderPx: appliedOffset,
                         positionPx: appliedPosition,
                         revision: appliedRevision,
-                        total: appliedTotal
+                        total: appliedTotal,
+                        rowsPushed: rowsPushedNow
                     )
                 }
                 return
             }
-            // Content changed shape mid-batch; rebase once from the live
-            // viewport with a zeroed remainder (held row numbers are no
-            // longer trustworthy in the new row space). The reveal survives:
-            // it is presentation-space, not row-space, so a reflow does not
+            // Content changed shape mid-batch; retry once with a zeroed
+            // remainder. The held position stays: the next iteration's fresh
+            // scrollbar and push counter rebase it content-true, or reject it
+            // and fall back to the live viewport. The reveal survives: it is
+            // presentation-space, not row-space, so a reflow does not
             // invalidate how far the render has slid.
             remainder = 0
-            held = nil
         }
         // Two mismatches in one batch: same units the legacy line path derives
         // from `enqueueScrollMechanicsDelta` (points = px/scale, divisor 3x
