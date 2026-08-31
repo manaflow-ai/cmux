@@ -9181,10 +9181,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         // Make-before-break is effective only while there is a focused
         // connection to keep serving; with nothing live the ordinary connect
-        // is already break-free.
+        // is already break-free. The serving lookup also resolves tagged
+        // pairings, whose owner keys the bare-id compatibility subscript
+        // above cannot see.
         let makeBeforeBreakConnection: MacConnection? =
             makeBeforeBreak && connectionState == .connected
-                ? currentFocusedConnection
+                ? (currentFocusedConnection ?? servingFocusedConnection)
                 : nil
         connectionAttemptGeneration = generation
         if makeBeforeBreakConnection == nil {

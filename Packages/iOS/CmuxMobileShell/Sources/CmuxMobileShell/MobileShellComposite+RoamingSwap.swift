@@ -30,19 +30,32 @@ struct RoamingSwapGapProbe: Sendable {
 /// retire/disconnect gates as any other connect.
 @MainActor
 extension MobileShellComposite {
+    /// The registry entry for the client currently serving as foreground, or
+    /// nil when the registry and the published client disagree. Focused
+    /// entries are keyed by (device, STORED instance tag); the bare-id
+    /// compatibility subscript resolves a nil-tag key and misses tagged
+    /// pairings, so the tagged foreground key is consulted as well.
+    var servingFocusedConnection: MacConnection? {
+        guard let foregroundMacDeviceID, remoteClient != nil else { return nil }
+        let connection = connections[foregroundMacDeviceID]
+            ?? connections[foregroundMacKey]
+        guard let connection, connection.client === remoteClient else {
+            return nil
+        }
+        return connection
+    }
+
     /// Starts one make-before-break roaming swap when the current foreground
     /// connection is a live relay session. Returns whether the trigger was
     /// consumed (an attempt started, or an already-active owner coalesced it,
     /// exactly as the ordinary recovery entry would).
     func startRoamingRelaySwapIfEligible(trigger: RecoveryTrigger) -> Bool {
         guard connectionState == .connected,
-              let servingClient = remoteClient,
+              remoteClient != nil,
               activeRoute?.kind == .websocket,
               pairedMacStore != nil,
               !isReconnectingStoredMac,
-              let foregroundMacDeviceID,
-              let focusedConnection = connections[foregroundMacDeviceID],
-              focusedConnection.client === servingClient else {
+              servingFocusedConnection != nil else {
             return false
         }
         guard let attempt = connectionRecoveryOwner.begin(
