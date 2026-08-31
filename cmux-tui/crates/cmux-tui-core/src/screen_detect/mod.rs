@@ -13,6 +13,7 @@
 //! bookkeeping and the daemon-side scanner loop.
 
 pub(crate) mod manifest;
+pub(crate) mod osc;
 pub(crate) mod scanner;
 
 use std::collections::HashMap;
@@ -30,6 +31,11 @@ pub(crate) const QUIESCENCE_DEBOUNCE_MS: u64 = 300;
 /// Without it, quiescence gating starves detection during the exact
 /// phase it exists to report.
 pub(crate) const MAX_EVAL_INTERVAL_MS: u64 = 1_000;
+
+/// PTY output within this window counts as working authority (herdr's
+/// flowing-output signal): a spinner-less agent that is printing reads
+/// working even when no manifest rule matches its screen.
+pub(crate) const WORKING_ACTIVITY_WINDOW_MS: u64 = 1_500;
 
 /// The `native_event` value screen-detection journal events carry.
 pub(crate) const SCREEN_DETECT_NATIVE_EVENT: &str = "ScreenDetect";
@@ -53,6 +59,12 @@ struct TrackedTerminal {
     evaluated_revision: Option<u64>,
     /// When the screen was last evaluated (the max-interval pacer anchor).
     last_evaluated_at: Option<Instant>,
+    /// When output last advanced the revision (never set by the first
+    /// sighting, which is an anchor, not evidence of fresh output).
+    last_output_at: Option<Instant>,
+    /// The last evaluation upgraded idle to working on output activity;
+    /// one more evaluation is owed when the activity window closes.
+    evaluated_with_activity: bool,
     /// Agent the foreground process matched on the previous scan; identity
     /// edges trigger immediate evaluation, before any quiescence.
     foreground_agent: Option<String>,
@@ -81,11 +93,22 @@ impl ScreenDetectTracker {
         now: Instant,
     ) -> bool {
         let entry = self.terminals.entry(terminal_id.to_string()).or_default();
-        if entry.quiet_since.is_none() || entry.revision != revision {
+        if entry.quiet_since.is_none() {
             entry.revision = revision;
             entry.quiet_since = Some(now);
+        } else if entry.revision != revision {
+            entry.revision = revision;
+            entry.quiet_since = Some(now);
+            entry.last_output_at = Some(now);
         }
-        if entry.evaluated_revision == Some(entry.revision) {
+        // A working state that exists only because output was flowing must
+        // be re-evaluated once the activity window expires, even though the
+        // screen (revision) never changed, or it would stick forever.
+        let output_active = entry.last_output_at.is_some_and(|at| {
+            now.duration_since(at).as_millis() as u64 <= WORKING_ACTIVITY_WINDOW_MS
+        });
+        let activity_expired = entry.evaluated_with_activity && !output_active;
+        if entry.evaluated_revision == Some(entry.revision) && !activity_expired {
             return false;
         }
         let quiet_since = entry.quiet_since.expect("anchored above");
@@ -93,11 +116,34 @@ impl ScreenDetectTracker {
         let overdue = entry.last_evaluated_at.is_none_or(|evaluated_at| {
             now.duration_since(evaluated_at).as_millis() as u64 >= MAX_EVAL_INTERVAL_MS
         });
-        if quiesced || overdue {
+        if quiesced || overdue || activity_expired {
             entry.last_evaluated_at = Some(now);
+            entry.evaluated_with_activity = false;
             return true;
         }
         false
+    }
+
+    /// Mark that the last evaluation upgraded an idle read to working on
+    /// output-activity evidence; `observe_revision` then owes one more
+    /// evaluation when that activity window closes.
+    pub(crate) fn note_activity_upgrade(&mut self, terminal_id: &str) {
+        if let Some(entry) = self.terminals.get_mut(terminal_id) {
+            entry.evaluated_with_activity = true;
+        }
+    }
+
+    /// True when PTY output advanced within the working-activity window:
+    /// flowing output is working authority for the screen source. It never
+    /// overrides hooks (arbitration is unchanged) and never downgrades a
+    /// blocked screen; it only upgrades an otherwise idle read.
+    pub(crate) fn output_active(&self, terminal_id: &str, now: Instant) -> bool {
+        self.terminals
+            .get(terminal_id)
+            .and_then(|entry| entry.last_output_at)
+            .is_some_and(|at| {
+                now.duration_since(at).as_millis() as u64 <= WORKING_ACTIVITY_WINDOW_MS
+            })
     }
 
     /// True when this terminal previously journaled a screen-derived state
@@ -224,6 +270,40 @@ mod tests {
         assert!(tracker.observe_revision("term_a", 2, at(900)));
         tracker.record_detection("term_a", Some(("codex", detection(ScreenState::Idle))));
         assert!(!tracker.observe_revision("term_a", 2, at(1_100)));
+    }
+
+    #[test]
+    fn screen_detect_activity_upgrades_idle_and_owes_the_expiry_evaluation() {
+        let mut tracker = ScreenDetectTracker::default();
+        let t0 = Instant::now();
+        let at = |milliseconds: u64| t0 + Duration::from_millis(milliseconds);
+
+        // First sight: no output has flowed, so nothing reads as active.
+        assert!(tracker.observe_revision("term_a", 1, t0));
+        assert!(!tracker.output_active("term_a", t0));
+        tracker.record_detection("term_a", Some(("codex", detection(ScreenState::Idle))));
+
+        // Output flows (rev 2), then quiesces: the evaluation sees activity
+        // and the scanner upgrades idle to working.
+        assert!(!tracker.observe_revision("term_a", 2, at(400)));
+        assert!(tracker.observe_revision("term_a", 2, at(800)));
+        assert!(tracker.output_active("term_a", at(800)));
+        let upgraded =
+            tracker.record_detection("term_a", Some(("codex", detection(ScreenState::Working))));
+        assert_eq!(upgraded.map(|emission| emission.state), Some(AgentState::Working));
+        tracker.note_activity_upgrade("term_a");
+
+        // Inside the activity window the unchanged screen stays unevaluated.
+        assert!(!tracker.observe_revision("term_a", 2, at(1_200)));
+
+        // Once activity expires, one more evaluation is owed even though
+        // the revision never changed; the idle read then lands.
+        assert!(tracker.observe_revision("term_a", 2, at(2_100)));
+        assert!(!tracker.output_active("term_a", at(2_100)));
+        let settled =
+            tracker.record_detection("term_a", Some(("codex", detection(ScreenState::Idle))));
+        assert_eq!(settled.map(|emission| emission.state), Some(AgentState::Idle));
+        assert!(!tracker.observe_revision("term_a", 2, at(2_400)), "the debt is paid once");
     }
 
     #[test]
