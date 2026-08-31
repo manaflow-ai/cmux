@@ -58,6 +58,22 @@ jobs:
       - name: "CLA generation v2 ${{ github.workflow_sha }}"
         run: echo "CLA generation v2 ${{ github.workflow_sha }}"
 
+      - name: "Validate CLA comment declaration"
+        if: github.event_name == 'issue_comment'
+        env:
+          EVENT_COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          set -euo pipefail
+          # GitHub Actions string equality is case-insensitive, and the
+          # archived action also accepts broad regular-expression matches.
+          # Check the complete body in a shell before the action can record a
+          # signature. `recheck` is the only other accepted trigger.
+          if [[ "${EVENT_COMMENT_BODY}" != "recheck" &&
+                "${EVENT_COMMENT_BODY}" != "I have read the CLA Document and I hereby sign the CLA" ]]; then
+            echo "::error::The comment is not an exact CLA declaration or recheck command"
+            exit 1
+          fi
+
       - name: "Validate CLA pull request"
         id: cla-preflight
         # The archived action reads only its first 100 commits. Fail closed
