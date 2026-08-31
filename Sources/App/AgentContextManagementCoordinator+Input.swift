@@ -10,9 +10,15 @@ extension AgentContextManagementCoordinator {
         // cannot regain the keyboard during that handoff.
         let owner = owner(for: panelId, preferredWorkspaceID: nil)
         let binding = owner?.binding(panelId: panelId)
-        if binding != nil || states[panelId] != nil {
+        let hasPendingRecovery = states[panelId].map {
+            $0.pressure.isUnderPressure
+                || $0.preservationAwaitingAcknowledgement
+                || $0.injectionInFlight
+        } ?? false
+        if hasPendingRecovery {
             // Record the edge before any owner/binding lookup can fail during
             // detach/attach. `bindingDidChange` consumes it at the destination.
+            // Idle clicks and focus/shortcut edges do not need this latch.
             userInputObservedBeforePressure.insert(panelId)
         }
 
@@ -51,7 +57,13 @@ extension AgentContextManagementCoordinator {
         let hadPendingRecovery = state.pressure.isUnderPressure
             || state.preservationAwaitingAcknowledgement
             || state.injectionInFlight
-        state.userInputObserved = true
+        // A click or other explicit-input edge can arrive while the pane is
+        // otherwise idle. Only latch the cancellation when there was pending
+        // recovery work; an idle interaction must not suppress a later
+        // pressure episode until an unrelated lifecycle boundary.
+        if hadPendingRecovery {
+            state.userInputObserved = true
+        }
         state.injectionInFlight = false
         state.pressure = AgentContextPressureSnapshot()
         state.pressureConfirmation.reset()

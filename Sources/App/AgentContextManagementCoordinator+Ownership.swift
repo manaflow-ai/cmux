@@ -65,7 +65,7 @@ extension AgentContextManagementCoordinator {
         guard let existingState = states[panelId] else {
             owner.setContextPressureMonitoringEnabled(
                 panelId: panelId,
-                enabled: settings.isEnabled
+                enabled: true
             )
             let generation = owner.resetContextPressureDetector(panelId: panelId)
             states[panelId] = makePanelState(
@@ -98,7 +98,7 @@ extension AgentContextManagementCoordinator {
             )
             owner.setContextPressureMonitoringEnabled(
                 panelId: panelId,
-                enabled: settings.isEnabled
+                enabled: true
             )
             structuredLog(
                 "detector-reset-requested",
@@ -110,7 +110,7 @@ extension AgentContextManagementCoordinator {
         }
         owner.setContextPressureMonitoringEnabled(
             panelId: panelId,
-            enabled: settings.isEnabled
+            enabled: true
         )
         var state = existingState
         if pendingUserInput {

@@ -138,17 +138,11 @@ final class AgentContextManagementCoordinator {
 
         owner.setContextPressureMonitoringEnabled(
             panelId: surfaceID,
-            enabled: settings.isEnabled
+            // Keep provider detection/reporting active even when the user has
+            // disabled automated writes. The policy's `enabled` input gates
+            // injection separately below.
+            enabled: true
         )
-        guard settings.isEnabled else {
-            structuredLog(
-                "detection.ignored",
-                workspaceID: owner.workspaceID,
-                surfaceID: surfaceID,
-                detail: "reason=disabled"
-            )
-            return
-        }
 
         let matchingEvents = events.filter { event in
             guard provider == event.provider else {
@@ -377,7 +371,7 @@ final class AgentContextManagementCoordinator {
             for panelId in group.panelIDs {
                 owner.setContextPressureMonitoringEnabled(
                     panelId: panelId,
-                    enabled: settings.isEnabled
+                    enabled: true
                 )
                 evaluate(surfaceID: panelId, owner: owner)
             }

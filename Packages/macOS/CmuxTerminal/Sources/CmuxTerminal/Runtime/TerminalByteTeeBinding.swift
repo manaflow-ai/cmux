@@ -27,7 +27,8 @@ public protocol TerminalByteTeeLease: AnyObject, Sendable {
     /// caller should enable it only after an authoritative managed-session
     /// binding exists, and disable it before that binding is removed.
     /// - Parameter enabled: Whether this surface is currently eligible for
-    ///   context-pressure detection.
+    ///   context-pressure detection/reporting. Automated recovery writes are
+    ///   gated separately by the app-level policy setting.
     func setContextPressureMonitoringEnabled(_ enabled: Bool)
 }
 

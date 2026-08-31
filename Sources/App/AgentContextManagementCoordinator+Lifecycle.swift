@@ -46,7 +46,7 @@ extension AgentContextManagementCoordinator {
         }
         owner.setContextPressureMonitoringEnabled(
             panelId: panelId,
-            enabled: settings.isEnabled
+            enabled: true
         )
         guard AgentContextProvider(managedAgentKind: key) == provider else {
             structuredLog(
@@ -168,7 +168,7 @@ extension AgentContextManagementCoordinator {
         }
         owner.setContextPressureMonitoringEnabled(
             panelId: panelId,
-            enabled: settings.isEnabled
+            enabled: true
         )
         var state = resolvedPanelState(
             panelId: panelId,

@@ -19,6 +19,8 @@ extension TerminalSurface {
     ///
     /// The flag is consumed by the serialized PTY tee callback and avoids
     /// decoding and scanning output from ordinary or unmanaged terminals.
+    /// Detection/reporting remains enabled when the user disables automated
+    /// recovery; the coordinator's policy separately gates PTY writes.
     /// - Parameter enabled: Whether this surface is eligible for detection.
     @MainActor
     public func setContextPressureMonitoringEnabled(_ enabled: Bool) {
