@@ -19,8 +19,6 @@ import { recordSpanError, withApiRouteSpan } from "../../../../services/telemetr
 
 const MAX_REQUEST_BYTES = 4 * 1_024;
 const PRODUCTION_MAGIC_LINK_CALLBACK = "https://cmux.com/handler/after-sign-in";
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 export const BILLING_RECOVERY_RESPONSE_MESSAGE =
   (englishMessages as { billingRecovery: { message: string } }).billingRecovery
     .message;
