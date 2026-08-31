@@ -529,7 +529,12 @@ jobs:
                         (.head_repository == null and
                          $head_repo == $repo and
                          $head_repo_id == $repo_id)
-                      )
+                      ) and
+                      # An empty association list has no source-PR proof. In
+                      # that fallback mode, require the run execution SHA to
+                      # equal the current live PR head so a reused branch
+                      # cannot select an older failed run after a push.
+                      .head_sha == $sha
                     else any($prs[]?;
                       (.number | type == "number") and
                       (.number | tostring) == $pr and
@@ -606,7 +611,8 @@ jobs:
                        (.head_repository == null and
                         $head_repo == $repo and
                         $head_repo_id == $repo_id)
-                     )
+                     ) and
+                     .head_sha == $sha
                    else any($prs[]?;
                      (.number | type == "number") and
                      (.number | tostring) == $pr and
@@ -697,7 +703,8 @@ jobs:
                       (.head_repository == null and
                        $head_repo == $repo and
                        $head_repo_id == $repo_id)
-                    )
+                    ) and
+                    .head_sha == $sha
                   else any($prs[]?;
                     (.number | type == "number") and
                     (.number | tostring) == $pr and
@@ -732,14 +739,17 @@ jobs:
           # Close the main TOCTOU window. A push, close, or another rerun can
           # happen while the API calls above run. Never rerun a stale head.
           latest_pr_json="$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}" 2>/dev/null)" || fail "Could not recheck the pull request"
-          jq -e --arg repo "${GH_REPO}" --argjson number "${PR_NUMBER}" --arg sha "${head_sha}" --arg base "${TARGET_BASE_REF}" --arg head_repo "${head_repo}" --argjson head_repo_id "${head_repo_id}" '
+          jq -e --arg repo "${GH_REPO}" --argjson number "${PR_NUMBER}" --arg sha "${head_sha}" --arg base "${TARGET_BASE_REF}" --arg head_ref "${head_ref}" --arg head_repo "${head_repo}" --argjson head_repo_id "${head_repo_id}" --argjson base_repo_id "${repo_id}" --arg opener "${pr_author_login}" '
             .number == $number and
             .state == "open" and
             .base.ref == $base and
             .base.repo.full_name == $repo and
+            .base.repo.id == $base_repo_id and
             .head.sha == $sha and
+            .head.ref == $head_ref and
             .head.repo.full_name == $head_repo and
-            .head.repo.id == $head_repo_id
+            .head.repo.id == $head_repo_id and
+            .user.login == $opener
           ' <<<"${latest_pr_json}" >/dev/null || fail "The pull request changed while selecting the CLA run"
 
           # Ensure another queued invocation did not already rerun this run.
@@ -776,7 +786,8 @@ jobs:
                       (.head_repository == null and
                        $head_repo == $repo and
                        $head_repo_id == $repo_id)
-                    )
+                    ) and
+                    .head_sha == $sha
                   else any($prs[]?;
                     (.number | type == "number") and
                     (.number | tostring) == $pr and
@@ -888,14 +899,17 @@ jobs:
           # This prevents a push or a concurrent rerun from making the job
           # stale while the preceding API requests were in flight.
           latest_pr_json="$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}" 2>/dev/null)" || fail "Could not recheck the pull request before rerun"
-          jq -e --arg repo "${GH_REPO}" --argjson number "${PR_NUMBER}" --arg sha "${head_sha}" --arg base "${TARGET_BASE_REF}" --arg head_repo "${head_repo}" --argjson head_repo_id "${head_repo_id}" '
+          jq -e --arg repo "${GH_REPO}" --argjson number "${PR_NUMBER}" --arg sha "${head_sha}" --arg base "${TARGET_BASE_REF}" --arg head_ref "${head_ref}" --arg head_repo "${head_repo}" --argjson head_repo_id "${head_repo_id}" --argjson base_repo_id "${repo_id}" --arg opener "${pr_author_login}" '
             .number == $number and
             .state == "open" and
             .base.ref == $base and
             .base.repo.full_name == $repo and
+            .base.repo.id == $base_repo_id and
             .head.sha == $sha and
+            .head.ref == $head_ref and
             .head.repo.full_name == $head_repo and
-            .head.repo.id == $head_repo_id
+            .head.repo.id == $head_repo_id and
+            .user.login == $opener
           ' <<<"${latest_pr_json}" >/dev/null || fail "The pull request changed while selecting the CLA job"
           final_job_json="$(gh api "repos/${GH_REPO}/actions/jobs/${job_id}" 2>/dev/null)" || fail "Could not recheck the selected CLA job"
           jq -e \
