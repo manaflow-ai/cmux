@@ -3,6 +3,7 @@ import CoreServices
 
 private let cmuxAppIconDidChangeNotification = Notification.Name("com.cmuxterm.appIconDidChange")
 private let cmuxAppIconModeKey = "appIconMode"
+private let cmuxNotificationDockBadgeLabelKey = "notificationDockBadgeLabel"
 
 private enum DockTileAppIconMode: String {
     case automatic
@@ -30,11 +31,15 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
     // Keep the state minimal and derive everything from the enclosing app bundle.
     private let pluginBundle = Bundle(for: CmuxDockTilePlugin.self)
     private var iconChangeObserver: NSObjectProtocol?
+    private var appTerminationObserver: NSObjectProtocol?
     private var appearanceObservation: NSKeyValueObservation?
 
     deinit {
         if let iconChangeObserver {
             DistributedNotificationCenter.default().removeObserver(iconChangeObserver)
+        }
+        if let appTerminationObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(appTerminationObserver)
         }
         appearanceObservation?.invalidate()
     }
@@ -52,6 +57,10 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
             DistributedNotificationCenter.default().removeObserver(iconChangeObserver)
             self.iconChangeObserver = nil
         }
+        if let appTerminationObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(appTerminationObserver)
+            self.appTerminationObserver = nil
+        }
         appearanceObservation?.invalidate()
         appearanceObservation = nil
 
@@ -60,10 +69,25 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
 
         iconChangeObserver = DistributedNotificationCenter.default().addObserver(
             forName: cmuxAppIconDidChangeNotification,
+            object: appBundle?.bundleIdentifier,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self else { return }
+            self.updateDockTile(
+                dockTile,
+                badgeLabelOverride: notification.userInfo?[cmuxNotificationDockBadgeLabelKey] as? String
+            )
+        }
+
+        appTerminationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didTerminateApplicationNotification,
             object: nil,
             queue: .main
-        ) { [weak self] _ in
-            guard let self else { return }
+        ) { [weak self] notification in
+            guard let self,
+                  let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
+                    as? NSRunningApplication,
+                  application.bundleIdentifier == self.appBundle?.bundleIdentifier else { return }
             self.updateDockTile(dockTile)
         }
 
@@ -102,10 +126,19 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
         return UserDefaults(suiteName: bundleIdentifier)
     }
 
-    private func updateDockTile(_ dockTile: NSDockTile) {
+    private var isAppRunning: Bool {
+        guard let bundleIdentifier = appBundle?.bundleIdentifier else { return false }
+        return !NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).isEmpty
+    }
+
+    private func updateDockTile(_ dockTile: NSDockTile, badgeLabelOverride: String? = nil) {
         Self.assertMainQueue()
 
         let mode = DockTileAppIconMode(defaultsValue: appDefaults?.string(forKey: cmuxAppIconModeKey))
+        let badgeLabel = AppIconBadgeRenderer.visibleBadgeLabel(
+            badgeLabelOverride ?? appDefaults?.string(forKey: cmuxNotificationDockBadgeLabelKey),
+            isAppRunning: isAppRunning
+        )
         let isDarkAppearance = NSApp?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         guard let appBundleURL else {
             dockTile.showDefaultAppIcon()
@@ -128,7 +161,7 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
             NSWorkspace.shared.noteFileSystemChanged(appBundleURL.path)
             _ = LSRegisterURL(appBundleURL as CFURL, true)
         }
-        dockTile.showIcon(icon)
+        dockTile.showIcon(icon, badgeLabel: badgeLabel)
     }
 
     private static func performOnMain(_ work: @escaping () -> Void) {
@@ -171,13 +204,17 @@ private extension NSDockTile {
         display()
     }
 
-    func showIcon(_ newIcon: NSImage) {
+    func showIcon(_ newIcon: NSImage, badgeLabel: String?) {
         CmuxDockTilePlugin.assertMainQueue()
 
         let iconView = NSImageView(frame: CGRect(origin: .zero, size: size))
         iconView.wantsLayer = true
-        iconView.image = newIcon
+        MainActor.assumeIsolated {
+            iconView.image = AppIconBadgeRenderer.image(baseIcon: newIcon, badgeLabel: badgeLabel)
+            iconView.setAccessibilityValue(badgeLabel)
+        }
         contentView = iconView
+        self.badgeLabel = nil
         display()
     }
 }

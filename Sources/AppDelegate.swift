@@ -2359,6 +2359,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         pendingCrashScanTask?.cancel()
         pendingCrashScanTask = nil
         notificationStore?.clearAll()
+        NotificationBadgeSettings.persistDockBadgeLabel(nil)
+        _ = AppIconSettings.updateRuntimeBadgeLabel(nil)
+        NSApp.dockTile.badgeLabel = nil
         GhosttyCrashBreadcrumb.markCleanExit()
         unregisterDisplayReconfigurationCallbackIfNeeded()
         StartupBreadcrumbLog.append("appDelegate.willTerminate.complete")

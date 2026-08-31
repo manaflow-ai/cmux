@@ -16,6 +16,7 @@ private func checkTrue(_ condition: @autoclosure () -> Bool, _ message: String =
 }
 
 @Suite
+@MainActor
 struct AppIconAppearanceObserverTests {
     private final class ObservationToken: EffectiveAppearanceObservation {
         private(set) var invalidateCallCount = 0
@@ -32,6 +33,7 @@ struct AppIconAppearanceObserverTests {
         var currentAppearanceIsDarkCallCount = 0
         var imageRequests: [String] = []
         var appliedIconCount = 0
+        var dockTileNotificationCount = 0
         var didFinishLaunchingObserverCount = 0
         private(set) var didFinishLaunchingHandler: (() -> Void)?
         private(set) var appearanceHandler: (() -> Void)?
@@ -62,6 +64,10 @@ struct AppIconAppearanceObserverTests {
             },
             setApplicationIconImage: { [unowned self] _ in
                 self.appliedIconCount += 1
+            },
+            setNativeDockBadgeLabel: { _ in },
+            notifyDockTilePlugin: { [unowned self] _ in
+                self.dockTileNotificationCount += 1
             }
         )
 
@@ -93,6 +99,7 @@ struct AppIconAppearanceObserverTests {
         checkEqual(harness.currentAppearanceIsDarkCallCount, 1)
         checkEqual(harness.imageRequests, ["AppIconLight"])
         checkEqual(harness.appliedIconCount, 1)
+        checkEqual(harness.dockTileNotificationCount, 1)
     }
 
     @Test
@@ -136,6 +143,23 @@ struct AppIconAppearanceObserverTests {
         checkEqual(harness.currentAppearanceIsDarkCallCount, 2)
         checkEqual(harness.imageRequests, ["AppIconLight"])
         checkEqual(harness.appliedIconCount, 1)
+        checkEqual(harness.dockTileNotificationCount, 1)
+    }
+
+    @Test
+    func testRestartingAutomaticModeReappliesCurrentAppearance() {
+        let harness = Harness()
+        harness.isFinishedLaunching = true
+        harness.isDark = true
+        let observer = AppIconAppearanceObserver(environment: harness.environment)
+
+        observer.startObserving()
+        observer.stopObserving()
+        observer.startObserving()
+
+        checkEqual(harness.imageRequests, ["AppIconDark", "AppIconDark"])
+        checkEqual(harness.appliedIconCount, 2)
+        checkEqual(harness.dockTileNotificationCount, 2)
     }
 
     @Test
@@ -150,5 +174,6 @@ struct AppIconAppearanceObserverTests {
 
         checkEqual(harness.imageRequests, ["AppIconLight", "AppIconDark"])
         checkEqual(harness.appliedIconCount, 2)
+        checkEqual(harness.dockTileNotificationCount, 2)
     }
 }

@@ -1608,7 +1608,7 @@ final class CmuxSettingsFileStore {
         let userDefaults = userDefaults
         let languageSettingsStore = languageSettingsStore
         let changes = sideEffects.changes
-        let apply = {
+        let apply: @MainActor () -> Void = {
             var agentSessionAutoResumeDidChange = false
             var agentHibernationDidChange = false
             var rendererRealizationDidChange = false
@@ -1677,9 +1677,11 @@ final class CmuxSettingsFileStore {
             }
         }
         if Thread.isMainThread {
-            apply()
+            MainActor.assumeIsolated { apply() }
         } else {
-            DispatchQueue.main.async { apply() }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { apply() }
+            }
         }
     }
 

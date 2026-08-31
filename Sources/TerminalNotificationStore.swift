@@ -25,6 +25,7 @@ extension TerminalNotificationStore {
 }
 enum NotificationBadgeSettings {
     static let dockBadgeEnabledKey = "notificationDockBadgeEnabled"
+    static let dockBadgeLabelKey = "notificationDockBadgeLabel"
     static let defaultDockBadgeEnabled = true
 
     static func isDockBadgeEnabled(defaults: UserDefaults = .standard) -> Bool {
@@ -32,6 +33,22 @@ enum NotificationBadgeSettings {
             return defaultDockBadgeEnabled
         }
         return defaults.bool(forKey: dockBadgeEnabledKey)
+    }
+
+    @discardableResult
+    static func persistDockBadgeLabel(_ label: String?, defaults: UserDefaults = .standard) -> Bool {
+        let normalizedLabel = AppIconBadgeRenderer.normalizedBadgeLabel(label)
+        guard defaults.string(forKey: dockBadgeLabelKey) != normalizedLabel else { return false }
+        if let normalizedLabel {
+            defaults.set(normalizedLabel, forKey: dockBadgeLabelKey)
+        } else {
+            defaults.removeObject(forKey: dockBadgeLabelKey)
+        }
+        return true
+    }
+
+    static func nativeDockBadgeLabel(_ label: String?, runtimeIconIncludesBadge: Bool) -> String? {
+        runtimeIconIncludesBadge ? nil : label
     }
 }
 
@@ -469,6 +486,7 @@ final class TerminalNotificationStore: ObservableObject {
                 self?.refreshDockBadge()
             }
         }
+        // Reconcile any label left by an unclean prior exit before the Dock plugin can reuse it.
         refreshDockBadge()
         refreshAuthorizationStatus()
     }
@@ -2658,6 +2676,14 @@ final class TerminalNotificationStore: ObservableObject {
             isEnabled: NotificationBadgeSettings.isDockBadgeEnabled(),
             runTag: TaggedRunBadgeSettings.normalizedTag()
         )
-        NSApp?.dockTile.badgeLabel = label
+        let persistedLabelChanged = NotificationBadgeSettings.persistDockBadgeLabel(label)
+        let runtimeIconIncludesBadge = AppIconSettings.updateRuntimeBadgeLabel(
+            label,
+            forceDockTileRefresh: persistedLabelChanged
+        )
+        NSApp?.dockTile.badgeLabel = NotificationBadgeSettings.nativeDockBadgeLabel(
+            label,
+            runtimeIconIncludesBadge: runtimeIconIncludesBadge
+        )
     }
 }

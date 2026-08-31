@@ -842,6 +842,7 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
     }
 }
 
+@MainActor
 final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
     private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
     private let settingsFileBackupsDefaultsKey = "cmux.settingsFile.backups.v1"
@@ -1430,13 +1431,14 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
                 setApplicationIconImage: { _ in
                     runtimeIconSetCount += 1
                 },
+                setNativeDockBadgeLabel: { _ in },
                 startAppearanceObservation: {
                     startObservationCallCount += 1
                 },
                 stopAppearanceObservation: {
                     stopObservationCallCount += 1
                 },
-                notifyDockTilePlugin: {
+                notifyDockTilePlugin: { _ in
                     dockTileNotificationCount += 1
                 }
             )
@@ -1507,13 +1509,14 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
                 setApplicationIconImage: { _ in
                     runtimeIconSetCount += 1
                 },
+                setNativeDockBadgeLabel: { _ in },
                 startAppearanceObservation: {
                     startObservationCallCount += 1
                 },
                 stopAppearanceObservation: {
                     stopObservationCallCount += 1
                 },
-                notifyDockTilePlugin: {
+                notifyDockTilePlugin: { _ in
                     dockTileNotificationCount += 1
                 }
             )

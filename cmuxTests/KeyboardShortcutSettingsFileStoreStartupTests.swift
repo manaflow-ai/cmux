@@ -15,6 +15,7 @@ import struct CmuxSettings.BrowserSearchSettingsStore
 @testable import cmux
 #endif
 
+@MainActor
 final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
     private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
     private let settingsFileBackupsDefaultsKey = "cmux.settingsFile.backups.v1"
@@ -165,13 +166,14 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
                 setApplicationIconImage: { _ in
                     runtimeIconSetCount += 1
                 },
+                setNativeDockBadgeLabel: { _ in },
                 startAppearanceObservation: {
                     startObservationCallCount += 1
                 },
                 stopAppearanceObservation: {
                     stopObservationCallCount += 1
                 },
-                notifyDockTilePlugin: {
+                notifyDockTilePlugin: { _ in
                     dockTileNotificationCount += 1
                 }
             )
