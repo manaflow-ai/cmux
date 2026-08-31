@@ -280,8 +280,8 @@ extension GhosttySurfaceView {
             remainder = 0
         }
         // Two mismatches in one batch: same units the legacy line path derives
-        // from `enqueueScrollMechanicsDelta` (points = px/scale, divisor 3x
-        // cell height), so the fallback scrolls the same distance in rows.
+        // from `enqueueScrollMechanicsDelta` (one line per cell-height of
+        // travel), so the fallback scrolls the same distance in rows.
         let shouldLog = pixelState.withLock { state -> Bool in
             if state.epoch == operation.pixelStateEpoch {
                 state.remainderPx = 0
@@ -301,7 +301,7 @@ extension GhosttySurfaceView {
         ghostty_surface_mouse_scroll(
             operation.surface,
             0,
-            -deltaPixels / (cellHeightPx * 3),
+            -deltaPixels / cellHeightPx,
             0
         )
     }

@@ -2304,8 +2304,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // User-driven movement reveals the chip; this is guard-only work per
         // frame (the linger is armed by the gesture-end callbacks).
         noteArtifactChipScrollActivity()
+        // One wheel line per cell-height of finger travel: alt-screen content
+        // tracks the finger 1:1 in row units, the same pixels/cell-height
+        // conversion macOS ghostty applies to precise trackpad deltas. The
+        // 14pt fallback stands in for a typical cell height until metrics
+        // land.
         let cellHeightPt = cellPixelSize.height / max(preferredScreenScale, 1)
-        let divisor = cellHeightPt > 1 ? Double(cellHeightPt) * 3 : 42
+        let divisor = cellHeightPt > 1 ? Double(cellHeightPt) : 14
         pendingScrollLines += -Double(deltaY) / divisor
         // Same direction in device pixels: the pixel position is the viewport
         // top's distance from the top of scrollback, so a finger drag DOWN
