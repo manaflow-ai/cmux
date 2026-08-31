@@ -210,11 +210,6 @@ extension RemoteTmuxController {
         }
 
         // Reuse a live view: the host is already mirrored; just surface it.
-        #if DEBUG
-        cmuxDebugLog(
-            "remote-tmux: mux-attach host=\(host.destination) hash=\(host.connectionHash) "
-                + "transport=\(host.transport.rawValue) viewExists=\(multiplexedViewsByHost[host.connectionHash] != nil)")
-        #endif
         if multiplexedViewsByHost[host.connectionHash] == nil {
             try await startMultiplexedHost(host: host, manager: targetManager)
         } else if let parked = multiplexedViewsByHost[host.connectionHash]?.connection,
