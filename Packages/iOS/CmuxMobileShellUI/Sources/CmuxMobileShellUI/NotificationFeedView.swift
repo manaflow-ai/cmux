@@ -44,6 +44,7 @@ struct NotificationFeedView: View {
                 }
             )
         }
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if projection.sourceUnreadCount > 0 {
                 ToolbarItem(placement: .topBarTrailing) {
