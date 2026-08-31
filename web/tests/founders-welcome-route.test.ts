@@ -46,7 +46,24 @@ mock.module("resend", () => ({
   },
 }));
 
-const { POST } = await import("../app/api/stripe/founders-welcome/route");
+let personalProWelcomeEnabled = true;
+let subscriptionRetrieveError: Error | null = null;
+let retrievedSubscription: Record<string, unknown> = {
+  id: "sub_test_pro",
+  metadata: { stackUserId: "user-1", plan: "pro", app: "cmux" },
+};
+const retrieveSubscription = mock(async (_subscriptionId: string) => {
+  if (subscriptionRetrieveError) throw subscriptionRetrieveError;
+  return retrievedSubscription;
+});
+
+const { makeFoundersWelcomeHandler } = await import(
+  "../app/api/stripe/founders-welcome/route"
+);
+const POST = makeFoundersWelcomeHandler({
+  personalProWelcomeEnabled: () => personalProWelcomeEnabled,
+  retrieveSubscription,
+});
 
 // Freeze the clock so the test's signature timestamps and the route's
 // freshness check (Date.now inside POST) share one virtual time. Signature
@@ -60,6 +77,13 @@ beforeEach(() => {
   resendSend.mockClear();
   sentEmails.length = 0;
   resendError = null;
+  personalProWelcomeEnabled = true;
+  subscriptionRetrieveError = null;
+  retrievedSubscription = {
+    id: "sub_test_pro",
+    metadata: { stackUserId: "user-1", plan: "pro", app: "cmux" },
+  };
+  retrieveSubscription.mockClear();
 });
 
 afterAll(() => {
@@ -211,6 +235,60 @@ describe("founders welcome route", () => {
     expect(await response.json()).toEqual({ ok: true, sent: true });
     expect(resendSend).toHaveBeenCalledTimes(1);
     expect(sentEmails[0].payload.subject).toBe("Welcome to cmux Pro 🎉");
+  });
+
+  test("retrieves subscription metadata when Stripe sends only a subscription id", async () => {
+    const response = await POST(
+      signedRequest(
+        checkoutCompletedEvent({
+          id: "cs_test_pro_subscription_id",
+          metadata: {},
+          subscription: "sub_test_pro",
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, sent: true });
+    expect(retrieveSubscription).toHaveBeenCalledWith("sub_test_pro");
+    expect(sentEmails[0].payload.subject).toBe("Welcome to cmux Pro 🎉");
+  });
+
+  test("keeps Stripe retryable when subscription metadata cannot be retrieved", async () => {
+    subscriptionRetrieveError = new Error("Stripe unavailable");
+
+    const response = await POST(
+      signedRequest(
+        checkoutCompletedEvent({
+          id: "cs_test_pro_subscription_failure",
+          metadata: {},
+          subscription: "sub_test_pro",
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(503);
+    expect(resendSend).not.toHaveBeenCalled();
+  });
+
+  test("skips Pro delivery until its explicit rollout flag is enabled", async () => {
+    personalProWelcomeEnabled = false;
+
+    const response = await POST(
+      signedRequest(
+        checkoutCompletedEvent({
+          id: "cs_test_pro_rollout_disabled",
+          metadata: { stackUserId: "user-1", plan: "pro", app: "cmux" },
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      ok: true,
+      skipped: "pro_rollout_disabled",
+    });
+    expect(resendSend).not.toHaveBeenCalled();
   });
 
   test("also sends the personal Pro email after an async payment succeeds", async () => {
