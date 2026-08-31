@@ -32,7 +32,15 @@ public struct AgentWorkingDirectoryOptionPolicy: Sendable {
             valueOptions.insert("-C")
             unconditionallyRemovableValueOptions.insert("-C")
             attachedShortValueOptions.insert("-C")
-        case "kimi", "qoder":
+        case "kimi":
+            valueOptions.insert("-w")
+            unconditionallyRemovableValueOptions.insert("-w")
+            attachedShortValueOptions.insert("-w")
+        case "qoder":
+            // Qoder's --workspace selects a saved workspace; it is not a cwd
+            // override even when its value happens to look like a directory.
+            valueOptions.remove("--workspace")
+            unconditionallyRemovableValueOptions.remove("--workspace")
             valueOptions.insert("-w")
             unconditionallyRemovableValueOptions.insert("-w")
             attachedShortValueOptions.insert("-w")

@@ -1655,9 +1655,13 @@ extension Workspace {
                 }
                 // A persisted exact/unavailable selection on an authenticated
                 // persistent-SSH binding is already a trusted remote report.
-                // Preserve it when this legacy snapshot has no newer directory
-                // provenance; never substitute the local snapshot cwd.
-                if snapshot.directoryIsTrustedRemoteReport != true,
+                // A newer runtime cwd may supersede it for id-addressed agents,
+                // but directory-keyed agents must retain their launch namespace:
+                // a generic runtime report can drift after launch.
+                let persistedSelectionRemainsAuthoritative =
+                    snapshot.directoryIsTrustedRemoteReport != true ||
+                    restorableAgent.kind.cwdNamespacing == .byDirectory
+                if persistedSelectionRemainsAuthoritative,
                    locatedResumeBinding?.isAgentHookBinding == true,
                    locatedResumeBinding?.launchFlavor.remoteContext != nil,
                    let persistedSelection = locatedResumeBinding?.restoreWorkingDirectorySelection {
