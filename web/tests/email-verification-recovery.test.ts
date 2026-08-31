@@ -76,6 +76,44 @@ describe("email verification recovery", () => {
     expect(result).toEqual({ delivery: "accepted" });
   });
 
+  test("queries literal Gmail spellings before declaring recovery unavailable", async () => {
+    const sendVerificationEmail = mock(async () => undefined);
+    const listContactChannels = mock(async () => [
+      {
+        value: "John.Doe@gmail.com",
+        isVerified: false,
+        usedForAuth: true,
+        sendVerificationEmail,
+      },
+    ]);
+    const listUsers = mock(async ({ query }: { query: string }) =>
+      query === "john.doe@gmail.com"
+        ? [{ primaryEmail: "John.Doe@gmail.com", listContactChannels }]
+        : [],
+    );
+
+    const result = await Effect.runPromise(
+      requestEmailVerificationRecovery(
+        {
+          email: "johndoe@gmail.com",
+          callbackURL: "https://cmux.com/handler/email-verification",
+        },
+        { stackApp: { listUsers } },
+      ),
+    );
+
+    expect(listUsers).toHaveBeenCalledWith({
+      query: "john.doe@gmail.com",
+      limit: 20,
+      includeAnonymous: true,
+      includeRestricted: true,
+    });
+    expect(sendVerificationEmail).toHaveBeenCalledWith({
+      callbackUrl: "https://cmux.com/handler/email-verification",
+    });
+    expect(result).toEqual({ delivery: "sent" });
+  });
+
   test("maps Stack failures to a typed unavailable error", async () => {
     const program = requestEmailVerificationRecovery(
       {
