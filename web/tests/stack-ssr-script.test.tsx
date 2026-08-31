@@ -44,8 +44,8 @@ describe("Stack SSR bootstrap script", () => {
       dangerouslySetInnerHTML: { __html: string };
     }>;
     const bodyReadyScript = firstElement.props.dangerouslySetInnerHTML.__html;
-    expect(bodyReadyScript).toContain("if(!document.body)return false");
-    expect(bodyReadyScript).toContain("MutationObserver");
+    expect(bodyReadyScript).toContain("document.readyState===\"loading\"");
+    expect(bodyReadyScript).toContain("DOMContentLoaded");
     expect(renderToStaticMarkup(firstElement)).toContain(
       'nonce="test-nonce"',
     );
@@ -53,33 +53,25 @@ describe("Stack SSR bootstrap script", () => {
       "window.__cmuxTheme = true;",
     );
 
-    const observerCallbacks: Array<() => void> = [];
-    let observerDisconnected = false;
+    const domReadyCallbacks: Array<() => void> = [];
     const context = {
       document: {
+        readyState: "loading",
         body: null as object | null,
         documentElement: {},
-      },
-      MutationObserver: class {
-        constructor(private readonly callback: () => void) {
-          observerCallbacks.push(callback);
-        }
-
-        observe() {}
-
-        disconnect() {
-          observerDisconnected = true;
-        }
+        addEventListener(_event: string, callback: () => void) {
+          domReadyCallbacks.push(callback);
+        },
       },
       window: {} as Record<string, unknown>,
     };
     runInNewContext(bodyReadyScript, context);
-    expect(observerCallbacks).toHaveLength(1);
+    expect(domReadyCallbacks).toHaveLength(1);
     expect(context.window.__cmuxTheme).toBeUndefined();
     context.document.body = {};
-    observerCallbacks[0]!();
+    context.document.readyState = "interactive";
+    domReadyCallbacks[0]!();
     expect(context.window.__cmuxTheme).toBe(true);
-    expect(observerDisconnected).toBe(true);
     expect(second).toBeNull();
   });
 });

@@ -1,5 +1,5 @@
 diff --git a/dist/components/elements/ssr-layout-effect.js b/dist/components/elements/ssr-layout-effect.js
-index 99773f6ee51f305b7497b78a55eaca0a4c09d899..b38183e45f861e0e99ac3381b969f028ceab636a 100644
+index 99773f6ee51f305b7497b78a55eaca0a4c09d899..bd66862e3783e63f6481a7d107670274fd5360c1 100644
 --- a/dist/components/elements/ssr-layout-effect.js
 +++ b/dist/components/elements/ssr-layout-effect.js
 @@ -3,18 +3,28 @@
@@ -18,7 +18,7 @@ index 99773f6ee51f305b7497b78a55eaca0a4c09d899..b38183e45f861e0e99ac3381b969f028
 +		if (insertedRef.current) return null;
 +		insertedRef.current = true;
 +		const escapedSource = props.script.replace(/<\/script/gi, "<\\/script");
-+		const bodyReadyScript = `(function(){const run=()=>{if(!document.body)return false;${escapedSource};return true;};if(!run()){const observer=new MutationObserver(()=>{if(run()) observer.disconnect();});observer.observe(document.documentElement,{childList:true});}})()`;
++		const bodyReadyScript = `(function(){let ran=false;const run=()=>{if(ran)return;if(document.readyState==="loading"||!document.body){document.addEventListener("DOMContentLoaded",run,{once:true});return;}ran=true;${escapedSource};};run();})()`;
 +		return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("script", {
 +			nonce: props.nonce,
 +			dangerouslySetInnerHTML: { __html: bodyReadyScript }
@@ -37,7 +37,7 @@ index 99773f6ee51f305b7497b78a55eaca0a4c09d899..b38183e45f861e0e99ac3381b969f028
  
  //#endregion
 diff --git a/dist/esm/components/elements/ssr-layout-effect.js b/dist/esm/components/elements/ssr-layout-effect.js
-index 1233d79c915fc5b7214fbf3a56570cd9f9f04950..3a2fd72f225807cde363d35b32a008f13d39f0c8 100644
+index 1233d79c915fc5b7214fbf3a56570cd9f9f04950..097e19ebd55dc31937328746169b80f4559a7463 100644
 --- a/dist/esm/components/elements/ssr-layout-effect.js
 +++ b/dist/esm/components/elements/ssr-layout-effect.js
 @@ -1,18 +1,29 @@
@@ -58,7 +58,7 @@ index 1233d79c915fc5b7214fbf3a56570cd9f9f04950..3a2fd72f225807cde363d35b32a008f1
 +		if (insertedRef.current) return null;
 +		insertedRef.current = true;
 +		const escapedSource = props.script.replace(/<\/script/gi, "<\\/script");
-+		const bodyReadyScript = `(function(){const run=()=>{if(!document.body)return false;${escapedSource};return true;};if(!run()){const observer=new MutationObserver(()=>{if(run()) observer.disconnect();});observer.observe(document.documentElement,{childList:true});}})()`;
++		const bodyReadyScript = `(function(){let ran=false;const run=()=>{if(ran)return;if(document.readyState==="loading"||!document.body){document.addEventListener("DOMContentLoaded",run,{once:true});return;}ran=true;${escapedSource};};run();})()`;
 +		return /* @__PURE__ */ jsx("script", {
 +			nonce: props.nonce,
 +			dangerouslySetInnerHTML: { __html: bodyReadyScript }
