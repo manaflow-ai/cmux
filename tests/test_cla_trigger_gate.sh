@@ -29,7 +29,7 @@ grep -Fq "admitted: \${{ steps.admission.outputs.admitted }}" "$WORKFLOW"
 grep -Fq "allowlist-ids: '38676809,67667005'" "$WORKFLOW"
 grep -Fq 'always() &&' "$WORKFLOW"
 grep -Fq 'cancel-in-progress: false' "$WORKFLOW"
-grep -Fq "group: cla-signatures-\${{ github.repository }}-\${{ github.event_name }}-\${{ github.event.pull_request.number || github.event.issue.number }}" "$WORKFLOW"
+grep -Fq "group: cla-signatures-\${{ github.repository }}-\${{ github.event.pull_request.number || github.event.issue.number }}" "$WORKFLOW"
 for job in CLACommentGate CLAAssistant CLACompatibility RerunFailedCLA LockMergedPullRequest; do
   job_block="$(awk -v job="$job" '$0 == "  " job ":" { in_job=1; next } in_job && /^  [A-Za-z0-9_]+:/ { exit } in_job { print }' "$WORKFLOW")"
   if [[ "$job_block" != *"    runs-on: \${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"* ]]; then
@@ -66,8 +66,8 @@ if [[ "$gate_group_block" != *"github.event.comment.body == 'I have read the CLA
   exit 1
 fi
 assistant_group_block="$(awk '/^  CLAAssistant:/ { in_job=1; next } in_job && /^  [A-Za-z0-9_]+:/ { exit } in_job { print }' "$WORKFLOW")"
-if [[ "$assistant_group_block" != *"group: cla-signatures-\${{ github.repository }}-\${{ github.event_name }}-\${{ github.event.pull_request.number || github.event.issue.number }}"* ]]; then
-  echo 'FAIL: signer concurrency must partition lifecycle and comment events' >&2
+if [[ "$assistant_group_block" != *"group: cla-signatures-\${{ github.repository }}-\${{ github.event.pull_request.number || github.event.issue.number }}"* ]]; then
+  echo 'FAIL: signer concurrency must serialize all events for one pull request' >&2
   exit 1
 fi
 if rg -n -- '--paginate|--slurp' "$WORKFLOW" >/dev/null; then

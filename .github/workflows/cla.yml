@@ -215,10 +215,9 @@ jobs:
           )
         )
       )
-    # Serialize duplicate events for one PR and event class, but let
-    # independent PRs and lifecycle events proceed. Keeping comments and
-    # pull_request_target runs in separate queues prevents public comments
-    # from replacing a pending lifecycle validation.
+    # Serialize every signer event for one PR, but let independent PRs proceed.
+    # A signing comment and a lifecycle event must not compute competing
+    # ledger/status plans from different snapshots.
     # The maintained action at fc608ba7106e7029d981d487d7bad28a64325956 uses
     # Contents-API SHA compare-and-swap writes. On HTTP 409 it rereads and
     # merges the current ledger, with three bounded attempts; its persistence
@@ -226,7 +225,7 @@ jobs:
     # A global Actions lock would retain only one pending run and could drop
     # valid signatures from unrelated PRs, so it is not safe for this intake.
     concurrency:
-      group: cla-signatures-${{ github.repository }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.issue.number }}
+      group: cla-signatures-${{ github.repository }}-${{ github.event.pull_request.number || github.event.issue.number }}
       cancel-in-progress: false
     permissions:
       contents: write
