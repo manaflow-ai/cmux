@@ -4999,23 +4999,6 @@
         }
       }
     },
-    "mobile.notificationFeed.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Notifications"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "通知"
-          }
-        }
-      }
-    },
     "mobile.notificationFeed.unread": {
       "extractionState": "manual",
       "localizations": {
