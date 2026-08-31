@@ -266,6 +266,46 @@ public struct TerminalLetterboxGeometry {
         return (max(0, next), max(0, -next))
     }
 
+    /// Resolves one line-path (alternate-screen / TUI) scroll delta against
+    /// the keyboard top-reveal zone, returning the leftover delta that should
+    /// become mouse-wheel input for the app.
+    ///
+    /// The keyboard-up bottom-pin clips the render's top above the screen on
+    /// alternate screens too, but unlike the grid axis there is no scrollback
+    /// position to order the reveal against: wheel lines are input for the
+    /// TUI, and how much of them it consumes (or whether it scrolls at all)
+    /// is invisible to the phone. The reveal therefore resolves FIRST in both
+    /// directions — pulling toward older content grows it until the clipped
+    /// top is fully visible (those rows are the content adjacent above the
+    /// viewport), pushing toward newer drains it until the render is
+    /// re-pinned (bringing the TUI's bottom rows back from under the
+    /// keyboard) — and only the leftover is dispatched as wheel lines. Any
+    /// other ordering would need the TUI's scroll extent, which the wheel
+    /// protocol cannot report.
+    ///
+    /// - Parameters:
+    ///   - currentRevealPx: The reveal already granted, in device pixels; a
+    ///     value beyond the current budget is clamped before the delta
+    ///     applies (dropped entirely on a zero budget), never converted into
+    ///     wheel input.
+    ///   - deltaPixels: The gesture delta in device pixels (negative = toward
+    ///     older content).
+    ///   - maxRevealPx: The clipped-top budget in device pixels (0 whenever
+    ///     the keyboard is down).
+    /// - Returns: The next reveal, and the delta remaining for wheel
+    ///   dispatch (same sign as `deltaPixels`, or 0 when the reveal absorbed
+    ///   all of it).
+    public static func lineScrollTopRevealResolution(
+        currentRevealPx: Double,
+        deltaPixels: Double,
+        maxRevealPx: Double
+    ) -> (revealPx: Double, leftoverDeltaPixels: Double) {
+        let maxReveal = max(0, maxRevealPx)
+        let reveal = maxReveal > 0 ? min(max(0, currentRevealPx), maxReveal) : 0
+        let next = min(max(reveal - deltaPixels, 0), maxReveal)
+        return (next, deltaPixels + (next - reveal))
+    }
+
     /// The cell size in device pixels derived from a measured surface size.
     ///
     /// Returns `.zero` when any measured dimension is non-positive, matching the
