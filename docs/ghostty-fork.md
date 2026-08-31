@@ -45,8 +45,8 @@ resolution.
 
 The corresponding universal ReleaseFast GhosttyKit archive is published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-3f33233aa5a44d675234f7c54fa3f16d84baf661-crashsubdir-cmux-crash-sentry-off-v1
-after the fork build completes. Its SHA-256 is pinned in
-`scripts/ghosttykit-checksums.txt` before merging.
+with SHA-256 `b92946155126c0173b5ef41caf6a54a4c1c9fd9f85574bb3d8afed77e2d73ff9`
+pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### iOS tokened render disposition and nonblocking prompt reveal
 
