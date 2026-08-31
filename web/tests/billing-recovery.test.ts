@@ -69,4 +69,57 @@ describe("billing purchase recovery", () => {
     expect(founders).toHaveBeenCalledTimes(1);
     expect(pro).toHaveBeenCalledTimes(1);
   });
+
+  test("does not recover a canceled Pro session from the Stripe fallback", async () => {
+    const customer = {
+      id: "cus_canceled_fixture",
+      deleted: false,
+      email: "canceled@example.com",
+      metadata: {},
+    };
+    const canceledSubscription = {
+      id: "sub_canceled_fixture",
+      customer: customer.id,
+      status: "canceled",
+      metadata: { app: "cmux", plan: "pro" },
+      cancel_at_period_end: false,
+      items: { data: [] },
+    };
+    const result = await findPaidBillingPurchaseByEmail(
+      customer.email,
+      {
+        db: {
+          select: () => {
+            throw new Error("no local database in this test");
+          },
+        } as never,
+        stripeClient: () => ({
+          customers: {
+            list: mock(async () => ({ data: [customer] })),
+          },
+          subscriptions: {
+            list: mock(async () => ({ data: [canceledSubscription] })),
+          },
+          checkout: {
+            sessions: {
+              list: mock(async () => ({
+                data: [
+                  {
+                    id: "cs_canceled_fixture",
+                    customer: customer.id,
+                    customer_details: { email: customer.email },
+                    payment_status: "paid",
+                    metadata: { app: "cmux", plan: "pro" },
+                    subscription: canceledSubscription,
+                  },
+                ],
+              })),
+            },
+          },
+        }) as never,
+      },
+    );
+
+    expect(result).toBeNull();
+  });
 });

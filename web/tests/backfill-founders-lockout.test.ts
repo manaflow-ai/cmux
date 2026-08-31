@@ -129,6 +129,7 @@ describe("Founder's lockout backfill", () => {
 
   test("apply remaps a synthetic dotted alias before provisioning", async () => {
     const stack = stackApp();
+    stack.user.primaryEmailVerified = true;
     const provider = stripeClient();
     const order: string[] = [];
     const fakeDb = {
@@ -187,6 +188,120 @@ describe("Founder's lockout backfill", () => {
       reason: "provisioned",
     });
     expect(order).toEqual(["remap", "provision"]);
+  });
+
+  test("does not remap a dotted alias to an unverified Stack account", async () => {
+    const stack = stackApp();
+    const provider = stripeClient();
+    const remap = mock(async () => undefined);
+    const provision = mock(async () => undefined);
+
+    const result = await runFoundersLockoutBackfill(
+      {
+        dryRun: false,
+        cases: [
+          {
+            email: "billingfixture@gmail.com",
+            purchaseEmail: "billing.fixture@gmail.com",
+            realEmail: "billingfixture@gmail.com",
+          },
+        ],
+      },
+      {
+        stackApp: stack.value,
+        stripeClient: provider.value,
+        billingDependencies: { db: {} as never },
+        remap: remap as never,
+        provision: provision as never,
+      },
+    );
+
+    expect(result.customers[0]).toMatchObject({
+      status: "skipped",
+      reason: "target_stack_user_not_verified",
+    });
+    expect(remap).not.toHaveBeenCalled();
+    expect(provision).not.toHaveBeenCalled();
+  });
+
+  test("walks all Stripe subscription and session pages", async () => {
+    const stack = stackApp();
+    const customer = {
+      id: "cus_paginated",
+      deleted: false,
+      email: "billingfixture@gmail.com",
+      name: "Fixture Buyer",
+    };
+    const unrelatedSubscription = {
+      id: "sub_unrelated",
+      customer: customer.id,
+      status: "canceled",
+      metadata: { app: "other", plan: "pro" },
+      cancel_at_period_end: false,
+      items: { data: [] },
+    };
+    const founderSubscription = {
+      id: "sub_founder_page_two",
+      customer: customer.id,
+      status: "active",
+      metadata: { founders_edition: "true" },
+      cancel_at_period_end: false,
+      items: { data: [] },
+    };
+    const founderSession = {
+      id: "cs_founder_page_two",
+      customer: customer.id,
+      customer_details: { email: customer.email },
+      payment_status: "paid",
+      metadata: { founders_edition: "true" },
+      subscription: founderSubscription.id,
+    };
+    const unrelatedSession = {
+      id: "cs_unrelated_page_one",
+      customer: customer.id,
+      customer_details: { email: customer.email },
+      payment_status: "paid",
+      metadata: { app: "other" },
+      subscription: unrelatedSubscription.id,
+    };
+    const subscriptionList = mock(async (options?: Record<string, unknown>) =>
+      options?.starting_after
+        ? { data: [founderSubscription], has_more: false }
+        : { data: [unrelatedSubscription], has_more: true },
+    );
+    const sessionList = mock(async (options?: Record<string, unknown>) =>
+      options?.starting_after
+        ? { data: [founderSession], has_more: false }
+        : { data: [unrelatedSession], has_more: true },
+    );
+
+    const result = await runFoundersLockoutBackfill(
+      {
+        dryRun: true,
+        cases: [{ email: customer.email }],
+      },
+      {
+        stackApp: stack.value,
+        stripeClient: {
+          customers: {
+            list: async () => ({ data: [customer], has_more: false }),
+          },
+          subscriptions: { list: subscriptionList },
+          checkout: { sessions: { list: sessionList } },
+        } as never,
+      },
+    );
+
+    expect(result.customers[0]).toMatchObject({
+      status: "skipped",
+      reason: "dry_run_would_provision",
+    });
+    expect(subscriptionList).toHaveBeenCalledWith(
+      expect.objectContaining({ starting_after: "sub_unrelated" }),
+    );
+    expect(sessionList).toHaveBeenCalledWith(
+      expect.objectContaining({ starting_after: "cs_unrelated_page_one" }),
+    );
   });
 
   test("skips an already-complete repeat run after the durable rows exist", async () => {

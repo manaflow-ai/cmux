@@ -267,6 +267,45 @@ describe("Stripe billing webhook route", () => {
     expect(sendProSignupWelcome).not.toHaveBeenCalled();
   });
 
+  test("routes a Founder checkout when the marker exists only on the subscription", async () => {
+    retrievedCheckoutSession = {
+      ...paidCheckoutSession,
+      id: "cs_founder_subscription_metadata",
+      client_reference_id: null,
+      metadata: {},
+      subscription: {
+        id: "sub_founder_subscription_metadata",
+        status: "active",
+      },
+      customer: { id: "cus_founder_subscription_metadata" },
+    };
+    retrievedSubscription = {
+      id: "sub_founder_subscription_metadata",
+      customer: "cus_founder_subscription_metadata",
+      status: "active",
+      metadata: { founders_edition: "true" },
+      cancel_at_period_end: false,
+      items: { data: [] },
+    };
+    currentEvent = {
+      id: "evt_founder_subscription_metadata",
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          id: "cs_founder_subscription_metadata",
+          client_reference_id: null,
+          metadata: {},
+        },
+      },
+    };
+
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(200);
+    expect(recordFoundersCheckoutCompletion).toHaveBeenCalledTimes(1);
+    expect(recordCheckoutCompletion).not.toHaveBeenCalled();
+  });
+
   test("skips conflicting Team and Founder checkout metadata", async () => {
     retrievedCheckoutSession = {
       ...paidCheckoutSession,

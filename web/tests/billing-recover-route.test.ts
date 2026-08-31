@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
-  BILLING_RECOVERY_RESPONSE_MESSAGE,
   makeBillingRecoveryHandler,
   type BillingRecoveryRouteDependencies,
 } from "../app/api/billing/recover/route";
@@ -36,10 +35,10 @@ describe("billing recovery route", () => {
     delete process.env.VERCEL;
   });
 
-  test("provisions a paid dotted Gmail purchase and sends a sign-in code", async () => {
+  test("provisions a paid dotted Gmail purchase and sends recovery mail", async () => {
     const recoverPaid = mock(async (...args: unknown[]) => {
       const email = args[0] as string;
-      expect(email).toBe("billingfixture@gmail.com");
+      expect(email).toBe("Billing.Fixture@Gmail.com");
       return true;
     }) as unknown as BillingRecoveryRouteDependencies["recoverPaid"];
     const sendMagicLink = mock(async () => undefined);
@@ -51,9 +50,9 @@ describe("billing recovery route", () => {
     expect(response.status).toBe(202);
     expect(await response.json()).toEqual({
       ok: true,
-      message: BILLING_RECOVERY_RESPONSE_MESSAGE,
+      message: "If we found an account, check your email for next steps",
     });
-    expect(recoverPaid).toHaveBeenCalledWith("billingfixture@gmail.com");
+    expect(recoverPaid).toHaveBeenCalledWith("Billing.Fixture@Gmail.com");
     expect(sendMagicLink).toHaveBeenCalledWith({
       email: "Billing.Fixture@Gmail.com",
       callbackURL: "https://cmux.com/handler/after-sign-in",
@@ -88,7 +87,7 @@ describe("billing recovery route", () => {
     expect(response.status).toBe(202);
     expect(await response.json()).toEqual({
       ok: true,
-      message: BILLING_RECOVERY_RESPONSE_MESSAGE,
+      message: "If we found an account, check your email for next steps",
     });
     expect(deps.sendVerification).toHaveBeenCalledWith({
       email: "buyer@example.com",
@@ -118,7 +117,7 @@ describe("billing recovery route", () => {
     expect(response.status).toBe(202);
     expect(await response.json()).toEqual({
       ok: true,
-      message: BILLING_RECOVERY_RESPONSE_MESSAGE,
+      message: "If we found an account, check your email for next steps",
     });
 
     const japaneseRequest = new Request(
@@ -137,7 +136,7 @@ describe("billing recovery route", () => {
     );
     expect(await japanese.json()).toEqual({
       ok: true,
-      message: "アカウントが見つかった場合は、サインインコードをメールでお送りしました",
+      message: "アカウントが見つかった場合は、メールで次の手順をご確認ください",
     });
   });
 
@@ -153,7 +152,7 @@ describe("billing recovery route", () => {
     expect(response.status).toBe(202);
     expect(await response.json()).toEqual({
       ok: true,
-      message: BILLING_RECOVERY_RESPONSE_MESSAGE,
+      message: "If we found an account, check your email for next steps",
     });
   });
 

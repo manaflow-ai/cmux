@@ -171,7 +171,7 @@ describe("founders welcome route", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true, sent: true });
     expect(resendSend).toHaveBeenCalledTimes(1);
-    expect(sentEmails[0].payload.subject).toBe("Welcome to cmux Pro!");
+    expect(sentEmails[0].payload.subject).toBe("Welcome to cmux Pro 🎉");
     expect(sentEmails[0].payload.from).toBe(
       "Austin Wang <austin@manaflow.ai>",
     );
