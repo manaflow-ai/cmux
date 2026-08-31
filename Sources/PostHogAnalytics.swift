@@ -113,6 +113,18 @@ final class PostHogAnalytics: @unchecked Sendable {
         }
     }
 
+    /// Captures a low-volume diagnostic event (errors-only paths such as
+    /// ``CloudLinkTelemetry``). Callers own deduplication and throttling; this only
+    /// gates on the telemetry opt-out and SDK startup, like the active-user events.
+    func captureDiagnostic(event: String, properties: [String: Any]) {
+        dispatchAsyncOnWorkQueue { [weak self] in
+            guard let self else { return }
+            self.startIfNeededOnWorkQueue()
+            guard self.didStart else { return }
+            self.capturePostHog(event, properties)
+        }
+    }
+
     private func startIfNeededOnWorkQueue() {
         guard !didStart else { return }
         guard isEnabled else { return }

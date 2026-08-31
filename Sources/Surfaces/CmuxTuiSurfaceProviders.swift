@@ -87,7 +87,17 @@ final class CmuxTuiSurfaceProviderRegistry {
 
     private func performRefresh(force: Bool) async {
         guard let catalog, let client = VMClient.shared else { return }
-        guard let page = try? await client.listPage() else { return }
+        let page: VMListPage
+        do {
+            page = try await client.listPage()
+        } catch {
+            // Without the list no provider refreshes run this cycle, so the whole cloud
+            // tree keeps its last state (a machine created as "Connecting…" stays a
+            // spinner). Swallowing this silently made sustained rate limiting or auth
+            // outages look like a UI hang; the telemetry names the cause.
+            CloudLinkTelemetry.machineListFailed(error: error)
+            return
+        }
         let seen = Set(page.vms.map(\.id))
         for id in providers.keys where !seen.contains(id) {
             providers[id]?.stop()
@@ -210,6 +220,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             resources.append(CmuxTuiSnapshotParser.display(machine: machine))
         }
         guard isAwake, let client = VMClient.shared else {
+            CloudLinkTelemetry.linkStateChanged(machineID: machineID, from: info.linkState, to: .asleep)
             info = Self.info(from: summary, linkState: .asleep, linkError: nil, stats: nil)
             catalog.replaceResources(resources, on: machine, info: info)
             return
@@ -244,10 +255,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             let status = await links.status(machineID: machineID)
             linkState = status?.state ?? .error
             linkError = status?.error ?? CloudMachineLink.errorText(error)
+            CloudLinkTelemetry.providerRefreshFailed(machineID: machineID, state: linkState, error: error)
             #if DEBUG
             cmuxDebugLog("cloud.provider.refreshFailed machine=\(machineID) state=\(linkState) error=\(String(reflecting: error))")
             #endif
         }
+        CloudLinkTelemetry.linkStateChanged(machineID: machineID, from: info.linkState, to: linkState)
         info = Self.info(from: summary, linkState: linkState, linkError: linkError, stats: await stats, remoteWorkspaces: remoteWorkspaces)
         catalog.replaceResources(resources, on: machine, info: info)
         reprojectRestoredPanes()
