@@ -2082,6 +2082,29 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
+    func groupHeaderReplacementDeselectionClearsOptimisticInactivePaint() throws {
+        let header = SidebarGroupHeaderTableCellView()
+        let model = Self.makeGroupHeaderModel(
+            groupId: UUID(),
+            anchorWorkspaceId: UUID(),
+            isAnchorActive: false
+        )
+        header.configurePresentation(model: model, environment: Self.tableEnvironment)
+
+        let backgroundView = try #require(header.subviews.first)
+        header.showOptimisticAnchorActive()
+        let optimisticColor = try #require(backgroundView.layer?.backgroundColor)
+        #expect(NSColor(cgColor: optimisticColor)?.alphaComponent ?? 0 > 0)
+
+        // A rapid replacement click invokes the same peel method as the
+        // controller's plain-click preview loop. The stored model is still
+        // inactive, so the optimistic active paint must be removed immediately.
+        header.showOptimisticDeselection()
+        let peeledColor = try #require(backgroundView.layer?.backgroundColor)
+        #expect(NSColor(cgColor: peeledColor)?.alphaComponent ?? 1 < 0.01)
+    }
+
+    @Test
     func groupHeaderTitleMatchesDefaultWorkspaceTitleAcrossSelectionInDarkMode() throws {
         let appearance = try #require(NSAppearance(named: .darkAqua))
         let workspaceCell = Self.configuredCell(model: Self.makeModel())
