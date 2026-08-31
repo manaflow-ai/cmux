@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["bun", "@cloudflare/workers-types/experimental"]
+  },
+  "include": [
+    "test/do-forwarding.test.ts",
+    "test/object-naming.test.ts",
+    "src/**/*.ts"
+  ]
+}

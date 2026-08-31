@@ -23,12 +23,13 @@ import {
   BYE_HOST_CLOSED,
   BYE_PROTOCOL_ERROR,
   BYE_SUPERSEDED,
+  DATA_FRAME_TYPE,
+  DATA_HEADER_BYTES,
   decodeClientControl,
-  decodeDataFrame,
-  encodeDataFrame,
   HOST_SESSION_ID,
   MAX_CLIENTS,
   MAX_CONTROL_BYTES,
+  MAX_DATA_FRAME_BYTES,
   PING_TEXT,
   PONG_TEXT,
   PROTOCOL_VERSION,
@@ -74,7 +75,7 @@ function controlJson(message: ServerControlMessage): string {
   return JSON.stringify(message);
 }
 
-function trySend(ws: WebSocket, data: string | Uint8Array): void {
+function trySend(ws: WebSocket, data: string | Uint8Array | ArrayBuffer): void {
   try {
     ws.send(data as never);
   } catch {
@@ -92,6 +93,44 @@ function sendByeAndClose(ws: WebSocket, code: string, reason: string): void {
 }
 
 export class HostRelay extends DurableObject<RelayEnv> {
+  /** In-memory caches for the per-frame forward path. Both are derived state:
+   * the attachments are authoritative, so an eviction or hibernation wake
+   * (which discards this instance) rebuilds them lazily from the live socket
+   * list with ONE deserialization per socket instead of one per frame. */
+  private infoBySocket = new Map<WebSocket, SocketAttachment>();
+  private clientBySessionId: Map<number, WebSocket> | null = null;
+
+  /** The socket's attachment, deserialized once per instance lifetime. */
+  private info(ws: WebSocket): SocketAttachment | null {
+    const cached = this.infoBySocket.get(ws);
+    if (cached) return cached;
+    const value = attachment(ws);
+    if (value) this.infoBySocket.set(ws, value);
+    return value;
+  }
+
+  /** Session-id -> client socket index for host-addressed frames. Built once
+   * per instance from the live list, then maintained on join and close, so a
+   * miss is authoritative (the client left) and costs no scan. */
+  private sessionIndex(): Map<number, WebSocket> {
+    let index = this.clientBySessionId;
+    if (!index) {
+      index = new Map();
+      for (const ws of this.clientSockets()) {
+        const info = this.info(ws);
+        if (info) index.set(info.sessionId, ws);
+      }
+      this.clientBySessionId = index;
+    }
+    return index;
+  }
+
+  /** Drop derived state for a socket that is closing or closed. */
+  private forget(ws: WebSocket, info: SocketAttachment | null): void {
+    this.infoBySocket.delete(ws);
+    if (info && info.role === "client") this.clientBySessionId?.delete(info.sessionId);
+  }
+
   override async fetch(request: Request): Promise<Response> {
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
       return Response.json({ error: "expected_websocket" }, { status: 426 });
@@ -118,14 +157,17 @@ export class HostRelay extends DurableObject<RelayEnv> {
     // Tag by role so hibernation wakeups can find counterparts without
     // deserializing every attachment.
     this.ctx.acceptWebSocket(server, [role]);
-    server.serializeAttachment({
+    const attached: SocketAttachment = {
       role,
       sessionId,
       userId,
       hostDeviceId,
       deviceId,
       deadline,
-    } satisfies SocketAttachment);
+    };
+    server.serializeAttachment(attached);
+    this.infoBySocket.set(server, attached);
+    if (role === "client") this.clientBySessionId?.set(sessionId, server);
     this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(PING_TEXT, PONG_TEXT));
 
     if (role === "host") {
@@ -133,7 +175,9 @@ export class HostRelay extends DurableObject<RelayEnv> {
       // (the old socket may be a half-dead NAT zombie the host itself gave
       // up on).
       for (const existing of this.hostSockets()) {
-        if (existing !== server) sendByeAndClose(existing, BYE_SUPERSEDED, "host reconnected");
+        if (existing === server) continue;
+        this.forget(existing, this.info(existing));
+        sendByeAndClose(existing, BYE_SUPERSEDED, "host reconnected");
       }
     }
 
@@ -151,7 +195,7 @@ export class HostRelay extends DurableObject<RelayEnv> {
     if (role === "host") {
       // Replay existing client sessions, then tell the clients.
       for (const ws of clients) {
-        const info = attachment(ws);
+        const info = this.info(ws);
         if (!info) continue;
         trySend(server, controlJson({ t: "peer_joined", sessionId: info.sessionId, deviceId: info.deviceId }));
         trySend(ws, controlJson({ t: "peer_joined", sessionId: HOST_SESSION_ID, deviceId }));
@@ -167,7 +211,7 @@ export class HostRelay extends DurableObject<RelayEnv> {
   }
 
   override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
-    const info = attachment(ws);
+    const info = this.info(ws);
     if (!info) {
       sendByeAndClose(ws, BYE_PROTOCOL_ERROR, "missing session state");
       return;
@@ -182,34 +226,45 @@ export class HostRelay extends DurableObject<RelayEnv> {
       return;
     }
 
-    const frame = decodeDataFrame(message);
-    if (!frame) {
+    // Data frame fast path: validate the 5-byte header in place and forward
+    // the SAME buffer (payloads stay opaque; nothing is parsed or copied,
+    // and no await runs, so independent frames never serialize on this hop).
+    const view = new DataView(message);
+    if (
+      message.byteLength < DATA_HEADER_BYTES ||
+      message.byteLength > MAX_DATA_FRAME_BYTES ||
+      view.getUint8(0) !== DATA_FRAME_TYPE
+    ) {
       sendByeAndClose(ws, BYE_PROTOCOL_ERROR, "malformed data frame");
       this.notifyPeerLeft(info, BYE_PROTOCOL_ERROR);
       return;
     }
 
     if (info.role === "client") {
-      // Stamp the sender's session id; never trust the wire value.
+      // Stamp the sender's session id at its fixed offset; never trust the
+      // wire value. The buffer is exclusively ours to rewrite.
       const host = this.hostSockets()[0];
       if (!host) return; // No host: drop. Clients track presence via peer_joined/left.
-      trySend(host, encodeDataFrame(info.sessionId, frame.payload));
+      view.setUint32(1, info.sessionId >>> 0, false);
+      trySend(host, message);
       return;
     }
 
-    // Host -> client, addressed by session id. Unknown session: drop (the
-    // client left; the host already got peer_left).
-    const target = this.clientSockets().find((candidate) => attachment(candidate)?.sessionId === frame.sessionId);
-    if (target) trySend(target, encodeDataFrame(frame.sessionId, frame.payload));
+    // Host -> client, addressed by session id, forwarded verbatim. Unknown
+    // session: drop (the client left; the host already got peer_left).
+    const target = this.sessionIndex().get(view.getUint32(1, false));
+    if (target) trySend(target, message);
   }
 
   override async webSocketClose(ws: WebSocket): Promise<void> {
-    const info = attachment(ws);
+    const info = this.info(ws);
+    this.forget(ws, info);
     if (info) this.notifyPeerLeft(info, "closed");
   }
 
   override async webSocketError(ws: WebSocket): Promise<void> {
-    const info = attachment(ws);
+    const info = this.info(ws);
+    this.forget(ws, info);
     if (info) this.notifyPeerLeft(info, "error");
   }
 
@@ -217,7 +272,7 @@ export class HostRelay extends DurableObject<RelayEnv> {
   override async alarm(): Promise<void> {
     const now = Date.now();
     for (const ws of this.ctx.getWebSockets()) {
-      const info = attachment(ws);
+      const info = this.info(ws);
       if (info && now >= info.deadline) this.closeExpired(ws, info);
     }
     await this.scheduleAlarm();
@@ -248,14 +303,13 @@ export class HostRelay extends DurableObject<RelayEnv> {
     if (control.t === "close_session") {
       // Host-only: close one client session. Silently ignored from clients.
       if (info.role !== "host") return;
-      const target = this.clientSockets().find(
-        (candidate) => attachment(candidate)?.sessionId === control.sessionId,
-      );
+      const target = this.sessionIndex().get(control.sessionId);
       if (target) {
         // The runtime fires webSocketClose for this socket too; notifying
         // here once (and tolerating the duplicate) keeps the host informed
         // even when the close handshake never completes.
-        const targetInfo = attachment(target);
+        const targetInfo = this.info(target);
+        this.forget(target, targetInfo);
         sendByeAndClose(target, BYE_HOST_CLOSED, "closed by host");
         if (targetInfo) this.notifyPeerLeft(targetInfo, BYE_HOST_CLOSED);
       }
@@ -271,12 +325,15 @@ export class HostRelay extends DurableObject<RelayEnv> {
       return;
     }
     const deadline = Date.now() + SESSION_MAX_AGE_MS;
-    ws.serializeAttachment({ ...info, deadline } satisfies SocketAttachment);
+    const refreshed: SocketAttachment = { ...info, deadline };
+    ws.serializeAttachment(refreshed);
+    this.infoBySocket.set(ws, refreshed);
     trySend(ws, controlJson({ t: "refresh_ack", deadline }));
     await this.scheduleAlarm();
   }
 
   private closeExpired(ws: WebSocket, info: SocketAttachment): void {
+    this.forget(ws, info);
     sendByeAndClose(ws, BYE_EXPIRED, "session deadline passed");
     this.notifyPeerLeft(info, BYE_EXPIRED);
   }
@@ -310,7 +367,7 @@ export class HostRelay extends DurableObject<RelayEnv> {
 
   private async scheduleAlarm(): Promise<void> {
     const deadlines = this.ctx.getWebSockets()
-      .map((ws) => attachment(ws)?.deadline)
+      .map((ws) => this.info(ws)?.deadline)
       .filter((deadline): deadline is number => typeof deadline === "number");
     if (deadlines.length === 0) return;
     await this.ctx.storage.setAlarm(Math.max(Math.min(...deadlines), Date.now() + 1000));
