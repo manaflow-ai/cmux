@@ -69,6 +69,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         allowsStackAuthFallback: Bool = false,
         legacyTailscaleAuthorizationEvidence: CmxLegacyTailscaleAuthorizationEvidence? = nil,
         userTailscalePairingAuthorization: CmxUserTailscalePairingAuthorization? = nil,
+        expectedPeerInstanceTag: String? = nil,
         irohDirectOnlyDialCandidates: [CmxIrohDirectDialCandidate]? = nil,
         connectAttemptRegistry: MobileRPCConnectAttemptRegistry = MobileRPCConnectAttemptRegistry(),
         stackTokenGate: RPCStackTokenGate? = nil,
@@ -115,6 +116,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         let transportRequest = CmxByteTransportRequest(
             route: route,
             expectedPeerDeviceID: ticket.macDeviceID,
+            // The pairing's Mac build tag routes a relay dial to that build's
+            // own relay object; nil (unknown or release lane) keeps today's.
+            expectedPeerInstanceTag: expectedPeerInstanceTag,
             authorizationMode: authorizationMode,
             sessionPurpose: sessionPurpose,
             irohDirectOnlyDialCandidates: route.kind == .iroh

@@ -18,6 +18,7 @@ extension MobileShellComposite {
         let request = CmxByteTransportRequest(
             route: activeRoute,
             expectedPeerDeviceID: activeTicket.macDeviceID,
+            expectedPeerInstanceTag: activeMacInstanceTag,
             authorizationMode: .transportAdmission,
             sessionPurpose: .featureLane
         )

@@ -6,6 +6,9 @@ import {
   decodeServerControl,
   encodeDataFrame,
   MAX_DATA_PAYLOAD_BYTES,
+  MAX_INSTANCE_TAG_CHARS,
+  parseInstanceTag,
+  UNTAGGED_INSTANCE_TAGS,
 } from "../src/protocol";
 
 describe("data frames", () => {
@@ -70,5 +73,35 @@ describe("control message schemas", () => {
     expect(
       decodeServerControl({ t: "welcome", v: 1, role: "admin", sessionId: 3, deadline: 1, hostPresent: false })._tag,
     ).toBe("Left");
+  });
+});
+
+describe("instance tag parsing", () => {
+  test("absent and blank values are the untagged dimension", () => {
+    expect(parseInstanceTag(null)).toEqual({ ok: true, tag: null });
+    expect(parseInstanceTag(undefined)).toEqual({ ok: true, tag: null });
+    expect(parseInstanceTag("   ")).toEqual({ ok: true, tag: null });
+  });
+
+  test("release lanes are the untagged dimension", () => {
+    for (const lane of UNTAGGED_INSTANCE_TAGS) {
+      expect(parseInstanceTag(lane)).toEqual({ ok: true, tag: null });
+      expect(parseInstanceTag(lane.toUpperCase())).toEqual({ ok: true, tag: null });
+    }
+  });
+
+  test("dev tags normalize to trimmed lowercase", () => {
+    expect(parseInstanceTag(" Feat-Relay.2 ")).toEqual({ ok: true, tag: "feat-relay.2" });
+  });
+
+  test("tags that cannot name an object are rejected", () => {
+    expect(parseInstanceTag("has:colon")).toEqual({ ok: false });
+    expect(parseInstanceTag("-leading-dash")).toEqual({ ok: false });
+    expect(parseInstanceTag("sp ace")).toEqual({ ok: false });
+    expect(parseInstanceTag("a".repeat(MAX_INSTANCE_TAG_CHARS + 1))).toEqual({ ok: false });
+    expect(parseInstanceTag("a".repeat(MAX_INSTANCE_TAG_CHARS))).toEqual({
+      ok: true,
+      tag: "a".repeat(MAX_INSTANCE_TAG_CHARS),
+    });
   });
 });

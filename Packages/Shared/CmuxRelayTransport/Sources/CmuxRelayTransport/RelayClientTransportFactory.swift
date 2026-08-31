@@ -51,6 +51,9 @@ public struct RelayClientTransportFactory: CmxRouteAwareByteTransportFactory {
         return RelayClientByteTransport(
             relayURLOverride: url,
             hostDeviceID: hostDeviceID,
+            // The pairing's Mac build tag: a tagged dev Mac serves its own
+            // relay object, so the dial must name the same one.
+            hostInstanceTag: request.expectedPeerInstanceTag,
             deviceID: deviceID,
             accessToken: accessToken,
             makeConnection: makeConnection,

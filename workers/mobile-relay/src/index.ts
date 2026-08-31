@@ -7,7 +7,9 @@
 //                      device headers. The worker verifies the token against
 //                      the Stack API (short per-isolate verdict cache),
 //                      derives the HostRelay object id from the VERIFIED user
-//                      id (`v2:<userId>:<hostDeviceId>`), stamps
+//                      id (`v2:<userId>:<hostDeviceId>`, or
+//                      `v2t:<userId>:<hostDeviceId>:<tag>` when the optional
+//                      x-cmux-instance-tag header names a dev build), stamps
 //                      verified-identity headers, and forwards. The object
 //                      never sees an unverified connect, and a token can
 //                      never reach another user's relay: isolation is by
@@ -31,7 +33,9 @@ import {
 import {
   DEVICE_HEADER,
   HOST_DEVICE_HEADER,
+  INSTANCE_TAG_HEADER,
   MAX_DEVICE_ID_CHARS,
+  parseInstanceTag,
   ROLE_HEADER,
   STACK_ACCESS_HEADER,
 } from "./protocol";
@@ -50,8 +54,20 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-export function relayObjectName(userId: string, hostDeviceId: string): string {
-  return `v2:${userId}:${hostDeviceId}`;
+/** The relay object name for one (user, host device, instance tag) triple.
+ *
+ * Untagged connects keep the historical `v2:` name byte for byte, so old
+ * clients and production endpoints land where they always did. Tagged
+ * connects use a distinct `v2t:` prefix: a validated tag contains no colon,
+ * so a tagged name can never collide with an untagged name built from a
+ * device id that happens to embed colons. */
+export function relayObjectName(
+  userId: string,
+  hostDeviceId: string,
+  instanceTag: string | null = null,
+): string {
+  if (instanceTag === null) return `v2:${userId}:${hostDeviceId}`;
+  return `v2t:${userId}:${hostDeviceId}:${instanceTag}`;
 }
 
 function normalizedDeviceId(raw: string | null): string | null {
@@ -82,6 +98,11 @@ export default {
       if (role === "host" && deviceId !== hostDeviceId) {
         return json({ error: "host_device_mismatch" }, 400);
       }
+      // Optional per-build instance tag: tagged dev builds get their own
+      // relay object; absent (old clients, production lanes) keeps the
+      // untagged name so behavior is unchanged.
+      const instanceTag = parseInstanceTag(request.headers.get(INSTANCE_TAG_HEADER));
+      if (!instanceTag.ok) return json({ error: "invalid_instance_tag" }, 400);
       const accessToken = request.headers.get(STACK_ACCESS_HEADER);
       if (!accessToken) return json({ error: "missing_token" }, 401);
       const verified = await verifyStackAccessToken(env, accessToken, Date.now());
@@ -92,7 +113,9 @@ export default {
         );
       }
 
-      const id = env.HOST_RELAY.idFromName(relayObjectName(verified.userId, hostDeviceId));
+      const id = env.HOST_RELAY.idFromName(
+        relayObjectName(verified.userId, hostDeviceId, instanceTag.tag),
+      );
       const stub = env.HOST_RELAY.get(id);
       // Forward with verified-identity headers only; the access token is not
       // forwarded (in-band refresh tokens are re-verified by the object).
