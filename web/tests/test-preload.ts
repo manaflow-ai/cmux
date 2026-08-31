@@ -12,6 +12,7 @@ process.env.RESEND_API_KEY ??= "re_test";
 process.env.STRIPE_FOUNDERS_WEBHOOK_SECRET ??= "whsec_founders_test";
 process.env.CMUX_FEEDBACK_FROM_EMAIL ??= "founders@manaflow.com";
 process.env.CMUX_FEEDBACK_RATE_LIMIT_ID ??= "feedback-test";
+process.env.CMUX_BILLING_RECOVERY_RATE_LIMIT_ID ??= "billing-recovery-test";
 process.env.STACK_SECRET_SERVER_KEY ??= "stack-secret";
 process.env.NEXT_PUBLIC_STACK_PROJECT_ID ??= "00000000-0000-4000-8000-000000000000";
 process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY ??= "test-publishable-client-key";

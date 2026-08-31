@@ -10,18 +10,21 @@ import {
   test,
 } from "bun:test";
 
-// Route-level coverage for /api/stripe/founders-welcome. Founder's Edition
-// purchases retain their personal founder welcome, while cmux Pro purchases
-// are fulfilled by the separate billing webhook and must not receive this
-// message as well.
+// Route-level coverage for /api/stripe/founders-welcome. Founder's Edition and
+// Pro purchases receive the personal message; Team and unrelated checkouts are
+// acknowledged without mail.
 
 // Pinned by tests/test-preload.ts before @/app/env loads.
 const WEBHOOK_SECRET = process.env.STRIPE_FOUNDERS_WEBHOOK_SECRET ?? "";
 
 type SentEmail = {
   payload: {
+    from: string;
     subject: string;
     to: string[];
+    cc: string[];
+    replyTo: string;
+    text: string;
     headers: Record<string, string>;
   };
   options: { idempotencyKey: string };
@@ -69,15 +72,18 @@ type SessionOverrides = {
   customer_details?: { email?: string | null; name?: string | null } | null;
 };
 
-function checkoutCompletedEvent(overrides: SessionOverrides = {}): string {
+function checkoutCompletedEvent(
+  overrides: SessionOverrides = {},
+  eventType = "checkout.session.completed",
+): string {
   return JSON.stringify({
     id: "evt_1",
-    type: "checkout.session.completed",
+    type: eventType,
     data: {
       object: {
         id: "cs_test_123",
         metadata: { founders_edition: "true" },
-        customer_details: { email: "customer@example.com", name: "Ada Lovelace" },
+        customer_details: { email: "customer@example.com", name: "Sample Buyer" },
         ...overrides,
       },
     },
@@ -150,7 +156,7 @@ describe("founders welcome route", () => {
     expect(resendSend).toHaveBeenCalledTimes(1);
   });
 
-  test("does not send the Founder's Edition email for a cmux Pro purchase", async () => {
+  test("sends the personal Pro email with the Pro subject", async () => {
     const response = await POST(
       signedRequest(
         checkoutCompletedEvent({
@@ -161,11 +167,50 @@ describe("founders welcome route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true, skipped: "pro_plan" });
-    expect(resendSend).not.toHaveBeenCalled();
+    expect(await response.json()).toEqual({ ok: true, sent: true });
+    expect(resendSend).toHaveBeenCalledTimes(1);
+    expect(sentEmails[0].payload.subject).toBe("Welcome to cmux Pro!");
+    expect(sentEmails[0].payload.from).toBe(
+      "Austin Wang <austin@manaflow.ai>",
+    );
+    expect(sentEmails[0].payload.to).toEqual(["customer@example.com"]);
+    expect(sentEmails[0].payload.cc).toEqual([
+      "austin@manaflow.ai",
+      "lawrence@manaflow.ai",
+    ]);
+    expect(sentEmails[0].payload.replyTo).toBe("austin@manaflow.ai");
+    expect(sentEmails[0].payload.text).toContain(
+      "Thank you for being one of the first ever customers of cmux :)",
+    );
+    expect(sentEmails[0].payload.headers["X-Entity-Ref-ID"]).toBe(
+      "founders-welcome/cs_test_pro",
+    );
+    expect(sentEmails[0].options.idempotencyKey).toBe(
+      "founders-welcome/cs_test_pro",
+    );
   });
 
-  test("sends the identical welcome for a Team plan checkout", async () => {
+  test("also sends the personal Pro email after an async payment succeeds", async () => {
+    const response = await POST(
+      signedRequest(
+        checkoutCompletedEvent(
+          {
+            id: "cs_test_pro_async",
+            metadata: { stackUserId: "user-1", plan: "pro", app: "cmux" },
+          },
+          "checkout.session.async_payment_succeeded",
+        ),
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(resendSend).toHaveBeenCalledTimes(1);
+    expect(sentEmails[0].options.idempotencyKey).toBe(
+      "founders-welcome/cs_test_pro_async",
+    );
+  });
+
+  test("skips a Team plan checkout", async () => {
     const response = await POST(
       signedRequest(
         checkoutCompletedEvent({
@@ -176,14 +221,14 @@ describe("founders welcome route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true, sent: true });
-    expect(resendSend).toHaveBeenCalledTimes(1);
-    expect(sentEmails[0].options.idempotencyKey).toBe(
-      "founders-welcome/cs_test_team",
-    );
+    expect(await response.json()).toEqual({
+      ok: true,
+      skipped: "not_welcome_eligible",
+    });
+    expect(resendSend).not.toHaveBeenCalled();
   });
 
-  test("sends the welcome for any other completed checkout (no recognized metadata)", async () => {
+  test("skips any other completed checkout (no recognized metadata)", async () => {
     const response = await POST(
       signedRequest(
         checkoutCompletedEvent({
@@ -194,11 +239,11 @@ describe("founders welcome route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true, sent: true });
-    expect(resendSend).toHaveBeenCalledTimes(1);
-    expect(sentEmails[0].options.idempotencyKey).toBe(
-      "founders-welcome/cs_test_other",
-    );
+    expect(await response.json()).toEqual({
+      ok: true,
+      skipped: "not_welcome_eligible",
+    });
+    expect(resendSend).not.toHaveBeenCalled();
   });
 
   test("skips a session without a customer email", async () => {

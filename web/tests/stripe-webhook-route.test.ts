@@ -9,6 +9,7 @@ let selectedEventRows: unknown[] = [];
 const updates: Record<string, unknown>[] = [];
 let recordCheckoutShouldFail = false;
 let proWelcomeShouldFail = false;
+let personalWelcomeConfigured = true;
 let recordCheckoutCompletionResult: unknown = {
   scope: "user",
   stackUserId: "user_1",
@@ -18,6 +19,14 @@ const recordCheckoutCompletion = mock(async () => {
   if (recordCheckoutShouldFail) throw new Error("db down");
   return recordCheckoutCompletionResult;
 });
+const recordFoundersCheckoutCompletionResult: unknown = {
+  scope: "user",
+  stackUserId: "founder_1",
+  subscriptionId: "sub_founder",
+};
+const recordFoundersCheckoutCompletion = mock(async () =>
+  recordFoundersCheckoutCompletionResult,
+);
 let applySubscriptionUpdateResult: unknown = {
   scope: "user",
   stackUserId: "user_1",
@@ -105,8 +114,10 @@ const POST = makeStripeWebhookHandler({
       }),
     }) as never,
   recordCheckoutCompletion: recordCheckoutCompletion as never,
+  recordFoundersCheckoutCompletion: recordFoundersCheckoutCompletion as never,
   applySubscriptionUpdate: applySubscriptionUpdate as never,
   sendProSignupWelcome,
+  isPersonalWelcomeConfigured: () => personalWelcomeConfigured,
   revokeCoderouterRouteTokens,
   revokeCoderouterTeamRouteTokens,
   captureStripeBillingEvent,
@@ -132,6 +143,7 @@ describe("Stripe billing webhook route", () => {
     updates.length = 0;
     recordCheckoutShouldFail = false;
     proWelcomeShouldFail = false;
+    personalWelcomeConfigured = true;
     recordCheckoutCompletionResult = {
       scope: "user",
       stackUserId: "user_1",
@@ -158,6 +170,7 @@ describe("Stripe billing webhook route", () => {
     };
     retrievedInvoice = { id: "in_1", subscription: "sub_1" };
     recordCheckoutCompletion.mockClear();
+    recordFoundersCheckoutCompletion.mockClear();
     applySubscriptionUpdate.mockClear();
     revokeCoderouterRouteTokens.mockClear();
     revokeCoderouterTeamRouteTokens.mockClear();
@@ -226,35 +239,55 @@ describe("Stripe billing webhook route", () => {
     expect(updates.at(-1)).toMatchObject({ error: null });
   });
 
-  test("sends the Pro signup welcome after a personal Pro checkout", async () => {
+  test("routes Founder's Edition sessions through the dedicated recorder", async () => {
+    retrievedCheckoutSession = {
+      ...paidCheckoutSession,
+      id: "cs_founder",
+      client_reference_id: null,
+      metadata: { founders_edition: "true" },
+      subscription: { id: "sub_founder", status: "active" },
+      customer: { id: "cus_founder" },
+    };
+    currentEvent = {
+      id: "evt_founder",
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          id: "cs_founder",
+          metadata: { founders_edition: "true" },
+        },
+      },
+    };
+
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(200);
+    expect(recordFoundersCheckoutCompletion).toHaveBeenCalledTimes(1);
+    expect(recordCheckoutCompletion).not.toHaveBeenCalled();
+    expect(sendProSignupWelcome).not.toHaveBeenCalled();
+  });
+
+  test("leaves the Pro personal welcome to the founders-welcome endpoint", async () => {
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(200);
+    expect(sendProSignupWelcome).not.toHaveBeenCalled();
+  });
+
+  test("does not use the legacy templated Pro sender on retries", async () => {
+    proWelcomeShouldFail = true;
+    const response = await POST(webhookRequest());
+    expect(response.status).toBe(200);
+    expect(sendProSignupWelcome).not.toHaveBeenCalled();
+  });
+
+  test("keeps the legacy Pro sender only when the personal endpoint is unavailable", async () => {
+    personalWelcomeConfigured = false;
+
     const response = await POST(webhookRequest());
 
     expect(response.status).toBe(200);
     expect(sendProSignupWelcome).toHaveBeenCalledTimes(1);
-    expect(sendProSignupWelcome).toHaveBeenCalledWith({
-      session: expect.objectContaining({ id: "cs_1" }),
-      stackUserId: "user_1",
-    });
-  });
-
-  test("retries a Pro welcome when the first webhook delivery records an email error", async () => {
-    proWelcomeShouldFail = true;
-
-    const failed = await POST(webhookRequest());
-
-    expect(failed.status).toBe(500);
-    expect(updates.at(-1)).toMatchObject({ error: "email provider unavailable" });
-    expect(sendProSignupWelcome).toHaveBeenCalledTimes(1);
-
-    insertedEventRows = [];
-    selectedEventRows = [{ processedAt: null, error: "email provider unavailable" }];
-    proWelcomeShouldFail = false;
-
-    const retried = await POST(webhookRequest());
-
-    expect(retried.status).toBe(200);
-    expect(sendProSignupWelcome).toHaveBeenCalledTimes(2);
-    expect(updates.at(-1)).toMatchObject({ error: null });
   });
 
   test("defers recording and Pro email while checkout payment is pending", async () => {
@@ -312,7 +345,7 @@ describe("Stripe billing webhook route", () => {
       processed: "checkout.session.async_payment_succeeded",
     });
     expect(recordCheckoutCompletion).toHaveBeenCalledTimes(1);
-    expect(sendProSignupWelcome).toHaveBeenCalledTimes(1);
+    expect(sendProSignupWelcome).not.toHaveBeenCalled();
   });
 
   test("records a fully discounted checkout that requires no payment", async () => {
@@ -325,7 +358,7 @@ describe("Stripe billing webhook route", () => {
 
     expect(response.status).toBe(200);
     expect(recordCheckoutCompletion).toHaveBeenCalledTimes(1);
-    expect(sendProSignupWelcome).toHaveBeenCalledTimes(1);
+    expect(sendProSignupWelcome).not.toHaveBeenCalled();
   });
 
   test("does not run personal Pro fulfillment for a team checkout", async () => {

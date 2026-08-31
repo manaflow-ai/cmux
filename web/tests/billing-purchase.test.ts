@@ -18,8 +18,14 @@ process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY ??= "test-stack-publishable
 
 const {
   applySubscriptionUpdate,
+  canonicalizeEmailForMatching,
+  findBillingUserByEmail,
+  isCmuxCheckoutSession,
   isActiveStripeSubscriptionStatus,
+  latestStripeSubscriptionForSession,
   recordCheckoutCompletion,
+  recordFoundersCheckoutCompletion,
+  recordProCheckoutCompletionByEmail,
 } = await import(
   "../services/billing/purchase"
 );
@@ -85,10 +91,17 @@ function fakeDb() {
   };
   return {
     ...client,
-    execute: async (_query?: unknown) => undefined,
+    execute: async (_query?: unknown) => {
+      void _query;
+    },
     transaction: async <T>(
       callback: (tx: typeof client & { execute: (_query?: unknown) => Promise<void> }) => Promise<T>,
-    ) => await callback({ ...client, execute: async (_query?: unknown) => undefined }),
+    ) => await callback({
+      ...client,
+      execute: async (_query?: unknown) => {
+        void _query;
+      },
+    }),
   };
 }
 
@@ -209,6 +222,555 @@ describe("Stripe subscription entitlement states", () => {
   }
 });
 
+describe("billing email matching", () => {
+  test("canonicalizes Gmail dots but preserves plus tags", () => {
+    expect(canonicalizeEmailForMatching(" Billing.Fi.Xture@GMAIL.COM ")).toBe(
+      "billingfixture@gmail.com",
+    );
+    expect(canonicalizeEmailForMatching("billing.fixture+tag@gmail.com")).toBe(
+      "billingfixture+tag@gmail.com",
+    );
+    expect(canonicalizeEmailForMatching("b.illing+tag.one@gmail.com")).toBe(
+      "billing+tag.one@gmail.com",
+    );
+    expect(canonicalizeEmailForMatching("A.l.i.a.s@googlemail.com")).toBe(
+      "alias@googlemail.com",
+    );
+    expect(canonicalizeEmailForMatching(" User@Example.com ")).toBe(
+      "user@example.com",
+    );
+    expect(canonicalizeEmailForMatching("a.b@outlook.com")).toBe(
+      "a.b@outlook.com",
+    );
+  });
+
+  test("recognizes Founder's Edition sessions as cmux checkouts", () => {
+    expect(
+      isCmuxCheckoutSession({
+        client_reference_id: null,
+        metadata: { founders_edition: "true" },
+      }),
+    ).toBe(true);
+  });
+
+  test("chooses the undotted Gmail account when a duplicate alias exists", async () => {
+    const undotted = {
+      id: "real",
+      primaryEmail: "billingfixture@gmail.com",
+      primaryEmailVerified: true,
+      update: mock(async () => undefined),
+    };
+    const dotted = {
+      id: "duplicate",
+      primaryEmail: "billing.fixture@gmail.com",
+      primaryEmailVerified: false,
+      update: mock(async () => undefined),
+    };
+    const getUser = mock(async (...args: unknown[]) => {
+      const id = args[0] as string;
+      return id === "real" ? undotted : dotted;
+    });
+    const user = await findBillingUserByEmail(
+      {
+        listUsers: async () => [dotted, undotted],
+        getUser,
+      } as never,
+      "billing.fixture@gmail.com",
+    );
+    expect(user?.id).toBe("real");
+    expect(getUser).not.toHaveBeenCalled();
+  });
+});
+
+describe("Founder success read-back", () => {
+  beforeEach(() => {
+    selectResults = [];
+  });
+
+  test("reads a synthetic Founder entitlement by Stripe customer when no subscription id exists", async () => {
+    const row = { id: "founders_cs_fixture", status: "active" };
+    selectResults = [[row]];
+
+    await expect(
+      latestStripeSubscriptionForSession(
+        {
+          id: "cs_fixture",
+          customer: "cus_fixture",
+          subscription: null,
+        } as never,
+        fakeDb() as never,
+      ),
+    ).resolves.toEqual(row);
+  });
+});
+
+describe("recordFoundersCheckoutCompletion", () => {
+  beforeEach(() => {
+    inserts.length = 0;
+    updates.length = 0;
+    upsertUpdates.length = 0;
+    insertErrorsByTable.clear();
+    selectResults = [];
+    tombstoneSelectResults = [];
+    accountMutationOperationId = null;
+  });
+
+  test("finds, verifies, links, syncs, and enrolls a Founder buyer", async () => {
+    const update = mock(async () => undefined);
+    const user = {
+      id: "founder_1",
+      primaryEmail: null,
+      primaryEmailVerified: false,
+      clientReadOnlyMetadata: {},
+      update,
+    };
+    const createUser = mock(async () => user);
+    const listUsers = mock(async () => []);
+    const enroll = mock(async () => undefined);
+    // tombstone, customer ownership, existing customer, lease reads/writes
+    selectResults = [[], [], [], [], [], [], []];
+
+    const result = await recordFoundersCheckoutCompletion(
+      {
+        session: {
+          id: "cs_founder",
+          customer: "cus_founder",
+          customer_details: {
+            email: "Buyer@Example.com",
+            name: "Sample Buyer",
+          },
+          metadata: { founders_edition: "true" },
+          subscription: "sub_founder",
+        } as never,
+        subscription: {
+          id: "sub_founder",
+          customer: "cus_founder",
+          status: "active",
+          metadata: { founders_edition: "true" },
+          cancel_at_period_end: false,
+          items: { data: [{ price: { id: "price_founder" } }] },
+        } as never,
+        customer: {
+          id: "cus_founder",
+          deleted: false,
+          email: "Buyer@Example.com",
+        } as never,
+      },
+      {
+        db: fakeDb() as never,
+        stackApp: { getUser: async () => user, listUsers, createUser } as never,
+        testflight: { enrollTester: enroll },
+      },
+    );
+
+    expect(result).toEqual({
+      scope: "user",
+      stackUserId: "founder_1",
+      subscriptionId: "sub_founder",
+    });
+    expect(createUser).toHaveBeenCalledWith({
+      primaryEmail: "buyer@example.com",
+      primaryEmailAuthEnabled: true,
+      primaryEmailVerified: true,
+    });
+    expect(
+      inserts.some(
+        (entry) =>
+          entry.table === stripeCustomers &&
+          entry.values.email === "Buyer@Example.com" &&
+          entry.values.stackUserId === "founder_1",
+      ),
+    ).toBe(true);
+    expect(
+      inserts.some(
+        (entry) =>
+          entry.table === stripeSubscriptions &&
+          entry.values.plan === "pro" &&
+          entry.values.scope === "user",
+      ),
+    ).toBe(true);
+    expect(update).toHaveBeenCalledWith({ primaryEmailVerified: true });
+    expect(enroll).toHaveBeenCalledWith("buyer@example.com", "Sample", "Buyer");
+  });
+
+  test("verifies an existing Founder account without rewriting its email spelling", async () => {
+    const update = mock(async () => undefined);
+    const setPrimaryEmail = mock(async () => undefined);
+    const user = {
+      id: "founder_existing",
+      primaryEmail: "Billing.Fixture@gmail.com",
+      primaryEmailVerified: false,
+      primaryEmailAuthEnabled: true,
+      clientReadOnlyMetadata: {},
+      update,
+      setPrimaryEmail,
+    };
+    selectResults = Array.from({ length: 20 }, () => []);
+
+    await recordFoundersCheckoutCompletion(
+      {
+        session: {
+          id: "cs_existing",
+          customer: "cus_existing",
+          customer_details: {
+            email: "billing.fixture@gmail.com",
+          },
+          metadata: { founders_edition: "true" },
+          subscription: "sub_existing",
+        } as never,
+        subscription: {
+          id: "sub_existing",
+          customer: "cus_existing",
+          status: "active",
+          metadata: { founders_edition: "true" },
+          cancel_at_period_end: false,
+          items: { data: [] },
+        } as never,
+        customer: {
+          id: "cus_existing",
+          deleted: false,
+          email: "billing.fixture@gmail.com",
+        } as never,
+      },
+      {
+        db: fakeDb() as never,
+        stackApp: {
+          getUser: async () => user,
+          listUsers: async () => [
+            {
+              id: user.id,
+              primaryEmail: user.primaryEmail,
+              primaryEmailVerified: false,
+              primaryEmailAuthEnabled: true,
+              update,
+              setPrimaryEmail,
+            },
+          ],
+        } as never,
+      },
+    );
+
+    expect(setPrimaryEmail).toHaveBeenCalledWith("Billing.Fixture@gmail.com", {
+      verified: true,
+    });
+    expect(update).not.toHaveBeenCalledWith({
+      primaryEmail: "billing.fixture@gmail.com",
+      primaryEmailAuthEnabled: true,
+    });
+  });
+
+  test("skips a Founder session without an email before Stack mutation", async () => {
+    const createUser = mock(async () => {
+      throw new Error("must not create");
+    });
+    const result = await recordFoundersCheckoutCompletion(
+      {
+        session: {
+          id: "cs_no_email",
+          customer: "cus_no_email",
+          customer_details: null,
+          metadata: { founders_edition: "true" },
+          subscription: "sub_no_email",
+        } as never,
+        subscription: {
+          id: "sub_no_email",
+          customer: "cus_no_email",
+          status: "active",
+          metadata: { founders_edition: "true" },
+          cancel_at_period_end: false,
+          items: { data: [] },
+        } as never,
+      },
+      { db: fakeDb() as never, stackApp: { getUser: async () => null, listUsers: async () => [], createUser } as never },
+    );
+    expect(result).toEqual({ skipped: "no_customer_email", subscriptionId: "sub_no_email" });
+    expect(createUser).not.toHaveBeenCalled();
+  });
+
+  test("skips a Founder session without an email even when Stripe has no customer id", async () => {
+    const result = await recordFoundersCheckoutCompletion(
+      {
+        session: {
+          id: "cs_no_email_customer",
+          customer: null,
+          customer_details: null,
+          metadata: { founders_edition: "true" },
+          subscription: null,
+        } as never,
+        customer: null,
+      },
+      { db: fakeDb() as never, stackApp: { listUsers: async () => [] } as never },
+    );
+
+    expect(result).toEqual({
+      skipped: "no_customer_email",
+      subscriptionId: "founders_cs_no_email_customer",
+    });
+  });
+
+  test("replays a Founder checkout idempotently", async () => {
+    const update = mock(async () => undefined);
+    const user = {
+      id: "founder_replay",
+      primaryEmail: "replay@example.com",
+      primaryEmailVerified: true,
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+      update,
+    };
+    const listUsers = mock(async () => [
+      {
+        id: user.id,
+        primaryEmail: user.primaryEmail,
+        primaryEmailVerified: true,
+      },
+    ]);
+    const enroll = mock(async () => undefined);
+    const input = {
+      session: {
+        id: "cs_replay",
+        customer: "cus_replay",
+        customer_details: { email: "replay@example.com", name: "Replay Buyer" },
+        metadata: { founders_edition: "true" },
+        subscription: "sub_replay",
+      },
+      subscription: {
+        id: "sub_replay",
+        customer: "cus_replay",
+        status: "active",
+        metadata: { founders_edition: "true" },
+        cancel_at_period_end: false,
+        items: { data: [] },
+      },
+      customer: { id: "cus_replay", deleted: false, email: "replay@example.com" },
+    } as never;
+    const stackApp = { getUser: async () => user, listUsers };
+
+    selectResults = Array.from({ length: 20 }, () => []);
+    await recordFoundersCheckoutCompletion(input, {
+      db: fakeDb() as never,
+      stackApp: stackApp as never,
+      testflight: { enrollTester: enroll },
+    });
+    selectResults = Array.from({ length: 20 }, () => []);
+    await recordFoundersCheckoutCompletion(input, {
+      db: fakeDb() as never,
+      stackApp: stackApp as never,
+      testflight: { enrollTester: enroll },
+    });
+
+    expect(listUsers).toHaveBeenCalledTimes(2);
+    expect(enroll).toHaveBeenCalledTimes(2);
+    expect(inserts.filter((entry) => entry.table === stripeSubscriptions)).toHaveLength(2);
+  });
+
+  test("keeps a paid Founder entitlement active when provider history is canceled", async () => {
+    const user = {
+      id: "founder_history",
+      primaryEmail: "history@example.com",
+      primaryEmailVerified: true,
+      clientReadOnlyMetadata: {},
+      update: mock(async () => undefined),
+    };
+    selectResults = Array.from({ length: 20 }, () => []);
+    await recordFoundersCheckoutCompletion(
+      {
+        session: {
+          id: "cs_history",
+          customer: "cus_history",
+          customer_details: { email: "history@example.com" },
+          metadata: { founders_edition: "true" },
+          subscription: "sub_history",
+        } as never,
+        subscription: {
+          id: "sub_history",
+          customer: "cus_history",
+          status: "canceled",
+          metadata: { founders_edition: "true" },
+          cancel_at_period_end: false,
+          items: { data: [] },
+        } as never,
+        customer: { id: "cus_history", deleted: false, email: "history@example.com" } as never,
+      },
+      {
+        db: fakeDb() as never,
+        stackApp: {
+          getUser: async () => user,
+          listUsers: async () => [{ id: user.id, primaryEmail: user.primaryEmail, primaryEmailVerified: true }],
+        } as never,
+      },
+    );
+    const subscriptionInsert = inserts.find((entry) => entry.table === stripeSubscriptions);
+    expect(subscriptionInsert?.values.status).toBe("active");
+  });
+
+  test("does not let a later Founder subscription webhook revoke the entitlement", async () => {
+    const result = await applySubscriptionUpdate(
+      {
+        id: "sub_founder_webhook",
+        customer: "cus_founder_webhook",
+        status: "canceled",
+        metadata: {
+          founders_edition: "true",
+          app: "cmux",
+          plan: "pro",
+          stackUserId: "founder_webhook",
+        },
+      } as never,
+      { db: fakeDb() as never },
+    );
+
+    expect(result).toEqual({ skipped: true });
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+  });
+
+  test("routes a dotted Gmail purchase to the existing undotted account", async () => {
+    const anonymous = {
+      id: "anonymous_purchase",
+      isAnonymous: true,
+      primaryEmail: null,
+      clientReadOnlyMetadata: {},
+      update: mock(async () => undefined),
+    };
+    const real = {
+      id: "alias_real",
+      isAnonymous: false,
+      primaryEmail: "billingfixture@gmail.com",
+      primaryEmailVerified: false,
+      clientReadOnlyMetadata: {},
+      update: mock(async () => undefined),
+    };
+    const listUsers = mock(async () => [
+      {
+        id: real.id,
+        primaryEmail: real.primaryEmail,
+        primaryEmailVerified: false,
+        isAnonymous: false,
+      },
+    ]);
+    const getUser = mock(async (...args: unknown[]) => {
+      const id = args[0] as string;
+      return id === anonymous.id ? anonymous : real;
+    });
+    // The first select is the normal customer's existing-row lookup. Keep all
+    // subsequent account-mutation lease reads empty.
+    selectResults = [[], [], [], [], [], [], [], []];
+
+    const result = await recordCheckoutCompletion(
+      {
+        session: {
+          id: "cs_alias",
+          client_reference_id: anonymous.id,
+          customer: "cus_alias",
+          customer_details: { email: "billing.fixture@gmail.com" },
+          subscription: "sub_alias",
+          metadata: { app: "cmux", plan: "pro" },
+        } as never,
+        subscription: {
+          id: "sub_alias",
+          customer: "cus_alias",
+          status: "active",
+          metadata: { app: "cmux", plan: "pro", stackUserId: anonymous.id },
+          cancel_at_period_end: false,
+          items: { data: [{ price: { id: "price_pro" } }] },
+        } as never,
+        customer: {
+          id: "cus_alias",
+          deleted: false,
+          email: "billing.fixture@gmail.com",
+        } as never,
+      },
+      {
+        db: fakeDb() as never,
+        stackApp: { getUser, listUsers } as never,
+      },
+    );
+
+    expect(result).toEqual({
+      scope: "user",
+      stackUserId: real.id,
+      subscriptionId: "sub_alias",
+    });
+    expect(
+      inserts.some(
+        (entry) =>
+          entry.table === stripeSubscriptions &&
+          entry.values.stackUserId === real.id,
+      ),
+    ).toBe(true);
+    expect(inserts.some((entry) => entry.table === billingEmailClaims)).toBe(false);
+    expect(real.update).toHaveBeenCalledWith({ primaryEmailVerified: true });
+  });
+
+  test("moves an already-parked alias customer without leaving a claim", async () => {
+    const anonymous = {
+      id: "anonymous_parked",
+      isAnonymous: true,
+      primaryEmail: null,
+      clientReadOnlyMetadata: {},
+      update: mock(async () => undefined),
+    };
+    const real = {
+      id: "alias_real_parked",
+      isAnonymous: false,
+      primaryEmail: "billingfixture@gmail.com",
+      primaryEmailVerified: true,
+      emailAuthEnabled: true,
+      clientReadOnlyMetadata: {},
+      update: mock(async () => undefined),
+    };
+    const db = fakeDb();
+    selectResults = [
+      [{ stackUserId: anonymous.id, stackTeamId: null }],
+      [{ stackUserId: anonymous.id, stackTeamId: null }],
+      [],
+      [],
+      [],
+      [],
+      [],
+    ];
+    const result = await recordCheckoutCompletion(
+      {
+        session: {
+          id: "cs_alias_parked",
+          client_reference_id: anonymous.id,
+          customer: "cus_alias_parked",
+          customer_details: { email: "billing.fixture@gmail.com" },
+          subscription: "sub_alias_parked",
+        } as never,
+        subscription: {
+          id: "sub_alias_parked",
+          customer: "cus_alias_parked",
+          status: "active",
+          metadata: { app: "cmux", plan: "pro", stackUserId: anonymous.id },
+          cancel_at_period_end: false,
+          items: { data: [] },
+        } as never,
+        customer: { id: "cus_alias_parked", deleted: false, email: "billing.fixture@gmail.com" } as never,
+      },
+      {
+        db: db as never,
+        stackApp: {
+          getUser: async (id: string) => id === anonymous.id ? anonymous : real,
+          listUsers: async () => [{ id: real.id, primaryEmail: real.primaryEmail, primaryEmailVerified: true, emailAuthEnabled: true }],
+        } as never,
+      },
+    );
+    expect(result).toMatchObject({ scope: "user", stackUserId: real.id });
+    expect(
+      updates.some(
+        (entry) => entry.table === stripeCustomers && entry.values.stackUserId === real.id,
+      ),
+    ).toBe(true);
+    expect(
+      updates.some(
+        (entry) => entry.table === stripeSubscriptions && entry.values.stackUserId === real.id,
+      ),
+    ).toBe(true);
+    expect(inserts.some((entry) => entry.table === billingEmailClaims)).toBe(false);
+  });
+});
+
 describe("recordCheckoutCompletion", () => {
   beforeEach(() => {
     inserts.length = 0;
@@ -233,9 +795,29 @@ describe("recordCheckoutCompletion", () => {
       primaryEmail: "buyer@example.com",
       primaryEmailAuthEnabled: true,
     });
+    expect(update).toHaveBeenCalledWith({ primaryEmailVerified: true });
     expect(update).toHaveBeenCalledWith({
       clientReadOnlyMetadata: { cmuxPlan: "pro" },
     });
+  });
+
+  test("verifies an existing unverified purchase-attached email", async () => {
+    const update = mock(async () => undefined);
+    const user = {
+      id: "user_123",
+      primaryEmail: "buyer@example.com",
+      primaryEmailVerified: false,
+      primaryEmailAuthEnabled: true,
+      clientReadOnlyMetadata: {},
+      update,
+    };
+
+    await recordCheckoutCompletion(checkoutInput() as never, {
+      db: fakeDb() as never,
+      stackApp: { getUser: async () => user } as never,
+    });
+
+    expect(update).toHaveBeenCalledWith({ primaryEmailVerified: true });
   });
 
   test("blocks checkout completion while account deletion is in progress", async () => {
@@ -334,6 +916,7 @@ describe("recordCheckoutCompletion", () => {
           return await callback({
             ...baseDb,
             execute: async (_query?: unknown) => {
+              void _query;
               lockCount += 1;
             },
           });
@@ -560,6 +1143,135 @@ describe("recordCheckoutCompletion", () => {
       primaryEmail: "buyer@example.com",
       primaryEmailAuthEnabled: true,
     });
+  });
+
+  test("does not move a recovered customer back on a stale checkout replay", async () => {
+    const source = {
+      id: "user_123",
+      isAnonymous: true,
+      primaryEmail: null,
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+      update: mock(async () => undefined),
+    };
+    const target = {
+      id: "target_user",
+      isAnonymous: false,
+      isRestricted: false,
+      primaryEmail: "buyer@example.com",
+      primaryEmailVerified: true,
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+      update: mock(async () => undefined),
+    };
+    const getUser = mock(async (rawID: unknown) => {
+      const id = rawID as string;
+      return id === target.id ? target : source;
+    });
+    selectResults = [[{ stackUserId: target.id, stackTeamId: null }]];
+
+    const result = await recordCheckoutCompletion(checkoutInput() as never, {
+      db: fakeDb() as never,
+      stackApp: { getUser } as never,
+    });
+
+    expect(result).toEqual({
+      scope: "user",
+      stackUserId: target.id,
+      subscriptionId: "sub_123",
+    });
+    expect(inserts).toHaveLength(0);
+    expect(getUser).toHaveBeenCalledWith(target.id);
+  });
+
+  test("recovery can remap a parked historical customer before recording Pro", async () => {
+    const source = {
+      id: "parked_source",
+      isAnonymous: true,
+      primaryEmail: "billing.fixture@gmail.com",
+      primaryEmailVerified: false,
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+      update: mock(async () => undefined),
+    };
+    const target = {
+      id: "recovery_target",
+      isAnonymous: false,
+      isRestricted: false,
+      primaryEmail: "billingfixture@gmail.com",
+      primaryEmailVerified: false,
+      clientReadOnlyMetadata: {},
+      update: mock(async () => undefined),
+    };
+    const getUser = mock(async (rawID: unknown) =>
+      (rawID as string) === source.id ? source : target,
+    );
+    selectResults = [
+      [{ stackUserId: source.id, stackTeamId: null }],
+      [{ stackUserId: source.id, stackTeamId: null }],
+      [],
+      ...Array.from({ length: 20 }, () => []),
+    ];
+
+    const result = await recordProCheckoutCompletionByEmail(
+      {
+        session: {
+          id: "cs_recovery",
+          client_reference_id: source.id,
+          customer: "cus_recovery",
+          customer_details: { email: "billing.fixture@gmail.com" },
+          metadata: { app: "cmux", plan: "pro" },
+          subscription: "sub_recovery",
+        } as never,
+        subscription: {
+          id: "sub_recovery",
+          customer: "cus_recovery",
+          status: "active",
+          metadata: { app: "cmux", plan: "pro", stackUserId: source.id },
+          cancel_at_period_end: false,
+          items: { data: [] },
+        } as never,
+        customer: {
+          id: "cus_recovery",
+          deleted: false,
+          email: "billing.fixture@gmail.com",
+        } as never,
+      },
+      {
+        db: fakeDb() as never,
+        stackApp: {
+          getUser,
+          listUsers: async () => [
+            {
+              id: target.id,
+              primaryEmail: target.primaryEmail,
+              primaryEmailVerified: true,
+              update: target.update,
+            },
+          ],
+        } as never,
+        stripeClient: () => ({
+          customers: {
+            retrieve: async () => { throw new Error("offline"); },
+            update: async () => undefined,
+          },
+          subscriptions: {
+            retrieve: async () => { throw new Error("offline"); },
+            update: async () => undefined,
+          },
+        }) as never,
+      },
+    );
+
+    expect(result).toMatchObject({
+      scope: "user",
+      stackUserId: target.id,
+      subscriptionId: "sub_recovery",
+    });
+    expect(
+      updates.some(
+        (entry) =>
+          entry.table === stripeCustomers &&
+          entry.values.stackUserId === target.id,
+      ),
+    ).toBe(true);
   });
 
   test("updates the Stripe customer id when the same Stack user repurchases", async () => {

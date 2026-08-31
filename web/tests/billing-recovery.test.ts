@@ -1,0 +1,72 @@
+import { describe, expect, mock, test } from "bun:test";
+
+import {
+  findPaidBillingPurchaseByEmail,
+  provisionPaidBillingPurchase,
+} from "../services/billing/recovery";
+
+describe("billing purchase recovery", () => {
+  test("finds a paid Pro subscription through a dotted Gmail alias", async () => {
+    const customer = {
+      id: "cus_fixture",
+      deleted: false,
+      email: "billingfixture@gmail.com",
+      metadata: { app: "cmux" },
+    };
+    const subscription = {
+      id: "sub_fixture",
+      customer: customer.id,
+      status: "active",
+      metadata: { app: "cmux", plan: "pro", stackUserId: "anonymous" },
+      cancel_at_period_end: false,
+      items: { data: [] },
+    };
+    const result = await findPaidBillingPurchaseByEmail(
+      " Billing.Fixture@Gmail.com ",
+      {
+        db: {
+          select: () => {
+            throw new Error("no local database in this test");
+          },
+        } as never,
+        stripeClient: () => ({
+          customers: {
+            list: mock(async () => ({ data: [customer] })),
+          },
+          subscriptions: {
+            list: mock(async () => ({ data: [subscription] })),
+          },
+          checkout: {
+            sessions: {
+              list: mock(async () => ({ data: [] })),
+            },
+          },
+        }) as never,
+      },
+    );
+
+    expect(result?.kind).toBe("pro");
+    expect(result?.input.subscription).toMatchObject({ id: "sub_fixture" });
+  });
+
+  test("provisioning delegates founders and Pro records to shared paths", async () => {
+    const founders = mock(async () => undefined);
+    const pro = mock(async () => undefined);
+    const input = {
+      session: { id: "cs_fixture" },
+      subscription: null,
+      customer: null,
+    } as never;
+
+    await provisionPaidBillingPurchase(
+      { kind: "founders_edition", input },
+      { recordFounders: founders as never },
+    );
+    await provisionPaidBillingPurchase(
+      { kind: "pro", input },
+      { recordPro: pro as never },
+    );
+    expect(founders).toHaveBeenCalledTimes(1);
+    expect(pro).toHaveBeenCalledTimes(1);
+  });
+});

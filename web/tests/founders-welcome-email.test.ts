@@ -3,8 +3,10 @@ import { describe, expect, test } from "bun:test";
 import {
   EMAIL_SUBJECT,
   FOUNDER_CC,
+  PRO_EMAIL_SUBJECT,
   REPLY_TO,
   buildFoundersWelcomeEmail,
+  buildProWelcomeEmail,
   foundersThreadRef,
 } from "../app/api/stripe/founders-welcome/welcome-email";
 import { welcomeTriggerForMetadata } from "../app/api/stripe/founders-welcome/welcome-trigger";
@@ -22,12 +24,11 @@ const THREAD_HEADER = "X-Entity-Ref-ID";
 
 const baseParams = {
   from: "Austin Wang <austin@manaflow.ai>",
-  customerName: "Ada Lovelace",
+  customerName: "Sample Buyer",
 } as const;
 
-// The route uses this classification to keep the Pro transactional welcome
-// separate from the personal Founder's Edition email. Explicit founder
-// metadata wins if both shapes are present.
+// The route uses this classification to choose the personal welcome subject;
+// explicit founder metadata wins if both shapes are present.
 describe("welcomeTriggerForMetadata", () => {
   test("founders payment-link metadata classifies as founders_edition", () => {
     expect(welcomeTriggerForMetadata({ founders_edition: "true" })).toBe(
@@ -121,7 +122,7 @@ describe("buildFoundersWelcomeEmail", () => {
     expect(first.headers[THREAD_HEADER]).toBe(foundersThreadRef("cs_test_aaa"));
   });
 
-  test("subject stays clean and constant across subscriptions (threading is header-only)", () => {
+  test("subject stays clean and constant for Founder's Edition subscriptions", () => {
     const first = buildFoundersWelcomeEmail({
       ...baseParams,
       to: "c1@example.com",
@@ -134,6 +135,26 @@ describe("buildFoundersWelcomeEmail", () => {
     });
     expect(first.subject).toBe(EMAIL_SUBJECT);
     expect(second.subject).toBe(EMAIL_SUBJECT);
+  });
+
+  test("Pro uses the personal payload with only the subject changed", () => {
+    const founders = buildFoundersWelcomeEmail({
+      ...baseParams,
+      to: "customer@example.com",
+      sessionRef: "cs_founder",
+    });
+    const pro = buildProWelcomeEmail({
+      ...baseParams,
+      to: "customer@example.com",
+      sessionRef: "cs_pro",
+    });
+    expect(pro.subject).toBe(PRO_EMAIL_SUBJECT);
+    expect(pro.from).toBe(founders.from);
+    expect(pro.to).toEqual(founders.to);
+    expect(pro.cc).toEqual(founders.cc);
+    expect(pro.replyTo).toBe(founders.replyTo);
+    expect(pro.text).toBe(founders.text);
+    expect(pro.headers[THREAD_HEADER]).toBe("founders-welcome/cs_pro");
   });
 
   test("recipients, sender, and reply-to are preserved unchanged", () => {
@@ -160,7 +181,7 @@ describe("buildFoundersWelcomeEmail", () => {
       customerName: null,
       sessionRef: "cs_test_aaa",
     });
-    expect(named.text.startsWith("Hi Ada!")).toBe(true);
+    expect(named.text.startsWith("Hi Sample!")).toBe(true);
     expect(anonymous.text.startsWith("Hi there!")).toBe(true);
   });
 

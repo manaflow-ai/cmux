@@ -1,0 +1,156 @@
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+import {
+  BILLING_RECOVERY_RESPONSE_MESSAGE,
+  makeBillingRecoveryHandler,
+  type BillingRecoveryRouteDependencies,
+} from "../app/api/billing/recover/route";
+
+function request(
+  email: string,
+  url = "https://cmux.test/api/billing/recover",
+): Request {
+  return new Request(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+}
+
+function dependencies(
+  overrides: Partial<BillingRecoveryRouteDependencies> = {},
+): BillingRecoveryRouteDependencies {
+  return {
+    recoverPaid: mock(async () => false),
+    sendMagicLink: mock(async () => undefined),
+    sendVerification: mock(async () => ({ delivery: "accepted" as const })),
+    checkRateLimit: mock(async () => ({ rateLimited: false })),
+    rateLimitRuleID: () => "billing-recovery-limit",
+    isVercel: () => false,
+    ...overrides,
+  };
+}
+
+describe("billing recovery route", () => {
+  beforeEach(() => {
+    delete process.env.VERCEL;
+  });
+
+  test("provisions a paid dotted Gmail purchase and sends a sign-in code", async () => {
+    const recoverPaid = mock(async (...args: unknown[]) => {
+      const email = args[0] as string;
+      expect(email).toBe("billingfixture@gmail.com");
+      return true;
+    }) as unknown as BillingRecoveryRouteDependencies["recoverPaid"];
+    const sendMagicLink = mock(async () => undefined);
+    const sendVerification = mock(async () => ({ delivery: "accepted" as const }));
+    const response = await makeBillingRecoveryHandler(
+      dependencies({ recoverPaid, sendMagicLink, sendVerification }),
+    )(request(" Billing.Fixture@Gmail.com "));
+
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({
+      ok: true,
+      message: BILLING_RECOVERY_RESPONSE_MESSAGE,
+    });
+    expect(recoverPaid).toHaveBeenCalledWith("billingfixture@gmail.com");
+    expect(sendMagicLink).toHaveBeenCalledWith({
+      email: "Billing.Fixture@Gmail.com",
+      callbackURL: "https://cmux.com/handler/after-sign-in",
+    });
+    expect(sendVerification).not.toHaveBeenCalled();
+  });
+
+  test("uses the provisioned account's literal email for a Gmail alias", async () => {
+    const sendMagicLink = mock(async () => undefined);
+    const response = await makeBillingRecoveryHandler(
+      dependencies({
+        recoverPaid: mock(async () => ({
+          deliveryEmail: "billingfixture@gmail.com",
+        })),
+        sendMagicLink,
+      }),
+    )(request("billing.fixture@gmail.com"));
+
+    expect(response.status).toBe(202);
+    expect(sendMagicLink).toHaveBeenCalledWith({
+      email: "billingfixture@gmail.com",
+      callbackURL: "https://cmux.com/handler/after-sign-in",
+    });
+  });
+
+  test("sends standard verification when no paid purchase is found", async () => {
+    const deps = dependencies();
+    const response = await makeBillingRecoveryHandler(deps)(
+      request("buyer@example.com"),
+    );
+
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({
+      ok: true,
+      message: BILLING_RECOVERY_RESPONSE_MESSAGE,
+    });
+    expect(deps.sendVerification).toHaveBeenCalledWith({
+      email: "buyer@example.com",
+      callbackURL: "https://cmux.com/handler/email-verification",
+    });
+    expect(deps.sendMagicLink).not.toHaveBeenCalled();
+  });
+
+  test("keeps paid and unpaid outcomes indistinguishable", async () => {
+    const paid = await makeBillingRecoveryHandler(
+      dependencies({ recoverPaid: mock(async () => true) }),
+    )(request("paid@example.com"));
+    const unpaid = await makeBillingRecoveryHandler(
+      dependencies({ recoverPaid: mock(async () => false) }),
+    )(request("unpaid@example.com"));
+
+    expect(paid.status).toBe(unpaid.status);
+    expect(await paid.text()).toBe(await unpaid.text());
+  });
+
+  test("keeps provider failures indistinguishable", async () => {
+    const response = await makeBillingRecoveryHandler(
+      dependencies({
+        recoverPaid: mock(async () => {
+          throw new Error("provider unavailable");
+        }),
+      }),
+    )(request("buyer@example.com"));
+
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({
+      ok: true,
+      message: BILLING_RECOVERY_RESPONSE_MESSAGE,
+    });
+  });
+
+  test("fails closed on the aggressive deployed rate limit", async () => {
+    const recoverPaid = mock(async () => true);
+    const response = await makeBillingRecoveryHandler(
+      dependencies({
+        recoverPaid,
+        isVercel: () => true,
+        checkRateLimit: mock(async () => ({ rateLimited: true })),
+      }),
+    )(request("buyer@example.com"));
+
+    expect(response.status).toBe(429);
+    expect(recoverPaid).not.toHaveBeenCalled();
+  });
+
+  test("rejects malformed input without sending mail", async () => {
+    const deps = dependencies();
+    const response = await makeBillingRecoveryHandler(deps)(
+      new Request("https://cmux.test/api/billing/recover", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: "not-an-email" }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(deps.recoverPaid).not.toHaveBeenCalled();
+    expect(deps.sendVerification).not.toHaveBeenCalled();
+  });
+});
