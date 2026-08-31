@@ -360,6 +360,8 @@ pub enum ResourceOperation {
     AgentList,
     #[serde(rename = "agent.report")]
     AgentReport,
+    #[serde(rename = "agent.wait")]
+    AgentWait,
     #[serde(rename = "sidebar_view.get")]
     SidebarViewGet,
     #[serde(rename = "sidebar_view.ensure")]
@@ -478,6 +480,7 @@ impl ResourceOperation {
                 | Self::BrowserGet
                 | Self::NotificationList
                 | Self::AgentList
+                | Self::AgentWait
                 | Self::SidebarViewGet
         ) {
             OperationClass::Read
@@ -634,6 +637,7 @@ impl ResourceOperation {
             Self::NotificationCreate => "notification.create",
             Self::AgentList => "agent.list",
             Self::AgentReport => "agent.report",
+            Self::AgentWait => "agent.wait",
             Self::SidebarViewGet => "sidebar_view.get",
             Self::SidebarViewEnsure => "sidebar_view.ensure",
             Self::SidebarViewAttach => "sidebar_view.attach",

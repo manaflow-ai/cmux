@@ -1363,6 +1363,44 @@ fn parse_agent(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usage
             }
             request(ResourceOperation::AgentList, &selectors, flags, params)
         }
+        ["wait"] => {
+            let mut params = Map::new();
+            if let Some(terminal) = flags.take("terminal") {
+                validate_prefixed_id("terminal", "term", &terminal)?;
+                params.insert("terminal_id".into(), Value::String(terminal));
+            }
+            let states: Vec<String> = match (flags.take("state"), flags.take("any-of")) {
+                (Some(state), None) => vec![state],
+                (None, Some(list)) => {
+                    list.split(',').map(str::trim).map(str::to_string).collect()
+                }
+                (Some(_), Some(_)) => {
+                    return Err(UsageError::new(
+                        "agent wait takes --state or --any-of, not both",
+                    ));
+                }
+                (None, None) => {
+                    return Err(UsageError::new(
+                        "agent wait requires --state <state> or --any-of <state,...>",
+                    ));
+                }
+            };
+            for state in &states {
+                validate_one_of(
+                    "--state",
+                    state,
+                    &["working", "blocked", "idle", "done", "unknown"],
+                )?;
+            }
+            params.insert(
+                "states".into(),
+                Value::Array(states.into_iter().map(Value::String).collect()),
+            );
+            if let Some(timeout) = flags.take("timeout-ms") {
+                insert_decimal(&mut params, "timeout_ms", "--timeout-ms", timeout)?;
+            }
+            request(ResourceOperation::AgentWait, &selectors, flags, params)
+        }
         ["hook", "emit"] => {
             const MAX_NATIVE_PAYLOAD_BYTES: u64 = 1024 * 1024;
             let source = flags.required("source")?;

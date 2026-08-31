@@ -4,6 +4,7 @@
 //! embedded as the one validation source so transport handlers cannot drift.
 
 mod auxiliary;
+pub(crate) use auxiliary::resolve_agent_wait_request;
 mod content;
 mod effects;
 mod session;
@@ -989,6 +990,7 @@ const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
         | ResourceOperation::BrowserInputWheel
         | ResourceOperation::BrowserClose => OperationOwner::Content,
         ResourceOperation::AgentList
+        | ResourceOperation::AgentWait
         | ResourceOperation::AgentReport
         | ResourceOperation::FrontendProjectionGet
         | ResourceOperation::FrontendProjectionPut

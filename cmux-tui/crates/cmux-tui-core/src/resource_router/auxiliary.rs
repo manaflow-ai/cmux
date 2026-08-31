@@ -21,6 +21,7 @@ pub(super) fn handles(operation: ResourceOperation) -> bool {
     matches!(
         operation,
         ResourceOperation::AgentList
+            | ResourceOperation::AgentWait
             | ResourceOperation::AgentReport
             | ResourceOperation::FrontendProjectionGet
             | ResourceOperation::FrontendProjectionPut
@@ -39,6 +40,7 @@ pub(super) fn dispatch(
     debug_assert!(handles(request.envelope.operation));
     match request.envelope.operation {
         ResourceOperation::AgentList => list_agents(mux, &request),
+        ResourceOperation::AgentWait => wait_agent(mux, &request),
         ResourceOperation::AgentReport => report_agent(mux, request),
         ResourceOperation::FrontendProjectionGet => get_frontend_projection(mux, &request),
         ResourceOperation::FrontendProjectionPut => put_frontend_projection(mux, request),
@@ -87,6 +89,78 @@ fn list_agents(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value,
         })
         .map_err(resource_operation_error)?;
     Ok(Value::Array(values))
+}
+
+/// Synchronous fallback for `agent.wait` on router paths that cannot
+/// detach (the server intercepts socket requests into a cancelable wait
+/// worker before this). Event-driven: roster commits wake the wait; there
+/// is no polling loop.
+fn wait_agent(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, ResourceError> {
+    let session_id = resolve_session(mux, &request.selectors)?;
+    let terminal = request.fields.get("terminal_id").map(parse_terminal_id).transpose()?;
+    let states = parse_agent_wait_states(&request.fields)?;
+    let timeout = request
+        .fields
+        .get("timeout_ms")
+        .and_then(Value::as_u64)
+        .map(std::time::Duration::from_millis);
+    let deadline = timeout.map(|timeout| std::time::Instant::now() + timeout);
+    loop {
+        let subscription = mux.subscribe_agent_changes();
+        if let Some(agent) =
+            mux.agent_wait_snapshot(&session_id, terminal.as_ref(), &states)
+                .map_err(resource_operation_error)?
+        {
+            return Ok(json!({"matched": true, "agent": agent}));
+        }
+        if timeout == Some(std::time::Duration::ZERO) || !subscription.wait_until(deadline) {
+            let agent = mux
+                .agent_wait_snapshot(&session_id, terminal.as_ref(), &states)
+                .map_err(resource_operation_error)?;
+            let matched = agent.is_some();
+            let mut result = json!({"matched": matched});
+            if let Some(agent) = agent {
+                result["agent"] = agent;
+            }
+            return Ok(result);
+        }
+    }
+}
+
+/// Resolve everything an `agent.wait` needs up front so the detached
+/// server wait worker never re-parses fields mid-loop.
+pub(crate) fn resolve_agent_wait_request(
+    mux: &Arc<Mux>,
+    request: &ParsedResourceRequest,
+) -> Result<(SessionPublicId, Option<TerminalPublicId>, Vec<AgentState>), ResourceError> {
+    let session_id = resolve_session(mux, &request.selectors)?;
+    let terminal = request.fields.get("terminal_id").map(parse_terminal_id).transpose()?;
+    let states = parse_agent_wait_states(&request.fields)?;
+    Ok((session_id, terminal, states))
+}
+
+/// The `states` field: one or more agent states, any of which completes
+/// the wait.
+pub(crate) fn parse_agent_wait_states(
+    fields: &serde_json::Map<String, Value>,
+) -> Result<Vec<AgentState>, ResourceError> {
+    fields
+        .get("states")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(parse_agent_state)
+        .collect::<Result<Vec<_>, _>>()
+        .and_then(|states| {
+            if states.is_empty() {
+                Err(ResourceError::validation_invalid(
+                    Some("states"),
+                    "agent wait requires at least one state",
+                ))
+            } else {
+                Ok(states)
+            }
+        })
 }
 
 fn report_agent(mux: &Arc<Mux>, request: ParsedResourceRequest) -> Result<Value, ResourceError> {

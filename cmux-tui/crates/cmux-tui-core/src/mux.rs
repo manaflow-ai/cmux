@@ -1954,6 +1954,56 @@ impl Drop for TerminalExitDetachLease {
 }
 
 #[derive(Default)]
+/// Wakes `agent.wait` requests on any agent projection commit. Global,
+/// not per terminal: agent transitions are rare next to terminal output,
+/// and a waiter re-checks its own predicate on every wake.
+#[derive(Debug, Default)]
+struct AgentChangeWaiters {
+    next_id: AtomicU64,
+    waiters: Mutex<HashMap<u64, Weak<ResourceWaitWake>>>,
+}
+
+pub(crate) struct AgentChangeSubscription<'a> {
+    owner: &'a AgentChangeWaiters,
+    waiter_id: u64,
+    wake: Arc<ResourceWaitWake>,
+}
+
+impl AgentChangeWaiters {
+    fn subscribe(&self) -> AgentChangeSubscription<'_> {
+        let waiter_id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let wake = Arc::new(ResourceWaitWake::default());
+        self.waiters.lock().unwrap().insert(waiter_id, Arc::downgrade(&wake));
+        AgentChangeSubscription { owner: self, waiter_id, wake }
+    }
+
+    fn notify_all(&self) {
+        self.waiters.lock().unwrap().retain(|_, waiter| match waiter.upgrade() {
+            Some(waiter) => {
+                waiter.notify();
+                true
+            }
+            None => false,
+        });
+    }
+}
+
+impl AgentChangeSubscription<'_> {
+    pub(crate) fn wake(&self) -> Arc<ResourceWaitWake> {
+        self.wake.clone()
+    }
+
+    pub(crate) fn wait_until(&self, deadline: Option<Instant>) -> bool {
+        self.wake.wait_until(deadline)
+    }
+}
+
+impl Drop for AgentChangeSubscription<'_> {
+    fn drop(&mut self) {
+        self.owner.waiters.lock().unwrap().remove(&self.waiter_id);
+    }
+}
+
 struct TerminalExitWaiters {
     next_id: AtomicU64,
     waiters: Mutex<HashMap<TerminalPublicId, HashMap<u64, Weak<ResourceWaitWake>>>>,
@@ -2196,6 +2246,7 @@ pub struct Mux {
     #[cfg(test)]
     journal_segment_prepare_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     terminal_exit_waiters: TerminalExitWaiters,
+    agent_change_waiters: AgentChangeWaiters,
     #[cfg(test)]
     terminal_exit_state_queries: AtomicU64,
     /// Keeps a close from removing a just-created surface before legacy
@@ -2563,6 +2614,7 @@ impl Mux {
             #[cfg(test)]
             journal_segment_prepare_hook: Mutex::new(None),
             terminal_exit_waiters: TerminalExitWaiters::default(),
+            agent_change_waiters: AgentChangeWaiters::default(),
             #[cfg(test)]
             terminal_exit_state_queries: AtomicU64::new(0),
             resource_creation_handoff: Mutex::new(()),
@@ -5068,6 +5120,29 @@ impl Mux {
         let blob =
             crate::journal_checkpoint::terminal_replay_blob(&surface, &public_terminal_id).ok()?;
         Some((public_terminal_id, generation.to_string(), blob))
+    }
+
+    /// Subscribe to agent projection commits for `agent.wait`.
+    pub(crate) fn subscribe_agent_changes(&self) -> AgentChangeSubscription<'_> {
+        self.agent_change_waiters.subscribe()
+    }
+
+    /// The first agent projection matching the wait predicate, as its
+    /// public snapshot. Durable projections back the read, so a state that
+    /// already holds (including `done`) resolves without waiting.
+    pub(crate) fn agent_wait_snapshot(
+        &self,
+        session_id: &crate::resource::SessionPublicId,
+        terminal: Option<&TerminalPublicId>,
+        states: &[AgentState],
+    ) -> anyhow::Result<Option<Value>> {
+        self.with_resource_projection(|registry, _state| {
+            Ok(registry
+                .public_agent_projections(terminal, None)?
+                .into_iter()
+                .find(|agent| states.iter().any(|state| agent.state == state.as_str()))
+                .map(|agent| agent.into_public_snapshot(session_id)))
+        })
     }
 
     pub(crate) fn subscribe_terminal_exit(
@@ -9652,6 +9727,7 @@ impl Mux {
                 agent: agent.agent.as_deref().map(Arc::from),
                 updated_at_ms: agent.updated_at_ms,
             });
+            self.agent_change_waiters.notify_all();
             if origin == AgentReportOrigin::Direct {
                 // The roster only folds journal events, so a direct report
                 // records its intent in the log; the fold recognizes the
@@ -23726,6 +23802,42 @@ mod tests {
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].source, AgentSource::Hook);
         assert_eq!(records[0].state, AgentState::Working);
+    }
+
+    #[test]
+    fn agent_wait_snapshot_matches_any_state_and_commits_wake_subscribers() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let session_id = mux.workspace_registry.lock().unwrap().session_id().clone();
+        let states = [AgentState::Blocked, AgentState::Done];
+
+        assert!(
+            mux.agent_wait_snapshot(&session_id, None, &states).unwrap().is_none(),
+            "nothing matches before any report"
+        );
+
+        // Register the wake source first, exactly like the server wait.
+        let subscription = mux.subscribe_agent_changes();
+        mux.report_agent(surface.id, AgentState::Blocked, AgentSource::Socket, None).unwrap();
+        assert!(
+            subscription.wait_until(Some(Instant::now())),
+            "an agent commit wakes registered waiters"
+        );
+
+        let snapshot = mux.agent_wait_snapshot(&session_id, None, &states).unwrap().unwrap();
+        assert_eq!(snapshot["state"], "blocked");
+        let terminal_id = snapshot["terminal_id"].as_str().unwrap().to_string();
+        let terminal_id = crate::resource::TerminalPublicId::parse(terminal_id).unwrap();
+        assert!(
+            mux.agent_wait_snapshot(&session_id, Some(&terminal_id), &states)
+                .unwrap()
+                .is_some(),
+            "the terminal filter matches its own agent"
+        );
+        assert!(
+            mux.agent_wait_snapshot(&session_id, None, &[AgentState::Idle]).unwrap().is_none(),
+            "a state outside the wanted set does not match"
+        );
     }
 
     #[test]

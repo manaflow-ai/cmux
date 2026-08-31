@@ -5,6 +5,7 @@
   "resource_operations": [
     "agent.list",
     "agent.report",
+    "agent.wait",
     "browser.activate",
     "browser.attach",
     "browser.back",

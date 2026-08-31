@@ -629,9 +629,15 @@ USAGE
 const AGENT_HELP: &str = "\
 USAGE
   cmux agent list [OPTIONS]
+  cmux agent wait (--state <value> | --any-of <a,b,...>) [--terminal <id>] [--timeout-ms <n>]
   cmux agent report --terminal <selector> --state <value> --source <value>
   cmux agent hook install|uninstall|status [provider...]
   cmux agent hook emit --source <agent> --event <native-event> [--terminal <id>]
+
+`agent wait` blocks until an agent reaches one of the given states and
+prints the matching agent snapshot (matched=false on timeout; exit code
+stays 0 with the result payload). Event-driven agent-to-agent
+coordination: roster commits wake the wait; there is no polling.
 ";
 
 const SIDEBAR_HELP: &str = "\
