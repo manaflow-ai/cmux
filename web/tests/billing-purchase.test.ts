@@ -706,6 +706,36 @@ describe("recordFoundersCheckoutCompletion", () => {
     expect(subscriptionInsert?.values.status).toBe("active");
   });
 
+  test("preserves a locally marked Founder entitlement on an unmarked event", async () => {
+    const update = mock(async () => undefined);
+    const user = {
+      id: "user_123",
+      primaryEmail: "founder@example.com",
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+      update,
+    };
+    selectResults = [
+      [{ stackUserId: "user_123" }],
+      [{
+        id: "sub_user",
+        raw: { metadata: { founders_edition: "true" } },
+      }],
+    ];
+
+    const result = await applySubscriptionUpdate(
+      userSubscriptionUpdate({ status: "canceled" }) as never,
+      {
+        db: fakeDb() as never,
+        stackApp: { getUser: async () => user } as never,
+      },
+    );
+
+    expect(result).toEqual({ skipped: true });
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+    expect(update).not.toHaveBeenCalled();
+  });
+
   test("does not let a later Founder subscription webhook revoke the entitlement", async () => {
     const result = await applySubscriptionUpdate(
       {
