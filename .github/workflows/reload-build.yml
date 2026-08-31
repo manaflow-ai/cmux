@@ -578,6 +578,8 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES \
             SWIFT_OPTIMIZATION_LEVEL=-O \
             SWIFT_COMPILATION_MODE=wholemodule \
             GCC_OPTIMIZATION_LEVEL=s \
