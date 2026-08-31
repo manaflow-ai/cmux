@@ -1953,7 +1953,6 @@ impl Drop for TerminalExitDetachLease {
     }
 }
 
-#[derive(Default)]
 /// Wakes `agent.wait` requests on any agent projection commit. Global,
 /// not per terminal: agent transitions are rare next to terminal output,
 /// and a waiter re-checks its own predicate on every wake.
@@ -2004,6 +2003,7 @@ impl Drop for AgentChangeSubscription<'_> {
     }
 }
 
+#[derive(Default)]
 struct TerminalExitWaiters {
     next_id: AtomicU64,
     waiters: Mutex<HashMap<TerminalPublicId, HashMap<u64, Weak<ResourceWaitWake>>>>,
