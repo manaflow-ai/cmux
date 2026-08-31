@@ -36,4 +36,6 @@ jobs:
           path-to-document: 'https://github.com/manaflow-ai/cmux/blob/main/CLA.md'
           # signatures live on the unprotected cla-signatures branch so required checks on main don't block the bot's signature commits
           branch: 'cla-signatures'
-          allowlist: lawrencecchen,bot*
+          # Keep this list explicit. A username prefix is not proof that an
+          # account is a GitHub bot and would let a human bypass the CLA.
+          allowlist: lawrencecchen,github-actions[bot],chatmux-connections[bot]
