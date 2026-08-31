@@ -1,5 +1,43 @@
 import CMUXMobileCore
+internal import CmuxMobilePairedMac
 public import CmuxMobileShellModel
+
+extension MobileShellComposite {
+    /// Record a freshly learned (authenticated) capability snapshot for one
+    /// pairing: update the in-memory index the connect-time pipelined
+    /// subscribe reads, and persist it to the paired-Mac store so the NEXT
+    /// cold launch can pipeline its first subscribe too. Device-local state,
+    /// written fire-and-forget: capability learning must never block the
+    /// connect path on a store write.
+    func persistLearnedHostCapabilities(
+        _ capabilities: Set<String>,
+        macDeviceID: String,
+        instanceTag: String?
+    ) {
+        guard !macDeviceID.isEmpty, !capabilities.isEmpty else { return }
+        let canonical = cmxCanonicalDeviceID(macDeviceID)
+        guard persistedHostCapabilitiesByDevice[canonical] != capabilities else {
+            // Repeated host-status refreshes of an unchanged set must not
+            // re-write the row on every poll.
+            return
+        }
+        persistedHostCapabilitiesByDevice[canonical] = capabilities
+        guard let pairedMacStore else { return }
+        let rawJSON = MobilePairedMac.encodeLearnedCapabilities(capabilities)
+        Task { [weak self] in
+            // Same scope resolution as setConnectionMethod: the stored row's
+            // owner key embeds user + team, so a nil scope would update nothing.
+            guard let self, let scope = await self.currentScopeSnapshot() else { return }
+            try? await pairedMacStore.setLearnedCapabilities(
+                macDeviceID: canonical,
+                instanceTag: instanceTag,
+                rawJSON: rawJSON,
+                stackUserID: scope.userID,
+                teamID: scope.teamID
+            )
+        }
+    }
+}
 
 extension MobileShellComposite {
     /// Whether the connected Mac supports browser-pane streaming.

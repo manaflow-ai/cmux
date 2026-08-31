@@ -14,7 +14,7 @@ let pairedMacStoreLog = Logger(subsystem: "com.cmuxterm.app", category: "PairedM
 /// inject it as `any MobilePairedMacStoring`.
 public actor MobilePairedMacStore: MobilePairedMacStoring {
     /// The schema version this build creates and migrates to.
-    public static let currentSchemaVersion: Int32 = 11
+    public static let currentSchemaVersion: Int32 = 12
 
     private let dbPath: String
     // `nonisolated(unsafe)` only so the (Swift 6 nonisolated) `deinit` can close
@@ -116,7 +116,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 try migrateToV9()
                 try migrateToV10()
                 try migrateToV11()
-                try setUserVersion(11)
+                try migrateToV12()
+                try setUserVersion(12)
             }
         case 1:
             try transaction {
@@ -130,7 +131,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 try migrateToV9()
                 try migrateToV10()
                 try migrateToV11()
-                try setUserVersion(11)
+                try migrateToV12()
+                try setUserVersion(12)
             }
         case 2:
             try transaction {
@@ -143,7 +145,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 try migrateToV9()
                 try migrateToV10()
                 try migrateToV11()
-                try setUserVersion(11)
+                try migrateToV12()
+                try setUserVersion(12)
             }
         case 3:
             try transaction {
@@ -155,7 +158,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 try migrateToV9()
                 try migrateToV10()
                 try migrateToV11()
-                try setUserVersion(11)
+                try migrateToV12()
+                try setUserVersion(12)
             }
         case 4:
             try transaction {
@@ -166,7 +170,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 try migrateToV9()
                 try migrateToV10()
                 try migrateToV11()
-                try setUserVersion(11)
+                try migrateToV12()
+                try setUserVersion(12)
             }
         case 5:
             try transaction {
@@ -176,7 +181,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 try migrateToV9()
                 try migrateToV10()
                 try migrateToV11()
-                try setUserVersion(11)
+                try migrateToV12()
+                try setUserVersion(12)
             }
         case 6:
             try transaction {
@@ -185,7 +191,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 try migrateToV9()
                 try migrateToV10()
                 try migrateToV11()
-                try setUserVersion(11)
+                try migrateToV12()
+                try setUserVersion(12)
             }
         case 7:
             try transaction {
@@ -193,27 +200,36 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 try migrateToV9()
                 try migrateToV10()
                 try migrateToV11()
-                try setUserVersion(11)
+                try migrateToV12()
+                try setUserVersion(12)
             }
         case 8:
             try transaction {
                 try migrateToV9()
                 try migrateToV10()
                 try migrateToV11()
-                try setUserVersion(11)
+                try migrateToV12()
+                try setUserVersion(12)
             }
         case 9:
             try transaction {
                 try migrateToV10()
                 try migrateToV11()
-                try setUserVersion(11)
+                try migrateToV12()
+                try setUserVersion(12)
             }
         case 10:
             try transaction {
                 try migrateToV11()
-                try setUserVersion(11)
+                try migrateToV12()
+                try setUserVersion(12)
             }
         case 11:
+            try transaction {
+                try migrateToV12()
+                try setUserVersion(12)
+            }
+        case 12:
             break
         default:
             // A newer build wrote a higher schema version. Schema migrations are
@@ -535,6 +551,17 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         let columns = try tableColumns("paired_macs")
         guard !columns.contains("direct_addresses") else { return }
         try exec("ALTER TABLE paired_macs ADD COLUMN direct_addresses TEXT;")
+    }
+
+    /// v12: the capability set this iPhone last learned from the pairing's
+    /// authenticated host status (JSON array of capability strings). Additive
+    /// and device-local like `connection_method`: it never rides the account
+    /// backup (another device's snapshot proves nothing about what THIS
+    /// device negotiated) and `NULL` means "no learned snapshot yet".
+    private func migrateToV12() throws {
+        let columns = try tableColumns("paired_macs")
+        guard !columns.contains("learned_capabilities") else { return }
+        try exec("ALTER TABLE paired_macs ADD COLUMN learned_capabilities TEXT;")
     }
 
     /// Column names defined on `table` (via `PRAGMA table_info`), used to make
@@ -1096,6 +1123,34 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         try exec("""
             UPDATE paired_macs
             SET direct_addresses = ?
+            WHERE mac_device_id = ? AND owner_key = ?;
+        """, binding: [
+            rawJSON.map(BindValue.text) ?? .null,
+            .text(macDeviceID),
+            .text(Self.ownerKey(
+                stackUserID: stackUserID,
+                teamID: teamID,
+                instanceTag: instanceTag
+            )),
+        ])
+    }
+
+    /// Persist the capability set this iPhone last learned from one tagged
+    /// paired Mac's authenticated host status (JSON payload owned by the
+    /// shell; nil clears the snapshot). Device-local like `connection_method`
+    /// and `direct_addresses`: never bumps LWW freshness, never backs up.
+    public func setLearnedCapabilities(
+        macDeviceID: String,
+        instanceTag: String?,
+        rawJSON: String?,
+        stackUserID: String? = nil,
+        teamID: String? = nil
+    ) throws {
+        try ensureReady()
+        let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
+        try exec("""
+            UPDATE paired_macs
+            SET learned_capabilities = ?
             WHERE mac_device_id = ? AND owner_key = ?;
         """, binding: [
             rawJSON.map(BindValue.text) ?? .null,

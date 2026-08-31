@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobilePairedMac
 import CmuxMobileRPC
 import Foundation
 import Testing
@@ -385,4 +386,121 @@ private func primeConnectedStore(
             == Set(MobileShellComposite.TerminalOutputTransport.renderGrid.eventTopics),
         "the reconnect's pipelined subscribe must request the learned exact topics"
     )
+}
+
+/// Cold launch has no live connection pool, so the pipelined subscribe's
+/// capability snapshot comes from the pairing's PERSISTED set. A stale
+/// persisted set (the Mac upgraded to verified replay while this install was
+/// not running) must still pipeline, then correct within ONE round trip via
+/// the ordinary idempotent re-subscribe, and the refreshed set must be
+/// persisted back for the next launch. Mirrors
+/// `staleLearnedCapabilitiesReassertAndNextReconnectPipelinesExactly` for the
+/// persisted (cross-process) snapshot source.
+@MainActor
+@Test func stalePersistedCapabilitiesPipelineOnColdLaunchAndCorrectWithinOneRoundTrip() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    // The Mac upgraded to verified replay while the app was not running.
+    let upgradedCapabilities = [
+        "events.v1",
+        "terminal.bytes.v1",
+        "terminal.render_grid.v1",
+        "terminal.render_grid.verified_replay.v1",
+        "terminal.replay.v1",
+    ]
+    await router.setCapabilities(upgradedCapabilities)
+
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let pairedStore: any MobilePairedMacStoring = try MobilePairedMacStore(
+        databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+    )
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584),
+        priority: 0
+    )
+    try await pairedStore.upsert(
+        macDeviceID: "test-mac",
+        displayName: "Test Mac",
+        routes: [route],
+        instanceTag: "default",
+        markActive: true,
+        stackUserID: "user-1",
+        teamID: nil,
+        now: clock.now
+    )
+    // The snapshot the LAST session learned from the pre-upgrade hybrid host.
+    let staleCapabilities: Set<String> = [
+        "events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1",
+    ]
+    try await pairedStore.setLearnedCapabilities(
+        macDeviceID: "test-mac",
+        instanceTag: "default",
+        rawJSON: MobilePairedMac.encodeLearnedCapabilities(staleCapabilities),
+        stackUserID: "user-1",
+        teamID: nil
+    )
+
+    // A fresh composite models the cold launch: nothing pooled, nothing learned
+    // in-process, only the persisted snapshot.
+    let store = MobileShellComposite(
+        runtime: LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(router: router, box: box),
+            now: { clock.now },
+            supportedRouteKinds: [.debugLoopback]
+        ),
+        isSignedIn: true,
+        pairedMacStore: pairedStore,
+        identityProvider: StaticIdentityProvider(userID: "user-1"),
+        reachability: AlwaysOnlineReachability(),
+        pairingHintDefaults: UserDefaults(
+            suiteName: "cold-launch-persisted-caps-\(UUID().uuidString)"
+        )!,
+        hiddenMacStore: InMemoryPairedMacHiddenStore()
+    )
+
+    let connected = await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+    #expect(connected, "the cold-launch reconnect must connect")
+    let healthy = try await pollUntil(attempts: 1_000) {
+        store.macConnectionStatus == .connected
+    }
+    #expect(healthy)
+
+    // The persisted (stale) snapshot pipelined the first subscribe onto the
+    // connect batch, ahead of the workspace-list exchange...
+    let methods = await router.recordedMethods()
+    let subscribeIndex = try #require(methods.firstIndex(of: "mobile.events.subscribe"))
+    let workspaceListIndex = try #require(methods.firstIndex(of: "workspace.list"))
+    #expect(
+        subscribeIndex < workspaceListIndex,
+        "the persisted snapshot must pipeline the cold-launch subscribe ahead of the workspace-list request"
+    )
+    // ...and the stale guess corrected with exactly ONE idempotent
+    // re-subscribe round trip.
+    #expect(await router.waitForCount(of: "mobile.events.subscribe", atLeast: 2))
+    let topics = await router.topics(for: "mobile.events.subscribe")
+    #expect(topics.count == 2, "one pipelined subscribe, one corrective re-subscribe, nothing else")
+    #expect(
+        topics[0].contains("terminal.bytes"),
+        "the pipelined request reflects the stale persisted hybrid snapshot"
+    )
+    #expect(
+        topics.count > 1 && Set(topics[1])
+            == Set(MobileShellComposite.TerminalOutputTransport.renderGrid.eventTopics),
+        "the corrective re-subscribe must narrow to the resolved render-grid topics"
+    )
+
+    // The corrected set is persisted back so the NEXT cold launch pipelines
+    // the exact request.
+    let persistedRefreshed = try await pollUntil {
+        let row = try? await pairedStore.loadAll(stackUserID: "user-1", teamID: nil).first
+        return row.flatMap { $0 }?.learnedCapabilities == Set(upgradedCapabilities)
+    }
+    #expect(persistedRefreshed, "the learned upgrade must be persisted for the next launch")
+    await store.remoteClient?.disconnect()
 }

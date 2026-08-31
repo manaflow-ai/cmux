@@ -2974,6 +2974,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let result = storedMacReconnectInterruptionResult(generation: generation) {
             return result ? .connected : .superseded
         }
+        // Cold launch reaches this reconnect before any `loadPairedMacs`, so
+        // the pipelined-subscribe snapshot must be seeded from the same rows
+        // the dial uses.
+        seedPersistedHostCapabilities(from: loadedMacs)
         let hiddenIDs = await hiddenMacDeviceIDs(scope: scope)
         if let result = storedMacReconnectInterruptionResult(generation: generation) {
             return result ? .connected : .superseded
@@ -3235,10 +3239,34 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         storedPairedMacs.isEmpty ? pairedMacs : storedPairedMacs
     }
 
+    /// Last-learned host capability sets by canonical Mac device id, seeded
+    /// from the paired-Mac store's persisted snapshots and refreshed whenever
+    /// a live connection learns capabilities. The cold-launch source for the
+    /// connect-time pipelined subscribe; the live connection pool always wins
+    /// when it has an entry. Device-level on purpose: any instance tag's
+    /// snapshot is a valid hint for the same physical Mac (mirroring the
+    /// pool's device-level read).
+    @ObservationIgnored var persistedHostCapabilitiesByDevice: [String: Set<String>] = [:]
+
+    /// Seed the in-memory capability index from freshly loaded store rows.
+    /// The in-memory entry wins when present: it is at least as fresh as any
+    /// persisted row because every learn updates both together.
+    func seedPersistedHostCapabilities(from macs: [MobilePairedMac]) {
+        for mac in macs {
+            let learned = mac.learnedCapabilities
+            guard !learned.isEmpty else { continue }
+            let canonical = cmxCanonicalDeviceID(mac.macDeviceID)
+            if persistedHostCapabilitiesByDevice[canonical] == nil {
+                persistedHostCapabilitiesByDevice[canonical] = learned
+            }
+        }
+    }
+
     private func installStoredPairedMacCache(
         _ macs: [MobilePairedMac],
         scope: MobileShellScopeSnapshot
     ) {
+        seedPersistedHostCapabilities(from: macs)
         storedPairedMacsIncludingHidden = macs
         storedPairedMacsByCanonicalDeviceID = Dictionary(
             grouping: macs,
@@ -3261,6 +3289,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func clearStoredPairedMacCache() {
+        // The capability index is account-scoped data: it must not leak a
+        // previous user's learned snapshots across a sign-out boundary.
+        persistedHostCapabilitiesByDevice = [:]
         storedPairedMacsIncludingHidden = []
         storedPairedMacsByCanonicalDeviceID = [:]
         storedPairedMacAliasCanonicalIDsByCanonicalID = [:]
@@ -9286,6 +9317,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                    == cmxCanonicalDeviceID(requestedMacDeviceID) {
                 return supportedHostCapabilities
             }
+            // Cold launch: no live pool entry exists yet, but the last
+            // authenticated session's capability set is persisted per pairing.
+            // Using it lets the first connect of the process pipeline the
+            // subscribe; a stale persisted set only costs the ordinary
+            // corrective re-subscribe, exactly like a stale pool snapshot.
+            if let persisted = persistedHostCapabilitiesByDevice[
+                cmxCanonicalDeviceID(requestedMacDeviceID)
+            ] {
+                return persisted
+            }
             return []
         }()
         func isConnectCurrent() -> Bool {
@@ -9971,6 +10012,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         foregroundMacDeviceID = resolvedForegroundMacID
                     }
                     supportedHostCapabilities = authenticatedCapabilities
+                    // Post-adoption capability learning: persist the snapshot
+                    // so the next cold launch pipelines its first subscribe.
+                    if !resolvedForegroundMacID.isEmpty {
+                        persistLearnedHostCapabilities(
+                            authenticatedCapabilities,
+                            macDeviceID: resolvedForegroundMacID,
+                            instanceTag: resolvedInstanceTag
+                        )
+                    }
                     phonePushMacStatus = status.phonePush
                     // Publish transport selection with the authenticated
                     // capability snapshot before exposing `.connected`.
@@ -12425,6 +12475,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return .rawBytes
             }
             supportedHostCapabilities = Set(payload.capabilities)
+            // A mid-session capability change (the Mac app updated between
+            // connects or refreshed its flags) refreshes the persisted
+            // snapshot so the next cold launch pipelines the current set.
+            if let learnedMacDeviceID = payload.macDeviceID
+                ?? foregroundMacDeviceID
+                ?? activeTicket?.macDeviceID,
+               !learnedMacDeviceID.isEmpty {
+                persistLearnedHostCapabilities(
+                    Set(payload.capabilities),
+                    macDeviceID: learnedMacDeviceID,
+                    instanceTag: payload.macInstanceTag ?? activeMacInstanceTag
+                )
+            }
             phonePushMacStatus = payload.phonePush
             restartActiveMobileBrowserStreams()
             restartActiveMobileSimulatorStreams()
