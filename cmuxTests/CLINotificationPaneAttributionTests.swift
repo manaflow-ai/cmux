@@ -315,6 +315,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
             (parentStopRecord["settledTurnIDs"] as? [String])?.contains(parentStopTurnId) == true,
             "An unresolved parent Stop must still settle the ledger by session identity"
         )
+        XCTAssertFalse(
+            (parentStopRecord["notifiedTurnIDs"] as? [String])?.contains(parentStopTurnId) == true,
+            "An unresolved parent Stop must leave notification claiming retryable until a pane is proven"
+        )
         XCTAssertTrue(
             AgentJournalAppendCapture.captures(in: state.commands).contains {
                 $0.unattributedReason == "target-unresolved" && $0.surfaceId == nil

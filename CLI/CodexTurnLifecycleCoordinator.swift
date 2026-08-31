@@ -18,17 +18,6 @@ struct CodexTurnLifecycleCoordinator {
         ledger = cli.codexTurnLedger(environment: environment)
     }
 
-    /// Read-only admission check used when a hook cannot prove a pane. An
-    /// unattributed callback may update an existing session's lifecycle, but
-    /// it must not create a durable ledger record with no owner or surface.
-    func hasRecord(sessionID: String) -> Bool {
-        guard let normalizedSessionID = CodexTurnLedger.normalized(sessionID),
-              let state = try? ledger.load() else {
-            return false
-        }
-        return state.records[normalizedSessionID] != nil
-    }
-
     func sessionStart(
         sessionID: String,
         workspaceID: String?,
@@ -63,7 +52,8 @@ struct CodexTurnLifecycleCoordinator {
         turnID: String?,
         workspaceID: String?,
         surfaceID: String?,
-        starts: Bool
+        starts: Bool,
+        allowCreate: Bool = true
     ) -> CodexTurnLedgerDecision {
         let result: Result<CodexTurnLedgerDecision, Error>
         if starts {
@@ -74,7 +64,8 @@ struct CodexTurnLifecycleCoordinator {
                     turnID: turnID,
                     workspaceID: workspaceID,
                     surfaceID: surfaceID,
-                    invocation: invocation
+                    invocation: invocation,
+                    allowCreate: allowCreate
                 )
             }
         } else {
@@ -85,7 +76,8 @@ struct CodexTurnLifecycleCoordinator {
                     turnID: turnID,
                     workspaceID: workspaceID,
                     surfaceID: surfaceID,
-                    invocation: invocation
+                    invocation: invocation,
+                    allowCreate: allowCreate
                 )
             }
         }
@@ -96,27 +88,33 @@ struct CodexTurnLifecycleCoordinator {
         sessionID: String,
         turnID: String?,
         workspaceID: String?,
-        surfaceID: String?
+        surfaceID: String?,
+        claimNotification: Bool = true,
+        allowCreate: Bool = true
     ) -> CodexTurnLedgerDecision {
         (try? ledger.stop(
             sessionID: sessionID,
             turnID: turnID,
             workspaceID: workspaceID,
             surfaceID: surfaceID,
-            invocation: invocation
+            invocation: invocation,
+            claimNotification: claimNotification,
+            allowCreate: allowCreate
         )) ?? .ignored
     }
 
     func observe(
         sessionID: String,
         workspaceID: String?,
-        surfaceID: String?
+        surfaceID: String?,
+        allowCreate: Bool = true
     ) -> CodexTurnLedgerDecision {
         (try? ledger.observe(
             sessionID: sessionID,
             workspaceID: workspaceID,
             surfaceID: surfaceID,
-            invocation: invocation
+            invocation: invocation,
+            allowCreate: allowCreate
         )) ?? .ignored
     }
 

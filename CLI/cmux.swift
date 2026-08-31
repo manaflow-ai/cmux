@@ -34530,17 +34530,15 @@ export default CMUXSessionRestore;
                 if case .codexSubagentStart = action { return true }
                 return false
             }()
-            let canApplyLedger = target != nil || codexLifecycle.hasRecord(sessionID: sessionId)
-            let decision = canApplyLedger
-                ? codexLifecycle.subagent(
-                    sessionID: sessionId,
-                    agentID: agentId,
-                    turnID: turnId,
-                    workspaceID: workspaceId,
-                    surfaceID: surfaceId,
-                    starts: starts
-                )
-                : .ignored
+            let decision = codexLifecycle.subagent(
+                sessionID: sessionId,
+                agentID: agentId,
+                turnID: turnId,
+                workspaceID: workspaceId,
+                surfaceID: surfaceId,
+                starts: starts,
+                allowCreate: target != nil
+            )
             let childJournalKind: AgentJournalEventKind = {
                 if case .codexSubagentStart = action {
                     return .childSpawned
@@ -34558,7 +34556,8 @@ export default CMUXSessionRestore;
             if case .codexSubagentStop = action,
                decision.ownership == .foreground,
                decision.settlement == .settled,
-               decision.shouldNotify {
+               decision.shouldNotify,
+               !skipCodexLegacyPromptStop {
                 spawnDetachedCodexSettledStop(
                     payload: rawInput,
                     environment: env,
@@ -35170,33 +35169,25 @@ export default CMUXSessionRestore;
             let resolvedTarget = resolveAgentHookTarget(mapped: mapped)
             let resolvedWorkspaceId = resolvedTarget?.workspaceId
             let resolvedSurfaceId = resolvedTarget?.surfaceId
-            let codexLedgerRecordExists: Bool = {
-                guard def.name == "codex",
-                      !sessionId.isEmpty,
-                      let codexLifecycle else {
-                    return false
-                }
-                return codexLifecycle.hasRecord(sessionID: sessionId)
-            }()
             // Admit ownership before touching the legacy prompt-depth store.
             // A nested reviewer must not be able to create or mutate a generic
             // session record merely because it inherited the foreground PID.
             let codexStopOwnership: CodexTurnLedgerDecision? = {
                 guard def.name == "codex",
                       !sessionId.isEmpty,
-                      let codexLifecycle,
-                      resolvedTarget != nil || codexLedgerRecordExists else {
+                      let codexLifecycle else {
                     return nil
                 }
                 return codexLifecycle.observe(
                     sessionID: sessionId,
                     workspaceID: resolvedWorkspaceId,
-                    surfaceID: resolvedSurfaceId
+                    surfaceID: resolvedSurfaceId,
+                    allowCreate: resolvedTarget != nil
                 )
             }()
             var codexStopDecision = codexStopOwnership
             if def.name == "codex", !sessionId.isEmpty,
-               resolvedTarget != nil || codexLedgerRecordExists {
+               resolvedTarget != nil || codexStopOwnership?.ownership == .foreground {
                 guard codexStopDecision?.ownership == .foreground else {
                     telemetry.breadcrumb("codex-hook.stop.nested-or-unknown")
                     print("{}")
@@ -35216,17 +35207,19 @@ export default CMUXSessionRestore;
             guard let target = resolvedTarget else {
                 if def.name == "codex",
                    !sessionId.isEmpty,
-                   codexLedgerRecordExists,
                    let codexLifecycle,
                    codexStopDecision?.ownership == .foreground {
                     codexStopDecision = codexLifecycle.stop(
                         sessionID: sessionId,
                         turnID: input.turnID,
                         workspaceID: nil,
-                        surfaceID: nil
+                        surfaceID: nil,
+                        claimNotification: false,
+                        allowCreate: false
                     )
                     if codexStopDecision?.settlement == .settled,
-                       codexStopDecision?.shouldNotify == true {
+                       codexStopDecision?.shouldNotify == true,
+                       !skipCodexLegacyPromptStop {
                         // Re-run the normal projection out of band; it will
                         // re-resolve the pane and still fail closed if proof
                         // remains unavailable.

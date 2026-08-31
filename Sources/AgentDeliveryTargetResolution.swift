@@ -147,7 +147,6 @@ extension Workspace {
             return
         }
         if transfer.ttyNameWasReportedByCurrentRuntime,
-           !transfer.isRemoteTerminal,
            let terminal = panels[transfer.panelId] as? TerminalPanel,
            transfer.ttyReportRuntimeSurfaceGeneration ==
             terminal.surface.runtimeSurfaceGeneration {
@@ -158,8 +157,7 @@ extension Workspace {
     }
 
     func restoreTransferredSurfaceTTYRuntimeProofIfNeeded(from transfer: DetachedSurfaceTransfer) {
-        guard transfer.ttyNameWasReportedByCurrentRuntime,
-              !transfer.isRemoteTerminal else { return }
+        guard transfer.ttyNameWasReportedByCurrentRuntime else { return }
         if !surfaceRegistry.runtimeReportedTTYSurfaceIDs.contains(transfer.panelId) {
             adoptTransferredSurfaceTTYName(from: transfer)
         }
@@ -167,7 +165,8 @@ extension Workspace {
         // preserved current-generation report under the destination key so
         // strict caller-TTY resolution keeps its freshness check after a
         // local surface move.
-        guard !isRemoteWorkspace,
+        guard !transfer.isRemoteTerminal,
+              !isRemoteWorkspace,
               !isRemoteTmuxMirror,
               let terminal = panels[transfer.panelId] as? TerminalPanel,
               hasCurrentRuntimeReportedTTY(panelId: transfer.panelId, terminal: terminal),
