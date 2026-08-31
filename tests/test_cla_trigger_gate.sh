@@ -12,14 +12,24 @@ test -f "$WORKFLOW"
 # enforcement. Keep admission non-canceling and bounded by event type so a
 # public comment cannot consume an unbounded number of runners.
 grep -Fq 'name: "CLA Assistant v2"' "$WORKFLOW"
+grep -Fq 'name: "CLA Assistant"' "$WORKFLOW"
 grep -Fq 'group: >-' "$WORKFLOW"
-grep -Fq 'cla-v2-${{ github.event_name }}-${{ github.event.action }}-' "$WORKFLOW"
+grep -Fq 'github.event.issue.pull_request && github.event.issue.number' "$WORKFLOW"
+grep -Fq 'github.event.pull_request.number ||' "$WORKFLOW"
+grep -Fq 'always() &&' "$WORKFLOW"
 grep -Fq 'cancel-in-progress: false' "$WORKFLOW"
 grep -Fq "path-to-signatures: 'signatures/version2/cla.json'" "$WORKFLOW"
 grep -Fq "github.event.comment.body == 'recheck'" "$WORKFLOW"
 grep -Fq "github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA'" "$WORKFLOW"
 if grep -Fq 'cla-trigger-${{ github.run_id }}' "$WORKFLOW"; then
   echo 'FAIL: CLA trigger gate admits an unbounded per-event runner group' >&2
+  exit 1
+fi
+group_block="$(awk '/^concurrency:$/ { in_group=1; next } in_group && /^jobs:$/ { exit } in_group { print }' "$WORKFLOW")"
+if [[ "$group_block" == *'github.run_'* ||
+      "$group_block" == *'github.event.comment.body }}'* ||
+      "$group_block" == *'github.event.pull_request.head.sha'* ]]; then
+  echo 'FAIL: CLA admission group contains an unbounded or raw event value' >&2
   exit 1
 fi
 
@@ -88,3 +98,29 @@ run_case pull-reopened 0 ""
 run_case pull-synchronize 0 ""
 run_case pull-closed 1 "accepted CLA trigger"
 run_case wrong-event 1 "accepted CLA trigger"
+
+# The compatibility check must fail closed when the v2 action fails or is
+# skipped. A skipped dependency must never become a successful old required
+# context during migration.
+compat_script="$work/compatibility.sh"
+awk '
+  /^  CLACompatibility:/ { in_job=1; next }
+  in_job && /^  [A-Za-z0-9_]+:/ { exit }
+  in_job && /^        run: \|$/ { in_run=1; next }
+  in_run { sub(/^          /, ""); print }
+' "$WORKFLOW" >"$compat_script"
+bash -n "$compat_script"
+for result in success failure skipped; do
+  set +e
+  V2_RESULT="$result" bash "$compat_script" >/dev/null 2>&1
+  status=$?
+  set -e
+  if [[ "$result" == success && "$status" -ne 0 ]]; then
+    echo "FAIL: compatibility check rejected successful v2 result" >&2
+    exit 1
+  elif [[ "$result" != success && "$status" -eq 0 ]]; then
+    echo "FAIL: compatibility check accepted v2 result '$result'" >&2
+    exit 1
+  fi
+done
+echo "PASS: compatibility result mirror"

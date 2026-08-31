@@ -24,7 +24,9 @@ env:
 # `single` queue permits one running and one pending run per classifier.
 concurrency:
   group: >-
-    cla-v2-${{ github.event_name }}-${{ github.event.action }}-
+    cla-v2-${{ github.event_name }}-
+    ${{ github.event.issue.pull_request && github.event.issue.number || github.event.pull_request.number || 'noise' }}-
+    ${{ github.event.action }}-
     ${{ github.event.comment.body == 'recheck' }}-
     ${{ github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA' }}
   cancel-in-progress: false
@@ -126,10 +128,6 @@ jobs:
     permissions:
       contents: write
       issues: write
-      # Keep the permission used by the CLA check publisher. GitHub's job
-      # check is required by the main ruleset, and older action revisions also
-      # publish a commit status through this token.
-      statuses: write
       # GitHub's pull_request_target token denied issue comments for fork PRs
       # with this set to read, despite the endpoint documentation allowing
       # issues:write. Keep write until that live behavior changes.
@@ -237,6 +235,51 @@ jobs:
           # Bot-opened PRs are intentionally fail-closed. Add only a reviewed
           # numeric opener ID to allowlist-ids for an approved automation flow.
           require-opener-as-author: 'true'
+
+  # Compatibility check for the current ruleset. It mirrors the v2 action
+  # result under the old context while administrators migrate the required
+  # check to "CLA Assistant v2". `always()` is required so a failed v2 action
+  # cannot turn this old required context into a skipped-success check.
+  CLACompatibility:
+    name: "CLA Assistant"
+    needs:
+      - CLACommentGate
+      - CLAAssistant
+    if: >-
+      always() &&
+      needs.CLACommentGate.result == 'success' &&
+      (
+        (
+          github.event_name == 'pull_request_target' &&
+          (
+            github.event.action == 'opened' ||
+            github.event.action == 'reopened' ||
+            github.event.action == 'synchronize'
+          )
+        ) ||
+        (
+          github.event_name == 'issue_comment' &&
+          github.event.issue.state == 'open' &&
+          github.event.issue.pull_request &&
+          (
+            github.event.comment.body == 'recheck' ||
+            github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA'
+          )
+        )
+      )
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: "Require CLA Assistant v2 success"
+        env:
+          V2_RESULT: ${{ needs.CLAAssistant.result }}
+        run: |
+          set -euo pipefail
+          if [[ "${V2_RESULT}" != "success" ]]; then
+            echo "::error::CLA Assistant v2 did not pass (result: ${V2_RESULT})"
+            exit 1
+          fi
 
   RerunFailedCLA:
     name: "Rerun failed CLA check"
