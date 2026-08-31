@@ -9,6 +9,7 @@ import {
   vmRequiresProResponse,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
+import { captureVmProvisionOutcome } from "../../../../../services/vms/observability";
 import {
   isVmNotFoundError,
 } from "../../../../../services/vms/errors";
@@ -26,6 +27,10 @@ import {
   stringField,
 } from "../../../../../services/vms/routeInput";
 
+// Fork cold-provisions a machine (and may snapshot the source first); same
+// budget and rationale as POST /api/vm (see app/api/vm/route.ts).
+export const maxDuration = 600;
+
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -38,7 +43,10 @@ export async function POST(
     async ({ user: initialUser, span, authDurationMs, routeStartedAtMs, setResponseFinalizer }) => {
       const timing = new VmTimingRecorder(span, "fork", { startedAt: routeStartedAtMs });
       timing.record("auth", authDurationMs);
-      setResponseFinalizer((response) => timing.finish({ status: response.status }));
+      setResponseFinalizer((response) => {
+        timing.finish({ status: response.status });
+        captureVmProvisionOutcome({ userId: initialUser.id, operation: "fork", response, span });
+      });
       const parsedBody = await parseOptionalObjectBody(request, {
         operation: "fork",
         action: "Send `{}` or `{ \"name\": \"before-agent\" }`.",

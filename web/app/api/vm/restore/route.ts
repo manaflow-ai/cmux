@@ -1,5 +1,8 @@
 import { unauthorized, verifyRequest, type AuthedUser } from "../../../../services/vms/auth";
+import { assertVmCreateEnabled } from "../../../../services/vms/config";
 import { defaultProviderId } from "../../../../services/vms/drivers";
+import { isVmCreateDisabledError } from "../../../../services/vms/errors";
+import { captureVmProvisionOutcome } from "../../../../services/vms/observability";
 import {
   jsonResponse,
   requestedVmTeamIdFromRequest,
@@ -25,6 +28,10 @@ import {
   stringField,
 } from "../../../../services/vms/routeInput";
 
+// Restore cold-provisions a machine from a snapshot; same budget and
+// rationale as POST /api/vm (see app/api/vm/route.ts).
+export const maxDuration = 600;
+
 export async function POST(request: Request): Promise<Response> {
   return withAuthedVmApiRoute(
     request,
@@ -34,7 +41,10 @@ export async function POST(request: Request): Promise<Response> {
     async ({ user: initialUser, span, authDurationMs, routeStartedAtMs, setResponseFinalizer }) => {
       const timing = new VmTimingRecorder(span, "restore", { startedAt: routeStartedAtMs });
       timing.record("auth", authDurationMs);
-      setResponseFinalizer((response) => timing.finish({ status: response.status }));
+      setResponseFinalizer((response) => {
+        timing.finish({ status: response.status });
+        captureVmProvisionOutcome({ userId: initialUser.id, operation: "restore", response, span });
+      });
       const parsedBody = await parseRequiredObjectBody(request, {
         operation: "restore",
         action: "Send `{ \"snapshotId\": \"...\" }`.",
@@ -62,6 +72,25 @@ export async function POST(request: Request): Promise<Response> {
       const providerResult = providerField(body);
       if (!providerResult.ok) return providerResult.response;
       const provider = providerResult.provider ?? defaultProviderId();
+      // Kill-switch parity with POST /api/vm: restore provisions a brand-new
+      // machine on `provider`, so it must refuse before any team refresh or
+      // workflow work when creation is disabled.
+      try {
+        assertVmCreateEnabled(provider);
+      } catch (err) {
+        if (isVmCreateDisabledError(err)) {
+          return vmErrorResponse({
+            error: "vm_create_disabled",
+            status: 503,
+            message: "Cloud VM creation is disabled for this environment.",
+            action: "Ask an admin to enable Cloud VM creation, then retry.",
+            reason: "Cloud VM creation is disabled.",
+            phase: "create",
+            retryable: true,
+          });
+        }
+        throw err;
+      }
       let user: AuthedUser = initialUser;
       const requestedBillingTeamId = stringField(body, "billingTeamId") ?? stringField(body, "teamId") ?? requestedVmTeamIdFromRequest(request);
       if (requestedBillingTeamId && !user.teamIds.includes(requestedBillingTeamId)) {
