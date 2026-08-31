@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import {
   KnownErrors,
 } from "@stackframe/stack-shared";
@@ -68,6 +70,25 @@ async function captureRedirect(
 }
 
 describe("Stack Auth async error alerts", () => {
+  test("promotes credential-signup duplicate results into the shared error path", async () => {
+    const source = await readFile(
+      fileURLToPath(
+        new URL(
+          "../node_modules/@stackframe/stack/dist/esm/components/credential-sign-up.js",
+          import.meta.url,
+        ),
+      ),
+      "utf8",
+    );
+    const duplicateResultBranch =
+      'if (result.error.errorCode === "USER_EMAIL_ALREADY_EXISTS") throw result.error;';
+
+    expect(source).toContain(duplicateResultBranch);
+    expect(
+      source.indexOf(duplicateResultBranch),
+    ).toBeLessThan(source.indexOf('message: result.error.message'));
+  });
+
   test("redirects an email conflict to localized recovery guidance", async () => {
     Reflect.deleteProperty(mutableProcessEnv, "NODE_ENV");
     const error = new KnownErrors.UserWithEmailAlreadyExists(

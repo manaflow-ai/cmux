@@ -1,0 +1,44 @@
+diff --git a/dist/components/credential-sign-up.js b/dist/components/credential-sign-up.js
+index 476ae3a6306a0fa9d9d7fe8c5f702194c7e968da..4cf7d3604e863d80d587d19f3712ce2dfa846553 100644
+--- a/dist/components/credential-sign-up.js
++++ b/dist/components/credential-sign-up.js
+@@ -46,10 +46,13 @@ function CredentialSignUp(props) {
+ 				email,
+ 				password
+ 			});
+-			if (result.status === "error") setError("email", {
+-				type: "manual",
+-				message: result.error.message
+-			});
++			if (result.status === "error") {
++				if (result.error.errorCode === "USER_EMAIL_ALREADY_EXISTS") throw result.error;
++				setError("email", {
++					type: "manual",
++					message: result.error.message
++				});
++			}
+ 		} finally {
+ 			setLoading(false);
+ 		}
+diff --git a/dist/esm/components/credential-sign-up.js b/dist/esm/components/credential-sign-up.js
+index 8ff0a3fe33dac62602aa18524b291d367471acf7..005793d9b7095f2e7eeea3bf8f683dcb969990ed 100644
+--- a/dist/esm/components/credential-sign-up.js
++++ b/dist/esm/components/credential-sign-up.js
+@@ -42,10 +42,13 @@ function CredentialSignUp(props) {
+ 				email,
+ 				password
+ 			});
+-			if (result.status === "error") setError("email", {
+-				type: "manual",
+-				message: result.error.message
+-			});
++			if (result.status === "error") {
++				if (result.error.errorCode === "USER_EMAIL_ALREADY_EXISTS") throw result.error;
++				setError("email", {
++					type: "manual",
++					message: result.error.message
++				});
++			}
+ 		} finally {
+ 			setLoading(false);
+ 		}
