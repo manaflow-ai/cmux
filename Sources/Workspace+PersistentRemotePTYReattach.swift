@@ -94,7 +94,13 @@ extension Workspace {
             remotePTYSessionIDsByPanelId[panelId] = sessionID
             registerRemoteRelayIDAliases(remotePTYSessionID: sessionID, restoredPanelId: panelId)
             if let resumeBinding {
-                updateSurfaceResumeBinding(panelId: panelId, to: resumeBinding, notifyWhenUnchanged: true)
+                if surfaceResumeBindingMutationAllowed(resumeBinding, panelId: panelId) {
+                    updateSurfaceResumeBinding(
+                        panelId: panelId,
+                        to: resumeBinding,
+                        notifyWhenUnchanged: true
+                    )
+                }
             }
             remoteDisconnectPlaceholderPanelIds.remove(panelId)
             pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)

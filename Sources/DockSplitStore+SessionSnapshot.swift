@@ -347,27 +347,31 @@ extension DockSplitStore {
             browserSnapshot = nil
             filePreviewSnapshot = nil
         case .browser:
-            guard let browser = panel as? BrowserPanel, browser.shouldPersistSessionSnapshot() else {
+            terminalSnapshot = nil
+            if let browser = panel as? BrowserPanel {
+                guard browser.shouldPersistSessionSnapshot() else { return nil }
+                let history = browser.sessionNavigationHistorySnapshot()
+                let diffViewer = browser.diffViewerSessionComponents()
+                browserSnapshot = SessionBrowserPanelSnapshot(
+                    urlString: browser.preferredURLStringForSessionSnapshot(),
+                    profileID: browser.profileID,
+                    shouldRenderWebView: browser.shouldRenderWebViewForSessionSnapshot(),
+                    pageZoom: Double(browser.currentPageZoomFactor()),
+                    developerToolsVisible: browser.isDeveloperToolsVisible(),
+                    isMuted: browser.isMuted,
+                    chromeVisibility: browser.chromeVisibility,
+                    omnibarVisible: browser.isOmnibarVisible,
+                    backHistoryURLStrings: history.backHistoryURLStrings,
+                    forwardHistoryURLStrings: history.forwardHistoryURLStrings,
+                    transparentBackground: browser.sessionSnapshotTransparentBackground,
+                    diffViewerToken: diffViewer?.token,
+                    diffViewerRequestPath: diffViewer?.requestPath
+                )
+            } else if let deferred = panel as? DeferredBrowserPanel {
+                browserSnapshot = deferred.sessionPanelSnapshot.browser
+            } else {
                 return nil
             }
-            let history = browser.sessionNavigationHistorySnapshot()
-            let diffViewer = browser.diffViewerSessionComponents()
-            terminalSnapshot = nil
-            browserSnapshot = SessionBrowserPanelSnapshot(
-                urlString: browser.preferredURLStringForSessionSnapshot(),
-                profileID: browser.profileID,
-                shouldRenderWebView: browser.shouldRenderWebViewForSessionSnapshot(),
-                pageZoom: Double(browser.currentPageZoomFactor()),
-                developerToolsVisible: browser.isDeveloperToolsVisible(),
-                isMuted: browser.isMuted,
-                chromeVisibility: browser.chromeVisibility,
-                omnibarVisible: browser.isOmnibarVisible,
-                backHistoryURLStrings: history.backHistoryURLStrings,
-                forwardHistoryURLStrings: history.forwardHistoryURLStrings,
-                transparentBackground: browser.sessionSnapshotTransparentBackground,
-                diffViewerToken: diffViewer?.token,
-                diffViewerRequestPath: diffViewer?.requestPath
-            )
             filePreviewSnapshot = nil
         case .filePreview:
             guard let filePreview = panel as? FilePreviewPanel else {
@@ -450,12 +454,28 @@ extension DockSplitStore {
             effective = stored
         }
         if let effective {
+            guard surfaceResumeBindingMutationAllowed(effective, panelId: panelId) else {
+                updateSurfaceResumeBinding(
+                    panelId: panelId,
+                    to: stored,
+                    notifyWhenUnchanged: managedBindingChanged
+                )
+                return stored
+            }
             updateSurfaceResumeBinding(
                 panelId: panelId,
                 to: effective,
                 notifyWhenUnchanged: managedBindingChanged
             )
         } else {
+            guard surfaceResumeBindingRemovalAllowed(panelId: panelId) else {
+                updateSurfaceResumeBinding(
+                    panelId: panelId,
+                    to: stored,
+                    notifyWhenUnchanged: managedBindingChanged
+                )
+                return stored
+            }
             updateSurfaceResumeBinding(
                 panelId: panelId,
                 to: nil,

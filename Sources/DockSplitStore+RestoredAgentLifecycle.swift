@@ -15,6 +15,7 @@ extension DockSplitStore {
         // change. The context-health owner intentionally consults both maps;
         // publishing first would make a cleared surface look managed until a
         // later lifecycle callback happened to arrive.
+        surfaceResumeRestoreClaimsByPanelId.removeValue(forKey: panelId)
         managedAgentResumeBindingsByPanelId.removeValue(forKey: panelId)
         updateSurfaceResumeBinding(panelId: panelId, to: nil, notifyWhenUnchanged: true)
         contextManagementLifecycleDidClear(panelId: panelId)
@@ -139,17 +140,30 @@ extension DockSplitStore {
             resumeWorkingDirectory: detached.restoredResumeSessionWorkingDirectory
         )
         managedAgentResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
+        let shouldPublishResumeBinding: Bool
+        if let resumeBinding = detached.resumeBinding {
+            shouldPublishResumeBinding = surfaceResumeBindingMutationAllowed(
+                resumeBinding,
+                panelId: detached.panelId
+            )
+        } else {
+            shouldPublishResumeBinding = surfaceResumeBindingRemovalAllowed(
+                panelId: detached.panelId
+            )
+        }
         if let transferredManagedBinding = detached.resolvedManagedAgentResumeBinding {
             managedAgentResumeBindingsByPanelId[detached.panelId] = transferredManagedBinding
         }
         // Publish the destination binding before queuing deferred resolution;
         // its asynchronous ownership scan must see the retargeted session.
-        updateSurfaceResumeBinding(
-            panelId: detached.panelId,
-            to: detached.resumeBinding,
-            notifyWhenUnchanged: true,
-            notifyContextManagement: false
-        )
+        if shouldPublishResumeBinding {
+            updateSurfaceResumeBinding(
+                panelId: detached.panelId,
+                to: detached.resumeBinding,
+                notifyWhenUnchanged: true,
+                notifyContextManagement: false
+            )
+        }
         if let deferredRestore = detached.deferredAgentResumeRestore {
             deferAgentResumeRestore(
                 panelId: detached.panelId,
@@ -221,10 +235,14 @@ extension DockSplitStore {
         }
         if let effectiveBinding = surfaceResumeBindingsByPanelId[panelId] {
             if effectiveBinding == originalBinding || effectiveBinding.isSameManagedSession(as: binding) {
-                updateSurfaceResumeBinding(panelId: panelId, to: binding, notifyWhenUnchanged: true)
+                if surfaceResumeBindingMutationAllowed(binding, panelId: panelId) {
+                    updateSurfaceResumeBinding(panelId: panelId, to: binding, notifyWhenUnchanged: true)
+                }
             }
         } else {
-            updateSurfaceResumeBinding(panelId: panelId, to: binding, notifyWhenUnchanged: true)
+            if surfaceResumeBindingMutationAllowed(binding, panelId: panelId) {
+                updateSurfaceResumeBinding(panelId: panelId, to: binding, notifyWhenUnchanged: true)
+            }
         }
     }
 
@@ -313,6 +331,22 @@ extension DockSplitStore {
             $0.agentLifecycleStates[key] = lifecycle
         }
         contextManagementLifecycleDidChange(key: key, panelId: panelId, lifecycle: lifecycle)
+    }
+
+    func agentHibernationLifecycleState(
+        panelId: UUID,
+        fallback: AgentHibernationLifecycleState?
+    ) -> AgentHibernationLifecycleState {
+        AgentHibernationLifecycleState.aggregate(
+            statusKeyedStates: agentRuntimeByPanelId[panelId]?.agentLifecycleStates ?? [:],
+            fallback: fallback
+        )
+    }
+
+    func agentLifecycleStateForTextBoxEscape(panelId: UUID) -> AgentHibernationLifecycleState {
+        AgentHibernationLifecycleState.aggregateForTextBoxEscape(
+            statusKeyedStates: agentRuntimeByPanelId[panelId]?.agentLifecycleStates ?? [:]
+        )
     }
 
     @discardableResult
@@ -486,7 +520,11 @@ extension DockSplitStore {
                 cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
                 continue
             }
-            guard index.isComplete else {
+            let expectedKind = restore.restorableAgent?.kind.rawValue ?? restore.resumeBinding?.kind
+            guard index.isComplete(
+                forPanelId: restore.stablePanelID,
+                kind: expectedKind
+            ) else {
                 cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
                 continue
             }
@@ -524,7 +562,6 @@ extension DockSplitStore {
                 }
             }
             let ownershipPanelID = restore.stablePanelID
-            let expectedKind = restore.restorableAgent?.kind.rawValue ?? restore.resumeBinding?.kind
             let expectedSessionId = restore.restorableAgent?.sessionId ?? restore.resumeBinding?.checkpointId
             // Deferred admission has no exact-owner snapshot that can override a
             // stable-panel tie, so structural ambiguity remains fail-closed even

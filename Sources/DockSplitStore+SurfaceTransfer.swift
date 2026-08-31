@@ -408,6 +408,8 @@ extension DockSplitStore {
             terminal.updateWorkspaceId(workspaceId)
         } else if let browser = panel as? BrowserPanel {
             browser.updateWorkspaceId(workspaceId)
+        } else if let deferredBrowser = panel as? DeferredBrowserPanel {
+            deferredBrowser.updateWorkspaceId(workspaceId)
         } else if let filePreview = panel as? FilePreviewPanel {
             filePreview.updateWorkspaceId(workspaceId)
         }
@@ -449,7 +451,7 @@ extension DockSplitStore {
             isDirty: panel.isDirty,
             showsNotificationBadge: detached.manuallyUnread,
             isLoading: detached.isLoading,
-            isAudioMuted: (panel as? BrowserPanel)?.isMuted ?? false,
+            isAudioMuted: resolvedAudioMuted(for: panel),
             isPinned: detached.isPinned,
             inPane: paneId
         ) else {
@@ -536,7 +538,7 @@ extension DockSplitStore {
             isDirty: panel.isDirty,
             showsNotificationBadge: detached.manuallyUnread,
             isLoading: detached.isLoading,
-            isAudioMuted: (panel as? BrowserPanel)?.isMuted ?? false,
+            isAudioMuted: resolvedAudioMuted(for: panel),
             isPinned: detached.isPinned
         )
 

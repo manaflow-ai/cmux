@@ -538,6 +538,7 @@ extension Workspace {
         clearAgentLifecycleStates(panelId: panelId)
         surfaceTTYNames.removeValue(forKey: panelId)
         discardRemotePTYSessionID(panelId: panelId)
+        surfaceResumeRestoreClaimsByPanelId.removeValue(forKey: panelId)
         updateSurfaceResumeBinding(panelId: panelId, to: nil, notifyWhenUnchanged: true)
         pendingPlainSSHRestorePanelIds.remove(panelId)
         observedPlainSSHPanelIds.remove(panelId)

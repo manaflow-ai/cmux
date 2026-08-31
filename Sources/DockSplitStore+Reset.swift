@@ -29,6 +29,7 @@ extension DockSplitStore {
         // Remove the managed fallback before publishing effective binding
         // removals; otherwise the coordinator would still resolve a managed
         // session while the effective map is being cleared.
+        surfaceResumeRestoreClaimsByPanelId.removeAll()
         managedAgentResumeBindingsByPanelId.removeAll()
         removeAllSurfaceResumeBindings()
         for panelId in removedBindingPanelIds {

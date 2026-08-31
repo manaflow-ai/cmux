@@ -28,6 +28,11 @@ import {
 
 export const PRO_PLAN_ID = "pro";
 export const TEAM_PLAN_ID = "team";
+// Founder's Edition is a one-time purchase. Its completion recorder stores a
+// durable active Pro row with a Founder marker, and subscription reconciliation
+// skips that marker so a cancelled provider duplicate cannot clear access.
+// Existing operator grants may still use `cmuxVmPlan: "founders"`.
+export const FOUNDERS_PLAN_ID = "founders";
 export const FREE_PLAN_ID = "free";
 export const PRO_ACCESS_ITEM_ID = "cmux-pro-access";
 export const ACTIVE_STRIPE_PRO_STATUSES = ["active", "trialing", "past_due"] as const;
