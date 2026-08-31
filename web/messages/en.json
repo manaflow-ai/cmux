@@ -635,7 +635,7 @@
         },
         {
           "q": "What are Cloud VMs?",
-          "a": "Remote Linux sandboxes where agents clone repositories, run commands, and open pull requests in the cloud, without touching your machine. They cover parallel work, background jobs, and PR review. Pro and Team include up to 5 active machines."
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro and Team include up to 5 active machines."
         },
         {
           "q": "What is cmux Vault?",
@@ -644,7 +644,7 @@
         },
         {
           "q": "Do I still need Tailscale for the iOS app?",
-          "a": "Yes, for now. Pair your iPhone with your Mac over your own networking, like Tailscale, on any plan; Enterprise can self-host. Hosted networking with zero setup is on the roadmap."
+          "a": "No. The iOS app pairs with your Mac over the built-in cmux iroh network. You can also bring your own networking, like Tailscale. Enterprise can self-host."
         },
         {
           "q": "How does billing work?",
