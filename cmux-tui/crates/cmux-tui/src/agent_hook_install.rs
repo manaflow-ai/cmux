@@ -1603,7 +1603,7 @@ fn codex_state_table_mut<'a>(
     create: bool,
 ) -> anyhow::Result<Option<&'a mut dyn toml_edit::TableLike>> {
     let root = document.as_table_mut();
-    match root.get("hooks") {
+    let hooks_is_inline = match root.get("hooks") {
         Some(hooks) if hooks.as_table_like().is_none() => {
             // A scalar `hooks` key (for example `hooks = true`) makes
             // `hooks.state` unreachable for codex itself; installing over it
@@ -1615,18 +1615,19 @@ fn codex_state_table_mut<'a>(
             );
             return Ok(None);
         }
-        Some(_) => {}
+        Some(hooks) => hooks.as_value().is_some(),
         None if create => {
             let mut table = toml_edit::Table::new();
             table.set_implicit(true);
             root.insert("hooks", toml_edit::Item::Table(table));
+            false
         }
         None => return Ok(None),
-    }
+    };
     let hooks = root
         .get_mut("hooks")
         .and_then(toml_edit::Item::as_table_like_mut)
-        .expect("hooks table was just verified or created");
+        .with_context(|| format!("hooks table in {} is unusable", config_path.display()))?;
     match hooks.get("state") {
         Some(state) if state.as_table_like().is_none() => {
             anyhow::ensure!(
@@ -1638,16 +1639,23 @@ fn codex_state_table_mut<'a>(
         }
         Some(_) => {}
         None if create => {
-            hooks.insert("state", toml_edit::Item::Table(toml_edit::Table::new()));
+            // Match the parent's representation: a subtable dropped into an
+            // inline `hooks = { ... }` must itself be an inline value, or
+            // TableLike::insert silently discards it.
+            let state = if hooks_is_inline {
+                toml_edit::Item::Value(toml_edit::InlineTable::new().into())
+            } else {
+                toml_edit::Item::Table(toml_edit::Table::new())
+            };
+            hooks.insert("state", state);
         }
         None => return Ok(None),
     }
-    Ok(Some(
-        hooks
-            .get_mut("state")
-            .and_then(toml_edit::Item::as_table_like_mut)
-            .expect("state table was just verified or created"),
-    ))
+    hooks
+        .get_mut("state")
+        .and_then(toml_edit::Item::as_table_like_mut)
+        .with_context(|| format!("hooks.state in {} could not be created", config_path.display()))
+        .map(Some)
 }
 
 /// The validated inputs of one trust-state edit, kept alongside the rendered
@@ -1711,14 +1719,27 @@ fn render_codex_trust_document(
             }
         }
         let remove_state = state.is_empty();
-        if remove_state
-            && let Some(hooks) = document
-                .as_table_mut()
-                .get_mut("hooks")
-                .and_then(toml_edit::Item::as_table_like_mut)
-        {
-            hooks.remove("state");
-            if hooks.is_empty() {
+        if remove_state {
+            // Deleting a table the USER created (kept as a placeholder, or
+            // carrying comments) would destroy their content, and creation
+            // cannot be tracked across processes. Remove a table only when it
+            // is empty AND undecorated, which is all the installer ever
+            // writes itself.
+            let state_removable = document
+                .as_table()
+                .get("hooks")
+                .and_then(toml_edit::Item::as_table_like)
+                .and_then(|hooks| hooks.get("state"))
+                .is_some_and(item_is_removable_empty_table);
+            if state_removable
+                && let Some(hooks) = document
+                    .as_table_mut()
+                    .get_mut("hooks")
+                    .and_then(toml_edit::Item::as_table_like_mut)
+            {
+                hooks.remove("state");
+            }
+            if document.as_table().get("hooks").is_some_and(item_is_removable_empty_table) {
                 document.as_table_mut().remove("hooks");
             }
         }
@@ -1729,6 +1750,33 @@ fn render_codex_trust_document(
         return Ok((original, None));
     }
     Ok((original, Some(updated)))
+}
+
+/// Whether an empty table can be deleted without destroying user content:
+/// empty AND carrying no comments or other decoration, which is all the
+/// installer ever writes itself.
+fn item_is_removable_empty_table(item: &toml_edit::Item) -> bool {
+    match item {
+        toml_edit::Item::Table(table) => table.is_empty() && decor_is_blank(table.decor()),
+        // TOML cannot attach comments inside an inline table; only the
+        // value's own decoration (a trailing comment) matters.
+        toml_edit::Item::Value(value) => match value {
+            toml_edit::Value::InlineTable(inline) => {
+                inline.is_empty() && decor_is_blank(value.decor())
+            }
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+/// Treats an unresolvable raw span as decoration so removal stays
+/// conservative.
+fn decor_is_blank(decor: &toml_edit::Decor) -> bool {
+    let blank = |raw: Option<&toml_edit::RawString>| {
+        raw.is_none_or(|raw| raw.as_str().is_some_and(|text| text.trim().is_empty()))
+    };
+    blank(decor.prefix()) && blank(decor.suffix())
 }
 
 /// Preflights the cmux-owned `hooks.state` trust-entry edit of the codex user
@@ -2281,6 +2329,48 @@ mod tests {
         assert!(uninstall_result.failed, "{}", uninstall_result.value);
         // Both mutating operations failed in preflight: hooks.json untouched.
         assert_eq!(fs::read(&hooks_path).unwrap(), installed);
+    }
+
+    #[test]
+    fn codex_install_supports_an_inline_hooks_table() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let config_path = context.home.join(".codex/config.toml");
+        // `hooks = { enabled = true }` is a valid inline table; inserting the
+        // state subtable into it used to be silently discarded and then panic.
+        atomic_write(&config_path, b"hooks = { enabled = true }\n", Some(0o600)).unwrap();
+        let install = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        let result = run_with_context(&install, &context);
+        assert!(!result.failed, "{}", result.value);
+        let state = codex_state_table(&context);
+        assert_eq!(state.len(), CODEX_EVENTS.len());
+        let text = fs::read_to_string(&config_path).unwrap();
+        assert!(text.contains("enabled = true"), "{text}");
+
+        let uninstall = Plan { action: Action::Uninstall, providers: vec!["codex".into()] };
+        let result = run_with_context(&uninstall, &context);
+        assert!(!result.failed, "{}", result.value);
+        let text = fs::read_to_string(&config_path).unwrap();
+        assert!(text.contains("enabled = true"), "{text}");
+        assert!(!text.contains("trusted_hash"), "{text}");
+    }
+
+    #[test]
+    fn codex_uninstall_keeps_a_commented_user_state_table_byte_identical() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let config_path = context.home.join(".codex/config.toml");
+        let original = "# reserved for my hook overrides\n[hooks.state]\n";
+        atomic_write(&config_path, original.as_bytes(), Some(0o600)).unwrap();
+
+        let install = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        assert!(!run_with_context(&install, &context).failed);
+        assert!(fs::read_to_string(&config_path).unwrap().contains("trusted_hash"));
+        let uninstall = Plan { action: Action::Uninstall, providers: vec!["codex".into()] };
+        assert!(!run_with_context(&uninstall, &context).failed);
+        // The table is empty again but carries the user's comment; deleting
+        // it would destroy their content, so the cycle must round-trip.
+        assert_eq!(fs::read_to_string(&config_path).unwrap(), original);
     }
 
     #[test]
