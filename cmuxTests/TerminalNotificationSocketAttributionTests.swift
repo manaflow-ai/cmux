@@ -9,6 +9,33 @@ import Foundation
 // Stays on XCTest deliberately: these cases extend the existing socket-action
 // suite and reuse its process-safe fixture/server lifecycle.
 extension TerminalNotificationSocketActionTests {
+    func testNotificationCreateForCallerKeepsExplicitWorkspaceOverForeignAmbientSurface() async throws {
+        let fixture = try makeSocketFixture(name: "notify-workspace-scope")
+        defer { fixture.cleanup() }
+
+        let foreignWorkspace = fixture.manager.addWorkspace(title: "Foreign Surface", select: false)
+        let foreignSurfaceId = try XCTUnwrap(foreignWorkspace.focusedPanelId)
+        let response = try await sendV2RequestAsync(
+            method: "notification.create_for_caller",
+            params: [
+                "preferred_workspace_id": fixture.workspace.id.uuidString,
+                "preferred_surface_id": foreignSurfaceId.uuidString,
+                "prefer_tty": false,
+                "title": "Workspace scope",
+                "subtitle": "Evidence",
+                "body": "No foreign pane ring"
+            ],
+            to: fixture.socketPath
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "\(response)")
+        let result = try XCTUnwrap(response["result"] as? [String: Any])
+        XCTAssertEqual(result["workspace_id"] as? String, fixture.workspace.id.uuidString)
+        XCTAssertTrue(result["surface_id"] is NSNull)
+        XCTAssertTrue(fixture.store.hasUnreadNotification(forTabId: fixture.workspace.id))
+        XCTAssertFalse(fixture.store.hasUnreadNotification(forTabId: foreignWorkspace.id, surfaceId: foreignSurfaceId))
+    }
+
     func testNotificationCreateForCallerPrefersPreferredSurfaceOverConflictingTTY() async throws {
         let fixture = try makeSocketFixture(name: "notify-surface-over-tty")
         defer { fixture.cleanup() }

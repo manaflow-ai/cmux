@@ -170,13 +170,18 @@ extension TerminalController {
         // wrappers. Honor it when the caller TTY is proven; otherwise fall
         // through to the stable preferred surface identity.
         if preferTTY, let ttyTarget = resolveTTYTarget() { return ttyTarget }
-        // A stable surface UUID is stronger than an ordinary (non-preferred)
-        // TTY claim. The workspace claim can be stale after a pane move, so
-        // resolve the surface globally before the non-preferred TTY fallback.
-        if let preferredSurfaceTarget { return preferredSurfaceTarget }
 
         if let preferredWorkspaceId,
            let workspace = workspace(id: preferredWorkspaceId, tabManagers: managers) {
+            // An explicit workspace selector is a hard scope. An ambient
+            // surface claim can belong to a different workspace after a pane
+            // move; do not let that claim override the requested workspace.
+            // A surface identity still outranks TTY evidence when it resolves
+            // inside the requested workspace.
+            if let preferredSurfaceTarget,
+               preferredSurfaceTarget.workspace.id == workspace.id {
+                return preferredSurfaceTarget
+            }
             let ttyTarget = resolveTTYTarget()
             if let ttyTarget, ttyTarget.workspace.id == workspace.id { return ttyTarget }
             // The workspace itself is still a valid delivery scope, but no
@@ -184,6 +189,11 @@ extension TerminalController {
             // instead of borrowing mutable focus state.
             return TerminalCallerTarget(workspace: workspace, surfaceId: nil)
         }
+
+        // With no live workspace selector, a stable surface UUID is stronger
+        // than an ordinary (non-preferred) TTY claim and may re-home a pane
+        // after a workspace move.
+        if let preferredSurfaceTarget { return preferredSurfaceTarget }
 
         let ttyTarget = resolveTTYTarget()
         if let ttyTarget { return ttyTarget }
