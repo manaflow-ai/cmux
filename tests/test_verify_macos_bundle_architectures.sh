@@ -107,6 +107,15 @@ case "$first_line" in
     echo "fatal error: synthetic malformed Mach-O" >&2
     exit 1
     ;;
+  FAKE-MACHO:STDERR-ARCH)
+    # Keep arm64 exclusively in stderr. A verifier that merges stderr into
+    # `lipo -archs` stdout would incorrectly treat this x86_64-only fixture as
+    # universal, so the regression assertion below would fail to catch it.
+    # The trailing space keeps the two tokens separated by shell whitespace
+    # even when a broken implementation redirects both streams into one value.
+    printf 'warning: synthetic lipo diagnostic arm64 (stderr) ' >&2
+    printf 'x86_64\n'
+    ;;
   FAKE-MACHO:*)
     echo "warning: synthetic non-fatal lipo diagnostic" >&2
     printf '%s\n' "${first_line#FAKE-MACHO:}"
@@ -156,12 +165,16 @@ if (( USE_REAL_MACHO_TOOLS )); then
   chmod 644 "$APP_PATH/Contents/Resources/Single Arch/x86_64 payload.dylib"
   cp "$ARM64_EXECUTABLE" "$APP_PATH/Contents/Resources/malformed macho"
   truncate -s 64 "$APP_PATH/Contents/Resources/malformed macho"
+  cp "$X86_64_EXECUTABLE" "$APP_PATH/Contents/Resources/Single Arch/stderr arm64 payload"
+  chmod 644 "$APP_PATH/Contents/Resources/Single Arch/stderr arm64 payload"
 else
   make_fake_macho arm64 "$APP_PATH/Contents/Resources/Single Arch/arm64 payload"
   chmod 644 "$APP_PATH/Contents/Resources/Single Arch/arm64 payload"
   make_fake_macho x86_64 "$APP_PATH/Contents/Resources/Single Arch/x86_64 payload.dylib"
   chmod 644 "$APP_PATH/Contents/Resources/Single Arch/x86_64 payload.dylib"
   make_fake_macho ERROR "$APP_PATH/Contents/Resources/malformed macho"
+  make_fake_macho STDERR-ARCH "$APP_PATH/Contents/Resources/Single Arch/stderr arm64 payload"
+  chmod 644 "$APP_PATH/Contents/Resources/Single Arch/stderr arm64 payload"
 fi
 
 if failure_output="$(run_verifier "$APP_PATH" 2>&1)"; then
@@ -173,6 +186,8 @@ assert_contains "$failure_output" "Contents/Resources/Single Arch/x86_64 payload
 assert_contains "$failure_output" "x86_64"
 assert_contains "$failure_output" "lipo -archs failed"
 assert_contains "$failure_output" "Contents/Resources/malformed macho"
+assert_contains "$failure_output" \
+  "ERROR: non-universal Mach-O [x86_64] (required arm64 x86_64): Contents/Resources/Single Arch/stderr arm64 payload"
 
 rm -f "$APP_PATH/Contents/Resources/malformed macho"
 ALLOWLIST="$TMP_DIR/allowlist.txt"
