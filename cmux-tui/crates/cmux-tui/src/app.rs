@@ -5348,6 +5348,7 @@ struct SelectionClickSequence {
     surface: SurfaceId,
     screen: Option<Screen>,
     position: (u16, u16),
+    modifiers: KeyModifiers,
     time: Instant,
     count: u8,
     mode: SelectionMode,
@@ -16784,7 +16785,11 @@ impl App {
         let range = handle
             .with_terminal(|terminal| match mode {
                 SelectionMode::Word => terminal.select_word_screen(point).ok().flatten(),
-                SelectionMode::Line => terminal.select_line_screen(point).ok().flatten(),
+                SelectionMode::Line => terminal
+                    .select_line_screen(point)
+                    .ok()
+                    .flatten()
+                    .or_else(|| terminal.select_line_screen_untrimmed(point).ok().flatten()),
                 SelectionMode::Cell => None,
             })
             .flatten()?;
@@ -16802,9 +16807,15 @@ impl App {
         surface: SurfaceId,
         screen: Option<Screen>,
         position: (u16, u16),
+        modifiers: KeyModifiers,
         now: Instant,
     ) -> bool {
-        if screen.is_none() || previous.surface != surface || previous.screen != screen {
+        if screen.is_none()
+            || previous.surface != surface
+            || previous.screen != screen
+            || previous.modifiers != KeyModifiers::NONE
+            || modifiers != KeyModifiers::NONE
+        {
             return false;
         }
         let Some(elapsed) = now.checked_duration_since(previous.time) else { return false };
@@ -16822,46 +16833,54 @@ impl App {
         surface: SurfaceId,
         cell: (u16, u64),
         position: (u16, u16),
+        modifiers: KeyModifiers,
     ) -> SelectionMode {
         let now = Instant::now();
         let previous = self.selection_click_sequence.take();
         let screen = self.terminal_active_screen(surface);
         let repeated = previous.as_ref().is_some_and(|previous| {
-            Self::selection_repeat_allowed(previous, surface, screen, position, now)
+            Self::selection_repeat_allowed(previous, surface, screen, position, modifiers, now)
         });
-        let (count, mut tracked_anchor) = if repeated {
+        let (mut count, mut tracked_anchor) = if repeated {
             let previous = previous.expect("repeated selection click has prior state");
             (previous.count.saturating_add(1).min(3), previous.tracked_anchor)
         } else {
             (1, None)
         };
 
+        if let Some(row) = u32::try_from(cell.1).ok()
+            && let Some(handle) = self.session.surface(surface)
+        {
+            // A tracked anchor is also a screen-generation check. If it can
+            // no longer be moved, the terminal recycled or removed its page;
+            // do not turn that stale press into a double click.
+            let anchor_moved = tracked_anchor.as_mut().is_some_and(|anchor| {
+                handle
+                    .with_terminal(|terminal| {
+                        terminal.set_tracked_screen_point(anchor, cell.0, row).is_ok()
+                    })
+                    .unwrap_or(false)
+            });
+            if repeated && tracked_anchor.is_some() && !anchor_moved {
+                count = 1;
+                tracked_anchor = None;
+            }
+            if tracked_anchor.is_none() {
+                tracked_anchor = handle
+                    .with_terminal(|terminal| terminal.track_screen_point(cell.0, row).ok())
+                    .flatten();
+            }
+        }
         let mode = match count {
             2 => SelectionMode::Word,
             3 => SelectionMode::Line,
             _ => SelectionMode::Cell,
         };
-        if let Some(row) = u32::try_from(cell.1).ok()
-            && let Some(handle) = self.session.surface(surface)
-        {
-            let tracked = handle.with_terminal(|terminal| {
-                if let Some(anchor) = tracked_anchor.as_mut()
-                    && terminal.set_tracked_screen_point(anchor, cell.0, row).is_ok()
-                {
-                    return (true, None);
-                }
-                (false, terminal.track_screen_point(cell.0, row).ok())
-            });
-            match tracked {
-                Some((true, _)) => {}
-                Some((false, new_anchor)) => tracked_anchor = new_anchor,
-                None => tracked_anchor = None,
-            }
-        }
         self.selection_click_sequence = Some(SelectionClickSequence {
             surface,
             screen,
             position,
+            modifiers,
             time: now,
             count,
             mode,
@@ -16876,18 +16895,18 @@ impl App {
         if sequence.surface != surface {
             return None;
         }
-        let fallback = sequence.anchor;
         let handle = self.session.surface(surface)?;
         handle
             .with_terminal(|terminal| {
-                sequence
-                    .tracked_anchor
-                    .as_ref()
-                    .and_then(|anchor| terminal.tracked_screen_point(anchor))
-                    .map(|(column, row)| (column, u64::from(row)))
+                if let Some(anchor) = sequence.tracked_anchor.as_ref() {
+                    terminal
+                        .tracked_screen_point(anchor)
+                        .map(|(column, row)| (column, u64::from(row)))
+                } else {
+                    Some(sequence.anchor)
+                }
             })
             .flatten()
-            .or(Some(fallback))
     }
 
     fn update_semantic_selection(
@@ -16922,7 +16941,10 @@ impl App {
                     })
                 }
                 SelectionMode::Line => {
-                    let first = terminal.select_line_screen(anchor_point).ok().flatten()?;
+                    let first =
+                        terminal.select_line_screen(anchor_point).ok().flatten().or_else(|| {
+                            terminal.select_line_screen_untrimmed(anchor_point).ok().flatten()
+                        })?;
                     let second = terminal.select_line_screen(current_point).ok().flatten()?;
                     let current_before_anchor = (current.1, current.0) < (anchor.1, anchor.0);
                     Some(if current_before_anchor {
@@ -22146,6 +22168,7 @@ impl App {
                         area.surface,
                         cell,
                         (x.saturating_sub(content.x), y.saturating_sub(content.y)),
+                        modifiers,
                     );
                     self.selection_mode = mode;
                     self.selection_mode_surface = Some(area.surface);
@@ -27171,10 +27194,12 @@ mod tests {
         assert!(matches!(app.drag, Some(Drag::StatusMessage { .. })));
     }
 
-    #[test]
-    fn double_click_selects_a_complete_word() {
-        let (mux, surface) = test_mux("double-click-word-selection-test", None);
-        surface.with_terminal(|terminal| terminal.vt_write(b"alpha beta gamma"));
+    fn selection_fixture(
+        name: &str,
+        text: &[u8],
+    ) -> (App, Arc<Mux>, Arc<cmux_tui_core::Surface>, Rect) {
+        let (mux, surface) = test_mux(name, None);
+        surface.with_terminal(|terminal| terminal.vt_write(text));
 
         let mut app = test_app(Session::Local(mux.clone()));
         app.sidebar_visible = false;
@@ -27192,6 +27217,13 @@ mod tests {
             viewport: None,
         });
         app.rendered_terminal_bounds.insert(surface.id, content);
+        (app, mux, surface, content)
+    }
+
+    #[test]
+    fn double_click_selects_a_complete_word() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("double-click-word-selection-test", b"alpha beta gamma");
 
         let click = MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
@@ -27216,26 +27248,36 @@ mod tests {
     }
 
     #[test]
-    fn double_click_drag_extends_selection_by_complete_words() {
-        let (mux, surface) = test_mux("double-click-word-drag-selection-test", None);
-        surface.with_terminal(|terminal| terminal.vt_write(b"alpha beta gamma"));
+    fn double_click_selects_a_complete_whitespace_run() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("double-click-whitespace-selection-test", b"alpha   beta");
 
-        let mut app = test_app(Session::Local(mux.clone()));
-        app.sidebar_visible = false;
-        app.replace_tree(app.session.tree());
-        let pane = app.tree.active_screen().unwrap().active_pane;
-        let content = Rect { x: 2, y: 3, width: 20, height: 8 };
-        app.pane_areas.push(PaneArea {
-            pane,
-            surface: surface.id,
-            rect: Rect { x: 1, y: 2, width: 23, height: 10 },
-            bar: Some(Rect { x: 1, y: 2, width: 23, height: 1 }),
-            omnibar: None,
-            content,
-            track: None,
-            viewport: None,
-        });
-        app.rendered_terminal_bounds.insert(surface.id, content);
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 6,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+
+        assert_eq!(
+            app.selection.map(|selection| selection.range()),
+            Some(((5, 0), (7, 0))),
+            "double click must select the full whitespace run between words"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn double_click_drag_extends_selection_by_complete_words() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("double-click-word-drag-selection-test", b"alpha beta gamma");
 
         let click = MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
@@ -27266,6 +27308,91 @@ mod tests {
             app.selection.map(|selection| selection.range()),
             Some(((6, 0), (15, 0))),
             "double-click drag must start at the selected word and end at the whole target word"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn double_click_drag_anchors_at_second_press() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("double-click-second-press-anchor-test", b"a b c");
+
+        let first_click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(first_click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..first_click })
+            .unwrap();
+
+        let second_click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 2,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(second_click).unwrap();
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: content.x + 4,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: content.x + 4,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+
+        assert_eq!(
+            app.selection.map(|selection| selection.range()),
+            Some(((2, 0), (4, 0))),
+            "a double-click drag must use the second press as its word anchor"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn double_click_drag_extends_backwards_by_complete_words() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("double-click-word-reverse-drag-test", b"alpha beta gamma");
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 7,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+
+        assert_eq!(
+            app.selection.map(|selection| selection.range()),
+            Some(((0, 0), (9, 0))),
+            "reverse double-click drags must include both complete words"
         );
 
         mux.close_surface(surface.id).unwrap();
