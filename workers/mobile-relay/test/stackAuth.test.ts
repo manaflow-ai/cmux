@@ -80,3 +80,94 @@ describe("verifyStackAccessToken", () => {
       .toEqual({ ok: false, error: "verify_unavailable" });
   });
 });
+
+describe("verifyStackAccessToken (local JWKS path)", () => {
+  const jose = require("jose") as typeof import("jose");
+
+  async function makeSigner() {
+    const { publicKey, privateKey } = await jose.generateKeyPair("ES256", { extractable: true });
+    const kid = "test-kid-1";
+    const jwk = { ...(await jose.exportJWK(publicKey)), kid, alg: "ES256" as const };
+    return { privateKey, kid, jwks: { keys: [jwk] } };
+  }
+
+  function jwksAndUsersFetch(jwks: unknown): { calls: string[]; fetch: typeof fetch } {
+    const calls: string[] = [];
+    const impl = (async (input: Parameters<typeof fetch>[0]) => {
+      const url = typeof input === "string" ? input : (input as Request).url;
+      calls.push(url);
+      if (url.includes(".well-known/jwks.json")) {
+        return new Response(JSON.stringify(jwks), { status: 200 });
+      }
+      return new Response(JSON.stringify({ id: "fallback-user" }), { status: 200 });
+    }) as typeof fetch;
+    return { calls, fetch: impl };
+  }
+
+  async function signToken(
+    privateKey: CryptoKey,
+    kid: string,
+    { aud = "project-1", sub = "user-jwt", expiresIn = 600 }: { aud?: string; sub?: string; expiresIn?: number } = {},
+  ): Promise<string> {
+    return await new jose.SignJWT({ sub })
+      .setProtectedHeader({ alg: "ES256", kid })
+      .setAudience(aud)
+      .setIssuer("https://api.stack-auth.com/api/v1/projects/proj-1")
+      .setIssuedAt()
+      .setExpirationTime(Math.floor(Date.now() / 1000) + expiresIn)
+      .sign(privateKey);
+  }
+
+  beforeEach(() => {
+    clearStackVerdictCacheForTesting();
+  });
+
+  test("verifies a signed token locally without calling /users/me", async () => {
+    const { privateKey, kid, jwks } = await makeSigner();
+    const { calls, fetch } = jwksAndUsersFetch(jwks);
+    const token = await signToken(privateKey, kid);
+    expect(await verifyStackAccessToken(ENV, token, Date.now(), fetch))
+      .toEqual({ ok: true, userId: "user-jwt" });
+    expect(calls.filter((url) => url.includes("/users/me")).length).toBe(0);
+    expect(calls.filter((url) => url.includes("jwks.json")).length).toBe(1);
+    // Second call: verdict cache, no fetches at all.
+    expect(await verifyStackAccessToken(ENV, token, Date.now(), fetch))
+      .toEqual({ ok: true, userId: "user-jwt" });
+    expect(calls.length).toBe(1);
+  });
+
+  test("rejects anonymous and restricted audiences", async () => {
+    const { privateKey, kid, jwks } = await makeSigner();
+    const { fetch } = jwksAndUsersFetch(jwks);
+    for (const aud of ["project-1:anon", "project-1:restricted", "other-project"]) {
+      const token = await signToken(privateKey, kid, { aud });
+      expect(await verifyStackAccessToken(ENV, token, Date.now(), fetch))
+        .toEqual({ ok: false, error: "invalid_token" });
+    }
+  });
+
+  test("rejects expired tokens", async () => {
+    const { privateKey, kid, jwks } = await makeSigner();
+    const { fetch } = jwksAndUsersFetch(jwks);
+    const token = await signToken(privateKey, kid, { expiresIn: -600 });
+    expect(await verifyStackAccessToken(ENV, token, Date.now(), fetch))
+      .toEqual({ ok: false, error: "invalid_token" });
+  });
+
+  test("rejects a token signed by the wrong key", async () => {
+    const { jwks } = await makeSigner();
+    const rogue = await makeSigner();
+    const { fetch } = jwksAndUsersFetch(jwks);
+    const token = await signToken(rogue.privateKey, rogue.kid, {});
+    expect(await verifyStackAccessToken(ENV, token, Date.now(), fetch))
+      .toEqual({ ok: false, error: "invalid_token" });
+  });
+
+  test("non-JWT tokens fall back to /users/me", async () => {
+    const { jwks } = await makeSigner();
+    const { calls, fetch } = jwksAndUsersFetch(jwks);
+    expect(await verifyStackAccessToken(ENV, "opaque-token", Date.now(), fetch))
+      .toEqual({ ok: true, userId: "fallback-user" });
+    expect(calls.filter((url) => url.includes("/users/me")).length).toBe(1);
+  });
+});

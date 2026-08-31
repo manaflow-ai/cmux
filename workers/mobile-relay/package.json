@@ -12,7 +12,8 @@
     "check": "bun run generate:check && bun run typecheck && bun test && wrangler deploy --dry-run --outdir dist"
   },
   "dependencies": {
-    "effect": "^3.21.2"
+    "effect": "^3.21.2",
+    "jose": "^5.9.6"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260525.0",
