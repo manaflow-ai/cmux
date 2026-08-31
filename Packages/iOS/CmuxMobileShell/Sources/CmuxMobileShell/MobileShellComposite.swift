@@ -2896,6 +2896,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             finishStoredMacReconnectAttempt(generation: generation)
             return .failed(.noRoute)
         }
+        // Time attribution (cold launch, measured on device): the reconnect
+        // claim lands at ~0.14s but the first relay dial used to start only at
+        // ~1.09s. The ~0.9s hole was this pre-dial stretch, dominated by the
+        // awaited per-user backup fetch below; the scope snapshot (in-memory
+        // identity + team read) and the SQLite loads are milliseconds.
         guard isSignedIn,
               let scope = await currentScopeSnapshot(userID: stackUserID) else {
             finishStoredMacReconnectAttempt(generation: generation)
@@ -2904,14 +2909,28 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let result = storedMacReconnectInterruptionResult(generation: generation) {
             return result ? .connected : .superseded
         }
-        // Pull the authoritative per-user backup first so saved-Mac routes are
-        // current before we dial: a Mac that relaunched on a new port republishes
-        // to the backup, and LWW by lastSeenAt keeps any live local edit. Without
-        // this a stale port makes the auto-connect fail and the app falls back to
-        // the Mac picker, the screen we want to avoid showing.
+        // Refresh the authoritative per-user backup CONCURRENTLY with the dial
+        // instead of ahead of it. This await was the dominant slice of the
+        // measured 0.9s pre-dial hole (a network round trip to the backup DO
+        // plus the LWW merge), and for a relay-method pairing it is pure
+        // waste before the dial: the relay route is synthesized at connect
+        // time, so nothing the refresh fetches changes the first dial. The
+        // pairings that genuinely need refreshed routes (a non-relay pairing
+        // whose local routes are unusable or stale) wait for this task inside
+        // `loadRefreshSnapshotIfNeeded()` below, so the refresh outcome still
+        // feeds the existing `freshReconnectRoutesAfterLocalFailure` retry
+        // with unchanged semantics. A Mac that relaunched on a new port is
+        // then recovered by that refreshed-route retry (or the next backoff
+        // attempt) instead of taxing every launch with the fetch.
+        // The merge writes straight into the SQLite store, so every later
+        // read (the refreshed-route retry below, the next reconnect, list
+        // loads) observes it without an extra publish step here.
+        var pendingBackupRefresh: Task<Void, Never>?
         if refreshBackupBeforeDial,
            let refresher = pairedMacStore as? any PairedMacBackupRefreshing {
-            await refresher.refreshFromBackup(stackUserID: scope.userID)
+            pendingBackupRefresh = Task {
+                await refresher.refreshFromBackup(stackUserID: scope.userID)
+            }
         }
         if let result = storedMacReconnectInterruptionResult(generation: generation) {
             return result ? .connected : .superseded
@@ -2927,6 +2946,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         func storedReconnectRoutes(_ mac: MobilePairedMac) -> [CmxAttachRoute] {
             orderedReconnectRoutes(for: mac, supportedKinds: supportedKinds)
         }
+        // SQLite reads on the store actor (milliseconds). These stay pre-dial:
+        // the dial cannot start without the persisted candidate rows.
         let loadedActiveMac: MobilePairedMac?
         let loadedMacs: [MobilePairedMac]
         do {
@@ -3001,6 +3022,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         func loadRefreshSnapshotIfNeeded() async -> ReconnectRefreshSnapshot? {
             if didLoadRefreshSnapshot { return refreshSnapshot }
             didLoadRefreshSnapshot = true
+            // The refreshed-route retry must observe the concurrent backup
+            // merge: waiting here (only on the failure path, never before the
+            // first dial) preserves the pre-dial ordering's guarantee that a
+            // backup-published route is visible to the snapshot's store read.
+            await pendingBackupRefresh?.value
             refreshSnapshot = await loadReconnectRefreshSnapshot(scope: scope)
             return refreshSnapshot
         }
