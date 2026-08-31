@@ -758,11 +758,13 @@ extension MobileShellComposite {
             // host/port route may dial. Debug loopback stays as the
             // same-machine dev lane (simulator flow), ahead of the synthesized
             // relay route, which is appended so a pairing with no persisted
-            // route at all still dials.
-            pinnedRoutes = pinnedRoutes.filter { $0.kind == .debugLoopback }
-            if let relayRoute = Self.synthesizedRelayRoute() {
-                pinnedRoutes.append(relayRoute)
-            }
+            // route at all still dials. The stored pairing always knows its
+            // Mac, so the relay route keeps its host binding here; the shared
+            // helper still fails closed if the stored id is ever blank.
+            pinnedRoutes = Self.relayMethodDialRoutes(
+                from: pinnedRoutes,
+                hostDeviceID: pairedMacDeviceID
+            )
         }
         guard let firstRoute = pinnedRoutes.first else { return .failed(.unsupportedRoute) }
 
