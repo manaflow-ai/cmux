@@ -1,35 +1,39 @@
 import Foundation
-import CmuxMobileShellModel
 
-/// Serializes the two automatic connection sources that can run during app
-/// startup: an explicitly injected attach URL and restoration of a saved Mac.
+/// Serializes the automatic connection sources that can run during app
+/// startup: an explicitly injected attach URL and restoration of a saved Mac
+/// (including the pre-bootstrap early dial against the restored keychain
+/// session).
 ///
-/// The coordinator lives above ``CMUXMobileRootView`` so repeated SwiftUI
+/// The coordinator lives above the mobile root view so repeated SwiftUI
 /// lifecycle callbacks and root-view reconstruction observe the same owner.
 /// Successful explicit routes remain consumed until authentication resets.
 /// Failed explicit routes release startup to the saved-Mac reconnect instead
 /// of stranding the authenticated shell in a disconnected state.
+///
+/// It lives in `CmuxMobileShellModel` (not the iOS-only shell UI package) so
+/// its ownership ordering runs under `swift test` on macOS.
 @MainActor
-final class MobileStartupConnectionCoordinator {
+public final class MobileStartupConnectionCoordinator {
     private struct AccountScope: Equatable {
         let userID: String
         let teamID: String?
     }
 
-    enum InjectedAttachOutcome: Sendable {
+    public enum InjectedAttachOutcome: Sendable {
         case connected
         case awaitingUserApproval
         case failed
     }
 
-    struct Attempt: Equatable, Sendable {
+    public struct Attempt: Equatable, Sendable {
         fileprivate let id: UUID
     }
 
-    struct InjectedAttachCompletion: Equatable, Sendable {
-        let attempt: Attempt
-        let result: MobilePairingURLConnectionResult
-        let shouldReconnectStoredMac: Bool
+    public struct InjectedAttachCompletion: Equatable, Sendable {
+        public let attempt: Attempt
+        public let result: MobilePairingURLConnectionResult
+        public let shouldReconnectStoredMac: Bool
     }
 
     private enum Owner: Equatable {
@@ -45,7 +49,9 @@ final class MobileStartupConnectionCoordinator {
     private var injectedAttachTask: Task<Void, Never>?
     private var injectedAttachTaskAttempt: Attempt?
 
-    var shouldFallBackFromInjectedAttach: Bool {
+    public init() {}
+
+    public var shouldFallBackFromInjectedAttach: Bool {
         owner == .injectedAttachFailed
     }
 
@@ -54,10 +60,17 @@ final class MobileStartupConnectionCoordinator {
     /// callback in either order; coalescing them here prevents the later
     /// callback from invalidating a healthy in-flight Iroh admission.
     ///
+    /// The pre-bootstrap early dial applies the RESTORED keychain identity
+    /// here first; when the auth bootstrap later resolves the SAME account and
+    /// team, its duplicate application coalesces and the early connection
+    /// survives. A bootstrap that resolves a DIFFERENT account or team is a
+    /// genuine transition: the reset below supersedes the early startup owner
+    /// and `apply` re-scopes the store.
+    ///
     /// - Returns: `nil` when no authenticated account is available, otherwise
     ///   whether this call applied a new scope.
     @discardableResult
-    func prepareAccountScope(
+    public func prepareAccountScope(
         userID: String?,
         teamID: String?,
         apply: () -> Void
@@ -75,14 +88,14 @@ final class MobileStartupConnectionCoordinator {
         return true
     }
 
-    func claimInjectedAttach() -> Attempt? {
+    public func claimInjectedAttach() -> Attempt? {
         guard owner == .unclaimed else { return nil }
         let attempt = Attempt(id: UUID())
         owner = .injectedAttach(attempt)
         return attempt
     }
 
-    func connectInjectedAttach(
+    public func connectInjectedAttach(
         _ attempt: Attempt,
         attachURL: String,
         connect: @MainActor @Sendable (String) async -> MobilePairingURLConnectionResult
@@ -120,7 +133,7 @@ final class MobileStartupConnectionCoordinator {
     /// Repeated root mounts consume the same route without replacing a healthy
     /// in-flight transport connection.
     @discardableResult
-    func startInjectedAttach(
+    public func startInjectedAttach(
         attachURL: String,
         prepare: @escaping @MainActor @Sendable () async -> Void,
         connect: @escaping @MainActor @Sendable (
@@ -164,7 +177,7 @@ final class MobileStartupConnectionCoordinator {
     ///
     /// - Returns: Whether startup should fall back to the saved Mac.
     @discardableResult
-    func finishInjectedAttach(
+    public func finishInjectedAttach(
         _ attempt: Attempt,
         outcome: InjectedAttachOutcome
     ) -> Bool {
@@ -185,7 +198,7 @@ final class MobileStartupConnectionCoordinator {
     /// Late completion for the cancelled attempt is ignored by
     /// ``finishInjectedAttach(_:outcome:)``.
     @discardableResult
-    func cancelInjectedAttach(
+    public func cancelInjectedAttach(
         _ attempt: Attempt,
         retryLaunchRoute: Bool = false
     ) -> Bool {
@@ -203,7 +216,7 @@ final class MobileStartupConnectionCoordinator {
         return true
     }
 
-    func claimStoredReconnect() -> Attempt? {
+    public func claimStoredReconnect() -> Attempt? {
         guard owner == .unclaimed || owner == .injectedAttachFailed else {
             return nil
         }
@@ -212,12 +225,12 @@ final class MobileStartupConnectionCoordinator {
         return attempt
     }
 
-    func finishStoredReconnect(_ attempt: Attempt) {
+    public func finishStoredReconnect(_ attempt: Attempt) {
         guard owner == .storedReconnect(attempt) else { return }
         owner = .unclaimed
     }
 
-    func reset() {
+    public func reset() {
         preparedAccountScope = nil
         resetConnectionOwner()
     }
