@@ -67,14 +67,30 @@ extension RemoteDaemonUploadTests {
         let temporaryFiles = try fileManager.contentsOfDirectory(
             at: remoteDirectory,
             includingPropertiesForKeys: nil
-        ).filter { $0.lastPathComponent.contains(".tmp-") }
+        ).filter {
+            guard let values = try? $0.resourceValues(forKeys: [.isDirectoryKey]),
+                  values.isDirectory != true else {
+                return false
+            }
+            return $0.lastPathComponent.contains(".tmp-") && $0.pathExtension != "pid"
+        }
         let temporaryFile = try #require(temporaryFiles.first)
         #expect(temporaryFiles.count == 1)
         #expect(try Data(contentsOf: temporaryFile) == payload)
-        #expect(
-            !fileManager.fileExists(atPath: "\(temporaryFile.path).pid"),
-            "The upload writer marker must be removed after the stream closes"
+        let markerPath = "\(temporaryFile.path).pid"
+        #expect(fileManager.fileExists(atPath: markerPath))
+
+        let finalURL = remoteDirectory.appendingPathComponent("cmuxd-remote")
+        let hash = SHA256.hash(data: payload).map { String(format: "%02x", $0) }.joined()
+        let finalize = RemoteSessionCoordinator.remoteDaemonFinalizeScript(
+            remoteTempPath: temporaryFile.path,
+            remotePath: finalURL.path,
+            expectedByteCount: Int64(payload.count),
+            expectedSHA256: hash
         )
+        #expect(try Self.runShell(finalize) == 0)
+        #expect(try Data(contentsOf: finalURL) == payload)
+        #expect(!fileManager.fileExists(atPath: markerPath))
     }
 
     @Test("Finalize script promotes only a byte-and-hash-matching payload")
@@ -184,6 +200,7 @@ extension RemoteDaemonUploadTests {
             relativePath: ".cmux/bin/cmuxd-remote/test/linux-amd64/cmuxd-remote",
             absolutePath: "/home/test/.cmux/bin/cmuxd-remote/test/linux-amd64/cmuxd-remote"
         )
+        let remotePath = location.absolutePath
 
         do {
             try coordinator.queue.sync {
@@ -209,13 +226,17 @@ extension RemoteDaemonUploadTests {
         #expect(uploadRequest.arguments.last?.contains("kill") == true)
         #expect(uploadRequest.arguments.last?.contains("stall_checks") == true)
         #expect(uploadRequest.arguments.last?.contains("without byte progress") == true)
-        #expect(cleanupRequest.arguments.last?.contains(".tmp-*") == true)
+        // Recovery is age-based. It must not probe or signal the marker PID,
+        // because a reused PID could belong to an unrelated live process.
+        #expect(cleanupRequest.arguments.last?.contains("kill -0") == false)
+        #expect(cleanupRequest.arguments.last?.contains("kill \"$cmux_current_pid\"") == false)
+        #expect(cleanupRequest.arguments.last?.contains("rm -f -- \(remotePath).tmp-*") == false)
         #expect(Self.consecutive(cleanupRequest.arguments, "-o", "ControlPath=none"))
         #expect(!cleanupRequest.arguments.contains("ControlPath=/tmp/cmux-ssh-wedged-test"))
     }
 
-    @Test("Remote cleanup terminates recorded writers and removes every temporary upload")
-    func cleanupScriptKillsRecordedWriters() throws {
+    @Test("Remote cleanup preserves live writers and reclaims stale uploads")
+    func cleanupScriptPreservesLiveWriters() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-remote-daemon-cleanup-\(UUID().uuidString)",
@@ -250,6 +271,8 @@ extension RemoteDaemonUploadTests {
             }
         }
         try Data("\(writer.processIdentifier)\n".utf8).write(to: URL(fileURLWithPath: pidPath))
+        let lockPath = "\(pidPath).lock"
+        try fileManager.createDirectory(atPath: lockPath, withIntermediateDirectories: false)
 
         let cleanup = Process()
         cleanup.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -264,10 +287,192 @@ extension RemoteDaemonUploadTests {
         cleanup.waitUntilExit()
 
         #expect(cleanup.terminationStatus == 0)
+        #expect(fileManager.fileExists(atPath: temporaryPath))
+        #expect(fileManager.fileExists(atPath: pidPath))
+        #expect(fileManager.fileExists(atPath: lockPath))
+        try fileManager.removeItem(atPath: lockPath)
+        try Self.ageFile(atPath: pidPath)
+        try Self.ageFile(atPath: temporaryPath)
+        let agedLiveCleanup = Process()
+        agedLiveCleanup.executableURL = URL(fileURLWithPath: "/bin/sh")
+        agedLiveCleanup.arguments = ["-c", RemoteSessionCoordinator.remoteDaemonTemporaryCleanupScript(remotePath: remotePath)]
+        agedLiveCleanup.standardInput = FileHandle.nullDevice
+        agedLiveCleanup.standardOutput = FileHandle.nullDevice
+        agedLiveCleanup.standardError = FileHandle.nullDevice
+        try agedLiveCleanup.run()
+        agedLiveCleanup.waitUntilExit()
+        #expect(agedLiveCleanup.terminationStatus == 0)
+        #expect(writer.isRunning)
         #expect(!fileManager.fileExists(atPath: temporaryPath))
         #expect(!fileManager.fileExists(atPath: pidPath))
+        writer.terminate()
         writer.waitUntilExit()
         #expect(!writer.isRunning)
+
+        let staleCleanup = Process()
+        staleCleanup.executableURL = URL(fileURLWithPath: "/bin/sh")
+        staleCleanup.arguments = ["-c", RemoteSessionCoordinator.remoteDaemonTemporaryCleanupScript(remotePath: remotePath)]
+        staleCleanup.standardInput = FileHandle.nullDevice
+        staleCleanup.standardOutput = FileHandle.nullDevice
+        staleCleanup.standardError = FileHandle.nullDevice
+        try staleCleanup.run()
+        staleCleanup.waitUntilExit()
+        #expect(staleCleanup.terminationStatus == 0)
+        #expect(!fileManager.fileExists(atPath: temporaryPath))
+        #expect(!fileManager.fileExists(atPath: pidPath))
+    }
+
+    @Test("Remote cleanup keeps fresh dead and malformed markers until aged")
+    func cleanupScriptRequiresAgedMarkers() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-remote-daemon-cleanup-age-\(UUID().uuidString)", isDirectory: true
+        )
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+        let remotePath = root.appendingPathComponent("quoted path's/cmuxd-remote").path
+        try fileManager.createDirectory(
+            at: URL(fileURLWithPath: remotePath).deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let deadPath = "\(remotePath).tmp-dead"
+        let malformedPath = "\(remotePath).tmp-malformed"
+        try Data("dead".utf8).write(to: URL(fileURLWithPath: deadPath))
+        try Data("999999\n".utf8).write(to: URL(fileURLWithPath: "\(deadPath).pid"))
+        try Data("malformed".utf8).write(to: URL(fileURLWithPath: malformedPath))
+        try Data("not-a-pid\n".utf8).write(to: URL(fileURLWithPath: "\(malformedPath).pid"))
+
+        #expect(try Self.runShell(RemoteSessionCoordinator.remoteDaemonTemporaryCleanupScript(remotePath: remotePath)) == 0)
+        #expect(fileManager.fileExists(atPath: deadPath))
+        #expect(fileManager.fileExists(atPath: malformedPath))
+
+        try Self.ageFile(atPath: deadPath)
+        try Self.ageFile(atPath: "\(deadPath).pid")
+        try Self.ageFile(atPath: malformedPath)
+        try Self.ageFile(atPath: "\(malformedPath).pid")
+        #expect(try Self.runShell(RemoteSessionCoordinator.remoteDaemonTemporaryCleanupScript(remotePath: remotePath)) == 0)
+        #expect(!fileManager.fileExists(atPath: deadPath))
+        #expect(!fileManager.fileExists(atPath: malformedPath))
+    }
+
+    @Test("Remote cleanup preserves files when the age probe is unavailable")
+    func cleanupScriptFailsClosedWithoutAgeProbe() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-remote-daemon-cleanup-no-mmin-\(UUID().uuidString)", isDirectory: true
+        )
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
+        try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let remotePath = root.appendingPathComponent("cmuxd-remote").path
+        let temporaryPath = "\(remotePath).tmp-live"
+        let markerPath = "\(temporaryPath).pid"
+        try Data("active".utf8).write(to: URL(fileURLWithPath: temporaryPath))
+        try Data("not-a-pid\n".utf8).write(to: URL(fileURLWithPath: markerPath))
+        let fakeFind = bin.appendingPathComponent("find")
+        try "#!/bin/sh\nexit 127\n".write(to: fakeFind, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeFind.path)
+
+        let cleanup = Process()
+        cleanup.executableURL = URL(fileURLWithPath: "/bin/sh")
+        cleanup.arguments = [
+            "-c",
+            RemoteSessionCoordinator.remoteDaemonTemporaryCleanupScript(remotePath: remotePath),
+        ]
+        cleanup.environment = ["PATH": "\(bin.path):/usr/bin:/bin"]
+        cleanup.standardInput = FileHandle.nullDevice
+        cleanup.standardOutput = FileHandle.nullDevice
+        cleanup.standardError = FileHandle.nullDevice
+        try cleanup.run()
+        cleanup.waitUntilExit()
+
+        // An unsupported age predicate must preserve the marker for a later
+        // compatible cleanup pass.
+        #expect(cleanup.terminationStatus == 0)
+        #expect(fileManager.fileExists(atPath: temporaryPath))
+        #expect(fileManager.fileExists(atPath: markerPath))
+    }
+
+    @Test("Remote cleanup kills only the explicitly failed writer")
+    func cleanupScriptScopesCurrentWriter() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-remote-daemon-cleanup-scope-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let remotePath = root
+            .appendingPathComponent("remote path's", isDirectory: true)
+            .appendingPathComponent("cmuxd-remote", isDirectory: false)
+            .path
+        let remoteDirectory = URL(fileURLWithPath: remotePath).deletingLastPathComponent()
+        try fileManager.createDirectory(at: remoteDirectory, withIntermediateDirectories: true)
+
+        let currentPath = "\(remotePath).tmp-current"
+        let otherPath = "\(remotePath).tmp-other"
+        let currentPIDPath = "\(currentPath).pid"
+        let otherPIDPath = "\(otherPath).pid"
+        try Data("current".utf8).write(to: URL(fileURLWithPath: currentPath))
+        try Data("other".utf8).write(to: URL(fileURLWithPath: otherPath))
+
+        let currentWriter = Process()
+        currentWriter.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        currentWriter.arguments = ["30"]
+        currentWriter.standardInput = FileHandle.nullDevice
+        currentWriter.standardOutput = FileHandle.nullDevice
+        currentWriter.standardError = FileHandle.nullDevice
+        try currentWriter.run()
+        defer {
+            if currentWriter.isRunning {
+                currentWriter.terminate()
+                currentWriter.waitUntilExit()
+            }
+        }
+
+        let otherWriter = Process()
+        otherWriter.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        otherWriter.arguments = ["30"]
+        otherWriter.standardInput = FileHandle.nullDevice
+        otherWriter.standardOutput = FileHandle.nullDevice
+        otherWriter.standardError = FileHandle.nullDevice
+        try otherWriter.run()
+        defer {
+            if otherWriter.isRunning {
+                otherWriter.terminate()
+                otherWriter.waitUntilExit()
+            }
+        }
+
+        try Data("\(currentWriter.processIdentifier)\n".utf8)
+            .write(to: URL(fileURLWithPath: currentPIDPath))
+        try Data("\(otherWriter.processIdentifier)\n".utf8)
+            .write(to: URL(fileURLWithPath: otherPIDPath))
+
+        let currentCleanup = RemoteSessionCoordinator.remoteDaemonTemporaryCleanupScript(
+            remotePath: remotePath,
+            currentTemporaryPath: currentPath
+        )
+        #expect(try Self.runShell(currentCleanup) == 0)
+        #expect(currentWriter.isRunning)
+        #expect(!fileManager.fileExists(atPath: currentPath))
+        #expect(!fileManager.fileExists(atPath: currentPIDPath))
+        #expect(otherWriter.isRunning)
+        #expect(fileManager.fileExists(atPath: otherPath))
+        #expect(fileManager.fileExists(atPath: otherPIDPath))
+
+        otherWriter.terminate()
+        otherWriter.waitUntilExit()
+        try Self.ageFile(atPath: otherPath)
+        try Self.ageFile(atPath: otherPIDPath)
+        let staleCleanup = RemoteSessionCoordinator.remoteDaemonTemporaryCleanupScript(
+            remotePath: remotePath
+        )
+        #expect(try Self.runShell(staleCleanup) == 0)
+        #expect(!fileManager.fileExists(atPath: otherPath))
+        #expect(!fileManager.fileExists(atPath: otherPIDPath))
     }
 
     private func uploadRequestForRecovery(
@@ -315,7 +520,7 @@ extension RemoteDaemonUploadTests {
         if command.contains("mkdir -p ") {
             return .createDirectory
         }
-        if command.contains("cat > ") || command.contains("cat <&3 > ") {
+        if command.contains("exec 4> ") || command.contains("cat <&3 >&4") {
             return .upload
         }
         if command.contains("chmod 755 "), command.contains("mv ") {
@@ -351,5 +556,13 @@ extension RemoteDaemonUploadTests {
         try process.run()
         process.waitUntilExit()
         return process.terminationStatus
+    }
+
+    private static func ageFile(atPath path: String) throws {
+        let oldDate = Date(timeIntervalSinceNow: -3600)
+        try FileManager.default.setAttributes(
+            [.modificationDate: oldDate],
+            ofItemAtPath: path
+        )
     }
 }

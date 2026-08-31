@@ -863,7 +863,8 @@ async fn serve_iroh_connection(
 
     let mut next_stream_id = 0_u64;
     let mut links = JoinSet::new();
-    let (accept_results_tx, mut accept_results_rx) = mpsc::unbounded_channel();
+    let (accept_results_tx, mut accept_results_rx) =
+        mpsc::channel(admission.limits.maximum_pending_streams_per_connection);
     let (authenticated_tx, authenticated_rx) = watch::channel(false);
     let per_connection =
         Arc::new(Semaphore::new(admission.limits.maximum_pending_streams_per_connection));
@@ -959,7 +960,9 @@ async fn serve_iroh_connection(
                         Ok(Ok(())) => IrohAcceptResult::Succeeded,
                         Ok(Err(_)) | Err(_) => IrohAcceptResult::Failed,
                     };
-                    let _ = accept_results.send(result);
+                    // Bound completed accept results so a connection cannot retain an
+                    // unbounded number of task results. A closed receiver means teardown.
+                    let _ = accept_results.send(result).await;
                     drop(permits);
                 });
             }

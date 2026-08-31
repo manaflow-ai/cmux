@@ -145,6 +145,8 @@ export function requireEnvKeys(env, keys, label) {
 
 export function runVercel(args, options = {}) {
   const stdio = options.stdio ?? "inherit";
+  // The Vercel CLI reads VERCEL_TOKEN from the environment, so CI needs no
+  // --token in argv (argv leaks into process listings and thrown errors).
   const env = { ...process.env, ...options.env };
   const command = process.env.VERCEL_CLI;
   if (command) return execFileSync(command, args, { ...options, env, stdio });

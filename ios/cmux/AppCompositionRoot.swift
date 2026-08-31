@@ -22,6 +22,11 @@ final class AppCompositionRoot {
     let runtime: CMUXMobileRuntime
     let auth: MobileAuthComposition
     let iroh: MobileIrohRuntimeComposition
+    /// The irx (from-scratch iroh) composition when its DEBUG flag owns the
+    /// `.iroh` route; nil when the legacy runtime is active.
+    let irx: MobileIrxRuntimeComposition?
+    /// irx-backed first-pair discovery/forget; nil when legacy owns the slot.
+    let irxDiscovery: MobileIrxDiscoveryProvider?
     /// One build-compatibility policy shared by discovery, persistence, and
     /// connection validation. Keeping it here prevents composition paths from
     /// admitting different Mac app instances.
@@ -32,6 +37,12 @@ final class AppCompositionRoot {
     let analytics: MobileAnalyticsComposition
     let featureFlags: MobileFeatureFlags
     let displaySettings: MobileDisplaySettings
+    /// App-lifetime keyboard frame record, injected into the view tree via
+    /// `\.mobileKeyboardFrameTracker` so terminal hosts created or reattached
+    /// mid-conversation recover keyboard transitions they were not installed
+    /// for. Constructed here (not lazily in a view) so its record spans every
+    /// host view lifetime.
+    let keyboardFrameTracker = MobileKeyboardFrameTracker()
     private var pushReachabilityTask: Task<Void, Never>? = nil
     /// The user's Auto-Connect vs Tailscale connection-method choice, shared by
     /// the shell store (dial ordering) and the Settings/onboarding UI.
@@ -77,6 +88,8 @@ final class AppCompositionRoot {
         runtime: CMUXMobileRuntime,
         auth: MobileAuthComposition,
         iroh: MobileIrohRuntimeComposition,
+        irx: MobileIrxRuntimeComposition? = nil,
+        irxDiscovery: MobileIrxDiscoveryProvider? = nil,
         buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy,
         reachability: any ReachabilityProviding,
         diagnosticLog: DiagnosticLog
@@ -90,6 +103,8 @@ final class AppCompositionRoot {
         self.runtime = runtime
         self.auth = auth
         self.iroh = iroh
+        self.irx = irx
+        self.irxDiscovery = irxDiscovery
         self.buildCompatibilityPolicy = buildCompatibilityPolicy
         self.reachability = reachability
         self.diagnosticLog = diagnosticLog
@@ -164,12 +179,32 @@ final class AppCompositionRoot {
         let pushNotificationSettings:
             (@MainActor () async -> MobilePushSystemSettings)? = nil
         #endif
+        #if DEBUG
+        // DEV: a devicectl launch with DEVICECTL_CHILD_CMUX_PRESENCE_BASE_URL
+        // persists the isolated-worker override so later env-less cold
+        // launches (push wakes) keep resolving it.
+        PresenceClient.persistEnvironmentOverrideIfPresent()
+        #endif
+        // Inline replies relay through the presence worker when the phone
+        // cannot deliver directly (a backgrounded app never dials). Same
+        // worker origin as the connectivity subscriber, so the account that
+        // subscribes is the account whose inbox the Mac sweeps.
+        let replyRelayBaseURL = PresenceClient.resolvedServiceBaseURL(
+            isDevelopmentAuthChannel: auth.authEnvironment == .development
+        ).flatMap { URL(string: $0) }
+        let replyRelayAccessToken = CMUXMobileRuntime.stackAccessTokenProvider(
+            from: auth.coordinator
+        )
         let pushCoordinator = MobilePushCoordinator(
             registration: auth.pushRegistration,
             analytics: analytics.emitter,
             diagnosticLog: diagnosticLog,
             phoneAPIOrigin: auth.config.apiBaseURL,
-            notificationSettings: pushNotificationSettings
+            notificationSettings: pushNotificationSettings,
+            replyRelay: SystemReplyRelayClient(
+                serviceBaseURL: replyRelayBaseURL,
+                accessToken: { try? await replyRelayAccessToken() }
+            )
         )
         self.pushCoordinator = pushCoordinator
         self.signOutHook = MobileSignOutHook {
@@ -342,6 +377,11 @@ final class AppCompositionRoot {
             diagnosticLog.recordAppEvent(.appForegrounded)
             connectionMethodStore.recordConfiguredMethodDiagnostic()
             let isFullForegroundReturn = iroh.didBecomeActive()
+            if let irx {
+                // Credential freshness re-check + engine warm-up: iOS
+                // suspension pauses the autopilot's sleep loop.
+                Task { await irx.didBecomeActive() }
+            }
             // A notification-permission prompt is itself a transient inactive
             // edge, so readiness still observes every active transition.
             Task { await pushCoordinator.refreshReadiness() }

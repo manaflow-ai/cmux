@@ -43,14 +43,12 @@ final class CMUXOpenCommandTests: XCTestCase {
         }
     }
 
-    func testSimulatorCommandForwardsAmbientWorkspaceAndPane() throws {
+    func testSimulatorCommandForwardsAmbientWorkspace() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("simroute")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
         let workspaceID = UUID().uuidString.lowercased()
-        let paneID = UUID().uuidString.lowercased()
-        let callerSurfaceID = UUID().uuidString.lowercased()
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
@@ -62,10 +60,12 @@ final class CMUXOpenCommandTests: XCTestCase {
                   let method = payload["method"] as? String else {
                 return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
             }
-            if method == "surface.list" {
-                return Self.v2Response(id: id, ok: true, result: [
-                    "surfaces": [["id": callerSurfaceID, "pane_id": paneID]],
-                ])
+            guard method == "simulator.tap" else {
+                return Self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": method]
+                )
             }
             return Self.v2Response(id: id, ok: true, result: ["completed": true])
         }
@@ -74,10 +74,7 @@ final class CMUXOpenCommandTests: XCTestCase {
             cliPath: cliPath,
             socketPath: socketPath,
             arguments: ["simulator", "tap", "0.5", "0.5"],
-            environmentOverrides: [
-                "CMUX_WORKSPACE_ID": workspaceID,
-                "CMUX_SURFACE_ID": callerSurfaceID,
-            ]
+            environmentOverrides: ["CMUX_WORKSPACE_ID": workspaceID]
         )
 
         wait(for: [serverHandled], timeout: 5)
@@ -90,10 +87,11 @@ final class CMUXOpenCommandTests: XCTestCase {
         let params = try XCTUnwrap(payload["params"] as? [String: Any])
         XCTAssertEqual(payload["method"] as? String, "simulator.tap")
         XCTAssertEqual(params["workspace_id"] as? String, workspaceID)
-        XCTAssertEqual(params["pane_id"] as? String, paneID)
+        XCTAssertNil(params["surface_id"])
+        XCTAssertNil(params["pane_id"])
     }
 
-    func testSimulatorCommandRejectsStaleAmbientSurface() throws {
+    func testSimulatorCommandIgnoresStaleAmbientSurfaceWhenWorkspaceIsAvailable() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("simstale")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -108,10 +106,10 @@ final class CMUXOpenCommandTests: XCTestCase {
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
             guard let payload = Self.v2Payload(from: line),
                   let id = payload["id"] as? String,
-                  payload["method"] as? String == "surface.list" else {
+                  payload["method"] as? String == "simulator.tap" else {
                 return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
             }
-            return Self.v2Response(id: id, ok: true, result: ["surfaces": []])
+            return Self.v2Response(id: id, ok: true, result: ["completed": true])
         }
 
         let result = runCLI(
@@ -126,11 +124,16 @@ final class CMUXOpenCommandTests: XCTestCase {
 
         wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertNotEqual(result.status, 0)
-        XCTAssertTrue(result.stderr.contains("caller surface is no longer available"), result.stderr)
-        XCTAssertFalse(state.commands.contains(where: {
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let command = try XCTUnwrap(state.commands.first(where: {
             Self.v2Payload(from: $0)?["method"] as? String == "simulator.tap"
         }))
+        let payload = try XCTUnwrap(Self.v2Payload(from: command))
+        let params = try XCTUnwrap(payload["params"] as? [String: Any])
+        XCTAssertEqual(params["workspace_id"] as? String, workspaceID)
+        XCTAssertNil(params["surface_id"])
+        XCTAssertNil(params["pane_id"])
+        XCTAssertNotEqual(params["surface_id"] as? String, staleSurfaceID)
     }
 
     func testSimulatorCommandPreservesExplicitWindowAndSurface() throws {
@@ -151,9 +154,22 @@ final class CMUXOpenCommandTests: XCTestCase {
                   let method = payload["method"] as? String else {
                 return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
             }
-            return Self.v2Response(id: id, ok: true, result: [
-                "completed": method == "simulator.tap",
-            ])
+            switch method {
+            case "window.focus":
+                return Self.v2Response(id: id, ok: true, result: ["focused": true])
+            case "workspace.list":
+                return Self.v2Response(id: id, ok: true, result: [
+                    "workspaces": [["id": "workspace-id", "ref": "workspace:1"]],
+                ])
+            case "surface.list":
+                return Self.v2Response(id: id, ok: true, result: [
+                    "surfaces": [["id": surfaceID, "ref": "surface:1", "type": "simulator"]],
+                ])
+            case "simulator.tap":
+                return Self.v2Response(id: id, ok: true, result: ["completed": true])
+            default:
+                return Self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": method])
+            }
         }
 
         let result = runCLI(
@@ -247,6 +263,11 @@ final class CMUXOpenCommandTests: XCTestCase {
                   let id = payload["id"] as? String,
                   let method = payload["method"] as? String else {
                 return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+            if method == "window.focus" {
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["window_id"] as? String, windowID)
+                return Self.v2Response(id: id, ok: true, result: ["focused": true])
             }
             switch method {
             case "workspace.current":
@@ -1621,6 +1642,7 @@ final class CMUXOpenCommandTests: XCTestCase {
 
         let workspaceId = UUID().uuidString.lowercased()
         let surfaceId = UUID().uuidString.lowercased()
+        let sessionId = "session-untracked-baseline"
         let socketPath = makeSocketPath("hook-diff")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
@@ -1661,7 +1683,15 @@ final class CMUXOpenCommandTests: XCTestCase {
                 "CMUX_AGENT_HOOK_STATE_DIR": stateURL.path,
                 "PWD": repoURL.path
             ],
-            currentDirectoryURL: repoURL
+            currentDirectoryURL: repoURL,
+            stdinText: String(
+                data: try JSONSerialization.data(withJSONObject: [
+                    "session_id": sessionId,
+                    "cwd": repoURL.path,
+                    "hook_event_name": "UserPromptSubmit",
+                ], options: [.sortedKeys]),
+                encoding: .utf8
+            )
         )
 
         wait(for: [serverHandled], timeout: 5)
@@ -1715,6 +1745,7 @@ final class CMUXOpenCommandTests: XCTestCase {
 
         let workspaceId = UUID().uuidString.lowercased()
         let surfaceId = UUID().uuidString.lowercased()
+        let sessionId = "session-unborn-baseline"
         let socketPath = makeSocketPath("hook-empty")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
@@ -1755,7 +1786,15 @@ final class CMUXOpenCommandTests: XCTestCase {
                 "CMUX_AGENT_HOOK_STATE_DIR": stateURL.path,
                 "PWD": repoURL.path
             ],
-            currentDirectoryURL: repoURL
+            currentDirectoryURL: repoURL,
+            stdinText: String(
+                data: try JSONSerialization.data(withJSONObject: [
+                    "session_id": sessionId,
+                    "cwd": repoURL.path,
+                    "hook_event_name": "UserPromptSubmit",
+                ], options: [.sortedKeys]),
+                encoding: .utf8
+            )
         )
 
         wait(for: [serverHandled], timeout: 5)
@@ -1860,7 +1899,7 @@ final class CMUXOpenCommandTests: XCTestCase {
             return result
         }
 
-        func runPromptSubmit() throws -> ProcessRunResult {
+        func runPromptSubmit(turnId: String) throws -> ProcessRunResult {
             try runHook(
                 subcommand: "prompt-submit",
                 input: [
@@ -1889,12 +1928,12 @@ final class CMUXOpenCommandTests: XCTestCase {
             return try XCTUnwrap(store?["records"] as? [[String: Any]])
         }
 
-        let firstHook = try runPromptSubmit()
+        let firstHook = try runPromptSubmit(turnId: turnId)
         XCTAssertFalse(firstHook.timedOut, firstHook.stderr)
         XCTAssertEqual(firstHook.status, 0, firstHook.stderr)
         try "one\ntwo\n".write(to: fileURL, atomically: true, encoding: .utf8)
 
-        let duplicateHook = try runPromptSubmit()
+        let duplicateHook = try runPromptSubmit(turnId: turnId)
         XCTAssertFalse(duplicateHook.timedOut, duplicateHook.stderr)
         XCTAssertEqual(duplicateHook.status, 0, duplicateHook.stderr)
 
@@ -1919,13 +1958,16 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(stopHook.status, 0, stopHook.stderr)
         try "one\ntwo\nthree\n".write(to: fileURL, atomically: true, encoding: .utf8)
 
-        let nextHook = try runPromptSubmit()
+        let nextTurnId = "turn-next"
+        let nextHook = try runPromptSubmit(turnId: nextTurnId)
         XCTAssertFalse(nextHook.timedOut, nextHook.stderr)
         XCTAssertEqual(nextHook.status, 0, nextHook.stderr)
 
         let refreshedRecords = try diffBaselineRecords()
         XCTAssertEqual(refreshedRecords.filter { $0["turnId"] as? String == turnId }.count, 1)
-        let refreshedBaseCommit = try XCTUnwrap(refreshedRecords.first?["baseCommit"] as? String)
+        let refreshedBaseCommit = try XCTUnwrap(
+            refreshedRecords.first { $0["turnId"] as? String == nextTurnId }?["baseCommit"] as? String
+        )
         XCTAssertNotEqual(refreshedBaseCommit, duplicateBaseCommit)
     }
 
@@ -2452,6 +2494,13 @@ final class CMUXOpenCommandTests: XCTestCase {
         stdinText: String? = nil
     ) -> ProcessRunResult {
         var environment = ProcessInfo.processInfo.environment
+        // CLI routing tests must not inherit the host test runner's ambient
+        // workspace/surface/window/socket context. The app-host process runs
+        // many suites in one process, so a previous test can otherwise make a
+        // command take an implicit window-focus or surface-validation path.
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"

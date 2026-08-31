@@ -34,13 +34,19 @@ final class TerminalStartupRestoreCoordinator {
     ///   - requestedPolicy: Timing policy selected by the terminal creation path.
     ///   - willRunStartupCommand: Whether a restored agent command will run.
     ///   - willRunStartupInput: Whether a restored agent selector will be queued.
+    ///   - awaitsDeferredAgentResume: Whether the ownership scan must decide
+    ///     the first runtime's resume command after topology commit.
     /// - Returns: The requested policy with a restore gate when one is required.
     nonisolated func runtimeSpawnPolicy(
         requestedPolicy: TerminalSurfaceRuntimeSpawnPolicy,
         willRunStartupCommand: Bool,
-        willRunStartupInput: Bool
+        willRunStartupInput: Bool,
+        awaitsDeferredAgentResume: Bool = false
     ) -> TerminalSurfaceRuntimeSpawnPolicy {
-        willRunStartupCommand || willRunStartupInput
+        if awaitsDeferredAgentResume {
+            return requestedPolicy.requiringDeferredAgentResumeAdmission()
+        }
+        return willRunStartupCommand || willRunStartupInput
             ? requestedPolicy.requiringStartupRestoreAdmission()
             : requestedPolicy
     }
@@ -62,6 +68,8 @@ final class TerminalStartupRestoreCoordinator {
     ///   - chatWorkingDirectory: Working directory used to resolve the resumed transcript.
     ///   - agentSessionAlreadyActive: Whether another surface already owns the live session.
     ///   - ownsResumeLaunchClaim: Whether this transaction claimed the agent resume launch.
+    ///   - defersStartupRestoreAdmission: Whether ownership resolution must
+    ///     admit or cancel the runtime after the topology commit.
     func stage(
         panel: TerminalPanel,
         snapshot: SessionRestorableAgentSnapshot?,
@@ -72,7 +80,8 @@ final class TerminalStartupRestoreCoordinator {
         resumeWorkingDirectory: String?,
         chatWorkingDirectory: String? = nil,
         agentSessionAlreadyActive: Bool = false,
-        ownsResumeLaunchClaim: Bool = false
+        ownsResumeLaunchClaim: Bool = false,
+        defersStartupRestoreAdmission: Bool = false
     ) {
         pendingRestoresByPanelID[panel.id] = PendingTerminalStartupRestore(
             panel: panel,
@@ -81,6 +90,7 @@ final class TerminalStartupRestoreCoordinator {
             manualResumeAvailable: manualResumeAvailable,
             willRunStartupCommand: willRunStartupCommand,
             willRunStartupInput: willRunStartupInput,
+            defersStartupRestoreAdmission: defersStartupRestoreAdmission,
             resumeWorkingDirectory: resumeWorkingDirectory,
             chatResumeBinding: chatResumeBinding(
                 snapshot: snapshot,
@@ -162,24 +172,42 @@ final class TerminalStartupRestoreCoordinator {
                 willRunStartupInput: pending.willRunStartupInput,
                 resumeWorkingDirectory: pending.resumeWorkingDirectory
             )
-            if let chatResumeBinding = pending.chatResumeBinding {
-                let resumeIntent = chatResumeBinding.intent(
-                    panelID: panelID,
-                    workspaceID: workspaceID
-                )
-                resumeIntentRecorder.record(resumeIntent)
-#if DEBUG
-                cmuxDebugLog(
-                    "session.restore.resumeBinding workspace=\(workspaceID.uuidString.prefix(8)) " +
-                    "surface=\(panelID.uuidString.prefix(8)) source=\(resumeIntent.source) " +
-                    "session=\(resumeIntent.sessionID.prefix(8))"
-                )
-#endif
+            if !pending.defersStartupRestoreAdmission,
+               let chatResumeBinding = pending.chatResumeBinding {
+                recordChatResumeBinding(chatResumeBinding, panelID: panelID)
             }
-            if pending.willRunStartupWork {
+            if pending.willRunStartupWork, !pending.defersStartupRestoreAdmission {
                 pending.panel.surface.admitStartupRestoreRuntime()
             }
         }
+    }
+
+    /// Returns the structured snapshot staged for a panel before topology commit.
+    /// Deferred ownership resolution uses this to reject a stale async request
+    /// even when the topology owner has not committed lifecycle state yet.
+    func stagedSnapshot(panelID: UUID) -> SessionRestorableAgentSnapshot? {
+        pendingRestoresByPanelID[panelID]?.snapshot
+    }
+
+    /// Records chat ownership only after a deferred resume has been admitted.
+    ///
+    /// A deferred restore deliberately stages no chat intent: ownership may be
+    /// rejected by the fresh index or by a competing launch claim.
+    func recordDeferredResumeIntent(
+        panelID: UUID,
+        snapshot: SessionRestorableAgentSnapshot?,
+        resumeBinding: SurfaceResumeBindingSnapshot?,
+        workingDirectory: String?
+    ) {
+        guard let chatResumeBinding = chatResumeBinding(
+            snapshot: snapshot,
+            resumeBinding: resumeBinding,
+            workingDirectory: workingDirectory,
+            agentSessionAlreadyActive: false
+        ) else {
+            return
+        }
+        recordChatResumeBinding(chatResumeBinding, panelID: panelID)
     }
 
     /// Cancels staged transactions and clears all committed lifecycle metadata.
@@ -236,5 +264,23 @@ final class TerminalStartupRestoreCoordinator {
             source: session.source,
             workingDirectory: workingDirectory
         )
+    }
+
+    private func recordChatResumeBinding(
+        _ chatResumeBinding: PendingTerminalStartupRestoreChatBinding,
+        panelID: UUID
+    ) {
+        let resumeIntent = chatResumeBinding.intent(
+            panelID: panelID,
+            workspaceID: workspaceID
+        )
+        resumeIntentRecorder.record(resumeIntent)
+#if DEBUG
+        cmuxDebugLog(
+            "session.restore.resumeBinding workspace=\(workspaceID.uuidString.prefix(8)) " +
+            "surface=\(panelID.uuidString.prefix(8)) source=\(resumeIntent.source) " +
+            "session=\(resumeIntent.sessionID.prefix(8))"
+        )
+#endif
     }
 }
