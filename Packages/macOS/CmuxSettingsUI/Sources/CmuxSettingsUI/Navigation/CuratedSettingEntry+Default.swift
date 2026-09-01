@@ -139,10 +139,16 @@ extension Array where Element == CuratedSettingEntry {
                     localized: "settings.terminal.restoreTerminalSessions",
                     defaultValue: "Restore Terminal Sessions on Reopen"
                 ),
-                detailText: String(
-                    localized: "settings.terminal.restoreTerminalSessions.subtitleOn",
-                    defaultValue: "When cmux reopens after quit, terminal-containing workspaces and their surfaces are restored."
-                ),
+                detailText: [
+                    String(
+                        localized: "settings.terminal.restoreTerminalSessions.subtitleOn",
+                        defaultValue: "When cmux reopens after quit, terminal-containing workspaces and their surfaces are restored."
+                    ),
+                    String(
+                        localized: "settings.terminal.restoreTerminalSessions.subtitleOff",
+                        defaultValue: "Automatic restoration skips terminal-containing workspaces and terminal surfaces, including dock panels, while preserving browser-only workspaces and window layout."
+                    ),
+                ].joined(separator: " "),
                 paths: ["terminal.restoreTerminalSessions"],
                 synonyms: String(
                     localized: "settings.search.alias.setting.terminal.restore-terminal-sessions",

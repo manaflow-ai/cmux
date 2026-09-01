@@ -209932,122 +209932,122 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal-containing workspaces are skipped on reopen; browser-only workspaces and window layout still restore."
+            "value": "Automatic restoration skips terminal-containing workspaces and terminal surfaces, including dock panels, while preserving browser-only workspaces and window layout."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "再起動時はターミナルを含むワークスペースをスキップし、ブラウザのみのワークスペースとウインドウのレイアウトは復元します。"
+            "value": "自動復元では、ターミナルを含むワークスペースと、ドックパネルを含むターミナルサーフェスをスキップし、ブラウザのみのワークスペースとウインドウのレイアウトは保持します。"
           }
         },
 
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يتم تخطي مساحات العمل التي تحتوي على طرفية عند إعادة الفتح؛ مع استمرار استعادة مساحات العمل الخاصة بالمتصفح وتخطيط النافذة."
+            "value": "يتخطى الاسترداد التلقائي مساحات العمل التي تحتوي على طرفية والأسطح الطرفية، بما في ذلك لوحات الإرساء، مع الحفاظ على مساحات العمل الخاصة بالمتصفح فقط وتخطيط النافذة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Radni prostori s terminalom preskaču se pri ponovnom otvaranju; radni prostori samo s preglednikom i raspored prozora i dalje se vraćaju."
+            "value": "Automatsko vraćanje preskače radne prostore koji sadrže terminal i terminalske površine, uključujući Dock panele, uz očuvanje radnih prostora samo s preglednikom i rasporeda prozora."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arbejdsområder med terminal springes over ved genåbning; browserområder og vindueslayout gendannes stadig."
+            "value": "Automatisk gendannelse springer arbejdsområder med terminaler og terminaloverflader, herunder Dock-paneler, over, mens browserområder og vindueslayout bevares."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arbeitsbereiche mit Terminal werden beim erneuten Öffnen übersprungen; browserbasierte Arbeitsbereiche und Fensterlayout werden weiterhin wiederhergestellt."
+            "value": "Die automatische Wiederherstellung überspringt Arbeitsbereiche mit Terminal und Terminaloberflächen einschließlich Dock-Panels, während browserbasierte Arbeitsbereiche und das Fensterlayout erhalten bleiben."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los espacios de trabajo con terminal se omiten al volver a abrir; los espacios solo de navegador y el diseño de la ventana se restauran igualmente."
+            "value": "La restauración automática omite los espacios de trabajo que contienen terminales y las superficies de terminal, incluidos los paneles del Dock, mientras conserva los espacios solo de navegador y el diseño de la ventana."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les espaces de travail contenant un terminal sont ignorés à la réouverture ; les espaces réservés au navigateur et la disposition de la fenêtre sont tout de même restaurés."
+            "value": "La restauration automatique ignore les espaces de travail contenant un terminal et les surfaces de terminal, y compris les panneaux du Dock, tout en conservant les espaces réservés au navigateur et la disposition de la fenêtre."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Alla riapertura, gli spazi di lavoro con terminale vengono ignorati; gli spazi solo browser e il layout della finestra vengono comunque ripristinati."
+            "value": "Il ripristino automatico ignora gli spazi di lavoro che contengono terminali e le superfici terminali, inclusi i pannelli del Dock, preservando gli spazi solo browser e il layout della finestra."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ស្ថានីយការងារដែលមានស្ថានីយត្រូវបានរំលងពេលបើកឡើងវិញ; ស្ថានីយការងារដែលមានតែកម្មវិធីរុករក និងប្លង់បង្អួចនៅតែស្ដារ។"
+            "value": "ការស្ដារដោយស្វ័យប្រវត្តិនឹងរំលងស្ថានីយការងារដែលមានស្ថានីយ និងផ្ទៃស្ថានីយ រួមទាំងផ្ទាំង Dock ខណៈរក្សាស្ថានីយការងារដែលមានតែកម្មវិធីរុករក និងប្លង់បង្អួច។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "다시 열 때 터미널이 포함된 작업 공간은 건너뜁니다. 브라우저 전용 작업 공간과 창 레이아웃은 계속 복원됩니다."
+            "value": "자동 복원은 터미널이 포함된 작업 공간과 Dock 패널을 포함한 터미널 표면을 건너뛰고, 브라우저 전용 작업 공간과 창 레이아웃은 유지합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arbeidsområder med terminal hoppes over ved ny åpning; arbeidsområder med bare nettleser og vindusoppsett gjenopprettes fortsatt."
+            "value": "Automatisk gjenoppretting hopper over arbeidsområder med terminal og terminalflater, inkludert Dock-paneler, mens arbeidsområder med bare nettleser og vindusoppsettet bevares."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Przy ponownym otwarciu pomijane są obszary robocze z terminalem; obszary tylko z przeglądarką i układ okna nadal są przywracane."
+            "value": "Automatyczne przywracanie pomija obszary robocze zawierające terminal oraz powierzchnie terminala, w tym panele Dock, zachowując obszary tylko z przeglądarką i układ okna."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Espaços de trabalho com terminal são ignorados ao reabrir; espaços somente com navegador e o layout da janela continuam sendo restaurados."
+            "value": "A restauração automática ignora espaços de trabalho que contêm terminais e superfícies de terminal, incluindo painéis do Dock, preservando os espaços somente com navegador e o layout da janela."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "При повторном открытии рабочие пространства с терминалом пропускаются; пространства только с браузером и расположение окон всё равно восстанавливаются."
+            "value": "Автоматическое восстановление пропускает рабочие пространства с терминалами и терминальные поверхности, включая панели Dock, сохраняя пространства только с браузером и расположение окон."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "พื้นที่ทำงานที่มีเทอร์มินัลจะถูกข้ามเมื่อเปิดอีกครั้ง พื้นที่ทำงานที่มีเฉพาะเบราว์เซอร์และเค้าโครงหน้าต่างยังคงกู้คืน"
+            "value": "การกู้คืนอัตโนมัติจะข้ามพื้นที่ทำงานที่มีเทอร์มินัลและพื้นผิวเทอร์มินัล รวมถึงแผง Dock โดยยังคงรักษาพื้นที่ทำงานที่มีเฉพาะเบราว์เซอร์และเค้าโครงหน้าต่าง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Yeniden açılışta terminal içeren çalışma alanları atlanır; yalnızca tarayıcı içeren çalışma alanları ve pencere düzeni yine geri yüklenir."
+            "value": "Otomatik geri yükleme, Dock panelleri dahil terminal içeren çalışma alanlarını ve terminal yüzeylerini atlar; yalnızca tarayıcı içeren çalışma alanlarını ve pencere düzenini korur."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Під час повторного відкриття робочі простори з терміналом пропускаються; робочі простори лише з браузером і макет вікна все одно відновлюються."
+            "value": "Автоматичне відновлення пропускає робочі простори, що містять термінали, і термінальні поверхні, зокрема панелі Dock, зберігаючи робочі простори лише з браузером і макет вікна."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "重新打开时会跳过包含终端的工作区；仅浏览器工作区和窗口布局仍会恢复。"
+            "value": "自动恢复会跳过包含终端的工作区和终端界面（包括 Dock 面板），同时保留仅浏览器工作区和窗口布局。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "重新開啟時會略過包含終端機的工作區；只有瀏覽器的工作區與視窗配置仍會還原。"
+            "value": "自動還原會略過包含終端機的工作區與終端機介面（包括 Dock 面板），同時保留只有瀏覽器的工作區與視窗配置。"
           }
         }
       }

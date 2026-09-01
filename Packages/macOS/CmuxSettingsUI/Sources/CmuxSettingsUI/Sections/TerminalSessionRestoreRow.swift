@@ -39,7 +39,7 @@ struct TerminalSessionRestoreRow: View {
                 )
                 : String(
                     localized: "settings.terminal.restoreTerminalSessions.subtitleOff",
-                    defaultValue: "Terminal-containing workspaces are skipped on reopen; browser-only workspaces and window layout still restore."
+                    defaultValue: "Automatic restoration skips terminal-containing workspaces and terminal surfaces, including dock panels, while preserving browser-only workspaces and window layout."
                 )
         ) {
             Toggle(
