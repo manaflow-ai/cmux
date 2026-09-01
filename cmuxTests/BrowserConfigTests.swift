@@ -5415,6 +5415,7 @@ final class BrowserHistoryStoreTests: XCTestCase {
     }
 }
 
+@MainActor
 final class BrowserLinkOpenSettingsTests: XCTestCase {
     private var suiteName: String!
     private var defaults: UserDefaults!
@@ -5488,15 +5489,14 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
     }
 
     func testExternalOpenPatternsDefaultToEmpty() {
-        XCTAssertTrue(BrowserLinkOpenSettings.externalOpenPatterns(defaults: defaults).isEmpty)
+        XCTAssertTrue(BrowserExternalURLPolicy(defaults: defaults).patterns.isEmpty)
     }
 
     func testExternalOpenLiteralPatternMatchesCaseInsensitively() {
         defaults.set("openai.com/account/usage", forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
         XCTAssertTrue(
-            BrowserLinkOpenSettings.shouldOpenExternally(
-                "https://platform.OPENAI.com/account/usage",
-                defaults: defaults
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
+                "https://platform.OPENAI.com/account/usage"
             )
         )
     }
@@ -5507,9 +5507,8 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
             forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
         )
         XCTAssertTrue(
-            BrowserLinkOpenSettings.shouldOpenExternally(
-                "https://FOO.example.com/BILLING",
-                defaults: defaults
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
+                "https://FOO.example.com/BILLING"
             )
         )
     }
@@ -5520,9 +5519,8 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
             forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
         )
         XCTAssertTrue(
-            BrowserLinkOpenSettings.shouldOpenExternally(
-                "https://example.com/usage/42",
-                defaults: defaults
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
+                "https://example.com/usage/42"
             )
         )
     }
@@ -5530,11 +5528,225 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
     func testExternalOpenPatternsIgnoreInvalidRegexEntries() {
         defaults.set("re:(\nexample.com", forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
         XCTAssertTrue(
-            BrowserLinkOpenSettings.shouldOpenExternally(
-                "https://example.com/path",
-                defaults: defaults
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
+                "https://example.com/path"
             )
         )
+    }
+
+    func testExternalOpenIssueRegexPatternMatchesWithoutPrefix() {
+        defaults.set(
+            ".*example\\.com.*",
+            forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
+        )
+
+        XCTAssertTrue(
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
+                "https://example.com/"
+            )
+        )
+    }
+
+    func testExternalOpenIssueArrayValueMatches() {
+        defaults.set(
+            ["example.com"],
+            forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
+        )
+
+        XCTAssertTrue(
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
+                "https://example.com/"
+            )
+        )
+    }
+
+    func testExternalOpenCanonicalizesRemoteLoopbackAliasForMatchingAndOpening() throws {
+        defaults.set(
+            ["localhost"],
+            forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
+        )
+        let aliasedURL = try XCTUnwrap(
+            URL(string: "http://cmux-loopback.localtest.me:3000/dashboard")
+        )
+        let expectedURL = try XCTUnwrap(URL(string: "http://localhost:3000/dashboard"))
+        var openedURL: URL?
+        let handler = BrowserExternalNavigationHandler(
+            defaults: defaults,
+            openURL: {
+                openedURL = $0
+                return true
+            }
+        )
+
+        XCTAssertTrue(
+            handler.shouldOpenExternally(
+                aliasedURL,
+                navigationType: .linkActivated,
+                targetFrameIsMain: true
+            )
+        )
+        XCTAssertEqual(handler.openConfiguredExternallyResult(aliasedURL), .opened)
+        XCTAssertEqual(openedURL, expectedURL)
+    }
+
+    func testExternalOpenPolicyCacheRefreshesAfterRulesChange() throws {
+        defaults.set("first.example", forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        let firstURL = try XCTUnwrap(URL(string: "https://first.example/"))
+        let secondURL = try XCTUnwrap(URL(string: "https://second.example/"))
+        let handler = BrowserExternalNavigationHandler(defaults: defaults)
+
+        XCTAssertTrue(handler.shouldOpenExternally(firstURL))
+        XCTAssertFalse(handler.shouldOpenExternally(secondURL))
+
+        defaults.set("second.example", forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        XCTAssertFalse(handler.shouldOpenExternally(firstURL))
+        XCTAssertTrue(handler.shouldOpenExternally(secondURL))
+    }
+
+    func testExternalOpenPolicyCacheClearsAfterRulesAreRemoved() throws {
+        defaults.set("example.com", forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        let url = try XCTUnwrap(URL(string: "https://example.com/"))
+        let handler = BrowserExternalNavigationHandler(defaults: defaults)
+
+        XCTAssertTrue(handler.shouldOpenExternally(url))
+        defaults.removeObject(forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        XCTAssertFalse(handler.shouldOpenExternally(url))
+    }
+
+    func testExternalOpenPolicyCacheTracksEffectiveLegacyArrayTailRules() throws {
+        let firstURL = try XCTUnwrap(URL(string: "https://first.example/"))
+        let secondURL = try XCTUnwrap(URL(string: "https://second.example/"))
+        let comments = Array(repeating: "# ignored", count: 256)
+        let handler = BrowserExternalNavigationHandler(defaults: defaults)
+
+        defaults.set(comments + ["first.example"], forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        XCTAssertTrue(handler.shouldOpenExternally(firstURL))
+
+        defaults.set(comments + ["second.example"], forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        XCTAssertFalse(handler.shouldOpenExternally(firstURL))
+        XCTAssertTrue(handler.shouldOpenExternally(secondURL))
+    }
+
+    func testExternalOpenNavigationRuleOnlyAppliesToMainFrameLinkActivation() throws {
+        defaults.set(
+            ["example.com"],
+            forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
+        )
+        let url = try XCTUnwrap(URL(string: "https://example.com/"))
+
+        XCTAssertTrue(
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
+                url,
+                navigationType: .linkActivated,
+                targetFrameIsMain: true
+            )
+        )
+        XCTAssertFalse(
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
+                url,
+                navigationType: .other,
+                targetFrameIsMain: true
+            )
+        )
+        XCTAssertFalse(
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
+                url,
+                navigationType: .linkActivated,
+                targetFrameIsMain: false
+            )
+        )
+        let callbackURL = try XCTUnwrap(
+            URL(string: "\(AuthEnvironment.callbackScheme)://auth-callback?stack_refresh=refresh&stack_access=access")
+        )
+        defaults.set([".*"], forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        XCTAssertFalse(
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
+                callbackURL,
+                navigationType: .linkActivated,
+                targetFrameIsMain: true
+            )
+        )
+        let siblingCallbackURL = try XCTUnwrap(
+            URL(string: "cmux-dev-other://auth-callback?stack_refresh=refresh&stack_access=access")
+        )
+        XCTAssertFalse(
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
+                siblingCallbackURL,
+                navigationType: .linkActivated,
+                targetFrameIsMain: true
+            )
+        )
+        XCTAssertFalse(
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(siblingCallbackURL)
+        )
+        let diffViewerURL = try XCTUnwrap(
+            URL(string: "cmux-diff-viewer://session-token/document")
+        )
+        XCTAssertFalse(
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(diffViewerURL)
+        )
+        XCTAssertFalse(
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(diffViewerURL.absoluteString)
+        )
+        XCTAssertFalse(
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
+                diffViewerURL,
+                navigationType: .linkActivated,
+                targetFrameIsMain: true
+            )
+        )
+        let customAppURL = try XCTUnwrap(URL(string: "slack://open?token=secret"))
+        XCTAssertFalse(
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
+                customAppURL,
+                navigationType: .linkActivated,
+                targetFrameIsMain: true
+            ),
+            "Configured browser rules must not bypass the existing custom-scheme confirmation prompt."
+        )
+    }
+
+    func testConfiguredExternalOpenUsesOneInjectedActionPath() throws {
+        defaults.set(
+            ["example.com"],
+            forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
+        )
+        let url = try XCTUnwrap(URL(string: "https://example.com/"))
+        var openedURL: URL?
+        var didRunAfterOpen = false
+
+        let opened = BrowserExternalNavigationHandler(
+            defaults: defaults,
+            openURL: {
+                openedURL = $0
+                return true
+            }
+        ).openConfiguredExternallyIfNeeded(
+            url,
+            navigationType: .linkActivated,
+            targetFrameIsMain: true,
+            onOpened: {
+                didRunAfterOpen = true
+            }
+        )
+
+        XCTAssertTrue(opened)
+        XCTAssertEqual(openedURL, url)
+        XCTAssertTrue(didRunAfterOpen)
+    }
+
+    func testConfiguredExternalOpenReportsOpenerFailureWithoutTreatingItAsNoMatch() throws {
+        defaults.set(
+            ["example.com"],
+            forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
+        )
+        let url = try XCTUnwrap(URL(string: "https://example.com/"))
+        let result = BrowserExternalNavigationHandler(
+            defaults: defaults,
+            openURL: { _ in false }
+        ).openConfiguredExternallyResult(url)
+
+        XCTAssertEqual(result, .failed)
     }
 }
 

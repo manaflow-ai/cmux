@@ -184,9 +184,24 @@ describe("app pricing page", () => {
     expect(html).toContain("--cmux-product-blue-on-foreground:#006CBF");
     expect(html).toContain("mx-auto mt-6 flex w-fit");
     expect(html).toContain(
-      "var(--cmux-product-blue-on-foreground, var(--cmux-product-blue, #0088ff))",
+      '<span class="ml-1.5 text-xs font-medium" style="color:inherit">Save 20%</span>',
     );
     expect(html).toContain('href="/enterprise?cmux_external_browser=1"');
+  });
+
+  test("uses the product accent for the inactive annual savings label", async () => {
+    const element = await AppPricingPage({
+      searchParams: Promise.resolve({
+        cmux_app: "1",
+        cmux_scheme: "cmux-dev-test",
+        interval: "month",
+      }),
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain(
+      '<span class="ml-1.5 text-xs font-medium" style="color:var(--cmux-product-blue-on-background, var(--cmux-product-blue, #0088ff))">Save 20%</span>',
+    );
   });
 
   test("removes external purchase links in App Store distribution mode", async () => {

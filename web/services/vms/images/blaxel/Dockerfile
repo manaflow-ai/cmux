@@ -22,7 +22,7 @@
 FROM debian:trixie-slim
 
 # Cache-buster: bump to force a full rebuild on Blaxel's builder.
-ENV CMUX_IMAGE_EPOCH=2026-08-28-r10
+ENV CMUX_IMAGE_EPOCH=2026-08-31-r13
 
 # Blaxel's sandbox API binary is mandatory in every custom image: it is the control
 # plane (port 8080) the driver uses for filesystem and process operations.
@@ -155,17 +155,17 @@ RUN mkdir -p /etc/cmux/icons \
 # cua computer-use driver, pinned.
 ENV CUA_DRIVER_RS_HOME=/opt/cua-driver
 RUN curl -fsSL https://cua.ai/driver/install.sh -o /tmp/cua-install.sh \
-  && CUA_DRIVER_RS_VERSION=0.19.3 CUA_DRIVER_BIN_DIR=/usr/local/bin CUA_DRIVER_NO_MODIFY_PATH=1 bash /tmp/cua-install.sh \
+  && CUA_DRIVER_RS_VERSION=0.23.2 CUA_DRIVER_BIN_DIR=/usr/local/bin CUA_DRIVER_NO_MODIFY_PATH=1 bash /tmp/cua-install.sh \
   && rm -f /tmp/cua-install.sh \
   && ls /usr/local/bin | grep -qi cua
 
 # Coding agents, pinned at bake time (bump with the image epoch). Installed on the
 # mise node so they ride the same toolchain users get.
-ARG CMUX_IMAGE_CLAUDE_CODE_VERSION=2.1.246
-ARG CMUX_IMAGE_CODEX_VERSION=0.150.0
-ARG CMUX_IMAGE_OPENCODE_VERSION=1.18.23
-ARG CMUX_IMAGE_PI_VERSION=0.84.3
-ARG CMUX_IMAGE_AGENT_BROWSER_VERSION=0.35.1
+ARG CMUX_IMAGE_CLAUDE_CODE_VERSION=2.1.252
+ARG CMUX_IMAGE_CODEX_VERSION=0.151.0
+ARG CMUX_IMAGE_OPENCODE_VERSION=1.18.25
+ARG CMUX_IMAGE_PI_VERSION=0.84.4
+ARG CMUX_IMAGE_AGENT_BROWSER_VERSION=0.35.2
 RUN npm install -g --foreground-scripts \
     "@anthropic-ai/claude-code@${CMUX_IMAGE_CLAUDE_CODE_VERSION}" \
     "@openai/codex@${CMUX_IMAGE_CODEX_VERSION}" \
@@ -200,6 +200,37 @@ RUN printf '%s\n' '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /etc/bash.b
   && printf '%s\n' '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /root/.bashrc \
   && printf '%s\n' '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /home/cua/.bashrc \
   && echo 'set -g default-shell /bin/bash' >> /etc/tmux.conf
+
+# Pre-generate ble.sh's per-TERM tput caches for the terminals cmux panes use.
+# Without them the FIRST shell on a machine prints
+# "ble/term.sh: updating tput cache for TERM=... done" into the pane (and pays
+# the tput walk) before its first prompt. ble.sh resolves its cache dir in two
+# steps (verified live on a machine): ${XDG_CACHE_HOME:-~/.cache}/blesh/<ver>
+# only when that base dir ALREADY exists, else <blesh>/cache.d/<uid>. A fresh
+# home volume has no ~/.cache, so panes start on cache.d/<uid> and switch to
+# the XDG path once anything creates ~/.cache — both places are seeded:
+# cache.d here, the XDG copy by cmux-bashrc from /etc/cmux/blesh-cache-seed.
+# Generation runs ble.sh itself through the rc chain above under a pty
+# (`script`; ble.sh refuses `bash -c` and ttyless shells), so the cache layout
+# stays ble.sh's own business. The freshness test ble.sh applies is
+# "cache newer than lib/init-term.sh" — everything here is written after the
+# tarball unpack, and the hard `test` guards prove the bake produced files.
+RUN mkdir -p /etc/cmux/blesh-cache-seed \
+  && for term in xterm-256color screen-256color tmux-256color linux; do \
+       printf 'exit\n' | TERM="$term" HOME=/tmp/blesh-seed-home XDG_CACHE_HOME=/etc/cmux/blesh-cache-seed \
+         script -qec 'bash -i' /dev/null >/dev/null 2>&1 || true; \
+     done \
+  && rm -rf /tmp/blesh-seed-home \
+  && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-256color \
+  && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.screen-256color \
+  && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.tmux-256color \
+  && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.linux \
+  && mkdir -p /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 \
+  && chmod a+rwxt /usr/local/share/blesh/cache.d \
+  && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/0/ \
+  && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/1000/ \
+  && chmod 700 /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 \
+  && chown -R cua:cua /usr/local/share/blesh/cache.d/1000
 
 # Agent harness config: every shell materializes per-harness model-proxy
 # configs from the machine boot env (the coderouter model-plane vars minted at
