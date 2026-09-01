@@ -50,13 +50,15 @@ struct TerminalSurfaceViewFactory: TerminalSurfaceViewProviding {
 @MainActor
 final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProviding {
     private let declarativeTerminalConfigurationSource: any DeclarativeTerminalConfigurationProviding
-    private let computerUseConfigStore = JSONConfigStore(fileURL: CmuxConfigLocation().userConfigFile)
+    private let computerUseConfigStore: JSONConfigStore
     private let computerUseEnabledKey = SettingCatalog().computerUse.enabled
 
     init(
-        declarativeTerminalConfigurationSource: any DeclarativeTerminalConfigurationProviding
+        declarativeTerminalConfigurationSource: any DeclarativeTerminalConfigurationProviding,
+        computerUseConfigStore: JSONConfigStore
     ) {
         self.declarativeTerminalConfigurationSource = declarativeTerminalConfigurationSource
+        self.computerUseConfigStore = computerUseConfigStore
     }
 
     func currentSpawnPolicy() -> TerminalSurfaceSpawnPolicy {

@@ -201,7 +201,7 @@ public struct DeclarativeTerminalConfigurationCard: View {
     /// the declarative key is absent or invalid. Once the JSON key is present,
     /// the file is the sole source of truth.
     private var effectiveWorkingDirectoryPolicy: NewSurfaceWorkingDirectoryPolicy {
-        currentSnapshot.effectiveWorkingDirectoryPolicy
+        currentSnapshot.effectiveWorkingDirectoryPolicy()
     }
 
     private var workingDirectoryPolicyBinding: Binding<NewSurfaceWorkingDirectoryPolicy> {

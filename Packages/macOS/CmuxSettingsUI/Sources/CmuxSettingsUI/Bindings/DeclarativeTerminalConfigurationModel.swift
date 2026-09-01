@@ -24,8 +24,8 @@ public final class DeclarativeTerminalConfigurationModel:
     private var hasInitialSnapshot = false
     private var observationTasks = MainActorTaskStore<String>()
     private var saveTasks = MainActorTaskStore<String>()
+    private var fixedPathObservationTasks = MainActorTaskStore<String>()
     private var fixedPathWatcher: FileWatcher?
-    private var fixedPathWatcherTask: Task<Void, Never>?
     private var fixedPathWatchPath: String?
 
     /// The latest complete, presence-preserving terminal configuration.
@@ -200,8 +200,7 @@ public final class DeclarativeTerminalConfigurationModel:
             : nil
         guard desiredPath != fixedPathWatchPath else { return }
 
-        fixedPathWatcherTask?.cancel()
-        fixedPathWatcherTask = nil
+        fixedPathObservationTasks.cancel("fixedPath")
         fixedPathWatcher = nil
         fixedPathWatchPath = desiredPath
 
@@ -209,7 +208,7 @@ public final class DeclarativeTerminalConfigurationModel:
         let watcher = FileWatcher(path: desiredPath)
         fixedPathWatcher = watcher
         let reader = self.reader
-        fixedPathWatcherTask = Task { @MainActor [weak self, watcher, reader] in
+        fixedPathObservationTasks.replaceOnMainActor("fixedPath") { [weak self, watcher, reader] in
             for await _ in watcher.events {
                 guard !Task.isCancelled else { return }
                 let isUsable = await reader.validateFixedPath(desiredPath)

@@ -407,9 +407,14 @@ class GhosttyApp {
     /// The injected collaborators for every `TerminalSurface` (transitional:
     /// dissolves into composition-root injection when `GhosttyAppService`
     /// replaces this type).
+    private static let computerUseConfigStore = JSONConfigStore(
+        fileURL: CmuxConfigLocation().userConfigFile
+    )
+
     @MainActor
     private static func makeTerminalSurfaceRuntimeDependencies(
-        declarativeTerminalConfigurationSource: any DeclarativeTerminalConfigurationProviding
+        declarativeTerminalConfigurationSource: any DeclarativeTerminalConfigurationProviding,
+        computerUseConfigStore: JSONConfigStore
     ) -> TerminalSurfaceRuntimeDependencies {
         TerminalSurfaceRuntimeDependencies(
         registry: GhosttyApp.terminalSurfaceRegistry,
@@ -435,7 +440,8 @@ class GhosttyApp {
             )
         }(),
         spawnPolicy: TerminalSurfaceSpawnPolicyBridge(
-            declarativeTerminalConfigurationSource: declarativeTerminalConfigurationSource
+            declarativeTerminalConfigurationSource: declarativeTerminalConfigurationSource,
+            computerUseConfigStore: computerUseConfigStore
         ),
         byteTee: TerminalOutputByteTeeBridge(),
         rendererRealization: RendererRealizationController.shared,
@@ -456,7 +462,8 @@ class GhosttyApp {
     /// Stable collaborators shared by app-only callers and surface clones.
     @MainActor
     static let terminalSurfaceRuntimeDependencies = makeTerminalSurfaceRuntimeDependencies(
-        declarativeTerminalConfigurationSource: DeclarativeTerminalConfigurationSnapshotSource()
+        declarativeTerminalConfigurationSource: DeclarativeTerminalConfigurationSnapshotSource(),
+        computerUseConfigStore: computerUseConfigStore
     )
 
     /// Returns the stable runtime bundle with the caller's scoped declarative
@@ -471,7 +478,8 @@ class GhosttyApp {
             engine: base.engine,
             viewProvider: base.viewProvider,
             spawnPolicy: TerminalSurfaceSpawnPolicyBridge(
-                declarativeTerminalConfigurationSource: declarativeTerminalConfigurationSource
+                declarativeTerminalConfigurationSource: declarativeTerminalConfigurationSource,
+                computerUseConfigStore: computerUseConfigStore
             ),
             byteTee: base.byteTee,
             rendererRealization: base.rendererRealization,
