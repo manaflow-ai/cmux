@@ -138,13 +138,10 @@ struct AgentHookAbnormalStopClassifier {
                     || normalizedMessage.trimmingCharacters(in: .whitespacesAndNewlines) == "overloaded"
                     || normalizedMessage.trimmingCharacters(in: .whitespacesAndNewlines) == "overload"
             )
-        let status529Cue = normalized.contains("529") && (
-            normalized.contains("error")
-                || normalized.contains("overload")
-                || normalized.contains("capacity")
-                || normalized.contains("unavailable")
-                || normalized.contains("http 529")
-                || normalizedMessage.trimmingCharacters(in: .whitespacesAndNewlines) == "529"
+        let status529Cue = hasStatusCodeCue(
+            "529",
+            normalized: normalized,
+            normalizedMessage: normalizedMessage
         )
         let capacityCue = normalized.contains("at capacity")
             || normalized.contains("over capacity")
@@ -173,6 +170,7 @@ struct AgentHookAbnormalStopClassifier {
         if capacityCue && (providerCapacityQualifier || explicitCapacityReason) {
             return .capacity
         }
+        let normalizedMessageTrimmed = normalizedMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         let quotaCue = normalized.contains("usage limit")
             || normalized.contains("hit your limit")
             || normalized.contains("limit reached")
@@ -191,7 +189,26 @@ struct AgentHookAbnormalStopClassifier {
                     || normalized.contains("remaining")
                     || normalized.contains("reset")
             ))
-        if quotaCue {
+        let explicitQuotaReason = normalizedMessageTrimmed == "quota exceeded"
+            || normalizedMessageTrimmed == "quota exhausted"
+            || normalizedMessageTrimmed == "usage limit"
+            || normalizedMessageTrimmed == "usage exhausted"
+            || normalizedMessageTrimmed == "limit reached"
+            || normalizedMessageTrimmed == "quota limit"
+            || normalizedMessageTrimmed == "credit limit"
+            || normalizedMessageTrimmed == "credits exhausted"
+            || normalizedMessageTrimmed == "no remaining credits"
+            || normalizedMessageTrimmed == "out of credits"
+            || normalizedMessageTrimmed == "insufficient credits"
+            || normalizedMessageTrimmed.hasPrefix("you've hit your usage limit")
+            || normalizedMessageTrimmed.hasPrefix("you have hit your usage limit")
+        let quotaTokens = AgentHookNotificationClassifier.notificationCueTokens(normalizedMessage)
+        let quotaProviderQualifiers: Set<Substring> = [
+            "api", "model", "provider", "service", "server", "llm", "endpoint",
+            "error", "reset", "retry", "remaining", "credits", "credit",
+        ]
+        let quotaHasProviderContext = quotaTokens.contains { quotaProviderQualifiers.contains($0) }
+        if quotaCue && (explicitQuotaReason || quotaHasProviderContext) {
             return .quota
         }
         if normalized.contains("rate limit")
@@ -204,13 +221,11 @@ struct AgentHookAbnormalStopClassifier {
                     || normalized.contains("provider")
                     || normalized.contains("rate")
             ))
-            || (normalized.contains("429") && (
-                normalized.contains("request")
-                    || normalized.contains("error")
-                    || normalized.contains("rate")
-                    || normalized.contains("http 429")
-                    || normalizedMessage.trimmingCharacters(in: .whitespacesAndNewlines) == "429"
-            )) {
+            || hasStatusCodeCue(
+                "429",
+                normalized: normalized,
+                normalizedMessage: normalizedMessage
+            ) {
             return .rateLimit
         }
         let timeoutCue = normalized.contains("request timed out")
@@ -320,6 +335,7 @@ struct AgentHookAbnormalStopClassifier {
             || normalized.contains("user interrupt")
             || normalized.contains("user abort")
             || normalized == "user requested"
+            || normalized.contains("stop user requested")
             || normalized.contains("user requested stop")
             || normalized.contains("user requested abort")
             || normalized.contains("user requested cancellation")
@@ -359,6 +375,31 @@ struct AgentHookAbnormalStopClassifier {
             || lowercasedText.contains("server overloaded")
             || lowercasedText.contains("529")
             || lowercasedText.contains("429")
+    }
+
+    /// Matches an HTTP-like status code only when it is a standalone token
+    /// with a nearby status/provider cue, or when the entire message is the
+    /// concise provider reason. Identifiers such as `request-429-attempt` do
+    /// not carry enough context to promote a stop into a rate-limit error.
+    private func hasStatusCodeCue(
+        _ code: String,
+        normalized: String,
+        normalizedMessage: String
+    ) -> Bool {
+        let messageTrimmed = normalizedMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        if messageTrimmed == code { return true }
+
+        let tokens = AgentHookNotificationClassifier.notificationCueTokens(normalized)
+        guard let index = tokens.firstIndex(where: { String($0) == code }) else { return false }
+        let lowerBound = max(0, index - 3)
+        let upperBound = min(tokens.count, index + 4)
+        let contextTokens = tokens[lowerBound..<upperBound]
+        let context: Set<Substring> = [
+            "api", "capacity", "code", "error", "failed", "failure", "gateway",
+            "http", "limit", "many", "model", "overload", "overloaded", "provider",
+            "rate", "server", "service", "status", "too", "unavailable",
+        ]
+        return contextTokens.contains { context.contains($0) }
     }
 
     private func containsSensitiveProviderDetail(_ text: String) -> Bool {

@@ -35921,7 +35921,7 @@ export default CMUXSessionRestore;
             // reducer's per-session fold handles stale sessions (a newer
             // running session outranks this one) and subagent tagging keeps
             // nested sessions off the pane badge — no emit-side guessing.
-            let stopHadFailure = codexFailure != nil || antigravityFailure != nil
+            let stopHadFailure = codexFailure != nil || abnormalStop != nil
             emitJournal(
                 stopHadFailure ? .errorReported : .turnCompleted,
                 workspaceId: workspaceId,
