@@ -1423,6 +1423,15 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn local_terminal_pwd_keeps_hostless_osc7_urls() {
+        assert_eq!(
+            local_terminal_pwd_to_local_path("file:///tmp/hostless"),
+            Some(PathBuf::from("/tmp/hostless"))
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn local_hostname_decoder_accepts_non_utf8_os_bytes() {
         assert_eq!(decode_local_hostname(b"host\xff"), Some("host�".to_string()));
         assert_eq!(decode_local_hostname(b""), None);
