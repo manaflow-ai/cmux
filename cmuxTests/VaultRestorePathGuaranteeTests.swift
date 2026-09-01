@@ -350,6 +350,10 @@ struct VaultRestorePathGuaranteeTests {
             !baselinePanelIDs.contains($0)
         })
         #expect(workspace.panelDirectories[createdPanelID] == "/remote/project")
+        #expect(workspace.restoredAgentSnapshotsByPanelId[createdPanelID]?.workingDirectory == "/remote/project")
+        #expect(workspace.remoteDirectoryTrustRequiredPanelIds.contains(createdPanelID))
+        #expect(!workspace.remoteDirectoryReportPanelIds.contains(createdPanelID))
+        #expect(workspace.reportedPanelDirectory(panelId: createdPanelID) == nil)
     }
 
     @Test
