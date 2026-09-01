@@ -108,6 +108,20 @@ final class MachinesPanelModelTests: XCTestCase {
         XCTAssertEqual(paid?.isPaidPlan, true)
     }
 
+    func testOnlyProvisioningPlansArePaid() {
+        XCTAssertTrue(MachinePlanSnapshot.isPaidPlanID("pro"))
+        XCTAssertTrue(MachinePlanSnapshot.isPaidPlanID("TEAM"))
+        XCTAssertTrue(MachinePlanSnapshot.isPaidPlanID("founders"))
+        XCTAssertFalse(MachinePlanSnapshot.isPaidPlanID("free"))
+        XCTAssertFalse(MachinePlanSnapshot.isPaidPlanID("unknown"))
+    }
+
+    func testRequiresProErrorIncludesUpgradePathWhenServerOmitsAction() {
+        let error = VMClientError.httpStatus(402, "{\"error\":\"vm_requires_pro\"}")
+        XCTAssertTrue(error.description.contains("https://cmux.com/pricing"))
+        XCTAssertTrue(error.description.contains("Upgrade to cmux Pro"))
+    }
+
     func testMachinesModeIsRegisteredEverywhere() {
         XCTAssertTrue(RightSidebarMode.allCases.contains(.machines))
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "machines"), .machines)

@@ -114,6 +114,8 @@ These are already configured in Vercel for development, preview, and production:
 - [ ] Add runtime VM vars to the relevant `~/.secrets/cmuxterm*.env` file:
   - `CMUX_VM_DEFAULT_PROVIDER`
   - `CMUX_VM_CREATE_ENABLED`
+  - `CMUX_VM_ALLOW_FREE_PROVISIONING` (leave unset; paid-plan gate is the safe default)
+  - `CMUX_VM_REQUIRE_PRO` (legacy compatibility alias only)
   - `CMUX_VM_E2B_ENABLED`
   - `CMUX_VM_FREESTYLE_ENABLED`
   - `E2B_CMUXD_WS_TEMPLATE`
