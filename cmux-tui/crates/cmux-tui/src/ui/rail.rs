@@ -499,13 +499,7 @@ pub fn view_header_with_filter(
     let title_budget = available.saturating_sub(marker_width.saturating_add(1));
     let title_rendered = truncate(title, title_budget);
     let title_rendered_width = title_rendered.width();
-    buf.set_stringn(
-        left_x,
-        y,
-        &title_rendered,
-        title_rendered_width,
-        title_style,
-    );
+    buf.set_stringn(left_x, y, &title_rendered, title_rendered_width, title_style);
 
     let marker_x = right_x.saturating_sub(marker_width as u16);
     buf.set_stringn(marker_x, y, compact_marker, marker_width, palette.dim);
