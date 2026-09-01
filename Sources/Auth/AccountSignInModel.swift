@@ -31,6 +31,9 @@ final class AccountSignInModel {
         case unauthorized
         case rejected
         case unknown
+        /// Debug-only: this build's `cmux-dev(-<tag>)://` callback would be dropped by a
+        /// non-localhost sign-in origin (`reload.sh --prod-auth`), so no attempt is started.
+        case devHandoffUnavailable
     }
 
     enum LinkCopyState: Equatable {
@@ -50,6 +53,8 @@ final class AccountSignInModel {
     private(set) var linkCopyState: LinkCopyState = .idle
     private(set) var browserOpenState: BrowserOpenState = .idle
     private(set) var isStartingSignIn = false
+    /// A failure this pane found before asking the flow for anything.
+    private(set) var localFailure: Failure?
 
     @ObservationIgnored private let flow: (any AccountSignInFlow)?
     @ObservationIgnored private var startTask: Task<Void, Never>?
@@ -70,6 +75,9 @@ final class AccountSignInModel {
         // surface runs the shared attempt.
         guard hasRequestedSignIn else {
             return .idle
+        }
+        if let localFailure {
+            return .failed(localFailure)
         }
         if flow?.isCompletingSignIn == true {
             return .loading(.finishing)
@@ -102,6 +110,14 @@ final class AccountSignInModel {
         hasRequestedSignIn = true
         linkCopyState = .idle
         browserOpenState = .idle
+        // A tagged Debug build pointed at a non-localhost sign-in origin would open a
+        // browser page that can never hand the session back; say so now rather than
+        // "Waiting for sign-in…" forever.
+        guard !AuthEnvironment.signInHandoffIsBlocked else {
+            localFailure = .devHandoffUnavailable
+            return
+        }
+        localFailure = nil
         if flow.isPresentingSignIn {
             // Another surface already has the shared attempt up. Adopt it —
             // mirror its progress and reuse its callback-bound URL — instead

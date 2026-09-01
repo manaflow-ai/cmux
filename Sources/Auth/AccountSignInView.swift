@@ -5,12 +5,22 @@ import SwiftUI
 struct AccountSignInView: View {
     let model: AccountSignInModel
     let automaticallyStartsSignIn: Bool
+    /// Context for the idle card's one line of prompt copy ("Continue with your cmux
+    /// account." by default). A host that needs to say why — the Cloud tab — passes its
+    /// own sentence instead of stacking a second heading above this card.
+    var idlePrompt: String? = nil
 
     var body: some View {
         VStack(spacing: 16) {
             switch model.phase {
             case .idle:
-                AccountSignInIdleView(onSignIn: model.presentSignIn)
+                AccountSignInIdleView(
+                    prompt: idlePrompt ?? String(
+                        localized: "account.signIn.prompt",
+                        defaultValue: "Continue with your cmux account."
+                    ),
+                    onSignIn: model.presentSignIn
+                )
             case let .loading(stage):
                 AccountSignInLoadingView(
                     stage: stage,
@@ -45,6 +55,7 @@ struct AccountSignInView: View {
 }
 
 private struct AccountSignInIdleView: View {
+    let prompt: String
     let onSignIn: () -> Void
 
     var body: some View {
@@ -54,12 +65,11 @@ private struct AccountSignInIdleView: View {
                 .foregroundStyle(.tint)
             Text(String(localized: "account.signIn.heading", defaultValue: "Sign in to cmux"))
                 .cmuxFont(.title2, weight: .semibold)
-            Text(String(
-                localized: "account.signIn.prompt",
-                defaultValue: "Continue with your cmux account."
-            ))
-            .foregroundStyle(.secondary)
-            .multilineTextAlignment(.center)
+            Text(prompt)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 24)
             Button(String(localized: "account.signIn.start", defaultValue: "Sign In"), action: onSignIn)
                 .buttonStyle(.borderedProminent)
                 .accessibilityIdentifier("AccountSignInStartButton")
@@ -293,6 +303,8 @@ private extension AccountSignInModel.Failure {
             return String(localized: "account.signIn.error.rejected.title", defaultValue: "cmux couldn’t complete the sign-in")
         case .unknown:
             return String(localized: "account.signIn.error.unknown.title", defaultValue: "Couldn’t finish sign-in")
+        case .devHandoffUnavailable:
+            return String(localized: "account.signIn.error.devHandoffUnavailable.title", defaultValue: "This dev build can’t sign in through cmux.com")
         }
     }
 
@@ -347,6 +359,11 @@ private extension AccountSignInModel.Failure {
             return String(
                 localized: "account.signIn.error.unknown.recovery",
                 defaultValue: "Try again. If the sign-in window still fails, copy the link and open it in your browser."
+            )
+        case .devHandoffUnavailable:
+            return String(
+                localized: "account.signIn.error.devHandoffUnavailable.recovery",
+                defaultValue: "Its cmux-dev callback only works with a local dev stack. Rebuild the tag without --prod-auth, or bake a session with --credentials-file."
             )
         }
     }

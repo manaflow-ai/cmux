@@ -2321,6 +2321,40 @@
         }
       }
     },
+    "account.signIn.error.devHandoffUnavailable.recovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Its cmux-dev callback only works with a local dev stack. Rebuild the tag without --prod-auth, or bake a session with --credentials-file."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この cmux-dev コールバックはローカルの開発スタックでのみ機能します。--prod-auth なしでタグを再ビルドするか、--credentials-file でセッションを組み込んでください。"
+          }
+        }
+      }
+    },
+    "account.signIn.error.devHandoffUnavailable.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This dev build can’t sign in through cmux.com"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この開発ビルドは cmux.com 経由でサインインできません"
+          }
+        }
+      }
+    },
     "account.signIn.prompt": {
       "extractionState": "manual",
       "localizations": {

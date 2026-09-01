@@ -1186,6 +1186,17 @@ if [[ -n "$AUTH_CREDENTIALS_FILE" ]]; then
   cmux_dev_secrets_validate_file "$AUTH_CREDENTIALS_FILE"
   AUTH_CREDENTIALS_FILE="$(cd "$(dirname "$AUTH_CREDENTIALS_FILE")" && pwd -P)/$(basename "$AUTH_CREDENTIALS_FILE")"
 fi
+if [[ "$PROD_AUTH" -eq 1 && -z "$AUTH_CREDENTIALS_FILE" && -z "$AUTH_PROFILE" ]]; then
+  cat >&2 <<'EOF'
+error: --prod-auth needs a baked session (--credentials-file <path> or --auth-profile <name>).
+  A tagged Debug build signs in through a cmux-dev-<tag>:// callback, and https://cmux.com
+  hands tokens back only to cmux:// and cmux-nightly:// — the browser sign-in this build
+  would open can never return, and the sign-in card waits forever.
+  Drop --prod-auth so sign-in runs through the local dev stack (the default), or bake a
+  signed-in session with --credentials-file / --auth-profile.
+EOF
+  exit 1
+fi
 if [[ -n "$AUTH_PROFILE" || -n "$AUTH_EXPECTED_ACCOUNT" ]]; then
   [[ "$AUTH_PROFILE" == "personal" || "$AUTH_PROFILE" == "agent" ]] \
     || { echo "error: --auth-profile must be personal or agent" >&2; exit 1; }

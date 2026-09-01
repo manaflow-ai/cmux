@@ -132,6 +132,30 @@ struct AuthEnvironmentTests {
         assertNativeSignInURL(url)
     }
 
+    @Test("tagged debug sign-in through a non-localhost origin is reported as blocked")
+    func taggedDebugSignInThroughProductionIsBlocked() {
+        // reload.sh --prod-auth bakes cmux.com as the sign-in origin; cmux.com never
+        // hands a session back to cmux-dev-<tag>://, so the card must not just wait.
+        #expect(AuthEnvironment.signInHandoffIsBlocked(
+            environment: [
+                "CMUX_TAG": "issue-11276-coderouter-cloud",
+                "CMUX_AUTH_WWW_ORIGIN": "https://cmux.com",
+                "CMUX_WWW_ORIGIN": "https://cmux.com",
+            ],
+            bundleIdentifier: "com.cmuxterm.app.debug.issue-11276-coderouter-cloud"
+        ))
+        // The default tagged layout (local dev stack) is fine.
+        #expect(!AuthEnvironment.signInHandoffIsBlocked(
+            environment: ["CMUX_TAG": "issue-11276-coderouter-cloud", "CMUX_PORT": "10380"],
+            bundleIdentifier: "com.cmuxterm.app.debug.issue-11276-coderouter-cloud"
+        ))
+        // A release-style callback scheme is honored by cmux.com itself.
+        #expect(!AuthEnvironment.signInHandoffIsBlocked(
+            environment: ["CMUX_AUTH_CALLBACK_SCHEME": "cmux", "CMUX_AUTH_WWW_ORIGIN": "https://cmux.com"],
+            bundleIdentifier: "com.cmuxterm.app"
+        ))
+    }
+
     @Test("tagged debug sign-in URL uses local origin and tag callback scheme")
     func taggedDebugSignInURLUsesLocalOriginAndTagCallbackScheme() throws {
         let url = AuthEnvironment.signInURL(

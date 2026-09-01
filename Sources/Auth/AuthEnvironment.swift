@@ -558,6 +558,25 @@ enum AuthEnvironment {
         )
     }
 
+    /// True when a browser sign-in from this build can never come back: the web handler
+    /// hands tokens to `cmux://` and `cmux-nightly://` anywhere, but honors `cmux-dev://`
+    /// and `cmux-dev-<tag>://` only on a localhost stack. A Debug build whose sign-in
+    /// origin is not loopback (`reload.sh --prod-auth`) opens a page that silently drops
+    /// the callback, so the card must say so instead of waiting forever.
+    static var signInHandoffIsBlocked: Bool {
+        signInHandoffIsBlocked(
+            environment: ProcessInfo.processInfo.environment,
+            bundleIdentifier: Bundle.main.bundleIdentifier
+        )
+    }
+
+    static func signInHandoffIsBlocked(environment: [String: String], bundleIdentifier: String?) -> Bool {
+        let scheme = callbackScheme(environment: environment, bundleIdentifier: bundleIdentifier)
+        guard scheme == "cmux-dev" || scheme.hasPrefix("cmux-dev-") else { return false }
+        let host = resolvedAfterSignInOrigin(environment: environment).host?.lowercased() ?? ""
+        return !["localhost", "127.0.0.1", "::1", "[::1]"].contains(host)
+    }
+
     static func signInURL(callbackState: String? = nil) -> URL {
         signInURL(callbackState: callbackState, afterSignInOrigin: afterSignInOrigin, callbackURL: callbackURL)
     }

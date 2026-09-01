@@ -234,23 +234,18 @@ struct MachinesPanelView: View {
         }
 
         var body: some View {
-            VStack(spacing: 8) {
-                Text(String(
-                    localized: "machines.auth.title",
-                    defaultValue: "Sign in to use Cloud Machines"
-                ))
-                .cmuxFont(size: 13, weight: .semibold)
-                Text(String(
+            // One sign-in card — the same one Settings › Account shows — with the Cloud
+            // tab's reason as its prompt line. A second heading above it repeated the
+            // same information twice.
+            AccountSignInView(
+                model: signInModel,
+                automaticallyStartsSignIn: false,
+                idlePrompt: String(
                     localized: "machines.auth.subtitle",
                     defaultValue: "Sign in to see and manage the machines in your cmux account."
-                ))
-                .cmuxFont(size: 12)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 20)
-                AccountSignInView(model: signInModel, automaticallyStartsSignIn: false)
-                    .frame(maxWidth: 440)
-            }
+                )
+            )
+            .frame(maxWidth: 440)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .accessibilityIdentifier("CloudMachinesSignInView")
         }
