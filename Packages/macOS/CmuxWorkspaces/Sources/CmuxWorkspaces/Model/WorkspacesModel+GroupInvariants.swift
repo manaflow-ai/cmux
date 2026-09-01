@@ -3,13 +3,21 @@ public import Foundation
 // Group-section invariant maintenance over the model's own tabs/groups
 // storage, lifted one-for-one from the legacy private TabManager helpers:
 // contiguous group runs, anchor-first member order, pinned tier above
-// unpinned, and the group-dissolve lifecycle bound to anchor removal.
+// unpinned, and the group-anchor lifecycle bound to anchor removal.
 extension WorkspacesModel {
     /// Sets a workspace's group membership and preserves selected-row visibility.
     func assignGroup(workspaceId: UUID, groupId: UUID?) {
         guard let tab = tabs.first(where: { $0.id == workspaceId }) else { return }
         guard tab.groupId != groupId else { return }
         tab.groupId = groupId
+        if let groupId,
+           let groupIndex = workspaceGroups.firstIndex(where: { $0.id == groupId }),
+           workspaceGroups[groupIndex].liveAnchorWorkspaceId == nil {
+            // The first workspace added to an empty pinned group becomes its
+            // live header anchor. The placeholder identity is retained only
+            // while the group has no members.
+            workspaceGroups[groupIndex].anchor = .workspace(workspaceId)
+        }
         expandWorkspaceGroupForSelectionIfNeeded()
     }
 
@@ -17,19 +25,41 @@ extension WorkspacesModel {
     /// emitting each workspace group as one contiguous run at its first
     /// encountered member.
     func normalizeWorkspaceGroupRunsPreservingOrder(_ desiredIds: [UUID]) {
+        // Build membership once so anchor repair and run construction stay
+        // linear even when a window contains many groups and workspaces.
+        var groupedByGroupId: [UUID: [Tab]] = [:]
+        for tab in tabs {
+            guard let groupId = tab.groupId else { continue }
+            groupedByGroupId[groupId, default: []].append(tab)
+        }
+
+        // Repair the anchor phase at the same boundary that repairs group
+        // membership. This covers restore/import paths that assign `groupId`
+        // directly instead of going through `assignGroup`.
+        for index in workspaceGroups.indices {
+            let groupId = workspaceGroups[index].id
+            let members = groupedByGroupId[groupId] ?? []
+            if let liveAnchor = workspaceGroups[index].liveAnchorWorkspaceId,
+               members.contains(where: { $0.id == liveAnchor }) {
+                continue
+            }
+            if let firstMember = members.first {
+                workspaceGroups[index].anchor = .workspace(firstMember.id)
+            } else if !workspaceGroups[index].isPinned,
+                      workspaceGroups[index].isEmpty == false {
+                // Unpinned empty groups are not created by normal close paths,
+                // but keeping their identity coherent makes malformed/imported
+                // state deterministic until the caller explicitly removes it.
+                workspaceGroups[index].anchor = .empty(workspaceGroups[index].id)
+            }
+        }
         let groupsById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
         let knownGroupIds = Set(groupsById.keys)
         for tab in tabs where tab.groupId.map({ !knownGroupIds.contains($0) }) ?? false {
             tab.groupId = nil
         }
 
-        var groupedByGroupId: [UUID: [Tab]] = [:]
         let tabsById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
-        for tab in tabs {
-            if let groupId = tab.groupId {
-                groupedByGroupId[groupId, default: []].append(tab)
-            }
-        }
 
         var emittedWorkspaceIds = Set<UUID>()
         var emittedGroupIds = Set<UUID>()
@@ -76,15 +106,30 @@ extension WorkspacesModel {
         for tab in tabs where tab.groupId.map({ !knownGroupIds.contains($0) }) ?? false {
             tab.groupId = nil
         }
-        let topLevelIds = preferredTopLevelIds ?? sidebarTopLevelWorkspaceIds()
-        let pinnedTopLevelIds = sidebarTopLevelPinnedWorkspaceIds()
+        let topLevelIds: [UUID]
+        if let preferredTopLevelIds {
+            // Callers usually compute this order from live tabs only. Reinsert
+            // durable header-only groups before normalizing so an omitted
+            // placeholder cannot be appended to the tail by the group-order
+            // reconciliation below.
+            topLevelIds = sidebarTopLevelWorkspaceIdsIncludingEmptyGroups(
+                preservingTopLevelIds: preferredTopLevelIds
+            )
+        } else {
+            topLevelIds = sidebarTopLevelWorkspaceIds()
+        }
+        let pinnedTopLevelIds = preferredTopLevelIds == nil
+            ? sidebarTopLevelPinnedWorkspaceIds()
+            : sidebarTopLevelPinnedWorkspaceIdsIncludingEmptyGroups()
         let desiredIds = topLevelIds.filter { pinnedTopLevelIds.contains($0) }
             + topLevelIds.filter { !pinnedTopLevelIds.contains($0) }
         // Always reassign so SwiftUI consumers re-evaluate row modifiers that
         // depend on `Workspace.groupId` even when the array contents are
         // unchanged.
         normalizeWorkspaceGroupRunsPreservingOrder(desiredIds)
-        syncWorkspaceGroupsOrderToAnchorOrder()
+        syncWorkspaceGroupsOrderToAnchorOrder(
+            preferredTopLevelIds: preferredTopLevelIds == nil ? nil : topLevelIds
+        )
     }
 
     /// Ensure the group containing the newly-selected workspace is expanded, so the
@@ -109,12 +154,42 @@ extension WorkspacesModel {
     /// the order its anchor occupies in `tabs[]`. Call this after an anchor
     /// reorder so later group-slot commands observe the same order the user
     /// sees in the sidebar.
-    func syncWorkspaceGroupsOrderToAnchorOrder() {
+    func syncWorkspaceGroupsOrderToAnchorOrder(preferredTopLevelIds: [UUID]? = nil) {
+        if let preferredTopLevelIds {
+            let groupsByAnchorId = Dictionary(
+                uniqueKeysWithValues: workspaceGroups.map { ($0.anchorWorkspaceId, $0) }
+            )
+            var orderedGroups: [WorkspaceGroup] = []
+            var emittedGroupIds = Set<UUID>()
+            for id in preferredTopLevelIds {
+                guard let group = groupsByAnchorId[id], emittedGroupIds.insert(group.id).inserted else {
+                    continue
+                }
+                orderedGroups.append(group)
+            }
+            orderedGroups.append(contentsOf: workspaceGroups.filter {
+                !emittedGroupIds.contains($0.id)
+            })
+            workspaceGroups = orderedGroups
+            return
+        }
         let anchorIndex: [UUID: Int] = Dictionary(uniqueKeysWithValues: tabs.enumerated().map { ($1.id, $0) })
-        workspaceGroups.sort { lhs, rhs in
-            let l = anchorIndex[lhs.anchorWorkspaceId] ?? Int.max
-            let r = anchorIndex[rhs.anchorWorkspaceId] ?? Int.max
-            return l < r
+        guard workspaceGroups.contains(where: { $0.liveAnchorWorkspaceId != nil }) else { return }
+        // Empty groups have no tab index. Keep their existing group slots while
+        // projecting live groups into the anchor order, so closing an anchor
+        // does not silently move a surviving header past its group neighbors.
+        let liveGroups = workspaceGroups
+            .filter { $0.liveAnchorWorkspaceId != nil }
+            .sorted { lhs, rhs in
+                let l = lhs.liveAnchorWorkspaceId.flatMap { anchorIndex[$0] } ?? Int.max
+                let r = rhs.liveAnchorWorkspaceId.flatMap { anchorIndex[$0] } ?? Int.max
+                return l < r
+            }
+        var liveIndex = 0
+        workspaceGroups = workspaceGroups.map { group in
+            guard !group.isEmpty, liveGroups.indices.contains(liveIndex) else { return group }
+            defer { liveIndex += 1 }
+            return liveGroups[liveIndex]
         }
     }
 
@@ -172,15 +247,24 @@ extension WorkspacesModel {
         tabs = reordered
     }
 
-    /// If `closedWorkspaceId` was the anchor of any group, dissolve that group:
-    /// remaining members lose their `groupId` and stay in `tabs` as ungrouped
-    /// workspaces. Caller is responsible for having already removed the closed
-    /// workspace from `tabs`.
+    /// Applies the detach-path lifecycle for groups anchored by a removed
+    /// workspace. Unpinned groups dissolve as before; pinned groups retain
+    /// their membership, promote a remaining member, or become an empty group.
+    /// Caller is responsible for having already removed the workspace from
+    /// `tabs`.
     public func dissolveGroupsAnchoredBy(closedWorkspaceId: UUID) {
-        let dissolvedGroupIds = workspaceGroups
+        let affectedGroups = workspaceGroups
             .filter { $0.anchorWorkspaceId == closedWorkspaceId }
-            .map(\.id)
-        guard !dissolvedGroupIds.isEmpty else { return }
+        guard !affectedGroups.isEmpty else { return }
+        let dissolvedGroupIds = affectedGroups.filter { !$0.isPinned }.map(\.id)
+        for group in affectedGroups where group.isPinned {
+            guard let groupIndex = workspaceGroups.firstIndex(where: { $0.id == group.id }) else { continue }
+            if let nextAnchor = tabs.first(where: { $0.groupId == group.id }) {
+                workspaceGroups[groupIndex].anchor = .workspace(nextAnchor.id)
+            } else {
+                workspaceGroups[groupIndex].anchor = .empty(group.id)
+            }
+        }
         for gid in dissolvedGroupIds {
             for tab in tabs where tab.groupId == gid {
                 tab.groupId = nil
@@ -197,12 +281,11 @@ extension WorkspacesModel {
     /// Close-path group fixup for when `closedWorkspaceId` was a group anchor.
     ///
     /// Unlike `dissolveGroupsAnchoredBy` (used by the cross-window detach
-    /// path), closing a workspace must affect only that one workspace: the
-    /// group survives by promoting its earliest remaining member (in `tabs`
-    /// order) to be the new anchor, so the other members stay grouped instead
-    /// of scattering to the ungrouped root tier. A group with no members left
-    /// after the anchor's removal is dropped. Caller is responsible for having
-    /// already removed the closed workspace from `tabs`.
+    /// path), closing a workspace affects only that one workspace: the group
+    /// survives by promoting its earliest remaining member (in `tabs` order)
+    /// to be the new anchor. A pinned group with no members transitions to an
+    /// empty anchor; an unpinned group is removed. Caller is responsible for
+    /// having already removed the closed workspace from `tabs`.
     ///
     /// Returns the workspace ids promoted to anchor. A promoted workspace's
     /// resolved display title switches from its own title to the group name,
@@ -219,8 +302,10 @@ extension WorkspacesModel {
         for gid in affectedGroupIds {
             guard let groupIndex = workspaceGroups.firstIndex(where: { $0.id == gid }) else { continue }
             if let nextAnchor = tabs.first(where: { $0.groupId == gid }) {
-                workspaceGroups[groupIndex].anchorWorkspaceId = nextAnchor.id
+                workspaceGroups[groupIndex].anchor = .workspace(nextAnchor.id)
                 promotedAnchorIds.append(nextAnchor.id)
+            } else if workspaceGroups[groupIndex].isPinned {
+                workspaceGroups[groupIndex].anchor = .empty(workspaceGroups[groupIndex].id)
             } else {
                 removedGroupIds.append(gid)
             }

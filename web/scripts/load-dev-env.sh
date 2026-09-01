@@ -120,6 +120,10 @@ if [[ "${CMUX_DEV_USE_EXTERNAL_VM_API_BASE_URL:-0}" != "1" ]]; then
   export CMUX_VM_API_BASE_URL="http://localhost:${CMUX_PORT}"
 fi
 
+# Local Cloud VM dogfood uses the Blaxel WebSocket provider by default. A caller
+# can still opt into another provider explicitly with CMUX_VM_DEFAULT_PROVIDER.
+export CMUX_VM_DEFAULT_PROVIDER="${CMUX_VM_DEFAULT_PROVIDER:-blaxel}"
+
 # Local dev should not require a checked-in or per-worktree .env.local just to pass
 # startup validation for routes the developer is not exercising.
 export RESEND_API_KEY="${RESEND_API_KEY:-cmux-local-dev}"
