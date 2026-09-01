@@ -201,7 +201,10 @@ final class KeyboardShortcutSettingsObserver {
         }
 
         for action in KeyboardShortcutSettings.Action.allCases {
-            guard !action.isBrowserContentShortcut else { continue }
+            guard !action.isBrowserContentShortcut,
+                  !action.isProtectedFromBrowserCapture else {
+                continue
+            }
             let currentShortcut = shortcutProvider(action)
             let whenClause = KeyboardShortcutSettings.effectiveWhenClause(for: action)
             if !currentShortcut.isUnbound {

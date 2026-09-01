@@ -28,6 +28,27 @@ struct KeyboardShortcutContextSwiftTests {
         #expect(!KeyboardShortcutSettings.browserKeyboardShortcutCaptureEnabled(defaults: defaults))
     }
 
+    @Test("panel-less web focus does not advertise BrowserPanel-owned actions")
+    func panelLessBrowserFocusAvailability() {
+        let context = ShortcutEventFocusContext(
+            browserPanel: nil,
+            browserWebViewFocused: true,
+            markdownPanel: nil,
+            filePreviewTextEditorFocused: false,
+            simulatorFocused: false,
+            rightSidebarFocused: false,
+            shortcutContext: ShortcutFocusState(
+                browser: true,
+                markdown: false,
+                sidebar: false
+            ).context
+        )
+
+        #expect(context.focusState.browser)
+        #expect(!KeyboardShortcutSettings.Action.browserReload.shortcutContext.isAvailable(context))
+        #expect(!KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.shortcutContext.isAvailable(context))
+    }
+
     @Test("Bulk notification shortcuts are shared, visible, and unbound by default")
     func bulkNotificationShortcutsAreSharedVisibleAndUnbound() throws {
         let actions: [KeyboardShortcutSettings.Action] = [

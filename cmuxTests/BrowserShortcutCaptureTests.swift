@@ -161,6 +161,25 @@ final class BrowserShortcutCaptureTests {
     }
 
     @Test
+    func captureLeavesProtectedApplicationShortcutToAppKit() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        try withCaptureEnabled { harness in
+            let commandQ = try #require(makeKeyDownEvent(
+                key: "q",
+                modifiers: [.command],
+                keyCode: 12,
+                windowNumber: harness.window.windowNumber
+            ))
+
+            #expect(KeyboardShortcutSettings.Action.quit.isProtectedFromBrowserCapture)
+            #expect(
+                !appDelegate.shouldCaptureBrowserKeyboardShortcuts(for: commandQ),
+                "Browser capture must never swallow the app Quit shortcut"
+            )
+        }
+    }
+
+    @Test
     func capturePreservesBrowserFocusModeEscapeExit() throws {
         try withCaptureEnabled { harness in
             #expect(
