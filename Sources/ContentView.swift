@@ -5739,7 +5739,7 @@ struct ContentView: View {
     ) -> CommandPaletteSwitcherSearchMetadata {
         let directories = [workspace.reportedPanelDirectory(panelId: panelId)].compactMap { $0 }
         let branches = [workspace.reportedPanelGitBranch(panelId: panelId)?.branch].compactMap { $0 }
-        let ports = workspace.surfaceListeningPorts[panelId] ?? []
+        let ports = workspace.sidebarVisiblePorts(for: panelId)
         return CommandPaletteSwitcherSearchMetadata(
             directories: directories,
             branches: branches,
