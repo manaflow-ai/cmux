@@ -269,14 +269,16 @@ struct TuiManualIOResizeScheduler: Equatable {
     mutating func acknowledged(success: Bool = true) -> TuiManualIOGrid? {
         guard let inFlight else { return nil }
         if !success {
-            // A rejected or expired resize was not delivered. Retry it, or
-            // skip directly to the newest pending sample.
-            if let pending, pending != inFlight {
+            // A rejected resize must not be retried from the acknowledgement
+            // callback itself. Mark this size as observed and keep a newer
+            // pending sample for the next genuine geometry event, avoiding a
+            // tight reject/send loop when another pane owns authority.
+            lastDelivered = inFlight
+            self.inFlight = nil
+            if pending == lastDelivered {
                 self.pending = nil
-                self.inFlight = pending
-                return pending
             }
-            return inFlight
+            return nil
         }
         lastDelivered = inFlight
         self.inFlight = nil
