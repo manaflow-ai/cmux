@@ -50,4 +50,6 @@ public final class LocalTerminalViewportSession {
     public var isEmpty: Bool {
         overridesBySurfaceID.isEmpty
     }
+
+    deinit {}
 }

@@ -89,11 +89,6 @@ extension MobileTerminalRenderGridFrame {
             mapped.row = lineIndex - firstVisibleLine
             mapped.column = min(max(0, column), columns - 1)
             projectedCursor = mapped
-        } else if let cursor {
-            var mapped = cursor
-            mapped.row = min(max(0, rows - 1), max(0, cursor.row))
-            mapped.column = min(max(0, cursor.column), columns - 1)
-            projectedCursor = mapped
         }
 
         return (try? Self(
@@ -154,6 +149,7 @@ extension MobileTerminalRenderGridFrame {
             }
             for span in (spansByRow[sourceRow] ?? []).sorted(by: { $0.column < $1.column }) {
                 var column = span.column
+                var remainingWidth = span.gridCellWidth
                 for character in span.text {
                     let estimatedWidth = character.renderGridEstimatedCellWidth
                     if estimatedWidth == 0 {
@@ -162,8 +158,11 @@ extension MobileTerminalRenderGridFrame {
                         }
                         continue
                     }
-                    guard column < cells.count else { break }
-                    let width = min(max(1, estimatedWidth), cells.count - column)
+                    guard column < cells.count, remainingWidth > 0 else { break }
+                    let width = min(
+                        min(max(1, estimatedWidth), remainingWidth),
+                        cells.count - column
+                    )
                     cells[column] = ViewportCell(
                         text: String(character),
                         styleID: span.styleID,
@@ -179,6 +178,21 @@ extension MobileTerminalRenderGridFrame {
                         }
                     }
                     column += width
+                    remainingWidth -= width
+                }
+                // A span's explicit cell width can include trailing blank
+                // cells (and can differ from our conservative Unicode-width
+                // estimate for ambiguous characters). Keep those cells in
+                // the source grid so wrapping never shifts later spans.
+                while remainingWidth > 0, column < cells.count {
+                    cells[column] = ViewportCell(
+                        text: " ",
+                        styleID: span.styleID,
+                        width: 1,
+                        sourceColumn: column
+                    )
+                    column += 1
+                    remainingWidth -= 1
                 }
             }
 
@@ -196,6 +210,26 @@ extension MobileTerminalRenderGridFrame {
             var lineCells: [ViewportCell] = []
             var lineWidth = 0
             for cell in cells where cell.width > 0 {
+                guard cell.width <= targetColumns else {
+                    // A wide source glyph cannot fit in a one-cell target
+                    // line. Leave that cell blank rather than creating an
+                    // invalid span wider than the projected grid.
+                    if lineWidth > 0 {
+                        result.append(ViewportLine(sourceRow: sourceRow, cells: lineCells))
+                        lineCells.removeAll(keepingCapacity: true)
+                        lineWidth = 0
+                    }
+                    result.append(ViewportLine(
+                        sourceRow: sourceRow,
+                        cells: [ViewportCell(
+                            text: " ",
+                            styleID: 0,
+                            width: targetColumns,
+                            sourceColumn: cell.sourceColumn
+                        )]
+                    ))
+                    continue
+                }
                 if lineWidth > 0, lineWidth + cell.width > targetColumns {
                     result.append(ViewportLine(sourceRow: sourceRow, cells: lineCells))
                     lineCells.removeAll(keepingCapacity: true)
@@ -302,7 +336,9 @@ extension String {
                     width = 0
                 }
             }
-            projected.append(line)
+            if !line.isEmpty || sourceLine.isEmpty {
+                projected.append(line)
+            }
         }
         if !keepAllRows, projected.count > rows {
             projected = Array(projected.suffix(rows))

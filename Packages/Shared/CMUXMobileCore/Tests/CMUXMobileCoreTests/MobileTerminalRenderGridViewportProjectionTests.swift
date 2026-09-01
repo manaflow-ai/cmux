@@ -51,3 +51,47 @@ import Testing
     #expect(text.projectedTerminalText(columns: 4, rows: 2, keepAllRows: false) == "efgh\nij")
     #expect(text.projectedTerminalText(columns: 4, rows: 2, keepAllRows: true) == "0123\n4567\n89\nabcd\nefgh\nij")
 }
+
+@Test func textProjectionDoesNotAddAnEmptyRowAtExactWidthBoundary() {
+    let text = "abcdefgh\nnext"
+
+    #expect(text.projectedTerminalText(columns: 4, rows: 2, keepAllRows: false) == "efgh\nnext")
+    #expect(text.projectedTerminalText(columns: 4, rows: 10, keepAllRows: true) == "abcd\nefgh\nnext")
+}
+
+@Test func viewportProjectionHonorsExplicitSpanWidthsAndWideGlyphs() throws {
+    let style = MobileTerminalRenderGridFrame.Style(id: 1, bold: true)
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface-a",
+        stateSeq: 1,
+        columns: 8,
+        rows: 1,
+        styles: [.default, style],
+        rowSpans: [
+            .init(row: 0, column: 0, styleID: 1, text: "界", cellWidth: 2),
+            .init(row: 0, column: 2, styleID: 1, text: "ab", cellWidth: 4),
+        ]
+    )
+
+    let projected = frame.projectedViewport(columns: 3, rows: 2)
+
+    #expect(projected.plainRows() == ["界a ", "b  "])
+    #expect(projected.rowSpans.first?.cellWidth == 3)
+    #expect(projected.rowSpans.first?.styleID == 1)
+}
+
+@Test func viewportProjectionDropsCursorWhenItsSourceRowIsCropped() throws {
+    let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "surface-a",
+        stateSeq: 1,
+        columns: 8,
+        rows: 3,
+        text: "top\nmiddle\nbottom",
+        cursor: .init(row: 0, column: 1)
+    )
+
+    let projected = frame.projectedViewport(columns: 8, rows: 1)
+
+    #expect(projected.plainRows() == ["bottom"])
+    #expect(projected.cursor == nil)
+}

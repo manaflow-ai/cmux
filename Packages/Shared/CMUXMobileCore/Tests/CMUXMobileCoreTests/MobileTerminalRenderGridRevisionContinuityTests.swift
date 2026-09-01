@@ -61,6 +61,37 @@ private func chainFrame(
     #expect(MobileTerminalRenderGridRevisionContinuity.admits(delta, delivered: delivered))
 }
 
+@Test func revisionContinuityRejectsMismatchedEmissionBase() throws {
+    let deliveredFrame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 7,
+        renderEpoch: "epoch-1",
+        renderRevision: 3,
+        emissionRevision: 12,
+        columns: 8,
+        rows: 2,
+        full: true,
+        rowSpans: [.init(row: 0, column: 0, text: "same")]
+    )
+    let delivered = MobileTerminalRenderGridRevisionContinuity(delivered: deliveredFrame)
+    let delta = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 7,
+        renderEpoch: "epoch-1",
+        renderRevision: 3,
+        emissionRevision: 14,
+        columns: 8,
+        rows: 2,
+        full: false,
+        clearedRows: [0],
+        rowSpans: [.init(row: 0, column: 0, text: "same")],
+        deltaBaseRenderRevision: 3,
+        deltaBaseEmissionRevision: 13
+    )
+
+    #expect(!MobileTerminalRenderGridRevisionContinuity.admits(delta, delivered: delivered))
+}
+
 @Test func revisionContinuityRejectsDeltaAfterMissedFrame() throws {
     let delivered = MobileTerminalRenderGridRevisionContinuity(
         delivered: try chainFrame(revision: 7, full: true)
