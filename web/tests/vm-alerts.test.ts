@@ -114,7 +114,7 @@ describe("VM alert checks", () => {
       },
       sendAlert: async (input): Promise<AlertResult> => {
         alerts.push(input);
-        return { sent: true, status: 200 };
+        return { sent: true, configured: true, status: 200 };
       },
     });
 
@@ -122,6 +122,7 @@ describe("VM alert checks", () => {
       createFailures: { triggered: true, count: 3 },
       stuckProvisioning: { triggered: true, count: 1 },
       expiredUnrevokedLeases: { triggered: true, count: 51 },
+      alertSink: { configured: false, droppedAlerts: 0 },
     });
     expect(alerts.map((alert) => alert.key)).toEqual([
       "vm-create-failure-spike",

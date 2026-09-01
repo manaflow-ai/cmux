@@ -116,7 +116,7 @@ struct GhosttyEnsureFocusWindowActivationTests {
         let tabManager = TabManager(autoWelcomeIfNeeded: false)
         let workspace = tabManager.addWorkspace(select: true)
         let mainPanelID = try #require(workspace.focusedPanelId)
-        let workspaceDock = workspace.dockSplit
+        let workspaceDock = try #require(workspace.dockSplit)
         let dockPane = try #require(workspaceDock.bonsplitController.allPaneIds.first)
         let dockPanelID = try #require(workspaceDock.newSurface(
             kind: .terminal,
@@ -396,6 +396,23 @@ struct GhosttyEnsureFocusWindowActivationTests {
 
         #expect(targetWorkspace.manualUnreadPanelIds == Set([containerPanelID]))
         #expect(tabManager.selectedTabId == selectedWorkspace.id)
+    }
+
+    @Test
+    func terminalBellInFocusedTerminalIsNotANotification() {
+        // Readline beeps when you press ← at the start of the line. In the
+        // terminal you are typing into, that bell must neither flash the pane
+        // like an arriving `cmux notify` nor mark it unread.
+        let focused = TerminalVisualBellResponse.resolve(ownsActiveFocus: true, isManuallyUnread: false)
+        #expect(focused == TerminalVisualBellResponse(marksUnread: false, flashes: false))
+
+        // A background pane still gets the attention treatment.
+        let background = TerminalVisualBellResponse.resolve(ownsActiveFocus: false, isManuallyUnread: false)
+        #expect(background == TerminalVisualBellResponse(marksUnread: true, flashes: true))
+
+        // Already-unread panes flash again but are not re-marked.
+        let alreadyUnread = TerminalVisualBellResponse.resolve(ownsActiveFocus: false, isManuallyUnread: true)
+        #expect(alreadyUnread == TerminalVisualBellResponse(marksUnread: false, flashes: true))
     }
 
     @Test

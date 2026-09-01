@@ -74,77 +74,15 @@ pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
     let mut blobs = Vec::new();
     for terminal_id in terminal_ids {
         let Some(surface) = mux.terminal_resource_surface(&terminal_id) else { continue };
-        let epoch_before = surface
-            .terminal_journal_capture_epoch()
-            .context("checkpoint terminal is not a PTY surface")?;
-        anyhow::ensure!(
-            epoch_before & 1 == 0,
-            "terminal journal ingress is unsettled during checkpoint capture"
-        );
-        let (cols, rows, replay) = surface.try_with_terminal(|terminal| {
-            terminal
-                .vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES)
-                .map(|replay| (terminal.cols(), terminal.rows(), replay))
-        })??;
-        let epoch_after = surface
-            .terminal_journal_capture_epoch()
-            .context("checkpoint terminal is not a PTY surface")?;
-        anyhow::ensure!(
-            epoch_before == epoch_after && epoch_after & 1 == 0,
-            "terminal changed during checkpoint capture"
-        );
-        let replay_value = json!({
-            "format":"cmux.vt-replay.v1",
-            "cols":cols,
-            "rows":rows,
-            "bytes_base64":base64::engine::general_purpose::STANDARD.encode(&replay.bytes),
-            "kitty_image_aliases":replay.kitty_image_aliases.iter().map(|alias| json!({
-                "image_id":alias.image_id,
-                "image_number":alias.image_number,
-            })).collect::<Vec<_>>(),
-            "kitty_state":{
-                "limits":{
-                    "image_bytes":replay.kitty_state.limits.image_bytes.to_string(),
-                    "inflight_bytes":replay.kitty_state.limits.inflight_bytes.to_string(),
-                    "images":replay.kitty_state.limits.images.to_string(),
-                    "placements":replay.kitty_state.limits.placements.to_string(),
-                },
-                "replay_cursor_offset":replay.kitty_state.replay_cursor_offset,
-                "replay_next_image_ids":{
-                    "primary":replay.kitty_state.replay_next_image_ids.primary,
-                    "alternate":replay.kitty_state.replay_next_image_ids.alternate,
-                },
-                "next_image_ids":{
-                    "primary":replay.kitty_state.next_image_ids.primary,
-                    "alternate":replay.kitty_state.next_image_ids.alternate,
-                },
-            },
-        });
-        let uncompressed = serde_json::to_vec(&replay_value)?;
-        let uncompressed_bytes = u64::try_from(uncompressed.len())?;
+        let blob = terminal_replay_blob(&surface, &terminal_id)?;
         total_bytes = total_bytes
-            .checked_add(uncompressed_bytes)
+            .checked_add(blob.reference.uncompressed_bytes)
             .context("checkpoint content byte count overflow")?;
         anyhow::ensure!(
             total_bytes <= MAX_CHECKPOINT_UNCOMPRESSED_BYTES,
             "checkpoint terminal content exceeds {MAX_CHECKPOINT_UNCOMPRESSED_BYTES} bytes"
         );
-        let digest = Sha256::digest(&uncompressed);
-        let digest_hex = encode_hex(digest.as_slice());
-        let compressed = gzip_deterministic(&uncompressed)?;
-        blobs.push(JournalContentBlob::verified(
-            JournalContentRef {
-                content_id: format!("jcontent_{digest_hex}"),
-                terminal_id: terminal_id.as_str().into(),
-                format: "cmux.vt-replay.v1".into(),
-                codec: "gzip".into(),
-                sha256: digest_hex,
-                uncompressed_bytes,
-                cols,
-                rows,
-            },
-            compressed,
-        )?);
+        blobs.push(blob);
     }
 
     mux.flush_terminal_journal()?;
@@ -169,6 +107,80 @@ pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
         }),
         blobs,
     })
+}
+
+/// Capture one terminal's bounded `cmux.vt-replay.v1` blob from its live
+/// runtime surface. The terminal's journal ingress must be settled (flush
+/// first) so the replay and the journaled output stream describe the same
+/// byte prefix; a torn capture is rejected through the per-terminal epoch.
+pub(crate) fn terminal_replay_blob(
+    surface: &crate::Surface,
+    terminal_id: &TerminalPublicId,
+) -> anyhow::Result<JournalContentBlob> {
+    let epoch_before = surface
+        .terminal_journal_capture_epoch()
+        .context("captured terminal is not a PTY surface")?;
+    anyhow::ensure!(
+        epoch_before & 1 == 0,
+        "terminal journal ingress is unsettled during replay capture"
+    );
+    let (cols, rows, replay) = surface.try_with_terminal(|terminal| {
+        terminal
+            .vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES)
+            .map(|replay| (terminal.cols(), terminal.rows(), replay))
+    })??;
+    let epoch_after = surface
+        .terminal_journal_capture_epoch()
+        .context("captured terminal is not a PTY surface")?;
+    anyhow::ensure!(
+        epoch_before == epoch_after && epoch_after & 1 == 0,
+        "terminal changed during replay capture"
+    );
+    let replay_value = json!({
+        "format":"cmux.vt-replay.v1",
+        "cols":cols,
+        "rows":rows,
+        "bytes_base64":base64::engine::general_purpose::STANDARD.encode(&replay.bytes),
+        "kitty_image_aliases":replay.kitty_image_aliases.iter().map(|alias| json!({
+            "image_id":alias.image_id,
+            "image_number":alias.image_number,
+        })).collect::<Vec<_>>(),
+        "kitty_state":{
+            "limits":{
+                "image_bytes":replay.kitty_state.limits.image_bytes.to_string(),
+                "inflight_bytes":replay.kitty_state.limits.inflight_bytes.to_string(),
+                "images":replay.kitty_state.limits.images.to_string(),
+                "placements":replay.kitty_state.limits.placements.to_string(),
+            },
+            "replay_cursor_offset":replay.kitty_state.replay_cursor_offset,
+            "replay_next_image_ids":{
+                "primary":replay.kitty_state.replay_next_image_ids.primary,
+                "alternate":replay.kitty_state.replay_next_image_ids.alternate,
+            },
+            "next_image_ids":{
+                "primary":replay.kitty_state.next_image_ids.primary,
+                "alternate":replay.kitty_state.next_image_ids.alternate,
+            },
+        },
+    });
+    let uncompressed = serde_json::to_vec(&replay_value)?;
+    let uncompressed_bytes = u64::try_from(uncompressed.len())?;
+    let digest = Sha256::digest(&uncompressed);
+    let digest_hex = encode_hex(digest.as_slice());
+    let compressed = gzip_deterministic(&uncompressed)?;
+    JournalContentBlob::verified(
+        JournalContentRef {
+            content_id: format!("jcontent_{digest_hex}"),
+            terminal_id: terminal_id.as_str().into(),
+            format: "cmux.vt-replay.v1".into(),
+            codec: "gzip".into(),
+            sha256: digest_hex,
+            uncompressed_bytes,
+            cols,
+            rows,
+        },
+        compressed,
+    )
 }
 
 #[cfg(test)]

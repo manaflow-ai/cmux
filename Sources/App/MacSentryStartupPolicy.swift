@@ -1,33 +1,46 @@
+import CmuxFoundation
+import CmuxSettings
 import Foundation
 
 struct MacSentryStartupPolicy: Sendable {
     let telemetryEnabled: Bool
     let isRunningUnderXCTest: Bool
     let allowUnderXCTest: Bool
+    let allowsBuildIdentity: Bool
 
     init(
         telemetryEnabled: Bool,
         isRunningUnderXCTest: Bool,
-        allowUnderXCTest: Bool
+        allowUnderXCTest: Bool,
+        allowsBuildIdentity: Bool
     ) {
         self.telemetryEnabled = telemetryEnabled
         self.isRunningUnderXCTest = isRunningUnderXCTest
         self.allowUnderXCTest = allowUnderXCTest
+        self.allowsBuildIdentity = allowsBuildIdentity
     }
 
     init(
         environment: [String: String],
-        telemetryEnabled: Bool
+        telemetryEnabled: Bool,
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier
     ) {
         self.init(
             telemetryEnabled: telemetryEnabled,
             isRunningUnderXCTest: Self.isRunningUnderXCTest(environment: environment),
-            allowUnderXCTest: environment["CMUX_TEST_SENTRY_ENABLED"] == "1"
+            allowUnderXCTest: environment["CMUX_TEST_SENTRY_ENABLED"] == "1",
+            // The cmux repo is public; rebranded forks have shipped with the
+            // hardcoded cmux DSN intact (Sentry issue CMUXTERM-MACOS-1RZF).
+            // Only a build that identifies as cmux may start Sentry.
+            allowsBuildIdentity: SentryBuildIdentityPolicy(
+                bundleIdentifier: bundleIdentifier,
+                trustedBaseBundleIdentifier: SocketPathMarkerFiles.stableBundleIdentifier
+            ).allowsTelemetry
         )
     }
 
     var shouldStart: Bool {
-        telemetryEnabled && (!isRunningUnderXCTest || allowUnderXCTest)
+        telemetryEnabled && allowsBuildIdentity && (!isRunningUnderXCTest || allowUnderXCTest)
     }
 
     static func isRunningUnderXCTest(environment: [String: String]) -> Bool {

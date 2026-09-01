@@ -32,4 +32,8 @@ struct AuthCoordinatorIdentityProvider: MobileIdentityProviding {
     @MainActor var currentUserEmail: String? {
         coordinator.currentUser?.primaryEmail
     }
+
+    @MainActor var demonstrationContentEnabled: Bool {
+        coordinator.currentUser?.demonstrationContentEnabled ?? false
+    }
 }
