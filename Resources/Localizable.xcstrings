@@ -158238,6 +158238,12 @@
             "value": "アプリアイコン"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រូបតំណាងកម្មវិធី"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
@@ -158355,6 +158361,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Dockとアプリスイッチャー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock និងកម្មវិធីប្ដូរ"
           }
         },
         "ko": {
