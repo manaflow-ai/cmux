@@ -47,7 +47,7 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::mpsc;
+use tokio::sync::{Notify, mpsc};
 use tokio_util::sync::CancellationToken;
 
 use crate::pty::{
@@ -705,6 +705,8 @@ mod tests {
 
     struct FakeDeps {
         spawned: Arc<StdMutex<Vec<FakePty>>>,
+        entered: Option<Arc<Notify>>,
+        release: Option<Arc<Notify>>,
     }
 
     #[async_trait]
@@ -712,6 +714,8 @@ mod tests {
         async fn spawn_pty(&self, _spec: SpawnSpec) -> PtyHandle {
             let pty = FakePty { state: Arc::new(StdMutex::new(FakeState::default())) };
             self.spawned.lock().unwrap().push(pty.clone());
+            if let Some(entered) = &self.entered { entered.notify_one(); }
+            if let Some(release) = &self.release { release.notified().await; }
             PtyHandle { control: Arc::new(pty.clone()), output: Arc::new(pty), banner: None }
         }
         async fn resolve_cmux_tui(&self) -> Option<CmuxTui> {
@@ -753,7 +757,7 @@ mod tests {
 
     async fn rig_with_limits(max_ptys: usize) -> Rig {
         let spawned = Arc::new(StdMutex::new(Vec::new()));
-        let deps = Arc::new(FakeDeps { spawned: Arc::clone(&spawned) });
+        let deps = Arc::new(FakeDeps { spawned: Arc::clone(&spawned), entered: None, release: None });
         let env = HashMap::from([
             ("SHELL".to_owned(), "/bin/fakesh".to_owned()),
             ("HOME".to_owned(), std::env::temp_dir().to_string_lossy().into_owned()),
@@ -780,6 +784,17 @@ mod tests {
 
     async fn rig() -> Rig {
         rig_with_limits(8).await
+    }
+
+    async fn hanging_rig() -> (Rig, Arc<Notify>) {
+        let entered = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let spawned = Arc::new(StdMutex::new(Vec::new()));
+        let deps = Arc::new(FakeDeps { spawned: Arc::clone(&spawned), entered: Some(Arc::clone(&entered)), release: Some(release) });
+        let manager = Arc::new(PtyManager::with_limits(deps, std::env::temp_dir(), HashMap::new(), 8, 32, 1_048_576));
+        let cancel = CancellationToken::new();
+        let port = start_tunnel_terminal_listener(Arc::clone(&manager), cancel.clone(), TUNNEL_TERMINAL_HOST, 0).await.unwrap();
+        (Rig { manager, spawned, port, cancel }, entered)
     }
 
     async fn connect(rig: &Rig) -> TcpStream {
@@ -1009,13 +1024,14 @@ mod tests {
 
     #[tokio::test]
     async fn listener_cancellation_cancels_pending_open_without_attachment() {
-        let rig = rig().await;
+        let (rig, entered) = hanging_rig().await;
         let stream = connect(&rig).await;
         let (mut read, mut write) = stream.into_split();
         write
             .write_all(&encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 })))
             .await
             .unwrap();
+        entered.notified().await;
         rig.cancel.cancel();
         read_eof(&mut read).await;
         assert!(rig.spawned.lock().unwrap().is_empty(), "cancelled open must not reserve a PTY");
