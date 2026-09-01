@@ -331,7 +331,6 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// recolor it from the new theme's background.
     private weak var accessoryBarBackgroundView: UIView?
     func refreshThemeColors() {
-        accessoryBarBackgroundView?.backgroundColor = themeBarColor
         dismissButton?.tintColor = themeChromeColor.withAlphaComponent(0.78)
         accessoryArrowNub?.applyTheme(background: themeBarColor, foreground: themeChromeColor)
         refreshAccessoryButtonStyles()
@@ -346,7 +345,12 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         container.frame = CGRect(x: 0, y: 0, width: 0, height: Self.dockedButtonRowHeight)
 
         let backgroundView = UIView()
-        backgroundView.backgroundColor = themeBarColor
+        // Clear, not the theme bar fill: the scroll-edge band renders live
+        // scrollback rows behind this strip and the host's dock-anchored
+        // fade provides the legibility wash. Everywhere the band is off,
+        // what shows through is the same theme-colored surface this fill
+        // used to match, so nothing changes visually there.
+        backgroundView.backgroundColor = .clear
         backgroundView.translatesAutoresizingMaskIntoConstraints = false
         self.accessoryBarBackgroundView = backgroundView
 
