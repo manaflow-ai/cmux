@@ -688,7 +688,9 @@ final class TuiManualIOPump {
             onOverflow: { [weak self] in
                 // The surface stopped consuming; treat like a dead relay so
                 // a respawn resyncs from a bounded replay.
-                self?.handleRelayExit(generation: spawnGeneration, forcedExit: .daemonLost)
+                Task { @MainActor [weak self] in
+                    self?.handleRelayExit(generation: spawnGeneration, forcedExit: .daemonLost)
+                }
             }
         )
         stdoutReader?.close()
@@ -700,9 +702,13 @@ final class TuiManualIOPump {
                 self.surface?.processRemoteOutput(chunk)
                 reader.release(chunk)
                 self.everRenderedAttach = true
-                self.consecutiveUnexplainedFailures = 0
                 if self.state != .live {
                     self.state = .live
+                    // Count a failure streak across relay generations. A
+                    // single replay chunk proves this generation attached,
+                    // so reset once on the transition to live, not for every
+                    // subsequent output chunk from a crash-looping relay.
+                    self.consecutiveUnexplainedFailures = 0
                 }
             }
         }
