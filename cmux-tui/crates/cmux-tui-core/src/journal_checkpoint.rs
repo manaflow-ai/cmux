@@ -938,6 +938,54 @@ mod tests {
     }
 
     #[test]
+    fn reducer_rejects_revisioned_records_without_cursor_baseline() {
+        let record = SessionJournalRecord {
+            sequence: 4,
+            event_id: "event_without_cursor_baseline".into(),
+            schema_version: 1,
+            kind: "workspace.create".into(),
+            class: JournalClass::State,
+            replay: JournalReplayPolicy::Required,
+            occurred_at_ms: 1,
+            committed_at_ms: 1,
+            producer: JournalProducer { kind: "test".into(), id: "test".into() },
+            authority: None,
+            causation_id: None,
+            correlation_id: None,
+            causation_depth: 0,
+            subjects: vec![JournalSubject { kind: "session".into(), id: "session".into() }],
+            sensitivity: JournalSensitivity::Sensitive,
+            payload: json!({"changes":[{"kind":"upsert","resource":"workspace","id":"w","value":{"id":"w","index":0}}]}),
+            resource_revision: Some(101),
+            previous_resource_revision: Some(100),
+            terminal_output: None,
+        };
+        let checkpoint = |cursor: Option<Value>| {
+            let mut state = json!({
+                "session_snapshot":{"workspaces":[]},
+                "journal_extensions":{"producers":[],"hooks":[]},
+            });
+            if let Some(cursor) = cursor {
+                state["session_snapshot"]["cursor"] = cursor;
+            }
+            JournalCheckpoint {
+                checkpoint_id: "checkpoint_without_cursor_baseline".into(),
+                source_sequence: 3,
+                reducer_version: JOURNAL_REDUCER_VERSION,
+                state,
+                content_refs: vec![],
+                sha256: "00".repeat(32),
+                created_at_ms: 1,
+            }
+        };
+
+        for cursor in [None, Some(Value::Null)] {
+            let preview = restore_preview(&checkpoint(cursor), &[record.clone()], 4).unwrap();
+            assert_eq!(preview["fully_reducible"], false);
+        }
+    }
+
+    #[test]
     fn reducer_streams_terminal_output_and_resize_into_a_bounded_replay_summary() {
         let output = b"prompt> first line\r\n";
         let output_record = terminal_replay_record(
