@@ -2957,7 +2957,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     /// The binding a session snapshot restores, or nil when the snapshot has none or its
     /// machine id is malformed.
-    static func restoredCloudVMBinding(from snapshot: SessionCloudVMBindingSnapshot?) -> WorkspaceCloudVMBinding? {
+    nonisolated static func restoredCloudVMBinding(from snapshot: SessionCloudVMBindingSnapshot?) -> WorkspaceCloudVMBinding? {
         guard let snapshot, let vmID = WorkspaceCloudVMBinding.normalizedVMID(snapshot.vmID) else { return nil }
         let remote = snapshot.remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines)
         return WorkspaceCloudVMBinding(vmID: vmID, isBase: snapshot.isBase, remoteWorkspaceID: remote?.isEmpty == false ? remote : nil)
