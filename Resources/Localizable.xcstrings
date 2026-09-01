@@ -19913,6 +19913,12 @@
             "value": "自動"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្វ័យប្រវត្តិ"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
@@ -20032,6 +20038,12 @@
             "value": "ダーク"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ងងឹត"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
@@ -20149,6 +20161,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ライト"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្លឺ"
           }
         },
         "ko": {
