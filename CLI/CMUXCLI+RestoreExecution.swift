@@ -106,12 +106,81 @@ extension CMUXCLI {
         let appliedWorkingDirectory = try applyRestoreWorkingDirectory(
             workingDirectoryOverride ?? requestedRestoreWorkingDirectory(for: record)
         )
+        let command = try retargetedLegacyRestoreCommand(
+            command,
+            record: record,
+            workingDirectoryOverride: workingDirectoryOverride,
+            appliedWorkingDirectory: appliedWorkingDirectory
+        )
         var legacyEnvironment = environment
         if let appliedWorkingDirectory {
             legacyEnvironment["PWD"] = appliedWorkingDirectory
         }
         client.close()
         try execLegacyRestoreCommand(command, environment: legacyEnvironment)
+    }
+
+    private func retargetedLegacyRestoreCommand(
+        _ command: String,
+        record: RestoreRecord,
+        workingDirectoryOverride: String?,
+        appliedWorkingDirectory: String?
+    ) throws -> String {
+        guard normalizedRestoreWorkingDirectory(workingDirectoryOverride) != nil,
+              let appliedWorkingDirectory else {
+            return command
+        }
+
+        let previousWorkingDirectories = [
+            normalizedRestoreWorkingDirectory(record.workingDirectory),
+            normalizedRestoreWorkingDirectory(record.launchCommand?.workingDirectory),
+            normalizedRestoreWorkingDirectory(record.preparedArgumentsWorkingDirectory),
+        ].compactMap { $0 }
+        var seenWorkingDirectories: Set<String> = []
+        for previousWorkingDirectory in previousWorkingDirectories
+            where seenWorkingDirectories.insert(previousWorkingDirectory).inserted {
+            let quotedCandidates = [
+                legacyRestoreShellSingleQuote(previousWorkingDirectory),
+                shellQuote(previousWorkingDirectory),
+            ]
+            var seenQuotedCandidates: Set<String> = []
+            for quoted in quotedCandidates where seenQuotedCandidates.insert(quoted).inserted {
+                let prefixes = [
+                    "cd -- \(quoted) 2>/dev/null && ",
+                    "cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ] && ",
+                    "{ cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ]; } && ",
+                    "{ [ ! -d \(quoted) ] || cd -- \(quoted); } && ",
+                    "cd -- \(quoted) && ",
+                    "cd \(quoted) && ",
+                ]
+                for prefix in prefixes where command.hasPrefix(prefix) {
+                    let replacement = "cd -- \(legacyRestoreShellSingleQuote(appliedWorkingDirectory)) 2>/dev/null && "
+                    return replacement + command.dropFirst(prefix.count)
+                }
+            }
+        }
+
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasUnrecognizedWorkingDirectoryPrefix = trimmed.hasPrefix("cd ") ||
+            trimmed.hasPrefix("cd\t") ||
+            trimmed.hasPrefix("{ cd ") ||
+            trimmed.hasPrefix("{ cd\t") ||
+            trimmed.hasPrefix("{ [ ! -d ")
+        guard !hasUnrecognizedWorkingDirectoryPrefix else {
+            throw loggedRestoreError(
+                stage: "legacy-working-directory.retarget",
+                detail: "kind=\(record.kind)",
+                message: String(
+                    localized: "cli.restore.error.incompleteData",
+                    defaultValue: "restore: this session's saved restore data is not compatible. Start the agent again in this terminal."
+                )
+            )
+        }
+        return command
+    }
+
+    private func legacyRestoreShellSingleQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     private func execLegacyRestoreCommand(
