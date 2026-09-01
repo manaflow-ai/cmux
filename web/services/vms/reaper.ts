@@ -18,6 +18,10 @@ export const VM_REAPER_DEFAULT_PROVISIONING_LIMIT = 100;
 export const VM_REAPER_DEFAULT_VOLUME_SCAN_LIMIT = 1_000;
 export const VM_REAPER_MAX_BATCH_LIMIT = 100;
 export const VM_REAPER_MAX_VOLUME_SCAN_LIMIT = 1_000;
+/** Sequential provider page requests allowed per run; far below the item cap. */
+export const VM_REAPER_MAX_VOLUME_SCAN_PAGES = 20;
+/** Wall-clock budget for the volume scan, well inside the route's 300s cap. */
+export const VM_REAPER_SCAN_DEADLINE_MS = 120_000;
 export const VM_REAPER_DEFAULT_STUCK_PROVISIONING_MINUTES = 60;
 export const VM_REAPER_DEFAULT_VOLUME_MIN_AGE_MINUTES = 120;
 export const VM_REAPER_SYSTEM_USER_ID = "cmux-vm-reaper";
@@ -289,9 +293,24 @@ function reportOrphanVolumes(
     const seenNames = new Set<string>();
     let candidateLimitReached = false;
 
+    const scanStartedAtMs = Date.now();
     while (!exhausted &&
       summary.orphanVolumes.scanned < input.scanLimit &&
       summary.orphanVolumes.providerPages < VM_REAPER_MAX_VOLUME_SCAN_LIMIT) {
+      // A provider returning many small or empty pages must not monopolize
+      // the cron budget: cap sequential pages and bound the scan wall clock.
+      if (summary.orphanVolumes.providerPages >= VM_REAPER_MAX_VOLUME_SCAN_PAGES) {
+        summary.orphanVolumes.coveragePartial = true;
+        console.info("[VM] reaper stopped at the provider page cap", {
+          pages: summary.orphanVolumes.providerPages,
+        });
+        break;
+      }
+      if (Date.now() - scanStartedAtMs >= VM_REAPER_SCAN_DEADLINE_MS) {
+        summary.orphanVolumes.coveragePartial = true;
+        console.info("[VM] reaper stopped at the scan deadline");
+        break;
+      }
       const remaining = input.scanLimit - summary.orphanVolumes.scanned;
       const requestLimit = Math.max(1, Math.min(VM_REAPER_MAX_BATCH_LIMIT, remaining));
       const listed = yield* listVolumes("blaxel", {
@@ -358,7 +377,7 @@ function reportOrphanVolumes(
     if (!exhausted && (
       cursor ||
       summary.orphanVolumes.scanned >= input.scanLimit ||
-      summary.orphanVolumes.providerPages >= VM_REAPER_MAX_VOLUME_SCAN_LIMIT
+      summary.orphanVolumes.providerPages >= VM_REAPER_MAX_VOLUME_SCAN_PAGES
     )) {
       summary.orphanVolumes.coveragePartial = true;
     }
