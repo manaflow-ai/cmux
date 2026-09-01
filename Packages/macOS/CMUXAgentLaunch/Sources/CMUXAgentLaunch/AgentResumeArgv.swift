@@ -217,7 +217,7 @@ public struct AgentResumeArgv: Sendable, Equatable {
 
     /// Wraps a rendered Hermes restore command so it parses in any login shell.
     public static func portableHermesResumeShellCommand(posixCommand: String) -> String {
-        "/bin/sh -c " + posixSingleQuoted(posixCommand)
+        ManagedAgentWrapperDescriptor.hermesAgent.portableShellCommand(posixCommand: posixCommand)
     }
 
     /// Renders codex command `parts` through ``renderingCodexWrapperExecutable(parts:quote:)``
