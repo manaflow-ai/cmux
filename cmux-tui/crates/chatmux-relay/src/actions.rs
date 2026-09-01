@@ -944,7 +944,8 @@ pub fn command_with_process_files(command: &str, files: &[RuntimeFile]) -> Strin
             .collect();
         let hint = if sanitized.is_empty() { "secret".to_owned() } else { sanitized };
         let shell_path = format!("__chatmux_file_{index}");
-        cleanup.push(format!("if [ -n \"${shell_path-}\" ]; then rm -f -- \"${shell_path}\"; fi"));
+        cleanup
+            .push(format!("if [ -n \"${{{shell_path}-}}\" ]; then rm -f -- \"${shell_path}\"; fi"));
         setup.push(format!("{shell_path}=$(mktemp \"${{TMPDIR:-/tmp}}/chatmux-{hint}.XXXXXX\")"));
         setup.push(format!("chmod 600 \"${shell_path}\""));
         setup.push(format!(
