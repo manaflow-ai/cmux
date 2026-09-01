@@ -256,8 +256,12 @@ extension CMUXCLI {
     }
 
     private func loadTmuxCompatStore(from directory: TmuxCompatStoreDirectory) throws -> TmuxCompatStore {
-        let data = try readTmuxCompatStoreData(in: directory)
-        return try JSONDecoder().decode(TmuxCompatStore.self, from: data)
+        do {
+            let data = try readTmuxCompatStoreData(in: directory)
+            return try JSONDecoder().decode(TmuxCompatStore.self, from: data)
+        } catch let error as POSIXError where error.code == .ENOENT {
+            return TmuxCompatStore()
+        }
     }
 
     func withLockedTmuxCompatStoreIfChanged(
