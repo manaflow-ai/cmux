@@ -1,5 +1,4 @@
 import CMUXAgentLaunch
-import Darwin
 import Foundation
 
 extension CMUXCLI {
@@ -430,60 +429,6 @@ extension CMUXCLI {
             }
         }
         return ordered.joined(separator: ":")
-    }
-
-    /// Serializes cross-process mutations of a tmux compatibility store.
-    ///
-    /// Each CLI invocation is a separate process, so an in-memory lock cannot
-    /// protect the store. The lock file remains stable while the JSON file is
-    /// atomically replaced by its writer.
-    func withTmuxCompatStoreFileLock<T>(at storeURL: URL, _ body: () throws -> T) throws -> T {
-        let parent = storeURL.deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true, attributes: nil)
-
-        let lockURL = URL(fileURLWithPath: storeURL.path + ".lock")
-        let descriptor = open(
-            lockURL.path,
-            O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW,
-            mode_t(S_IRUSR | S_IWUSR)
-        )
-        guard descriptor >= 0 else {
-            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-        }
-        defer { Darwin.close(descriptor) }
-
-        while flock(descriptor, LOCK_EX) != 0 {
-            if errno == EINTR {
-                continue
-            }
-            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-        }
-        defer { _ = flock(descriptor, LOCK_UN) }
-        return try body()
-    }
-
-    /// Performs one complete tmux compatibility store read-modify-write while
-    /// holding the cross-process lock.
-    func withLockedTmuxCompatStore<T>(
-        _ body: (inout TmuxCompatStore) throws -> T
-    ) throws -> T {
-        try withTmuxCompatStoreFileLock(at: tmuxCompatStoreURL()) {
-            var store = loadTmuxCompatStore()
-            let result = try body(&store)
-            try saveTmuxCompatStore(store)
-            return result
-        }
-    }
-
-    func withLockedTmuxCompatStoreIfChanged(
-        _ body: (inout TmuxCompatStore) throws -> Bool
-    ) throws {
-        try withTmuxCompatStoreFileLock(at: tmuxCompatStoreURL()) {
-            var store = loadTmuxCompatStore()
-            if try body(&store) {
-                try saveTmuxCompatStore(store)
-            }
-        }
     }
 
 }
