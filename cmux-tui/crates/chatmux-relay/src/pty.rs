@@ -38,6 +38,18 @@ use crate::relay_wire::RelayPtyErrorCode;
 
 pub const PTY_PROTOCOL_VERSION: u64 = 4;
 
+async fn control_request_until_cancelled(
+    control: &dyn ControlHandle,
+    cmd: &str,
+    params: Value,
+    cancellation: &CancellationToken,
+) -> Option<Value> {
+    tokio::select! {
+        response = control.request(cmd, params) => response,
+        _ = cancellation.cancelled() => None,
+    }
+}
+
 pub type DataSink = Arc<dyn Fn(Bytes) + Send + Sync>;
 pub type ExitSink = Arc<dyn Fn(i64) + Send + Sync>;
 /// Max concurrent attachments per relay process.
@@ -1788,7 +1800,13 @@ impl Inner {
         } else {
             json!({ "surface": surface_id })
         };
-        let attached = control.request("attach-surface", attach_params).await;
+        let attached = control_request_until_cancelled(
+            control.as_ref(),
+            "attach-surface",
+            attach_params,
+            &context.cancellation,
+        )
+        .await;
         if attached.as_ref().and_then(|v| v.get("ok")).and_then(Value::as_bool) != Some(true) {
             control.end();
             let reason = attached
