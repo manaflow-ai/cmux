@@ -226,47 +226,66 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
             )
         } else if !drewTrailingLine,
                   string.length > 0,
-                  string.character(at: string.length - 1) == 10,
-                  layoutManager.numberOfGlyphs > 0 {
+                  string.character(at: string.length - 1) == 10 {
             // The final empty line after a newline has no glyph of its own.
-            // Anchor it one line height below the last real glyph fragment.
-            var lastRange = NSRange()
-            let lastGlyph = layoutManager.numberOfGlyphs - 1
-            let lastFragment = layoutManager.lineFragmentRect(
-                forGlyphAt: lastGlyph,
-                effectiveRange: &lastRange,
-                withoutAdditionalLayout: true
-            )
-            let fallbackHeight = textView.font?.boundingRectForFont.height ?? 16
-            let height = max(lastFragment.height, fallbackHeight)
-            let y: CGFloat
-            if lastFragment.height > 0, lastFragment.maxY.isFinite {
-                y = lastFragment.maxY + textView.textContainerOrigin.y
-            } else {
-                // Non-contiguous layout may not have a real rect yet. Use the
-                // indexed logical line count as a bounded geometry fallback.
-                y = textView.textContainerOrigin.y
-                    + CGFloat(max(0, lineCount - 1)) * fallbackHeight
-            }
-            let visibleRect = textView.visibleRect
-            let trailingRect = NSRect(
-                x: visibleRect.minX,
-                y: y,
-                width: max(1, visibleRect.width),
-                height: height
-            )
-            if NSIntersectsRect(trailingRect, textView.visibleRect) {
-                self.drawLineNumber(
-                    lineCount,
-                    atTextViewY: y,
-                    height: height,
-                    in: textView,
-                    font: font,
-                    paragraphStyle: paragraphStyle,
-                    currentLine: currentLine
+            // TextKit exposes its actual visual position through the extra
+            // line fragment; this remains correct when the preceding logical
+            // line wraps into multiple visual fragments.
+            let fallbackHeight = max(textView.font?.boundingRectForFont.height ?? 16, 1)
+            let extra = layoutManager.extraLineFragmentRect
+            let trailingRect: NSRect?
+            if Self.isUsableLineRect(extra) {
+                trailingRect = extra
+            } else if layoutManager.numberOfGlyphs > 0 {
+                // A non-contiguous layout may not have populated the extra
+                // rect yet. Use the last realized fragment if available; do
+                // not force a potentially huge synchronous layout in draw.
+                var lastRange = NSRange()
+                let lastFragment = layoutManager.lineFragmentRect(
+                    forGlyphAt: layoutManager.numberOfGlyphs - 1,
+                    effectiveRange: &lastRange,
+                    withoutAdditionalLayout: true
                 )
+                trailingRect = Self.isUsableLineRect(lastFragment)
+                    ? NSRect(
+                        x: lastFragment.minX,
+                        y: lastFragment.maxY,
+                        width: lastFragment.width,
+                        height: max(lastFragment.height, fallbackHeight)
+                    )
+                    : nil
+            } else {
+                trailingRect = nil
+            }
+
+            if let trailingRect {
+                let y = trailingRect.minY + textView.textContainerOrigin.y
+                let viewRect = textView.visibleRect
+                let visibleTrailingRect = NSRect(
+                    x: viewRect.minX,
+                    y: y,
+                    width: max(1, viewRect.width),
+                    height: max(trailingRect.height, fallbackHeight)
+                )
+                if NSIntersectsRect(visibleTrailingRect, viewRect) {
+                    self.drawLineNumber(
+                        lineCount,
+                        atTextViewY: y,
+                        height: max(trailingRect.height, fallbackHeight),
+                        in: textView,
+                        font: font,
+                        paragraphStyle: paragraphStyle,
+                        currentLine: currentLine
+                    )
+                }
             }
         }
+    }
+
+    private static func isUsableLineRect(_ rect: NSRect) -> Bool {
+        rect.minX.isFinite && rect.minY.isFinite
+            && rect.width.isFinite && rect.height.isFinite
+            && rect.height > 0
     }
 
     private func drawLineNumber(

@@ -234,15 +234,16 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         currentLineHighlight: Bool,
         tabWidth: Int
     ) {
+        let editorSettings = FilePreviewEditorSettings(defaults: .standard)
         scrollView.hasVerticalRuler = lineNumbers
         scrollView.rulersVisible = lineNumbers
         guard let textView = scrollView.documentView as? NSTextView,
               let overlay = FilePreviewEditorChromeOverlay.installed(in: textView) else { return }
         overlay.showsCurrentLine = currentLineHighlight
         overlay.showsIndentGuides = indentGuides
-        overlay.tabWidth = FilePreviewEditorSettings.tabWidthRange.contains(tabWidth)
+        overlay.tabWidth = editorSettings.catalog.tabWidthRange.contains(tabWidth)
             ? tabWidth
-            : FilePreviewEditorSettings.tabWidthDefault
+            : editorSettings.catalog.tabWidth.defaultValue
         overlay.needsDisplay = true
     }
 
@@ -264,7 +265,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         var panel: PanelModel
-        var panelIdentity: ObjectIdentifier
+        fileprivate var panelIdentity: ObjectIdentifier
         var filePath: String
         var isApplyingPanelUpdate = false
         var lastAppliedContentRevision: Int?
@@ -296,8 +297,8 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             scheduleHighlight(
                 for: textView,
                 enabled: editorSettings.isEnabled(
-                    key: FilePreviewEditorSettings.syntaxHighlightingKey,
-                    default: FilePreviewEditorSettings.syntaxHighlightingDefault
+                    key: editorSettings.catalog.syntaxHighlighting.userDefaultsKey,
+                    default: editorSettings.catalog.syntaxHighlighting.defaultValue
                 ),
                 defaultColor: textView.insertionPointColor,
                 force: true
@@ -324,8 +325,8 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             scheduleHighlight(
                 for: textView,
                 enabled: editorSettings.isEnabled(
-                    key: FilePreviewEditorSettings.syntaxHighlightingKey,
-                    default: FilePreviewEditorSettings.syntaxHighlightingDefault
+                    key: editorSettings.catalog.syntaxHighlighting.userDefaultsKey,
+                    default: editorSettings.catalog.syntaxHighlighting.defaultValue
                 ),
                 defaultColor: textView.insertionPointColor,
                 force: true

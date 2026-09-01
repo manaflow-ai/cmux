@@ -26,7 +26,7 @@ final class FilePreviewEditorChromeOverlay: NSView {
               let textContainer = textView.textContainer else { return }
 
         if showsCurrentLine {
-            drawCurrentLine(in: textView, layoutManager: layoutManager, textContainer: textContainer)
+            drawCurrentLine(in: textView, layoutManager: layoutManager)
         }
         if showsIndentGuides {
             drawIndentGuides(
@@ -52,58 +52,83 @@ final class FilePreviewEditorChromeOverlay: NSView {
 
     private func drawCurrentLine(
         in textView: NSTextView,
-        layoutManager: NSLayoutManager,
-        textContainer: NSTextContainer
+        layoutManager: NSLayoutManager
     ) {
         let selected = textView.selectedRange()
         guard selected.length == 0 else { return }
         let stringLength = (textView.string as NSString).length
         let location = min(max(selected.location, 0), stringLength)
         let glyphCount = layoutManager.numberOfGlyphs
-        // TextKit has no glyph for an empty buffer. At EOF it may return the
-        // insertion-point glyph index (the glyph count), which is not a valid
-        // argument to `lineFragmentRect(forGlyphAt:)`. Use the final real
-        // character for that case so a trailing empty line can be painted one
-        // fragment below it.
-        if stringLength == 0 {
-            fillCurrentLineBand(
-                atY: textView.textContainerOrigin.y,
-                height: textView.font?.boundingRectForFont.height ?? 16,
-                in: textView
-            )
+        let origin = textView.textContainerOrigin
+        let fallbackHeight = max(textView.font?.boundingRectForFont.height ?? 16, 1)
+        let nsString = textView.string as NSString
+
+        // TextKit represents an empty buffer and the line after a terminal
+        // newline with `extraLineFragmentRect`, not a glyph. Prefer that
+        // explicit rect so wrapped lines use their real visual position.
+        let isExtraLine = stringLength == 0
+            || (location == stringLength && nsString.character(at: stringLength - 1) == 10)
+        if isExtraLine {
+            let extra = layoutManager.extraLineFragmentRect
+            if Self.isUsableLineRect(extra) {
+                fillCurrentLineBand(
+                    atY: extra.minY + origin.y,
+                    height: max(extra.height, fallbackHeight),
+                    in: textView
+                )
+            } else if stringLength == 0 {
+                // A freshly created TextKit stack may not have populated the
+                // extra-line rect yet, but the empty editor still has a valid
+                // first line at the text-container origin.
+                fillCurrentLineBand(atY: origin.y, height: fallbackHeight, in: textView)
+            } else if glyphCount > 0 {
+                // If the extra-line metadata has not been populated yet, use
+                // the last realized fragment without forcing a large layout.
+                var lastRange = NSRange()
+                let lastFragment = layoutManager.lineFragmentRect(
+                    forGlyphAt: glyphCount - 1,
+                    effectiveRange: &lastRange,
+                    withoutAdditionalLayout: true
+                )
+                if Self.isUsableLineRect(lastFragment) {
+                    fillCurrentLineBand(
+                        atY: lastFragment.maxY + origin.y,
+                        height: max(lastFragment.height, fallbackHeight),
+                        in: textView
+                    )
+                }
+            }
             return
         }
+
+        // At EOF in a non-empty, non-newline-terminated buffer, use the final
+        // real character. Never pass the insertion-point glyph index.
         guard glyphCount > 0 else { return }
-        let characterIndex = location >= stringLength ? stringLength - 1 : location
+        let characterIndex = min(location, stringLength - 1)
         let glyphIndex = layoutManager.glyphIndexForCharacter(at: characterIndex)
         guard glyphIndex >= 0, glyphIndex < glyphCount else { return }
         var lineRange = NSRange()
-        var fragment = layoutManager.lineFragmentRect(
+        let fragment = layoutManager.lineFragmentRect(
             forGlyphAt: glyphIndex,
             effectiveRange: &lineRange,
             withoutAdditionalLayout: true
         )
-        if fragment.height <= 0 || !fragment.minY.isFinite {
-            // Non-contiguous layout may not have realized this caret's
-            // fragment yet. Ask TextKit to lay out this one valid glyph before
-            // giving up; never call the API with the EOF insertion index.
-            fragment = layoutManager.lineFragmentRect(
-                forGlyphAt: glyphIndex,
-                effectiveRange: &lineRange,
-                withoutAdditionalLayout: false
-            )
-        }
-        guard fragment.height > 0, fragment.minY.isFinite else { return }
-        let isTrailingEmptyLine = location == stringLength
-            && stringLength > 0
-            && (textView.string as NSString).character(at: stringLength - 1) == 10
-        let origin = textView.textContainerOrigin
-        let y = fragment.minY + origin.y + (isTrailingEmptyLine ? fragment.height : 0)
+        // `allowsNonContiguousLayout` can leave a caret's fragment unrealized.
+        // Do not synchronously lay out an unbounded line from inside draw;
+        // the next TextKit invalidation will repaint once it is realized.
+        guard Self.isUsableLineRect(fragment) else { return }
+        let y = fragment.minY + origin.y
         fillCurrentLineBand(
             atY: y,
-            height: max(fragment.height, textView.font?.boundingRectForFont.height ?? 16),
+            height: max(fragment.height, fallbackHeight),
             in: textView
         )
+    }
+
+    private static func isUsableLineRect(_ rect: NSRect) -> Bool {
+        rect.minX.isFinite && rect.minY.isFinite
+            && rect.width.isFinite && rect.height.isFinite
+            && rect.height > 0
     }
 
     private func fillCurrentLineBand(atY y: CGFloat, height: CGFloat, in textView: NSTextView) {

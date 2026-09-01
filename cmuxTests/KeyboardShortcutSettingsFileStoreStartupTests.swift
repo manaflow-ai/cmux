@@ -537,6 +537,66 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
+    func testSettingsFileRejectsOutOfRangeFileEditorTabWidthWithoutDroppingSiblingSettings() throws {
+        let defaults = UserDefaults.standard
+
+        try preservingDefaults(keys: [
+            FilePreviewEditorSettings.syntaxHighlightingKey,
+            FilePreviewEditorSettings.lineNumbersKey,
+            FilePreviewEditorSettings.indentGuidesKey,
+            FilePreviewEditorSettings.currentLineHighlightKey,
+            FilePreviewEditorSettings.tabWidthKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey
+        ]) {
+            for key in [
+                FilePreviewEditorSettings.syntaxHighlightingKey,
+                FilePreviewEditorSettings.lineNumbersKey,
+                FilePreviewEditorSettings.indentGuidesKey,
+                FilePreviewEditorSettings.currentLineHighlightKey,
+                FilePreviewEditorSettings.tabWidthKey,
+                settingsFileBackupsDefaultsKey,
+                importedManagedDefaultsKey
+            ] {
+                defaults.removeObject(forKey: key)
+            }
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "fileEditor": {
+                    "syntaxHighlighting": false,
+                    "lineNumbers": false,
+                    "tabWidth": 99,
+                    "indentGuides": false,
+                    "currentLineHighlight": false
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            let store = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            withExtendedLifetime(store) {
+                XCTAssertFalse(defaults.bool(forKey: FilePreviewEditorSettings.syntaxHighlightingKey))
+                XCTAssertFalse(defaults.bool(forKey: FilePreviewEditorSettings.lineNumbersKey))
+                XCTAssertFalse(defaults.bool(forKey: FilePreviewEditorSettings.indentGuidesKey))
+                XCTAssertFalse(defaults.bool(forKey: FilePreviewEditorSettings.currentLineHighlightKey))
+                XCTAssertNil(defaults.object(forKey: FilePreviewEditorSettings.tabWidthKey))
+            }
+        }
+    }
+
     func testManagedAppearanceUserDefaultSurvivesSettingsFileReapplyUntilFileChanges() throws {
         let defaults = UserDefaults.standard
         let key = AppearanceSettings.appearanceModeKey

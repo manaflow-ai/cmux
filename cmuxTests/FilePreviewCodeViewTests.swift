@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import CmuxSyntaxHighlighting
 import Testing
 
@@ -388,6 +389,18 @@ struct FilePreviewCodeViewTests {
         )
         await styler.highlightTask?.value
         #expect(distinctForegroundColors(in: textView).count >= 2)
+    }
+
+    @Test("File editor runtime metadata mirrors the shared catalog")
+    func fileEditorMetadataMirrorsCatalog() {
+        let settings = FilePreviewEditorSettings(defaults: .standard)
+        let catalog = FileEditorCatalogSection()
+        #expect(settings.catalog.syntaxHighlighting == catalog.syntaxHighlighting)
+        #expect(settings.catalog.lineNumbers == catalog.lineNumbers)
+        #expect(settings.catalog.indentGuides == catalog.indentGuides)
+        #expect(settings.catalog.currentLineHighlight == catalog.currentLineHighlight)
+        #expect(settings.catalog.tabWidth == catalog.tabWidth)
+        #expect(settings.catalog.tabWidthRange == 1...8)
     }
 
     private func distinctForegroundColors(in textView: NSTextView) -> Set<String> {

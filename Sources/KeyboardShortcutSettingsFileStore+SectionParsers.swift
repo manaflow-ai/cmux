@@ -8,6 +8,7 @@ extension CmuxSettingsFileStore {
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
+        let fileEditorSettings = FilePreviewEditorSettings(defaults: .standard)
         if let value = jsonBool(section["wordWrap"]) {
             snapshot.managedUserDefaults[FilePreviewWordWrapSettings.key] = .bool(value)
         } else if section.keys.contains("wordWrap") {
@@ -16,37 +17,37 @@ extension CmuxSettingsFileStore {
         parseFileEditorBool(
             section,
             jsonKey: "syntaxHighlighting",
-            defaultsKey: FilePreviewEditorSettings.syntaxHighlightingKey,
+            defaultsKey: fileEditorSettings.catalog.syntaxHighlighting.userDefaultsKey,
             sourcePath: sourcePath,
             snapshot: &snapshot
         )
         parseFileEditorBool(
             section,
             jsonKey: "lineNumbers",
-            defaultsKey: FilePreviewEditorSettings.lineNumbersKey,
+            defaultsKey: fileEditorSettings.catalog.lineNumbers.userDefaultsKey,
             sourcePath: sourcePath,
             snapshot: &snapshot
         )
         parseFileEditorBool(
             section,
             jsonKey: "indentGuides",
-            defaultsKey: FilePreviewEditorSettings.indentGuidesKey,
+            defaultsKey: fileEditorSettings.catalog.indentGuides.userDefaultsKey,
             sourcePath: sourcePath,
             snapshot: &snapshot
         )
         parseFileEditorBool(
             section,
             jsonKey: "currentLineHighlight",
-            defaultsKey: FilePreviewEditorSettings.currentLineHighlightKey,
+            defaultsKey: fileEditorSettings.catalog.currentLineHighlight.userDefaultsKey,
             sourcePath: sourcePath,
             snapshot: &snapshot
         )
         if let value = jsonInt(section["tabWidth"]) {
-            guard FilePreviewEditorSettings.tabWidthRange.contains(value) else {
+            if fileEditorSettings.catalog.tabWidthRange.contains(value) {
+                snapshot.managedUserDefaults[fileEditorSettings.catalog.tabWidth.userDefaultsKey] = .int(value)
+            } else {
                 logInvalid("fileEditor.tabWidth", sourcePath: sourcePath)
-                return
             }
-            snapshot.managedUserDefaults[FilePreviewEditorSettings.tabWidthKey] = .int(value)
         } else if section.keys.contains("tabWidth") {
             logInvalid("fileEditor.tabWidth", sourcePath: sourcePath)
         }

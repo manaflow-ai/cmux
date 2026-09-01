@@ -3,6 +3,10 @@ import Testing
 
 @testable import CmuxFilePreviewCore
 
+extension Tag {
+    @Tag static var filePreviewLargeInput: Self
+}
+
 @Suite("File Preview line index", .serialized)
 struct FilePreviewLineIndexTests {
     @Test("Counts logical lines and clamps lookups")
@@ -155,7 +159,7 @@ struct FilePreviewLineIndexTests {
         #expect(index.lineNumber(containingUTF16Offset: 2) == 2)
     }
 
-    @Test("Dense sixteen-megabyte input stays queryable")
+    @Test("Dense sixteen-megabyte input stays queryable", .tags(.filePreviewLargeInput))
     func denseSixteenMegabyteInputStaysQueryable() {
         // This is intentionally the File Preview maximum, not a toy fixture:
         // it proves the block index remains bounded for the largest valid
