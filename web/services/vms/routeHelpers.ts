@@ -270,7 +270,6 @@ export type VmRouteAccountScope =
 export function resolveVmRouteAccountScope(
   user: AuthedUser,
   request: Request,
-  options: { readonly requireTeam?: boolean } = {},
 ): VmRouteAccountScope {
   const requestedBillingTeamId = requestedVmTeamIdFromRequest(request);
   try {
@@ -279,7 +278,6 @@ export function resolveVmRouteAccountScope(
       requestedBillingTeamId,
       entitlements: resolveVmEntitlements(user, process.env, {
         requestedBillingTeamId,
-        requireTeam: options.requireTeam ?? false,
       }),
     };
   } catch (err) {
@@ -631,6 +629,12 @@ function cloudServiceAction(operation: string, retryAfterSeconds: number | undef
 }
 
 function defaultVmDisplayTitle(input: VmErrorResponseInput): string {
+  // Billing-team resolution shares the 409/403 statuses with unrelated
+  // failures; title it as the team problem it is instead of the generic
+  // "operation already running" that pure-status mapping would produce.
+  if (input.error === "vm_billing_team_required" || input.error === "vm_billing_team_not_found") {
+    return "Cloud VM team required";
+  }
   if (input.status === 409) return "Cloud VM operation already running";
   if (input.status === 404) return "Cloud VM not found";
   if (input.status === 401 || input.status === 403) return "Cloud VM authentication required";

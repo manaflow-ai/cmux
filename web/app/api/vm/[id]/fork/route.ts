@@ -62,7 +62,6 @@ export async function POST(
       try {
         entitlements = resolveVmEntitlements(user, process.env, {
           requestedBillingTeamId,
-          requireTeam: true,
         });
       } catch (err) {
         if (isVmBillingTeamResolutionError(err)) return vmBillingTeamErrorResponse(err);

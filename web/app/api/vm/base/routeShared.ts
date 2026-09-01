@@ -58,7 +58,6 @@ export async function runBaseRoute(input: {
   try {
     entitlements = resolveVmEntitlements(input.user, process.env, {
       requestedBillingTeamId,
-      requireTeam: false,
     });
   } catch (err) {
     if (isVmBillingTeamResolutionError(err)) return vmBillingTeamErrorResponse(err);

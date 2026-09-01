@@ -83,7 +83,6 @@ export async function GET(request: Request): Promise<Response> {
         if (requestedBillingTeamId || user.billingCustomerType === "team") {
           const entitlements = resolveVmEntitlements(user, process.env, {
             requestedBillingTeamId,
-            requireTeam: false,
           });
           listEntitlements = entitlements;
           billingTeamId = entitlements.billingTeamId;
@@ -109,7 +108,7 @@ export async function GET(request: Request): Promise<Response> {
       // resolution above, so resolve lazily here.
       if (!listEntitlements) {
         try {
-          listEntitlements = resolveVmEntitlements(user, process.env, { requireTeam: false });
+          listEntitlements = resolveVmEntitlements(user, process.env);
         } catch {
           listEntitlements = null;
         }
@@ -387,7 +386,6 @@ export async function POST(request: Request): Promise<Response> {
           entitlements = measureVmSync(timing, "entitlements", () =>
             resolveVmEntitlements(user, process.env, {
               requestedBillingTeamId,
-              requireTeam: true,
             })
           );
         } catch (err) {
