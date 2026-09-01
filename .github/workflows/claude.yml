@@ -15,10 +15,10 @@ on:
 permissions: {}
 
 concurrency:
-  # Deduplicate webhook retries by event ID while keeping separate user
-  # requests independent. Issue events use the unique run ID as a fallback.
+  # Cancel webhook retries by event ID while keeping separate user requests
+  # independent. Issue events use the unique run ID as a fallback.
   group: claude-${{ github.repository }}-${{ github.event.comment.id || github.event.review.id || github.run_id }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   claude:
