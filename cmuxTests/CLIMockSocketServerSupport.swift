@@ -347,7 +347,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
             state: state,
             fulfillWhen: fulfillWhen
         ) { line in
-            handler(line)
+            let response = handler(line)
+            if (line.hasPrefix("set_agent_lifecycle ") || line.hasPrefix("clear_agent_pid ")),
+               (line.contains(" --require-accepted") || line.contains(" --require-cleared")),
+               response == "OK" {
+                return "OK:1"
+            }
+            return response
         }
     }
 
@@ -371,7 +377,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 if fulfillWhen?(line) == true {
                     fulfillmentGate.fulfill(handled)
                 }
-                return handler(line)
+                let response = handler(line)
+                guard let response else { return nil }
+                if (line.hasPrefix("set_agent_lifecycle ") || line.hasPrefix("clear_agent_pid ")),
+                   (line.contains(" --require-accepted") || line.contains(" --require-cleared")),
+                   response == "OK" {
+                    return "OK:1"
+                }
+                return response
             }
         }, onListenerClosed: {
             // Unblock the waiter if the listener is torn down before any client
@@ -382,17 +395,25 @@ extension CLINotifyProcessIntegrationRegressionTests {
     }
 
     /// A mock server with no expectation to wait on, for tests that drive many
-    /// hooks and assert on `state` afterwards.
+    /// hooks and assert on `state` afterwards. `connectionCount` remains accepted
+    /// for older callers; the registry now serves every connection until teardown.
     func startDetachedMockServer(
         listenerFD: Int32,
         state: MockSocketServerState,
+        connectionCount _: Int = 1,
         handler: @escaping @Sendable (String) -> String
     ) {
         CLIMockAcceptLoopRegistry.shared.start(listenerFD: listenerFD, onConnection: { clientFD in
             defer { Darwin.close(clientFD) }
             cliMockServeLineFramedConnection(clientFD: clientFD) { line in
                 state.append(line)
-                return handler(line)
+                let response = handler(line)
+                if (line.hasPrefix("set_agent_lifecycle ") || line.hasPrefix("clear_agent_pid ")),
+                   (line.contains(" --require-accepted") || line.contains(" --require-cleared")),
+                   response == "OK" {
+                    return "OK:1"
+                }
+                return response
             }
         }, onListenerClosed: {})
     }
@@ -410,9 +431,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
     func startDetachedAgentHookMockServer(
         listenerFD: Int32,
         state: MockSocketServerState,
-        surfaceId: String
+        surfaceId: String,
+        connectionCount: Int = 1
     ) {
-        startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
+        startDetachedMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            connectionCount: connectionCount
+        ) { line in
             self.agentHookMockResponse(line: line, surfaceId: surfaceId)
         }
     }
@@ -430,7 +456,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
-    private func agentHookMockResponse(line: String, surfaceId: String) -> String {
+    func agentHookMockResponse(line: String, surfaceId: String) -> String {
+        if (line.hasPrefix("set_agent_lifecycle ") || line.hasPrefix("clear_agent_pid ")),
+           (line.contains(" --require-accepted") || line.contains(" --require-cleared")) {
+            return "OK:1"
+        }
         guard let payload = jsonObject(line) else {
             return "OK"
         }
@@ -442,6 +472,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
             return surfaceListResponse(id: id, surfaceId: surfaceId)
         case "feed.push":
             return v2Response(id: id, ok: true, result: [:])
+        case "surface.resume.set":
+            return v2Response(
+                id: id,
+                ok: true,
+                result: ["resume_binding": ["updated_at": 123.25]]
+            )
+        case "surface.resume.clear":
+            return v2Response(id: id, ok: true, result: ["cleared": true])
         default:
             return v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
         }

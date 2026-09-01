@@ -26,10 +26,15 @@ extension TerminalController: ControlSidebarContext {
         priority: Int,
         format: ControlSidebarMetadataFormat,
         panelID: UUID?,
-        pid: Int32?
+        pid: Int32?,
+        agentMutationGuard: ControlSidebarAgentMutationGuard? = nil
     ) {
         let appFormat = SidebarMetadataFormat(rawValue: format.rawValue) ?? .plain
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, owner in
+            if let agentMutationGuard,
+               !owner.acceptsAgentMutationGuard(agentMutationGuard, panelId: panelID) {
+                return
+            }
             guard Self.shouldReplaceStatusEntry(
                 current: owner.statusEntry(key: key, panelId: panelID),
                 key: key,
@@ -77,13 +82,19 @@ extension TerminalController: ControlSidebarContext {
         target: ControlSidebarTabTarget,
         key: String,
         pid: Int32,
-        panelID: UUID?
+        panelID: UUID?,
+        expectedLifecycleSessionID: String? = nil,
+        expectedPIDStartSeconds: Int64? = nil,
+        expectedPIDStartMicroseconds: Int64? = nil
     ) {
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, owner in
             let didReplaceAgentRuntime = owner.recordAgentPID(
                 key: key,
                 pid: pid,
-                panelId: panelID
+                panelId: panelID,
+                expectedLifecycleSessionID: expectedLifecycleSessionID,
+                expectedPIDStartSeconds: expectedPIDStartSeconds,
+                expectedPIDStartMicroseconds: expectedPIDStartMicroseconds
             )
             if didReplaceAgentRuntime, let panelID {
                 TerminalNotificationStore.shared.clearNotifications(
@@ -97,6 +108,20 @@ extension TerminalController: ControlSidebarContext {
 
     nonisolated func controlSidebarParseAgentLifecycle(_ raw: String) -> String? {
         AgentHibernationLifecycleState.parseCLIValue(raw)?.rawValue
+    }
+
+    nonisolated func controlSidebarSetAgentLifecycleUsage() -> String {
+        String(
+            localized: "socket.sidebar.agentLifecycle.usage",
+            defaultValue: "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>] [--session-id=<id>] [--new-occupant]"
+        )
+    }
+
+    nonisolated func controlSidebarClearAgentPIDUsage() -> String {
+        String(
+            localized: "socket.sidebar.clearAgentPID.usage",
+            defaultValue: "clear_agent_pid <key> [--tab=<id>] [--panel=<id>] [--clear-status] [--session-id=<id>] [--require-cleared]"
+        )
     }
 
     /// `nonisolated` so the vault-registry disk IO runs on the calling
@@ -140,14 +165,102 @@ extension TerminalController: ControlSidebarContext {
         target: ControlSidebarTabTarget,
         key: String,
         lifecycleRawValue: String,
-        panelID: UUID?
+        panelID: UUID?,
+        sessionID: String? = nil,
+        startsNewOccupant: Bool = false,
+        expectedPIDKey: String? = nil,
+        expectedPID: Int32? = nil,
+        expectedPIDStartSeconds: Int64? = nil,
+        expectedPIDStartMicroseconds: Int64? = nil
     ) {
         guard let lifecycle = AgentHibernationLifecycleState(rawValue: lifecycleRawValue) else {
             // Unreachable: the coordinator only forwards a value this app produced.
             return
         }
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, owner in
-            owner.setAgentLifecycle(key: key, panelId: panelID, lifecycle: lifecycle)
+            owner.setAgentLifecycle(
+                key: key,
+                panelId: panelID,
+                lifecycle: lifecycle,
+                sessionID: sessionID,
+                startsNewOccupant: startsNewOccupant,
+                expectedPIDKey: expectedPIDKey,
+                expectedPID: expectedPID,
+                expectedPIDStartSeconds: expectedPIDStartSeconds,
+                expectedPIDStartMicroseconds: expectedPIDStartMicroseconds
+            )
+        }
+    }
+
+    nonisolated func controlSidebarApplyAgentLifecycleAndVerifyOwner(
+        target: ControlSidebarTabTarget,
+        key: String,
+        lifecycleRawValue: String,
+        panelID: UUID?,
+        sessionID: String?,
+        startsNewOccupant: Bool,
+        expectedPIDKey: String?,
+        expectedPID: Int32?,
+        expectedPIDStartSeconds: Int64?,
+        expectedPIDStartMicroseconds: Int64?,
+        preflightOnly: Bool,
+        clearNotifications: Bool
+    ) -> Bool {
+        guard let lifecycle = AgentHibernationLifecycleState(rawValue: lifecycleRawValue),
+              let panelID else {
+            return false
+        }
+        let guardValue: ControlSidebarAgentMutationGuard
+        if let sessionID {
+            guardValue = .session(statusKey: key, sessionID: sessionID)
+        } else if let pidKey = expectedPIDKey,
+                  let pid = expectedPID,
+                  let seconds = expectedPIDStartSeconds,
+                  let microseconds = expectedPIDStartMicroseconds {
+            guardValue = .process(
+                statusKey: key,
+                pidKey: pidKey,
+                pid: pid,
+                startSeconds: seconds,
+                startMicroseconds: microseconds
+            )
+        } else {
+            return false
+        }
+
+        return v2MainSync {
+            guard let owner = self.controlSidebarResolvePanelOwner(
+                target: target,
+                panelID: panelID
+            ) else {
+                return false
+            }
+            let accepted = owner.setAgentLifecycle(
+                key: key,
+                panelId: panelID,
+                lifecycle: lifecycle,
+                sessionID: sessionID,
+                startsNewOccupant: startsNewOccupant,
+                expectedPIDKey: expectedPIDKey,
+                expectedPID: expectedPID,
+                expectedPIDStartSeconds: expectedPIDStartSeconds,
+                expectedPIDStartMicroseconds: expectedPIDStartMicroseconds,
+                requireExistingOwner: !startsNewOccupant,
+                apply: !preflightOnly
+            )
+            guard accepted else { return false }
+            if preflightOnly { return true }
+            guard owner.acceptsAgentMutationGuard(guardValue, panelId: panelID) else {
+                return false
+            }
+            if startsNewOccupant, clearNotifications {
+                TerminalNotificationStore.shared.clearNotifications(
+                    forTabId: owner.id,
+                    surfaceId: panelID,
+                    discardQueuedNotifications: false
+                )
+            }
+            return true
         }
     }
 
@@ -164,8 +277,10 @@ extension TerminalController: ControlSidebarContext {
             _ = tab.clearAgentLifecycle(key: key, panelId: nil)
             // Bound distinct manual loaders per workspace so socket clients
             // can't grow lifecycle-key state without limit.
-            let manualLoaderCount = tab.agentLifecycleStatesByPanelId.values.reduce(0) { partial, states in
-                partial + states.keys.reduce(0) { AgentHibernationLifecycleStatusKeys.isManualKey($1) ? $0 + 1 : $0 }
+            let manualLoaderCount = tab.agentLifecycleRecordsByPanelId.values.reduce(0) { partial, records in
+                partial + records.keys.reduce(0) {
+                    AgentHibernationLifecycleStatusKeys.isManualKey($1) ? $0 + 1 : $0
+                }
             }
             guard manualLoaderCount < 32 else {
                 return ControlSidebarWorkspaceLoadingState(
@@ -206,6 +321,10 @@ extension TerminalController: ControlSidebarContext {
         key: String,
         panelID: UUID?,
         clearStatus: Bool,
+        expectedLifecycleSessionID: String?,
+        expectedPID: Int32?,
+        expectedPIDStartSeconds: Int64?,
+        expectedPIDStartMicroseconds: Int64?,
         requireOwnedKey: Bool = false
     ) {
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, owner in
@@ -213,6 +332,41 @@ extension TerminalController: ControlSidebarContext {
                 key: key,
                 panelId: panelID,
                 clearStatus: clearStatus,
+                expectedLifecycleSessionID: expectedLifecycleSessionID,
+                expectedPID: expectedPID,
+                expectedPIDStartSeconds: expectedPIDStartSeconds,
+                expectedPIDStartMicroseconds: expectedPIDStartMicroseconds,
+                requireOwnedKey: requireOwnedKey
+            )
+        }
+    }
+
+    nonisolated func controlSidebarClearAgentPIDAndVerifyOwner(
+        target: ControlSidebarTabTarget,
+        key: String,
+        panelID: UUID?,
+        clearStatus: Bool,
+        expectedLifecycleSessionID: String?,
+        expectedPID: Int32?,
+        expectedPIDStartSeconds: Int64?,
+        expectedPIDStartMicroseconds: Int64?,
+        requireOwnedKey: Bool
+    ) -> Bool {
+        v2MainSync {
+            guard let owner = self.controlSidebarResolvePanelOwner(
+                target: target,
+                panelID: panelID
+            ) else {
+                return false
+            }
+            return owner.clearAgentPID(
+                key: key,
+                panelId: panelID,
+                clearStatus: clearStatus,
+                expectedLifecycleSessionID: expectedLifecycleSessionID,
+                expectedPID: expectedPID,
+                expectedPIDStartSeconds: expectedPIDStartSeconds,
+                expectedPIDStartMicroseconds: expectedPIDStartMicroseconds,
                 requireOwnedKey: requireOwnedKey
             )
         }

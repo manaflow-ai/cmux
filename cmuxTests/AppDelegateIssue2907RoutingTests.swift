@@ -1,5 +1,6 @@
 import XCTest
 import CmuxTerminal
+import CmuxControlSocket
 import AppKit
 import Bonsplit
 
@@ -1435,6 +1436,79 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
 
         XCTAssertEqual(clearResult["cleared"] as? Bool, false)
         XCTAssertEqual(workspace.surfaceResumeBinding(panelId: panelId)?.checkpointId, "new-session")
+    }
+
+    func testSurfaceResumeSetRejectsStaleAgentOccupantGuard() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        workspace.setAgentLifecycle(
+            key: "kiro",
+            panelId: panelId,
+            lifecycle: .running,
+            sessionID: "session-new",
+            startsNewOccupant: true
+        )
+        XCTAssertTrue(workspace.setSurfaceResumeBinding(
+            SurfaceResumeBindingSnapshot(
+                command: "kiro resume session-new",
+                checkpointId: "session-new",
+                source: "agent-hook"
+            ),
+            panelId: panelId
+        ))
+
+        let staleGuard = ControlSidebarAgentMutationGuard.session(
+            statusKey: "kiro",
+            sessionID: "session-old"
+        )
+        let error = try v2Error(
+            method: "surface.resume.set",
+            params: [
+                "window_id": windowId.uuidString,
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": panelId.uuidString,
+                "command": "kiro resume session-old",
+                "checkpoint_id": "session-old",
+                "source": "agent-hook",
+                "_cmux_agent_mutation_guard": staleGuard.socketEnvelope,
+            ]
+        )
+
+        XCTAssertEqual(error["code"] as? String, "internal_error")
+        XCTAssertEqual(
+            workspace.surfaceResumeBinding(panelId: panelId)?.checkpointId,
+            "session-new"
+        )
+        XCTAssertEqual(
+            workspace.surfaceResumeBinding(panelId: panelId)?.command,
+            "kiro resume session-new"
+        )
     }
 
     func testIssue2907TabManagerDependentSocketCommandsRecoverLiveSurfaceContext() throws {

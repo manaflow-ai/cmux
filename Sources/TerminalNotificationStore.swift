@@ -1,5 +1,6 @@
 import CmuxFoundation
 import CmuxNotifications
+import CmuxControlSocket
 import AppKit
 import Combine
 import Foundation
@@ -1215,6 +1216,7 @@ final class TerminalNotificationStore: ObservableObject {
         clickAction: TerminalNotificationClickAction? = nil, notificationGeneration: UInt64? = nil,
         resolvedHooks: [CmuxResolvedNotificationHook]? = nil,
         preRegisteredPolicyRequestId: UUID? = nil,
+        agentMutationGuard: ControlSidebarAgentMutationGuard? = nil,
         agent: TerminalNotificationPolicyAgentContext? = nil,
         soundContext: NotificationSoundOverrideContext? = nil
     ) {
@@ -1270,6 +1272,7 @@ final class TerminalNotificationStore: ObservableObject {
             body: body,
             replyShape: replyShape,
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
+            agentMutationGuard: agentMutationGuard,
             correlationKey: correlationKey ?? cooldownKey,
             resolvedHooks: resolvedHooks,
             agent: agent,
@@ -1440,6 +1443,7 @@ final class TerminalNotificationStore: ObservableObject {
         body: String,
         replyShape: TerminalNotificationReplyShape = .none,
         retargetsToLiveSurfaceOwner: Bool,
+        agentMutationGuard: ControlSidebarAgentMutationGuard? = nil,
         correlationKey: String?,
         resolvedHooks: [CmuxResolvedNotificationHook]?,
         agent: TerminalNotificationPolicyAgentContext? = nil,
@@ -1474,6 +1478,7 @@ final class TerminalNotificationStore: ObservableObject {
                 surfaceId: surfaceId,
                 panelId: panelId,
                 retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
+                agentMutationGuard: agentMutationGuard,
                 correlationKey: correlationKey,
                 title: title,
                 subtitle: subtitle,
@@ -1537,6 +1542,7 @@ final class TerminalNotificationStore: ObservableObject {
                 surfaceId: request.surfaceId,
                 panelId: request.panelId,
                 retargetsToLiveSurfaceOwner: request.retargetsToLiveSurfaceOwner,
+                agentMutationGuard: request.agentMutationGuard,
                 correlationKey: request.correlationKey,
                 title: payload.title,
                 subtitle: payload.subtitle,
@@ -1566,6 +1572,17 @@ final class TerminalNotificationStore: ObservableObject {
     ) {
         guard inFlightPolicyRequests.claim(policyRequestId) else { return }
         guard let request = notificationPolicyRequestAtLiveOwner(request) else { restoreCooldownReservation(cooldownReservation); return }
+        if let agentMutationGuard = request.agentMutationGuard {
+            guard let surfaceId = request.surfaceId,
+                  TerminalController.shared.controlSidebarAgentMutationIsAuthorized(
+                      agentMutationGuard,
+                      claimedTabID: request.tabId,
+                      panelID: surfaceId
+                  ) else {
+                restoreCooldownReservation(cooldownReservation)
+                return
+            }
+        }
         // Workspace mute is an admission gate, not merely an external-delivery
         // preference: it must prevent history, unread projections, commands,
         // sounds, pane flashes, reordering, and phone forwarding alike.

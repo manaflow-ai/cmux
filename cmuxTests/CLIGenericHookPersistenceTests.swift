@@ -452,6 +452,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Expected Antigravity stop to leave the session idle, saw \(stopCommands)"
         )
 
+        let stopLifecycleIndex = try XCTUnwrap(
+            stopCommands.firstIndex { $0.hasPrefix("set_agent_lifecycle antigravity idle ") }
+        )
+        let stopDeliveryIndex = try XCTUnwrap(
+            stopCommands.firstIndex { $0.hasPrefix("notify_target_async ") }
+        )
+        XCTAssertLessThan(
+            stopLifecycleIndex,
+            stopDeliveryIndex,
+            "A stop hook must establish lifecycle ownership before its guarded notification is queued: \(stopCommands)"
+        )
+
         let sessionEndCommandStart = state.commands.count
         let sessionEnd = runAntigravityHook(
             "session-end",
@@ -2376,6 +2388,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Expected completion notification to leave Grok idle, saw \(notificationCommands)"
         )
 
+        let notificationLifecycleIndex = try XCTUnwrap(
+            notificationCommands.firstIndex { $0.hasPrefix("set_agent_lifecycle grok idle ") }
+        )
+        let notificationDeliveryIndex = try XCTUnwrap(
+            notificationCommands.firstIndex { $0.hasPrefix("notify_target_async ") }
+        )
+        XCTAssertLessThan(
+            notificationLifecycleIndex,
+            notificationDeliveryIndex,
+            "A completion hook must establish lifecycle ownership before its guarded notification is queued: \(notificationCommands)"
+        )
+
         let storeURL = root.appendingPathComponent("grok-hook-sessions.json", isDirectory: false)
         var json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
         var sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
@@ -3450,11 +3474,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "Expected Grok prompt \(index) to reuse the saved target without CMUX env, saw \(promptCommands)"
             )
             XCTAssertTrue(
-                promptCommands.contains { $0 == "clear_notifications --tab=\(workspaceId) --panel=\(surfaceId)" },
+                promptCommands.contains {
+                    $0.hasPrefix(
+                        "clear_notifications --tab=\(workspaceId) --panel=\(surfaceId) "
+                    )
+                },
                 "Expected Grok prompt \(index) to clear only its own surface notifications, saw \(promptCommands)"
             )
             XCTAssertFalse(
-                promptCommands.contains { $0 == "clear_notifications --tab=\(workspaceId)" },
+                promptCommands.contains {
+                    $0.hasPrefix("clear_notifications --tab=\(workspaceId)")
+                        && !$0.contains("--panel=")
+                },
                 "Grok prompt \(index) must not clear sibling surface notifications, saw \(promptCommands)"
             )
 
@@ -3649,7 +3680,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let promptCommands = Array(state.commands.dropFirst(promptCommandStart))
         XCTAssertTrue(
-            promptCommands.contains { $0 == "clear_notifications --tab=\(workspaceId) --panel=\(runningSurfaceId)" },
+            promptCommands.contains {
+                $0.hasPrefix(
+                    "clear_notifications --tab=\(workspaceId) --panel=\(runningSurfaceId) "
+                )
+            },
             "Expected running Grok prompt to clear only its own surface notifications, saw \(promptCommands)"
         )
         XCTAssertTrue(
@@ -4276,7 +4311,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             case "surface.list":
                 return self.surfaceListResponse(id: id, surfaceId: surfaceId)
             case "surface.resume.set":
-                return self.v2Response(id: id, ok: true, result: ["ok": true])
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["resume_binding": ["updated_at": 123.25]]
+                )
             case "feed.push":
                 return self.v2Response(id: id, ok: true, result: [:])
             default:
@@ -4427,7 +4466,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     result: ["terminals": [["tty": ttyName, "workspace_id": workspaceId, "surface_id": surfaceId]]]
                 )
             case "surface.resume.set":
-                return self.v2Response(id: id, ok: true, result: ["ok": true])
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["resume_binding": ["updated_at": 123.25]]
+                )
             case "feed.push":
                 return self.v2Response(id: id, ok: true, result: [:])
             default:
@@ -4546,7 +4589,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     result: ["terminals": [["tty": ttyName, "workspace_id": workspaceId, "surface_id": ttySurfaceId]]]
                 )
             case "surface.resume.set":
-                return self.v2Response(id: id, ok: true, result: ["ok": true])
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["resume_binding": ["updated_at": 123.25]]
+                )
             case "feed.push":
                 return self.v2Response(id: id, ok: true, result: [:])
             default:
@@ -4639,7 +4686,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     result: ["terminals": [["tty": ttyName, "workspace_id": workspaceId, "surface_id": ttySurfaceId]]]
                 )
             case "surface.resume.set":
-                return self.v2Response(id: id, ok: true, result: ["ok": true])
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["resume_binding": ["updated_at": 123.25]]
+                )
             case "feed.push":
                 return self.v2Response(id: id, ok: true, result: [:])
             default:
@@ -4728,7 +4779,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     result: ["terminals": [["tty": ttyName, "workspace_id": workspaceId, "surface_id": surfaceId]]]
                 )
             case "surface.resume.set", "surface.resume.clear":
-                return self.v2Response(id: id, ok: true, result: ["ok": true])
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "resume_binding": ["updated_at": 123.25],
+                        "cleared": true,
+                    ]
+                )
             case "feed.push":
                 return self.v2Response(id: id, ok: true, result: [:])
             default:

@@ -489,7 +489,9 @@ extension ControlSurfaceContext {
     func controlSurfaceResumeStrings() -> ControlSurfaceResumeStrings {
         ControlSurfaceResumeStrings(
             agentSessionEndedMustBeBoolean: "",
+            invalidExpectedUpdatedAt: "",
             launchCommandMustBeValid: "",
+            agentMutationGuardMustBeValid: "",
             restoreClaimMustBeValid: ""
         )
     }
@@ -530,8 +532,10 @@ extension ControlSurfaceContext {
         hasResolvedWindowID: Bool,
         expectedCheckpointID: String?,
         expectedSource: String?,
+        agentSessionEnded: Bool,
+        expectedBindingUpdatedAt: Double?,
         expectedUpdatedAt: Double?,
-        agentSessionEnded: Bool
+        agentMutationGuard: ControlSidebarAgentMutationGuard?
     ) -> ControlSurfaceResumeResolution { .surfaceNotFound }
 
     nonisolated func controlSurfaceParseShellActivityState(_ rawState: String) -> String? { nil }

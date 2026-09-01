@@ -5,8 +5,12 @@
 public struct ControlSurfaceResumeStrings: Sendable, Equatable {
     /// The message returned when `agent_session_ended` is not a JSON boolean.
     public let agentSessionEndedMustBeBoolean: String
+    /// The message returned when the internal binding-revision guard is invalid.
+    public let invalidExpectedUpdatedAt: String
     /// The message returned when `launch_command` is present but malformed.
     public let launchCommandMustBeValid: String
+    /// The message returned when the private agent occupant guard is malformed.
+    public let agentMutationGuardMustBeValid: String
     /// The message returned when a restore claim is incomplete or malformed.
     public let restoreClaimMustBeValid: String
 
@@ -15,15 +19,22 @@ public struct ControlSurfaceResumeStrings: Sendable, Equatable {
     /// - Parameters:
     ///   - agentSessionEndedMustBeBoolean: The malformed
     ///     `agent_session_ended` message.
+    ///   - invalidExpectedUpdatedAt: The malformed internal binding-revision
+    ///     guard message.
     ///   - launchCommandMustBeValid: The malformed `launch_command` message.
+    ///   - agentMutationGuardMustBeValid: The malformed private occupant-guard message.
     ///   - restoreClaimMustBeValid: The malformed restore-claim message.
     public init(
         agentSessionEndedMustBeBoolean: String,
+        invalidExpectedUpdatedAt: String = "",
         launchCommandMustBeValid: String,
+        agentMutationGuardMustBeValid: String = "",
         restoreClaimMustBeValid: String = ""
     ) {
         self.agentSessionEndedMustBeBoolean = agentSessionEndedMustBeBoolean
+        self.invalidExpectedUpdatedAt = invalidExpectedUpdatedAt
         self.launchCommandMustBeValid = launchCommandMustBeValid
+        self.agentMutationGuardMustBeValid = agentMutationGuardMustBeValid
         self.restoreClaimMustBeValid = restoreClaimMustBeValid
     }
 }

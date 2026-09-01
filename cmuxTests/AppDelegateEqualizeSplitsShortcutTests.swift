@@ -851,6 +851,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             cancelledFireCount += 1
         }
         pendingCancellation()
+        pendingCancellation()
         scheduler.fire(at: 0)
         XCTAssertEqual(cancelledFireCount, 0)
     }
@@ -7973,6 +7974,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             resumeBinding: nil,
             managedAgentResumeBinding: nil,
             agentRuntime: nil,
+            agentLifecycleRecords: [:],
             isRemoteTerminal: false,
             remoteRelayPort: nil,
             remotePTYSessionID: nil,

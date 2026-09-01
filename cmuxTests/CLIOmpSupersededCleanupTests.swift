@@ -18,6 +18,133 @@ struct CLIOmpSupersededCleanupTests {
     private static let liveSurfaceId = "33333333-3333-3333-3333-333333333333"
     private static let ompPID = Int(getpid())
 
+    @Test(arguments: [false, true])
+    func failedResumePublicationRollsBackBeforeSupersedingPriorAliases(
+        missingRevision: Bool
+    ) throws {
+        let context = try Harness.makeContext(
+            name: missingRevision ? "omp-resume-revision-loss" : "omp-resume-owner-loss"
+        )
+        defer { context.cleanup() }
+
+        let priorSessionId = "omp-resume-owner-loss-prior"
+        let currentSessionId = "omp-resume-owner-loss-current"
+        try Self.writePriorSessions(
+            to: context.root.appendingPathComponent("omp-hook-sessions.json"),
+            sessionIds: [priorSessionId],
+            cwd: context.root.path
+        )
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [
+                Self.staleWorkspaceId: [Self.staleSurfaceId],
+                Self.liveWorkspaceId: [Self.liveSurfaceId],
+            ],
+            pidTarget: (workspaceId: Self.liveWorkspaceId, surfaceId: Self.liveSurfaceId),
+            resumeSetSucceeds: missingRevision,
+            resumeSetUpdatedAt: missingRevision ? nil : 123.25
+        )
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = context.root.path
+        environment["CMUX_OMP_PID"] = String(Self.ompPID)
+        environment["CMUX_AGENT_LAUNCH_KIND"] = "omp"
+        environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/omp"
+        environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = Self.base64NULSeparated(["/usr/local/bin/omp"])
+        environment["CMUX_AGENT_LAUNCH_CWD"] = context.root.path
+
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: [
+                "hooks", "omp", "session-start",
+                "--workspace", Self.liveWorkspaceId,
+                "--surface", Self.liveSurfaceId,
+            ],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(currentSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let commands = context.state.snapshot()
+        #expect(commands.contains {
+            Self.jsonObject($0)?["method"] as? String == "surface.resume.set"
+        })
+        #expect(!commands.contains {
+            $0.hasPrefix("clear_agent_pid omp.\(priorSessionId) ")
+        })
+
+        let saved = try #require(
+            JSONSerialization.jsonObject(
+                with: Data(contentsOf: context.root.appendingPathComponent("omp-hook-sessions.json"))
+            ) as? [String: Any]
+        )
+        let sessions = try #require(saved["sessions"] as? [String: Any])
+        #expect(Set(sessions.keys) == [priorSessionId])
+        #expect(saved["pendingSupersededSessionCleanup"] == nil)
+    }
+
+    @Test
+    func legacySameProcessAliasesAreMigratedBeforeCleanup() throws {
+        let context = try Harness.makeContext(name: "omp-cleanup-legacy-generation")
+        defer { context.cleanup() }
+
+        let legacySessionId = "omp-legacy-prior"
+        let currentSessionId = "omp-legacy-current"
+        try Self.writePriorSessions(
+            to: context.root.appendingPathComponent("omp-hook-sessions.json"),
+            sessionIds: [legacySessionId],
+            cwd: context.root.path,
+            includeProcessIdentity: false
+        )
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [
+                Self.staleWorkspaceId: [Self.staleSurfaceId],
+                Self.liveWorkspaceId: [Self.liveSurfaceId],
+            ],
+            pidTarget: (workspaceId: Self.liveWorkspaceId, surfaceId: Self.liveSurfaceId)
+        )
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = context.root.path
+        environment["CMUX_OMP_PID"] = String(Self.ompPID)
+        environment["CMUX_AGENT_LAUNCH_KIND"] = "omp"
+        environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/omp"
+        environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = Self.base64NULSeparated(["/usr/local/bin/omp"])
+        environment["CMUX_AGENT_LAUNCH_CWD"] = context.root.path
+
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: [
+                "hooks", "omp", "session-start",
+                "--workspace", Self.liveWorkspaceId,
+                "--surface", Self.liveSurfaceId,
+            ],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(currentSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let commands = context.state.snapshot()
+        #expect(commands.contains { $0.hasPrefix("clear_agent_pid omp.\(legacySessionId) ") })
+        #expect(commands.contains {
+            $0.hasPrefix("clear_agent_pid omp.\(legacySessionId) ")
+                && $0.contains("--expected-pid-start-seconds=")
+                && $0.contains("--expected-pid-start-microseconds=")
+        })
+
+        let saved = try #require(
+            JSONSerialization.jsonObject(
+                with: Data(contentsOf: context.root.appendingPathComponent("omp-hook-sessions.json"))
+            ) as? [String: Any]
+        )
+        let sessions = try #require(saved["sessions"] as? [String: Any])
+        #expect(Set(sessions.keys) == [currentSessionId])
+        #expect(saved["pendingSupersededSessionCleanup"] == nil)
+    }
+
     @Test
     func boundedCleanupRotatesPersistedFailuresAcrossLaterHooks() throws {
         let context = try Harness.makeContext(name: "omp-cleanup-bound")
@@ -212,18 +339,22 @@ struct CLIOmpSupersededCleanupTests {
     }
 
     @Test
-    func checkpointMismatchStillClearsExactSupersededPID() throws {
+    func relayCheckpointMismatchUsesExactSupersededSessionGuard() throws {
         let context = try Harness.makeContext(name: "omp-cleanup-reused-surface")
         defer { context.cleanup() }
 
-        let staleSessionId = "omp-cleanup-reused-stale"
+        let rawStaleSessionId = "omp-cleanup-reused-stale"
         let currentSessionId = "omp-cleanup-reused-current"
+        let identity = try #require(Self.processStartIdentity(pid: Self.ompPID))
+        let staleSessionId = "\(rawStaleSessionId)#relay#\(UUID().uuidString)"
+            + "#\(UUID().uuidString)#\(Self.ompPID)"
+            + "#\(identity.seconds)#\(identity.microseconds)"
         try Self.writePendingSessions(
             to: context.root.appendingPathComponent("omp-hook-sessions.json"),
             sessionIds: [staleSessionId],
             cwd: context.root.path,
             pid: Self.ompPID,
-            identity: try #require(Self.processStartIdentity(pid: Self.ompPID))
+            identity: identity
         )
         let serverHandled = Harness.startDeliveryTargetServer(
             context: context,
@@ -253,10 +384,28 @@ struct CLIOmpSupersededCleanupTests {
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         let commands = context.state.snapshot()
-        #expect(Self.clearedCheckpoints(in: commands) == [staleSessionId])
+        #expect(Self.clearedCheckpoints(in: commands) == [rawStaleSessionId])
+        let resumeClearParams = try #require(commands.compactMap { command -> [String: Any]? in
+            guard let payload = Self.jsonObject(command),
+                  payload["method"] as? String == "surface.resume.clear" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }.first)
+        let expectedGuard = ControlSidebarAgentMutationGuard.session(
+            statusKey: "omp",
+            sessionID: staleSessionId
+        )
+        #expect(
+            resumeClearParams["_cmux_agent_mutation_guard"] as? String
+                == expectedGuard.socketEnvelope
+        )
         #expect(commands.contains {
             $0.hasPrefix("clear_agent_pid omp.\(staleSessionId) ")
-                && $0.contains("--require-owned-key")
+                && $0.contains("--require-cleared")
+                && $0.contains("--session-id=")
+                && $0.contains(staleSessionId)
+                && !$0.contains("--expected-pid=")
         })
         let saved = try #require(
             JSONSerialization.jsonObject(
@@ -489,7 +638,8 @@ struct CLIOmpSupersededCleanupTests {
         sessionIds: [String],
         cwd: String,
         workspaceId: String = Self.staleWorkspaceId,
-        surfaceId: String = Self.staleSurfaceId
+        surfaceId: String = Self.staleSurfaceId,
+        includeProcessIdentity: Bool = true
     ) throws -> [String: TimeInterval] {
         let identity = try #require(Self.processStartIdentity(pid: Self.ompPID))
         let timestamp = Date.now.timeIntervalSince1970
@@ -497,18 +647,21 @@ struct CLIOmpSupersededCleanupTests {
         var updatedAtBySessionId: [String: TimeInterval] = [:]
         for (index, sessionId) in sessionIds.enumerated() {
             let updatedAt = timestamp + Double(index)
-            sessions[sessionId] = [
+            var record: [String: Any] = [
                 "sessionId": sessionId,
                 "workspaceId": workspaceId,
                 "surfaceId": surfaceId,
                 "cwd": cwd,
                 "pid": Self.ompPID,
-                "pidStartSeconds": identity.seconds,
-                "pidStartMicroseconds": identity.microseconds,
                 "isRestorable": true,
                 "startedAt": updatedAt,
                 "updatedAt": updatedAt,
             ]
+            if includeProcessIdentity {
+                record["pidStartSeconds"] = identity.seconds
+                record["pidStartMicroseconds"] = identity.microseconds
+            }
+            sessions[sessionId] = record
             updatedAtBySessionId[sessionId] = updatedAt
         }
         let activeSessionId = try #require(sessionIds.last)

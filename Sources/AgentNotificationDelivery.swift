@@ -1,4 +1,5 @@
 import CmuxSettings
+import CmuxControlSocket
 import CmuxNotifications
 import Foundation
 
@@ -33,7 +34,8 @@ struct AgentNotificationDelivery: Sendable {
         agentKind: String? = nil,
         isSubagent: Bool? = nil,
         correlationKey: String? = nil,
-        coalesces: Bool = false
+        coalesces: Bool = false,
+        agentMutationGuard: ControlSidebarAgentMutationGuard? = nil
     ) -> Bool {
         if let category,
            !agentNotificationShouldDeliver(
@@ -60,7 +62,8 @@ struct AgentNotificationDelivery: Sendable {
             ),
             soundContext: soundContext,
             correlationKey: correlationKey,
-            coalesces: coalesces
+            coalesces: coalesces,
+            agentMutationGuard: agentMutationGuard
         )
         return true
     }

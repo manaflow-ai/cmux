@@ -1,3 +1,4 @@
+import CmuxControlSocket
 import CmuxSettings
 import Testing
 
@@ -75,6 +76,31 @@ import Testing
         #expect(c?.pending == true)
     }
 
+    @Test func metaParsesVersionedAgentMutationGuard() throws {
+        let guardValue = ControlSidebarAgentMutationGuard.process(
+            statusKey: "kiro",
+            pidKey: "kiro.surface-1",
+            pid: 43_210,
+            startSeconds: 123,
+            startMicroseconds: 456
+        )
+        let guardOnly = try #require(
+            AgentNotificationMeta(meta: "g=\(guardValue.socketEnvelope)")
+        )
+        #expect(guardOnly.category == .other)
+        #expect(guardOnly.pending == false)
+        #expect(guardOnly.agentMutationGuard == guardValue)
+
+        let combined = try #require(
+            AgentNotificationMeta(
+                meta: "c=turn-complete;p=1;g=\(guardValue.socketEnvelope)"
+            )
+        )
+        #expect(combined.category == .turnComplete)
+        #expect(combined.pending == true)
+        #expect(combined.agentMutationGuard == guardValue)
+    }
+
     @Test func metaUnknownCategoryIsRejected() {
         // Only the three known category literals are wire-valid; anything else
         // (including "c=other") stays part of the legacy notification body.
@@ -104,6 +130,8 @@ import Testing
         #expect(AgentNotificationMeta(meta: "p=1;c=turn-complete") == nil)
         #expect(AgentNotificationMeta(meta: "c=turn-complete;c=turn-complete;p=1") == nil)
         #expect(AgentNotificationMeta(meta: "c=turn-complete;p=1;") == nil)
+        #expect(AgentNotificationMeta(meta: "g=not-an-envelope") == nil)
+        #expect(AgentNotificationMeta(meta: "g=v1:s:bad:bad;c=turn-complete;p=1") == nil)
     }
 
     @Test func legacyTwoFieldMetaParsesWithoutAgentContext() {

@@ -1,3 +1,4 @@
+import CmuxControlSocket
 import CmuxRemoteSession
 import CmuxNotifications
 import CmuxSettings
@@ -13,6 +14,7 @@ fileprivate struct QueuedTerminalNotification: Sendable {
     let title: String
     let subtitle: String
     let body: String
+    let agentMutationGuard: ControlSidebarAgentMutationGuard?
     let replyShape: TerminalNotificationReplyShape
     let agent: TerminalNotificationPolicyAgentContext?
     let soundContext: NotificationSoundOverrideContext?
@@ -82,7 +84,8 @@ final class TerminalMutationBus: @unchecked Sendable {
         agent: TerminalNotificationPolicyAgentContext? = nil,
         soundContext: NotificationSoundOverrideContext? = nil,
         correlationKey: String? = nil,
-        coalesces: Bool = true
+        coalesces: Bool = true,
+        agentMutationGuard: ControlSidebarAgentMutationGuard? = nil
     ) {
         enqueueNotification(QueuedTerminalNotification(
             key: QueuedTerminalNotificationKey(tabId: tabId, surfaceId: surfaceId),
@@ -92,7 +95,8 @@ final class TerminalMutationBus: @unchecked Sendable {
             replyShape: replyShape,
             agent: agent,
             soundContext: soundContext,
-            correlationKey: correlationKey
+            correlationKey: correlationKey,
+            agentMutationGuard: agentMutationGuard
         ), coalesces: coalesces)
     }
 
@@ -136,6 +140,34 @@ final class TerminalMutationBus: @unchecked Sendable {
         enqueueBarrierMutation(.perform(mutation))
     }
 
+    /// Atomically advances the notification generation and queues a clear
+    /// barrier without dropping notifications. The barrier decides on the
+    /// main actor whether authorization still permits the clear.
+    nonisolated func enqueueGuardedNotificationClear(
+        _ mutation: @escaping @MainActor (_ boundary: UInt64) -> Void
+    ) {
+        let shouldScheduleDrain: Bool
+        lock.lock()
+        let boundary = currentNotificationGeneration
+        currentNotificationGeneration &+= 1
+        nextSequence &+= 1
+        pending.append(TerminalSocketMutationEntry(
+            sequence: nextSequence,
+            mutation: .perform { mutation(boundary) },
+            notificationGeneration: nil,
+            notificationCoalescingKey: nil,
+            performReplaceKey: nil
+        ))
+        shouldScheduleDrain = !drainScheduled
+        if shouldScheduleDrain {
+            drainScheduled = true
+        }
+        lock.unlock()
+
+        guard shouldScheduleDrain else { return }
+        scheduleDrain()
+    }
+
     nonisolated func markNotificationClearBoundary() -> UInt64 {
         lock.lock()
         let boundary = currentNotificationGeneration
@@ -157,6 +189,15 @@ final class TerminalMutationBus: @unchecked Sendable {
             notification.key.tabId == tabId
                 && notification.key.surfaceId == surfaceId
                 && generation <= boundary
+        }
+    }
+
+    /// Canonical-surface discard through one clear boundary. Guarded clears
+    /// authorize against the panel's live owner before calling this, so a
+    /// stale enqueue-time workspace cannot preserve an older notification.
+    nonisolated func discardPendingNotifications(forSurfaceId surfaceId: UUID, through boundary: UInt64) {
+        discardPendingNotifications { notification, generation in
+            notification.key.surfaceId == surfaceId && generation <= boundary
         }
     }
 
@@ -487,6 +528,16 @@ final class TerminalMutationBus: @unchecked Sendable {
         for entry in batch {
             switch entry.mutation {
             case .deliverNotification(let notification):
+                if let guardValue = notification.agentMutationGuard {
+                    guard let surfaceId = notification.key.surfaceId,
+                          TerminalController.shared.controlSidebarAgentMutationIsAuthorized(
+                              guardValue,
+                              claimedTabID: notification.key.tabId,
+                              panelID: surfaceId
+                          ) else {
+                        continue
+                    }
+                }
 #if DEBUG
                 cmuxDebugLog(
                     "notification.queue.perform seq=\(entry.sequence) workspace=\(notification.key.tabId.uuidString.prefix(8)) surface=\(notification.key.surfaceId?.uuidString.prefix(8) ?? "nil") titleLen=\(notification.title.count) subtitleLen=\(notification.subtitle.count) bodyLen=\(notification.body.count)"
@@ -502,7 +553,8 @@ final class TerminalMutationBus: @unchecked Sendable {
                     agent: notification.agent,
                     correlationKey: notification.correlationKey,
                     notificationGeneration: entry.notificationGeneration ?? 0,
-                    soundContext: notification.soundContext
+                    soundContext: notification.soundContext,
+                    agentMutationGuard: notification.agentMutationGuard
                 )
             case .clearAllNotifications(let boundary):
                 TerminalNotificationStore.shared.clearAll(discardQueuedNotifications: false, throughNotificationGeneration: boundary)

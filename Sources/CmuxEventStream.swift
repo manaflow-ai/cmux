@@ -4,14 +4,14 @@ import Dispatch
 import Foundation
 
 extension TerminalController {
-    nonisolated func isEventsStreamRequest(_ line: String) -> Bool {
+    nonisolated func isLongLivedSocketRequest(_ line: String) -> Bool {
         guard line.hasPrefix("{"),
               let data = line.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let method = object["method"] as? String else {
             return false
         }
-        return method == "events.stream"
+        return method == "events.stream" || method == "agent.wait"
     }
 
     nonisolated func handleEventsStreamRequest(
@@ -51,7 +51,7 @@ extension TerminalController {
             names: names,
             categories: categories
         )
-        let revocationSource = socketEventStreamRevocationSource(
+        let revocationSource = socketLongLivedRequestRevocationSource(
             authorizationRevocationSignal,
             subscription: snapshot.subscription
         )
@@ -110,7 +110,7 @@ extension TerminalController {
         }
     }
 
-    private nonisolated func socketEventStreamRevocationSource(
+    nonisolated func socketLongLivedRequestRevocationSource(
         _ signal: SocketAuthorizationRevocationSignal,
         subscription: CmuxEventSubscription
     ) -> (any DispatchSourceRead)? {
@@ -180,7 +180,7 @@ extension TerminalController {
         }
     }
 
-    private nonisolated static func socketPeerClosed(_ socket: Int32) -> Bool {
+    nonisolated static func socketPeerClosed(_ socket: Int32) -> Bool {
         var byte: UInt8 = 0
         let result = recv(socket, &byte, 1, MSG_PEEK | MSG_DONTWAIT)
         if result == 0 {

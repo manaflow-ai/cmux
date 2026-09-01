@@ -1,5 +1,6 @@
 import CmuxControlSocket
 import CmuxCore
+import CmuxSidebar
 import Darwin
 import Foundation
 import Testing
@@ -567,7 +568,11 @@ extension AgentNotificationRegressionTests {
             target: .workspace(fixture.source.id),
             key: "claude_code",
             lifecycleRawValue: AgentHibernationLifecycleState.running.rawValue,
-            panelID: fixture.panelId
+            panelID: fixture.panelId,
+            sessionID: "session-1",
+            startsNewOccupant: false,
+            expectedPIDKey: nil,
+            expectedPID: nil
         )
 
         try movePanel(fixture)
@@ -579,6 +584,10 @@ extension AgentNotificationRegressionTests {
         #expect(fixture.destination.agentPIDs["claude_code"] == 43_210)
         #expect(
             fixture.destination.agentLifecycleStatesByPanelId[fixture.panelId]?["claude_code"] == .running
+        )
+        #expect(
+            fixture.destination.agentLifecycleRecordsByPanelId[fixture.panelId]?["claude_code"]?.sessionID
+                == "session-1"
         )
     }
 
@@ -621,5 +630,480 @@ extension AgentNotificationRegressionTests {
             recorded.isEmpty,
             "A confined in-flight delivery must be cancelled by clearing its authorized workspace; saw \(recorded.map(\.tabId))"
         )
+    }
+
+    @Test("Queued agent mutations revalidate the process generation at apply time")
+    func staleProcessGenerationCannotMutateReplacementOccupantAfterQueueing() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let bus = TerminalMutationBus.shared
+        bus.discardPendingNotifications()
+        bus.setDrainsSuspendedForTesting(true)
+        defer {
+            bus.setDrainsSuspendedForTesting(false)
+            bus.discardPendingNotifications()
+        }
+
+        let olderProcess = Process()
+        olderProcess.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        olderProcess.arguments = ["30"]
+        let newerProcess = Process()
+        newerProcess.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        newerProcess.arguments = ["30"]
+        try olderProcess.run()
+        try newerProcess.run()
+        defer {
+            for process in [olderProcess, newerProcess] where process.isRunning {
+                process.terminate()
+                process.waitUntilExit()
+            }
+        }
+        let olderIdentity = try #require(
+            AgentPIDProcessIdentity(pid: olderProcess.processIdentifier)
+        )
+        let newerIdentity = try #require(
+            AgentPIDProcessIdentity(pid: newerProcess.processIdentifier)
+        )
+        try #require(olderIdentity.startedBefore(newerIdentity))
+        let olderPIDKey = "kiro.older"
+        let newerPIDKey = "kiro.newer"
+
+        fixture.source.setAgentLifecycle(
+            key: "kiro",
+            panelId: fixture.panelId,
+            lifecycle: .running,
+            expectedPIDKey: olderPIDKey,
+            expectedPID: olderProcess.processIdentifier,
+            expectedPIDStartSeconds: olderIdentity.startSeconds,
+            expectedPIDStartMicroseconds: olderIdentity.startMicroseconds
+        )
+        let staleGuard = ControlSidebarAgentMutationGuard.process(
+            statusKey: "kiro",
+            pidKey: olderPIDKey,
+            pid: olderProcess.processIdentifier,
+            startSeconds: olderIdentity.startSeconds,
+            startMicroseconds: olderIdentity.startMicroseconds
+        )
+        fixture.store.addNotification(
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Kiro",
+            subtitle: "Current",
+            body: "Keep replacement notification"
+        )
+
+        TerminalController.shared.controlSidebarScheduleStatusUpsert(
+            target: .workspace(fixture.source.id),
+            key: "kiro",
+            value: "Stale status",
+            icon: nil,
+            color: nil,
+            url: nil,
+            priority: 0,
+            format: .plain,
+            panelID: fixture.panelId,
+            pid: nil,
+            agentMutationGuard: staleGuard
+        )
+        bus.enqueueNotification(
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Kiro",
+            subtitle: "Stale",
+            body: "Drop stale queued notification",
+            coalesces: false,
+            agentMutationGuard: staleGuard
+        )
+        TerminalController.shared.controlSidebarScheduleGuardedNotificationClear(
+            target: .workspace(fixture.source.id),
+            panelID: fixture.panelId,
+            guardValue: staleGuard
+        )
+
+        fixture.source.setAgentLifecycle(
+            key: "kiro",
+            panelId: fixture.panelId,
+            lifecycle: .idle,
+            expectedPIDKey: newerPIDKey,
+            expectedPID: newerProcess.processIdentifier,
+            expectedPIDStartSeconds: newerIdentity.startSeconds,
+            expectedPIDStartMicroseconds: newerIdentity.startMicroseconds
+        )
+        fixture.source.statusEntries["kiro"] = SidebarStatusEntry(
+            key: "kiro",
+            value: "Replacement status"
+        )
+
+        bus.setDrainsSuspendedForTesting(false)
+        bus.drainForTesting()
+
+        #expect(fixture.source.statusEntries["kiro"]?.value == "Replacement status")
+        #expect(fixture.store.notifications.map(\.body) == ["Keep replacement notification"])
+    }
+
+    @Test("Recorded process ownership remains valid after the agent exits")
+    func recordedProcessGenerationAuthorizesDeferredMutationsAfterExit() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let bus = TerminalMutationBus.shared
+        bus.discardPendingNotifications()
+        defer {
+            bus.setDrainsSuspendedForTesting(false)
+            bus.discardPendingNotifications()
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        process.arguments = ["30"]
+        try process.run()
+        let identity = try #require(AgentPIDProcessIdentity(pid: process.processIdentifier))
+        let pidKey = "kiro.current"
+        fixture.source.setAgentLifecycle(
+            key: "kiro",
+            panelId: fixture.panelId,
+            lifecycle: .running,
+            expectedPIDKey: pidKey,
+            expectedPID: process.processIdentifier,
+            expectedPIDStartSeconds: identity.startSeconds,
+            expectedPIDStartMicroseconds: identity.startMicroseconds
+        )
+        let guardValue = ControlSidebarAgentMutationGuard.process(
+            statusKey: "kiro",
+            pidKey: pidKey,
+            pid: process.processIdentifier,
+            startSeconds: identity.startSeconds,
+            startMicroseconds: identity.startMicroseconds
+        )
+
+        process.terminate()
+        process.waitUntilExit()
+        _ = fixture.source.clearAgentLifecycle(key: "kiro", panelId: fixture.panelId)
+        fixture.source.setAgentLifecycle(
+            key: "kiro",
+            panelId: fixture.panelId,
+            lifecycle: .idle,
+            expectedPIDKey: pidKey,
+            expectedPID: process.processIdentifier,
+            expectedPIDStartSeconds: identity.startSeconds,
+            expectedPIDStartMicroseconds: identity.startMicroseconds
+        )
+        #expect(
+            fixture.source.agentLifecycleRecordsByPanelId[fixture.panelId]?["kiro"]?.state
+                == .idle
+        )
+
+        bus.setDrainsSuspendedForTesting(true)
+        TerminalController.shared.controlSidebarScheduleStatusUpsert(
+            target: .workspace(fixture.source.id),
+            key: "kiro",
+            value: "Completed",
+            icon: nil,
+            color: nil,
+            url: nil,
+            priority: 0,
+            format: .plain,
+            panelID: fixture.panelId,
+            pid: nil,
+            agentMutationGuard: guardValue
+        )
+        bus.enqueueNotification(
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Kiro",
+            subtitle: "Completed",
+            body: "Deliver after process exit",
+            coalesces: false,
+            agentMutationGuard: guardValue
+        )
+        bus.setDrainsSuspendedForTesting(false)
+        bus.drainForTesting()
+
+        #expect(fixture.source.statusEntries["kiro"]?.value == "Completed")
+        #expect(fixture.store.notifications.map(\.body) == ["Deliver after process exit"])
+
+        bus.setDrainsSuspendedForTesting(true)
+        TerminalController.shared.controlSidebarScheduleGuardedNotificationClear(
+            target: .workspace(fixture.source.id),
+            panelID: fixture.panelId,
+            guardValue: guardValue
+        )
+        bus.setDrainsSuspendedForTesting(false)
+        bus.drainForTesting()
+        #expect(fixture.store.notifications.isEmpty)
+    }
+
+    @Test("Agent guards use structured metadata without consuming legacy payload text")
+    func agentNotificationGuardFramingPreservesLegacyPayloadText() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let bus = TerminalMutationBus.shared
+        bus.discardPendingNotifications()
+        defer { bus.discardPendingNotifications() }
+
+        let response = TerminalController.debugNotifyTargetQueuedResponseForTesting(
+            "\(fixture.source.id.uuidString) \(fixture.panelId.uuidString) "
+                + "Legacy|Payload|Body --agent-guard --expected-agent-key=kiro remains payload text"
+        )
+        #expect(response == "OK")
+        bus.drainForTesting()
+
+        #expect(fixture.store.notifications.map(\.body) == [
+            "Body --agent-guard --expected-agent-key=kiro remains payload text",
+        ])
+
+        let pid = getpid()
+        let identity = try #require(AgentPIDProcessIdentity(pid: pid))
+        let pidKey = "kiro.current"
+        fixture.source.setAgentLifecycle(
+            key: "kiro",
+            panelId: fixture.panelId,
+            lifecycle: .running,
+            expectedPIDKey: pidKey,
+            expectedPID: pid,
+            expectedPIDStartSeconds: identity.startSeconds,
+            expectedPIDStartMicroseconds: identity.startMicroseconds
+        )
+        let guardValue = ControlSidebarAgentMutationGuard.process(
+            statusKey: "kiro",
+            pidKey: pidKey,
+            pid: pid,
+            startSeconds: identity.startSeconds,
+            startMicroseconds: identity.startMicroseconds
+        )
+        let guardedResponse = TerminalController.debugNotifyTargetQueuedResponseForTesting(
+            "\(fixture.source.id.uuidString) \(fixture.panelId.uuidString) "
+                + "Kiro|Current|Guarded delivery|g=\(guardValue.socketEnvelope)"
+        )
+        #expect(guardedResponse == "OK")
+        let legacyOptionTextResponse = TerminalController.debugNotifyTargetQueuedResponseForTesting(
+            "\(fixture.source.id.uuidString) \(fixture.panelId.uuidString) "
+                + "Kiro|Legacy|Keep partial --agent-guard --expected-agent-key=kiro"
+        )
+        #expect(legacyOptionTextResponse == "OK")
+        bus.drainForTesting()
+
+        #expect(Set(fixture.store.notifications.map(\.body)) == Set([
+            "Body --agent-guard --expected-agent-key=kiro remains payload text",
+            "Guarded delivery",
+            "Keep partial --agent-guard --expected-agent-key=kiro",
+        ]))
+    }
+
+    @Test("Guarded clear command forwards a complete session guard and rejects a partial one")
+    func clearNotificationsParsesAgentMutationGuard() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let bus = TerminalMutationBus.shared
+        bus.discardPendingNotifications()
+        defer { bus.discardPendingNotifications() }
+        fixture.source.setAgentLifecycle(
+            key: "kiro",
+            panelId: fixture.panelId,
+            lifecycle: .running,
+            sessionID: "session-1",
+            startsNewOccupant: true
+        )
+        fixture.store.addNotification(
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Kiro",
+            subtitle: "Current",
+            body: "Clear with complete guard"
+        )
+
+        let response = TerminalController.shared.handleSocketLine(
+            "clear_notifications --tab=\(fixture.source.id.uuidString) "
+                + "--panel=\(fixture.panelId.uuidString) --expected-agent-key=kiro "
+                + "--expected-agent-session-id=session-1"
+        )
+        #expect(response == "OK")
+        bus.enqueueNotification(
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Kiro",
+            subtitle: "Current",
+            body: "Queued after guarded clear",
+            coalesces: false
+        )
+        bus.drainForTesting()
+        #expect(fixture.store.notifications.map(\.body) == ["Queued after guarded clear"])
+
+        fixture.store.replaceNotificationsForTesting([])
+        fixture.store.addNotification(
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Kiro",
+            subtitle: "Current",
+            body: "Keep after partial guard"
+        )
+        let partialResponse = TerminalController.shared.handleSocketLine(
+            "clear_notifications --tab=\(fixture.source.id.uuidString) "
+                + "--panel=\(fixture.panelId.uuidString) --expected-agent-key=kiro"
+        )
+        #expect(partialResponse.hasPrefix("ERROR: Usage:"))
+        bus.drainForTesting()
+        #expect(fixture.store.notifications.map(\.body) == ["Keep after partial guard"])
+    }
+
+    @Test("Policy-delayed notifications revalidate agent ownership before final apply")
+    func policyDelayedNotificationCannotApplyToReplacementOccupant() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-agent-guard-policy-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let ready = root.appendingPathComponent("ready")
+        let proceed = root.appendingPathComponent("proceed")
+        let finished = root.appendingPathComponent("finished")
+        let command = "touch '\(ready.path)'; while [ ! -e '\(proceed.path)' ]; do sleep 0.05; done; cat; touch '\(finished.path)'"
+        let fixture = try makeFixture(
+            policyHookCommand: command,
+            policyHookTimeoutSeconds: 60
+        )
+        defer {
+            fixture.restore()
+            try? FileManager.default.removeItem(at: root)
+        }
+        let bus = TerminalMutationBus.shared
+        bus.discardPendingNotifications()
+        defer { bus.discardPendingNotifications() }
+
+        fixture.source.setAgentLifecycle(
+            key: "kiro",
+            panelId: fixture.panelId,
+            lifecycle: .running,
+            sessionID: "session-old",
+            startsNewOccupant: true
+        )
+        bus.enqueueNotification(
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Kiro",
+            subtitle: "Waiting",
+            body: "Drop after occupant replacement",
+            coalesces: false,
+            agentMutationGuard: .session(
+                statusKey: "kiro",
+                sessionID: "session-old"
+            )
+        )
+        bus.drainForTesting()
+        #expect(await waitForMarker(at: ready))
+
+        fixture.source.setAgentLifecycle(
+            key: "kiro",
+            panelId: fixture.panelId,
+            lifecycle: .running,
+            sessionID: "session-new",
+            startsNewOccupant: true
+        )
+        _ = FileManager.default.createFile(atPath: proceed.path, contents: nil)
+        #expect(await waitForMarker(at: finished))
+
+        let deadline = ContinuousClock.now + .seconds(15)
+        while fixture.store.hasPendingNotification(
+            forTabId: fixture.source.id,
+            surfaceId: fixture.panelId
+        ), ContinuousClock.now < deadline {
+            await Task.yield()
+        }
+        #expect(
+            !fixture.store.hasPendingNotification(
+                forTabId: fixture.source.id,
+                surfaceId: fixture.panelId
+            )
+        )
+        #expect(fixture.store.notifications.isEmpty)
+    }
+
+    @Test("A guarded Dock mutation follows its authoritative session back into a Workspace")
+    func guardedDockMutationSurvivesMoveBackToWorkspace() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let bus = TerminalMutationBus.shared
+        bus.discardPendingNotifications()
+        bus.setDrainsSuspendedForTesting(true)
+        defer {
+            bus.setDrainsSuspendedForTesting(false)
+            bus.discardPendingNotifications()
+        }
+
+        let sessionID = "session-dock"
+        let pidKey = "kiro.\(sessionID)"
+        fixture.source.recordAgentPID(
+            key: pidKey,
+            pid: getpid(),
+            panelId: fixture.panelId,
+            refreshPorts: false
+        )
+        fixture.source.setAgentLifecycle(
+            key: "kiro",
+            panelId: fixture.panelId,
+            lifecycle: .running,
+            sessionID: sessionID,
+            startsNewOccupant: true
+        )
+        let intoDock = try #require(
+            fixture.source.detachSurface(panelId: fixture.panelId)
+        )
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { dock.closeAllPanels() }
+        let dockPaneID = try #require(dock.bonsplitController.allPaneIds.first)
+        try #require(
+            dock.attachDetachedSurface(intoDock, inPane: dockPaneID, focus: false)
+        )
+        dock.setAgentLifecycle(
+            key: "kiro",
+            panelId: fixture.panelId,
+            lifecycle: .idle,
+            sessionID: sessionID
+        )
+
+        TerminalController.shared.controlSidebarScheduleStatusUpsert(
+            target: .workspace(dock.workspaceId),
+            key: "kiro",
+            value: "Completed in Dock",
+            icon: nil,
+            color: nil,
+            url: nil,
+            priority: 0,
+            format: .plain,
+            panelID: fixture.panelId,
+            pid: nil,
+            agentMutationGuard: .session(
+                statusKey: "kiro",
+                sessionID: sessionID
+            )
+        )
+
+        let outOfDock = try #require(
+            dock.detachSurface(panelId: fixture.panelId)
+        )
+        let destinationPaneID = try #require(
+            fixture.destination.bonsplitController.allPaneIds.first
+        )
+        try #require(
+            fixture.destination.attachDetachedSurface(
+                outOfDock,
+                inPane: destinationPaneID,
+                focus: false
+            )
+        )
+
+        bus.setDrainsSuspendedForTesting(false)
+        bus.drainForTesting()
+
+        #expect(
+            fixture.destination.agentLifecycleRecordsByPanelId[fixture.panelId]?["kiro"]?
+                .sessionID == sessionID
+        )
+        #expect(
+            fixture.destination.agentLifecycleRecordsByPanelId[fixture.panelId]?["kiro"]?
+                .state == .idle
+        )
+        #expect(fixture.destination.statusEntries["kiro"]?.value == "Completed in Dock")
     }
 }

@@ -56,6 +56,16 @@ struct AgentPIDProcessIdentity: Equatable, Hashable, Sendable {
         processTableEntry(pid: pid)?.hasExited ?? false
     }
 
+    /// Orders generations by the kernel-recorded process birth time. PID is
+    /// deliberately not a tiebreaker: two different processes born in the
+    /// same microsecond have no trustworthy causal order and must fail closed.
+    func startedBefore(_ other: AgentPIDProcessIdentity) -> Bool {
+        if startSeconds != other.startSeconds {
+            return startSeconds < other.startSeconds
+        }
+        return startMicroseconds < other.startMicroseconds
+    }
+
     /// One read of the process table, shared so a second reader cannot drift
     /// into different privilege or liveness behavior.
     private static func processTableEntry(

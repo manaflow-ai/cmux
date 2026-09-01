@@ -1,3 +1,4 @@
+import CmuxControlSocket
 import CmuxNotifications
 import CmuxSettings
 import Foundation
@@ -20,7 +21,8 @@ extension TerminalController {
         agent: TerminalNotificationPolicyAgentContext? = nil,
         soundContext: NotificationSoundOverrideContext? = nil,
         correlationKey: String? = nil,
-        retargetsToLiveSurfaceOwner: Bool = true
+        retargetsToLiveSurfaceOwner: Bool = true,
+        agentMutationGuard: ControlSidebarAgentMutationGuard? = nil
     ) {
         let target: (tabId: UUID, surfaceId: UUID?)
         if retargetsToLiveSurfaceOwner {
@@ -65,7 +67,8 @@ extension TerminalController {
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
             correlationKey: correlationKey,
             agent: agent,
-            soundContext: soundContext
+            soundContext: soundContext,
+            agentMutationGuard: agentMutationGuard
         )
     }
 }
@@ -86,7 +89,8 @@ extension TerminalNotificationStore {
         agent: TerminalNotificationPolicyAgentContext? = nil,
         correlationKey: String? = nil,
         notificationGeneration: UInt64,
-        soundContext: NotificationSoundOverrideContext? = nil
+        soundContext: NotificationSoundOverrideContext? = nil,
+        agentMutationGuard: ControlSidebarAgentMutationGuard? = nil
     ) {
         guard let target = AppDelegate.shared?.agentNotificationDeliveryTarget(
             claimedTabId: claimedTabId,
@@ -115,7 +119,8 @@ extension TerminalNotificationStore {
             correlationKey: correlationKey,
             notificationGeneration: notificationGeneration,
             agent: agent,
-            soundContext: soundContext
+            soundContext: soundContext,
+            agentMutationGuard: agentMutationGuard
         )
     }
 
@@ -134,6 +139,7 @@ extension TerminalNotificationStore {
             surfaceId: target.surfaceId,
             panelId: request.panelId,
             retargetsToLiveSurfaceOwner: true,
+            agentMutationGuard: request.agentMutationGuard,
             correlationKey: request.correlationKey,
             title: request.title,
             subtitle: request.subtitle,

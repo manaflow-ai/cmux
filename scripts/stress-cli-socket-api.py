@@ -68,6 +68,7 @@ TOP_LEVEL_COMMANDS = {
     "version",
     "capabilities",
     "events",
+    "wait",
     "auth",
     "login",
     "logout",
@@ -894,6 +895,22 @@ def build_cli_cases(ctx: StressContext) -> list[CliCase]:
         CliCase("ping", argv("ping"), covered_command="ping"),
         CliCase("capabilities", argv("capabilities"), covered_command="capabilities"),
         CliCase("events-limit", argv("events", "--after", "0", "--limit", "1"), timeout=12, covered_command="events"),
+        CliCase(
+            "agent-wait-timeout",
+            ctx_argv(
+                lambda c: [
+                    "wait",
+                    "--surface",
+                    require(c.surface_id, "surface"),
+                    "--until",
+                    "idle",
+                    "--timeout",
+                    "0",
+                ]
+            ),
+            expect_codes=any_code,
+            covered_command="wait",
+        ),
         CliCase("auth-status", argv("auth", "status"), expect_codes=any_code, covered_command="auth"),
         CliCase("login-help", argv("login", "--help"), no_socket=True, covered_command="login"),
         CliCase("logout-help", argv("logout", "--help"), no_socket=True, covered_command="logout"),
@@ -1075,6 +1092,16 @@ def build_socket_cases(ctx: StressContext, capabilities: set[str]) -> list[Socke
         SocketCase("system.ping", "system.ping", lambda c: {}),
         SocketCase("system.capabilities", "system.capabilities", lambda c: {}),
         SocketCase("system.identify", "system.identify", lambda c: {}),
+        SocketCase(
+            "agent.wait",
+            "agent.wait",
+            lambda c: {
+                "surface_id": require(c.surface_id, "surface"),
+                "until": "idle",
+                "timeout_ms": 0,
+            },
+            expect_ok=None,
+        ),
         SocketCase("system.tree", "system.tree", lambda c: {"all": True}),
         SocketCase("system.top", "system.top", lambda c: {"all": True}, timeout=20),
         SocketCase("auth.login", "auth.login", lambda c: {}),

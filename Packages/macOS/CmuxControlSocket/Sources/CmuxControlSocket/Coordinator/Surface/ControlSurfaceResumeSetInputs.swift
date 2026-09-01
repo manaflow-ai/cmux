@@ -26,6 +26,8 @@ public struct ControlSurfaceResumeSetInputs: Sendable, Equatable {
     public let launchCommand: ControlAgentLaunchCommand?
     /// Last provider permission mode captured by an agent hook.
     public let permissionMode: String?
+    /// Exact agent occupant allowed to publish this hook-owned binding.
+    public let agentMutationGuard: ControlSidebarAgentMutationGuard?
     /// Whether automatic resume is requested (already gated: `true` only for the
     /// `agent-hook` source with `auto_resume == true`).
     public let autoResume: Bool
@@ -46,6 +48,9 @@ public struct ControlSurfaceResumeSetInputs: Sendable, Equatable {
     ///   - checkpointID: The checkpoint identifier.
     ///   - source: The (already-mapped) binding source.
     ///   - environment: The environment overrides.
+    ///   - launchCommand: Structured launch data for the binding.
+    ///   - permissionMode: Last provider permission mode observed by the hook.
+    ///   - agentMutationGuard: Exact agent occupant allowed to publish the binding.
     ///   - autoResume: Whether automatic resume is requested.
     ///   - remoteWorkspaceID: The authenticated relay's owning workspace.
     ///   - remoteRelayParameters: Raw parameters carrying relay authentication.
@@ -60,6 +65,7 @@ public struct ControlSurfaceResumeSetInputs: Sendable, Equatable {
         environment: [String: String]?,
         launchCommand: ControlAgentLaunchCommand?,
         permissionMode: String?,
+        agentMutationGuard: ControlSidebarAgentMutationGuard?,
         autoResume: Bool,
         remoteWorkspaceID: UUID?,
         remoteRelayParameters: [String: JSONValue]?,
@@ -74,6 +80,7 @@ public struct ControlSurfaceResumeSetInputs: Sendable, Equatable {
         self.environment = environment
         self.launchCommand = launchCommand
         self.permissionMode = permissionMode
+        self.agentMutationGuard = agentMutationGuard
         self.autoResume = autoResume
         self.resumeEvidenceProvenance = resumeEvidenceProvenance
         self.remoteWorkspaceID = remoteWorkspaceID

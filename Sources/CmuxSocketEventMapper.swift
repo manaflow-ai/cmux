@@ -17,7 +17,7 @@ enum CmuxSocketEventMapper {
               let method = request["method"] as? String else {
             return false
         }
-        guard method != "events.stream" else { return true }
+        guard method != "events.stream", method != "agent.wait" else { return true }
         guard let mapping = domainEventMapping(forV2Method: method) else {
             return true
         }

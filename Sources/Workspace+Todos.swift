@@ -15,8 +15,9 @@ extension Workspace {
     func taskStatusSignals() -> WorkspaceTaskStatusSignals {
         var anyAgentNeedsInput = false
         var anyAgentRunning = false
-        for (panelId, states) in agentLifecycleStatesByPanelId where panels[panelId] != nil {
-            for state in states.values {
+        for (panelId, records) in agentLifecycleRecordsByPanelId where panels[panelId] != nil {
+            for record in records.values {
+                let state = record.state
                 if state == .needsInput { anyAgentNeedsInput = true }
                 if state == .running { anyAgentRunning = true }
             }

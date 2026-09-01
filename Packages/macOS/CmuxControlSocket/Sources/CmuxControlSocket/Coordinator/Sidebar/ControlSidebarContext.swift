@@ -59,7 +59,8 @@ public protocol ControlSidebarContext: AnyObject {
         priority: Int,
         format: ControlSidebarMetadataFormat,
         panelID: UUID?,
-        pid: Int32?
+        pid: Int32?,
+        agentMutationGuard: ControlSidebarAgentMutationGuard?
     )
 
     /// Enqueues the `clear_status`/`clear_meta` removal mutation.
@@ -70,16 +71,29 @@ public protocol ControlSidebarContext: AnyObject {
     )
 
     /// Enqueues the `set_agent_pid` record mutation.
+    ///
+    /// The paired process-start fields make an anonymous claim conditional on
+    /// the live Darwin process generation, preventing numeric PID reuse from
+    /// replacing a newer owner.
     nonisolated func controlSidebarScheduleAgentPIDRecord(
         target: ControlSidebarTabTarget,
         key: String,
         pid: Int32,
-        panelID: UUID?
+        panelID: UUID?,
+        expectedLifecycleSessionID: String?,
+        expectedPIDStartSeconds: Int64?,
+        expectedPIDStartMicroseconds: Int64?
     )
 
     /// Parses an agent lifecycle CLI token, returning the canonical raw value
     /// (the app owns the `AgentHibernationLifecycleState` token table).
     nonisolated func controlSidebarParseAgentLifecycle(_ raw: String) -> String?
+
+    /// Localized usage text for `set_agent_lifecycle`.
+    nonisolated func controlSidebarSetAgentLifecycleUsage() -> String
+
+    /// Localized usage text for `clear_agent_pid`.
+    nonisolated func controlSidebarClearAgentPIDUsage() -> String
 
     /// Whether a lifecycle key is allowed (built-in status keys or a
     /// registered vault agent id for the target tab).
@@ -90,12 +104,61 @@ public protocol ControlSidebarContext: AnyObject {
     ) -> Bool
 
     /// Enqueues the `set_agent_lifecycle` mutation.
+    ///
+    /// `sessionID` identifies the agent occupant that owns the lifecycle.
+    /// `expectedPIDKey`, `expectedPID`, and the paired process-start fields
+    /// atomically reject a stale anonymous hook after a replacement process has
+    /// claimed the panel, while allowing the verified generation to recover a
+    /// missing app-side owner.
     nonisolated func controlSidebarScheduleAgentLifecycle(
         target: ControlSidebarTabTarget,
         key: String,
         lifecycleRawValue: String,
-        panelID: UUID?
+        panelID: UUID?,
+        sessionID: String?,
+        startsNewOccupant: Bool,
+        expectedPIDKey: String?,
+        expectedPID: Int32?,
+        expectedPIDStartSeconds: Int64?,
+        expectedPIDStartMicroseconds: Int64?
     )
+
+    /// Validates or applies a lifecycle mutation synchronously and reports
+    /// whether the requested session or process generation owns the resolved
+    /// panel. SessionStart uses a side-effect-free preflight before its durable
+    /// write, followed by an apply-and-verify commit.
+    ///
+    /// - Parameters:
+    ///   - target: Workspace or caller-relative mutation target.
+    ///   - key: Lifecycle/status key owned by the agent.
+    ///   - lifecycleRawValue: Canonical lifecycle value produced by the app.
+    ///   - panelID: Exact panel the hook claims.
+    ///   - sessionID: Durable session owner, when the agent provides one.
+    ///   - startsNewOccupant: Whether this report may replace an older owner.
+    ///   - expectedPIDKey: Anonymous process-routing key.
+    ///   - expectedPID: Anonymous process identifier.
+    ///   - expectedPIDStartSeconds: Whole seconds in the process birth time.
+    ///   - expectedPIDStartMicroseconds: Microsecond component of the process birth time.
+    ///   - preflightOnly: Whether to validate without mutating app state.
+    ///   - clearNotifications: Whether a replacement claim should clear the
+    ///     panel's visible notifications. Nested/managed hooks set this to
+    ///     `false` while retaining the ownership claim.
+    /// - Returns: `true` only when the applied owner still matches the exact
+    ///   requested session or process generation.
+    nonisolated func controlSidebarApplyAgentLifecycleAndVerifyOwner(
+        target: ControlSidebarTabTarget,
+        key: String,
+        lifecycleRawValue: String,
+        panelID: UUID?,
+        sessionID: String?,
+        startsNewOccupant: Bool,
+        expectedPIDKey: String?,
+        expectedPID: Int32?,
+        expectedPIDStartSeconds: Int64?,
+        expectedPIDStartMicroseconds: Int64?,
+        preflightOnly: Bool,
+        clearNotifications: Bool
+    ) -> Bool
 
     /// Workspace-scoped manual loading toggle for `workspace_loading`. `on`
     /// marks the manual loader `key` running on the workspace; `off` clears it
@@ -113,13 +176,35 @@ public protocol ControlSidebarContext: AnyObject {
     nonisolated func controlSidebarSetAgentHibernation(enabled: Bool)
 
     /// Enqueues the `clear_agent_pid` mutation.
+    ///
+    /// `expectedLifecycleSessionID` prevents an old hook from clearing a
+    /// replacement occupant's lifecycle.
     nonisolated func controlSidebarScheduleAgentPIDClear(
         target: ControlSidebarTabTarget,
         key: String,
         panelID: UUID?,
         clearStatus: Bool,
+        expectedLifecycleSessionID: String?,
+        expectedPID: Int32?,
+        expectedPIDStartSeconds: Int64?,
+        expectedPIDStartMicroseconds: Int64?,
         requireOwnedKey: Bool
     )
+
+    /// Clears an agent PID/lifecycle record synchronously and reports whether
+    /// the exact guarded owner was removed. Hook cleanup uses this witness so a
+    /// relay-only lifecycle owner is not acknowledged before its mutation runs.
+    nonisolated func controlSidebarClearAgentPIDAndVerifyOwner(
+        target: ControlSidebarTabTarget,
+        key: String,
+        panelID: UUID?,
+        clearStatus: Bool,
+        expectedLifecycleSessionID: String?,
+        expectedPID: Int32?,
+        expectedPIDStartSeconds: Int64?,
+        expectedPIDStartMicroseconds: Int64?,
+        requireOwnedKey: Bool
+    ) -> Bool
 
     /// Enqueues the `report_meta_block` upsert mutation.
     nonisolated func controlSidebarScheduleMetadataBlockUpsert(

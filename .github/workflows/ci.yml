@@ -814,6 +814,30 @@ jobs:
               test
           done
 
+      - name: Run agent wait and lifecycle regressions
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # Swift Testing assertion failures are tolerated in the full sharded
+          # app-host suite. Keep agent wait termination and lifecycle ownership
+          # on non-tolerant focused invocations so these races turn CI red.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          for suite in \
+            AgentWaitCoordinatorTests \
+            AgentLifecycleEventTests
+          do
+            scripts/ci/run-in-console-session.sh \
+              scripts/ci/run-app-host-xcodebuild.sh \
+              -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+              -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -disableAutomaticPackageResolution \
+              -destination "platform=macOS" \
+              CMUX_SKIP_ZIG_BUILD=1 \
+              -only-testing:"cmuxTests/$suite" \
+              test
+          done
+
       - name: Run browser runtime viewport regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
@@ -1410,6 +1434,8 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_version_memory_guard.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_contract_help.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_layout_focus_contract.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_anonymous_hook_ownership.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_wait_contract.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_operation_deadline.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_simulator_contract.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_browser_profile_cli.py

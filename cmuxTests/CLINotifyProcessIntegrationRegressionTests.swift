@@ -39,6 +39,15 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             },
             "Expected clear SessionStart to mark Claude running, saw \(context.state.commands)"
         )
+        XCTAssertTrue(
+            context.state.commands.contains {
+                $0.hasPrefix("set_agent_lifecycle claude_code running --tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
+                    && $0.contains("--session-id=\"clear-session\"")
+                    && $0.hasSuffix(" --new-occupant")
+            },
+            "Expected clear SessionStart to rotate the authoritative lifecycle occupant, saw \(context.state.commands)"
+        )
     }
 
     func testClaudeSessionStartRecordIsNotRestorableUntilPrompt() throws {
@@ -738,6 +747,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     }
 
     private func claudeHookMockResponse(line: String, surfaceIds: [String]) -> String {
+        if (line.hasPrefix("set_agent_lifecycle ") || line.hasPrefix("clear_agent_pid ")),
+           (line.contains(" --require-accepted") || line.contains(" --require-cleared")) {
+            return "OK:1"
+        }
         guard let payload = jsonObject(line) else {
             return "OK"
         }
@@ -758,7 +771,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         case "feed.push":
             return v2Response(id: id, ok: true, result: [:])
         case "surface.resume.set":
-            return v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+            return v2Response(id: id, ok: true, result: ["resume_binding": ["updated_at": 123.25]])
         case "surface.resume.clear":
             return v2Response(id: id, ok: true, result: ["cleared": true])
         default:
@@ -822,7 +835,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             case "feed.push":
                 return self.v2Response(id: id, ok: true, result: [:])
             case "surface.resume.set":
-                return self.v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+                return self.v2Response(id: id, ok: true, result: ["resume_binding": ["updated_at": 123.25]])
             case "surface.resume.clear":
                 return self.v2Response(id: id, ok: true, result: ["cleared": true])
             default:
@@ -8362,7 +8375,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             case "workspace.current":
                 return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceId])
             case "surface.resume.set":
-                return self.v2Response(id: id, ok: true, result: ["ok": true])
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["resume_binding": ["updated_at": 123.25]]
+                )
             default:
                 return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
             }
@@ -8688,7 +8705,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 return self.malformedRequestResponse(raw: line)
             }
             XCTAssertEqual(method, "surface.resume.set")
-            return self.v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+            return self.v2Response(id: id, ok: true, result: ["resume_binding": ["updated_at": 123.25]])
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -8747,7 +8764,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 return self.malformedRequestResponse(raw: line)
             }
             XCTAssertEqual(method, "surface.resume.set")
-            return self.v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+            return self.v2Response(id: id, ok: true, result: ["resume_binding": ["updated_at": 123.25]])
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -8813,7 +8830,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 return self.malformedRequestResponse(raw: line)
             }
             XCTAssertEqual(method, "surface.resume.set")
-            return self.v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+            return self.v2Response(id: id, ok: true, result: ["resume_binding": ["updated_at": 123.25]])
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -9251,6 +9268,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     }
 
     private func agentHookMockResponse(line: String, context: ClaudeHookContext) -> String {
+        if (line.hasPrefix("set_agent_lifecycle ") || line.hasPrefix("clear_agent_pid ")),
+           (line.contains(" --require-accepted") || line.contains(" --require-cleared")) {
+            return "OK:1"
+        }
         guard let payload = jsonObject(line) else {
             return "OK"
         }
@@ -9263,7 +9284,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         case "feed.push":
             return v2Response(id: id, ok: true, result: [:])
         case "surface.resume.set":
-            return v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+            return v2Response(id: id, ok: true, result: ["resume_binding": ["updated_at": 123.25]])
         case "surface.resume.clear":
             return v2Response(id: id, ok: true, result: ["cleared": true])
         default:

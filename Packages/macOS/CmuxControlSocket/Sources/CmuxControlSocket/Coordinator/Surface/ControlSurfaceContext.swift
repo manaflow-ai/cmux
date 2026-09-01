@@ -283,6 +283,10 @@ public protocol ControlSurfaceContext: AnyObject {
     ///   - expectedUpdatedAt: The optional expected binding-generation timestamp.
     ///   - agentSessionEnded: Whether a managed hook is clearing the binding as
     ///     part of authoritative session teardown.
+    ///   - expectedBindingUpdatedAt: Internal compare-and-clear guard for the
+    ///     exact binding revision published by the ending hook process.
+    ///   - agentMutationGuard: Optional exact occupant guard for hook-owned
+    ///     clears. A mismatched occupant returns the current binding unchanged.
     /// - Returns: The resume resolution.
     func controlSurfaceResumeClear(
         routing: ControlRoutingSelectors,
@@ -290,8 +294,10 @@ public protocol ControlSurfaceContext: AnyObject {
         hasResolvedWindowID: Bool,
         expectedCheckpointID: String?,
         expectedSource: String?,
+        agentSessionEnded: Bool,
+        expectedBindingUpdatedAt: Double?,
         expectedUpdatedAt: Double?,
-        agentSessionEnded: Bool
+        agentMutationGuard: ControlSidebarAgentMutationGuard?
     ) -> ControlSurfaceResumeResolution
 
     // MARK: - report_tty / report_pwd / report_shell_state / ports_kick

@@ -31,6 +31,7 @@ extension DockSplitStore {
         )
         clearSessionRestoreState(panelId: panelId)
         manualUnreadPanelIds.remove(panelId)
+        removeDetachedSurfaceTransfer(forPanelID: panelId)
 
         guard let panel = panels.removeValue(forKey: panelId) else { return nil }
         if let terminalPanel = panel as? TerminalPanel {

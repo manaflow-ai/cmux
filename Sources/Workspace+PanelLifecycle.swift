@@ -31,8 +31,18 @@ extension Workspace {
     }
 
     var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] {
-        get { sidebarAgentRuntimeObservation.agentLifecycleStatesByPanelId }
-        set { sidebarAgentRuntimeObservation.setAgentLifecycleStatesByPanelId(newValue) }
+        agentLifecycleRecordsByPanelId.mapValues { records in
+            records.mapValues(\.state)
+        }
+    }
+
+    var agentLifecycleRecordsByPanelId: [UUID: [String: AgentLifecycleRecord]] {
+        get { sidebarAgentRuntimeObservation.agentLifecycleRecordsByPanelId }
+        set { sidebarAgentRuntimeObservation.setAgentLifecycleRecordsByPanelId(newValue) }
+    }
+
+    func takeNextAgentLifecycleRevision() -> UInt64 {
+        sidebarAgentRuntimeObservation.takeNextAgentLifecycleRevision()
     }
 
     /// Returns exact-session runtime identities that still match their recorded process generation.
@@ -73,9 +83,11 @@ extension Workspace {
 
     func agentRuntimeState(forPanelId panelId: UUID) -> DetachedAgentRuntimeState? {
         let pidKeys = agentPIDKeysByPanelId[panelId] ?? []
-        let lifecycleStates = (agentLifecycleStatesByPanelId[panelId] ?? [:]).filter {
+        let lifecycleRecords = (agentLifecycleRecordsByPanelId[panelId] ?? [:]).filter {
             !AgentHibernationLifecycleStatusKeys.isManualKey($0.key)
         }
+        let lifecycleStates = lifecycleRecords.mapValues(\.state)
+        let lifecycleSessionIDs = lifecycleRecords.compactMapValues(\.sessionID)
 
         var agentPIDsForPanel: [String: pid_t] = [:]
         var agentPIDIdentitiesForPanel: [String: AgentPIDProcessIdentity] = [:]
@@ -107,7 +119,8 @@ extension Workspace {
             agentPIDs: agentPIDsForPanel,
             agentPIDProcessIdentities: agentPIDIdentitiesForPanel,
             agentPIDKeys: pidKeys,
-            agentLifecycleStates: lifecycleStates
+            agentLifecycleStates: lifecycleStates,
+            agentLifecycleSessionIDs: lifecycleSessionIDs
         )
     }
 
@@ -166,37 +179,201 @@ extension Workspace {
     }
 
     @discardableResult
-    private func clearOtherStructuredAgentRuntimes(onPanel panelId: UUID, keeping retainedKey: String) -> Bool {
+    private func clearOtherStructuredAgentRuntimes(
+        onPanel panelId: UUID,
+        keeping retainedKey: String,
+        preservingLifecycleStatusKey: String? = nil
+    ) -> Bool {
         guard isStructuredAgentHookPIDKey(retainedKey) else { return false }
         let staleKeys = agentPIDKeysByPanelId[panelId] ?? []
         var didChange = false
         for staleKey in staleKeys where staleKey != retainedKey && isStructuredAgentHookPIDKey(staleKey) {
-            if clearAgentPID(key: staleKey, panelId: panelId, clearStatus: true, refreshPorts: false) {
+            if clearAgentPID(
+                key: staleKey,
+                panelId: panelId,
+                clearStatus: true,
+                refreshPorts: false,
+                clearLifecycle: agentStatusKey(forAgentPIDKey: staleKey)
+                    != preservingLifecycleStatusKey
+            ) {
                 didChange = true
             }
         }
         return didChange
     }
     @discardableResult
-    func recordAgentPID(key: String, pid: pid_t, panelId: UUID?, refreshPorts: Bool = true) -> Bool {
+    func recordAgentPID(
+        key: String,
+        pid: pid_t,
+        panelId: UUID?,
+        refreshPorts: Bool = true,
+        expectedLifecycleSessionID: String? = nil,
+        expectedPIDStartSeconds: Int64? = nil,
+        expectedPIDStartMicroseconds: Int64? = nil
+    ) -> Bool {
+        recordAgentPIDOutcome(
+            key: key,
+            pid: pid,
+            panelId: panelId,
+            refreshPorts: refreshPorts,
+            expectedLifecycleSessionID: expectedLifecycleSessionID,
+            expectedPIDStartSeconds: expectedPIDStartSeconds,
+            expectedPIDStartMicroseconds: expectedPIDStartMicroseconds
+        ).didReplaceRuntime
+    }
+
+    func recordAgentPIDOutcome(
+        key: String,
+        pid: pid_t,
+        panelId: UUID?,
+        refreshPorts: Bool = true,
+        expectedLifecycleSessionID: String? = nil,
+        expectedPIDStartSeconds: Int64? = nil,
+        expectedPIDStartMicroseconds: Int64? = nil,
+        preservingLifecycleStatusKey: String? = nil,
+        commit: Bool = true
+    ) -> (
+        accepted: Bool,
+        didReplaceRuntime: Bool,
+        matchedExistingProcessGeneration: Bool
+    ) {
+        if let expectedLifecycleSessionID {
+            guard let panelId,
+                  agentLifecycleRecordsByPanelId[panelId]?[agentStatusKey(forAgentPIDKey: key)]?.sessionID
+                    == expectedLifecycleSessionID else {
+                return (false, false, false)
+            }
+        }
+        let processIdentity = Self.agentPIDProcessIdentity(pid: pid)
+        let expectedProcessIdentity: AgentPIDProcessIdentity?
+        switch (expectedPIDStartSeconds, expectedPIDStartMicroseconds) {
+        case (nil, nil):
+            expectedProcessIdentity = nil
+        case let (startSeconds?, startMicroseconds?):
+            expectedProcessIdentity = AgentPIDProcessIdentity(
+                pid: pid,
+                startSeconds: startSeconds,
+                startMicroseconds: startMicroseconds
+            )
+        case (nil, _?), (_?, nil):
+            return (false, false, false)
+        }
         let previous = (
             panelId: agentPIDPanelIdsByKey[key],
             pid: agentPIDs[key],
             identity: agentPIDProcessIdentitiesByKey[key]
         )
+        let previousAgentPortRoots = refreshPorts ? trackedAgentPortRoots() : nil
+        var matchedExistingProcessGeneration = false
+        if let expectedProcessIdentity {
+            matchedExistingProcessGeneration = previous.identity == expectedProcessIdentity
+            if let previousIdentity = previous.identity {
+                if previousIdentity == expectedProcessIdentity {
+                    guard previous.pid == nil || previous.pid == pid else {
+                        return (false, false, false)
+                    }
+                } else if !previousIdentity.startedBefore(expectedProcessIdentity) {
+                    return (false, false, false)
+                }
+            } else if let previousPID = previous.pid,
+                      previousPID != pid,
+                      Self.agentPIDProcessIdentity(pid: previousPID) != nil {
+                // Legacy partial ownership cannot be displaced while its
+                // different process is still live; once dead, the verified
+                // incoming generation is the only authoritative claimant.
+                return (false, false, false)
+            } else if previous.pid == nil, previous.panelId != nil {
+                // A key-only owner has no process evidence that can be
+                // causally ordered against this claimant.
+                return (false, false, false)
+            }
+            if let panelId {
+                let structuredKeys = agentPIDKeysByPanelId[panelId] ?? []
+                for existingKey in structuredKeys where
+                    existingKey != key && isStructuredAgentHookPIDKey(existingKey) {
+                    if let existingIdentity = agentPIDProcessIdentitiesByKey[existingKey] {
+                        if existingIdentity == expectedProcessIdentity {
+                            matchedExistingProcessGeneration = true
+                        }
+                        guard existingIdentity == expectedProcessIdentity
+                                || existingIdentity.startedBefore(expectedProcessIdentity) else {
+                            return (false, false, false)
+                        }
+                    } else if let existingPID = agentPIDs[existingKey],
+                              existingPID != pid,
+                              Self.agentPIDProcessIdentity(pid: existingPID) != nil {
+                        // An unversioned live owner cannot be ordered against
+                        // this claimant, so neither side may displace it.
+                        return (false, false, false)
+                    } else if agentPIDs[existingKey] == nil {
+                        return (false, false, false)
+                    }
+                }
+
+                if let lifecycleKeys = agentLifecycleRecordsByPanelId[panelId]?.keys {
+                    let incomingStatusKey = agentStatusKey(forAgentPIDKey: key)
+                    for lifecycleKey in lifecycleKeys where
+                        lifecycleKey != incomingStatusKey
+                            && AgentHibernationLifecycleStatusKeys.allowedStatusKeys.contains(lifecycleKey) {
+                        let hasVersionedOwner = structuredKeys.contains {
+                            agentStatusKey(forAgentPIDKey: $0) == lifecycleKey
+                        }
+                        guard hasVersionedOwner else {
+                            // A lifecycle with no process generation has no safe
+                            // causal order relative to an anonymous claimant.
+                            return (false, false, false)
+                        }
+                    }
+                }
+            }
+            // A command queued by the recorded generation remains authorized
+            // after that process exits. A new or replacing claim still needs
+            // a live kernel identity at this mutation boundary.
+            guard matchedExistingProcessGeneration
+                    || processIdentity == expectedProcessIdentity else {
+                return (false, false, false)
+            }
+        }
+        guard commit else {
+            return (true, false, matchedExistingProcessGeneration)
+        }
+        let didReplaceRecordedProcessGeneration = expectedProcessIdentity != nil
+            && (previous.panelId != nil || previous.pid != nil || previous.identity != nil)
+            && !matchedExistingProcessGeneration
         var didClearOtherStructuredAgentRuntime = false
-        if let panelId { didClearOtherStructuredAgentRuntime = clearOtherStructuredAgentRuntimes(onPanel: panelId, keeping: key) }
-        let processIdentity = Self.agentPIDProcessIdentity(pid: pid)
+        if let panelId {
+            didClearOtherStructuredAgentRuntime = clearOtherStructuredAgentRuntimes(
+                onPanel: panelId,
+                keeping: key,
+                preservingLifecycleStatusKey: preservingLifecycleStatusKey
+            )
+        }
+        let recordedProcessIdentity = expectedProcessIdentity ?? processIdentity
         agentPIDs[key] = pid
-        agentPIDProcessIdentitiesByKey[key] = processIdentity
+        agentPIDProcessIdentitiesByKey[key] = recordedProcessIdentity
         if let panelId { recordAgentPIDOwnership(key: key, panelId: panelId) } else { removeAgentPIDOwnership(key: key) }
-        if previous.pid != pid || previous.panelId != panelId || previous.identity != processIdentity {
+        if previous.pid != pid || previous.panelId != panelId || previous.identity != recordedProcessIdentity {
             for changedPanelId in (previous.panelId == panelId ? [panelId] : [previous.panelId, panelId]).compactMap({ $0 }) {
                 AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId)
             }
         }
-        if refreshPorts { refreshTrackedAgentPorts() }
-        return didClearOtherStructuredAgentRuntime
+        if let previousAgentPortRoots {
+            let currentAgentPortRoots = trackedAgentPortRoots()
+            // Lifecycle-only updates for an exact owner arrive on every hook
+            // event. Rescan only when the scanner's authoritative root set
+            // actually changes; an unchanged set would launch redundant ps/lsof work.
+            if currentAgentPortRoots != previousAgentPortRoots {
+                PortScanner.shared.refreshAgentPorts(
+                    workspaceId: id,
+                    agentRoots: currentAgentPortRoots
+                )
+            }
+        }
+        return (
+            true,
+            didClearOtherStructuredAgentRuntime || didReplaceRecordedProcessGeneration,
+            matchedExistingProcessGeneration
+        )
     }
 
     @discardableResult
@@ -305,7 +482,12 @@ extension Workspace {
         panelId: UUID? = nil,
         clearStatus: Bool = false,
         requireOwnedKey: Bool = false,
-        refreshPorts: Bool = true
+        refreshPorts: Bool = true,
+        expectedLifecycleSessionID: String? = nil,
+        expectedPID: pid_t? = nil,
+        expectedPIDStartSeconds: Int64? = nil,
+        expectedPIDStartMicroseconds: Int64? = nil,
+        clearLifecycle: Bool = true
     ) -> Bool {
         let ownedPanelId = agentPIDPanelIdsByKey[key]
         if requireOwnedKey, ownedPanelId == nil {
@@ -314,7 +496,32 @@ extension Workspace {
         if let panelId, let ownedPanelId, ownedPanelId != panelId {
             return false
         }
+        if let expectedPID {
+            guard agentPIDs[key] == expectedPID else { return false }
+            switch (expectedPIDStartSeconds, expectedPIDStartMicroseconds) {
+            case (nil, nil):
+                break
+            case let (startSeconds?, startMicroseconds?):
+                guard agentPIDProcessIdentitiesByKey[key] == AgentPIDProcessIdentity(
+                    pid: expectedPID,
+                    startSeconds: startSeconds,
+                    startMicroseconds: startMicroseconds
+                ) else {
+                    return false
+                }
+            case (nil, _?), (_?, nil):
+                return false
+            }
+        } else if expectedPIDStartSeconds != nil || expectedPIDStartMicroseconds != nil {
+            return false
+        }
         let statusKeyToClear = clearStatus ? agentStatusKey(forAgentPIDKey: key) : nil
+        if let expectedLifecycleSessionID,
+           let lifecyclePanelID = ownedPanelId ?? panelId,
+           let lifecycleRecord = agentLifecycleRecordsByPanelId[lifecyclePanelID]?[agentStatusKey(forAgentPIDKey: key)],
+           lifecycleRecord.sessionID != expectedLifecycleSessionID {
+            return false
+        }
 
         var didChange = false
         if agentPIDs.removeValue(forKey: key) != nil {
@@ -328,9 +535,13 @@ extension Workspace {
             didChange = true
         }
         if let changedPanelId = ownedPanelId ?? panelId, didChange { AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId) }
-        if let lifecyclePanelId = ownedPanelId ?? panelId {
+        if clearLifecycle, let lifecyclePanelId = ownedPanelId ?? panelId {
             let lifecycleStatusKey = agentStatusKey(forAgentPIDKey: key)
-            if clearAgentLifecycle(key: lifecycleStatusKey, panelId: lifecyclePanelId) {
+            if clearAgentLifecycle(
+                key: lifecycleStatusKey,
+                panelId: lifecyclePanelId,
+                expectedSessionID: expectedLifecycleSessionID
+            ) {
                 didChange = true
             }
         }
@@ -350,17 +561,23 @@ extension Workspace {
         restoredAgentLifecycle.clearSessionRestore(panelId: panelId)
     }
 
-    func refreshTrackedAgentPorts() {
+    private func trackedAgentPortRoots() -> Set<AgentPortRootIdentity> {
         // Preserve the published snapshot until PortScanner reconciles the new
         // process tree; eagerly clearing here made every PID refresh flicker.
-        let remainingAgentRoots = Set(agentPIDs.compactMap { key, pid -> AgentPortRootIdentity? in
+        Set(agentPIDs.compactMap { key, pid -> AgentPortRootIdentity? in
             guard pid > 0 else { return nil }
             return AgentPortRootIdentity(
                 pid: Int(pid),
                 processIdentity: agentPIDProcessIdentitiesByKey[key]
             )
         })
-        PortScanner.shared.refreshAgentPorts(workspaceId: id, agentRoots: remainingAgentRoots)
+    }
+
+    func refreshTrackedAgentPorts() {
+        PortScanner.shared.refreshAgentPorts(
+            workspaceId: id,
+            agentRoots: trackedAgentPortRoots()
+        )
     }
 
     func recomputeListeningPorts() {
@@ -410,9 +627,6 @@ extension Workspace {
         }
         for key in runtimeState.agentPIDKeys where runtimeState.agentPIDs[key] == nil {
             recordAgentPIDOwnership(key: key, panelId: runtimeState.panelId)
-        }
-        for (key, lifecycle) in runtimeState.agentLifecycleStates {
-            setAgentLifecycle(key: key, panelId: runtimeState.panelId, lifecycle: lifecycle)
         }
         if didAdoptAgentPID {
             refreshTrackedAgentPorts()

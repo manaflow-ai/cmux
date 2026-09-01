@@ -11,6 +11,7 @@ final class CmuxEventSubscription: @unchecked Sendable {
     let id: UUID
     let names: Set<String>
     let categories: Set<String>
+    let surfaceIDs: Set<String>
     let maxPendingEvents: Int
 
     private let lock = NSLock()
@@ -19,10 +20,17 @@ final class CmuxEventSubscription: @unchecked Sendable {
     private var closed = false
     private var closedReason: String?
 
-    init(id: UUID = UUID(), names: Set<String>, categories: Set<String>, maxPendingEvents: Int) {
+    init(
+        id: UUID = UUID(),
+        names: Set<String>,
+        categories: Set<String>,
+        surfaceIDs: Set<String>,
+        maxPendingEvents: Int
+    ) {
         self.id = id
         self.names = names
         self.categories = categories
+        self.surfaceIDs = surfaceIDs
         self.maxPendingEvents = max(1, maxPendingEvents)
     }
 
@@ -32,6 +40,9 @@ final class CmuxEventSubscription: @unchecked Sendable {
         }
         if !categories.isEmpty {
             guard let category = event["category"] as? String, categories.contains(category) else { return false }
+        }
+        if !surfaceIDs.isEmpty {
+            guard let surfaceID = event["surface_id"] as? String, surfaceIDs.contains(surfaceID) else { return false }
         }
         return true
     }
@@ -118,6 +129,7 @@ final class CmuxEventBus: @unchecked Sendable {
     static let defaultMaxEventLogBytes: UInt64 = 16 * 1024 * 1024
     static let defaultMaxPendingEventLogLines = CmuxEventLogWriter.defaultMaxPendingLines
     static let defaultMaxPendingEventsPerSubscription = 1_024
+    static let defaultMaxActiveSubscriptions = 32
     static let maxSanitizedStringBytes = 8 * 1024
     static let maxSanitizedArrayItems = 256
     static let maxSanitizedObjectEntries = 256
@@ -129,6 +141,7 @@ final class CmuxEventBus: @unchecked Sendable {
     private let retainedEventLimit: Int
     private let maxEventLineBytes: Int
     private let maxPendingEventsPerSubscription: Int
+    private let maxActiveSubscriptions: Int
     private let eventLogWriter: CmuxEventLogWriter?
     private let bootId = UUID().uuidString
     private var nextSequence: Int64 = 1
@@ -141,11 +154,13 @@ final class CmuxEventBus: @unchecked Sendable {
         maxEventLogBytes: UInt64 = CmuxEventBus.defaultMaxEventLogBytes,
         maxEventLineBytes: Int = CmuxEventBus.defaultMaxEventLineBytes,
         maxPendingEventLogLines: Int = CmuxEventBus.defaultMaxPendingEventLogLines,
-        maxPendingEventsPerSubscription: Int = CmuxEventBus.defaultMaxPendingEventsPerSubscription
+        maxPendingEventsPerSubscription: Int = CmuxEventBus.defaultMaxPendingEventsPerSubscription,
+        maxActiveSubscriptions: Int = CmuxEventBus.defaultMaxActiveSubscriptions
     ) {
         self.retainedEventLimit = max(1, retainedEventLimit)
         self.maxEventLineBytes = max(1, maxEventLineBytes)
         self.maxPendingEventsPerSubscription = max(1, maxPendingEventsPerSubscription)
+        self.maxActiveSubscriptions = max(1, maxActiveSubscriptions)
         self.eventLogWriter = eventLogURL.map {
             CmuxEventLogWriter(
                 eventLogURL: $0,
@@ -217,21 +232,31 @@ final class CmuxEventBus: @unchecked Sendable {
     func subscribe(
         afterSequence: Int64?,
         names: Set<String>,
-        categories: Set<String>
+        categories: Set<String>,
+        surfaceIDs: Set<String> = []
     ) -> CmuxEventSubscriptionSnapshot {
         let subscription = CmuxEventSubscription(
             names: names,
             categories: categories,
+            surfaceIDs: surfaceIDs,
             maxPendingEvents: maxPendingEventsPerSubscription
         )
 
         lock.lock()
         let oldestSequence = Self.int64(retained.first?["seq"]) ?? nextSequence
         let latestSequence = nextSequence - 1
-        let replay = retained.filter { event in
-            let seq = Self.int64(event["seq"]) ?? 0
-            let after = afterSequence ?? latestSequence
-            return seq > after && subscription.accepts(event)
+        let isAtCapacity = subscriptions.count >= maxActiveSubscriptions
+        let replay: [[String: Any]]
+        if isAtCapacity {
+            replay = []
+            subscription.close(reason: "active subscription limit exceeded")
+        } else {
+            replay = retained.filter { event in
+                let seq = Self.int64(event["seq"]) ?? 0
+                let after = afterSequence ?? latestSequence
+                return seq > after && subscription.accepts(event)
+            }
+            subscriptions[subscription.id] = subscription
         }
         let requestedAfter = afterSequence ?? latestSequence
         let gapReason: String? = afterSequence.flatMap { after in
@@ -244,7 +269,6 @@ final class CmuxEventBus: @unchecked Sendable {
             return nil
         }
         let gap = gapReason != nil
-        subscriptions[subscription.id] = subscription
         lock.unlock()
 
         var resume: [String: Any] = [
@@ -270,7 +294,8 @@ final class CmuxEventBus: @unchecked Sendable {
             "resume": resume,
             "filters": [
                 "names": Array(names).sorted(),
-                "categories": Array(categories).sorted()
+                "categories": Array(categories).sorted(),
+                "surface_ids": Array(surfaceIDs).sorted()
             ]
         ]
 

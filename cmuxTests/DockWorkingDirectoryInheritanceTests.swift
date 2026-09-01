@@ -397,6 +397,7 @@ struct DockWorkingDirectoryInheritanceTests {
             resumeBinding: nil,
             managedAgentResumeBinding: nil,
             agentRuntime: nil,
+            agentLifecycleRecords: [:],
             isRemoteTerminal: true,
             remoteRelayPort: nil,
             remotePTYSessionID: nil,

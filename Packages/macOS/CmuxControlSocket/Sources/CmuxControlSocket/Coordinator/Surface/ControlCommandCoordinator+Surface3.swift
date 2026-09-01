@@ -71,6 +71,8 @@ extension ControlCommandCoordinator {
             }
             launchCommand = parsed
         }
+        let agentMutationGuard = surfaceResumeAgentMutationGuard(params)
+        if let error = agentMutationGuard.error { return error }
         let inputs = ControlSurfaceResumeSetInputs(
             name: optionalTrimmedRawString(params, "name"),
             kind: optionalTrimmedRawString(params, "kind"),
@@ -82,6 +84,7 @@ extension ControlCommandCoordinator {
             environment: stringMap(params, "environment"),
             launchCommand: launchCommand,
             permissionMode: optionalTrimmedRawString(params, "permission_mode"),
+            agentMutationGuard: agentMutationGuard.value,
             autoResume: source == "agent-hook" ? (bool(params, "auto_resume") ?? false) : false,
             remoteWorkspaceID: remoteWorkspaceID,
             remoteRelayParameters: remoteWorkspaceID == nil ? nil : params,
@@ -162,6 +165,22 @@ extension ControlCommandCoordinator {
                 data: nil
             )
         }
+        let expectedBindingUpdatedAt: Double?
+        if params["_cmux_expected_updated_at"] != nil {
+            guard let updatedAt = double(params, "_cmux_expected_updated_at"),
+                  updatedAt.isFinite else {
+                return .err(
+                    code: "invalid_params",
+                    message: surfaceResumeStrings().invalidExpectedUpdatedAt,
+                    data: nil
+                )
+            }
+            expectedBindingUpdatedAt = updatedAt
+        } else {
+            expectedBindingUpdatedAt = nil
+        }
+        let agentMutationGuard = surfaceResumeAgentMutationGuard(params)
+        if let error = agentMutationGuard.error { return error }
         let resolution = context?.controlSurfaceResumeClear(
             routing: routing,
             explicitTargetID: surfaceResumeExplicitTargetID(params),
@@ -169,8 +188,10 @@ extension ControlCommandCoordinator {
             expectedCheckpointID: optionalTrimmedRawString(params, "checkpoint_id")
                 ?? optionalTrimmedRawString(params, "checkpointId"),
             expectedSource: optionalTrimmedRawString(params, "source"),
+            agentSessionEnded: agentSessionEnded,
+            expectedBindingUpdatedAt: expectedBindingUpdatedAt,
             expectedUpdatedAt: double(params, "expected_updated_at"),
-            agentSessionEnded: agentSessionEnded
+            agentMutationGuard: agentMutationGuard.value
         ) ?? .surfaceNotFound
         return surfaceResumeResult(resolution)
     }
@@ -179,8 +200,42 @@ extension ControlCommandCoordinator {
     private func surfaceResumeStrings() -> ControlSurfaceResumeStrings {
         context?.controlSurfaceResumeStrings() ?? ControlSurfaceResumeStrings(
             agentSessionEndedMustBeBoolean: "",
-            launchCommandMustBeValid: ""
+            invalidExpectedUpdatedAt: "",
+            launchCommandMustBeValid: "",
+            agentMutationGuardMustBeValid: ""
         )
+    }
+
+    /// Parses the private occupant guard shared by hook-owned set and clear.
+    private func surfaceResumeAgentMutationGuard(
+        _ params: [String: JSONValue]
+    ) -> (value: ControlSidebarAgentMutationGuard?, error: ControlCallResult?) {
+        if let rawGuard = rawString(params, "_cmux_agent_mutation_guard") {
+            guard let parsedGuard = ControlSidebarAgentMutationGuard(
+                socketEnvelope: rawGuard
+            ) else {
+                return (
+                    nil,
+                    .err(
+                        code: "invalid_params",
+                        message: surfaceResumeStrings().agentMutationGuardMustBeValid,
+                        data: nil
+                    )
+                )
+            }
+            return (parsedGuard, nil)
+        }
+        guard !hasNonNull(params, "_cmux_agent_mutation_guard") else {
+            return (
+                nil,
+                .err(
+                    code: "invalid_params",
+                    message: surfaceResumeStrings().agentMutationGuardMustBeValid,
+                    data: nil
+                )
+            )
+        }
+        return (nil, nil)
     }
 
     /// Shapes the shared `surface.resume.*` result.

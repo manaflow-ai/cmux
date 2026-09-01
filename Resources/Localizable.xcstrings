@@ -40642,6 +40642,176 @@
         }
       }
     },
+    "cli.help.wait": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux wait --surface <id|ref|index> --until <idle|needs-input|exit> [--timeout <ms>] [--json]\n\nWait for the agent currently occupying a surface to reach a lifecycle state.\nThe wait stays pinned to that agent session; a replacement agent cannot satisfy it.\n\nOptions:\n  --surface <id|ref|index>   Surface whose current agent should be observed\n  --until <state>            idle, needs-input, or exit\n  --timeout <ms>             Stop waiting after this many milliseconds\n  --json                     Print the terminal result as JSON\n\nExit codes:\n  0     Requested state reached\n  3     Surface closed\n  124   Timed out"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用方法: cmux wait --surface <id|ref|index> --until <idle|needs-input|exit> [--timeout <ms>] [--json]\n\nサーフェスを現在占有しているエージェントが指定のライフサイクル状態に到達するまで待機します。\n待機対象はそのエージェントセッションに固定され、後から起動した別のエージェントでは完了しません。\n\nオプション:\n  --surface <id|ref|index>   現在のエージェントを監視するサーフェス\n  --until <state>            idle、needs-input、または exit\n  --timeout <ms>             指定したミリ秒後に待機を終了\n  --json                     最終結果を JSON で出力\n\n終了コード:\n  0     指定の状態に到達\n  3     サーフェスが閉じた\n  124   タイムアウト"
+          }
+        }
+      }
+    },
+    "cli.wait.error.invalidResponse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent.wait returned an invalid response"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent.wait から無効な応答が返されました"
+          }
+        }
+      }
+    },
+    "cli.wait.error.invalidTimeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait --timeout must be a non-negative integer in milliseconds"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait --timeout にはミリ秒単位の 0 以上の整数を指定してください"
+          }
+        }
+      }
+    },
+    "cli.wait.error.invalidUntil": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait --until must be idle, needs-input, or exit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait --until には idle、needs-input、または exit を指定してください"
+          }
+        }
+      }
+    },
+    "cli.wait.error.missingValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ requires a value"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ には値が必要です"
+          }
+        }
+      }
+    },
+    "cli.wait.error.surfaceClosed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface closed before the requested agent state was reached"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "指定したエージェント状態に到達する前にサーフェスが閉じました"
+          }
+        }
+      }
+    },
+    "cli.wait.error.surfaceRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait requires --surface <id|ref|index>"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait には --surface <id|ref|index> が必要です"
+          }
+        }
+      }
+    },
+    "cli.wait.error.timedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timed out waiting for the requested agent state"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "指定したエージェント状態を待機中にタイムアウトしました"
+          }
+        }
+      }
+    },
+    "cli.wait.error.unknownOption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown wait option: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明な wait オプションです: %@"
+          }
+        }
+      }
+    },
+    "cli.wait.error.untilRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait requires --until <idle|needs-input|exit>"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait には --until <idle|needs-input|exit> が必要です"
+          }
+        }
+      }
+    },
     "cli.hooks.antigravity.aborted": {
       "extractionState": "manual",
       "localizations": {
@@ -243824,6 +243994,23 @@
         }
       }
     },
+    "socket.agentWait.error.cancelled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent wait was cancelled"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントの待機がキャンセルされました"
+          }
+        }
+      }
+    },
     "socket.cloudVM.sessionRejected": {
       "extractionState": "manual",
       "localizations": {
@@ -243837,6 +244024,125 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux Cloud サービスがこのセッションを拒否しました。`cmux auth logout` を実行してから `cmux auth login` を実行し、再試行してください。"
+          }
+        }
+      }
+    },
+    "socket.agentWait.error.invalidRequest": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent.wait requires a JSON object"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent.wait には JSON オブジェクトが必要です"
+          }
+        }
+      }
+    },
+    "socket.agentWait.error.invalidTimeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent.wait timeout_ms must be a non-negative integer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent.wait の timeout_ms には 0 以上の整数を指定してください"
+          }
+        }
+      }
+    },
+    "socket.agentWait.error.invalidUntil": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent.wait until must be idle, needs-input, or exit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent.wait の until には idle、needs-input、または exit を指定してください"
+          }
+        }
+      }
+    },
+    "socket.agentWait.error.liveLifecycleUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live agent lifecycle is unavailable for this surface"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このサーフェスではエージェントのライブライフサイクルを利用できません"
+          }
+        }
+      }
+    },
+    "socket.agentWait.error.noAgent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No agent lifecycle is recorded for this surface"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このサーフェスにはエージェントのライフサイクルが記録されていません"
+          }
+        }
+      }
+    },
+    "socket.agentWait.error.surfaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface not found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスが見つかりません"
+          }
+        }
+      }
+    },
+    "socket.agentWait.error.surfaceRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent.wait requires surface_id"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent.wait には surface_id が必要です"
           }
         }
       }
@@ -244363,6 +244669,40 @@
         }
       }
     },
+    "socket.sidebar.agentLifecycle.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>] [--session-id=<id>] [--new-occupant]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set_agent_lifecycle <キー> <unknown|running|idle|needsInput> [--tab=<ID>] [--panel=<ID>] [--session-id=<ID>] [--new-occupant]"
+          }
+        }
+      }
+    },
+    "socket.sidebar.clearAgentPID.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "clear_agent_pid <key> [--tab=<id>] [--panel=<id>] [--clear-status] [--session-id=<id>] [--require-cleared]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "clear_agent_pid <キー> [--tab=<ID>] [--panel=<ID>] [--clear-status] [--session-id=<ID>] [--require-cleared]"
+          }
+        }
+      }
+    },
     "socket.sidebar.custom.invalidName": {
       "extractionState": "manual",
       "localizations": {
@@ -244529,6 +244869,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "リモート tmux ペインを対象にできるのはターミナルサーフェスだけです。ターミナルは対象ペインのウインドウの後に新しい tmux ウインドウとして作成されます。"
+          }
+        }
+      }
+    },
+    "socket.surface.resume.agentSessionEndedMustBeBoolean": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent_session_ended must be a boolean"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent_session_ended はブール値である必要があります"
+          }
+        }
+      }
+    },
+    "socket.surface.resume.agentMutationGuardMustBeValid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or invalid _cmux_agent_mutation_guard"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "_cmux_agent_mutation_guard が指定されていないか、無効です"
+          }
+        }
+      }
+    },
+    "socket.surface.resume.invalidExpectedUpdatedAt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or invalid internal resume-binding revision"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内部の再開バインディングリビジョンが指定されていないか、無効です"
+          }
+        }
+      }
+    },
+    "socket.surface.resume.launchCommandMustBeValid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "launch_command.arguments must be a non-empty array of strings"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "launch_command.arguments は空でない文字列の配列である必要があります"
           }
         }
       }

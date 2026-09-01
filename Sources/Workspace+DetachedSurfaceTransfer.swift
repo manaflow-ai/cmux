@@ -18,6 +18,13 @@ extension Workspace {
         /// Active lifecycle values follow a live panel into and out of a Dock,
         /// alongside its structured PID ownership.
         var agentLifecycleStates: [String: AgentHibernationLifecycleState] = [:]
+        /// Exact lifecycle-session owner by status key while the panel is in a Dock.
+        var agentLifecycleSessionIDs: [String: String] = [:]
+        /// Lifecycle records established by fresh, accepted reports while the
+        /// panel is Dock-owned. Entry-time Workspace records intentionally do
+        /// not populate this map, so a Dock round trip cannot promote stale
+        /// cached lifecycle state back into an authoritative Workspace claim.
+        var authoritativeAgentLifecycleRecords: [String: AgentLifecycleRecord] = [:]
     }
 
     struct DetachedSurfaceTransfer {
@@ -57,6 +64,9 @@ extension Workspace {
         /// process-detected binding.
         let managedAgentResumeBinding: SurfaceResumeBindingSnapshot?
         var agentRuntime: DetachedAgentRuntimeState?
+        /// Current authoritative Dock lifecycle records, synchronized when a
+        /// live Dock mutation clears or replaces its runtime owner.
+        var agentLifecycleRecords: [String: AgentLifecycleRecord]
         let isRemoteTerminal: Bool
         var remoteTerminalSessionPhase: WorkspaceRemoteTerminalSessionPhase? = nil
         var remoteTerminalAuthority: WorkspaceRemoteTerminalAuthority? = nil
@@ -112,6 +122,7 @@ extension Workspace {
                 deferredAgentResumeRestore: deferredAgentResumeRestore,
                 managedAgentResumeBinding: managedAgentResumeBinding,
                 agentRuntime: agentRuntime,
+                agentLifecycleRecords: agentLifecycleRecords,
                 isRemoteTerminal: isRemoteTerminal,
                 remoteTerminalSessionPhase: remoteTerminalSessionPhase,
                 remoteTerminalAuthority: remoteTerminalAuthority,
