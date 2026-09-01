@@ -12,12 +12,16 @@ on:
       - scripts/ghosttykit-checksums.txt
       - tests/test_ci_ghosttykit_release_check.sh
       - tests/test_ci_change_areas.py
+      - .github/workflows/cla.yml
       - .github/workflows/ci.yml
+      - .github/scripts/rerun-failed-cla.sh
+      - tests/test_cla_rerun_workflow.sh
+      - tests/test_cla_lock_workflow.sh
+      - tests/test_cla_trigger_gate.sh
   workflow_dispatch:
 
 permissions:
   contents: read
-  actions: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -134,11 +138,16 @@ jobs:
 
   workflow-guard-tests:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # This job executes scripts from the pull request. It needs only read
+    # access for checkout, never workflow, issue, or repository write access.
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Validate macOS runner guards
         run: ./tests/test_ci_self_hosted_guard.sh
@@ -184,6 +193,18 @@ jobs:
 
       - name: Install workflow guard Python dependencies
         run: python3 -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3 bashlex==0.18
+
+      # These fixtures run only in this unprivileged pull_request job. They
+      # exercise the candidate workflow for developer feedback, never serve as
+      # the security boundary, and never run from pull_request_target.
+      - name: Validate CLA trigger admission behavior
+        run: ./tests/test_cla_trigger_gate.sh
+
+      - name: Validate CLA rerun authorization behavior
+        run: ./tests/test_cla_rerun_workflow.sh
+
+      - name: Validate merged pull request lock behavior
+        run: ./tests/test_cla_lock_workflow.sh
 
       - name: Validate Blacksmith Testbox broker trust boundary
         run: python3 tests/test_ci_testbox_broker_guard.py
