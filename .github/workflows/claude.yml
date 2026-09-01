@@ -26,6 +26,9 @@ jobs:
       contents: read
       pull-requests: read
       issues: read
+      # The action exchanges a short-lived OIDC token for its scoped GitHub
+      # App token, even when Claude authentication uses OAuth.
+      id-token: write
       actions: read # Required for Claude to read CI results on PRs
     steps:
       - name: Checkout repository
