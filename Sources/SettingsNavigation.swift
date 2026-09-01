@@ -372,6 +372,15 @@ enum SettingsSearchIndex {
         setting(.app, "pane-flash", String(localized: "settings.notifications.paneFlash.title", defaultValue: "Pane Flash"), "notification flash highlight"),
         setting(.app, "desktop-notifications", String(localized: "settings.notifications.desktop", defaultValue: "Desktop Notifications"), "permission alerts test notification"),
         setting(.app, "notification-sound", String(localized: "settings.notifications.sound.title", defaultValue: "Notification Sound"), "custom sound alert audio"),
+        setting(
+            .app,
+            "notification-sound-overrides",
+            String(localized: "settings.notifications.soundOverrides.title", defaultValue: "Per-Agent Notification Sounds"),
+            String(
+                localized: "settings.search.alias.setting.app.notification-sound-overrides",
+                defaultValue: "notifications.soundOverrides per-agent agent sound turn done needs input permission error stalled custom file"
+            )
+        ),
         setting(.app, "notification-command", String(localized: "settings.notifications.command", defaultValue: "Notification Command"), "shell command environment variables"),
         setting(.app, "telemetry", String(localized: "settings.app.telemetry", defaultValue: "Send anonymous telemetry"), "analytics crash usage"),
         setting(.app, "default-terminal", String(localized: "settings.app.defaultTerminal", defaultValue: "Default Terminal"), "ssh links command tool unix executable launch services handler registration system default"),
@@ -539,6 +548,7 @@ enum SettingsSearchIndex {
         "notifications.paneFlash": settingID(for: .app, idSuffix: "pane-flash"),
         "notifications.sound": settingID(for: .app, idSuffix: "notification-sound"),
         "notifications.customSoundFilePath": settingID(for: .app, idSuffix: "notification-sound"),
+        "notifications.soundOverrides": settingID(for: .app, idSuffix: "notification-sound-overrides"),
         "notifications.command": settingID(for: .app, idSuffix: "notification-command"),
         "app.sendAnonymousTelemetry": settingID(for: .app, idSuffix: "telemetry"),
         "app.defaultTerminal": settingID(for: .app, idSuffix: "default-terminal"),
