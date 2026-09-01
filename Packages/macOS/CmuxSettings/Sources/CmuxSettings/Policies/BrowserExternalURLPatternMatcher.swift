@@ -97,6 +97,9 @@ struct BrowserExternalURLPatternMatcher: Sendable {
         if pattern.lowercased().hasPrefix("re:") {
             let expression = String(pattern.dropFirst(3))
                 .trimmingCharacters(in: .whitespacesAndNewlines)
+            if let wildcard = linearWildcardPattern(from: expression) {
+                return BrowserExternalURLCompiledPattern(wildcard: wildcard)
+            }
             return BrowserExternalURLCompiledPattern(regex: makeRegex(expression))
         }
 
@@ -110,6 +113,9 @@ struct BrowserExternalURLPatternMatcher: Sendable {
         }
 
         if isRegexShaped(pattern) {
+            if let wildcard = linearWildcardPattern(from: pattern) {
+                return BrowserExternalURLCompiledPattern(wildcard: wildcard)
+            }
             return BrowserExternalURLCompiledPattern(
                 literalFallback: pattern,
                 regex: makeRegex(pattern)
@@ -166,6 +172,77 @@ struct BrowserExternalURLPatternMatcher: Sendable {
         }
 
         return hasLegacyQuantifier
+    }
+
+    /// Converts the small, legacy `.*`/`.+` regex subset into the bounded glob
+    /// matcher. This keeps repeated wildcard quantifiers linear while leaving
+    /// grouping, classes, anchors, and other regex operators to the safety
+    /// gate below.
+    private func linearWildcardPattern(from expression: String) -> BrowserExternalURLWildcardPattern? {
+        var wildcard = ""
+        var hasWildcardQuantifier = false
+        var index = expression.startIndex
+
+        while index < expression.endIndex {
+            let character = expression[index]
+            let nextIndex = expression.index(after: index)
+
+            if character == "." {
+                if nextIndex < expression.endIndex {
+                    switch expression[nextIndex] {
+                    case "*":
+                        wildcard.append("*")
+                        hasWildcardQuantifier = true
+                        index = expression.index(after: nextIndex)
+                        continue
+                    case "+":
+                        // `.+` means at least one character. `?*` is the
+                        // equivalent bounded-glob sequence.
+                        wildcard.append("?*")
+                        hasWildcardQuantifier = true
+                        index = expression.index(after: nextIndex)
+                        continue
+                    default:
+                        break
+                    }
+                }
+                // A bare regex dot is a one-character wildcard; append the
+                // glob token directly so it is not escaped as a literal `?`.
+                wildcard.append("?")
+                index = nextIndex
+                continue
+            }
+
+            if character == "\\" {
+                guard nextIndex < expression.endIndex else { return nil }
+                let escaped = expression[nextIndex]
+                // Regex character classes, boundaries, backreferences, and
+                // Unicode properties have no literal glob equivalent.
+                guard !"dDsSwWbBAZzRrpPkKgG0123456789".contains(escaped) else {
+                    return nil
+                }
+                appendWildcardLiteral(escaped, to: &wildcard)
+                index = expression.index(after: nextIndex)
+                continue
+            }
+
+            // Anchors and operators other than the two wildcard quantifiers
+            // change regex semantics that the implicit-substring glob cannot
+            // represent safely.
+            guard !"^$()[]{}|+?*".contains(character) else { return nil }
+            appendWildcardLiteral(character, to: &wildcard)
+            index = nextIndex
+        }
+
+        guard hasWildcardQuantifier else { return nil }
+        return BrowserExternalURLWildcardPattern(pattern: wildcard)
+    }
+
+    private func appendWildcardLiteral(_ character: Character, to wildcard: inout String) {
+        if character == "\\" || character == "*" || character == "?" {
+            wildcard.append("\\")
+        }
+        wildcard.append(character)
     }
 
     private func normalizedPatterns(from values: [String]) -> [String] {

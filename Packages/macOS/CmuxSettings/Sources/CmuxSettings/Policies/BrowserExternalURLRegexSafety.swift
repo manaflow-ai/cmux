@@ -11,10 +11,11 @@ struct BrowserExternalURLRegexSafety: Sendable {
     // for synchronous navigation decisions.
     private let maximumQuantifierCount = 2
     private let maximumAlternationCount = 1
-    // A three-character literal separator is enough for common bounded URL
-    // forms such as `.*foo.*`; adjacent/overlapping quantifiers remain
-    // rejected below.
-    private let minimumFixedSeparatorLengthForRepeatedQuantifiers = 3
+    // Arbitrary regexes may contain at most one unbounded quantifier. The
+    // matcher converts the simple repeated `.*`/`.+` subset to a bounded glob
+    // before this safety gate, so overlapping regex quantifiers never reach
+    // ICU's backtracking engine.
+    private let maximumUnboundedQuantifierCount = 1
 
     /// Returns whether `expression` has a bounded, supported shape.
     func accepts(_ expression: String) -> Bool {
@@ -30,9 +31,8 @@ struct BrowserExternalURLRegexSafety: Sendable {
         var isEscaping = false
         var inCharacterClass = false
         var quantifierCount = 0
+        var unboundedQuantifierCount = 0
         var alternationCount = 0
-        var fixedCharactersSinceQuantifier: Int?
-        var previousQuantifierWasUnbounded: Bool?
         var index = expression.startIndex
 
         while index < expression.endIndex {
@@ -48,9 +48,6 @@ struct BrowserExternalURLRegexSafety: Sendable {
                 isEscaping = false
                 previousAtom = 1
                 previousGroupIsComplex = false
-                if !isVariableEscapedAtom(character) {
-                    incrementFixed(&fixedCharactersSinceQuantifier)
-                }
                 index = nextIndex
                 continue
             }
@@ -107,53 +104,41 @@ struct BrowserExternalURLRegexSafety: Sendable {
                 }
                 previousAtom = 0
                 previousGroupIsComplex = false
-                fixedCharactersSinceQuantifier = nil
-                previousQuantifierWasUnbounded = nil
             case "*", "+", "?", "{":
                 var quantifierEndIndex = nextIndex
+                var quantifierIsUnbounded = character != "?"
                 if character == "{" {
                     guard let parsedEnd = quantifierEnd(in: expression, from: index) else {
                         return false
                     }
-                    quantifierEndIndex = parsedEnd
+                    quantifierEndIndex = parsedEnd.end
+                    quantifierIsUnbounded = parsedEnd.isUnbounded
                 }
                 guard previousAtom == 1 || previousAtom == 2 else { return false }
                 // Quantifying a group that already contains a quantifier or
                 // alternation is the common catastrophic-backtracking shape.
                 guard !(previousAtom == 2 && previousGroupIsComplex) else { return false }
-                if let fixedCharactersSinceQuantifier,
-                   fixedCharactersSinceQuantifier < 3 {
-                    return false
-                }
-                let quantifierIsUnbounded = character != "?"
-                if quantifierIsUnbounded,
-                   previousQuantifierWasUnbounded == true,
-                   let fixedCharactersSinceQuantifier,
-                   fixedCharactersSinceQuantifier < minimumFixedSeparatorLengthForRepeatedQuantifiers {
-                    return false
-                }
                 quantifierCount += 1
                 guard quantifierCount <= maximumQuantifierCount else { return false }
+                if quantifierIsUnbounded {
+                    unboundedQuantifierCount += 1
+                    guard unboundedQuantifierCount <= maximumUnboundedQuantifierCount else {
+                        return false
+                    }
+                }
                 if !groupHasQuantifier.isEmpty {
                     groupHasQuantifier[groupHasQuantifier.count - 1] = true
                 }
                 previousAtom = 3
                 previousGroupIsComplex = false
-                fixedCharactersSinceQuantifier = 0
-                previousQuantifierWasUnbounded = quantifierIsUnbounded
                 index = quantifierEndIndex
                 continue
             case "^", "$":
                 previousAtom = 0
                 previousGroupIsComplex = false
-                fixedCharactersSinceQuantifier = nil
-                previousQuantifierWasUnbounded = nil
             default:
                 previousAtom = 1
                 previousGroupIsComplex = false
-                if character != "." {
-                    incrementFixed(&fixedCharactersSinceQuantifier)
-                }
             }
             index = nextIndex
         }
@@ -161,20 +146,10 @@ struct BrowserExternalURLRegexSafety: Sendable {
         return !isEscaping && !inCharacterClass && groupHasQuantifier.isEmpty
     }
 
-    private func incrementFixed(_ value: inout Int?) {
-        if let current = value {
-            value = min(current + 1, 7)
-        }
-    }
-
-    private func isVariableEscapedAtom(_ character: Character) -> Bool {
-        "dDsSwW".contains(character)
-    }
-
     private func quantifierEnd(
         in expression: String,
         from start: String.Index
-    ) -> String.Index? {
+    ) -> (end: String.Index, isUnbounded: Bool)? {
         var end = expression.index(after: start)
         while end < expression.endIndex, expression[end] != "}" {
             end = expression.index(after: end)
@@ -199,6 +174,9 @@ struct BrowserExternalURLRegexSafety: Sendable {
                 return nil
             }
         }
-        return expression.index(after: end)
+        return (
+            end: expression.index(after: end),
+            isUnbounded: parts.count == 2 && parts[1].isEmpty
+        )
     }
 }

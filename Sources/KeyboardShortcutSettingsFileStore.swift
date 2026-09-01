@@ -1317,15 +1317,12 @@ final class CmuxSettingsFileStore {
             return .double(defaults.double(forKey: defaultsKey))
         case .string, .nullableString:
             // `browserExternalOpenPatterns` was persisted as an array by
-            // older releases. The catalog now reads that legacy shape as a
-            // newline string, so preserve the same effective value when a
-            // settings-file override temporarily replaces it.
+            // older releases. Preserve the raw array in the backup instead
+            // of routing it through the bounded runtime matcher; the catalog
+            // still decodes that array as a newline string when it is active.
             if defaultsKey == BrowserExternalURLPolicy.userDefaultsKey,
-               defaults.array(forKey: defaultsKey) != nil {
-                let normalized = BrowserExternalURLPolicy(defaults: defaults)
-                    .patterns
-                    .joined(separator: "\n")
-                return .string(normalized)
+               let legacyArray = defaults.array(forKey: defaultsKey) as? [String] {
+                return .stringArray(legacyArray)
             }
             guard let value = defaults.string(forKey: defaultsKey) else { return .absent }
             return .string(value)
