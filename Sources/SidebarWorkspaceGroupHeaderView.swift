@@ -75,7 +75,6 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
     let bottomDropIndicatorVisible: Bool
-    let onDragStart: () -> NSItemProvider
     /// Shared group-header actions used by both the lazy SwiftUI row and the
     /// retained AppKit table cell.
     let actions: SidebarGroupHeaderRowActions
@@ -304,8 +303,6 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 leadingInset: metrics.groupScopedBottomDropIndicatorLeadingInset
             )
         }
-        .onDrag(onDragStart)
-        .internalOnlyTabDrag()
         .contextMenu {
             Button(
                 String(
@@ -400,13 +397,15 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 action: actions.onOpenDocs
             )
             Divider()
-            Button(
-                String(
-                    localized: "workspaceGroup.contextMenu.ungroup",
-                    defaultValue: "Ungroup Workspaces"
-                ),
-                action: actions.onUngroup
-            )
+            if !isPinned || memberCount > 0 {
+                Button(
+                    String(
+                        localized: "workspaceGroup.contextMenu.ungroup",
+                        defaultValue: "Ungroup Workspaces"
+                    ),
+                    action: actions.onUngroup
+                )
+            }
             Button(
                 role: .destructive,
                 action: actions.onDelete
