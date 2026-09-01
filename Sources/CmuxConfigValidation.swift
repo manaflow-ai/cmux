@@ -85,7 +85,7 @@ struct CmuxConfigValidator: Sendable {
                 issues.append(issue(path + ".type", "must be a non-empty string"))
                 return
             }
-            type = value
+            type = value.trimmingCharacters(in: .whitespacesAndNewlines)
         } else if action["agent"] != nil {
             type = "agent"
         } else if action["builtin"] != nil {
@@ -102,8 +102,11 @@ struct CmuxConfigValidator: Sendable {
         case "builtin":
             requireNonBlankString(action["builtin"], path: path + ".builtin", into: &issues)
             if let builtin = action["builtin"] as? String,
-               canonicalBuiltInID(builtin) == nil {
-                issues.append(issue(path + ".builtin", "unknown built-in action '\(builtin)'"))
+               canonicalBuiltInID(builtin.trimmingCharacters(in: .whitespacesAndNewlines)) == nil {
+                issues.append(issue(
+                    path + ".builtin",
+                    "unknown built-in action '\(builtin.trimmingCharacters(in: .whitespacesAndNewlines))'"
+                ))
             }
         case "command":
             requireNonBlankString(action["command"], path: path + ".command", into: &issues)
@@ -113,7 +116,8 @@ struct CmuxConfigValidator: Sendable {
                 issues.append(issue(path + ".agent", "must be a non-empty command name"))
                 break
             }
-            if agent.rangeOfCharacter(from: .whitespacesAndNewlines) != nil {
+            let trimmedAgent = agent.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmedAgent.rangeOfCharacter(from: .whitespacesAndNewlines) != nil {
                 issues.append(issue(path + ".agent", "must be a single command name; put flags in 'args'"))
             }
             validateOptionalString(action["args"], path: path + ".args", into: &issues)
@@ -357,8 +361,13 @@ struct CmuxConfigValidator: Sendable {
             issues.append(issue(path, "must be an object"))
             return
         }
-        guard let type = icon["type"] as? String else {
+        guard let rawType = icon["type"] as? String else {
             issues.append(issue(path + ".type", "must be a string"))
+            return
+        }
+        let type = rawType.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !type.isEmpty else {
+            issues.append(issue(path + ".type", "must be a non-empty string"))
             return
         }
         switch type {
