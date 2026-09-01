@@ -294,6 +294,11 @@ mod unix {
             receiver
         }
 
+        #[cfg(test)]
+        pub(crate) fn pending_len(&self) -> usize {
+            self.shared.pending.lock().expect("control pending lock").len()
+        }
+
         fn encode_line(id: u64, cmd: &str, params: Value) -> Vec<u8> {
             let mut frame = match params {
                 Value::Object(map) => map,
@@ -486,6 +491,58 @@ mod tests {
             .await
             .expect("second waiter wakes")
             .expect("second waiter joins");
+    }
+
+    #[tokio::test]
+    async fn dropped_request_retires_pending_entry() {
+        let socket_path = std::env::temp_dir()
+            .join(format!("chatmux-relay-control-cancel-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&socket_path);
+        let listener = UnixListener::bind(&socket_path).expect("bind control cancel test socket");
+        let (accepted_tx, accepted_rx) = oneshot::channel();
+        let (request_seen_tx, request_seen_rx) = oneshot::channel();
+        let (release_tx, release_rx) = oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.expect("accept control cancel test socket");
+            accepted_tx.send(()).expect("tell client that socket is accepted");
+            let (read_half, write_half) = stream.into_split();
+            let mut reader = tokio::io::BufReader::new(read_half);
+            let mut line = String::new();
+            reader.read_line(&mut line).await.expect("read in-flight control request");
+            let request: Value =
+                serde_json::from_str(line.trim_end()).expect("decode in-flight control request");
+            assert_eq!(request.get("cmd").and_then(Value::as_str), Some("attach-surface"));
+            request_seen_tx.send(()).expect("tell client request is in flight");
+            release_rx.await.expect("release control cancel test socket");
+            drop(write_half);
+        });
+
+        let control = unix::connect_control_for_test(&socket_path, 3_000)
+            .await
+            .expect("connect control cancel test socket");
+        accepted_rx.await.expect("wait for control cancel test server");
+        let request_control = Arc::clone(&control);
+        let request = tokio::spawn(async move {
+            request_control.request("attach-surface", json!({ "surface": 7 })).await
+        });
+        request_seen_rx.await.expect("wait for in-flight control request");
+        assert_eq!(control.pending_len(), 1, "request must register before it is canceled");
+
+        request.abort();
+        let join = tokio::time::timeout(Duration::from_secs(1), request)
+            .await
+            .expect("canceled request task must finish promptly")
+            .expect_err("aborting the request task must report cancellation");
+        assert!(join.is_cancelled());
+        assert_eq!(control.pending_len(), 0, "dropping the request must retire its map entry");
+
+        release_tx.send(()).expect("release control cancel test socket");
+        control.end();
+        tokio::time::timeout(Duration::from_secs(1), server)
+            .await
+            .expect("join control cancel test server")
+            .expect("control cancel test server must not panic");
+        let _ = std::fs::remove_file(socket_path);
     }
 
     #[tokio::test]
