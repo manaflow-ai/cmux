@@ -283,6 +283,70 @@ struct SurfaceCatalogTests {
         #expect(catalog.projections(of: term.id).isEmpty)
     }
 
+    @Test func `Registering a replacement provider retires its old scoped materialization`() async throws {
+        let catalog = SurfaceCatalog()
+        let oldProvider = FakeProvider(machine: .cloud("vivid-newt"))
+        let gate = MaterializeGate()
+        oldProvider.materializeGate = gate
+        catalog.register(oldProvider)
+        let term = terminal(.cloud("vivid-newt"), "display_like")
+        catalog.replaceResources([term], on: .cloud("vivid-newt"))
+        let ws = UUID()
+        let destination = SurfaceDestination.workspace(id: ws, placement: .split)
+
+        let old = Task { try await catalog.project(term.id, into: destination, reuseInWorkspace: ws) }
+        await gate.waitUntilEntered()
+
+        let replacement = FakeProvider(machine: .cloud("vivid-newt"))
+        catalog.register(replacement)
+        // A scoped open after the swap must not join the stale call: the new provider materializes.
+        let new = try await catalog.project(term.id, into: destination, reuseInWorkspace: ws)
+        #expect(!new.reused)
+        #expect(replacement.materialized.count == 1)
+
+        gate.release()
+        await #expect(throws: SurfaceCatalogError.unknownResource(term.id)) { try await old.value }
+        #expect(oldProvider.discarded.count == 1, "the stale provider's late pane is handed back, not recorded")
+        #expect(catalog.projections(of: term.id) == [new.projection])
+    }
+
+    @Test func `A cancelled scoped open retires its capacity slot`() async throws {
+        let (retired, retiredContinuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let clock = ImmediateClock { _ in
+            retiredContinuation.yield(())
+            retiredContinuation.finish()
+        }
+        let catalog = SurfaceCatalog(maximumTrackedMaterializations: 1, materializationClock: clock)
+        let provider = FakeProvider(machine: .cloud("vivid-newt"))
+        let gate = MaterializeGate()
+        provider.materializeGate = gate
+        catalog.register(provider)
+        let term = terminal(.cloud("vivid-newt"), "display_like")
+        let other = terminal(.cloud("vivid-newt"), "term_2")
+        catalog.replaceResources([term, other], on: .cloud("vivid-newt"))
+        let ws = UUID()
+
+        let stuck = Task { try await catalog.project(term.id, into: .workspace(id: ws, placement: .split), reuseInWorkspace: ws) }
+        await gate.waitUntilEntered()
+        // While the scoped call is pending, the machine's single slot is taken.
+        await #expect(throws: SurfaceCatalogError.unavailable(other.id, reason: "materialization capacity exhausted")) {
+            try await catalog.project(other.id, into: .workspace(id: ws, placement: .split), reuseInWorkspace: ws)
+        }
+
+        stuck.cancel()
+        _ = try await awaitFirst(retired)
+        await Task.yield()
+        // The caller gave up: the slot retires on the bounded window, so a provider that
+        // never answers cannot refuse every later open on that machine.
+        provider.materializeGate = nil
+        let later = try await catalog.project(other.id, into: .workspace(id: ws, placement: .split), reuseInWorkspace: ws)
+        #expect(!later.reused)
+        #expect(provider.materialized.count == 2)
+
+        gate.release()
+        _ = try? await stuck.value
+    }
+
     @Test func `Concurrent reuse waits for the in-flight materialization`() async throws {
         let catalog = SurfaceCatalog()
         let provider = FakeProvider(machine: .cloud("vivid-newt"))
