@@ -1,4 +1,6 @@
 name: "CLA Assistant v2"
+# The base-controlled policy guard pins this parsed workflow. Update its
+# expected digest in a follow-up control-plane change whenever policy changes.
 on:
   issue_comment:
     types: [created]
