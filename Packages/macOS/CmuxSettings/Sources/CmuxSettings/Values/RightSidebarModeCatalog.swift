@@ -24,6 +24,7 @@ public struct RightSidebarModeCatalog: Equatable, Sendable {
             Entry(id: "dock", cliArgument: "dock"),
             Entry(id: "machines", cliArgument: "machines", cliAliases: ["cloud", "vms"]),
             Entry(id: "sourceControl", cliArgument: "source-control", cliAliases: ["sourcecontrol"]),
+            Entry(id: "custom-sidebar", cliArgument: "custom", cliAliases: ["custom-sidebar"]),
         ]
     }
 

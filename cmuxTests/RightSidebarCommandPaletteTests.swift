@@ -15,6 +15,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
             defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.sourceControlEnabledKey)
+            defaults.set(false, forKey: BetaFeaturesCatalogSection().customSidebars.userDefaultsKey)
             let contributions = ContentView.commandPaletteRightSidebarModeCommandContributions()
             let contributionsByID = Dictionary(uniqueKeysWithValues: contributions.map { ($0.commandId, $0) })
             let context = CommandPaletteContextSnapshot()
@@ -86,10 +87,13 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         let previousFeed = defaults.object(forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
         let previousDock = defaults.object(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
         let previousSourceControl = defaults.object(forKey: RightSidebarBetaFeatureSettings.sourceControlEnabledKey)
+        let customSidebarsKey = BetaFeaturesCatalogSection().customSidebars.userDefaultsKey
+        let previousCustomSidebars = defaults.object(forKey: customSidebarsKey)
         defer {
             restore(previousFeed, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             restore(previousDock, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
             restore(previousSourceControl, forKey: RightSidebarBetaFeatureSettings.sourceControlEnabledKey)
+            restore(previousCustomSidebars, forKey: customSidebarsKey)
         }
         try body()
     }

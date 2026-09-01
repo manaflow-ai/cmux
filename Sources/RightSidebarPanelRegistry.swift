@@ -19,7 +19,8 @@ struct RightSidebarPanelRegistry {
               let feedCLI = modeCatalog.entry(forID: RightSidebarMode.feed.rawValue),
               let dockCLI = modeCatalog.entry(forID: RightSidebarMode.dock.rawValue),
               let machinesCLI = modeCatalog.entry(forID: RightSidebarMode.machines.rawValue),
-              let sourceControlCLI = modeCatalog.entry(forID: RightSidebarMode.sourceControl.rawValue) else {
+              let sourceControlCLI = modeCatalog.entry(forID: RightSidebarMode.sourceControl.rawValue),
+              let customSidebarCLI = modeCatalog.entry(forID: RightSidebarMode.customSidebar.rawValue) else {
             // The app registry fails closed if its UI descriptors ever drift
             // from the UI-free command catalog, instead of reintroducing a
             // second set of aliases or emitting commands the CLI cannot route.
@@ -174,6 +175,32 @@ struct RightSidebarPanelRegistry {
                 behavior: .sourceControl
             ) { context in
                 AnyView(SourceControlPanelView(context: context))
+            },
+            Self.descriptor(
+                id: RightSidebarMode.customSidebar.rawValue,
+                title: String(localized: "rightSidebar.mode.customSidebar", defaultValue: "Custom"),
+                symbolName: "wand.and.stars",
+                order: 80,
+                isAvailable: { defaults in
+                    let key = BetaFeaturesCatalogSection().customSidebars
+                    let enabled = defaults.object(forKey: key.userDefaultsKey) == nil
+                        ? key.defaultValue
+                        : defaults.bool(forKey: key.userDefaultsKey)
+                    return enabled
+                        && FileExplorerState.persistedCustomSidebarName(defaults: defaults) != nil
+                },
+                shortcutAction: nil,
+                cliArgument: customSidebarCLI.cliArgument,
+                cliAliases: customSidebarCLI.cliAliases,
+                commandPaletteCommandID: "palette.showRightSidebarCustomSidebar",
+                paneCommandID: nil,
+                paneTitle: nil,
+                supportsTearOffPane: false,
+                behavior: .host
+            ) { _ in
+                // The root panel supplies the selected-sidebar data context and
+                // worker lifetime for this specialized mode.
+                AnyView(Color.clear)
             },
         ].sorted { $0.order < $1.order }
     }

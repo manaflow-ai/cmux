@@ -16,7 +16,7 @@ struct RightSidebarModeCatalogTests {
     func helpVocabularyIsStable() {
         #expect(
             RightSidebarModeCatalog().cliArgumentsDescription
-                == "files|find|vault|sessions|feed|dock|machines|cloud|vms|source-control|sourcecontrol"
+                == "files|find|vault|sessions|feed|dock|machines|cloud|vms|source-control|sourcecontrol|custom|custom-sidebar"
         )
     }
 }

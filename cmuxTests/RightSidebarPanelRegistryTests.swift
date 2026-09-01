@@ -15,7 +15,7 @@ struct RightSidebarPanelRegistryTests {
     func descriptorsPreserveBuiltInOrder() {
         let defaults = makeDefaults()
         let ids = RightSidebarPanelRegistry().descriptors.map(\.id)
-        #expect(ids == ["files", "find", "sessions", "feed", "dock", "machines", "sourceControl"])
+        #expect(ids == ["files", "find", "sessions", "feed", "dock", "machines", "sourceControl", "custom-sidebar"])
     }
 
     @Test("Source Control stays hidden until its beta flag is enabled")
