@@ -5860,6 +5860,13 @@ impl Mux {
             applied_sequence: sequence,
             ended: state == AgentState::Done,
         };
+        let agent_adapter = ingress
+            .payload
+            .get("adapter")
+            .and_then(|adapter| adapter.get("id"))
+            .and_then(Value::as_str)
+            .filter(|adapter| !adapter.is_empty())
+            .map(str::to_owned);
         self.report_agent_with_sequence_lock(
             surface,
             state,
@@ -5869,7 +5876,7 @@ impl Mux {
             Some(hook_state),
             Some(sequence),
             AgentReportOrigin::RosterFold,
-            None,
+            agent_adapter,
         )?;
         fences.insert(
             terminal_id.clone(),
@@ -9591,6 +9598,7 @@ impl Mux {
             None,
             None,
             AgentReportOrigin::Direct,
+            None,
         )
     }
 
@@ -9604,6 +9612,7 @@ impl Mux {
         hook_state: Option<crate::workspace_registry::AgentHookProjectionState>,
         journal_sequence: Option<u64>,
         origin: AgentReportOrigin,
+        agent_adapter: Option<String>,
     ) -> anyhow::Result<AgentRecord> {
         let mutation = WorkspaceMutation::new(
             format!("raw-agent-{}", crate::workspace_registry::new_uuid_v4()),
@@ -9628,7 +9637,7 @@ impl Mux {
             hook_state.as_ref(),
             journal_sequence,
             origin,
-            None,
+            agent_adapter,
         )?;
         let record = record.context("fresh raw agent report unexpectedly replayed")?;
         if source != AgentSource::Hook {
