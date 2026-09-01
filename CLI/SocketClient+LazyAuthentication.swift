@@ -1,6 +1,8 @@
 import Foundation
+import CmuxCLISocketAuth
 
 extension SocketClient {
+    /// Replays a request once after the local control socket challenges it.
     func retryAfterAuthenticationChallenge(
         response: String,
         command: String,
@@ -9,11 +11,12 @@ extension SocketClient {
         guard !authenticationInProgress,
               !authenticationPasswordResolutionAttempted,
               SocketAuthenticationChallenge.isRequired(response),
-              let authenticationPasswordProvider else {
+              authenticationPasswordProvider != nil else {
             return nil
         }
-        authenticationPasswordResolutionAttempted = true
-        guard let password = authenticationPasswordProvider() else { return nil }
+        guard let password = resolveDeferredAuthenticationPassword(deadline: operationDeadline) else {
+            return nil
+        }
         authenticationPassword = password
         socketAuthenticated = false
         let remaining = operationDeadline.timeIntervalSinceNow
@@ -30,11 +33,25 @@ extension SocketClient {
         return retriedResponse
     }
 
+    /// Records that this socket accepted a request without credentials.
     func recordCredentialFreeResponseIfNeeded(_ response: String) {
         if authenticationPasswordProvider != nil,
            !SocketAuthenticationChallenge.isRequired(response) {
             authenticationModeEstablished = true
         }
+    }
+
+    /// Resolves the deferred provider within the request's remaining deadline.
+    func resolveDeferredAuthenticationPassword(deadline: Date?) -> String? {
+        if let deadline, deadline.timeIntervalSinceNow <= 0 {
+            return nil
+        }
+        authenticationPasswordResolutionAttempted = true
+        let password = authenticationPasswordProvider?(deadline)
+        if let deadline, deadline.timeIntervalSinceNow <= 0 {
+            return nil
+        }
+        return password
     }
 
     /// Probes once before a write-only request when authentication is deferred.

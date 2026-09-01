@@ -1,4 +1,5 @@
 import Foundation
+import CmuxCLISocketAuth
 
 struct SSHPTYTerminalReadinessReport: Sendable {
     private enum DeliveryOutcome {
@@ -28,7 +29,6 @@ struct SSHPTYTerminalReadinessReport: Sendable {
     ]
 
     let socketPath: String
-    let explicitPassword: String?
     let credentialResolver: SocketCredentialResolver
     let params: [String: String]
     let attemptTimeout: TimeInterval

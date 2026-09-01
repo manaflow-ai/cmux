@@ -1,4 +1,5 @@
 import Foundation
+import CmuxCLISocketAuth
 
 extension CMUXCLI {
     /// Warms the OpenTUI child through the lazy socket-auth path.
@@ -30,7 +31,7 @@ extension CMUXCLI {
             )
             return credentialResolver.resolvedPassword ?? socketPassword
         } catch {
-            return socketPassword
+            return credentialResolver.resolvedPassword ?? socketPassword
         }
     }
 }

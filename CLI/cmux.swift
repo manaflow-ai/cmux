@@ -1,6 +1,7 @@
 import Foundation
 import CMUXAgentLaunch
 import CmuxAgentJournal
+import CmuxCLISocketAuth
 import CmuxFoundation
 import CmuxSettings
 import CmuxSimulator
@@ -2904,7 +2905,7 @@ final class SocketClient {
     private var lastOperationTelemetry: CLISocketOperationTelemetry.State?
     private var authenticationPassword: String?
     /// Deferred password source invoked only after an auth-required reply.
-    var authenticationPasswordProvider: (() -> String?)?
+    var authenticationPasswordProvider: ((Date?) -> String?)?
     var authenticationPasswordResolutionAttempted = false
     var authenticationModeEstablished = false
     private var authenticationInProgress = false
@@ -3076,7 +3077,7 @@ final class SocketClient {
         socketAuthenticated = false
     }
 
-    func configureAuthentication(password: String?, passwordProvider: (() -> String?)? = nil) {
+    func configureAuthentication(password: String?, passwordProvider: ((Date?) -> String?)? = nil) {
         authenticationPassword = password
         authenticationPasswordProvider = passwordProvider
         authenticationPasswordResolutionAttempted = false
@@ -4112,9 +4113,8 @@ final class SocketClient {
                !authenticationInProgress,
                !authenticationPasswordResolutionAttempted,
                SocketAuthenticationChallenge.isRequired(line),
-               let authenticationPasswordProvider {
-                authenticationPasswordResolutionAttempted = true
-                if let password = authenticationPasswordProvider() {
+               authenticationPasswordProvider != nil {
+                if let password = resolveDeferredAuthenticationPassword(deadline: deadline) {
                     authenticationPassword = password
                     socketAuthenticated = false
                     let remaining = deadline?.timeIntervalSinceNow
@@ -8662,8 +8662,8 @@ struct CMUXCLI {
         credentialResolver: SocketCredentialResolver
     ) throws {
         let initialPassword = credentialResolver.password(for: .initialConnection)
-        let deferredProvider: (() -> String?)? = initialPassword == nil
-            ? { credentialResolver.password(for: .authenticationRequired) }
+        let deferredProvider: ((Date?) -> String?)? = initialPassword == nil
+            ? { deadline in credentialResolver.password(for: .authenticationRequired, deadline: deadline) }
             : nil
         client.configureAuthentication(
             password: initialPassword,
@@ -15632,7 +15632,6 @@ struct CMUXCLI {
         }
         let resizeMonitor = SSHPTYResizeMonitor(
             socketPath: client.socketPath,
-            explicitPassword: explicitPassword,
             credentialResolver: credentialResolutionSession.resolver(
                 explicitPassword: explicitPassword,
                 socketPath: client.socketPath
@@ -15819,7 +15818,6 @@ struct CMUXCLI {
     ) -> Task<Void, Never> {
         let report = SSHPTYTerminalReadinessReport(
             socketPath: socketPath,
-            explicitPassword: explicitPassword,
             credentialResolver: credentialResolutionSession.resolver(
                 explicitPassword: explicitPassword,
                 socketPath: socketPath
@@ -24184,7 +24182,7 @@ struct CMUXCLI {
         private let maxAutoDepth: Int
         private let socketClient: SocketClient
         private let socketPassword: String?
-        private let credentialResolver: SocketCredentialResolver?
+        private let credentialResolver: SocketCredentialResolver
 
         private var knownThreadIds = Set<String>()
         private var parentByThreadId: [String: String] = [:]
@@ -24214,7 +24212,7 @@ struct CMUXCLI {
             maxAutoDepth: Int,
             socketClient: SocketClient,
             socketPassword: String?,
-            credentialResolver: SocketCredentialResolver?
+            credentialResolver: SocketCredentialResolver
         ) {
             self.appServerURL = appServerURL
             self.workspaceId = workspaceId

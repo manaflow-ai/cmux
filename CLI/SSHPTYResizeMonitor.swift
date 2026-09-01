@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import CmuxCLISocketAuth
 
 actor SSHPTYResizeMonitor {
     private typealias ResizeEvent = (size: (cols: Int, rows: Int), force: Bool)
@@ -7,7 +8,6 @@ actor SSHPTYResizeMonitor {
     private static let resizeResponseTimeout: TimeInterval = 0.05
 
     private let socketPath: String
-    private let explicitPassword: String?
     private let credentialResolver: SocketCredentialResolver
     private let workspaceId: String
     private let surfaceID: String?
@@ -26,8 +26,7 @@ actor SSHPTYResizeMonitor {
 
     init(
         socketPath: String,
-        explicitPassword: String?,
-        credentialResolver: SocketCredentialResolver? = nil,
+        credentialResolver: SocketCredentialResolver,
         workspaceId: String,
         surfaceID: String?,
         sessionID: String,
@@ -36,11 +35,7 @@ actor SSHPTYResizeMonitor {
         initialSize: (cols: Int, rows: Int)
     ) {
         self.socketPath = socketPath
-        self.explicitPassword = explicitPassword
-        self.credentialResolver = credentialResolver ?? SocketCredentialResolver(
-            explicitPassword: explicitPassword,
-            socketPath: socketPath
-        )
+        self.credentialResolver = credentialResolver
         self.workspaceId = workspaceId
         self.surfaceID = surfaceID
         self.sessionID = sessionID
@@ -184,7 +179,6 @@ actor SSHPTYResizeMonitor {
 
     private func sendResize(size: (cols: Int, rows: Int)) async -> Bool {
         let socketPath = self.socketPath
-        let explicitPassword = self.explicitPassword
         let workspaceId = self.workspaceId
         let surfaceID = self.surfaceID
         let sessionID = self.sessionID
@@ -196,7 +190,6 @@ actor SSHPTYResizeMonitor {
             DispatchQueue.global(qos: .utility).async {
                 continuation.resume(returning: Self.sendResizeBlocking(
                     socketPath: socketPath,
-                    explicitPassword: explicitPassword,
                     workspaceId: workspaceId,
                     surfaceID: surfaceID,
                     sessionID: sessionID,
@@ -211,7 +204,6 @@ actor SSHPTYResizeMonitor {
 
     private static func sendResizeBlocking(
         socketPath: String,
-        explicitPassword: String?,
         workspaceId: String,
         surfaceID: String?,
         sessionID: String,

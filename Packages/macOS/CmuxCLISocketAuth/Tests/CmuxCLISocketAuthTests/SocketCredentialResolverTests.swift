@@ -1,11 +1,6 @@
 import Foundation
 import Testing
-
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
+@testable import CmuxCLISocketAuth
 
 /// Regression coverage for the CLI socket credential boundary.
 ///
@@ -14,9 +9,22 @@ import Testing
 /// authentication challenge. Keeping those demands separate prevents a
 /// successful allow-all request from touching LocalAuthentication.
 @Suite(.serialized)
-struct CLISocketCredentialResolverTests {
-    private final class CallCounter {
-        var value = 0
+struct SocketCredentialResolverTests {
+    private final class CallCounter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var storage = 0
+
+        var value: Int {
+            lock.lock()
+            defer { lock.unlock() }
+            return storage
+        }
+
+        func increment() {
+            lock.lock()
+            storage += 1
+            lock.unlock()
+        }
     }
 
     private func resolver(
@@ -36,11 +44,11 @@ struct CLISocketCredentialResolverTests {
             socketPath: "/tmp/cmux-debug-credential-test.sock",
             environment: environment,
             filePasswordProvider: {
-                fileCounter.value += 1
+                fileCounter.increment()
                 return filePassword
             },
             keychainPasswordProvider: { _ in
-                keychainCounter.value += 1
+                keychainCounter.increment()
                 return keychainPassword
             }
         )
@@ -144,6 +152,27 @@ struct CLISocketCredentialResolverTests {
     }
 
     @Test
+    func expiredAuthenticationDeadlineDoesNotStartDeferredSources() {
+        let fileCounter = CallCounter()
+        let keychainCounter = CallCounter()
+        let resolver = resolver(
+            filePassword: "file-password",
+            keychainPassword: "keychain-password",
+            fileCounter: fileCounter,
+            keychainCounter: keychainCounter
+        )
+
+        #expect(
+            resolver.password(
+                for: .authenticationRequired,
+                deadline: Date(timeIntervalSince1970: 0)
+            ) == nil
+        )
+        #expect(fileCounter.value == 0)
+        #expect(keychainCounter.value == 0)
+    }
+
+    @Test
     func socketPathScopeWinsOverMismatchedEnvironmentTag() {
         let services = SocketCredentialResolver.keychainServices(
             socketPath: "/tmp/cmux-debug-target.tag.sock",
@@ -175,6 +204,49 @@ struct CLISocketCredentialResolverTests {
     }
 
     @Test
+    func implicitRoutesShareOneDeferredKeychainLookupPerSession() {
+        let keychainCounter = CallCounter()
+        let session = SocketCredentialResolutionSession(
+            environment: [:],
+            filePasswordProvider: { nil },
+            keychainPasswordProvider: { _ in
+                keychainCounter.increment()
+                return "keychain-password"
+            }
+        )
+        let first = session.resolver(
+            explicitPassword: nil,
+            socketPath: "/tmp/cmux-debug-first.sock"
+        )
+        let second = session.resolver(
+            explicitPassword: nil,
+            socketPath: "/tmp/cmux-debug-second.sock"
+        )
+
+        #expect(first !== second)
+        #expect(first.password(for: .authenticationRequired) == "keychain-password")
+        #expect(second.password(for: .authenticationRequired) == "keychain-password")
+        #expect(keychainCounter.value == 1)
+    }
+
+    @Test
+    func allowAllConnectionLeavesDeferredProvidersUntouched() {
+        let fileCounter = CallCounter()
+        let keychainCounter = CallCounter()
+        let resolver = resolver(
+            filePassword: "file-password",
+            keychainPassword: "keychain-password",
+            fileCounter: fileCounter,
+            keychainCounter: keychainCounter
+        )
+
+        #expect(!SocketAuthenticationChallenge.isRequired("PONG"))
+        #expect(resolver.password(for: .initialConnection) == nil)
+        #expect(fileCounter.value == 0)
+        #expect(keychainCounter.value == 0)
+    }
+
+    @Test
     func allowAllResponsesNeverDemandCredentials() {
         #expect(!SocketAuthenticationChallenge.isRequired("PONG"))
         #expect(!SocketAuthenticationChallenge.isRequired(#"{"id":"1","ok":true,"result":{}}"#))
@@ -183,6 +255,11 @@ struct CLISocketCredentialResolverTests {
         #expect(
             SocketAuthenticationChallenge.isRequired(
                 #"{"id":"1","ok":false,"error":{"code":"auth_required","message":"Authentication required. Send auth <password> first."}}"#
+            )
+        )
+        #expect(
+            !SocketAuthenticationChallenge.isRequired(
+                #"{"id":"1","ok":false,"error":{"code":"auth_required"}}"#
             )
         )
         #expect(
