@@ -33,7 +33,7 @@ enum SurfaceResumeLaunchFlavor: Equatable, Hashable, Sendable {
     func representsSameExecutionLocation(as other: Self) -> Bool {
         switch (self, other) {
         case (.local, .local):
-            true
+            return true
         case let (.persistentSSH(lhs), .persistentSSH(rhs)):
             guard let lhsSessionID = lhs.normalizedPersistentPTYSessionID,
                   let rhsSessionID = rhs.normalizedPersistentPTYSessionID else {
@@ -41,7 +41,7 @@ enum SurfaceResumeLaunchFlavor: Equatable, Hashable, Sendable {
             }
             return lhsSessionID == rhsSessionID
         default:
-            false
+            return false
         }
     }
 }
