@@ -35,11 +35,10 @@ fn valid_kind(value: &str) -> bool {
 }
 
 fn valid_decimal(value: &str) -> bool {
-    !value.is_empty()
-        && !value.starts_with('+')
-        && !(value.starts_with('0') && value.len() > 1)
-        && value.bytes().all(|byte| byte.is_ascii_digit())
-        && value.parse::<u64>().is_ok()
+    if value.is_empty() || value.starts_with('+') || (value.starts_with('0') && value.len() > 1) {
+        return false;
+    }
+    value.bytes().all(|byte| byte.is_ascii_digit()) && value.parse::<u64>().is_ok()
 }
 
 fn valid_event_id(value: &str) -> bool {
