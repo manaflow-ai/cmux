@@ -145999,13 +145999,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign in to the same cmux account on your iPhone to find this Mac automatically."
+            "value": "Sign in to the same cmux account on your iPhone to find this Mac automatically over Iroh."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone で同じ cmux アカウントにサインインすると、この Mac が自動的に見つかります。"
+            "value": "iPhone で同じ cmux アカウントにサインインすると、この Mac が Iroh 経由で自動的に見つかります。"
           }
         }
       }
