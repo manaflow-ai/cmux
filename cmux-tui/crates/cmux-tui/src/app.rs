@@ -16974,9 +16974,22 @@ impl App {
                 self.selection_click_sequence
                     .as_ref()
                     .and_then(|sequence| sequence.semantic_range)
-                    .map(|initial| SelectionRange {
-                        start: initial.0.min(range.start),
-                        end: initial.1.max(range.end),
+                    .map(|initial| {
+                        let start = if (initial.start.row, initial.start.column)
+                            <= (range.start.row, range.start.column)
+                        {
+                            initial.start
+                        } else {
+                            range.start
+                        };
+                        let end = if (initial.end.row, initial.end.column)
+                            >= (range.end.row, range.end.column)
+                        {
+                            initial.end
+                        } else {
+                            range.end
+                        };
+                        SelectionRange { start, end }
                     })
                     .unwrap_or(range)
             } else {
@@ -22205,8 +22218,14 @@ impl App {
                             && mode != SelectionMode::Cell
                         {
                             sequence.semantic_range = Some(SelectionRange {
-                                start: selection.range().0,
-                                end: selection.range().1,
+                                start: SelectionPoint {
+                                    column: selection.range().0.0,
+                                    row: selection.range().0.1 as u32,
+                                },
+                                end: SelectionPoint {
+                                    column: selection.range().1.0,
+                                    row: selection.range().1.1 as u32,
+                                },
                             });
                         }
                         self.replace_selection(Some(selection));
