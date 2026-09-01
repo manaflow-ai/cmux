@@ -1353,6 +1353,54 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertTrue(config.commands.isEmpty)
     }
 
+    func testDecodeCommandsWithLayoutOnlyCommandAndMixedEntries() throws {
+        let json = """
+        {
+          "commands": [
+            {
+              "name": "Saved layout",
+              "cwd": "/tmp/layout",
+              "color": "#336699",
+              "layout": {
+                "direction": "horizontal",
+                "children": [
+                  { "pane": { "surfaces": [{ "type": "terminal", "name": "left" }] } },
+                  { "pane": { "surfaces": [{ "type": "terminal", "name": "right" }] } }
+                ]
+              }
+            },
+            { "name": "Run tests", "command": "npm test" },
+            {
+              "name": "Command with layout metadata",
+              "command": "echo mixed",
+              "cwd": "/tmp/mixed",
+              "layout": {}
+            }
+          ]
+        }
+        """
+
+        let config = try decode(json)
+        XCTAssertEqual(config.commands.count, 3)
+
+        let layout = config.commands[0]
+        XCTAssertEqual(layout.name, "Saved layout")
+        XCTAssertNil(layout.command)
+        XCTAssertEqual(layout.workspace?.cwd, "/tmp/layout")
+        XCTAssertEqual(layout.workspace?.color, "#336699")
+        XCTAssertNotNil(layout.workspace?.layout)
+
+        let command = config.commands[1]
+        XCTAssertEqual(command.name, "Run tests")
+        XCTAssertEqual(command.command, "npm test")
+        XCTAssertNil(command.workspace)
+
+        let mixed = config.commands[2]
+        XCTAssertEqual(mixed.name, "Command with layout metadata")
+        XCTAssertEqual(mixed.command, "echo mixed")
+        XCTAssertNil(mixed.workspace)
+    }
+
     // MARK: Workspace commands
 
     func testDecodeWorkspaceCommand() throws {
