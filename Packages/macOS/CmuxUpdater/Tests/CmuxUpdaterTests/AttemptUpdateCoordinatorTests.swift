@@ -119,6 +119,17 @@ import Testing
         #expect(!coordinator.isMonitoring)
     }
 
+    /// Regression (issue #9262, queued variant): the user asked to install while another check
+    /// session was still finishing, so the fresh check is queued and `didStartFreshCheck()` has
+    /// not fired yet. If that in-flight session resolves "no update", being up to date must stand
+    /// as the visible result — not become a retryable "Update Didn't Start" error.
+    @Test func staleSessionNoUpdateBeforeFreshCheckEndsAttemptQuietly() {
+        var coordinator = AttemptUpdateCoordinator()
+        _ = coordinator.requestInstallLatest(currentState: .checking(.init(cancel: {})))
+        #expect(coordinator.handleStateChange(.notFound(.init(acknowledgement: {}))) == .none)
+        #expect(!coordinator.isMonitoring)
+    }
+
     /// `.idle` in the same phase is still a genuine failure: the accepted attempt ended with no
     /// result at all, so it must keep reporting `.installFailed`.
     @Test func reportsInstallFailedWhenFreshCheckEndsAtIdle() {
