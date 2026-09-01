@@ -73,10 +73,12 @@ struct BrowserValueTextFormatter {
         return value
     }
 
-    /// Encode unsafe key scalars by code point so sanitization preserves distinct fields.
+    /// Encode unsafe key scalars and escape backslashes so sanitization preserves distinct fields.
     private func sanitizedDictionaryKey(_ value: String) -> String {
         value.unicodeScalars.reduce(into: "") { result, scalar in
-            if scalar.properties.generalCategory == .control || scalar.properties.generalCategory == .format {
+            if scalar.value == 0x5C {
+                result.append(contentsOf: "\\\\")
+            } else if scalar.properties.generalCategory == .control || scalar.properties.generalCategory == .format {
                 result.append(contentsOf: "\\u{\(String(scalar.value, radix: 16, uppercase: true))}")
             } else {
                 result.append(Character(scalar))
