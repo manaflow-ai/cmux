@@ -304,13 +304,14 @@ import Testing
         let machine = SurfaceMachineID.cloud("test-cloud-\(UUID().uuidString)")
         let provider = CloudRoutingProvider(machine: machine)
         catalog.register(provider)
-        defer { catalog.unregister(machine: machine) }
 
-        let workspace = Workspace()
+        // A loading panel is not registered as a local surface, so the synthetic
+        // cloud projection can be installed without replacing a real catalog entry.
+        let workspace = Workspace(initialSurface: .cloudVMLoading)
         let sourcePanelID = try #require(workspace.focusedPanelId)
-        guard catalog.projection(forPanel: sourcePanelID) == nil else {
-            Issue.record("test workspace unexpectedly already has a surface projection")
-            return
+        defer {
+            workspace.teardownAllPanels()
+            catalog.unregister(machine: machine)
         }
         let resource = SurfaceResource(
             id: SurfaceResourceID(machine: machine, kind: .terminal, key: "source"),
