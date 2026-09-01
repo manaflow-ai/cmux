@@ -57,7 +57,7 @@ extension TerminalController {
                 return errorResponse
             }
             let authorizedRequest = relayAuthorization.request
-        let policy = Self.executionPolicy(forV2Method: authorizedRequest.method)
+            let policy = Self.executionPolicy(forV2Method: authorizedRequest.method)
             return await withSocketCommandPolicyAsync(
                 commandKey: authorizedRequest.method,
                 isV2: true,

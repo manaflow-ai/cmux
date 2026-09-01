@@ -7,6 +7,8 @@ a PR explicitly calls out an intentional contract change.
 
 The current implementation is a hand-rolled parser. This spec is deliberately
 written around user-visible behavior so the implementation can change behind it.
+The migration contract is intentionally English-only; runtime UI strings remain
+localized.
 
 ## Migration Rules
 
