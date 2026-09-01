@@ -392,7 +392,12 @@ public final class NotificationDeliveryCoordinator {
                     fallbackRetargetsToLiveSurfaceOwner: target.retargetsToLiveSurfaceOwner
                 )
             } else {
-                _ = terminalNavigation.open(tabId: target.tabId, surfaceId: target.surfaceId, notificationId: nil)
+                _ = terminalNavigation.open(
+                    tabId: target.tabId,
+                    surfaceId: target.surfaceId,
+                    notificationId: nil,
+                    preferredWindowId: target.windowId
+                )
             }
     }
 
