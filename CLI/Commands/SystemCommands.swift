@@ -33,7 +33,7 @@ struct MarkdownCommand: SharedLegacyFacadeCommand {
 struct MemoryCommand: SharedLegacyFacadeCommand {
     @Flag(name: .customLong("all")) var all = false
     @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspaceID: String?
-    @Option(name: .customLong("groups")) var groups: Int?
+    @Option(name: .customLong("groups")) var groups: String?
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "memory", helpNames: [])
 }
@@ -140,7 +140,7 @@ struct SSHCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("transport"), completion: .list(["ssh", "mosh"])) var transport: String?
     @Option(name: .customLong("name")) var name: String?
     @Option(name: .customLong("command")) var command: String?
-    @Option(name: .customLong("port")) var port: Int?
+    @Option(name: .customLong("port")) var port: String?
     @Option(name: .customLong("identity"), completion: .file()) var identity: String?
     @Flag(name: [.customShort("A"), .customLong("forward-agent")]) var forwardAgent = false
     @Flag(name: [.customShort("a"), .customLong("no-forward-agent")]) var noForwardAgent = false
@@ -155,7 +155,7 @@ struct MoshCommand: SharedLegacyFacadeCommand {
     @Argument var destination: String?
     @Option(name: .customLong("name")) var name: String?
     @Option(name: .customLong("command")) var command: String?
-    @Option(name: .customLong("port")) var port: Int?
+    @Option(name: .customLong("port")) var port: String?
     @Option(name: .customLong("identity"), completion: .file()) var identity: String?
     @Flag(name: [.customShort("A"), .customLong("forward-agent")]) var forwardAgent = false
     @Flag(name: [.customShort("a"), .customLong("no-forward-agent")]) var noForwardAgent = false
@@ -171,7 +171,7 @@ struct MoshTmuxCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("session")) var session: String?
     @Option(name: .customLong("name")) var name: String?
     @Option(name: .customLong("command")) var command: String?
-    @Option(name: .customLong("port")) var port: Int?
+    @Option(name: .customLong("port")) var port: String?
     @Option(name: .customLong("identity"), completion: .file()) var identity: String?
     @Flag(name: [.customShort("A"), .customLong("forward-agent")]) var forwardAgent = false
     @Flag(name: [.customShort("a"), .customLong("no-forward-agent")]) var noForwardAgent = false
@@ -184,7 +184,7 @@ struct MoshTmuxCommand: SharedLegacyFacadeCommand {
 
 struct SSHTmuxCommand: SharedLegacyFacadeCommand {
     @Argument var destination: String?
-    @Option(name: .customLong("port")) var port: Int?
+    @Option(name: .customLong("port")) var port: String?
     @Option(name: .customLong("identity"), completion: .file()) var identity: String?
     @Flag(name: .customLong("no-focus")) var noFocus = false
     @Flag(name: .customLong("new-window")) var newWindow = false
@@ -244,6 +244,24 @@ struct VMPtyConnectCommand: SharedLegacyFacadeCommand {
     static let configuration = CommandConfiguration(commandName: "vm-pty-connect", shouldDisplay: false, helpNames: [])
 }
 
+/// Internal plumbing entry point, not part of the documented usage() surface.
+/// Runs inside the pane that `cmux vm tui` opens.
+struct VMTuiConnectCommand: SharedLegacyFacadeCommand {
+    @Option(name: .customLong("config"), completion: .file()) var config: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "vm-tui-connect", shouldDisplay: false, helpNames: [])
+}
+
+/// Internal plumbing entry point, not part of the documented usage() surface.
+/// Spawned detached by `vm-tui-connect` to approve the enrollment invitation.
+struct VMTuiApproveCommand: SharedLegacyFacadeCommand {
+    @Option(name: .customLong("id"), completion: vmCompletion) var id: String?
+    @Option(name: .customLong("invitation-id")) var invitationID: String?
+    @Option(name: .customLong("invite-file"), completion: .file()) var inviteFile: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "vm-tui-approve", shouldDisplay: false, helpNames: [])
+}
+
 /// Hidden compatibility alias for workspaces created before the split helper was nested under `cmux vm`.
 struct VMSSHAttachTopLevelCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("id"), completion: vmCompletion) var id: String?
@@ -292,8 +310,8 @@ struct SimulateSidebarDragCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("window"), completion: windowCompletion) var windowID: String?
     @Option(name: .customLong("from")) var from: String?
     @Option(name: .customLong("to")) var to: String?
-    @Option(name: .customLong("duration-ms")) var durationMS: Int?
-    @Option(name: .customLong("steps")) var steps: Int?
+    @Option(name: .customLong("duration-ms")) var durationMS: String?
+    @Option(name: .customLong("steps")) var steps: String?
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "simulate-sidebar-drag", helpNames: [])
 }
