@@ -71,19 +71,17 @@ async fn serve_until_shutdown(
     listener: cmux_relay::AdmissionListener,
     router: axum::Router,
 ) -> anyhow::Result<()> {
-    let (shutdown_sender, shutdown_receiver) = watch::channel(false);
-    let signal_relay = relay.clone();
+    let (shutdown_request_sender, shutdown_request_receiver) = watch::channel(false);
+    let (shutdown_complete_sender, shutdown_complete_receiver) = watch::channel(false);
     let signal_task = tokio::spawn(async move {
         shutdown_signal().await;
-        // Flip readiness before notifying the HTTP server. This closes the
-        // handoff race where a quiet server could finish graceful shutdown
-        // before the load balancer observes /readyz as draining.
-        signal_relay.begin_drain();
-        let _ = shutdown_sender.send(true);
+        let _ = shutdown_request_sender.send(true);
     });
-    let server_shutdown_receiver = shutdown_receiver.clone();
     let server_shutdown = async move {
-        let _ = wait_for_shutdown(server_shutdown_receiver).await;
+        // Keep Axum serving /readyz while the relay drains. The completion
+        // signal is sent only after the admission gate is closed and the
+        // established sockets have had their configured drain window.
+        let _ = wait_for_shutdown(shutdown_complete_receiver).await;
     };
     let mut server = Box::pin(
         axum::serve(listener, router).with_graceful_shutdown(server_shutdown).into_future(),
@@ -91,12 +89,9 @@ async fn serve_until_shutdown(
 
     let result = tokio::select! {
         result = &mut server => result.context("relay server failed"),
-        changed = wait_for_shutdown(shutdown_receiver) => {
+        changed = wait_for_shutdown(shutdown_request_receiver) => {
             if changed {
-                // The signal task performs the transition before publishing
-                // this notification. Keep this idempotent guard for future
-                // shutdown sources that may send the watch signal directly.
-                relay.begin_drain();
+                relay.begin_drain().await;
                 let drained = relay.wait_for_idle(relay.config().drain_timeout).await;
                 if !drained {
                     eprintln!(
@@ -104,6 +99,7 @@ async fn serve_until_shutdown(
                         relay.active_connections(),
                     );
                 }
+                let _ = shutdown_complete_sender.send(true);
                 match tokio::time::timeout(Duration::from_secs(2), &mut server).await {
                     Ok(result) => result.context("relay server failed during shutdown"),
                     Err(_) => Ok(()),

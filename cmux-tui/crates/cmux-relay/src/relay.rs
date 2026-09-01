@@ -45,6 +45,10 @@ struct RelayInner {
     config: RelayConfig,
     tickets: TicketAuthority,
     state: Mutex<RelayState>,
+    /// Serializes the readiness transition with every operation that admits
+    /// a new socket, daemon, or circuit. The guard is held only for the
+    /// admission mutation, not for frame forwarding.
+    admission_gate: Mutex<()>,
     next_connection_id: AtomicU64,
     active_connections: AtomicUsize,
     accepting_connections: AtomicBool,
@@ -234,6 +238,7 @@ impl Relay {
                 config,
                 tickets,
                 state: Mutex::new(RelayState::default()),
+                admission_gate: Mutex::new(()),
                 next_connection_id: AtomicU64::new(1),
                 active_connections: AtomicUsize::new(0),
                 accepting_connections: AtomicBool::new(true),
@@ -248,7 +253,12 @@ impl Relay {
 
     /// Stops new WebSocket upgrades while allowing established circuits to
     /// finish. Returns `true` only for the transition from serving to draining.
-    pub fn begin_drain(&self) -> bool {
+    ///
+    /// The admission gate makes the state change a linearization point. An
+    /// admission that holds the gate finishes its ledger mutation first; no
+    /// later admission can pass the gate after draining starts.
+    pub async fn begin_drain(&self) -> bool {
+        let _gate = self.inner.admission_gate.lock().await;
         self.inner.accepting_connections.swap(false, Ordering::AcqRel)
     }
 
@@ -358,7 +368,7 @@ impl Relay {
             response.headers_mut().insert(RETRY_AFTER, HeaderValue::from_static("1"));
             return response;
         }
-        let Some(permit) = relay.try_admit_upgraded_socket() else {
+        let Some(permit) = relay.try_admit_upgraded_socket().await else {
             let mut response =
                 (StatusCode::SERVICE_UNAVAILABLE, "relay concurrent WebSocket limit was reached")
                     .into_response();
@@ -381,7 +391,8 @@ impl Relay {
         response
     }
 
-    fn try_admit_upgraded_socket(&self) -> Option<UpgradedConnectionPermit> {
+    async fn try_admit_upgraded_socket(&self) -> Option<UpgradedConnectionPermit> {
+        let _gate = self.inner.admission_gate.lock().await;
         if !self.is_accepting() {
             return None;
         }
@@ -393,12 +404,6 @@ impl Relay {
             })
             .is_err()
         {
-            return None;
-        }
-        if !self.is_accepting() {
-            if self.inner.active_connections.fetch_sub(1, Ordering::AcqRel) == 1 {
-                self.inner.idle_notify.notify_waiters();
-            }
             return None;
         }
         Some(UpgradedConnectionPermit { inner: self.inner.clone() })
@@ -764,10 +769,10 @@ impl Relay {
 
         let mut replaced = None;
         {
+            let _admission_gate = self.inner.admission_gate.lock().await;
             let mut state = self.inner.state.lock().await;
-            // Re-check while holding the state lock. A drain can begin after
-            // the fast check above but before this registration mutates the
-            // slot ledger.
+            // The admission gate and state lock make this check and the slot
+            // mutation one operation relative to begin_drain.
             if !self.is_accepting() {
                 return Err(RelayError::capacity(
                     "relay-draining",
@@ -888,10 +893,10 @@ impl Relay {
         let client_expires_at_unix = provider_claims.as_ref().map(|claims| claims.expires_at_unix);
 
         let (circuit, daemon, client_join_ticket, daemon_join_ticket) = {
+            let _admission_gate = self.inner.admission_gate.lock().await;
             let mut state = self.inner.state.lock().await;
-            // The first check is a fast rejection. Re-check under the state
-            // lock so a concurrent SIGTERM cannot admit a circuit after the
-            // readiness probe has changed to draining.
+            // The admission gate and state lock make this check and the
+            // circuit ledger mutation one operation relative to begin_drain.
             if !self.is_accepting() {
                 return Err(RelayError::capacity(
                     "relay-draining",
@@ -2233,9 +2238,9 @@ mod tests {
         assert!(response.starts_with("HTTP/1.1 200 OK"));
         assert!(response.contains("\"status\":\"ready\""));
 
-        assert!(server.relay.begin_drain());
+        assert!(server.relay.begin_drain().await);
         assert!(!server.relay.is_accepting());
-        assert!(!server.relay.begin_drain());
+        assert!(!server.relay.begin_drain().await);
 
         let mut after = TcpStream::connect(server.address).await.unwrap();
         after
@@ -2256,7 +2261,7 @@ mod tests {
     async fn draining_keeps_existing_control_sockets_but_rejects_new_upgrades() {
         let server = TestServer::start(RelayConfig::default()).await;
         let mut daemon = register_open_daemon(&server, "slot-a").await;
-        assert!(server.relay.begin_drain());
+        assert!(server.relay.begin_drain().await);
 
         let url = format!("ws://{}/v1/relay", server.address);
         let error = connect_async(url).await.expect_err("draining relay accepted a new socket");
@@ -2276,7 +2281,7 @@ mod tests {
     async fn draining_rejects_new_circuit_allocations_on_existing_control_sockets() {
         let server = TestServer::start(RelayConfig::default()).await;
         let mut daemon = register_open_daemon(&server, "slot-a").await;
-        assert!(server.relay.begin_drain());
+        assert!(server.relay.begin_drain().await);
 
         let mut client = server.connect().await;
         send_control(
@@ -2305,6 +2310,7 @@ mod tests {
         let relay = Relay::new(RelayConfig::default()).unwrap();
         let permit = relay
             .try_admit_upgraded_socket()
+            .await
             .expect("test socket should be admitted while serving");
         let waiting = {
             let relay = relay.clone();

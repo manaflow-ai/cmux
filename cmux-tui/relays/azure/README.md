@@ -63,8 +63,8 @@ The cmux Cloud API remains the identity authority for the integration. It will
 check Stack ownership and team access, then issue short-lived, slot-bound
 Register and Connect tickets. The relay verifies those tickets with an HMAC
 key. The key is stored in Azure Key Vault. The VM receives it at service start
-through its managed identity and keeps it in `/run/cmux-relay.env` with mode
-`0600`.
+through its managed identity and keeps it in `/run/cmux-relay/relay.env` with
+mode `0640`, readable only by the relay service account and its group.
 
 The relay never receives a user's Stack token and has no chatmux organization
 dependency. The Noise session above the relay authenticates the enrolled device
@@ -90,7 +90,7 @@ the URL and digest from its immutable manifest:
 curl -fsSL https://files.cmux.com/cmux-relay/<commit>/manifest.json | jq
 ```
 
-Set `relayBinaryUrl` to the manifest URL for
+Set `relayBinaryUrl` to the immutable artifact URL listed in the manifest for
 `cmux-relay-x86_64-unknown-linux-musl`, and set `relayBinarySha256` to its
 matching digest. The cloud-init script accepts only immutable
 `files.cmux.com` commit paths and verifies the digest before systemd starts the
@@ -146,7 +146,7 @@ expose application data.
 Run the local image with an explicit secret and a loopback bind:
 
 ```sh
-docker run --rm -p 8787:8787 \
+docker run --rm -p 127.0.0.1:8787:8787 \
   -e CMUX_RELAY_HMAC_SECRET="$(openssl rand -hex 32)" \
   -e CMUX_RELAY_BIND=0.0.0.0:8787 \
   -e CMUX_RELAY_SHARD=local \

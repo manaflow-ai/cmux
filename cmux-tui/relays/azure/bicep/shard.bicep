@@ -148,6 +148,9 @@ resource relaySubnet 'Microsoft.Network/virtualNetworks/subnets@2023-11-01' = {
   name: 'relay'
   properties: {
     addressPrefix: relaySubnetPrefix
+    natGateway: {
+      id: natGateway.id
+    }
     networkSecurityGroup: {
       id: relayNsg.id
     }
@@ -160,6 +163,9 @@ resource gatewaySubnet 'Microsoft.Network/virtualNetworks/subnets@2023-11-01' = 
   properties: {
     addressPrefix: gatewaySubnetPrefix
   }
+  dependsOn: [
+    relaySubnet
+  ]
 }
 
 resource publicIp 'Microsoft.Network/publicIPAddresses@2023-11-01' = {
@@ -173,6 +179,36 @@ resource publicIp 'Microsoft.Network/publicIPAddresses@2023-11-01' = {
     dnsSettings: {
       domainNameLabel: 'cmux-relay-${shard}-${uniqueString(resourceGroup().id)}'
     }
+  }
+}
+
+// A dedicated egress IP keeps VM bootstrap independent from Azure's changing
+// implicit outbound-access defaults. The Application Gateway public IP is not
+// reused because its lifecycle and SNAT behavior are different.
+resource outboundPublicIp 'Microsoft.Network/publicIPAddresses@2023-11-01' = {
+  name: 'cmux-relay-${shard}-egress-ip'
+  location: location
+  sku: {
+    name: 'Standard'
+  }
+  properties: {
+    publicIPAllocationMethod: 'Static'
+  }
+}
+
+resource natGateway 'Microsoft.Network/natGateways@2023-11-01' = {
+  name: 'cmux-relay-${shard}-nat'
+  location: location
+  sku: {
+    name: 'Standard'
+  }
+  properties: {
+    idleTimeoutInMinutes: 10
+    publicIpAddresses: [
+      {
+        id: outboundPublicIp.id
+      }
+    ]
   }
 }
 
@@ -207,6 +243,18 @@ resource loadBalancer 'Microsoft.Network/loadBalancers@2023-11-01' = {
           protocol: 'Http'
           port: 8787
           requestPath: '/readyz'
+          intervalInSeconds: 5
+          numberOfProbes: 2
+        }
+      }
+      {
+        // /healthz remains 200 during a planned drain. VMSS automatic repairs
+        // must not replace a healthy instance just because it left rotation.
+        name: 'healthz'
+        properties: {
+          protocol: 'Http'
+          port: 8787
+          requestPath: '/healthz'
           intervalInSeconds: 5
           numberOfProbes: 2
         }
@@ -314,6 +362,13 @@ resource vmss 'Microsoft.Compute/virtualMachineScaleSets@2023-09-01' = {
         }
       }
       networkProfile: {
+        healthProbe: {
+          id: resourceId(
+            'Microsoft.Network/loadBalancers/probes',
+            'cmux-relay-${shard}-lb',
+            'healthz'
+          )
+        }
         networkInterfaceConfigurations: [
           {
             name: 'relay'
@@ -350,6 +405,7 @@ resource vmss 'Microsoft.Compute/virtualMachineScaleSets@2023-09-01' = {
   }
   dependsOn: [
     keyVaultSecretsRole
+    loadBalancer
   ]
 }
 
