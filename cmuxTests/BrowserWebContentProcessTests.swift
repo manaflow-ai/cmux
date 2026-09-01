@@ -15,6 +15,33 @@ import WebKit
 @Suite(.serialized)
 struct BrowserWebContentProcessTests {
     private let recoveryURL = URL(string: "data:text/html,cmux-recovery")!
+    private struct TestTimeout: Error {}
+
+    /// Waits for a test-owned signal and fails if the implementation never
+    /// reaches the state under test.
+    private nonisolated func awaitFirst<T: Sendable>(
+        _ stream: AsyncStream<T>,
+        timeout: Duration = .seconds(2)
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask {
+                var iterator = stream.makeAsyncIterator()
+                guard let value = await iterator.next() else {
+                    throw TestTimeout()
+                }
+                return value
+            }
+            group.addTask {
+                try await ContinuousClock().sleep(for: timeout)
+                throw TestTimeout()
+            }
+            defer { group.cancelAll() }
+            guard let value = try await group.next() else {
+                throw TestTimeout()
+            }
+            return value
+        }
+    }
 
     @Test
     func authCallbackNavigationPolicyIsPureAndFailClosed() {
@@ -203,7 +230,9 @@ struct BrowserWebContentProcessTests {
         let destinationURL = AuthEnvironment.appSessionHandoffOrigin
             .appendingPathComponent("app-pricing")
         let websiteDataStore = WKWebsiteDataStore.nonPersistent()
+        let (adopted, adoptedContinuation) = AsyncStream<Void>.makeStream()
         var requestCount = 0
+        var adoptedStore: WKWebsiteDataStore?
         let panel = BrowserPanel(
             workspaceId: UUID(),
             initialURL: destinationURL,
@@ -216,19 +245,21 @@ struct BrowserWebContentProcessTests {
                     generation: 1,
                     authSessionGeneration: 1
                 ))
+            },
+            appSessionNavigationDidAdopt: { store in
+                adoptedStore = store
+                adoptedContinuation.yield(())
             }
         )
-        defer { panel.close() }
+        defer {
+            adoptedContinuation.finish()
+            panel.close()
+        }
 
-        for _ in 0..<200 where requestCount == 0 {
-            await Task.yield()
-        }
-        for _ in 0..<200 where panel.websiteDataStore !== websiteDataStore
-            || panel.webView.configuration.websiteDataStore !== websiteDataStore {
-            await Task.yield()
-        }
+        _ = try await awaitFirst(adopted)
 
         #expect(requestCount == 1)
+        #expect(adoptedStore === websiteDataStore)
         #expect(panel.websiteDataStore === websiteDataStore)
         #expect(panel.webView.configuration.websiteDataStore === websiteDataStore)
         #expect(panel.shouldRenderWebView)

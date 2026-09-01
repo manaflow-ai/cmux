@@ -1963,6 +1963,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var preservesExplicitEphemeralWebsiteDataStore: Bool
     private var appSessionStoreRequiresNativeBootstrap = false
     private let appSessionNavigationRequest: (@MainActor (URL) async -> BrowserAppSessionRequestOutcome)?
+    private let appSessionNavigationDidAdopt: (@MainActor (WKWebsiteDataStore) -> Void)?
     private var pendingAppSessionNavigationTask: Task<Void, Never>?
     private var pendingAppSessionNavigationCompletion: ((WKNavigation?) -> Void)?
     private var appSessionNavigationGeneration: UInt64 = 0
@@ -3398,7 +3399,8 @@ final class BrowserPanel: Panel, ObservableObject {
         isRemoteWorkspace: Bool = false,
         remoteWebsiteDataStoreIdentifier: UUID? = nil,
         websiteDataStore explicitWebsiteDataStore: WKWebsiteDataStore? = nil,
-        appSessionNavigationRequest: (@MainActor (URL) async -> BrowserAppSessionRequestOutcome)? = nil
+        appSessionNavigationRequest: (@MainActor (URL) async -> BrowserAppSessionRequestOutcome)? = nil,
+        appSessionNavigationDidAdopt: (@MainActor (WKWebsiteDataStore) -> Void)? = nil
     ) {
         // Register fallback defaults and normalize legacy/out-of-range settings once
         // per process, before any setting is read below or by the SwiftUI view.
@@ -3408,6 +3410,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.workspaceId = workspaceId
         self.externalNavigationHandler = BrowserExternalNavigationHandler()
         self.appSessionNavigationRequest = appSessionNavigationRequest
+        self.appSessionNavigationDidAdopt = appSessionNavigationDidAdopt
         let resolvedProfileID = Self.resolvedProfileID(requested: profileID)
         self.profileID = resolvedProfileID
         self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
@@ -3702,6 +3705,14 @@ final class BrowserPanel: Panel, ObservableObject {
                 return window
             }
             return browserFallbackInteractiveModalHostWindow()
+        }
+
+        // A panel duplicated from an authenticated app surface can be created
+        // before its workspace host runs `configureBrowserPanel`. Register it
+        // while its controller-owned store is still identifiable so sign-out
+        // cleanup reaches every panel sharing that store.
+        if preservesExplicitEphemeralWebsiteDataStore {
+            AppDelegate.shared?.auth?.browserAppSession.register(self)
         }
 
         if let initialRequest {
@@ -5578,6 +5589,7 @@ final class BrowserPanel: Panel, ObservableObject {
             trustedInternalNavigation: true,
             skipNativeAppSession: true
         )
+        appSessionNavigationDidAdopt?(websiteDataStore)
         onNavigationStarted?(startedNavigation)
         return true
     }
