@@ -190,10 +190,11 @@ extension RightSidebarRemoteRequest {
     }
 
     private static func unavailableModeError(_ mode: RightSidebarMode) -> RightSidebarRemoteParseError {
-        .init(message: String.localizedStringWithFormat(
-            String(localized: "rightSidebar.remote.error.unavailableMode", defaultValue: "ERROR: Right sidebar mode '%@' is unavailable; enable it in Settings"),
-            mode.label
-        ))
+        // V1 socket replies are consumed by scripts and hooks, so their error
+        // contract must not change with the host's display locale. UI copy can
+        // remain localized elsewhere; this protocol message stays canonical.
+        let argument = RightSidebarModeCatalog().canonicalCLIArgument(mode.rawValue) ?? mode.rawValue
+        return .init(message: "ERROR: Right sidebar mode '\(argument)' is unavailable; enable it in Settings")
     }
 
     private static func parseTargetOption(

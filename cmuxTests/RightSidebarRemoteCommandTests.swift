@@ -188,6 +188,15 @@ extension TerminalControllerSocketSecurityTests {
         defaults.set(false, forKey: RightSidebarBetaFeatureSettings.sourceControlEnabledKey)
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
+        switch parseRightSidebarRequestForTesting("right_sidebar set-mode source-control", defaults: defaults) {
+        case .success(let request):
+            Issue.record("Expected Source Control availability failure, got \(request)")
+        case .failure(let error):
+            #expect(
+                error.message == "ERROR: Right sidebar mode 'source-control' is unavailable; enable it in Settings"
+            )
+        }
+
         for (line, expectedMessage) in invalidCases {
             switch parseRightSidebarRequestForTesting(line, defaults: defaults) {
             case .success(let request):
