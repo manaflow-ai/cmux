@@ -132,8 +132,10 @@ struct SurfaceSocketCommandTests {
         /// an explicit `pane_id` may name.
         @MainActor
         var livePaneID: String? {
+            // Straight from the workspace: the test TabManager is the controller's active
+            // manager but is not registered with the app's window list.
             guard let workspace = manager.selectedWorkspace, let panel = workspace.focusedPanelId else { return nil }
-            return SurfacePaneFactory.paneID(ofPanel: panel, in: workspace.id)
+            return workspace.paneId(forPanelId: panel)?.id.uuidString
         }
 
         @MainActor
