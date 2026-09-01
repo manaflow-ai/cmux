@@ -484,6 +484,7 @@ impl Drop for SpawnedChildCleanup {
 struct ChildLifecycleState {
     exited: bool,
     termination_started: bool,
+    force_kill_started: bool,
 }
 
 /// Coordinates late PTY-control drops with the wait thread. A successful
@@ -510,6 +511,34 @@ impl ChildLifecycle {
         state.termination_started = true;
         true
     }
+
+    fn begin_force_kill(&self) -> bool {
+        let mut state = self.state.lock().expect("child lifecycle lock");
+        if state.exited || state.force_kill_started {
+            return false;
+        }
+        state.force_kill_started = true;
+        true
+    }
+}
+
+fn force_kill_process_group(pid: libc::pid_t) {
+    if pid > 0 {
+        // The wait owner fences this call with ChildLifecycle before reaping,
+        // so the process group still belongs to the spawned child and cannot
+        // be reused by an unrelated process.
+        unsafe {
+            let _ = libc::kill(-pid, libc::SIGKILL);
+        }
+    }
+}
+
+fn force_kill_process(pid: libc::pid_t) {
+    if pid > 0 {
+        unsafe {
+            let _ = libc::kill(pid, libc::SIGKILL);
+        }
+    }
 }
 
 /// A real PTY master behind a mutex; write/resize block briefly.
@@ -519,6 +548,7 @@ struct MasterControl {
     writer_bytes: Arc<AtomicU64>,
     killer: Mutex<Box<dyn cmux_pty::ChildKiller + Send + Sync>>,
     lifecycle: Arc<ChildLifecycle>,
+    process_group: libc::pid_t,
 }
 
 impl Drop for MasterControl {
@@ -530,6 +560,9 @@ impl Drop for MasterControl {
             && let Ok(mut killer) = self.killer.lock()
         {
             let _ = killer.kill();
+        }
+        if self.lifecycle.begin_force_kill() {
+            force_kill_process_group(self.process_group);
         }
     }
 }
@@ -555,6 +588,9 @@ impl PtyControl for MasterControl {
             && let Ok(mut killer) = self.killer.lock()
         {
             let _ = killer.kill();
+        }
+        if self.lifecycle.begin_force_kill() {
+            force_kill_process_group(self.process_group);
         }
     }
 }
@@ -683,6 +719,8 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
         }
     });
     let killer = child_cleanup.child().clone_killer();
+    let pid = child_cleanup.child().process_id().unwrap_or(0) as libc::pid_t;
+    let process_group = master.process_group_leader().unwrap_or(pid);
     let lifecycle = ChildLifecycle::new();
     let control = Arc::new(MasterControl {
         master: Mutex::new(master),
@@ -690,6 +728,7 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
         writer_bytes,
         killer: Mutex::new(killer),
         lifecycle: Arc::clone(&lifecycle),
+        process_group,
     });
     output.set_overflow_control(&control);
     // Use the same bounded post-exit grace as pipe fallback. A background
@@ -848,10 +887,12 @@ fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str) -> PtyHandle {
                         Ok(PipeChildCommand::ExitReady) => exit_ready = true,
                         Ok(PipeChildCommand::ObserveFailed) => {
                             let _ = child.kill();
+                            force_kill_process(pid);
                             exit_ready = true;
                         }
                         Ok(PipeChildCommand::Kill) => {
                             let _ = child.kill();
+                            force_kill_process(pid);
                         }
                         Err(_) => exit_ready = true,
                     }
@@ -1343,6 +1384,12 @@ mod tests {
         let exited = ChildLifecycle::new();
         exited.mark_exited_before_reap();
         assert!(!exited.begin_termination());
+        assert!(!exited.begin_force_kill());
+
+        let force = ChildLifecycle::new();
+        assert!(force.begin_termination());
+        assert!(force.begin_force_kill());
+        assert!(!force.begin_force_kill());
     }
 
     #[test]

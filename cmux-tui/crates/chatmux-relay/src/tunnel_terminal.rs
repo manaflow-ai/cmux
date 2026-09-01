@@ -285,7 +285,10 @@ struct Connection {
     /// The manager answered pty_opened (clears the open deadline).
     opened_seen: AtomicBool,
     finished: AtomicBool,
+    /// Cancels manager/reader work immediately. Writer drain uses its own
+    /// token so mandatory error/exit frames can flush before socket close.
     done: CancellationToken,
+    writer_done: CancellationToken,
 }
 
 impl Connection {
@@ -485,6 +488,7 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
         opened_seen: AtomicBool::new(false),
         finished: AtomicBool::new(false),
         done: done.clone(),
+        writer_done: CancellationToken::new(),
     });
     let context = connection.frame_context();
 
@@ -528,7 +532,7 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
                     WriterMessage::Frame(frame) => {
                         let written = tokio::select! {
                             result = write_half.write_all(&frame) => result,
-                            _ = connection.done.cancelled() => break,
+                            _ = connection.writer_done.cancelled() => break,
                         };
                         // Every dequeued frame added exactly its length at
                         // enqueue, so this never underflows.
@@ -536,6 +540,7 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
                         let previous = connection.pending_out.fetch_sub(length, Ordering::SeqCst);
                         if written.is_err() {
                             connection.finish();
+                            connection.done.cancel();
                             break;
                         }
                         if previous.saturating_sub(length) < FLOW_RESUME_BYTES
@@ -544,10 +549,18 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
                             let _ = connection.flow_tx.send(false);
                         }
                     }
-                    WriterMessage::End => break,
+                    WriterMessage::End => {
+                        // `End` is ordered after all mandatory control
+                        // frames. Stop the writer only after it observes the
+                        // marker, so protocol_error/pty_exit cannot be
+                        // discarded by a cancellation race.
+                        connection.writer_done.cancel();
+                        break;
+                    }
                 }
             }
             let _ = write_half.shutdown().await;
+            connection.writer_done.cancel();
         })
     };
 
@@ -604,25 +617,27 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
                 match decoder.push(&buffer[..count]) {
                     Ok(frames) => {
                         for frame in frames {
-                            tokio::select! {
-                                biased;
-                                _ = connection.done.cancelled() => break 'reader,
-                                _ = &mut open_deadline, if !connection.opened_seen.load(Ordering::SeqCst) => {
-                                    connection.protocol_error("bad_request", "open timed out");
+                            if connection.done.is_cancelled() {
+                                break 'reader;
+                            }
+                            if !connection.opened_seen.load(Ordering::SeqCst)
+                                && open_deadline.is_elapsed()
+                            {
+                                connection.protocol_error("bad_request", "open timed out");
+                                break 'reader;
+                            }
+                            // `try_send` is synchronous. Keep it outside
+                            // `select!` so the reader never awaits on a full
+                            // queue and remains cancellation responsive.
+                            match dispatch_tx.try_send(frame) {
+                                Ok(()) => {}
+                                Err(mpsc::error::TrySendError::Full(_)) => {
+                                    connection.protocol_error("busy", "terminal request queue is full");
                                     break 'reader;
                                 }
-                                result = dispatch_tx.try_send(frame) => {
-                                    match result {
-                                        Ok(()) => {}
-                                        Err(mpsc::error::TrySendError::Full(_)) => {
-                                            connection.protocol_error("busy", "terminal request queue is full");
-                                            break 'reader;
-                                        }
-                                        Err(mpsc::error::TrySendError::Closed(_)) => {
-                                            connection.finish();
-                                            break 'reader;
-                                        }
-                                    }
+                                Err(mpsc::error::TrySendError::Closed(_)) => {
+                                    connection.finish();
+                                    break 'reader;
                                 }
                             }
                         }
@@ -652,6 +667,7 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
     // A peer that stopped reading can wedge the final flush forever; the
     // attachment is already released above, so cap the flush and reap.
     if tokio::time::timeout(Duration::from_secs(1), &mut writer).await.is_err() {
+        connection.writer_done.cancel();
         writer.abort();
         let _ = writer.await;
     }
@@ -844,7 +860,16 @@ mod tests {
         spawned: Arc<StdMutex<Vec<FakePty>>>,
         port: u16,
         cancel: CancellationToken,
-        _listener: tokio::task::JoinHandle<()>,
+        _listener: Option<tokio::task::JoinHandle<()>>,
+    }
+
+    impl Rig {
+        async fn shutdown(&mut self) {
+            self.cancel.cancel();
+            if let Some(listener) = self._listener.take() {
+                let _ = listener.await;
+            }
+        }
     }
 
     async fn rig_with_limits(max_ptys: usize) -> Rig {
@@ -877,7 +902,7 @@ mod tests {
         )
         .await
         .expect("bind test listener");
-        Rig { manager, spawned, port, cancel, _listener: listener }
+        Rig { manager, spawned, port, cancel, _listener: Some(listener) }
     }
 
     async fn rig_with_blocked_spawn()
@@ -910,7 +935,7 @@ mod tests {
         .await
         .expect("bind test listener");
         (
-            Rig { manager, spawned, port, cancel, _listener: listener },
+            Rig { manager, spawned, port, cancel, _listener: Some(listener) },
             started,
             gate,
             dropped,
@@ -1108,7 +1133,7 @@ mod tests {
 
     #[tokio::test]
     async fn handshake_streams_both_ways_and_a_drop_detaches_without_killing() {
-        let rig = rig().await;
+        let mut rig = rig().await;
         let stream = connect(&rig).await;
         let (mut read, mut write) = stream.into_split();
         let mut decoder = TunnelFrameDecoder::new(MAX_TUNNEL_FRAME_BYTES);
@@ -1174,12 +1199,12 @@ mod tests {
         let reopened = control_json(&next_frame(&mut read, &mut decoder, &mut queue).await);
         assert_eq!(reopened["t"], "opened");
         assert_eq!(reopened["created"], false);
-        rig.cancel.cancel();
+        rig.shutdown().await;
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn parent_cancellation_closes_a_pending_open() {
-        let (rig, spawn_started, gate, spawn_dropped, spawn_completed) =
+        let (mut rig, spawn_started, gate, spawn_dropped, spawn_completed) =
             rig_with_blocked_spawn().await;
         let stream = connect(&rig).await;
         let (mut read, mut write) = stream.into_split();
@@ -1191,12 +1216,11 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(1), spawn_started.notified())
             .await
             .expect("open reached the blocked PTY spawn");
-        rig.cancel.cancel();
+        rig.shutdown().await;
 
         tokio::time::timeout(Duration::from_secs(1), read_eof(&mut read))
             .await
             .expect("parent cancellation must close the tunnel promptly");
-        gate.notify_one();
         assert!(spawn_dropped.load(Ordering::Acquire), "blocked open task must be dropped");
         assert!(
             !spawn_completed.load(Ordering::Acquire),
@@ -1208,7 +1232,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn peer_eof_closes_a_pending_open() {
-        let (rig, spawn_started, gate, spawn_dropped, spawn_completed) =
+        let (mut rig, spawn_started, gate, spawn_dropped, spawn_completed) =
             rig_with_blocked_spawn().await;
         let stream = connect(&rig).await;
         let (mut read, mut write) = stream.into_split();
@@ -1225,17 +1249,16 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(1), read_eof(&mut read))
             .await
             .expect("peer EOF must close the tunnel promptly");
-        gate.notify_one();
         assert!(spawn_dropped.load(Ordering::Acquire), "blocked open task must be dropped");
         assert!(!spawn_completed.load(Ordering::Acquire), "peer EOF must precede spawn completion");
         assert_eq!(rig.manager.opening_count(), 0, "open reservation must be released");
         assert_eq!(rig.manager.attachment_count(), 0);
-        rig.cancel.cancel();
+        rig.shutdown().await;
     }
 
     #[tokio::test]
     async fn bytes_before_open_are_a_protocol_error() {
-        let rig = rig().await;
+        let mut rig = rig().await;
         let stream = connect(&rig).await;
         let (mut read, mut write) = stream.into_split();
         write.write_all(&encode_pty_frame(b"sneaky")).await.unwrap();
@@ -1245,12 +1268,12 @@ mod tests {
         assert_eq!(error["t"], "error");
         assert_eq!(error["code"], "bad_request");
         read_eof(&mut read).await;
-        rig.cancel.cancel();
+        rig.shutdown().await;
     }
 
     #[tokio::test]
     async fn duplicate_open_is_a_protocol_error() {
-        let rig = rig().await;
+        let mut rig = rig().await;
         let stream = connect(&rig).await;
         let (mut read, mut write) = stream.into_split();
         let open = encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 }));
@@ -1267,12 +1290,12 @@ mod tests {
             assert_eq!(frame["t"], "opened");
         }
         read_eof(&mut read).await;
-        rig.cancel.cancel();
+        rig.shutdown().await;
     }
 
     #[tokio::test]
     async fn a_malformed_control_frame_closes_the_connection() {
-        let rig = rig().await;
+        let mut rig = rig().await;
         let stream = connect(&rig).await;
         let (mut read, mut write) = stream.into_split();
         write.write_all(&encode_tunnel_frame(FRAME_KIND_CONTROL, b"{not json")).await.unwrap();
@@ -1282,12 +1305,12 @@ mod tests {
         assert_eq!(error["t"], "error");
         assert_eq!(error["code"], "bad_request");
         read_eof(&mut read).await;
-        rig.cancel.cancel();
+        rig.shutdown().await;
     }
 
     #[tokio::test]
     async fn a_pty_exit_reaches_the_client_and_ends_the_connection() {
-        let rig = rig().await;
+        let mut rig = rig().await;
         let stream = connect(&rig).await;
         let (mut read, mut write) = stream.into_split();
         write
@@ -1303,12 +1326,12 @@ mod tests {
         assert_eq!(exit["t"], "exit");
         assert_eq!(exit["code"], 3);
         read_eof(&mut read).await;
-        rig.cancel.cancel();
+        rig.shutdown().await;
     }
 
     #[tokio::test]
     async fn a_refused_open_maps_the_error_code_and_closes() {
-        let rig = rig_with_limits(0).await;
+        let mut rig = rig_with_limits(0).await;
         let stream = connect(&rig).await;
         let (mut read, mut write) = stream.into_split();
         write
@@ -1321,6 +1344,6 @@ mod tests {
         assert_eq!(error["t"], "error");
         assert_eq!(error["code"], "session_limit");
         read_eof(&mut read).await;
-        rig.cancel.cancel();
+        rig.shutdown().await;
     }
 }

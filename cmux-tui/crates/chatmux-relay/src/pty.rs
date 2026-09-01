@@ -346,11 +346,17 @@ struct Inner {
     scrollback_limit: usize,
     output_cap: u64,
     attachments: Mutex<HashMap<String, Attachment>>,
-    /// ptyId -> transport that reserved it (None = legacy whole-manager owner).
-    opening_ids: Mutex<HashMap<String, Option<String>>>,
-    cancelled_openings: Mutex<std::collections::HashSet<String>>,
+    /// Reservation state is one lock so close/open/drop cannot leave a stale
+    /// cancellation marker between the id and marker updates.
+    opening_state: Mutex<OpeningState>,
     shell_sessions: Mutex<HashMap<String, Arc<ShellSession>>>,
     shell_starting: Mutex<HashMap<String, Arc<Notify>>>,
+}
+
+#[derive(Default)]
+struct OpeningState {
+    ids: HashMap<String, Option<String>>,
+    cancelled: std::collections::HashSet<String>,
 }
 
 struct ShellStartReservation {
@@ -377,8 +383,9 @@ struct OpeningReservation {
 impl Drop for OpeningReservation {
     fn drop(&mut self) {
         if self.active {
-            self.inner.opening_ids.lock().expect("opening lock").remove(&self.id);
-            self.inner.cancelled_openings.lock().expect("cancelled openings lock").remove(&self.id);
+            let mut state = self.inner.opening_state.lock().expect("opening state lock");
+            state.ids.remove(&self.id);
+            state.cancelled.remove(&self.id);
         }
     }
 }
@@ -398,8 +405,7 @@ impl PtyManager {
                 scrollback_limit: SCROLLBACK_LIMIT,
                 output_cap: OUTPUT_BUFFER_CAP,
                 attachments: Mutex::new(HashMap::new()),
-                opening_ids: Mutex::new(HashMap::new()),
-                cancelled_openings: Mutex::new(std::collections::HashSet::new()),
+                opening_state: Mutex::new(OpeningState::default()),
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
             }),
@@ -423,8 +429,7 @@ impl PtyManager {
                 scrollback_limit,
                 output_cap,
                 attachments: Mutex::new(HashMap::new()),
-                opening_ids: Mutex::new(HashMap::new()),
-                cancelled_openings: Mutex::new(std::collections::HashSet::new()),
+                opening_state: Mutex::new(OpeningState::default()),
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
             }),
@@ -507,7 +512,7 @@ impl PtyManager {
 
     #[cfg(test)]
     pub(crate) fn opening_count(&self) -> usize {
-        self.inner.opening_ids.lock().expect("opening lock").len()
+        self.inner.opening_state.lock().expect("opening state lock").ids.len()
     }
 
     /// The relay socket dropped: release every attachment (sessions live on).
@@ -528,8 +533,9 @@ impl PtyManager {
         // Openings first: close() records cancellation for a reserved id, so
         // a late open cannot install an attachment after its transport died.
         let mut ids: Vec<String> = {
-            let opening = self.inner.opening_ids.lock().expect("opening lock");
+            let opening = self.inner.opening_state.lock().expect("opening state lock");
             opening
+                .ids
                 .iter()
                 .filter(|(_, owner)| owns(owner.as_deref()))
                 .map(|(id, _)| id.clone())
@@ -594,19 +600,20 @@ impl Inner {
         }
         let fail = |code: &str, message: &str| send_pty_error(context, &pty_id, code, message);
         let reservation_result = {
-            let mut opening = self.opening_ids.lock().expect("opening lock");
-            let attached = self.attachments.lock().expect("attach lock").contains_key(&pty_id);
-            if attached || opening.contains_key(&pty_id) {
+            // Keep the global lock order attachments -> opening_state. The
+            // transport ownership check uses the same order.
+            let attachments = self.attachments.lock().expect("attach lock");
+            let mut opening = self.opening_state.lock().expect("opening state lock");
+            let attached = attachments.contains_key(&pty_id);
+            if attached || opening.ids.contains_key(&pty_id) {
                 Err(("bad_request", "ptyId is already attached".to_owned()))
-            } else if self.attachments.lock().expect("attach lock").len() + opening.len()
-                >= self.max_ptys
-            {
+            } else if attachments.len() + opening.ids.len() >= self.max_ptys {
                 Err((
                     "session_limit",
                     format!("this relay caps concurrent terminals at {}", self.max_ptys),
                 ))
             } else {
-                opening.insert(pty_id.clone(), context.transport_id.clone());
+                opening.ids.insert(pty_id.clone(), context.transport_id.clone());
                 Ok(())
             }
         };
@@ -773,21 +780,22 @@ impl Inner {
             return;
         }
 
-        // Keep the opening reservation held until the attachment is installed.
-        // `close` takes this lock first, so it cannot observe a gap between
+        // Keep both locks held until the attachment is installed. `close`
+        // takes opening_state first, so it cannot observe a gap between
         // removing the opening marker and inserting the attachment.
-        let mut opening = self.opening_ids.lock().expect("opening lock");
-        let cancelled =
-            self.cancelled_openings.lock().expect("cancelled openings lock").remove(&pty_id);
+        let mut attachments = self.attachments.lock().expect("attach lock");
+        let mut opening = self.opening_state.lock().expect("opening state lock");
+        let cancelled = opening.cancelled.remove(&pty_id);
         if cancelled {
-            opening.remove(&pty_id);
+            opening.ids.remove(&pty_id);
             drop(opening);
+            drop(attachments);
             reservation.active = false;
             opened.closing.store(true, Ordering::SeqCst);
             opened.control.kill();
             return;
         }
-        let previous = self.attachments.lock().expect("attach lock").insert(
+        let previous = attachments.insert(
             pty_id.clone(),
             Attachment {
                 closing: opened.closing,
@@ -800,8 +808,9 @@ impl Inner {
             previous.closing.store(true, Ordering::SeqCst);
             previous.control.kill();
         }
-        opening.remove(&pty_id);
+        opening.ids.remove(&pty_id);
         drop(opening);
+        drop(attachments);
         reservation.active = false;
         let mut opened_frame = serde_json::Map::new();
         opened_frame.insert("version".to_owned(), Value::from(PTY_PROTOCOL_VERSION));
@@ -899,12 +908,9 @@ impl Inner {
     fn close(&self, pty_id: &str) {
         // Match `open`'s lock order. If opening still owns the reservation,
         // record cancellation and let it dispose the newly opened PTY.
-        let opening = self.opening_ids.lock().expect("opening lock");
-        if opening.contains_key(pty_id) {
-            self.cancelled_openings
-                .lock()
-                .expect("cancelled openings lock")
-                .insert(pty_id.to_owned());
+        let mut opening = self.opening_state.lock().expect("opening state lock");
+        if opening.ids.contains_key(pty_id) {
+            opening.cancelled.insert(pty_id.to_owned());
             return;
         }
         drop(opening);
@@ -923,7 +929,8 @@ impl Inner {
         if let Some(attachment) = self.attachments.lock().expect("attach lock").get(pty_id) {
             return attachment.transport_id.as_deref() == Some(transport_id);
         }
-        if let Some(owner) = self.opening_ids.lock().expect("opening lock").get(pty_id) {
+        if let Some(owner) = self.opening_state.lock().expect("opening state lock").ids.get(pty_id)
+        {
             return owner.as_deref() == Some(transport_id);
         }
         true
