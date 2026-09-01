@@ -9,7 +9,7 @@ struct SudoExecutionMarkerMatcher: Sendable {
     private let transitions: [[UInt8: Int]]
     private let failures: [Int]
     private let outputs: [[Int]]
-    private let depths: [Int]
+    private let extendablePrefixLengths: [Int]
     private let maximumMarkerLength: Int
 
     init(markers: [Marker]) {
@@ -62,7 +62,17 @@ struct SudoExecutionMarkerMatcher: Sendable {
         transitions = builtTransitions
         failures = builtFailures
         outputs = builtOutputs
-        depths = builtDepths
+        extendablePrefixLengths = builtTransitions.indices.map { state in
+            var longest = builtTransitions[state].isEmpty ? 0 : builtDepths[state]
+            var failure = builtFailures[state]
+            while failure != 0 {
+                if !builtTransitions[failure].isEmpty {
+                    longest = max(longest, builtDepths[failure])
+                }
+                failure = builtFailures[failure]
+            }
+            return longest
+        }
     }
 
     /// Scans bytes once and returns the earliest marker plus the suffix that may begin one.
@@ -103,13 +113,24 @@ struct SudoExecutionMarkerMatcher: Sendable {
                 return (match: earliestMatch, retainedSuffixLength: 0)
             }
         }
-        if isFinal, let earliestMatch {
-            return (match: earliestMatch, retainedSuffixLength: 0)
+        if let earliestMatch {
+            if isFinal {
+                return (match: earliestMatch, retainedSuffixLength: 0)
+            }
+            let unresolvedPrefixLength = extendablePrefixLengths[state]
+            let unresolvedStart = bytes.count - unresolvedPrefixLength
+            guard unresolvedPrefixLength > 0,
+                  unresolvedStart <= earliestMatch.offset else {
+                return (match: earliestMatch, retainedSuffixLength: 0)
+            }
+            return (
+                match: nil,
+                retainedSuffixLength: unresolvedPrefixLength
+            )
         }
-        let candidateLength = earliestMatch.map { bytes.count - $0.offset } ?? 0
         return (
             match: nil,
-            retainedSuffixLength: max(depths[state], candidateLength)
+            retainedSuffixLength: extendablePrefixLengths[state]
         )
     }
 }

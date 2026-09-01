@@ -53,6 +53,25 @@ struct SudoPolicyRegressionTests {
         #expect(result.match?.markerIndex == 0)
     }
 
+    @Test("A complete authentication marker is reported without trailing output")
+    func markerMatcherReportsCompleteAuthenticationMarkerImmediately() {
+        let controlMarkers = SudoExecutionControlMarkers(token: String(repeating: "a", count: 36))
+        let authenticationMarker = Array(SudoAuthenticationOutputDetector.passwordPrompt.utf8)
+        let matcher = SudoExecutionMarkerMatcher(
+            markers: [
+                (bytes: authenticationMarker, kind: .authentication),
+                (bytes: Array(controlMarkers.executionTimedOut), kind: .privilegedTimeout),
+            ]
+        )
+        let output = ArraySlice([UInt8(ascii: "^"), UInt8(ascii: "D"), 0x08, 0x08] + authenticationMarker)
+
+        let result = matcher.scan(output, isFinal: false)
+
+        #expect(result.match?.offset == 4)
+        #expect(result.match?.markerIndex == 0)
+        #expect(result.retainedSuffixLength == 0)
+    }
+
     @Test("Exit waiter handles reused PID generations without trapping")
     func exitWaiterHandlesDuplicatePIDGenerations() {
         let first = SudoProcessIdentity(
