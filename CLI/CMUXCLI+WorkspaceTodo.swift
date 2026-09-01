@@ -155,9 +155,9 @@ extension CMUXCLI {
                 var targetParams = params
                 targetParams["item_id"] = itemID
                 targetParams["target"] = [
-                    "working_directory": cwdArg ?? NSNull(),
+                    "working_directory": (cwdArg as Any?) ?? NSNull(),
                     "agent_command": commandArg,
-                    "agent": agentArg ?? NSNull(),
+                    "agent": (agentArg as Any?) ?? NSNull(),
                 ]
                 let targeted = try client.sendV2(method: "workspace.todo.queue.target", params: targetParams)
                 printV2Payload(targeted, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
@@ -269,9 +269,9 @@ extension CMUXCLI {
                 targetParams[key] = value
             }
             targetParams["target"] = [
-                "working_directory": cwdArg ?? NSNull(),
-                "agent_command": commandArg ?? NSNull(),
-                "agent": agentArg ?? NSNull(),
+                "working_directory": (cwdArg as Any?) ?? NSNull(),
+                "agent_command": (commandArg as Any?) ?? NSNull(),
+                "agent": (agentArg as Any?) ?? NSNull(),
             ]
             let payload = try client.sendV2(method: "workspace.todo.queue.target", params: targetParams)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
