@@ -510,6 +510,11 @@ impl PtyManager {
         self.inner.attachments.lock().expect("attach lock").len()
     }
 
+    #[cfg(test)]
+    pub(crate) fn opening_count(&self) -> usize {
+        self.inner.opening_ids.lock().expect("opening lock").len()
+    }
+
     /// The relay socket dropped: release every attachment (sessions live on).
     /// Callers that own the whole manager only; a per-connection transport
     /// must use `detach_transport` so it cannot detach attachments the
