@@ -154,6 +154,23 @@ struct AgentHookNotificationPolicyTests {
         )
     }
 
+    @Test func exactStopReasonBannersRemainClassifiedAfterStopPrefixing() {
+        let classifier = AgentHookAbnormalStopClassifier()
+
+        #expect(
+            classifier.abnormalStopClass(signal: "Stop quota exceeded", message: "Stop quota exceeded") == .quota,
+            "A structured quota reason must remain classifiable when the adapter prefixes Stop"
+        )
+        #expect(
+            classifier.abnormalStopClass(signal: "Stop 429", message: "Stop 429") == .rateLimit,
+            "A structured 429 reason must remain classifiable when the adapter prefixes Stop"
+        )
+        #expect(
+            classifier.abnormalStopClass(signal: "Stop 529", message: "Stop 529") == .capacity,
+            "A structured 529 reason must remain classifiable when the adapter prefixes Stop"
+        )
+    }
+
     @Test func providerErrorBodyRedactsDiagnostics() throws {
         let raw = #"API Error: request_id=abc123 Authorization: Bearer secret-value stack trace at Provider.call() payload={"token":"secret"}"#
         let summary = try #require(
