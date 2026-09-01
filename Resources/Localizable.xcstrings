@@ -38589,6 +38589,90 @@
         }
       }
     },
+    "cli.help.nextTransportGrant": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity> --output <private-file>\n\nWrite the debug next-transport grant to a 0600 file. Pairing material is never printed." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity> --output <private-file>\n\nデバッグ用の次世代トランスポート グラントを0600ファイルに書き込みます。ペアリング情報は表示しません。" } }
+      }
+    },
+    "cli.help.nextTransportTicket": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux next-transport-ticket --output <private-file>\n\nWrite the debug next-transport ticket to a 0600 file. Pairing material is never printed." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux next-transport-ticket --output <private-file>\n\nデバッグ用の次世代トランスポート チケットを0600ファイルに書き込みます。ペアリング情報は表示しません。" } }
+      }
+    },
+    "cli.nextTransport.debugOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Next transport is available only in a debug build." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "次世代トランスポートはデバッグビルドでのみ利用できます。" } }
+      }
+    },
+    "cli.nextTransport.commandFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Next-transport command failed. Check Debug > Next Transport." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "次世代トランスポートのコマンドに失敗しました。「デバッグ」>「次世代トランスポート」を確認してください。" } }
+      }
+    },
+    "cli.nextTransport.materialWritten": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pairing material written to %@." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペアリング情報を %@ に書き込みました。" } }
+      }
+    },
+    "cli.nextTransport.outputRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pairing material withheld. Re-run cmux %@ with --output <private-file>." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペアリング情報は表示しません。--output <private-file> を付けて cmux %@ を再実行してください。" } }
+      }
+    },
+    "cli.nextTransport.outputSymlink": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Refusing to write pairing material through a symbolic link." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "シンボリックリンク経由でペアリング情報を書き込むことはできません。" } }
+      }
+    },
+    "cli.nextTransport.outputUsage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: add --output <private-file> to receive pairing material." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: ペアリング情報を受け取るには --output <private-file> を追加してください。" } }
+      }
+    },
+    "cli.nextTransport.outputWriteFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unable to write pairing material." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペアリング情報を書き込めません。" } }
+      }
+    },
+    "cli.nextTransport.grantUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Next-transport grant unavailable: %@. Enable it in Debug > Next Transport." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "次世代トランスポートのグラントを利用できません: %@。「デバッグ」>「次世代トランスポート」で有効にしてください。" } }
+      }
+    },
+    "cli.nextTransport.grantUsage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: next_transport_grant <deviceId> <devicePublicKeyB64> <appIdentity>" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: next_transport_grant <deviceId> <devicePublicKeyB64> <appIdentity>" } }
+      }
+    },
+    "cli.nextTransport.ticketUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Next-transport ticket unavailable: %@. Enable it in Debug > Next Transport." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "次世代トランスポートのチケットを利用できません: %@。「デバッグ」>「次世代トランスポート」で有効にしてください。" } }
+      }
+    },
     "cli.help.jumpToUnread": {
       "extractionState": "manual",
       "localizations": {
@@ -182286,6 +182370,114 @@
           "stringUnit": {
             "state": "translated",
             "value": "次世代トランスポート"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "النقل التالي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sljedeći transport"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Næste transport"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nächster Transport"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Siguiente transporte"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transport suivant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trasporto successivo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការដឹកជញ្ជូនបន្ទាប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다음 전송"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neste transport"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Następny transport"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Próximo transporte"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Следующий транспорт"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การขนส่งถัดไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonraki taşıma"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Наступний транспорт"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下一代传输"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下一代傳輸"
           }
         }
       }

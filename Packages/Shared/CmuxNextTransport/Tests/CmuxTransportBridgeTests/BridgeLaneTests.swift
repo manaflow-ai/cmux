@@ -103,128 +103,133 @@ struct BridgeLaneLiveTests {
         }
     }
 
+    /// Owns a live QUIC rig for the duration of one test body and guarantees
+    /// endpoint/connection teardown even when an assertion or decode throws.
+    private func withRig<T>(
+        _ body: (Rig) async throws -> T
+    ) async throws -> T {
+        let rig = try await Rig.admitAndBridge()
+        do {
+            let result = try await body(rig)
+            await rig.tearDown()
+            return result
+        } catch {
+            await rig.tearDown()
+            throw error
+        }
+    }
+
     @Test("Terminal lane: descriptor, both directions, clean finish")
     func terminalLane() async throws {
-        let rig = try await Rig.admitAndBridge()
-        let resourceID = try CmxIrohResourceID("terminal:abc123")
+        try await withRig { rig in
+            let resourceID = try CmxIrohResourceID("terminal:abc123")
 
-        let stream = try await BridgeLaneDialer.openLane(
-            on: rig.clientConn,
-            lane: .terminal(resourceID: resourceID, cursor: 9), priority: 10)
-        let (lane, hostStream) = try await rig.acceptor.acceptBidirectionalLane()
-        #expect(lane == .terminal(resourceID: resourceID, cursor: 9))
+            let stream = try await BridgeLaneDialer.openLane(
+                on: rig.clientConn,
+                lane: .terminal(resourceID: resourceID, cursor: 9), priority: 10)
+            let (lane, hostStream) = try await rig.acceptor.acceptBidirectionalLane()
+            #expect(lane == .terminal(resourceID: resourceID, cursor: 9))
 
-        try await stream.sendStream.send(Data("input-bytes".utf8))
-        var got = Data()
-        while got.count < 11,
-            let chunk = try await hostStream.receiveStream.receive(maximumByteCount: 64)
-        {
-            got.append(chunk)
+            try await stream.sendStream.send(Data("input-bytes".utf8))
+            var got = Data()
+            while got.count < 11,
+                let chunk = try await hostStream.receiveStream.receive(maximumByteCount: 64)
+            {
+                got.append(chunk)
+            }
+            #expect(String(data: got, encoding: .utf8) == "input-bytes")
+
+            try await hostStream.sendStream.send(Data("output-bytes".utf8))
+            try await hostStream.sendStream.finish()
+            var echoed = Data()
+            while let chunk = try await stream.receiveStream.receive(maximumByteCount: 64) {
+                echoed.append(chunk)
+            }
+            #expect(String(data: echoed, encoding: .utf8) == "output-bytes")
         }
-        #expect(String(data: got, encoding: .utf8) == "input-bytes")
-
-        try await hostStream.sendStream.send(Data("output-bytes".utf8))
-        try await hostStream.sendStream.finish()
-        var echoed = Data()
-        while let chunk = try await stream.receiveStream.receive(maximumByteCount: 64) {
-            echoed.append(chunk)
-        }
-        #expect(String(data: echoed, encoding: .utf8) == "output-bytes")
-
-        await rig.tearDown()
     }
 
     @Test("Control transport: request and response bytes")
     func controlTransport() async throws {
-        let rig = try await Rig.admitAndBridge()
+        try await withRig { rig in
+            let phoneControl = try await BridgeLaneDialer.openControlTransport(on: rig.clientConn)
+            try await phoneControl.send(Data("rpc-request".utf8))
+            let macRaw = try await rig.acceptor.nextControlStream()
+            let macControl = BridgeByteTransport(stream: macRaw)
+            var request = Data()
+            while request.count < 11, let chunk = try await macControl.receive() {
+                request.append(chunk)
+            }
+            #expect(String(data: request, encoding: .utf8) == "rpc-request")
 
-        let phoneControl = try await BridgeLaneDialer.openControlTransport(on: rig.clientConn)
-        try await phoneControl.send(Data("rpc-request".utf8))
-        let macRaw = try await rig.acceptor.nextControlStream()
-        let macControl = BridgeByteTransport(stream: macRaw)
-        var request = Data()
-        while request.count < 11, let chunk = try await macControl.receive() {
-            request.append(chunk)
+            try await macControl.send(Data("rpc-response".utf8))
+            var response = Data()
+            while response.count < 12, let chunk = try await phoneControl.receive() {
+                response.append(chunk)
+            }
+            #expect(String(data: response, encoding: .utf8) == "rpc-response")
         }
-        #expect(String(data: request, encoding: .utf8) == "rpc-request")
-
-        try await macControl.send(Data("rpc-response".utf8))
-        var response = Data()
-        while response.count < 12, let chunk = try await phoneControl.receive() {
-            response.append(chunk)
-        }
-        #expect(String(data: response, encoding: .utf8) == "rpc-response")
-
-        await rig.tearDown()
     }
 
     @Test("Bad preamble rejects that stream, session stays usable")
     func rejectionKeepsSession() async throws {
-        let rig = try await Rig.admitAndBridge()
+        try await withRig { rig in
+            _ = try await rig.clientConn.openRawStream(preamble: "not a descriptor")
+            await #expect(throws: CmxIrohServerSessionError.applicationLaneRejected) {
+                _ = try await rig.acceptor.acceptBidirectionalLane()
+            }
 
-        _ = try await rig.clientConn.openRawStream(preamble: "not a descriptor")
-        await #expect(throws: CmxIrohServerSessionError.applicationLaneRejected) {
-            _ = try await rig.acceptor.acceptBidirectionalLane()
+            let resourceID = try CmxIrohResourceID("terminal:after-reject")
+            _ = try await BridgeLaneDialer.openLane(
+                on: rig.clientConn,
+                lane: .terminal(resourceID: resourceID, cursor: nil), priority: 0)
+            let (lane, _) = try await rig.acceptor.acceptBidirectionalLane()
+            #expect(lane == .terminal(resourceID: resourceID, cursor: nil))
         }
-
-        let resourceID = try CmxIrohResourceID("terminal:after-reject")
-        _ = try await BridgeLaneDialer.openLane(
-            on: rig.clientConn,
-            lane: .terminal(resourceID: resourceID, cursor: nil), priority: 0)
-        let (lane, _) = try await rig.acceptor.acceptBidirectionalLane()
-        #expect(lane == .terminal(resourceID: resourceID, cursor: nil))
-
-        await rig.tearDown()
     }
 
     @Test("Peer-opened server events lane is rejected")
     func peerServerEventsRejected() async throws {
-        let rig = try await Rig.admitAndBridge()
-
-        _ = try await rig.clientConn.openRawStream(
-            preamble: BridgeLaneDescriptor.preamble(for: .serverEvents(cursor: nil)))
-        await #expect(throws: CmxIrohServerSessionError.applicationLaneRejected) {
-            _ = try await rig.acceptor.acceptBidirectionalLane()
+        try await withRig { rig in
+            _ = try await rig.clientConn.openRawStream(
+                preamble: BridgeLaneDescriptor.preamble(for: .serverEvents(cursor: nil)))
+            await #expect(throws: CmxIrohServerSessionError.applicationLaneRejected) {
+                _ = try await rig.acceptor.acceptBidirectionalLane()
+            }
         }
-
-        await rig.tearDown()
     }
 
     @Test("Host-opened server events arrive at the peer")
     func hostServerEvents() async throws {
-        let rig = try await Rig.admitAndBridge()
+        try await withRig { rig in
+            let phoneAcceptor = await BridgeLaneAcceptor.attached(
+                to: rig.clientConn, acceptsServerEvents: true)
+            let sender = try await BridgeLaneDialer.openServerEventSendStream(
+                on: rig.serverConn, priority: 50)
+            try await sender.send(Data("event-1".utf8))
+            try await sender.finish()
 
-        let phoneAcceptor = await BridgeLaneAcceptor.attached(
-            to: rig.clientConn, acceptsServerEvents: true)
-        let sender = try await BridgeLaneDialer.openServerEventSendStream(
-            on: rig.serverConn, priority: 50)
-        try await sender.send(Data("event-1".utf8))
-        try await sender.finish()
-
-        // The phone treats host-opened server events like the Mac treats a
-        // control stream: pulled explicitly, not via the app-lane accept.
-        let (lane, stream) = try await phoneAcceptor.acceptServerEventStream()
-        #expect(lane == .serverEvents(cursor: nil))
-        var got = Data()
-        while let chunk = try await stream.receiveStream.receive(maximumByteCount: 64) {
-            got.append(chunk)
+            // The phone treats host-opened server events like the Mac treats a
+            // control stream: pulled explicitly, not via the app-lane accept.
+            let (lane, stream) = try await phoneAcceptor.acceptServerEventStream()
+            #expect(lane == .serverEvents(cursor: nil))
+            var got = Data()
+            while let chunk = try await stream.receiveStream.receive(maximumByteCount: 64) {
+                got.append(chunk)
+            }
+            #expect(String(data: got, encoding: .utf8) == "event-1")
         }
-        #expect(String(data: got, encoding: .utf8) == "event-1")
-
-        await rig.tearDown()
     }
 
     @Test("Connection close ends the accept loop")
     func closeEndsAccept() async throws {
-        let rig = try await Rig.admitAndBridge()
-
-        await rig.clientConn.closeAll(reason: nil)
-        await #expect(throws: BridgeAcceptError.connectionClosed) {
-            while true {
-                _ = try await rig.acceptor.acceptBidirectionalLane()
+        try await withRig { rig in
+            await rig.clientConn.closeAll(reason: nil)
+            await #expect(throws: BridgeAcceptError.connectionClosed) {
+                while true {
+                    _ = try await rig.acceptor.acceptBidirectionalLane()
+                }
             }
         }
-
-        await rig.tearDown()
     }
 }

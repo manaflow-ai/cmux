@@ -223,6 +223,12 @@ enum MobileHostPortApplyOutcome: Equatable {
 @MainActor
 final class MobileHostService {
     static let shared = MobileHostService()
+#if DEBUG
+    /// Composition-owned DEBUG next-transport host. Keeping this runtime on
+    /// the existing mobile-host service gives all command/menu/lifecycle
+    /// entrypoints one owner without introducing a second process singleton.
+    let nextTransportRuntime = MobileHostNextTransportRuntime()
+#endif
     nonisolated private static let maximumActiveConnectionCount = 10
     /// Process-lifetime owner for the repository-root summary TTL cache.
     let workspaceChangesService = WorkspaceChangesService()

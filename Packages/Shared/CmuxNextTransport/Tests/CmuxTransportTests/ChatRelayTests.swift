@@ -28,7 +28,10 @@ struct ChatRelayTests {
             async let serving: Void = host.serve(connection: hostEnd, now: now)
             let outcome = try await TransportClient.connect(
                 connection: client, identity: identity, grant: grant)
-            #expect(outcome != .denied(.revoked))
+            guard case .admitted = outcome else {
+                Issue.record("expected admitted connection, got \(outcome)")
+                throw TransportError.connectionClosedBeforeReply
+            }
             await serving
             return client
         }
@@ -37,8 +40,15 @@ struct ChatRelayTests {
         let bob = try await admit("phone-bob")
         let aliceChat = await alice.lane(TransportHost.chatLaneName)
         let bobChat = await bob.lane(TransportHost.chatLaneName)
-        // Give the host's chat services a beat to register both lanes.
-        for _ in 0..<50 { await Task.yield() }
+        // Wait on the host's real registration signal rather than guessing
+        // with a fixed number of scheduler yields.
+        let registrationDeadline = ContinuousClock.now + .seconds(1)
+        while await host.chatEndpointCount < 2,
+            ContinuousClock.now < registrationDeadline
+        {
+            await Task.yield()
+        }
+        #expect(await host.chatEndpointCount == 2)
 
         // Alice types character by character; Bob sees every draft state.
         for draft in ["h", "he", "hey"] {

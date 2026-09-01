@@ -283,7 +283,10 @@ public struct BrokerCredentialClient: Sendable {
 
     /// Full mint: returns one credential per fleet relay; `preferredUrl`
     /// (the rendezvous relay from the ticket) is first when present.
-    public func mint(preferredUrl: String?) async throws -> [Credential] {
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
+    public nonisolated func mint(preferredUrl: String?) async throws -> [Credential] {
         let endpointId = identity.publicKeyData.map { String(format: "%02x", $0) }.joined()
         let mintStart = ContinuousClock.now
         if TransportDebugLog.enabled {
@@ -510,7 +513,8 @@ public struct BrokerCredentialClient: Sendable {
         guard let requestUrl = URL(string: url),
             let scheme = requestUrl.scheme?.lowercased(),
             scheme == "http" || scheme == "https",
-            requestUrl.host != nil
+            let host = requestUrl.host,
+            scheme == "https" || Self.isLoopbackHost(host)
         else {
             throw BrokerError.malformedURL(
                 step: step, url: String(url.prefix(while: { $0 != "?" })))
@@ -547,6 +551,14 @@ public struct BrokerCredentialClient: Sendable {
                 """)
         }
         return (try? JSONDecoder().decode(JSONValue.self, from: data))?.objectValue ?? [:]
+    }
+
+    /// Plain HTTP is safe only for an explicitly loopback broker. A remote
+    /// `http://` origin would place bearer/refresh or password credentials on
+    /// the wire without transport encryption.
+    private static func isLoopbackHost(_ host: String) -> Bool {
+        let normalized = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
+        return normalized == "localhost" || normalized == "127.0.0.1" || normalized == "::1"
     }
 
     static let alreadyBoundCode = "endpoint_already_bound"

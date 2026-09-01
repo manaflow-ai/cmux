@@ -40,6 +40,10 @@ public actor ReconnectOwner {
 
     private let connectOnce: ConnectOnce
     private let config: Config
+    /// Cancellable clock seam for the owner's genuine backoff delay. Keeping
+    /// the scheduler injectable makes shutdown deterministic in tests and
+    /// avoids tying the state machine to a global sleeper.
+    private let sleep: @Sendable (Duration) async throws -> Void
     private var machine = SessionStateMachine()
     private var connection: (any PeerConnection)?
     private var dialTask: Task<Void, Never>?
@@ -66,10 +70,14 @@ public actor ReconnectOwner {
     public init(
         config: Config = Config(),
         connectOnce: @escaping ConnectOnce,
-        onControlFrame: (@Sendable (Frame) async -> Void)? = nil
+        onControlFrame: (@Sendable (Frame) async -> Void)? = nil,
+        sleep: @escaping @Sendable (Duration) async throws -> Void = { delay in
+            try await ContinuousClock().sleep(for: delay)
+        }
     ) {
         self.connectOnce = connectOnce
         self.config = config
+        self.sleep = sleep
         self.backoff = config.initialBackoff
         self.onControlFrame = onControlFrame
         if TransportDebugLog.enabled {
@@ -105,16 +113,16 @@ public actor ReconnectOwner {
         }
     }
 
-    public func endpointReady(_ ready: Bool) {
-        apply(machine.handle(.endpointReadyChanged(ready)))
+    public func endpointReady(_ ready: Bool) async {
+        await apply(machine.handle(.endpointReadyChanged(ready)))
     }
 
-    public func trigger(_ intent: DialIntent) {
-        apply(machine.handle(.dialRequested(intent)))
+    public func trigger(_ intent: DialIntent) async {
+        await apply(machine.handle(.dialRequested(intent)))
     }
 
-    public func stop(reason: CloseReason = .userRequested) {
-        apply(machine.handle(.closeRequested(reason)))
+    public func stop(reason: CloseReason = .userRequested) async {
+        await apply(machine.handle(.closeRequested(reason)))
     }
 
     private func removeContinuation(_ id: Int) {
@@ -127,7 +135,7 @@ public actor ReconnectOwner {
         }
     }
 
-    private func apply(_ effects: [SessionEffect]) {
+    private func apply(_ effects: [SessionEffect]) async {
         // Every apply() call carries exactly one fresh machine transition:
         // log it with its cause (the event) so the persisted log replays the
         // full attributed state history (contract 4.4, 8.1).
@@ -211,10 +219,8 @@ public actor ReconnectOwner {
                         conn=\(current.map { TransportDebugLog.id($0) } ?? "-", privacy: .public)
                         """)
                 }
-                Task {
-                    await current?.closeAll(
-                        reason: ConnectionTermination(code: reason.code))
-                }
+                await current?.closeAll(
+                    reason: ConnectionTermination(code: reason.code))
             }
         }
         publish()
@@ -300,7 +306,7 @@ public actor ReconnectOwner {
                         backoffReset=\(String(describing: self.config.initialBackoff), privacy: .public)
                         """)
                 }
-                apply(machine.handle(.dialSucceeded(attempt)))
+                await apply(machine.handle(.dialSucceeded(attempt)))
                 guard machine.state == .ready else {
                     // The machine rejected the success (defense in depth: the
                     // attempt guard above makes this unreachable). Never keep
@@ -322,11 +328,11 @@ public actor ReconnectOwner {
                         terminal=true (owner never auto-retries a denial)
                         """)
                 }
-                apply(machine.handle(.dialFailed(attempt, code: code.rawValue)))
+                await apply(machine.handle(.dialFailed(attempt, code: code.rawValue)))
                 // Terminal: park in closed(code). Retrying a denial takes a
                 // NEW owner (built once the grant situation changed); this
                 // one never dials again, on any trigger.
-                apply(
+                await apply(
                     machine.handle(
                         .closeRequested(CloseReason(origin: .remote, code: code.rawValue))))
             }
@@ -353,7 +359,7 @@ public actor ReconnectOwner {
                     scheduling backoff redial
                     """)
             }
-            apply(machine.handle(.dialFailed(attempt, code: "\(error)")))
+            await apply(machine.handle(.dialFailed(attempt, code: "\(error)")))
             scheduleRedial()
         }
     }
@@ -372,8 +378,9 @@ public actor ReconnectOwner {
                 nextBackoff=\(String(describing: self.backoff), privacy: .public)
                 """)
         }
+        let sleep = self.sleep
         dialTask = Task {
-            try? await Task.sleep(for: delay)
+            try? await sleep(delay)
             guard !Task.isCancelled else { return }
             await self.trigger(.automatic(trigger: "backoff"))
         }
@@ -456,9 +463,9 @@ public actor ReconnectOwner {
                 autoRedial=\(willAutoRedial, privacy: .public)
                 """)
         }
-        apply(machine.handle(.remoteClosed(CloseReason(origin: .remote, code: code))))
+        await apply(machine.handle(.remoteClosed(CloseReason(origin: .remote, code: code))))
         if willAutoRedial {
-            apply(machine.handle(.dialRequested(.automatic(trigger: "connection-ended"))))
+            await apply(machine.handle(.dialRequested(.automatic(trigger: "connection-ended"))))
         }
     }
 }

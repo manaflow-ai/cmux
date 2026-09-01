@@ -7898,7 +7898,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // and register-when-ready: startIfEnabled() returns immediately,
             // binds without waiting on the broker, and publishes only at
             // `.published` readiness.
-            MobileHostNextTransportRuntime.shared.startIfEnabled()
+            MobileHostService.shared.nextTransportRuntime.startIfEnabled()
             #endif
         }
         guard !didBootstrapInitialMainWindow else { return windowId }

@@ -117,7 +117,11 @@ struct IrohSubstrateTests {
         try await control.send(Frame.hello(identity: phone, grant: grant))
         // Deliberately DISCARD every frame the host manages to deliver, then
         // recover the reason purely from the substrate's close mechanism.
-        while await control.receive() != nil {}
+        var drainedFrames = 0
+        while drainedFrames < 64, await control.receive() != nil {
+            drainedFrames += 1
+        }
+        #expect(drainedFrames < 64, "denial lane did not reach EOF")
         let termination = await conn.termination()
         #expect(termination == ConnectionTermination(code: "expired"))
 

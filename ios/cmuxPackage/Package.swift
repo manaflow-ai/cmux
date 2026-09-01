@@ -115,6 +115,7 @@ let package = Package(
                 "CmuxClientConfig",
                 "CmuxIrohTransport",
                 "CMUXMobileCore",
+                "CmuxNextTransport",
                 "CmuxMobileAnalytics",
                 "CmuxMobileBrowser",
                 "CmuxMobileBrowserStream",

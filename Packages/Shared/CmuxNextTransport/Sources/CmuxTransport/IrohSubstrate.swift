@@ -13,6 +13,9 @@ public enum IrohSubstrate {
     /// side's substrate-authenticated key equals `identity.publicKeyData`.
     /// `minimalLoopback` binds to 127.0.0.1 with no relays and no discovery,
     /// for in-process live-QUIC tests; the relay-fleet configuration is P1e.
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
     public static func endpoint(
         identity: PeerIdentity, minimalLoopback: Bool
     ) async throws -> Endpoint {
@@ -56,6 +59,9 @@ public enum IrohSubstrate {
 
     /// Relay-enabled endpoint (P1e): identity-seeded like the loopback
     /// variant, but with a custom relay map pointing at our fleet.
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
     public static func endpoint(
         identity: PeerIdentity, relays: [RelayAccess]
     ) async throws -> Endpoint {
@@ -137,6 +143,9 @@ public enum IrohSubstrate {
         return EndpointAddr(id: endpoint.id(), relayUrl: nil, addresses: addresses)
     }
 
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
     public static func dial(
         endpoint: Endpoint, to addr: EndpointAddr
     ) async throws -> IrohPeerConnection {
@@ -178,6 +187,9 @@ public enum IrohSubstrate {
 
     /// Pull and complete the next incoming connection. Returns nil once the
     /// endpoint is closed.
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
     public static func acceptOne(endpoint: Endpoint) async throws -> IrohPeerConnection? {
         guard let incoming = await endpoint.acceptNext() else {
             if TransportDebugLog.enabled {
@@ -236,6 +248,10 @@ public actor IrohPeerConnection: PeerConnection {
     private var acceptLoop: Task<Void, Never>?
     private var rawStreamHandler: (@Sendable (String, RawByteStream) async -> Void)?
     private var pendingRawStreams: [(String, RawByteStream)] = []
+    /// A single FIFO delivery task preserves the arrival order promised by
+    /// `onRawStream`; one task per stream could be scheduled out of order.
+    private var rawDeliveryQueue: [(String, RawByteStream)] = []
+    private var rawDeliveryTask: Task<Void, Never>?
     private var closedFlag = false
     private var localTermination: ConnectionTermination?
 
@@ -285,10 +301,9 @@ public actor IrohPeerConnection: PeerConnection {
                 """)
         }
         rawStreamHandler = handler
-        for (preamble, stream) in pendingRawStreams {
-            Task { await handler(preamble, stream) }
-        }
+        rawDeliveryQueue.append(contentsOf: pendingRawStreams)
         pendingRawStreams.removeAll()
+        startRawDeliveryIfNeeded()
     }
 
     /// Graduation bridge: opens one raw application stream. One handshake
@@ -438,6 +453,10 @@ public actor IrohPeerConnection: PeerConnection {
                 """)
         }
         acceptLoop?.cancel()
+        rawDeliveryTask?.cancel()
+        rawDeliveryTask = nil
+        rawDeliveryQueue.removeAll()
+        pendingRawStreams.removeAll()
         for lane in lanes.values {
             await lane.finishSend()
         }
@@ -533,8 +552,11 @@ public actor IrohPeerConnection: PeerConnection {
                             remainderBytes=\(raw.handshakeRemainder.count, privacy: .public)
                             """)
                     }
-                    if let handler = rawStreamHandler {
-                        Task { await handler(preamble, raw) }
+                    if rawStreamHandler != nil {
+                        rawDeliveryQueue.append((preamble, raw))
+                        // Delivery is serialized through one FIFO task so the
+                        // handler observes streams in substrate arrival order.
+                        startRawDeliveryIfNeeded()
                     } else {
                         pendingRawStreams.append((preamble, raw))
                     }
@@ -602,6 +624,29 @@ public actor IrohPeerConnection: PeerConnection {
         }
         laneWaiters.removeAll()
     }
+
+    /// Starts the one FIFO raw-stream delivery worker, if a handler is ready.
+    private func startRawDeliveryIfNeeded() {
+        guard rawDeliveryTask == nil, let handler = rawStreamHandler else { return }
+        rawDeliveryTask = Task { [weak self] in
+            while let self, let item = await self.nextRawDelivery() {
+                await handler(item.0, item.1)
+            }
+            await self?.rawDeliveryFinished()
+        }
+    }
+
+    /// Pops the next queued raw stream for the delivery worker.
+    private func nextRawDelivery() -> (String, RawByteStream)? {
+        guard !rawDeliveryQueue.isEmpty else { return nil }
+        return rawDeliveryQueue.removeFirst()
+    }
+
+    /// Clears the completed worker handle; a later arrival can start a new one.
+    private func rawDeliveryFinished() {
+        rawDeliveryTask = nil
+        if !rawDeliveryQueue.isEmpty { startRawDeliveryIfNeeded() }
+    }
 }
 
 /// One lane on one QUIC stream. Single-consumer, like every lane (see
@@ -638,8 +683,8 @@ public final class IrohLane: TransportLane {
 actor IrohLaneChannel {
     private let sendStream: SendStream
     private let recvStream: RecvStream
-    private var decoder = FrameDecoder()
-    private var pending: [Frame] = []
+    private var decoder = FrameDecoder(captureEncodedFrames: true)
+    private var pending: [(frame: Frame, encoded: Data)] = []
     private var eof = false
     private let encoder = FrameEncoder()
 
@@ -665,12 +710,21 @@ actor IrohLaneChannel {
                     eof = true
                     break
                 }
-                pending.append(contentsOf: try decoder.feed(data))
+                let frames = try decoder.feed(data)
+                let encoded = decoder.drainEncodedFrames()
+                // The decoder emits one encoded byte sequence per frame. Keep
+                // the pairing so a framed-to-raw handoff can replay exact wire
+                // bytes, including the original JSON key order and escaping.
+                guard frames.count == encoded.count else {
+                    eof = true
+                    break
+                }
+                pending.append(contentsOf: zip(frames, encoded).map { (frame: $0.0, encoded: $0.1) })
             } catch {
                 eof = true
             }
         }
-        return pending.isEmpty ? nil : pending.removeFirst()
+        return pending.isEmpty ? nil : pending.removeFirst().frame
     }
 
     func finish() async {
@@ -681,10 +735,11 @@ actor IrohLaneChannel {
     /// frame. Raw handoff must re-inject them ahead of the stream reads.
     func drainBufferedBytes() -> Data {
         var out = Data()
-        for frame in pending {
+        for item in pending {
             // A raw peer never sends more frames after raw.open; anything
-            // decoded here IS raw payload that happened to parse-attempt.
-            if let data = try? FrameEncoder().encode(frame) { out.append(data) }
+            // decoded here IS raw payload that happened to parse-attempt. Use
+            // the original bytes, never a freshly encoded approximation.
+            out.append(item.encoded)
         }
         pending.removeAll()
         out.append(decoder.drainRemainder())

@@ -7,17 +7,10 @@ import IrohLib
 import Observation
 import OSLog
 
-let mobileHostNextTransportLog = Logger(
+nonisolated private let mobileHostNextTransportLog = Logger(
     subsystem: "dev.cmux",
     category: "mobile-host-next-transport"
 )
-
-/// Elapsed whole milliseconds since `start`, for diagnostics lines.
-func mobileHostNextTransportElapsedMs(since start: ContinuousClock.Instant) -> Int64 {
-    let elapsed = start.duration(to: ContinuousClock.now)
-    return Int64(elapsed.components.seconds) * 1_000
-        + Int64(elapsed.components.attoseconds / 1_000_000_000_000_000)
-}
 
 // MARK: - Pure decision logic (no I/O; integrator wires unit tests)
 
@@ -40,46 +33,56 @@ enum NextTransportHostTiming {
 struct NextTransportCachedRelayCredential: Codable, Sendable, Equatable {
     var relayUrl: String
     var token: String
-    /// Epoch seconds at which the relay stops honoring the token.
-    var expiresAt: Int64
+    /// Epoch seconds at which the relay stops honoring the token, when the
+    /// broker exposed a claim. `nil` credentials remain in the cache and use
+    /// the bounded fallback renewal cadence.
+    var expiresAt: Int64?
 }
 
 /// Cache-first startup policy: which persisted credentials are still worth
 /// binding with, and how a fresh mint becomes cache entries.
-enum NextTransportRelayCredentialCachePolicy {
+struct NextTransportRelayCredentialCachePolicy: Sendable {
     /// A cached token must outlive "now" by this margin to be included in
     /// the endpoint's initial relay map; anything tighter would expire
     /// during the bind/handshake and produce a silently dead relay route.
-    static let reuseMarginSeconds: Int64 = 30
+    let reuseMarginSeconds: Int64
 
-    static func usable(
+    init(reuseMarginSeconds: Int64 = 30) {
+        self.reuseMarginSeconds = reuseMarginSeconds
+    }
+
+    func usable(
         _ cached: [NextTransportCachedRelayCredential],
         now: Int64,
-        marginSeconds: Int64 = reuseMarginSeconds
+        marginSeconds: Int64? = nil
     ) -> [NextTransportCachedRelayCredential] {
-        cached.filter { $0.expiresAt > now + marginSeconds }
+        let marginSeconds = marginSeconds ?? reuseMarginSeconds
+        cached.filter { credential in
+            guard let expiresAt = credential.expiresAt else { return true }
+            return expiresAt > now + marginSeconds
+        }
     }
 
     /// Cache entries from a fresh mint. `Credential.expiresAt` is populated
     /// whenever an expiry is knowable (server value or the token's own JWT
     /// `exp`); a credential with no visible expiry cannot be validity-checked
-    /// at the next launch, so it is not cached.
-    static func entries(
+    /// at the next launch, so it remains cached and follows the bounded
+    /// fallback cadence rather than disabling renewal permanently.
+    func entries(
         from credentials: [BrokerCredentialClient.Credential]
     ) -> [NextTransportCachedRelayCredential] {
-        credentials.compactMap { credential in
-            guard let expiresAt = credential.expiresAt else { return nil }
-            return NextTransportCachedRelayCredential(
+        credentials.map { credential in
+            NextTransportCachedRelayCredential(
                 relayUrl: credential.relayUrl, token: credential.token,
-                expiresAt: expiresAt)
+                expiresAt: credential.expiresAt)
         }
     }
 
-    static func encode(_ entries: [NextTransportCachedRelayCredential]) -> Data? {
+    func encode(_ entries: [NextTransportCachedRelayCredential]) -> Data? {
         try? JSONEncoder().encode(entries)
     }
 
-    static func decode(_ data: Data) -> [NextTransportCachedRelayCredential] {
+    func decode(_ data: Data) -> [NextTransportCachedRelayCredential] {
         (try? JSONDecoder().decode([NextTransportCachedRelayCredential].self, from: data)) ?? []
     }
 }
@@ -87,11 +90,16 @@ enum NextTransportRelayCredentialCachePolicy {
 /// Mint-failure backoff: halve the remaining validity per retry (never a
 /// hot loop — 10 s floor), and once past expiry keep trying at a bounded
 /// cadence. A failed mint never tears the endpoint down.
-enum NextTransportMintRetryPolicy {
-    static let minimumDelaySeconds: Int64 = 10
-    static let expiredCadenceSeconds: Int64 = 60
+struct NextTransportMintRetryPolicy: Sendable {
+    let minimumDelaySeconds: Int64
+    let expiredCadenceSeconds: Int64
 
-    static func retryDelay(earliestExpiry: Int64?, now: Int64) -> Int64 {
+    init(minimumDelaySeconds: Int64 = 10, expiredCadenceSeconds: Int64 = 60) {
+        self.minimumDelaySeconds = minimumDelaySeconds
+        self.expiredCadenceSeconds = expiredCadenceSeconds
+    }
+
+    func retryDelay(earliestExpiry: Int64?, now: Int64) -> Int64 {
         guard let earliestExpiry, earliestExpiry > now else {
             return expiredCadenceSeconds
         }
@@ -139,7 +147,26 @@ enum NextTransportRelayPlan: Equatable {
 @MainActor
 @Observable
 final class MobileHostNextTransportRuntime {
-    static let shared = MobileHostNextTransportRuntime()
+    /// Elapsed whole milliseconds used by host and bridge diagnostics.
+    nonisolated static func elapsedMs(since start: ContinuousClock.Instant) -> Int64 {
+        let elapsed = start.duration(to: ContinuousClock.now)
+        return Int64(elapsed.components.seconds) * 1_000
+            + Int64(elapsed.components.attoseconds / 1_000_000_000_000_000)
+    }
+    /// Scheduler for genuine connection deadlines and credential refresh
+    /// delays. It is injected so tests can advance a virtual clock and so no
+    /// runtime path relies on an unowned global sleeper.
+    private let sleep: @Sendable (Duration) async throws -> Void
+    private let relayCachePolicy = NextTransportRelayCredentialCachePolicy()
+    private let mintRetryPolicy = NextTransportMintRetryPolicy()
+
+    init(
+        sleep: @escaping @Sendable (Duration) async throws -> Void = { delay in
+            try await ContinuousClock().sleep(for: delay)
+        }
+    ) {
+        self.sleep = sleep
+    }
 
     /// Debug toggle (mirrors CmxIrohTransportVerificationMode's pattern).
     static let debugDefaultsKey = "dev.cmux.nextTransport.enabled"
@@ -427,7 +454,7 @@ final class MobileHostNextTransportRuntime {
             // broker mint is never on the binding path.
             let cached = await Self.loadCachedRelayCredentials()
             guard generation == gen else { return }
-            let usable = NextTransportRelayCredentialCachePolicy.usable(
+            let usable = relayCachePolicy.usable(
                 cached, now: Int64(Date().timeIntervalSince1970))
             let plan = NextTransportRelayPlan.make(
                 hasBrokerClient: client != nil, hasUsableCache: !usable.isEmpty)
@@ -463,7 +490,7 @@ final class MobileHostNextTransportRuntime {
                 host endpoint bound id=\(String(self.endpointID?.prefix(8) ?? "?"), privacy: .public) \
                 relays=\(relays.count, privacy: .public) \
                 sockets=\(endpoint.boundSockets().joined(separator: ","), privacy: .public) \
-                elapsedMs=\(mobileHostNextTransportElapsedMs(since: startClock), privacy: .public)
+                elapsedMs=\(Self.elapsedMs(since: startClock), privacy: .public)
                 """)
 
             if !relays.isEmpty {
@@ -473,7 +500,8 @@ final class MobileHostNextTransportRuntime {
                 // trusted; the loser is abandoned, not joined (uniffi
                 // futures do not observe Swift task cancellation).
                 let cameOnline = await Self.raceDeadline(
-                    seconds: NextTransportHostTiming.onlineDeadlineSeconds
+                    seconds: NextTransportHostTiming.onlineDeadlineSeconds,
+                    sleep: sleep
                 ) { await endpoint.online() }
                 guard generation == gen else { return }
                 mobileHostNextTransportLog.notice(
@@ -517,7 +545,7 @@ final class MobileHostNextTransportRuntime {
                 next-transport host up: \(self.endpointID ?? "?", privacy: .public) \
                 state=\(self.state, privacy: .public) \
                 readiness=\(self.readiness.description, privacy: .public) \
-                elapsedMs=\(mobileHostNextTransportElapsedMs(since: startClock), privacy: .public)
+                elapsedMs=\(Self.elapsedMs(since: startClock), privacy: .public)
                 """)
         } catch {
             guard generation == gen else { return }
@@ -525,7 +553,7 @@ final class MobileHostNextTransportRuntime {
             mobileHostNextTransportLog.error(
                 """
                 next-transport start failed: \(String(describing: error), privacy: .public) \
-                elapsedMs=\(mobileHostNextTransportElapsedMs(since: startClock), privacy: .public)
+                elapsedMs=\(Self.elapsedMs(since: startClock), privacy: .public)
                 """)
         }
     }
@@ -612,23 +640,34 @@ final class MobileHostNextTransportRuntime {
     // MARK: - Accept loop (concurrent serves; hello deadline per connection)
 
     private func startAcceptLoop(endpoint: Endpoint, host: TransportHost, generation gen: UInt64) {
+        let sleep = self.sleep
         acceptTask = Task { [weak self] in
             var accepted = 0
-            while let connection = try? await IrohSubstrate.acceptOne(endpoint: endpoint) {
-                guard let self, self.generation == gen, !Task.isCancelled else { return }
-                accepted += 1
-                mobileHostNextTransportLog.notice(
-                    """
-                    host accept-loop connection #\(accepted, privacy: .public) \
-                    spawning serve task
-                    """)
-                // Serve in a child task so a peer that never sends its hello
-                // (or a long admission) can never wedge subsequent accepts.
-                self.registerServeTask(
-                    connection: connection, host: host, number: accepted, generation: gen)
+            while !Task.isCancelled {
+                do {
+                    guard let connection = try await IrohSubstrate.acceptOne(endpoint: endpoint)
+                    else { break }
+                    guard let self, self.generation == gen, !Task.isCancelled else { return }
+                    accepted += 1
+                    mobileHostNextTransportLog.notice(
+                        """
+                        host accept-loop connection #\(accepted, privacy: .public) \
+                        spawning serve task
+                        """)
+                    // Serve in a child task so a peer that never sends its hello
+                    // (or a long admission) can never wedge subsequent accepts.
+                    self.registerServeTask(
+                        connection: connection, host: host, number: accepted, generation: gen)
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    mobileHostNextTransportLog.error(
+                        "host accept-loop transient failure: \(String(describing: error), privacy: .public)")
+                    // Avoid a hot loop when a malformed incoming handshake is
+                    // rejected before the endpoint itself closes.
+                    try? await sleep(.milliseconds(100))
+                }
             }
-            mobileHostNextTransportLog.notice(
-                "host accept-loop exit (endpoint closed or accept failed)")
+            mobileHostNextTransportLog.notice("host accept-loop exit (endpoint closed)")
         }
     }
 
@@ -637,9 +676,10 @@ final class MobileHostNextTransportRuntime {
     ) {
         serveTaskCounter &+= 1
         let id = serveTaskCounter
+        let sleep = self.sleep
         let task = Task { [weak self] in
             let served = await Self.serveWithHelloDeadline(
-                connection: connection, host: host, number: number)
+                connection: connection, host: host, number: number, sleep: sleep)
             guard served else {
                 self?.serveTasks.removeValue(forKey: id)
                 return
@@ -670,10 +710,18 @@ final class MobileHostNextTransportRuntime {
             // application service (control RPC, lane router, server events)
             // bridged over its raw streams. The bridge runs for the session
             // lifetime inside this tracked task, so stop() can cancel it.
+            let isCurrent: @Sendable () async -> Bool = { [weak self] in
+                let enabledAndCurrent = await MainActor.run {
+                    guard let self else { return false }
+                    return self.isEnabled && self.generation == gen
+                }
+                return enabledAndCurrent && await !connection.isClosed
+            }
             await MobileHostNextTransportBridge.run(
                 connection: connection,
                 grant: admitted.grant,
-                deviceKey: admitted.deviceKey)
+                deviceKey: admitted.deviceKey,
+                isCurrent: isCurrent)
             self.serveTasks.removeValue(forKey: id)
         }
         serveTasks[id] = task
@@ -686,8 +734,12 @@ final class MobileHostNextTransportRuntime {
     /// the group, which unblocks the pending hello read so the group drains
     /// (uniffi/lane reads do not observe Swift task cancellation, so a
     /// plain cancel would not release the serve child).
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
     private nonisolated static func serveWithHelloDeadline(
-        connection: IrohPeerConnection, host: TransportHost, number: Int
+        connection: IrohPeerConnection, host: TransportHost, number: Int,
+        sleep: @escaping @Sendable (Duration) async throws -> Void
     ) async -> Bool {
         await withTaskGroup(of: Bool?.self) { group in
             group.addTask {
@@ -697,8 +749,8 @@ final class MobileHostNextTransportRuntime {
             }
             group.addTask {
                 do {
-                    try await Task.sleep(
-                        for: .seconds(NextTransportHostTiming.helloDeadlineSeconds))
+                    try await sleep(
+                        .seconds(NextTransportHostTiming.helloDeadlineSeconds))
                     return false
                 } catch {
                     return nil  // sleeper cancelled: serve already finished
@@ -709,7 +761,7 @@ final class MobileHostNextTransportRuntime {
                 served = outcome
             }
             if served {
-                group.cancelAll()  // stop the sleeper; Task.sleep honors it
+                group.cancelAll()  // stop the timer; the injected scheduler honors cancellation
             } else {
                 mobileHostNextTransportLog.notice(
                     """
@@ -750,6 +802,7 @@ final class MobileHostNextTransportRuntime {
         initialEntries: [NextTransportCachedRelayCredential], generation gen: UInt64
     ) async {
         var entries = initialEntries
+        let sleep = self.sleep
         // Nothing on hand (awaitFirstMint) mints immediately; a cached
         // start refreshes on the cache's own schedule.
         var mintImmediately = entries.isEmpty
@@ -758,7 +811,7 @@ final class MobileHostNextTransportRuntime {
                 let now = Int64(Date().timeIntervalSince1970)
                 guard
                     let target = RelayCredentialSchedule.nextRefresh(
-                        expiries: entries.map { $0.expiresAt as Int64? },
+                        expiries: entries.map(\.expiresAt),
                         now: now,
                         jitterSeconds: Int64.random(
                             in: 0...NextTransportHostTiming.refreshJitterMaxSeconds))
@@ -766,10 +819,10 @@ final class MobileHostNextTransportRuntime {
                 mobileHostNextTransportLog.notice(
                     """
                     host relay refresh scheduled inSeconds=\(max(target - now, 0), privacy: .public) \
-                    earliestExpiry=\(entries.map(\.expiresAt).min().map(String.init) ?? "none", privacy: .public)
+                    earliestExpiry=\(entries.compactMap(\.expiresAt).min().map(String.init) ?? "none", privacy: .public)
                     """)
                 do {
-                    try await Task.sleep(for: .seconds(max(target - now, 0)))
+                    try await sleep(.seconds(max(target - now, 0)))
                 } catch { return }
             }
             mintImmediately = false
@@ -783,7 +836,7 @@ final class MobileHostNextTransportRuntime {
                             url: credential.relayUrl, authToken: credential.token))
                 }
                 guard generation == gen else { return }
-                entries = NextTransportRelayCredentialCachePolicy.entries(from: fresh)
+                entries = relayCachePolicy.entries(from: fresh)
                 let previousRelayURL = relayURL
                 relayURL = fresh.first?.relayUrl
                 await Self.persistCachedRelayCredentials(entries)
@@ -808,15 +861,15 @@ final class MobileHostNextTransportRuntime {
                 }
             } catch {
                 let now = Int64(Date().timeIntervalSince1970)
-                let delay = NextTransportMintRetryPolicy.retryDelay(
-                    earliestExpiry: entries.map(\.expiresAt).min(), now: now)
+                let delay = mintRetryPolicy.retryDelay(
+                    earliestExpiry: entries.compactMap(\.expiresAt).min(), now: now)
                 mobileHostNextTransportLog.error(
                     """
                     credential mint failed: \(String(describing: error), privacy: .public); \
                     retry inSeconds=\(delay, privacy: .public) (endpoint stays up)
                     """)
                 do {
-                    try await Task.sleep(for: .seconds(delay))
+                    try await sleep(.seconds(delay))
                 } catch { return }
                 mintImmediately = true
             }
@@ -830,8 +883,13 @@ final class MobileHostNextTransportRuntime {
     /// not observe Swift task cancellation, and joining a hung relay
     /// handshake would wedge start(). The abandoned worker completes
     /// harmlessly on its own once the endpoint closes.
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
     private nonisolated static func raceDeadline(
-        seconds: Int64, operation: @escaping @Sendable () async -> Void
+        seconds: Int64,
+        sleep: @escaping @Sendable (Duration) async throws -> Void,
+        operation: @escaping @Sendable () async -> Void
     ) async -> Bool {
         let (stream, continuation) = AsyncStream<Bool>.makeStream()
         Task {
@@ -839,7 +897,7 @@ final class MobileHostNextTransportRuntime {
             continuation.yield(true)
         }
         let timer = Task {
-            try? await Task.sleep(for: .seconds(seconds))
+            try? await sleep(.seconds(seconds))
             continuation.yield(false)
         }
         defer { timer.cancel() }
@@ -849,6 +907,9 @@ final class MobileHostNextTransportRuntime {
 
     // MARK: - Key storage (Keychain; one-time migration from UserDefaults)
 
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
     private nonisolated static func loadOrCreateIdentity() async -> PeerIdentity {
         let defaults = UserDefaults.standard
         if let key = await loadOrMigrateSecret(
@@ -874,6 +935,9 @@ final class MobileHostNextTransportRuntime {
     /// The signer persists like the identity: a fresh key per launch would
     /// invalidate every previously minted phone grant on every Mac restart,
     /// forcing phones through re-credentialing.
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
     private nonisolated static func loadOrCreateSigner() async -> GrantSigner {
         if let key = await loadOrMigrateSecret(
             account: signerKeyAccount, legacyDefaultsKey: legacySignerKeyDefaultsKey)
@@ -901,6 +965,9 @@ final class MobileHostNextTransportRuntime {
     /// UserDefaults copy exactly once (read old → write Keychain → delete
     /// old). A Keychain read error returns the legacy copy when present
     /// rather than minting a new key over a merely-unreadable one.
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
     private nonisolated static func loadOrMigrateSecret(
         account: String, legacyDefaultsKey: String
     ) async -> Data? {
@@ -937,6 +1004,9 @@ final class MobileHostNextTransportRuntime {
         return legacy
     }
 
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
     private nonisolated static func storeSecret(_ data: Data, account: String) async {
         do {
             try await CmxIrohKeychainIdentityStore(service: keyStoreService)
@@ -952,6 +1022,9 @@ final class MobileHostNextTransportRuntime {
 
     // MARK: - Relay credential cache (Keychain persistence)
 
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
     private nonisolated static func loadCachedRelayCredentials()
         async -> [NextTransportCachedRelayCredential]
     {
@@ -960,7 +1033,7 @@ final class MobileHostNextTransportRuntime {
             guard let data = try await store.read(account: credentialCacheAccount) else {
                 return []
             }
-            return NextTransportRelayCredentialCachePolicy.decode(data)
+            return NextTransportRelayCredentialCachePolicy().decode(data)
         } catch {
             mobileHostNextTransportLog.error(
                 """
@@ -971,11 +1044,14 @@ final class MobileHostNextTransportRuntime {
         }
     }
 
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
     private nonisolated static func persistCachedRelayCredentials(
         _ entries: [NextTransportCachedRelayCredential]
     ) async {
         guard !entries.isEmpty,
-            let data = NextTransportRelayCredentialCachePolicy.encode(entries)
+            let data = NextTransportRelayCredentialCachePolicy().encode(entries)
         else { return }
         do {
             try await CmxIrohKeychainCredentialStore(service: credentialCacheService)

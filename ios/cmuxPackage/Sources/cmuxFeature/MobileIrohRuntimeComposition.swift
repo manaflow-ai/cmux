@@ -28,23 +28,6 @@ nonisolated private let nextTransportCompositionLog = Logger(
     category: "next-transport-graduation"
 )
 
-/// Compact lane-kind name for graduation hook log lines.
-nonisolated private func nextTransportLaneKindName(_ lane: CmxIrohLane) -> String {
-    switch lane {
-    case .control: return "control"
-    case .serverEvents: return "server-events"
-    case .terminal: return "terminal"
-    case .artifact: return "artifact"
-    case .simulatorStream: return "simulator-stream"
-    }
-}
-
-/// 8-char Mac id prefix for graduation hook log lines.
-nonisolated private func nextTransportMacPrefix(
-    _ request: CmxByteTransportRequest
-) -> String {
-    request.expectedPeerDeviceID.map { String($0.prefix(8)) } ?? "-"
-}
 #endif
 
 /// Resume-once guard for the forget deadline race: whichever racer claims
@@ -141,6 +124,25 @@ public final class MobileIrohRuntimeComposition:
     MobileIrohMacDiscovering,
     MobileIrohMacForgetting
 {
+    #if DEBUG
+    /// Compact lane-kind name used by the shared next-transport routing gate.
+    nonisolated private static func nextTransportLaneKindName(_ lane: CmxIrohLane) -> String {
+        switch lane {
+        case .control: return "control"
+        case .serverEvents: return "server-events"
+        case .terminal: return "terminal"
+        case .artifact: return "artifact"
+        case .simulatorStream: return "simulator-stream"
+        }
+    }
+
+    /// Redacted Mac id prefix used by graduation diagnostics.
+    nonisolated private static func nextTransportMacPrefix(
+        _ request: CmxByteTransportRequest
+    ) -> String {
+        request.expectedPeerDeviceID.map { String($0.prefix(8)) } ?? "-"
+    }
+    #endif
     enum SettingsError: Error, Equatable {
         case unavailable
         case incompleteCustomRelay
@@ -256,10 +258,40 @@ public final class MobileIrohRuntimeComposition:
 
     private weak var auth: AuthCoordinator?
     #if DEBUG
+    /// Resolves one next-transport route decision for every lane entrypoint.
+    /// A supported Mac returns its admitted connection; a disconnected
+    /// supported Mac throws (fail-hard); all other requests stay on legacy.
+    private func nextTransportConnection(
+        for request: CmxByteTransportRequest, kind: String
+    ) async throws -> IrohPeerConnection? {
+        if let connection = await nextTransportFacade.admittedConnection(for: request) {
+            nextTransportFacade.noteServedPath(
+                kind: kind, macID: request.expectedPeerDeviceID, outcome: "bridged")
+            return connection
+        }
+        if nextTransportFacade.requiresBridge(for: request) {
+            nextTransportFacade.noteServedPath(
+                kind: kind, macID: request.expectedPeerDeviceID, outcome: "fail-hard-throw")
+            nextTransportCompositionLog.error(
+                """
+                fail-hard: \(kind, privacy: .public) \
+                mac=\(Self.nextTransportMacPrefix(request), privacy: .public) \
+                requires bridge but session is down; throwing NextTransportUnavailableError
+                """)
+            throw NextTransportUnavailableError()
+        }
+        nextTransportFacade.noteServedPath(
+            kind: kind, macID: request.expectedPeerDeviceID, outcome: "legacy")
+        return nil
+    }
+
     /// The resolved legacy-broker origin, reused by the DEBUG next-transport
     /// dial path so a home-screen launch (no dev env) mints relay credentials
     /// for its next-transport identity through the app's signed-in session.
     private var nextTransportBrokerBaseURL: URL?
+    /// Composition-owned next-transport coordinator. Keeping it on this graph
+    /// ties bootstrap probes, clients, and routing state to one lifecycle.
+    private let nextTransportFacade: NextTransportGraduationFacade
     #endif
     private var connectivityInvalidationSubscriber:
         CmxConnectivityInvalidationSubscriber?
@@ -564,6 +596,9 @@ public final class MobileIrohRuntimeComposition:
         self.makeRelayPolicyRefreshBackoff = makeRelayPolicyRefreshBackoff
             ?? { CmxIrohReconnectBackoff() }
         self.diagnosticLog = diagnosticLog
+        #if DEBUG
+        self.nextTransportFacade = NextTransportGraduationFacade()
+        #endif
     }
 
     private func makeBrokerBundle(
@@ -604,7 +639,7 @@ public final class MobileIrohRuntimeComposition:
         // Off-WiFi relay credentials for the next-transport dial path: with
         // no dev launch env, the dial client mints through this signed-in
         // session against the same broker origin the legacy transport uses.
-        NextTransportDialClient.installSessionBroker(
+        nextTransportFacade.configureSessionBroker(
             brokerBaseURL: nextTransportBrokerBaseURL,
             auth: auth
         )
@@ -639,6 +674,23 @@ public final class MobileIrohRuntimeComposition:
             }
         }
     }
+
+    #if DEBUG
+    /// Runs the authoritative next-transport capability probe for one live
+    /// shell connection. The generation is supplied by the shell so a result
+    /// from a superseded connection cannot mutate routing state.
+    public func nextTransportBootstrapProbe(
+        client: MobileCoreRPCClient, macID: String, generation: UUID
+    ) async {
+        await nextTransportFacade.probeBootstrap(
+            client: client, macID: macID, generation: generation)
+    }
+
+    /// Broker factory injected into the DEBUG dev screen and dial clients.
+    public var nextTransportBrokerFactory: NextTransportDialClient.BrokerFactory? {
+        nextTransportFacade.dialBrokerFactory
+    }
+    #endif
 
     private func setConnectivityInvalidationAccount(_ accountID: String?) async {
         guard connectivityInvalidationAccountID != accountID else { return }
@@ -744,31 +796,9 @@ public final class MobileIrohRuntimeComposition:
         for request: CmxByteTransportRequest
     ) async throws -> any CmxByteTransport {
         #if DEBUG
-        // Graduation lane routing: a next-transport Mac carries control over
-        // the bridge and FAILS HARD while its session reconnects — the
-        // ReconnectOwner inside the facade's client is the sole redial
-        // authority. Legacy serves only non-next Macs and re-credentialing.
-        NextTransportGraduationFacade.installProbeHook()
-        if let connection = await NextTransportGraduationFacade.shared.admittedConnection(
-            for: request)
-        {
-            NextTransportGraduationFacade.shared.noteServedPath(
-                kind: "control", macID: request.expectedPeerDeviceID, outcome: "bridged")
+        if let connection = try await nextTransportConnection(for: request, kind: "control") {
             return try await BridgeLaneDialer.openControlTransport(on: connection)
         }
-        if NextTransportGraduationFacade.shared.requiresBridge(for: request) {
-            NextTransportGraduationFacade.shared.noteServedPath(
-                kind: "control", macID: request.expectedPeerDeviceID,
-                outcome: "fail-hard-throw")
-            nextTransportCompositionLog.error(
-                """
-                fail-hard: control lane=control mac=\(nextTransportMacPrefix(request), privacy: .public) \
-                requires bridge but session is down; throwing NextTransportUnavailableError
-                """)
-            throw NextTransportUnavailableError()
-        }
-        NextTransportGraduationFacade.shared.noteServedPath(
-            kind: "control", macID: request.expectedPeerDeviceID, outcome: "legacy")
         #endif
         let runtime = try await preparedRuntimeForConnection()
         return try runtime.transportFactory.makeTransport(for: request)
@@ -787,31 +817,12 @@ public final class MobileIrohRuntimeComposition:
         priority: Int32
     ) async throws -> CmxIrohBidirectionalStream {
         #if DEBUG
-        if let connection = await NextTransportGraduationFacade.shared.admittedConnection(
-            for: request)
+        if let connection = try await nextTransportConnection(
+            for: request, kind: Self.nextTransportLaneKindName(lane))
         {
-            NextTransportGraduationFacade.shared.noteServedPath(
-                kind: nextTransportLaneKindName(lane),
-                macID: request.expectedPeerDeviceID, outcome: "bridged")
             return try await BridgeLaneDialer.openLane(
                 on: connection, lane: lane, priority: priority)
         }
-        if NextTransportGraduationFacade.shared.requiresBridge(for: request) {
-            NextTransportGraduationFacade.shared.noteServedPath(
-                kind: nextTransportLaneKindName(lane),
-                macID: request.expectedPeerDeviceID, outcome: "fail-hard-throw")
-            nextTransportCompositionLog.error(
-                """
-                fail-hard: openBidirectionalLane \
-                lane=\(nextTransportLaneKindName(lane), privacy: .public) \
-                mac=\(nextTransportMacPrefix(request), privacy: .public) \
-                requires bridge but session is down; throwing NextTransportUnavailableError
-                """)
-            throw NextTransportUnavailableError()
-        }
-        NextTransportGraduationFacade.shared.noteServedPath(
-            kind: nextTransportLaneKindName(lane),
-            macID: request.expectedPeerDeviceID, outcome: "legacy")
         #endif
         let runtime = try await preparedRuntimeForConnection()
         return try await runtime.openBidirectionalLane(
@@ -888,17 +899,13 @@ public final class MobileIrohRuntimeComposition:
         for request: CmxByteTransportRequest
     ) async throws -> CmxIndependentEventByteStream {
         #if DEBUG
-        if let connection = await NextTransportGraduationFacade.shared.admittedConnection(
-            for: request)
-        {
-            NextTransportGraduationFacade.shared.noteServedPath(
-                kind: "server-events", macID: request.expectedPeerDeviceID,
-                outcome: "bridged")
-            let acceptor = await NextTransportGraduationFacade.shared.acceptor(for: connection)
+        if let connection = try await nextTransportConnection(
+            for: request, kind: "server-events") {
+            let acceptor = await nextTransportFacade.acceptor(for: connection)
             let (_, stream) = try await acceptor.acceptServerEventStream()
-            let macPrefix = nextTransportMacPrefix(request)
-            let connID = nextTransportObjectID(connection)
-            return AsyncThrowingStream { continuation in
+            let macPrefix = Self.nextTransportMacPrefix(request)
+            let connID = NextTransportGraduationFacade.objectID(connection)
+            return AsyncThrowingStream(bufferingPolicy: .bufferingNewest(32)) { continuation in
                 let pump = Task {
                     let pumpStart = ContinuousClock.now
                     var chunks = 0
@@ -921,7 +928,7 @@ public final class MobileIrohRuntimeComposition:
                                     conn=\(connID, privacy: .public) \
                                     chunks=\(chunks, privacy: .public) \
                                     bytes=\(bytes, privacy: .public) \
-                                    elapsedMs=\(nextTransportElapsedMs(since: pumpStart), privacy: .public)
+                                    elapsedMs=\(NextTransportGraduationFacade.elapsedMs(since: pumpStart), privacy: .public)
                                     """)
                             }
                             continuation.yield(chunk)
@@ -933,7 +940,7 @@ public final class MobileIrohRuntimeComposition:
                             conn=\(connID, privacy: .public) \
                             chunks=\(chunks, privacy: .public) \
                             bytes=\(bytes, privacy: .public) \
-                            elapsedMs=\(nextTransportElapsedMs(since: pumpStart), privacy: .public)
+                            elapsedMs=\(NextTransportGraduationFacade.elapsedMs(since: pumpStart), privacy: .public)
                             """)
                         continuation.finish()
                     } catch {
@@ -944,7 +951,7 @@ public final class MobileIrohRuntimeComposition:
                             cause=\(String(describing: error), privacy: .public) \
                             chunks=\(chunks, privacy: .public) \
                             bytes=\(bytes, privacy: .public) \
-                            elapsedMs=\(nextTransportElapsedMs(since: pumpStart), privacy: .public)
+                            elapsedMs=\(NextTransportGraduationFacade.elapsedMs(since: pumpStart), privacy: .public)
                             """)
                         continuation.finish(throwing: error)
                     }
@@ -961,20 +968,6 @@ public final class MobileIrohRuntimeComposition:
                 }
             }
         }
-        if NextTransportGraduationFacade.shared.requiresBridge(for: request) {
-            NextTransportGraduationFacade.shared.noteServedPath(
-                kind: "server-events", macID: request.expectedPeerDeviceID,
-                outcome: "fail-hard-throw")
-            nextTransportCompositionLog.error(
-                """
-                fail-hard: serverEventByteStream \
-                mac=\(nextTransportMacPrefix(request), privacy: .public) \
-                requires bridge but session is down; throwing NextTransportUnavailableError
-                """)
-            throw NextTransportUnavailableError()
-        }
-        NextTransportGraduationFacade.shared.noteServedPath(
-            kind: "server-events", macID: request.expectedPeerDeviceID, outcome: "legacy")
         #endif
         let runtime = try await preparedRuntimeForConnection()
         return try await runtime.serverEventByteStream(for: request)

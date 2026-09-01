@@ -98,7 +98,7 @@ struct NextTransportDebugMenuButtons: View {
         ) {
             Button {
                 enabled.toggle()
-                MobileHostNextTransportRuntime.shared.setEnabled(enabled)
+                MobileHostService.shared.nextTransportRuntime.setEnabled(enabled)
             } label: {
                 if enabled {
                     Label(
@@ -121,7 +121,7 @@ struct NextTransportDebugMenuButtons: View {
     }
 
     private var nextTransportStateSuffix: String {
-        let runtime = MobileHostNextTransportRuntime.shared
+        let runtime = MobileHostService.shared.nextTransportRuntime
         guard runtime.state != "off" else { return "" }
         let admitted = runtime.admissions
         let status = " · \(runtime.readiness) · \(runtime.state)"

@@ -63,16 +63,25 @@ public actor TransportHost {
     /// every lifecycle behavior is deterministic in tests. The P1 runtime
     /// advances it from a real clock; no timers live in this layer.
     private var currentTime: Int64 = 0
+    /// Wall-clock source used for operations that can arrive between explicit
+    /// lifecycle ticks (for example a relay push or grant renewal). Tests may
+    /// inject a deterministic epoch source; the compatibility fallback below
+    /// also keeps an explicitly simulated `serve(now:)` timeline stable.
+    private let epochNow: @Sendable () -> Int64
     public private(set) var counters = TransportCounters()
 
     public init(
         verifier: GrantVerifier,
         expiryGraceSeconds: Int64 = 86_400,
-        expiryWarningSeconds: Int64 = 3_600
+        expiryWarningSeconds: Int64 = 3_600,
+        epochNow: @escaping @Sendable () -> Int64 = {
+            Int64(Date().timeIntervalSince1970)
+        }
     ) {
         self.verifier = verifier
         self.expiryGraceSeconds = expiryGraceSeconds
         self.expiryWarningSeconds = expiryWarningSeconds
+        self.epochNow = epochNow
     }
 
     public func revokeGrant(id: String) {
@@ -117,6 +126,22 @@ public actor TransportHost {
     public var sessionCount: Int { sessions.count }
 
     public var sessionDeviceIDs: [String] { sessions.keys.map(\.deviceID) }
+
+    /// Number of admitted sessions whose chat service has finished registering.
+    /// This is an observable readiness signal for chat/fan-out callers and
+    /// tests; it avoids guessing with a fixed number of scheduler yields.
+    public var chatEndpointCount: Int { chatEndpoints.count }
+
+    /// Reads a fresh epoch while preserving deterministic simulated timelines.
+    /// A test that supplies `serve(now:)` values far from the wall clock is
+    /// treated as explicitly clocked until the next host instance is created.
+    private func verificationNow() -> Int64 {
+        let wall = epochNow()
+        guard currentTime != 0, abs(wall - currentTime) > 86_400 else {
+            return wall
+        }
+        return currentTime
+    }
 
     /// Reconcile the table against the substrate's OWN liveness signal.
     /// Stream-EOF-driven reaping lags a silent peer death by up to QUIC's
@@ -376,6 +401,10 @@ public actor TransportHost {
         for (key, session) in sessions {
             guard let expiresAt = session.grant.expiresAt else { continue }
             if now >= expiresAt + expiryGraceSeconds {
+                // The snapshot may be stale after the close await below; only
+                // remove the entry if this exact connection still owns the key.
+                guard let current = sessions[key], current.connection === session.connection
+                else { continue }
                 if TransportDebugLog.enabled {
                     TransportDebugLog.host.notice(
                         """
@@ -387,11 +416,14 @@ public actor TransportHost {
                         """)
                 }
                 sessions.removeValue(forKey: key)
-                session.cancelServices()
-                await session.connection.closeAll(
+                current.cancelServices()
+                await current.connection.closeAll(
                     reason: ConnectionTermination(code: CloseReason.grantExpired.code))
                 counters.closesByCode[CloseReason.grantExpired.code, default: 0] += 1
             } else if now >= expiresAt - expiryWarningSeconds, !session.warnedExpiring {
+                guard let current = sessions[key], current.connection === session.connection,
+                    !current.warnedExpiring
+                else { continue }
                 if TransportDebugLog.enabled {
                     TransportDebugLog.host.notice(
                         """
@@ -401,8 +433,12 @@ public actor TransportHost {
                         warningSeconds=\(self.expiryWarningSeconds, privacy: .public)
                         """)
                 }
+                let control = await current.connection.lane(Self.controlLaneName)
+                // A supersession may have happened while lane() suspended.
+                guard let latest = sessions[key], latest.connection === current.connection,
+                    !latest.warnedExpiring
+                else { continue }
                 sessions[key]?.warnedExpiring = true
-                let control = await session.connection.lane(Self.controlLaneName)
                 try? await control.send(Frame.grantExpiring(expiresAt: expiresAt))
             }
         }
@@ -433,13 +469,15 @@ public actor TransportHost {
         deviceID: String, appIdentity: String, url: String, token: String
     ) async -> Bool {
         _ = await reapClosedSessions()  // never claim delivery to a zombie
+        let now = verificationNow()
+        currentTime = now
         let key = SessionKey(deviceID: deviceID, appIdentity: appIdentity)
         // Insert is also the prune point: without it, keys for devices that
         // never reconnect accumulate expired tokens forever.
         pendingRelayCredentials = pendingRelayCredentials.filter {
-            !Self.credentialExpired(token: $0.value.token, now: currentTime)
+            !Self.credentialExpired(token: $0.value.token, now: now)
         }
-        if Self.credentialExpired(token: token, now: currentTime) {
+        if Self.credentialExpired(token: token, now: now) {
             if TransportDebugLog.enabled {
                 TransportDebugLog.host.error(
                     """
@@ -447,7 +485,7 @@ public actor TransportHost {
                     device=\(TransportDebugLog.prefix(deviceID), privacy: .public) \
                     url=\(url, privacy: .public) \
                     tokenExp=\(IrohSubstrate.tokenExpiry(token).map(String.init) ?? "unparsed", privacy: .public) \
-                    now=\(self.currentTime, privacy: .public)
+                    now=\(now, privacy: .public)
                     """)
             }
             return false
@@ -467,6 +505,11 @@ public actor TransportHost {
             return false
         }
         let control = await session.connection.lane(Self.controlLaneName)
+        // A reconnect can supersede this session while lane() suspends. Do
+        // not deliver a fresh credential to a stale connection.
+        guard sessions[key]?.connection === session.connection else {
+            return false
+        }
         do {
             try await control.send(Frame.relayCredential(url: url, token: token))
             if TransportDebugLog.enabled {
@@ -587,7 +630,7 @@ public actor TransportHost {
             let decision = verifier.decide(
                 grant: renewed, presentedByKey: session.deviceKey,
                 presentedByDeviceID: key.deviceID, presentedByApp: key.appIdentity,
-                revokedGrantIDs: revokedGrantIDs, now: currentTime)
+                revokedGrantIDs: revokedGrantIDs, now: verificationNow())
             switch decision {
             case .admit:
                 sessions[key]?.grant = renewed

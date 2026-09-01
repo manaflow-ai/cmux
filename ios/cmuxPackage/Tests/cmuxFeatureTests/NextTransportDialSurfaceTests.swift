@@ -1,4 +1,5 @@
 #if DEBUG
+import CmuxNextTransport
 import CmuxMobileRPC
 import Foundation
 import Testing
@@ -10,6 +11,18 @@ import Testing
 @MainActor
 @Suite("Next-transport dial surface")
 struct NextTransportDialSurfaceTests {
+    /// Gives each test an isolated defaults domain and Keychain namespace so
+    /// identity/credential persistence from another test or app install cannot
+    /// influence the assertions.
+    private func makeClient() -> NextTransportDialClient {
+        let id = UUID().uuidString
+        let defaults = UserDefaults(suiteName: "cmux.next-transport-tests.\(id)")
+            ?? UserDefaults()
+        return NextTransportDialClient(
+            defaults: defaults,
+            keychainService: "dev.cmux.nextTransport.tests.\(id)")
+    }
+
     // MARK: typed denial policy
 
     @Test(
@@ -19,7 +32,11 @@ struct NextTransportDialSurfaceTests {
             "key-mismatch", "device-id-mismatch", "app-mismatch",
         ])
     func typedPolicyInvalidatesCredentialDenials(raw: String) {
-        #expect(NextTransportDenialPolicy.shouldInvalidateBootstrap(denialRawValue: raw))
+        guard let denial = DenialCode(rawValue: raw) else {
+            Issue.record("unknown denial code \(raw)")
+            return
+        }
+        #expect(NextTransportDenialPolicy().shouldInvalidateBootstrap(denial: denial))
     }
 
     @Test(
@@ -29,25 +46,21 @@ struct NextTransportDialSurfaceTests {
             "connection-lost", "network-unavailable", "user-requested",
         ])
     func typedPolicyKeepsBootstrapOtherwise(raw: String) {
-        #expect(!NextTransportDenialPolicy.shouldInvalidateBootstrap(denialRawValue: raw))
+        #expect(!NextTransportDenialPolicy().shouldInvalidateBootstrap(denial: DenialCode(rawValue: raw)))
     }
 
     @Test("typed policy treats no-denial as keep")
     func typedPolicyNilKeepsBootstrap() {
-        #expect(!NextTransportDenialPolicy.shouldInvalidateBootstrap(denialRawValue: nil))
+        #expect(!NextTransportDenialPolicy().shouldInvalidateBootstrap(denial: nil))
     }
 
     @Test("the display string round-trips through the string policy")
     func displayStringRoundTrips() {
         let closed = NextTransportDialState.closed(code: "expired", denial: nil)
         #expect(closed.displayDescription == "closed (expired)")
-        #expect(
-            NextTransportDenialPolicy.shouldInvalidateBootstrap(
-                stateDescription: closed.displayDescription))
+        #expect(NextTransportDenialPolicy().shouldInvalidateBootstrap(denial: .expired))
         let lost = NextTransportDialState.closed(code: "connection-lost", denial: nil)
-        #expect(
-            !NextTransportDenialPolicy.shouldInvalidateBootstrap(
-                stateDescription: lost.displayDescription))
+        #expect(!NextTransportDenialPolicy().shouldInvalidateBootstrap(denial: nil))
     }
 
     // MARK: probe error classifier
@@ -57,26 +70,26 @@ struct NextTransportDialSurfaceTests {
         arguments: ["method_not_found", "unknown_method", "unsupported_method", " Method_Not_Found "])
     func probeClassifierMethodNotFoundCodes(code: String) {
         let error = MobileShellConnectionError.rpcError(code, "Unknown method")
-        #expect(NextTransportProbeErrorClassifier.isMethodNotFound(error))
+        #expect(NextTransportProbeErrorClassifier().isMethodNotFound(error))
     }
 
     @Test("other rpc errors and transport failures stay inconclusive")
     func probeClassifierTransientErrors() {
         #expect(
-            !NextTransportProbeErrorClassifier.isMethodNotFound(
+            !NextTransportProbeErrorClassifier().isMethodNotFound(
                 MobileShellConnectionError.rpcError("internal_error", "boom")))
         #expect(
-            !NextTransportProbeErrorClassifier.isMethodNotFound(
+            !NextTransportProbeErrorClassifier().isMethodNotFound(
                 MobileShellConnectionError.requestTimedOut))
         #expect(
-            !NextTransportProbeErrorClassifier.isMethodNotFound(
+            !NextTransportProbeErrorClassifier().isMethodNotFound(
                 MobileShellConnectionError.connectionClosed))
     }
 
     @Test("a code-less rpcError still matches on the message")
     func probeClassifierMessageFallback() {
         let error = MobileShellConnectionError.rpcError(nil, "Method not found: mobile.next_transport.pair")
-        #expect(NextTransportProbeErrorClassifier.isMethodNotFound(error))
+        #expect(NextTransportProbeErrorClassifier().isMethodNotFound(error))
     }
 
     // MARK: configure() atomicity
@@ -101,7 +114,7 @@ struct NextTransportDialSurfaceTests {
 
     @Test("a malformed ticket commits nothing")
     func malformedTicketCommitsNothing() {
-        let client = NextTransportDialClient()
+        let client = makeClient()
         #expect(throws: NextTransportConfigureError.malformedTicket) {
             try client.configure(ticketJSON: "not json", grantJSON: "{}")
         }
@@ -110,7 +123,7 @@ struct NextTransportDialSurfaceTests {
 
     @Test("a good ticket with a malformed grant commits NOTHING (atomicity)")
     func malformedGrantCommitsNoTicketState() {
-        let client = NextTransportDialClient()
+        let client = makeClient()
         #expect(throws: NextTransportConfigureError.malformedGrant) {
             try client.configure(
                 ticketJSON: ticketJSON(keyB64: Data("host".utf8).base64EncodedString()),
@@ -124,7 +137,7 @@ struct NextTransportDialSurfaceTests {
 
     @Test("a grant minted for a different device key is a typed rejection")
     func grantKeyMismatchRejected() {
-        let client = NextTransportDialClient()
+        let client = makeClient()
         let otherKey = Data(repeating: 7, count: 32).base64EncodedString()
         #expect(throws: NextTransportConfigureError.grantKeyMismatch) {
             try client.configure(
@@ -137,7 +150,7 @@ struct NextTransportDialSurfaceTests {
 
     @Test("a matching pair configures, and a later bad pair keeps it")
     func validPairConfiguresAndBadReconfigureKeepsIt() throws {
-        let client = NextTransportDialClient()
+        let client = makeClient()
         let hostKey = Data("host-key".utf8).base64EncodedString()
         try client.configure(
             ticketJSON: ticketJSON(keyB64: hostKey),

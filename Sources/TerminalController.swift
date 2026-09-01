@@ -1683,7 +1683,8 @@ class TerminalController {
             // instead of the internal-error backstop below.
             if request.method == "debug.sidebar.simulate_drag"
                 || request.method == "debug.window.screenshot"
-                || request.method == "debug.mobile.transport.disconnect" {
+                || request.method == "debug.mobile.transport.disconnect"
+                || request.method == "mobile.next_transport.pair" {
                 return v2Error(id: request.id, code: "method_not_found", message: "Unknown method")
             }
 #endif
@@ -11735,22 +11736,22 @@ class TerminalController {
     /// rung that refused it (tickets exist only at `.published`).
     private nonisolated func nextTransportTicketText() -> String {
         #if DEBUG
-        let semaphore = DispatchSemaphore(value: 0)
-        nonisolated(unsafe) var reply = ""
-        Task { @MainActor in
-            switch MobileHostNextTransportRuntime.shared.mintTicketJSON() {
+        return v2MainSync {
+            switch MobileHostService.shared.nextTransportRuntime.mintTicketJSON() {
             case .success(let ticket):
-                reply = ticket
+                return ticket
             case .failure(let failure):
-                reply =
-                    "ERROR: next-transport ticket unavailable: \(failure); enable it in Debug > Next Transport"
+                return String(
+                    localized: "cli.nextTransport.ticketUnavailable",
+                    defaultValue: "Next-transport ticket unavailable: \(failure). Enable it in Debug > Next Transport."
+                )
             }
-            semaphore.signal()
         }
-        semaphore.wait()
-        return reply
         #else
-        return "ERROR: next-transport is a DEBUG-only surface"
+        return String(
+            localized: "cli.nextTransport.debugOnly",
+            defaultValue: "Next transport is available only in a debug build."
+        )
         #endif
     }
 
@@ -11759,26 +11760,29 @@ class TerminalController {
         #if DEBUG
         let parts = args.split(separator: " ").map(String.init)
         guard parts.count == 3, let key = Data(base64Encoded: parts[1]) else {
-            return "ERROR: Usage: next_transport_grant <deviceId> <devicePublicKeyB64> <appIdentity>"
+            return String(
+                localized: "cli.nextTransport.grantUsage",
+                defaultValue: "Usage: next_transport_grant <deviceId> <devicePublicKeyB64> <appIdentity>"
+            )
         }
-        let semaphore = DispatchSemaphore(value: 0)
-        nonisolated(unsafe) var reply = ""
-        Task { @MainActor in
-            switch MobileHostNextTransportRuntime.shared.mintGrant(
+        return v2MainSync {
+            switch MobileHostService.shared.nextTransportRuntime.mintGrant(
                 deviceID: parts[0], devicePublicKey: key, appIdentity: parts[2])
             {
             case .success(let grant):
-                reply = grant
+                return grant
             case .failure(let failure):
-                reply =
-                    "ERROR: next-transport grant unavailable: \(failure); enable it in Debug > Next Transport"
+                return String(
+                    localized: "cli.nextTransport.grantUnavailable",
+                    defaultValue: "Next-transport grant unavailable: \(failure). Enable it in Debug > Next Transport."
+                )
             }
-            semaphore.signal()
         }
-        semaphore.wait()
-        return reply
         #else
-        return "ERROR: next-transport is a DEBUG-only surface"
+        return String(
+            localized: "cli.nextTransport.debugOnly",
+            defaultValue: "Next transport is available only in a debug build."
+        )
         #endif
     }
 
@@ -11800,7 +11804,7 @@ class TerminalController {
                 message: "device_id, device_public_key (base64), app_identity required",
                 data: nil)
         }
-        let runtime = MobileHostNextTransportRuntime.shared
+        let runtime = MobileHostService.shared.nextTransportRuntime
         guard runtime.isEnabled else {
             return .err(
                 code: "unavailable",

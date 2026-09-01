@@ -3165,6 +3165,99 @@ final class SocketClient {
 }
 
 struct CMUXCLI {
+    private struct NextTransportMaterialArguments {
+        let arguments: [String]
+        let outputURL: URL?
+    }
+
+    /// Parses the protected handoff option without ever forwarding it to the
+    /// socket command as pairing data.
+    private func nextTransportMaterialArguments(
+        _ rawArguments: [String]
+    ) throws -> NextTransportMaterialArguments {
+        var arguments: [String] = []
+        var outputURL: URL?
+        var index = 0
+        while index < rawArguments.count {
+            let argument = rawArguments[index]
+            if argument == "--output" {
+                guard index + 1 < rawArguments.count,
+                    !rawArguments[index + 1].isEmpty
+                else {
+                    throw CLIError(
+                        message: String(
+                            localized: "cli.nextTransport.outputUsage",
+                            defaultValue: "Usage: add --output <private-file> to receive pairing material."
+                        ))
+                }
+                outputURL = URL(fileURLWithPath: rawArguments[index + 1])
+                index += 2
+            } else {
+                arguments.append(argument)
+                index += 1
+            }
+        }
+        return NextTransportMaterialArguments(arguments: arguments, outputURL: outputURL)
+    }
+
+    /// Writes ticket/grant JSON to a caller-selected 0600 file. Pairing
+    /// capabilities are intentionally never printed to a terminal or captured
+    /// in shell history; errors remain generic and localized.
+    private func presentNextTransportMaterial(
+        response: String, command: String, commandArgs: [String]
+    ) throws {
+        guard !response.hasPrefix("ERROR:") else {
+            print(
+                String(
+                    localized: "cli.nextTransport.commandFailed",
+                    defaultValue: "Next-transport command failed. Check Debug > Next Transport."
+                ))
+            return
+        }
+        let parsed = try nextTransportMaterialArguments(commandArgs)
+        guard let outputURL = parsed.outputURL else {
+            print(
+                String(
+                    localized: "cli.nextTransport.outputRequired",
+                    defaultValue: "Pairing material withheld. Re-run cmux \(command) with --output <private-file>."
+                ))
+            return
+        }
+        if FileManager.default.fileExists(atPath: outputURL.path),
+            (try? outputURL.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true
+        {
+            throw CLIError(
+                message: String(
+                    localized: "cli.nextTransport.outputSymlink",
+                    defaultValue: "Refusing to write pairing material through a symbolic link."
+                ))
+        }
+        guard let data = response.data(using: .utf8) else {
+            throw CLIError(
+                message: String(
+                    localized: "cli.nextTransport.outputWriteFailed",
+                    defaultValue: "Unable to write pairing material."
+                ))
+        }
+        do {
+            try data.write(to: outputURL, options: .atomic)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: NSNumber(value: 0o600)],
+                ofItemAtPath: outputURL.path)
+        } catch {
+            throw CLIError(
+                message: String(
+                    localized: "cli.nextTransport.outputWriteFailed",
+                    defaultValue: "Unable to write pairing material."
+                ))
+        }
+        print(
+            String(
+                localized: "cli.nextTransport.materialWritten",
+                defaultValue: "Pairing material written to \(outputURL.path)."
+            ))
+    }
+
     let args: [String]
     let initialSIGPIPEInspectionPayload: [String: Any]?
     let simulatorOwnedCommandRunner: any SimulatorOwnedCommandRunning
@@ -4277,14 +4370,18 @@ struct CMUXCLI {
             print(response)
 
         case "next-transport-ticket":
+            _ = try nextTransportMaterialArguments(commandArgs)
             let response = try sendV1Command("next_transport_ticket", client: client)
-            print(response)
+            try presentNextTransportMaterial(
+                response: response, command: command, commandArgs: commandArgs)
 
         case "next-transport-grant":
             // args: <deviceId> <devicePublicKeyB64> <appIdentity>
+            let materialArgs = try nextTransportMaterialArguments(commandArgs)
             let response = try sendV1Command(
-                "next_transport_grant \(commandArgs.joined(separator: " "))", client: client)
-            print(response)
+                "next_transport_grant \(materialArgs.arguments.joined(separator: " "))", client: client)
+            try presentNextTransportMaterial(
+                response: response, command: command, commandArgs: commandArgs)
 
         case "capabilities":
             let response = try client.sendV2(method: "system.capabilities")
@@ -16522,6 +16619,24 @@ struct CMUXCLI {
 
                 Print the host's Iroh Connection Report as a plain-language timeline,
                 the same data as Settings > Networking > Connection Report.
+                """
+            )
+        case "next-transport-ticket":
+            return String(
+                localized: "cli.help.nextTransportTicket",
+                defaultValue: """
+                Usage: cmux next-transport-ticket --output <private-file>
+
+                Write the debug next-transport ticket to a 0600 file. Pairing material is never printed.
+                """
+            )
+        case "next-transport-grant":
+            return String(
+                localized: "cli.help.nextTransportGrant",
+                defaultValue: """
+                Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity> --output <private-file>
+
+                Write the debug next-transport grant to a 0600 file. Pairing material is never printed.
                 """
             )
         case "capabilities":

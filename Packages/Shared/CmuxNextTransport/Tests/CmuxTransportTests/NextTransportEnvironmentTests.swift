@@ -69,8 +69,8 @@ struct NextTransportEnvironmentTests {
     /// An unsigned JWT whose payload carries only `exp`, for the offline
     /// expiry-fallback paths (IrohSubstrate.tokenExpiry only base64-decodes
     /// the middle segment).
-    private static func fakeJWT(exp: Int64) -> String {
-        let payload = try! JSONEncoder().encode(JSONValue.object(["exp": .int(exp)]))
+    private static func fakeJWT(exp: Int64) throws -> String {
+        let payload = try JSONEncoder().encode(JSONValue.object(["exp": .int(exp)]))
         let b64 = payload.base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
@@ -212,6 +212,28 @@ struct NextTransportEnvironmentTests {
         #expect(script.requests.isEmpty)
     }
 
+    @Test("Remote plaintext broker URLs are rejected before credentials leave the process")
+    func remotePlaintextURLIsRejected() async throws {
+        let script = ScriptedBroker { _ in (500, "must not be called") }
+        let client = BrokerCredentialClient(
+            environment: Self.environment(broker: "http://broker.example"),
+            identity: Self.identity(),
+            auth: .session(tokens: Self.sessionTokens()),
+            transport: script.transport)
+
+        do {
+            _ = try await client.mint(preferredUrl: nil)
+            Issue.record("remote plaintext broker must be rejected")
+        } catch let error as BrokerCredentialClient.BrokerError {
+            guard case .malformedURL(let step, _) = error else {
+                Issue.record("expected malformedURL, got \(error)")
+                return
+            }
+            #expect(step == "broker challenge")
+        }
+        #expect(script.requests.isEmpty)
+    }
+
     @Test("Structured endpoint_already_bound register still mints via /api/relay/token")
     func structuredAlreadyBoundStillMints() async throws {
         let script = ScriptedBroker { request in
@@ -297,7 +319,7 @@ struct NextTransportEnvironmentTests {
 
     @Test("Missing server expiry falls back to the token's own JWT exp claim")
     func expiryFallsBackToJwtExp() async throws {
-        let jwt = Self.fakeJWT(exp: 1_234_567)
+        let jwt = try Self.fakeJWT(exp: 1_234_567)
         let script = ScriptedBroker { request in
             switch request.url!.path {
             case "/api/devices/iroh/challenge":

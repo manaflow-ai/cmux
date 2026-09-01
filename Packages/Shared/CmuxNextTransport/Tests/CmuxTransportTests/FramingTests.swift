@@ -43,6 +43,21 @@ struct FramingTests {
         #expect(decoded == [first, second])
     }
 
+    @Test("Decoder exposes exact bytes for a framed-to-raw handoff")
+    func preservesEncodedFrameBytes() throws {
+        // Deliberately use a JSON key order/whitespace that a new encoder would
+        // not necessarily reproduce.
+        let body = Data(#"{ "p": { "b": 2, "a": 1 }, "t": "raw.open", "v": 1 }"#.utf8)
+        var wire = Data()
+        let length = UInt32(body.count).bigEndian
+        withUnsafeBytes(of: length) { wire.append(contentsOf: $0) }
+        wire.append(body)
+
+        var decoder = FrameDecoder(captureEncodedFrames: true)
+        _ = try decoder.feed(wire)
+        #expect(decoder.drainEncodedFrames() == [wire])
+    }
+
     @Test("Rejects oversize frames before buffering them")
     func oversizeRejected() throws {
         var decoder = FrameDecoder()

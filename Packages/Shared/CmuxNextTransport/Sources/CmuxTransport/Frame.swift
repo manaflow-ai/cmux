@@ -111,8 +111,20 @@ public struct FrameEncoder: Sendable {
 /// get back every complete frame.
 public struct FrameDecoder: Sendable {
     private var buffer = Data()
+    private let capturesEncodedFrames: Bool
+    /// Encoded bytes for frames emitted by the most recent `feed` calls.
+    /// Consumers that hand a stream from framed to raw mode can drain these
+    /// bytes verbatim instead of re-encoding decoded JSON (which could change
+    /// ordering/escaping and corrupt the legacy handoff).
+    private var encodedFrames: [Data] = []
 
-    public init() {}
+    /// Creates a decoder.
+    /// - Parameter captureEncodedFrames: Retain complete wire frames for a
+    ///   later framed-to-raw handoff. Keep this false for ordinary decoding so
+    ///   consumed bytes are released immediately.
+    public init(captureEncodedFrames: Bool = false) {
+        self.capturesEncodedFrames = captureEncodedFrames
+    }
 
     /// Graduation bridge: hands back undecoded buffered bytes when a stream
     /// switches from framed handshake to raw passthrough.
@@ -120,6 +132,14 @@ public struct FrameDecoder: Sendable {
         let remainder = buffer
         buffer.removeAll()
         return remainder
+    }
+
+    /// Returns encoded bytes for every frame returned by `feed` since the
+    /// previous call, in the same order. The bytes are length prefix plus body.
+    public mutating func drainEncodedFrames() -> [Data] {
+        let frames = encodedFrames
+        encodedFrames.removeAll(keepingCapacity: true)
+        return frames
     }
 
     public mutating func feed(_ chunk: Data) throws -> [Frame] {
@@ -131,7 +151,8 @@ public struct FrameDecoder: Sendable {
                 throw FrameCodecError.frameTooLarge(length: length)
             }
             guard buffer.count >= 4 + length else { break }
-            let body = Data(buffer.dropFirst(4).prefix(length))
+            let encoded = Data(buffer.prefix(4 + length))
+            let body = Data(encoded.dropFirst(4))
             buffer.removeFirst(4 + length)
             let envelope: FrameEnvelope
             do {
@@ -143,6 +164,9 @@ public struct FrameDecoder: Sendable {
                 throw FrameCodecError.unsupportedVersion(envelope.v)
             }
             frames.append(Frame(type: envelope.t, payload: envelope.p?.objectValue ?? [:]))
+            if capturesEncodedFrames {
+                encodedFrames.append(encoded)
+            }
         }
         return frames
     }

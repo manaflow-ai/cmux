@@ -32,10 +32,14 @@ enum MobileHostNextTransportBridge {
     /// Serves one admitted connection until it closes. Mirrors the legacy
     /// handleTransport assembly: supervisor owns the lifetime, control exit
     /// closes the connection and joins the lanes.
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
     static func run(
         connection: IrohPeerConnection,
         grant: PairingGrant,
-        deviceKey: Data
+        deviceKey: Data,
+        isCurrent: @escaping @Sendable () async -> Bool
     ) async {
         let bridgeStart = ContinuousClock.now
         let connID = String(UInt(bitPattern: ObjectIdentifier(connection).hashValue) & 0xFFFF_FFFF, radix: 16)
@@ -45,7 +49,7 @@ enum MobileHostNextTransportBridge {
             bridge assembly begin conn=\(connID, privacy: .public) \
             device=\(devicePrefix, privacy: .public) \
             app=\(grant.appIdentity, privacy: .public) \
-            grantID=\(grant.grantID, privacy: .public)
+            grantID=\(String(grant.grantID.prefix(8)), privacy: .public)
             """)
         guard let peer = synthesizedPeer(grant: grant, deviceKey: deviceKey) else {
             mobileHostNextTransportLog.error(
@@ -78,20 +82,6 @@ enum MobileHostNextTransportBridge {
             bridge: event writer + lane router assembled conn=\(connID, privacy: .public) \
             device=\(devicePrefix, privacy: .public)
             """)
-        let isCurrent: @Sendable () async -> Bool = {
-            let enabled = await MainActor.run {
-                MobileHostNextTransportRuntime.shared.isEnabled
-            }
-            guard enabled else {
-                mobileHostNextTransportLog.notice(
-                    """
-                    bridge: isCurrent=false (runtime disabled) \
-                    conn=\(connID, privacy: .public)
-                    """)
-                return false
-            }
-            return await !connection.isClosed
-        }
         let supervisor = CmxIrohAdmittedConnectionSupervisor(
             runControl: {
                 guard let control = try? await acceptor.nextControlStream() else {
@@ -140,7 +130,7 @@ enum MobileHostNextTransportBridge {
             })
         mobileHostNextTransportLog.notice(
             """
-            bridge: serving device \(grant.deviceID, privacy: .public) over next transport \
+            bridge: serving device \(devicePrefix, privacy: .public) over next transport \
             conn=\(connID, privacy: .public); supervisor starting
             """)
         let exit = await supervisor.run()
@@ -150,7 +140,7 @@ enum MobileHostNextTransportBridge {
             device=\(devicePrefix, privacy: .public) \
             lifecycle=\(exit.lifecycle.rawValue, privacy: .public) \
             failure=\(String(describing: exit.failure), privacy: .public) \
-            elapsedMs=\(mobileHostNextTransportElapsedMs(since: bridgeStart), privacy: .public)
+            elapsedMs=\(MobileHostNextTransportRuntime.elapsedMs(since: bridgeStart), privacy: .public)
             """)
     }
 }

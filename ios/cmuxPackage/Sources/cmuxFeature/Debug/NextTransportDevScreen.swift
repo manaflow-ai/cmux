@@ -11,13 +11,17 @@ import SwiftUI
 /// `next_transport_ticket` / `next_transport_grant` socket verbs), Connect,
 /// then Run Echo for the 50-chunk checksummed proof.
 struct NextTransportDevScreen: View {
-    @State private var client = NextTransportDialClient()
+    @State private var client: NextTransportDialClient
     @State private var ticketJSON = ""
     @State private var grantJSON = ""
     @State private var configureNote: String?
     // Default OFF: routing over the next transport is a dev opt-in.
     @AppStorage(NextTransportGraduationFacade.routeTrafficDefaultsKey)
     private var routeAppTraffic = false
+
+    init(brokerFactory: NextTransportDialClient.BrokerFactory? = nil) {
+        _client = State(initialValue: NextTransportDialClient(brokerFactory: brokerFactory))
+    }
 
     var body: some View {
         NavigationStack {
@@ -101,7 +105,7 @@ struct NextTransportDevScreen: View {
                             configureNote = String(
                                 localized: "nextTransport.dev.configure.rejected",
                                 defaultValue:
-                                    "Rejected: \(nextTransportShortErrorCode(error))")
+                                    "Rejected: \(NextTransportDialClient.shortErrorCode(error))")
                         }
                     }
                     .disabled(ticketJSON.isEmpty || grantJSON.isEmpty)

@@ -7,7 +7,7 @@ import Observation
 import OSLog
 import Security
 
-private let nextTransportLog = Logger(
+nonisolated private let nextTransportLog = Logger(
     subsystem: "dev.cmux.ios",
     category: "next-transport-dial"
 )
@@ -51,42 +51,6 @@ public enum NextTransportConfigureError: Error, Equatable {
     case grantAppMismatch
 }
 
-/// Short stable code for one error, safe for `events`/UI surfaces. The full
-/// error text goes to os.log only (raw descriptions can carry URLs, peer
-/// addresses, or token fragments).
-func nextTransportShortErrorCode(_ error: any Error) -> String {
-    switch error {
-    case is CancellationError:
-        return "cancelled"
-    case let transport as TransportError:
-        switch transport {
-        case .pipeClosed: return "pipe-closed"
-        case .connectionClosedBeforeReply: return "closed-before-reply"
-        case .unexpectedFrame: return "unexpected-frame"
-        case .dialTimeout: return "dial-timeout"
-        }
-    case let broker as BrokerCredentialClient.BrokerError:
-        switch broker {
-        case .http(let step, let status, _, _): return "broker-http-\(step)-\(status)"
-        case .malformedURL: return "broker-url"
-        case .shape: return "broker-shape"
-        case .notSignedIn: return "not-signed-in"
-        }
-    case let configure as NextTransportConfigureError:
-        switch configure {
-        case .malformedTicket: return "malformed-ticket"
-        case .malformedGrant: return "malformed-grant"
-        case .grantKeyMismatch: return "grant-key-mismatch"
-        case .grantDeviceIDMismatch: return "grant-device-id-mismatch"
-        case .grantAppMismatch: return "grant-app-mismatch"
-        }
-    case let url as URLError:
-        return "url-\(url.code.rawValue)"
-    default:
-        return String(describing: type(of: error))
-    }
-}
-
 /// Graduation P4 slice 3: the iOS dev dial path for the parallel
 /// next-transport host (manaflow-ai/cmux#10629). DEBUG-only; nothing here
 /// touches the shipping CmuxIrohTransport paths.
@@ -101,6 +65,51 @@ func nextTransportShortErrorCode(_ error: any Error) -> String {
 @MainActor
 @Observable
 public final class NextTransportDialClient {
+    /// Factory for an app-session-backed broker. The composition root injects
+    /// this per client; no process-wide mutable broker state is consulted.
+    public typealias BrokerFactory = @MainActor (PeerIdentity) -> BrokerCredentialClient
+
+    /// Elapsed whole milliseconds used by dial diagnostics.
+    nonisolated static func elapsedMs(since start: ContinuousClock.Instant) -> Int64 {
+        let elapsed = start.duration(to: ContinuousClock.now)
+        return Int64(elapsed.components.seconds) * 1_000
+            + Int64(elapsed.components.attoseconds / 1_000_000_000_000_000)
+    }
+
+    /// Short stable code for one error, safe for events/UI surfaces. Raw
+    /// descriptions remain confined to the OS log.
+    nonisolated static func shortErrorCode(_ error: any Error) -> String {
+        switch error {
+        case is CancellationError:
+            return "cancelled"
+        case let transport as TransportError:
+            switch transport {
+            case .pipeClosed: return "pipe-closed"
+            case .connectionClosedBeforeReply: return "closed-before-reply"
+            case .unexpectedFrame: return "unexpected-frame"
+            case .dialTimeout: return "dial-timeout"
+            }
+        case let broker as BrokerCredentialClient.BrokerError:
+            switch broker {
+            case .http(let step, let status, _, _): return "broker-http-\(step)-\(status)"
+            case .malformedURL: return "broker-url"
+            case .shape: return "broker-shape"
+            case .notSignedIn: return "not-signed-in"
+            }
+        case let configure as NextTransportConfigureError:
+            switch configure {
+            case .malformedTicket: return "malformed-ticket"
+            case .malformedGrant: return "malformed-grant"
+            case .grantKeyMismatch: return "grant-key-mismatch"
+            case .grantDeviceIDMismatch: return "grant-device-id-mismatch"
+            case .grantAppMismatch: return "grant-app-mismatch"
+            }
+        case let url as URLError:
+            return "url-\(url.code.rawValue)"
+        default:
+            return String(describing: type(of: error))
+        }
+    }
     /// Typed session state; `state` is its display string.
     public private(set) var dialState: NextTransportDialState = .idle
     /// Display string derived from `dialState`, for the dev screen.
@@ -146,58 +155,45 @@ public final class NextTransportDialClient {
     /// own at the tick after the client is released (no deinit needed; a
     /// MainActor deinit cannot touch isolated state under Swift 6).
     private var renewTask: Task<Void, Never>?
+    /// Observation of the owner state is retained so disconnect can cancel it
+    /// before a facade drops this client.
+    private var stateObservationTask: Task<Void, Never>?
+    private let brokerFactory: BrokerFactory?
+    private let defaults: UserDefaults
+    private let keychainService: String
+    private let pushedRelayKeychainService: String
+    private let sleep: @Sendable (Duration) async throws -> Void
 
-    /// The app-session credential source, installed once at composition boot
-    /// (`MobileIrohRuntimeComposition.configure`). A home-screen launch has
-    /// no dev env, so this is how a real phone mints relay credentials for
-    /// its next-transport identity: the same signed-in Stack session and the
-    /// same broker origin the legacy transport uses. Env credentials keep
-    /// precedence for dev launches.
-    private static var sessionBrokerFactory:
-        (@MainActor (PeerIdentity) -> BrokerCredentialClient)?
+    /// `UserDefaults` is thread-safe in its documented API but lacks a
+    /// `Sendable` conformance. This private box is only transferred to the
+    /// worker that performs the isolated identity read/write operations.
+    private final class DefaultsBox: @unchecked Sendable {
+        let value: UserDefaults
 
-    public init() {
-        identity = Self.loadOrCreateIdentity()
+        nonisolated init(_ value: UserDefaults) { self.value = value }
+    }
+
+    public init(
+        brokerFactory: BrokerFactory? = nil,
+        defaults: UserDefaults = .standard,
+        keychainService: String = "dev.cmux.nextTransport.ios.identity.v1",
+        sleep: @escaping @Sendable (Duration) async throws -> Void = { delay in
+            try await ContinuousClock().sleep(for: delay)
+        }
+    ) {
+        self.brokerFactory = brokerFactory
+        self.defaults = defaults
+        self.keychainService = keychainService
+        pushedRelayKeychainService = keychainService + ".relay"
+        self.sleep = sleep
+        identity = Self.loadOrCreateIdentity(
+            defaults: defaults, keychainService: keychainService)
         broker = Self.brokerClient(identity: identity)
         // A credential pushed on a previous run seeds the relay map as soon
         // as the endpoint boots.
-        pendingRelay = Self.persistedPushedCredential()
+        pendingRelay = Self.persistedPushedCredential(
+            defaults: defaults, keychainService: pushedRelayKeychainService)
         log("identity \(identity.deviceID.prefix(8))…, env broker \(broker == nil ? "absent" : "ready")")
-    }
-
-    /// Registers the signed-in session as a relay-credential source for
-    /// every dial client. Mirrors the legacy transport's broker auth: the
-    /// CURRENT session token pair per request, never a captured password.
-    public static func installSessionBroker(
-        brokerBaseURL: URL?, auth: AuthCoordinator
-    ) {
-        guard let brokerBaseURL else { return }
-        let tokens: @Sendable () async throws
-            -> BrokerCredentialClient.SessionTokens? = { [weak auth] in
-                guard let auth else { return nil }
-                do {
-                    let session = try await auth.authenticatedSessionSnapshot()
-                    return BrokerCredentialClient.SessionTokens(
-                        accessToken: session.accessToken,
-                        refreshToken: session.refreshToken)
-                } catch AuthError.unauthorized {
-                    // Definitively signed out: fail closed (LAN-only).
-                    return nil
-                }
-                // Every other failure (token store owned by a session
-                // transition, refresh in flight) rethrows: transient, the
-                // next mint retries with a live pair.
-            }
-        sessionBrokerFactory = { identity in
-            var environment = NextTransportEnvironment.staging
-            environment.brokerBaseURL = brokerBaseURL
-            return BrokerCredentialClient(
-                environment: environment,
-                identity: identity,
-                auth: .session(tokens: tokens),
-                tag: "next-transport-ios",
-                platform: "ios")
-        }
     }
 
     public var devicePublicKeyB64: String { identity.publicKeyData.base64EncodedString() }
@@ -284,7 +280,18 @@ public final class NextTransportDialClient {
     }
 
     public func disconnect() async {
+        stateObservationTask?.cancel()
+        stateObservationTask = nil
+        renewTask?.cancel()
+        renewTask = nil
         await owner?.stop(reason: .userRequested)
+        owner = nil
+        if let endpoint {
+            try? await endpoint.close()
+            self.endpoint = nil
+        }
+        dialState = .idle
+        sessionID = nil
     }
 
     /// The live admitted connection, for the graduation facade to open
@@ -301,6 +308,32 @@ public final class NextTransportDialClient {
             echoVerdict = "not connected"
             return
         }
+        let result = await Self.performEcho(connection: connection)
+        if let errorCode = result.errorCode {
+            echoVerdict = "echo failed (\(errorCode))"
+            log("echo failed (\(errorCode))")
+            return
+        }
+        echoVerdict = result.isClean
+            ? "CLEAN: \(result.received)/50 ordered, checksums OK"
+            : "DIRTY: \(result.received) received"
+        log("echo: \(echoVerdict ?? "")")
+    }
+
+    /// Runs the synthetic echo workload away from the UI actor. The returned
+    /// value is immutable, so only the caller publishes it to observable state.
+    private struct EchoResult: Sendable {
+        let received: Int
+        let isClean: Bool
+        let errorCode: String?
+    }
+
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
+    private nonisolated static func performEcho(
+        connection: any PeerConnection
+    ) async -> EchoResult {
         let echo = await connection.lane(TransportHost.echoLaneName)
         var validator = TrafficValidator()
         do {
@@ -308,15 +341,13 @@ public final class NextTransportDialClient {
                 try await echo.send(TerminalTraffic.chunk(seq: seq, size: 1_024, seed: 77))
                 if let reply = await echo.receive() { validator.ingest(reply) }
             }
+            return EchoResult(
+                received: validator.received, isClean: validator.isClean, errorCode: nil)
         } catch {
-            echoVerdict = "echo failed (\(nextTransportShortErrorCode(error)))"
-            log("echo failed", error: error)
-            return
+            return EchoResult(
+                received: validator.received, isClean: false,
+                errorCode: Self.shortErrorCode(error))
         }
-        echoVerdict = validator.isClean
-            ? "CLEAN: \(validator.received)/50 ordered, checksums OK"
-            : "DIRTY: \(validator.received) received"
-        log("echo: \(echoVerdict ?? "")")
     }
 
     /// Every dial attempt must complete or fail within this bound; UDP
@@ -328,7 +359,7 @@ public final class NextTransportDialClient {
         if endpoint == nil {
             // Env broker (dev launches) keeps precedence; a home-screen
             // launch falls back to the app's signed-in session.
-            if broker == nil, let factory = Self.sessionBrokerFactory {
+            if broker == nil, let factory = brokerFactory {
                 broker = factory(identity)
                 log("session-backed broker ready")
             }
@@ -351,14 +382,14 @@ public final class NextTransportDialClient {
                     log(
                         """
                         self-minted \(credentials.count) relay credentials in \
-                        \(nextTransportElapsedMs(since: mintStart))ms \
+                        \(Self.elapsedMs(since: mintStart))ms \
                         (first \(credentials.first?.relayUrl ?? "none"), \
                         tokenExp \(expiry.map(String.init) ?? "unparsed"))
                         """)
                 } catch {
                     log(
                         """
-                        relay mint failed after \(nextTransportElapsedMs(since: mintStart))ms; \
+                        relay mint failed after \(Self.elapsedMs(since: mintStart))ms; \
                         continuing LAN-only
                         """, error: error)
                 }
@@ -409,11 +440,11 @@ public final class NextTransportDialClient {
                         {
                         case .admitted(let sessionID):
                             await self.log(
-                                "admitted as \(sessionID) in \(nextTransportElapsedMs(since: dialStart))ms")
+                                "admitted as \(sessionID) in \(Self.elapsedMs(since: dialStart))ms")
                             return .admitted(conn, sessionID: sessionID)
                         case .denied(let code):
                             await self.log(
-                                "denied: \(code.rawValue) after \(nextTransportElapsedMs(since: dialStart))ms")
+                                "denied: \(code.rawValue) after \(Self.elapsedMs(since: dialStart))ms")
                             return .denied(code)
                         }
                     }
@@ -421,9 +452,9 @@ public final class NextTransportDialClient {
                         // Structured timeout race: the losing dial leg is
                         // cancelled below and unwinds through the owner's
                         // normal failure path.
-                        try await Task.sleep(for: Self.dialAttemptTimeout)
+                        try await self.sleep(Self.dialAttemptTimeout)
                         await self.log(
-                            "dial TIMEOUT after \(nextTransportElapsedMs(since: dialStart))ms")
+                            "dial TIMEOUT after \(Self.elapsedMs(since: dialStart))ms")
                         throw TransportError.dialTimeout
                     }
                     guard let first = try await group.next() else {
@@ -448,7 +479,7 @@ public final class NextTransportDialClient {
         }
         self.owner = owner
         await owner.endpointReady(true)
-        Task { [weak self] in
+        stateObservationTask = Task { [weak self] in
             for await state in await owner.states() {
                 await MainActor.run {
                     guard let self else { return }
@@ -523,6 +554,7 @@ public final class NextTransportDialClient {
 
     private static let pushedRelayDefaultsKey =
         "dev.cmux.nextTransport.ios.pushedRelayCredential"
+    private static let pushedRelayKeychainAccount = "pushed-relay"
 
     /// A ctl-lane `opt.relay-credential` push applies IMMEDIATELY to the
     /// live endpoint (make-before-break) and persists, so neither a quiet
@@ -533,8 +565,20 @@ public final class NextTransportDialClient {
             return
         }
         pendingRelay = (url, token)
-        UserDefaults.standard.set(
-            ["url": url, "token": token], forKey: Self.pushedRelayDefaultsKey)
+        let payload: [String: String] = ["url": url, "token": token]
+        if let data = try? JSONEncoder().encode(payload),
+            IdentityKeychain.write(
+                data, service: pushedRelayKeychainService,
+                account: Self.pushedRelayKeychainAccount)
+        {
+            // Remove the pre-Keychain copy after the protected write succeeds.
+            defaults.removeObject(forKey: Self.pushedRelayDefaultsKey)
+        } else {
+            // Never create or retain a new plaintext preferences copy when the
+            // protected store is unavailable; the value remains in memory only.
+            defaults.removeObject(forKey: Self.pushedRelayDefaultsKey)
+            log("pushed credential keychain write failed; keeping session-only")
+        }
         await applyPendingRelayCredential()
     }
 
@@ -554,12 +598,32 @@ public final class NextTransportDialClient {
         }
     }
 
-    private static func persistedPushedCredential() -> (url: String, token: String)? {
-        guard
-            let stored = UserDefaults.standard.dictionary(
-                forKey: pushedRelayDefaultsKey),
-            let url = stored["url"] as? String,
-            let token = stored["token"] as? String,
+    private static func persistedPushedCredential(
+        defaults: UserDefaults, keychainService: String
+    ) -> (url: String, token: String)? {
+        let storedData = IdentityKeychain.read(
+            service: keychainService, account: pushedRelayKeychainAccount)
+        let stored: [String: String]?
+        if let storedData {
+            stored = try? JSONDecoder().decode([String: String].self, from: storedData)
+        } else if let legacy = defaults.dictionary(forKey: pushedRelayDefaultsKey),
+            let url = legacy["url"] as? String, let token = legacy["token"] as? String
+        {
+            // Migrate the legacy value only after a protected write succeeds.
+            let candidate = ["url": url, "token": token]
+            let migrated = if let data = try? JSONEncoder().encode(candidate),
+                IdentityKeychain.write(
+                    data, service: keychainService, account: pushedRelayKeychainAccount)
+            { true } else { false }
+            // Remove the legacy plaintext slot even if the protected store is
+            // temporarily unavailable; retaining a secret in preferences is
+            // a worse failure than requiring a fresh push next launch.
+            defaults.removeObject(forKey: pushedRelayDefaultsKey)
+            stored = migrated ? candidate : nil
+        } else {
+            stored = nil
+        }
+        guard let stored, let url = stored["url"], let token = stored["token"],
             let expiry = IrohSubstrate.tokenExpiry(token),
             expiry > Int64(Date().timeIntervalSince1970)
         else { return nil }
@@ -576,6 +640,7 @@ public final class NextTransportDialClient {
     /// inserts the relay into the running endpoint.
     private func startCredentialRenewal() {
         guard renewTask == nil, broker != nil else { return }
+        let sleep = self.sleep
         renewTask = Task { [weak self] in
             while !Task.isCancelled {
                 // Weak read for the schedule and NO strong self across the
@@ -583,7 +648,7 @@ public final class NextTransportDialClient {
                 // client is released.
                 guard let delay = await self?.nextRenewalDelay() else { return }
                 do {
-                    try await Task.sleep(for: .seconds(delay))
+                    try await sleep(.seconds(delay))
                 } catch {
                     return  // cancelled
                 }
@@ -625,11 +690,11 @@ public final class NextTransportDialClient {
                 """
                 self-minted relay credentials rotated zero-gap (\(fresh.count) relays, \
                 tokenExp \(expiry.map(String.init) ?? "unparsed"), \
-                \(nextTransportElapsedMs(since: renewStart))ms)
+                \(Self.elapsedMs(since: renewStart))ms)
                 """)
         } catch {
             log(
-                "credential renewal failed after \(nextTransportElapsedMs(since: renewStart))ms",
+                "credential renewal failed after \(Self.elapsedMs(since: renewStart))ms",
                 error: error)
         }
     }
@@ -640,7 +705,7 @@ public final class NextTransportDialClient {
         if let error {
             nextTransportLog.error(
                 "\(message, privacy: .public): \(String(describing: error), privacy: .public)")
-            events.append("\(message) [\(nextTransportShortErrorCode(error))]")
+            events.append("\(message) [\(Self.shortErrorCode(error))]")
         } else {
             nextTransportLog.notice("\(message, privacy: .public)")
             events.append(message)
@@ -654,11 +719,10 @@ public final class NextTransportDialClient {
     /// never returns to defaults; if the Keychain refuses the write the
     /// identity stays ephemeral for this launch.
     private enum IdentityKeychain {
-        static let service = "dev.cmux.nextTransport.ios.identity.v1"
         static let account = "identity-private-key"
 
-        static func read() -> Data? {
-            var query = baseQuery()
+        static func read(service: String, account: String) -> Data? {
+            var query = baseQuery(service: service, account: account)
             query[kSecReturnData as String] = true
             query[kSecMatchLimit as String] = kSecMatchLimitOne
             var result: CFTypeRef?
@@ -673,8 +737,8 @@ public final class NextTransportDialClient {
             return data
         }
 
-        static func write(_ data: Data) -> Bool {
-            let query = baseQuery()
+        static func write(_ data: Data, service: String, account: String) -> Bool {
+            let query = baseQuery(service: service, account: account)
             let update = SecItemUpdate(
                 query as CFDictionary,
                 [kSecValueData as String: data] as CFDictionary)
@@ -697,7 +761,7 @@ public final class NextTransportDialClient {
             return true
         }
 
-        private static func baseQuery() -> [String: Any] {
+        private static func baseQuery(service: String, account: String) -> [String: Any] {
             [
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrService as String: service,
@@ -708,8 +772,40 @@ public final class NextTransportDialClient {
         }
     }
 
-    private static func loadOrCreateIdentity() -> PeerIdentity {
-        let defaults = UserDefaults.standard
+    static func currentIdentity(
+        defaults: UserDefaults = .standard,
+        keychainService: String = "dev.cmux.nextTransport.ios.identity.v1"
+    ) -> PeerIdentity {
+        loadOrCreateIdentity(defaults: defaults, keychainService: keychainService)
+    }
+
+    /// Resolves the durable identity on the generic executor for probe and
+    /// composition paths that must not perform Keychain/defaults work on the
+    /// MainActor.
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
+    nonisolated static func currentIdentityOffMain(
+        defaults: UserDefaults = .standard,
+        keychainService: String = "dev.cmux.nextTransport.ios.identity.v1"
+    ) async -> PeerIdentity {
+        let box = DefaultsBox(defaults)
+        return await currentIdentityOffMain(
+            defaults: box, keychainService: keychainService)
+    }
+
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
+    private nonisolated static func currentIdentityOffMain(
+        defaults: DefaultsBox, keychainService: String
+    ) async -> PeerIdentity {
+        loadOrCreateIdentity(defaults: defaults.value, keychainService: keychainService)
+    }
+
+    private static func loadOrCreateIdentity(
+        defaults: UserDefaults, keychainService: String
+    ) -> PeerIdentity {
         let legacyKeyKey = "dev.cmux.nextTransport.ios.identity.key"
         let idKey = "dev.cmux.nextTransport.ios.identity.deviceID"
         let deviceID: String
@@ -719,7 +815,7 @@ public final class NextTransportDialClient {
             deviceID = UUID().uuidString.lowercased()
             defaults.set(deviceID, forKey: idKey)
         }
-        if let key = IdentityKeychain.read() {
+        if let key = IdentityKeychain.read(service: keychainService, account: IdentityKeychain.account) {
             return PeerIdentity(
                 appIdentity: "dev.cmux.next.ios", deviceID: deviceID, privateKeyData: key)
         }
@@ -729,7 +825,9 @@ public final class NextTransportDialClient {
         if let keyB64 = defaults.string(forKey: legacyKeyKey),
             let key = Data(base64Encoded: keyB64)
         {
-            if IdentityKeychain.write(key) {
+            if IdentityKeychain.write(
+                key, service: keychainService, account: IdentityKeychain.account)
+            {
                 defaults.removeObject(forKey: legacyKeyKey)
                 nextTransportLog.notice("identity key migrated defaults -> keychain")
             }
@@ -738,7 +836,9 @@ public final class NextTransportDialClient {
         }
         let fresh = PeerIdentity.generate(
             appIdentity: "dev.cmux.next.ios", deviceID: deviceID)
-        if !IdentityKeychain.write(fresh.privateKeyData) {
+        if !IdentityKeychain.write(
+            fresh.privateKeyData, service: keychainService, account: IdentityKeychain.account)
+        {
             nextTransportLog.error(
                 "identity keychain write failed; identity is ephemeral this launch")
         }

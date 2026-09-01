@@ -14,6 +14,10 @@ import Testing
     "relay fleet, live (P1e)", .serialized,
     .enabled(if: ProcessInfo.processInfo.environment["CMUX_LITE_RELAY_CONFIG"] != nil))
 struct RelayE2ETests {
+    private enum ConfigurationError: Error {
+        case invalidSecretHex
+    }
+
     struct Peer: Decodable {
         let secretHex: String
         let token: String
@@ -31,12 +35,18 @@ struct RelayE2ETests {
             Config.self, from: Data(contentsOf: URL(fileURLWithPath: path)))
     }
 
-    static func data(fromHex hex: String) -> Data {
+    static func data(fromHex hex: String) throws -> Data {
+        guard hex.count.isMultiple(of: 2) else {
+            throw ConfigurationError.invalidSecretHex
+        }
         var data = Data(capacity: hex.count / 2)
         var index = hex.startIndex
         while index < hex.endIndex {
             let next = hex.index(index, offsetBy: 2)
-            data.append(UInt8(hex[index..<next], radix: 16) ?? 0)
+            guard let byte = UInt8(hex[index..<next], radix: 16) else {
+                throw ConfigurationError.invalidSecretHex
+            }
+            data.append(byte)
             index = next
         }
         return data
@@ -52,10 +62,10 @@ struct RelayE2ETests {
 
         let mac = PeerIdentity(
             appIdentity: "dev.cmux.lite.mac", deviceID: "relay-mac-1",
-            privateKeyData: Self.data(fromHex: config.server.secretHex))
+            privateKeyData: try Self.data(fromHex: config.server.secretHex))
         let phone = PeerIdentity(
             appIdentity: "dev.cmux.lite", deviceID: "relay-phone-1",
-            privateKeyData: Self.data(fromHex: config.client.secretHex))
+            privateKeyData: try Self.data(fromHex: config.client.secretHex))
         let grant = try signer.mint(
             accountID: "acct-relay", deviceID: phone.deviceID,
             devicePublicKey: phone.publicKeyData, appIdentity: phone.appIdentity,
@@ -145,7 +155,7 @@ struct RelayE2ETests {
 
         let mac = PeerIdentity(
             appIdentity: "dev.cmux.lite.mac", deviceID: "relay-mac-1",
-            privateKeyData: Self.data(fromHex: config.server.secretHex))
+            privateKeyData: try Self.data(fromHex: config.server.secretHex))
         let server = try await IrohSubstrate.endpoint(
             identity: mac,
             relays: [IrohSubstrate.RelayAccess(url: config.relayUrl, authToken: config.server.token)])

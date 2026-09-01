@@ -1,4 +1,5 @@
 #if DEBUG
+import CmuxNextTransport
 import Foundation
 import Testing
 
@@ -14,45 +15,32 @@ import Testing
 struct NextTransportDenialPolicyTests {
     /// Every state string the dial client actually publishes for the six
     /// credential denials (DenialCode raw values inside `closed (...)`).
-    private static let credentialDenialStates = [
-        "closed (invalid-signature)",
-        "closed (expired)",
-        "closed (revoked)",
-        "closed (key-mismatch)",
-        "closed (device-id-mismatch)",
-        "closed (app-mismatch)",
+    private static let credentialDenials: [DenialCode] = [
+        .invalidSignature, .expired, .revoked,
+        .keyMismatch, .deviceIDMismatch, .appMismatch,
     ]
 
     /// States that mean the transport failed or the session is simply not
     /// up: never grounds to burn the persisted ticket + grant.
-    private static let transportOrBenignStates = [
-        "idle",
-        "connecting",
-        "ready",
-        "degraded",
-        "closed (connection-lost)",
-        "closed (network-unavailable)",
-        "closed (dialTimeout)",
-        "closed (user-requested)",
-        "closed (superseded)",
-    ]
+    private static let transportOrBenignStates: [DenialCode?] =
+        Array(repeating: nil, count: 9)
 
     @Test(
         "a denial-coded close invalidates the bootstrap",
-        arguments: credentialDenialStates)
-    func denialCodedCloseInvalidatesBootstrap(state: String) {
+        arguments: credentialDenials)
+    func denialCodedCloseInvalidatesBootstrap(denial: DenialCode) {
         #expect(
-            NextTransportDenialPolicy.shouldInvalidateBootstrap(stateDescription: state),
-            "\(state) is a real admission denial; the bootstrap must be invalidated")
+            NextTransportDenialPolicy().shouldInvalidateBootstrap(denial: denial),
+            "\(denial.rawValue) is a real admission denial; the bootstrap must be invalidated")
     }
 
     @Test(
         "transport-level failures keep the bootstrap",
         arguments: transportOrBenignStates)
-    func transportFailureKeepsBootstrap(state: String) {
+    func transportFailureKeepsBootstrap(denial: DenialCode?) {
         #expect(
-            !NextTransportDenialPolicy.shouldInvalidateBootstrap(stateDescription: state),
-            "\(state) is not a credential denial; the bootstrap must survive")
+            !NextTransportDenialPolicy().shouldInvalidateBootstrap(denial: denial),
+            "transport-level close is not a credential denial; the bootstrap must survive")
     }
 }
 #endif

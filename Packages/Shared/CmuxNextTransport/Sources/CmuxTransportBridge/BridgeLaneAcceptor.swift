@@ -23,14 +23,15 @@ public actor BridgeLaneAcceptor {
 
     private let acceptsServerEvents: Bool
     private var appQueue: [AppEvent] = []
-    private var appWaiters: [CheckedContinuation<AppEvent, any Error>] = []
+    private var appWaiters: [(id: Int, continuation: CheckedContinuation<AppEvent, any Error>)] = []
     private var pendingControl: [RawByteStream] = []
-    private var controlWaiters: [CheckedContinuation<RawByteStream, any Error>] = []
+    private var controlWaiters: [(id: Int, continuation: CheckedContinuation<RawByteStream, any Error>)] = []
     private var pendingServerEvents: [(CmxIrohLane, CmxIrohBidirectionalStream)] = []
     private var serverEventWaiters:
-        [CheckedContinuation<(CmxIrohLane, CmxIrohBidirectionalStream), any Error>] = []
+        [(id: Int, continuation: CheckedContinuation<(lane: CmxIrohLane, stream: CmxIrohBidirectionalStream), any Error>)] = []
     private var closed = false
     private var closeWatcher: Task<Void, Never>?
+    private var waiterCounter = 0
 
     /// - Parameter acceptsServerEvents: true on the peer (phone) side, where
     ///   the host legitimately opens server-event streams; false on the host
@@ -114,7 +115,7 @@ public actor BridgeLaneAcceptor {
             }
             if let waiter = controlWaiters.first {
                 controlWaiters.removeFirst()
-                waiter.resume(returning: stream)
+                waiter.continuation.resume(returning: stream)
             } else {
                 pendingControl.append(stream)
             }
@@ -145,7 +146,7 @@ public actor BridgeLaneAcceptor {
             let event = (lane, CmxIrohBidirectionalStream(bridging: stream))
             if let waiter = serverEventWaiters.first {
                 serverEventWaiters.removeFirst()
-                waiter.resume(returning: event)
+                waiter.continuation.resume(returning: event)
             } else {
                 pendingServerEvents.append(event)
             }
@@ -179,8 +180,22 @@ public actor BridgeLaneAcceptor {
             }
             throw BridgeAcceptError.connectionClosed
         }
-        return try await withCheckedThrowingContinuation { continuation in
-            serverEventWaiters.append(continuation)
+        waiterCounter += 1
+        let waiterID = waiterCounter
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                if Task.isCancelled {
+                    continuation.resume(throwing: CancellationError())
+                } else if closed {
+                    continuation.resume(throwing: BridgeAcceptError.connectionClosed)
+                } else if !pendingServerEvents.isEmpty {
+                    continuation.resume(returning: pendingServerEvents.removeFirst())
+                } else {
+                    serverEventWaiters.append((id: waiterID, continuation: continuation))
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelServerEventWaiter(id: waiterID) }
         }
     }
 
@@ -195,9 +210,9 @@ public actor BridgeLaneAcceptor {
             appWaiters.removeFirst()
             switch event {
             case .lane(let lane, let stream):
-                waiter.resume(returning: .lane(lane, stream))
+                waiter.continuation.resume(returning: .lane(lane, stream))
             case .rejected:
-                waiter.resume(returning: .rejected)
+                waiter.continuation.resume(returning: .rejected)
             }
         } else {
             appQueue.append(event)
@@ -220,8 +235,22 @@ public actor BridgeLaneAcceptor {
             }
             throw BridgeAcceptError.connectionClosed
         }
-        return try await withCheckedThrowingContinuation { continuation in
-            controlWaiters.append(continuation)
+        waiterCounter += 1
+        let waiterID = waiterCounter
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                if Task.isCancelled {
+                    continuation.resume(throwing: CancellationError())
+                } else if closed {
+                    continuation.resume(throwing: BridgeAcceptError.connectionClosed)
+                } else if !pendingControl.isEmpty {
+                    continuation.resume(returning: pendingControl.removeFirst())
+                } else {
+                    controlWaiters.append((id: waiterID, continuation: continuation))
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelControlWaiter(id: waiterID) }
         }
     }
 
@@ -243,8 +272,22 @@ public actor BridgeLaneAcceptor {
                 }
                 throw BridgeAcceptError.connectionClosed
             }
-            event = try await withCheckedThrowingContinuation { continuation in
-                appWaiters.append(continuation)
+            waiterCounter += 1
+            let waiterID = waiterCounter
+            event = try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { continuation in
+                    if Task.isCancelled {
+                        continuation.resume(throwing: CancellationError())
+                    } else if closed {
+                        continuation.resume(throwing: BridgeAcceptError.connectionClosed)
+                    } else if !appQueue.isEmpty {
+                        continuation.resume(returning: appQueue.removeFirst())
+                    } else {
+                        appWaiters.append((id: waiterID, continuation: continuation))
+                    }
+                }
+            } onCancel: {
+                Task { await self.cancelAppWaiter(id: waiterID) }
             }
         }
         switch event {
@@ -281,18 +324,38 @@ public actor BridgeLaneAcceptor {
         }
         closeWatcher?.cancel()
         closeWatcher = nil
-        for waiter in appWaiters { waiter.resume(throwing: BridgeAcceptError.connectionClosed) }
+        for waiter in appWaiters {
+            waiter.continuation.resume(throwing: BridgeAcceptError.connectionClosed)
+        }
         appWaiters.removeAll()
         for waiter in controlWaiters {
-            waiter.resume(throwing: BridgeAcceptError.connectionClosed)
+            waiter.continuation.resume(throwing: BridgeAcceptError.connectionClosed)
         }
         controlWaiters.removeAll()
         for waiter in serverEventWaiters {
-            waiter.resume(throwing: BridgeAcceptError.connectionClosed)
+            waiter.continuation.resume(throwing: BridgeAcceptError.connectionClosed)
         }
         serverEventWaiters.removeAll()
         appQueue.removeAll()
         pendingControl.removeAll()
         pendingServerEvents.removeAll()
+    }
+
+    /// Cancels one parked application-lane waiter and resumes it exactly once.
+    private func cancelAppWaiter(id: Int) {
+        guard let index = appWaiters.firstIndex(where: { $0.id == id }) else { return }
+        appWaiters.remove(at: index).continuation.resume(throwing: CancellationError())
+    }
+
+    /// Cancels one parked control-stream waiter and resumes it exactly once.
+    private func cancelControlWaiter(id: Int) {
+        guard let index = controlWaiters.firstIndex(where: { $0.id == id }) else { return }
+        controlWaiters.remove(at: index).continuation.resume(throwing: CancellationError())
+    }
+
+    /// Cancels one parked server-event waiter and resumes it exactly once.
+    private func cancelServerEventWaiter(id: Int) {
+        guard let index = serverEventWaiters.firstIndex(where: { $0.id == id }) else { return }
+        serverEventWaiters.remove(at: index).continuation.resume(throwing: CancellationError())
     }
 }
