@@ -17998,6 +17998,17 @@ fn sidebar_retry_delay(failures: u32) -> Duration {
 
 impl Drop for Mux {
     fn drop(&mut self) {
+        // A last-owner drop cannot race an upgraded worker Arc, but the
+        // worker may still be asleep between Weak upgrades. Wake it and join
+        // the retained handle before the signal and journal fields drop.
+        self.shutting_down.store(true, Ordering::Release);
+        self.wake_journal_event_waiters();
+        self.journal_kernel.wake_waiters();
+        if let Ok(handle) = self.agent_roster_fold_worker_handle.get_mut()
+            && let Some(handle) = handle.take()
+        {
+            let _ = handle.join();
+        }
         self.finalize_terminal_journal("mux drop");
         self.journal_kernel.shutdown();
         if let Ok(runtime) = self.browser_runtime.get_mut()
