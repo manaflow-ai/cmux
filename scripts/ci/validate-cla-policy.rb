@@ -1160,6 +1160,30 @@ def run_environment_regression_matrix!
   puts "PASS: CLA environment regression matrix (#{checks} cases)"
 end
 
+def run_runner_regression_matrix!
+  expected_runner = "${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
+  cla_jobs = %w[
+    CLACommentGate
+    CLAAssistant
+    CLALedgerWriter
+    CLACompatibility
+    RerunFailedCLA
+    LockMergedPullRequest
+  ]
+  cla_jobs.each do |job_name|
+    assert_cla_runner(expected_runner, "#{job_name}.runs-on")
+  end
+
+  {
+    "bare GitHub runner" => "ubuntu-24.04",
+    "alternate repository variable" => "${{ vars.OTHER_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}",
+    "event-controlled runner" => "${{ github.event.repository.default_branch }}"
+  }.each do |name, runner|
+    expect_policy_error(name) { assert_cla_runner(runner, "CLACommentGate.runs-on") }
+  end
+  puts "PASS: CLA runner contract regression matrix (#{cla_jobs.length + 3} cases)"
+end
+
 def run_trusted_review_regression_matrix!
   head = "a" * 40
   review = lambda do |id, state, at, commit = head, user = 54008264, dismissed = nil|
@@ -1652,6 +1676,7 @@ begin
   run_guard_contract_regression_matrix!
   run_trusted_cla_regression_matrix!
   run_environment_regression_matrix!
+  run_runner_regression_matrix!
   run_trusted_review_regression_matrix!
   repository = required_env("GH_REPO", REPOSITORY)
   pr_number = required_env("PR_NUMBER", /\A[1-9][0-9]*\z/)
