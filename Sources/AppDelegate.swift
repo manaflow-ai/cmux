@@ -14676,7 +14676,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let canvasSurfaceDigitShortcutIsActive =
             shortcutEventFocusContext(event).shortcutContext.bool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue) &&
             shortcutWhenClauseAllows(action: .selectSurfaceByNumber, event: event) &&
-            numberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber) != nil
+            routableNumberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber) != nil
 
         let resolvedSidebarModeAction = activeResolvedPrefixChordActionID.map {
             KeyboardShortcutSettings.Action(rawValue: $0)?.isRightSidebarModeAction == true
