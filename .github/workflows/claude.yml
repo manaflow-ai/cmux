@@ -19,17 +19,14 @@ jobs:
       (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
+    # Do not coalesce requests here. GitHub keeps only one pending run in a
+    # concurrency group and would silently discard a distinct user request.
+    # The pinned action checks repository write access before it invokes Claude.
     permissions:
       contents: read
       pull-requests: read
       issues: read
       actions: read # Required for Claude to read CI results on PRs
-    # Limit duplicate requests for one issue or pull request. The action also
-    # rejects actors without repository write access before it invokes Claude,
-    # so public comments cannot spend the OAuth credential.
-    concurrency:
-      group: claude-${{ github.repository }}-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}
-      cancel-in-progress: false
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
