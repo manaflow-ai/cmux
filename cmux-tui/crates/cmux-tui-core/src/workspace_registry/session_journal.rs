@@ -933,34 +933,8 @@ impl WorkspaceRegistry {
     }
 
     /// Durably record a reducer's fold position and state snapshot. Cursor
-    /// values are stored as strings so 64-bit sequences survive JSON.
-    pub(crate) fn put_journal_reducer_state(
-        &self,
-        reducer_id: &str,
-        version: u32,
-        cursor: u64,
-        snapshot: &str,
-    ) -> anyhow::Result<()> {
-        // Keep this crate-private compatibility entry point's historical
-        // equal-cursor behavior by allocating the next durable token. A
-        // lower cursor remains a no-op, as it was under the old guard.
-        let ordering_token = match self.journal_reducer_state_with_order(reducer_id)? {
-            Some((_, current_cursor, _, _)) if cursor < current_cursor => return Ok(()),
-            Some((_, _, current_token, _)) => current_token
-                .checked_add(1)
-                .context("journal reducer ordering token exhausted")?
-                .max(cursor),
-            None => cursor,
-        };
-        self.put_journal_reducer_state_ordered(
-            reducer_id,
-            version,
-            cursor,
-            ordering_token,
-            snapshot,
-        )
-    }
-
+    /// values are stored as strings so 64-bit sequences survive JSON. The
+    /// caller supplies a durable ordering token for equal-cursor writes.
     pub(crate) fn put_journal_reducer_state_ordered(
         &self,
         reducer_id: &str,
@@ -2099,32 +2073,22 @@ mod tests {
     fn reducer_state_cursor_does_not_regress_on_late_write() {
         let registry = WorkspaceRegistry::in_memory("reducer-cursor-monotonic").unwrap();
         registry
-            .put_journal_reducer_state("agent_roster", 3, 10, r#"{"entries":{"new":{}}}"#)
+            .put_journal_reducer_state_ordered(
+                "agent_roster",
+                3,
+                10,
+                10,
+                r#"{"entries":{"new":{}}}"#,
+            )
             .unwrap();
         registry
-            .put_journal_reducer_state("agent_roster", 3, 9, r#"{"entries":{"old":{}}}"#)
+            .put_journal_reducer_state_ordered("agent_roster", 3, 9, 9, r#"{"entries":{"old":{}}}"#)
             .unwrap();
 
         let (_, cursor, snapshot) =
             registry.journal_reducer_state("agent_roster").unwrap().unwrap();
         assert_eq!(cursor, 10);
         assert!(snapshot.contains("new"));
-    }
-
-    #[test]
-    fn reducer_state_compatibility_writer_keeps_equal_cursor_latest() {
-        let registry = WorkspaceRegistry::in_memory("reducer-cursor-equal-compatibility").unwrap();
-        registry
-            .put_journal_reducer_state("agent_roster", 3, 10, r#"{"entries":{"first":{}}}"#)
-            .unwrap();
-        registry
-            .put_journal_reducer_state("agent_roster", 3, 10, r#"{"entries":{"latest":{}}}"#)
-            .unwrap();
-
-        let (_, cursor, snapshot) =
-            registry.journal_reducer_state("agent_roster").unwrap().unwrap();
-        assert_eq!(cursor, 10);
-        assert!(snapshot.contains("latest"));
     }
 
     #[test]
