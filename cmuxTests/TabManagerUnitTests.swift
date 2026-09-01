@@ -918,7 +918,10 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
             XCTFail("Expected the outgoing workspace to contain a split")
             return
         }
-        let incomingWorkspace = manager.addWorkspace(select: false)
+        guard let incomingWorkspace = manager.addWorkspaceIfActive(select: false) else {
+            XCTFail("Expected the incoming workspace to be created")
+            return
+        }
 
         outgoingWorkspace.focusPanel(focusedPanelId)
         XCTAssertTrue(outgoingWorkspace.toggleSplitZoom(panelId: focusedPanelId))
@@ -3961,7 +3964,10 @@ final class CrossWindowWorkspaceMoveTests: XCTestCase {
             XCTFail("Expected the moved workspace to contain a split")
             return
         }
-        _ = source.addWorkspace(select: false)
+        guard source.addWorkspaceIfActive(select: false) != nil else {
+            XCTFail("Expected a second source workspace")
+            return
+        }
 
         moving.focusPanel(focusedPanelId)
         XCTAssertTrue(moving.toggleSplitZoom(panelId: focusedPanelId))
@@ -3989,7 +3995,10 @@ final class CrossWindowWorkspaceMoveTests: XCTestCase {
             XCTFail("Expected the moved workspace to contain a split")
             return
         }
-        let selectedWorkspace = source.addWorkspace()
+        guard let selectedWorkspace = source.addWorkspaceIfActive() else {
+            XCTFail("Expected the selected source workspace to be created")
+            return
+        }
         XCTAssertEqual(source.selectedTabId, selectedWorkspace.id)
 
         moving.focusPanel(focusedPanelId)
