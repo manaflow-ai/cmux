@@ -157,7 +157,7 @@ struct GitStatusProvider: Sendable {
                 directoryPaths: &directoryPaths
             )
         }
-        let displayableEntries = orderedPaths.compactMap { path in
+        let displayableEntries: [GitStatusSnapshotEntry] = orderedPaths.compactMap { path -> GitStatusSnapshotEntry? in
             guard !directoryPaths.contains(path), let status = statusMap[path] else { return nil }
             return GitStatusSnapshotEntry(path: path, status: status, diffSource: diffSourcesByPath[path] ?? .unstaged)
         }
