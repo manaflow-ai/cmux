@@ -408,9 +408,13 @@ the launch activation barrier. The daemon's adoption path can still connect
 to legacy host records at an older version; smart renderers require v3 and
 restart their handshake on any gap or `ResyncRequired` frame. This document
 specifies the daemon-side v4 framing; renderer interoperability remains
-partial. Newly launched daemon hosts authenticate renderer clients at v4 and
-mint grants pinned to that version. The current cross-language renderer
-accepts only v1-v3 and pins its `ClientHello` to the grant version, while the
-grant API exposes no downgrade negotiation. This spec therefore does not
-advertise renderer attach to newly launched hosts; renderer v4 support or
-explicit mutually supported grant negotiation remains future work.
+partial. Newly launched daemon hosts enforce v4-only renderer handshakes by
+passing `PROTOCOL_VERSION..=PROTOCOL_VERSION` to `CapabilityStore::accept`;
+the one-use token minted by
+`CapabilityStore::mint` carries no protocol version. The higher-level legacy
+renderer-grant response reports the selected host version, but no grant API
+offers mutually supported downgrade negotiation. The current cross-language
+renderer accepts only v1-v3 and pins its `ClientHello` to the selected version.
+This spec therefore does not advertise renderer attach to newly launched
+hosts; renderer v4 support or explicit mutually supported version negotiation
+remains future work.
