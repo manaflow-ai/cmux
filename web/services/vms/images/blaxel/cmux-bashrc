@@ -14,6 +14,29 @@ if [ ! -f "$HOME/.bash_history" ] && [ -f /etc/cmux/seed-history ]; then
   cp /etc/cmux/seed-history "$HOME/.bash_history" 2>/dev/null || true
 fi
 
+# Seed ble.sh's per-TERM tput caches (baked by the Dockerfile for the TERMs
+# cmux uses) so no shell prints "ble/term.sh: updating tput cache ... done"
+# into the pane before its first prompt. ble.sh uses ~/.cache only when it
+# already exists (else it falls back to <blesh>/cache.d/<uid>, seeded in the
+# image). Per file, not per directory: a durable home carries the cache dir of
+# an older image (other ble version dir, or entries stale against a newer
+# lib/init-term.sh — ble.sh regenerates and prints unless the cache file is
+# NEWER than that file), so copy each seed entry that is missing or stale.
+# Plain cp (not -a) stamps now, which always beats init-term.sh.
+if [ -d /etc/cmux/blesh-cache-seed/blesh ]; then
+  __cmux_cache_base="${XDG_CACHE_HOME:-$HOME/.cache}"
+  for __cmux_seed in /etc/cmux/blesh-cache-seed/blesh/*/term.*; do
+    [ -f "$__cmux_seed" ] || continue
+    __cmux_dst="$__cmux_cache_base/${__cmux_seed#/etc/cmux/blesh-cache-seed/}"
+    if [ ! -f "$__cmux_dst" ] || [ /usr/local/share/blesh/lib/init-term.sh -nt "$__cmux_dst" ]; then
+      mkdir -p "${__cmux_dst%/*}" 2>/dev/null \
+        && cp "$__cmux_seed" "$__cmux_dst" 2>/dev/null \
+        || true
+    fi
+  done
+  unset __cmux_cache_base __cmux_seed __cmux_dst
+fi
+
 if [ -f /usr/local/share/blesh/ble.sh ] && [ -z "${BLE_VERSION:-}" ]; then
   source /usr/local/share/blesh/ble.sh --noattach
   bleopt prompt_eol_mark= exec_errexit_mark= exec_elapsed_mark= exec_exit_mark=
