@@ -16974,11 +16974,9 @@ impl App {
                 self.selection_click_sequence
                     .as_ref()
                     .and_then(|sequence| sequence.semantic_range)
-                    .map(|initial| {
-                        SelectionRange {
-                            start: initial.0.min(range.start),
-                            end: initial.1.max(range.end),
-                        }
+                    .map(|initial| SelectionRange {
+                        start: initial.0.min(range.start),
+                        end: initial.1.max(range.end),
                     })
                     .unwrap_or(range)
             } else {
