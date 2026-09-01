@@ -13,7 +13,7 @@ permissions: {}
 jobs:
   validate:
     name: CLA policy guard
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.LINUX_RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 10
     permissions:
       contents: read
