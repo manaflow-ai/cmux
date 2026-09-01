@@ -13,6 +13,22 @@ import Testing
 
 @MainActor
 extension MobileHostAuthorizationTests {
+    @Test func renderCaptureRevisionStaysStableWhenTheSameFrameIsReplayed() {
+        let surfaceID = UUID()
+        let first = MobileTerminalByteTee.shared.nextRenderCaptureIdentity(
+            surfaceID: surfaceID
+        )
+        let replay = MobileTerminalByteTee.shared.nextRenderCaptureIdentity(
+            surfaceID: surfaceID
+        )
+
+        // A replay of an unchanged grid is a polling read, not new terminal
+        // content. The producer must therefore keep its content revision
+        // stable (the implementation currently advances it on every call).
+        #expect(replay.epoch == first.epoch)
+        #expect(replay.revision == first.revision)
+    }
+
     @Test func testMobileHostConnectionRunOwnsTransportUntilRemoteClose() async {
         let connectionID = UUID()
         let transport = GatedMobileHostByteTransport()
