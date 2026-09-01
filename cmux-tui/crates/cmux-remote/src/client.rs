@@ -845,6 +845,17 @@ mod tests {
     }
 
     #[test]
+    fn request_registry_reports_randomness_failure() {
+        let error = WorkspaceRequestRegistry::new_with_fill(|_| {
+            Err(getrandom::Error::UNEXPECTED)
+        })
+        .expect_err("request registry construction must report RNG failures");
+
+        assert_eq!(error.code, "internal");
+        assert!(error.message.contains("workspace RPC request ID randomness unavailable"));
+    }
+
+    #[test]
     fn foreign_and_malformed_request_ids_are_not_recognized() {
         let mut requests = WorkspaceRequestRegistry::new();
         let issued = requests.allocate().expect("request ID available");
