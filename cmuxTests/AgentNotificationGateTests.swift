@@ -447,6 +447,29 @@ import Testing
         #expect(fixture.clears.count == 1)
     }
 
+    @Test func staleSurfaceFanoutIsBounded() {
+        let fixture = Fixture()
+        let count = AgentApprovalNotificationCoordinator.maxTrackedPanes + 32
+
+        for index in 0..<count {
+            let hex = String(index, radix: 16)
+            let suffix = String(repeating: "0", count: max(0, 12 - hex.count)) + hex
+            let surfaceID = UUID(uuidString: "00000000-0000-0000-0000-\(suffix)")!
+            fixture.coordinator.stage(
+                workspaceID: Self.workspaceID,
+                surfaceID: surfaceID,
+                title: "Codex",
+                subtitle: "Permission",
+                body: "stale surface needs approval",
+                approvalID: Self.firstApprovalID
+            )
+        }
+
+        fixture.scheduler.runAll()
+
+        #expect(fixture.deliveries.count == AgentApprovalNotificationCoordinator.maxTrackedPanes)
+    }
+
     @Test func laterRequestsDoNotPostponeAnOlderBlockingApproval() {
         let fixture = Fixture()
 

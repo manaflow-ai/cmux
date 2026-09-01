@@ -41,6 +41,10 @@ final class AgentApprovalNotificationCoordinator {
 
     private struct PaneState {
         var workspaceID: UUID
+        /// Monotonic activity marker used to evict the least-recently-used
+        /// pane when stale hook traffic exceeds the global registry bound.
+        var lastTouchedAt: TimeInterval
+        var lastTouchedSequence: UInt64
         // Key by the logical approval id so duplicate hook deliveries replace
         // one record instead of growing an unbounded sequence-keyed bag.
         var candidates: [String: Candidate] = [:]
@@ -66,6 +70,12 @@ final class AgentApprovalNotificationCoordinator {
     private let deliver: @MainActor (Delivery) -> Void
     private let clear: @MainActor (Clear) -> Void
     private static let maxCandidatesPerPane = 64
+    /// A malformed or stale hook can name an arbitrary surface. Keep that
+    /// untrusted fan-out bounded even when no live owner exists to cancel it.
+    nonisolated static let maxTrackedPanes = 256
+    /// Delivered episodes have their own expiry timer; this fallback also
+    /// retires unresolved panes when the scheduler is unavailable.
+    private static let unresolvedPaneLifetime: TimeInterval = 10 * 60
     private static let maxTombstonesPerKind = 1_024
     nonisolated static let defaultEpisodeLifetime: TimeInterval = 10 * 60
     nonisolated static let approvalCorrelationPrefix = "agent-approval:"
@@ -104,6 +114,7 @@ final class AgentApprovalNotificationCoordinator {
     ) {
         let timestamp = now()
         pruneTombstones(at: timestamp)
+        prunePanes(at: timestamp)
         let exactKey = ResolutionKey(surfaceID: surfaceID, value: approvalID.rawValue)
         guard exactResolutionTombstones[exactKey] == nil else { return }
         let scopeKey = ResolutionKey(surfaceID: surfaceID, value: approvalID.scope.rawValue)
@@ -119,8 +130,14 @@ final class AgentApprovalNotificationCoordinator {
             readyAt: timestamp + settleDelay,
             sequence: nextSequence
         )
-        var state = panes[surfaceID] ?? PaneState(workspaceID: workspaceID)
+        var state = panes[surfaceID] ?? PaneState(
+            workspaceID: workspaceID,
+            lastTouchedAt: timestamp,
+            lastTouchedSequence: nextSequence
+        )
         state.workspaceID = workspaceID
+        state.lastTouchedAt = timestamp
+        state.lastTouchedSequence = nextSequence
         if let existing = state.candidates[approvalID.rawValue] {
             // Preserve the original deadline/order for a duplicate signal;
             // only the latest display text may have changed.
@@ -147,6 +164,7 @@ final class AgentApprovalNotificationCoordinator {
             }
         }
         panes[surfaceID] = state
+        prunePanes(at: timestamp)
 
         // Once a pane has one visible approval notification, additional
         // requests join that pending episode without producing more banners.
@@ -157,6 +175,7 @@ final class AgentApprovalNotificationCoordinator {
     func resolve(surfaceID: UUID, approvalID: AgentApprovalCorrelationID) {
         let timestamp = now()
         pruneTombstones(at: timestamp)
+        prunePanes(at: timestamp)
         exactResolutionTombstones[
             ResolutionKey(surfaceID: surfaceID, value: approvalID.rawValue)
         ] = timestamp + tombstoneLifetime
@@ -168,6 +187,7 @@ final class AgentApprovalNotificationCoordinator {
     func resolve(surfaceID: UUID, approvalScope: AgentApprovalCorrelationID.Scope) {
         let timestamp = now()
         pruneTombstones(at: timestamp)
+        prunePanes(at: timestamp)
         scopeResolutionTombstones[
             ResolutionKey(surfaceID: surfaceID, value: approvalScope.rawValue)
         ] = timestamp + tombstoneLifetime
@@ -222,6 +242,9 @@ final class AgentApprovalNotificationCoordinator {
     func rebind(surfaceID: UUID, toWorkspaceID workspaceID: UUID) {
         guard var state = panes[surfaceID], state.workspaceID != workspaceID else { return }
         state.workspaceID = workspaceID
+        state.lastTouchedAt = now()
+        nextSequence &+= 1
+        state.lastTouchedSequence = nextSequence
         state.candidates = state.candidates.mapValues { candidate in
             Candidate(
                 workspaceID: workspaceID,
@@ -389,6 +412,40 @@ final class AgentApprovalNotificationCoordinator {
                     .prefix(Self.maxTombstonesPerKind)
                     .map { ($0.key, $0.value) }
             )
+        }
+    }
+
+    /// Retires stale or least-recently-used pane episodes before untrusted hook
+    /// traffic can grow the registry without limit. Evicted delivered episodes
+    /// are explicitly cleared so the persisted notification cannot outlive its
+    /// in-memory owner.
+    private func prunePanes(at timestamp: TimeInterval) {
+        if timestamp.isFinite {
+            let staleIDs = panes.compactMap { surfaceID, state -> UUID? in
+                guard state.lastTouchedAt.isFinite,
+                      timestamp - state.lastTouchedAt >= Self.unresolvedPaneLifetime else {
+                    return nil
+                }
+                return surfaceID
+            }
+            for surfaceID in staleIDs {
+                cancel(surfaceID: surfaceID, clearDelivered: true)
+            }
+        }
+
+        let overflow = panes.count - Self.maxTrackedPanes
+        guard overflow > 0 else { return }
+        let evictedIDs = panes
+            .sorted { lhs, rhs in
+                if lhs.value.lastTouchedSequence != rhs.value.lastTouchedSequence {
+                    return lhs.value.lastTouchedSequence < rhs.value.lastTouchedSequence
+                }
+                return lhs.key.uuidString < rhs.key.uuidString
+            }
+            .prefix(overflow)
+            .map(\.key)
+        for surfaceID in evictedIDs {
+            cancel(surfaceID: surfaceID, clearDelivered: true)
         }
     }
 
