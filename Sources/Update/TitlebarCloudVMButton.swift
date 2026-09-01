@@ -159,13 +159,17 @@ struct TitlebarNewWorkspaceCloudSplitButton: View {
         EdgeInsets()
 #endif
     }
-
+    /// Renders the split control with a full-frame primary hit target.
     var body: some View {
         HStack(spacing: 0) {
             Button(action: onNewTab) {
-                CmuxSystemSymbolImage(systemName: "plus", pointSize: config.iconSize, weight: .medium)
-                    .padding(plusIconPadding)
+                ZStack {
+                    Rectangle().fill(Color.clear)
+                    CmuxSystemSymbolImage(systemName: "plus", pointSize: config.iconSize, weight: .medium)
+                        .padding(plusIconPadding)
+                }
                     .frame(width: primaryWidth, height: config.buttonSize)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .frame(width: primaryWidth, height: config.buttonSize)
