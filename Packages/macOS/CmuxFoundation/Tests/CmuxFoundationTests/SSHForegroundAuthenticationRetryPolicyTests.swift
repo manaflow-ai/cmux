@@ -353,6 +353,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             .appendingPathComponent("cmux-ssh-auth-deadline-\(UUID().uuidString)", isDirectory: true)
         let chainScript = root.appendingPathComponent("chain.sh")
         let readyMarker = root.appendingPathComponent("ready")
+        let cleanupStartedMarker = root.appendingPathComponent("cleanup-started")
         let pidLog = root.appendingPathComponent("pids")
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
@@ -389,6 +390,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
         done
         test -f "$CMUX_TEST_READY_MARKER" || exit 98
+        : > "$CMUX_TEST_CLEANUP_STARTED_MARKER"
         cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$"
         wait "$cmux_test_auth_root" 2>/dev/null || true
         """
@@ -399,6 +401,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         process.environment = ProcessInfo.processInfo.environment.merging([
             "CMUX_TEST_CHAIN_SCRIPT": chainScript.path,
             "CMUX_TEST_READY_MARKER": readyMarker.path,
+            "CMUX_TEST_CLEANUP_STARTED_MARKER": cleanupStartedMarker.path,
             "CMUX_TEST_PID_LOG": pidLog.path,
         ]) { _, override in override }
         process.standardInput = FileHandle.nullDevice
@@ -407,8 +410,18 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         defer { removeStandardErrorCapture(stderrCapture) }
         process.standardError = stderrCapture.handle
 
-        let startedAt = Date.now
         try process.run()
+        // Process launch and the deep fixture's readiness walk are outside the
+        // cleanup contract. Start the wall-clock assertion at the exact helper
+        // boundary so scheduler and app-host startup latency cannot consume it.
+        let startDeadline = Date.now.addingTimeInterval(5)
+        while !fileManager.fileExists(atPath: cleanupStartedMarker.path),
+              process.isRunning,
+              Date.now < startDeadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        try #require(fileManager.fileExists(atPath: cleanupStartedMarker.path))
+        let startedAt = Date.now
         try waitForExit(process, stderrCapture: stderrCapture, timeout: 8)
         let elapsed = Date.now.timeIntervalSince(startedAt)
 
@@ -416,7 +429,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             .split(separator: "\n")
             .compactMap { Int32($0) }
         let exitDeadline = Date.now.addingTimeInterval(1)
-        while processIDs.contains(where: { Darwin.kill($0, 0) == 0 }), Date.now < exitDeadline {
+        while processIDs.contains(where: isLiveProcess), Date.now < exitDeadline {
             Thread.sleep(forTimeInterval: 0.01)
         }
 
@@ -426,7 +439,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             elapsed < 3,
             "Foreground authentication cleanup took \(elapsed) seconds instead of one bounded deadline"
         )
-        #expect(!processIDs.contains(where: { Darwin.kill($0, 0) == 0 }))
+        #expect(!processIDs.contains(where: isLiveProcess))
     }
 
     @Test func terminatesReplacementSpawnedByAuthenticationTermHandler() throws {
@@ -733,5 +746,22 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
                 Thread.sleep(forTimeInterval: 0.01)
             }
         }
+    }
+
+    private func isLiveProcess(_ processID: Int32) -> Bool {
+        // Darwin's kill(pid, 0) also succeeds for zombies. The cleanup helper
+        // treats a zombie as terminated, so inspect the process state rather
+        // than reporting a false survivor while launchd is reaping it.
+        var info = proc_bsdinfo()
+        let expectedSize = MemoryLayout<proc_bsdinfo>.stride
+        let size = proc_pidinfo(
+            pid_t(processID),
+            PROC_PIDTBSDINFO,
+            0,
+            &info,
+            Int32(expectedSize)
+        )
+        guard size == expectedSize else { return false }
+        return info.pbi_status != UInt32(SZOMB)
     }
 }
