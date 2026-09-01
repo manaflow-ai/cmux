@@ -35,6 +35,21 @@ const currentDashboardRouteTree = encodeURIComponent(
 test("dashboard navigation payload has no dashboard-wide loading fallback", async ({
   request,
 }) => {
+  const prefetchResponse = await request.get(
+    "/dashboard/subrouter?_rsc=dashboard-prefetch-test",
+    {
+      headers: {
+        RSC: "1",
+        "Next-Router-Prefetch": "3",
+        "Next-Url": "/dashboard/coderouter",
+      },
+    },
+  );
+
+  expect(prefetchResponse.ok()).toBe(true);
+  expect(prefetchResponse.headers()["content-type"]).toContain("text/x-component");
+  expect(await prefetchResponse.text()).not.toContain('"loading":');
+
   const response = await request.get("/dashboard/subrouter?_rsc=dashboard-test", {
     headers: {
       RSC: "1",
