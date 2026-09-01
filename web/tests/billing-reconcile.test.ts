@@ -32,6 +32,227 @@ function subscription(
 }
 
 describe("Stripe subscription reconciliation", () => {
+  test("syncs a team seat quantity when membership grows", async () => {
+    const stripeUpdates: Array<{ id: string; params: Record<string, unknown> }> = [];
+    const seatWrites: Array<{ id: string; seats: number }> = [];
+    const analytics: Array<Record<string, unknown>> = [];
+    const result = await reconcileStripeSubscriptions({}, {
+      withLease: withoutLease,
+      list: async () => [{
+        id: "sub_team_growth",
+        status: "active",
+        cancelAtPeriodEnd: false,
+        currentPeriodEnd: new Date(1_800_000_000_000),
+        scope: "team",
+        stackTeamId: "team_growth",
+        seats: 1,
+      }],
+      retrieve: async () => subscription("sub_team_growth", "active", {
+        metadata: { app: "cmux", plan: "team", stackTeamId: "team_growth" },
+        items: {
+          object: "list",
+          data: [{
+            id: "si_team_growth",
+            object: "subscription_item",
+            current_period_end: 1_800_000_000,
+            quantity: 1,
+            price: { id: "price_team" },
+          }],
+          has_more: false,
+          url: "/v1/subscription_items",
+        },
+      }),
+      getTeam: async () => ({
+        listUsers: async () => [{ id: "member-1" }, { id: "member-2" }, { id: "member-3" }],
+      }),
+      updateSubscriptionQuantity: async (id: string, params: Record<string, unknown>) => {
+        stripeUpdates.push({ id, params });
+      },
+      updateSeats: async (id: string, seats: number) => {
+        seatWrites.push({ id, seats });
+      },
+      captureTeamSeatSync: async (input: Record<string, unknown>) => {
+        analytics.push(input);
+      },
+      markChecked: async () => {},
+    });
+
+    expect(stripeUpdates).toEqual([{
+      id: "sub_team_growth",
+      params: {
+        items: [{ id: "si_team_growth", quantity: 3 }],
+        proration_behavior: "create_prorations",
+      },
+    }]);
+    expect(seatWrites).toEqual([{ id: "sub_team_growth", seats: 3 }]);
+    expect(analytics).toEqual([{
+      subscriptionId: "sub_team_growth",
+      teamId: "team_growth",
+      oldQuantity: 1,
+      newQuantity: 3,
+    }]);
+    expect(result).toMatchObject({ checked: 1, drifted: 1, repaired: 1, failed: 0 });
+  });
+
+  test("shrinks team seats to the membership count with a floor of one", async () => {
+    const quantities: number[] = [];
+    const result = await reconcileStripeSubscriptions({}, {
+      withLease: withoutLease,
+      list: async () => [{
+        id: "sub_team_shrink",
+        status: "active",
+        cancelAtPeriodEnd: false,
+        currentPeriodEnd: new Date(1_800_000_000_000),
+        scope: "team",
+        stackTeamId: "team_shrink",
+        seats: 5,
+      }],
+      retrieve: async () => subscription("sub_team_shrink", "active", {
+        metadata: { app: "cmux", plan: "team", stackTeamId: "team_shrink" },
+        items: {
+          object: "list",
+          data: [{
+            id: "si_team_shrink",
+            object: "subscription_item",
+            current_period_end: 1_800_000_000,
+            quantity: 5,
+            price: { id: "price_team" },
+          }],
+          has_more: false,
+          url: "/v1/subscription_items",
+        },
+      }),
+      getTeam: async () => ({ listUsers: async () => [] }),
+      updateSubscriptionQuantity: async (_id: string, params: Record<string, unknown>) => {
+        const items = params.items as Array<{ quantity?: number }>;
+        quantities.push(items[0]?.quantity ?? 0);
+      },
+      updateSeats: async () => {},
+      captureTeamSeatSync: async () => {},
+      markChecked: async () => {},
+    });
+
+    expect(quantities).toEqual([1]);
+    expect(result).toMatchObject({ checked: 1, drifted: 1, repaired: 1, failed: 0 });
+  });
+
+  test("does not call Stripe when team membership already matches the quantity", async () => {
+    let stripeCalls = 0;
+    let seatWrites = 0;
+    let analyticsCalls = 0;
+    await reconcileStripeSubscriptions({}, {
+      withLease: withoutLease,
+      list: async () => [{
+        id: "sub_team_equal",
+        status: "active",
+        cancelAtPeriodEnd: false,
+        currentPeriodEnd: new Date(1_800_000_000_000),
+        scope: "team",
+        stackTeamId: "team_equal",
+        seats: 2,
+      }],
+      retrieve: async () => subscription("sub_team_equal", "active", {
+        metadata: { app: "cmux", plan: "team", stackTeamId: "team_equal" },
+        items: {
+          object: "list",
+          data: [{
+            id: "si_team_equal",
+            object: "subscription_item",
+            current_period_end: 1_800_000_000,
+            quantity: 2,
+            price: { id: "price_team" },
+          }],
+          has_more: false,
+          url: "/v1/subscription_items",
+        },
+      }),
+      getTeam: async () => ({ listUsers: async () => [{ id: "member-1" }, { id: "member-2" }] }),
+      updateSubscriptionQuantity: async () => {
+        stripeCalls += 1;
+      },
+      updateSeats: async () => {
+        seatWrites += 1;
+      },
+      captureTeamSeatSync: async () => {
+        analyticsCalls += 1;
+      },
+      markChecked: async () => {},
+    });
+
+    expect(stripeCalls).toBe(0);
+    expect(seatWrites).toBe(0);
+    expect(analyticsCalls).toBe(0);
+  });
+
+  test("isolates a team seat sync failure and continues with other teams", async () => {
+    const updatedTeams: string[] = [];
+    const contexts: Record<string, unknown>[] = [];
+    const result = await reconcileStripeSubscriptions({}, {
+      withLease: withoutLease,
+      concurrency: 1,
+      list: async () => [
+        {
+          id: "sub_team_failed",
+          status: "active",
+          cancelAtPeriodEnd: false,
+          currentPeriodEnd: new Date(1_800_000_000_000),
+          scope: "team",
+          stackTeamId: "team_failed",
+          seats: 1,
+        },
+        {
+          id: "sub_team_ok",
+          status: "active",
+          cancelAtPeriodEnd: false,
+          currentPeriodEnd: new Date(1_800_000_000_000),
+          scope: "team",
+          stackTeamId: "team_ok",
+          seats: 1,
+        },
+      ],
+      retrieve: async (id) => subscription(id, "active", {
+        metadata: {
+          app: "cmux",
+          plan: "team",
+          stackTeamId: id === "sub_team_failed" ? "team_failed" : "team_ok",
+        },
+        items: {
+          object: "list",
+          data: [{
+            id: `si_${id}`,
+            object: "subscription_item",
+            current_period_end: 1_800_000_000,
+            quantity: 1,
+            price: { id: "price_team" },
+          }],
+          has_more: false,
+          url: "/v1/subscription_items",
+        },
+      }),
+      getTeam: async (teamId: string) => {
+        if (teamId === "team_failed") throw new Error("Stack unavailable");
+        return { listUsers: async () => [{ id: "member-1" }, { id: "member-2" }] };
+      },
+      updateSubscriptionQuantity: async (_id: string, params: Record<string, unknown>) => {
+        const items = params.items as Array<{ quantity?: number }>;
+        updatedTeams.push(String(items[0]?.quantity));
+      },
+      updateSeats: async () => {},
+      captureTeamSeatSync: async () => {},
+      captureError: (_error, context) => {
+        contexts.push(context);
+      },
+      markChecked: async () => {},
+    });
+
+    expect(updatedTeams).toEqual(["2"]);
+    expect(result).toMatchObject({ checked: 2, drifted: 1, repaired: 1, failed: 1 });
+    expect(contexts).toEqual([{
+      operation: "stripe_subscription_reconcile",
+      recoverable: true,
+    }]);
+  });
+
   test("checks remote subscriptions concurrently and repairs only drift", async () => {
     let inFlight = 0;
     let peak = 0;
