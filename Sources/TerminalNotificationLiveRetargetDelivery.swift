@@ -111,8 +111,8 @@ extension TerminalNotificationStore {
             subtitle: subtitle,
             body: body,
             replyShape: replyShape,
-            correlationKey: correlationKey,
             retargetsToLiveSurfaceOwner: true,
+            correlationKey: correlationKey,
             notificationGeneration: notificationGeneration,
             agent: agent,
             soundContext: soundContext
