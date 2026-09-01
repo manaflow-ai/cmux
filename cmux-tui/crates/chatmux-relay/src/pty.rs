@@ -318,6 +318,8 @@ struct ShellSession {
     control: Arc<dyn PtyControl>,
     /// Serializes pause ownership transitions before touching the shared PTY.
     flow_lock: Mutex<()>,
+    /// Serializes output delivery with paused-viewer replay.
+    dispatch_lock: Mutex<()>,
     inner: Mutex<ShellInner>,
     banner: Option<Vec<u8>>,
 }
@@ -329,6 +331,10 @@ struct ShellInner {
     viewers: Vec<ViewerSink>,
     /// Viewer ids that currently own a pause on the shared PTY.
     paused_viewers: HashSet<u64>,
+    /// Bounded output accumulated for paused or resuming viewers.
+    paused_backlog: HashMap<u64, PausedBacklog>,
+    /// Viewers whose paused output is being replayed in order.
+    draining_viewers: HashSet<u64>,
 }
 
 #[derive(Clone)]
@@ -1212,6 +1218,7 @@ impl Inner {
                 let shell_session = Arc::new(ShellSession {
                     control,
                     flow_lock: Mutex::new(()),
+                    dispatch_lock: Mutex::new(()),
                     banner,
                     inner: Mutex::new(ShellInner {
                         ring: VecDeque::new(),
@@ -1219,6 +1226,8 @@ impl Inner {
                         alive: true,
                         viewers: Vec::new(),
                         paused_viewers: HashSet::new(),
+                        paused_backlog: HashMap::new(),
+                        draining_viewers: HashSet::new(),
                     }),
                 });
                 // Session-level plumbing runs for the session's whole life:
@@ -1232,6 +1241,7 @@ impl Inner {
                 let exit_session = Arc::clone(&shell_session);
                 let manager = Arc::clone(&self);
                 let on_session_data: DataSink = Arc::new(move |chunk: Bytes| {
+                    let _dispatch = data_session.dispatch_lock.lock().expect("shell dispatch lock");
                     let viewers_to_notify: Vec<Arc<dyn Fn(Bytes) + Send + Sync>> = {
                         let mut inner = data_session.inner.lock().expect("shell inner lock");
                         inner.ring_size += chunk.len();
@@ -1240,12 +1250,24 @@ impl Inner {
                             let Some(dropped) = inner.ring.pop_front() else { break };
                             inner.ring_size -= dropped.len();
                         }
-                        inner
-                            .viewers
-                            .iter()
-                            .filter(|viewer| !inner.paused_viewers.contains(&viewer.id))
-                            .map(|viewer| Arc::clone(&viewer.on_data))
-                            .collect()
+                        let mut viewers_to_notify = Vec::new();
+                        for viewer in &inner.viewers {
+                            if inner.paused_viewers.contains(&viewer.id)
+                                || inner.draining_viewers.contains(&viewer.id)
+                            {
+                                let backlog = inner.paused_backlog.entry(viewer.id).or_default();
+                                backlog.chunks.push_back(chunk.clone());
+                                backlog.bytes += chunk.len();
+                                while backlog.bytes > scrollback_limit && backlog.chunks.len() > 1 {
+                                    if let Some(dropped) = backlog.chunks.pop_front() {
+                                        backlog.bytes -= dropped.len();
+                                    }
+                                }
+                            } else {
+                                viewers_to_notify.push(Arc::clone(&viewer.on_data));
+                            }
+                        }
+                        viewers_to_notify
                     };
                     for on_data in viewers_to_notify {
                         on_data(chunk.clone());
@@ -1257,6 +1279,8 @@ impl Inner {
                         let mut inner = exit_session.inner.lock().expect("shell inner lock");
                         inner.alive = false;
                         inner.paused_viewers.clear();
+                        inner.paused_backlog.clear();
+                        inner.draining_viewers.clear();
                         std::mem::take(&mut inner.viewers)
                     };
                     manager.shell_sessions.lock().expect("shell lock").remove(&session_name);
@@ -1325,6 +1349,12 @@ impl Inner {
     }
 }
 
+#[derive(Default)]
+struct PausedBacklog {
+    chunks: VecDeque<Bytes>,
+    bytes: usize,
+}
+
 struct ShellViewerControl {
     session: Arc<ShellSession>,
     viewer_id: u64,
@@ -1340,6 +1370,8 @@ impl ShellViewerControl {
         let should_resume = {
             let mut inner = self.session.inner.lock().expect("shell inner lock");
             inner.viewers.retain(|viewer| viewer.id != self.viewer_id);
+            inner.paused_backlog.remove(&self.viewer_id);
+            inner.draining_viewers.remove(&self.viewer_id);
             inner.paused_viewers.remove(&self.viewer_id) && inner.paused_viewers.is_empty()
         };
         if should_resume {
@@ -1369,13 +1401,59 @@ impl PtyControl for ShellViewerControl {
         }
     }
     fn resume(&self) {
-        let _flow = self.session.flow_lock.lock().expect("shell flow lock");
         let should_resume = {
+            let _flow = self.session.flow_lock.lock().expect("shell flow lock");
             let mut inner = self.session.inner.lock().expect("shell inner lock");
-            inner.paused_viewers.remove(&self.viewer_id) && inner.paused_viewers.is_empty()
+            let removed = inner.paused_viewers.remove(&self.viewer_id);
+            if removed {
+                inner.draining_viewers.insert(self.viewer_id);
+                inner.paused_backlog.entry(self.viewer_id).or_default();
+            }
+            removed && inner.paused_viewers.is_empty()
         };
         if should_resume {
             self.session.control.resume();
+        }
+        self.drain_backlog();
+    }
+
+    fn drain_backlog(&self) {
+        let _dispatch = self.session.dispatch_lock.lock().expect("shell dispatch lock");
+        loop {
+            let next = {
+                let _flow = self.session.flow_lock.lock().expect("shell flow lock");
+                let mut inner = self.session.inner.lock().expect("shell inner lock");
+                if self.released.load(Ordering::SeqCst) {
+                    inner.paused_backlog.remove(&self.viewer_id);
+                    inner.draining_viewers.remove(&self.viewer_id);
+                    None
+                } else {
+                    let Some(on_data) = inner
+                        .viewers
+                        .iter()
+                        .find(|viewer| viewer.id == self.viewer_id)
+                        .map(|viewer| Arc::clone(&viewer.on_data))
+                    else {
+                        inner.paused_backlog.remove(&self.viewer_id);
+                        inner.draining_viewers.remove(&self.viewer_id);
+                        None
+                    };
+                    let chunk = inner.paused_backlog.get_mut(&self.viewer_id).and_then(|backlog| {
+                        let chunk = backlog.chunks.pop_front()?;
+                        backlog.bytes -= chunk.len();
+                        Some(chunk)
+                    });
+                    if let Some(chunk) = chunk {
+                        Some((on_data, chunk))
+                    } else {
+                        inner.paused_backlog.remove(&self.viewer_id);
+                        inner.draining_viewers.remove(&self.viewer_id);
+                        None
+                    }
+                }
+            };
+            let Some((on_data, chunk)) = next else { break };
+            on_data(chunk);
         }
     }
     fn kill(&self) {
