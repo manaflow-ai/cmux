@@ -13497,6 +13497,11 @@ mod tests {
         assert!(json_line_payload_len(&oversized_line) > MAX_JSON_LINE_BYTES);
     }
 
+    #[test]
+    fn listener_accept_retries_a_connection_reset() {
+        assert!(retry_accept_error(std::io::ErrorKind::ConnectionReset));
+    }
+
     struct TestSocketDir(PathBuf);
 
     impl TestSocketDir {
