@@ -2960,7 +2960,11 @@ impl Surface {
                 host_exit_record_path: Some(host_exit_record_path),
                 pid: snapshot.pid,
                 command: snapshot.command,
-                cwd: snapshot.cwd,
+                cwd: snapshot
+                    .cwd
+                    .as_deref()
+                    .and_then(platform::spawn_cwd_to_local_path)
+                    .map(|path| path.to_string_lossy().into_owned()),
                 exit: Mutex::new(None),
                 local_pty_drained: AtomicBool::new(true),
                 exit_notified: AtomicBool::new(false),
@@ -5448,7 +5452,12 @@ impl Surface {
             .as_deref()
             .and_then(platform::terminal_pwd_to_local_path)
             .map(|path| path.to_string_lossy().into_owned())
-            .or_else(|| self.spawn_cwd())
+            .or_else(|| {
+                self.spawn_cwd()
+                    .as_deref()
+                    .and_then(platform::spawn_cwd_to_local_path)
+                    .map(|path| path.to_string_lossy().into_owned())
+            })
     }
 
     pub fn process_id(&self) -> Option<u32> {

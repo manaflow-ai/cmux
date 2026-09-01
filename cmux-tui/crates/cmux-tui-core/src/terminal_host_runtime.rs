@@ -3444,8 +3444,19 @@ mod unix {
         frames
     }
 
+    /// Persist only a local path in the adoption snapshot. A host can outlive
+    /// its daemon, so a raw OSC 7 URL here would become the next surface's
+    /// inherited spawn directory after reattachment.
     fn snapshot_cwd(term: &Terminal, spawn_cwd: Option<&str>) -> Option<String> {
-        term.pwd().or_else(|| spawn_cwd.map(str::to_owned))
+        term.pwd()
+            .as_deref()
+            .and_then(crate::platform::terminal_pwd_to_local_path)
+            .map(|path| path.to_string_lossy().into_owned())
+            .or_else(|| {
+                spawn_cwd
+                    .and_then(crate::platform::spawn_cwd_to_local_path)
+                    .map(|path| path.to_string_lossy().into_owned())
+            })
     }
 
     impl HostShared {

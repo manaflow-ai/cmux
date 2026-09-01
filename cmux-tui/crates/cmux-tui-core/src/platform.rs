@@ -889,6 +889,17 @@ pub fn terminal_pwd_to_local_path(value: &str) -> Option<PathBuf> {
     url.to_file_path().ok().filter(|path| terminal_pwd_path_is_safe(path))
 }
 
+/// Convert a trusted spawn working directory into a local path. Spawn CWDs
+/// may be ordinary absolute paths, while terminal-reported OSC 7 values must
+/// go through the stricter host check above.
+pub fn spawn_cwd_to_local_path(value: &str) -> Option<PathBuf> {
+    let plain = Path::new(value);
+    if terminal_pwd_path_is_safe(plain) {
+        return Some(plain.to_owned());
+    }
+    terminal_pwd_to_local_path(value)
+}
+
 fn terminal_pwd_path_is_safe(path: &Path) -> bool {
     if !path.is_absolute() {
         return false;
