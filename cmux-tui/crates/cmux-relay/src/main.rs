@@ -1,8 +1,9 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, anyhow};
 use cmux_relay::{Relay, RelayCommand, TicketAuthority, version_string};
 use cmux_remote_protocol::{RelayPermission, RelayRole, RelayTicketClaims};
+use tokio::sync::watch;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -53,16 +54,73 @@ async fn main() -> anyhow::Result<()> {
             let cleanup = relay.spawn_cleanup();
             let (listener, router) = relay.server_parts(listener);
             eprintln!("cmux-relay listening on {address}");
-            let result = axum::serve(listener, router)
-                .with_graceful_shutdown(shutdown_signal())
-                .await
-                .context("relay server failed");
+            let result = serve_until_shutdown(relay, listener, router).await;
             cleanup.abort();
             // `abort` only requests cancellation. Await the handle so the
             // cleanup task is fully stopped before the runtime begins to
             // tear down, instead of leaving its final poll implicit.
             let _ = cleanup.await;
             result
+        }
+    }
+}
+
+async fn serve_until_shutdown(
+    relay: Relay,
+    listener: cmux_relay::AdmissionListener,
+    router: axum::Router,
+) -> anyhow::Result<()> {
+    let (shutdown_sender, shutdown_receiver) = watch::channel(false);
+    let signal_relay = relay.clone();
+    let signal_task = tokio::spawn(async move {
+        shutdown_signal().await;
+        // Flip readiness before notifying the HTTP server. This closes the
+        // handoff race where a quiet server could finish graceful shutdown
+        // before the load balancer observes /readyz as draining.
+        signal_relay.begin_drain();
+        let _ = shutdown_sender.send(true);
+    });
+    let server_shutdown = wait_for_shutdown(shutdown_receiver.clone());
+    let mut server =
+        Box::pin(axum::serve(listener, router).with_graceful_shutdown(server_shutdown));
+
+    let result = tokio::select! {
+        result = &mut server => result.context("relay server failed"),
+        changed = wait_for_shutdown(shutdown_receiver) => {
+            if changed {
+                // The signal task performs the transition before publishing
+                // this notification. Keep this idempotent guard for future
+                // shutdown sources that may send the watch signal directly.
+                relay.begin_drain();
+                let drained = relay.wait_for_idle(relay.config().drain_timeout).await;
+                if !drained {
+                    eprintln!(
+                        "cmux-relay drain timeout reached with {} active sockets",
+                        relay.active_connections(),
+                    );
+                }
+                match tokio::time::timeout(Duration::from_secs(2), &mut server).await {
+                    Ok(result) => result.context("relay server failed during shutdown"),
+                    Err(_) => Ok(()),
+                }
+            } else {
+                Ok(())
+            }
+        }
+    };
+
+    signal_task.abort();
+    let _ = signal_task.await;
+    result
+}
+
+async fn wait_for_shutdown(mut receiver: watch::Receiver<bool>) -> bool {
+    loop {
+        if *receiver.borrow() {
+            return true;
+        }
+        if receiver.changed().await.is_err() {
+            return false;
         }
     }
 }

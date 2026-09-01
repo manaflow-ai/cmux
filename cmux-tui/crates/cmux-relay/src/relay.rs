@@ -1,5 +1,5 @@
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -20,7 +20,7 @@ use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use serde::Serialize;
 use tokio::net::TcpListener;
-use tokio::sync::{Mutex, mpsc, watch};
+use tokio::sync::{Mutex, Notify, mpsc, watch};
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
@@ -47,6 +47,8 @@ struct RelayInner {
     state: Mutex<RelayState>,
     next_connection_id: AtomicU64,
     active_connections: AtomicUsize,
+    accepting_connections: AtomicBool,
+    idle_notify: Notify,
 }
 
 struct UpgradedConnectionPermit {
@@ -55,7 +57,9 @@ struct UpgradedConnectionPermit {
 
 impl Drop for UpgradedConnectionPermit {
     fn drop(&mut self) {
-        self.inner.active_connections.fetch_sub(1, Ordering::AcqRel);
+        if self.inner.active_connections.fetch_sub(1, Ordering::AcqRel) == 1 {
+            self.inner.idle_notify.notify_waiters();
+        }
     }
 }
 
@@ -205,9 +209,17 @@ type ConnectionResult<T = ()> = Result<T, ConnectionEnd>;
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct HealthSnapshot {
     pub status: &'static str,
+    pub shard: String,
     pub daemon_slots: usize,
     pub pending_circuits: usize,
     pub ready_circuits: usize,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct ReadinessSnapshot {
+    pub status: &'static str,
+    pub shard: String,
+    pub accepting: bool,
 }
 
 impl Relay {
@@ -224,12 +236,50 @@ impl Relay {
                 state: Mutex::new(RelayState::default()),
                 next_connection_id: AtomicU64::new(1),
                 active_connections: AtomicUsize::new(0),
+                accepting_connections: AtomicBool::new(true),
+                idle_notify: Notify::new(),
             }),
         })
     }
 
     pub fn config(&self) -> &RelayConfig {
         &self.inner.config
+    }
+
+    /// Stops new WebSocket upgrades while allowing established circuits to
+    /// finish. Returns `true` only for the transition from serving to draining.
+    pub fn begin_drain(&self) -> bool {
+        self.inner.accepting_connections.swap(false, Ordering::AcqRel)
+    }
+
+    pub fn is_accepting(&self) -> bool {
+        self.inner.accepting_connections.load(Ordering::Acquire)
+    }
+
+    pub fn active_connections(&self) -> usize {
+        self.inner.active_connections.load(Ordering::Acquire)
+    }
+
+    /// Waits for all upgraded sockets to close. A notification plus a second
+    /// counter check avoids polling and avoids missing a close between checks.
+    pub async fn wait_for_idle(&self, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        loop {
+            if self.active_connections() == 0 {
+                return true;
+            }
+            let notified = self.inner.idle_notify.notified();
+            if self.active_connections() == 0 {
+                return true;
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return false;
+            }
+            if tokio::time::timeout(remaining, notified).await.is_err() {
+                return self.active_connections() == 0;
+            }
+        }
     }
 
     /// Returns the only supported server pairing. The listener enforces raw
@@ -241,6 +291,7 @@ impl Relay {
     fn router(&self) -> Router {
         Router::new()
             .route("/healthz", get(Self::health_handler))
+            .route("/readyz", get(Self::readiness_handler))
             .route("/v1/relay", get(Self::websocket_handler))
             .route("/ws", get(Self::websocket_handler))
             .with_state(self.clone())
@@ -267,6 +318,7 @@ impl Relay {
         let ready_circuits = state.circuits.values().filter(|circuit| circuit.ready).count();
         HealthSnapshot {
             status: "ok",
+            shard: self.inner.config.shard.clone(),
             daemon_slots: state.controls.len(),
             pending_circuits: state.circuits.len() - ready_circuits,
             ready_circuits,
@@ -277,6 +329,21 @@ impl Relay {
         (StatusCode::OK, Json(relay.health().await))
     }
 
+    async fn readiness_handler(State(relay): State<Self>) -> Response {
+        let accepting = relay.is_accepting();
+        let status = if accepting { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE };
+        let body = Json(ReadinessSnapshot {
+            status: if accepting { "ready" } else { "draining" },
+            shard: relay.inner.config.shard.clone(),
+            accepting,
+        });
+        let mut response = (status, body).into_response();
+        if !accepting {
+            response.headers_mut().insert(RETRY_AFTER, HeaderValue::from_static("1"));
+        }
+        response
+    }
+
     async fn websocket_handler(
         State(relay): State<Self>,
         headers: HeaderMap,
@@ -284,6 +351,12 @@ impl Relay {
     ) -> Response {
         if headers.contains_key(ORIGIN) {
             return StatusCode::FORBIDDEN.into_response();
+        }
+        if !relay.is_accepting() {
+            let mut response =
+                (StatusCode::SERVICE_UNAVAILABLE, "relay is draining").into_response();
+            response.headers_mut().insert(RETRY_AFTER, HeaderValue::from_static("1"));
+            return response;
         }
         let Some(permit) = relay.try_admit_upgraded_socket() else {
             let mut response =
@@ -309,6 +382,9 @@ impl Relay {
     }
 
     fn try_admit_upgraded_socket(&self) -> Option<UpgradedConnectionPermit> {
+        if !self.is_accepting() {
+            return None;
+        }
         if self
             .inner
             .active_connections
@@ -317,6 +393,12 @@ impl Relay {
             })
             .is_err()
         {
+            return None;
+        }
+        if !self.is_accepting() {
+            if self.inner.active_connections.fetch_sub(1, Ordering::AcqRel) == 1 {
+                self.inner.idle_notify.notify_waiters();
+            }
             return None;
         }
         Some(UpgradedConnectionPermit { inner: self.inner.clone() })
@@ -641,6 +723,12 @@ impl Relay {
         slot: String,
         ticket: String,
     ) -> Result<(), RelayError> {
+        if !self.is_accepting() {
+            return Err(RelayError::capacity(
+                "relay-draining",
+                "relay is draining and does not accept new daemon registrations",
+            ));
+        }
         validate_protocol(protocol)?;
         validate_slot(&slot)?;
         validate_ticket_size(&ticket)?;
@@ -677,6 +765,15 @@ impl Relay {
         let mut replaced = None;
         {
             let mut state = self.inner.state.lock().await;
+            // Re-check while holding the state lock. A drain can begin after
+            // the fast check above but before this registration mutates the
+            // slot ledger.
+            if !self.is_accepting() {
+                return Err(RelayError::capacity(
+                    "relay-draining",
+                    "relay is draining and does not accept new daemon registrations",
+                ));
+            }
             if let Some((existing_ticket, existing_peer)) = state
                 .controls
                 .get(&slot)
@@ -755,6 +852,12 @@ impl Relay {
         lane: LaneToken,
         generation: u64,
     ) -> Result<CircuitId, RelayError> {
+        if !self.is_accepting() {
+            return Err(RelayError::capacity(
+                "relay-draining",
+                "relay is draining and does not accept new circuits",
+            ));
+        }
         validate_protocol(protocol)?;
         validate_slot(&slot)?;
         validate_lane(&lane)?;
@@ -786,6 +889,15 @@ impl Relay {
 
         let (circuit, daemon, client_join_ticket, daemon_join_ticket) = {
             let mut state = self.inner.state.lock().await;
+            // The first check is a fast rejection. Re-check under the state
+            // lock so a concurrent SIGTERM cannot admit a circuit after the
+            // readiness probe has changed to draining.
+            if !self.is_accepting() {
+                return Err(RelayError::capacity(
+                    "relay-draining",
+                    "relay is draining and does not accept new circuits",
+                ));
+            }
             let Some((daemon, control_deadline, daemon_expires_at_unix)) =
                 state.controls.get(&slot).map(|control| {
                     (control.peer.clone(), control.deadline, control.provider_expires_at_unix)
@@ -1858,6 +1970,7 @@ mod tests {
             server.relay.health().await,
             HealthSnapshot {
                 status: "ok",
+                shard: "default".into(),
                 daemon_slots: 1,
                 pending_circuits: 0,
                 ready_circuits: 1,
@@ -2101,6 +2214,105 @@ mod tests {
         assert!(response.starts_with("HTTP/1.1 200 OK"));
         assert!(response.to_ascii_lowercase().contains("connection: close"));
         assert!(response.contains("\"status\":\"ok\""));
+    }
+
+    #[tokio::test]
+    async fn readiness_endpoint_flips_when_the_relay_starts_draining() {
+        let server = TestServer::start(RelayConfig::default()).await;
+
+        let mut before = TcpStream::connect(server.address).await.unwrap();
+        before
+            .write_all(
+                format!("GET /readyz HTTP/1.1\r\nHost: {}\r\n\r\n", server.address).as_bytes(),
+            )
+            .await
+            .unwrap();
+        let mut response = Vec::new();
+        timeout(Duration::from_secs(2), before.read_to_end(&mut response)).await.unwrap().unwrap();
+        let response = String::from_utf8(response).unwrap();
+        assert!(response.starts_with("HTTP/1.1 200 OK"));
+        assert!(response.contains("\"status\":\"ready\""));
+
+        assert!(server.relay.begin_drain());
+        assert!(!server.relay.is_accepting());
+        assert!(!server.relay.begin_drain());
+
+        let mut after = TcpStream::connect(server.address).await.unwrap();
+        after
+            .write_all(
+                format!("GET /readyz HTTP/1.1\r\nHost: {}\r\n\r\n", server.address).as_bytes(),
+            )
+            .await
+            .unwrap();
+        let mut response = Vec::new();
+        timeout(Duration::from_secs(2), after.read_to_end(&mut response)).await.unwrap().unwrap();
+        let response = String::from_utf8(response).unwrap();
+        assert!(response.starts_with("HTTP/1.1 503 Service Unavailable"));
+        assert!(response.to_ascii_lowercase().contains("retry-after: 1"));
+        assert!(response.contains("\"status\":\"draining\""));
+    }
+
+    #[tokio::test]
+    async fn draining_keeps_existing_control_sockets_but_rejects_new_upgrades() {
+        let server = TestServer::start(RelayConfig::default()).await;
+        let mut daemon = register_open_daemon(&server, "slot-a").await;
+        assert!(server.relay.begin_drain());
+
+        let url = format!("ws://{}/v1/relay", server.address);
+        let error = connect_async(url).await.expect_err("draining relay accepted a new socket");
+        assert!(matches!(
+            error,
+            tokio_tungstenite::tungstenite::Error::Http(response)
+                if response.status() == StatusCode::SERVICE_UNAVAILABLE
+        ));
+
+        daemon.send(ClientMessage::Ping(Bytes::from_static(b"still-alive"))).await.unwrap();
+        let message =
+            timeout(Duration::from_secs(2), daemon.next()).await.unwrap().unwrap().unwrap();
+        assert_eq!(message, ClientMessage::Pong(Bytes::from_static(b"still-alive")));
+    }
+
+    #[tokio::test]
+    async fn draining_rejects_new_circuit_allocations_on_existing_control_sockets() {
+        let server = TestServer::start(RelayConfig::default()).await;
+        let mut daemon = register_open_daemon(&server, "slot-a").await;
+        assert!(server.relay.begin_drain());
+
+        let mut client = server.connect().await;
+        send_control(
+            &mut client,
+            RelayControl::Connect {
+                protocol: REMOTE_PROTOCOL_VERSION,
+                slot: "slot-a".into(),
+                ticket: "client-ticket".into(),
+                lane: LaneToken("interactive".into()),
+                generation: 1,
+            },
+        )
+        .await;
+        assert!(matches!(
+            receive_control(&mut client).await,
+            RelayControl::Error { code, retryable: true, .. } if code == "relay-draining"
+        ));
+
+        // Keep the daemon binding alive until the assertion completes. This
+        // also proves that drain does not tear down an established registration.
+        daemon.send(ClientMessage::Ping(Bytes::from_static(b"lease"))).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn wait_for_idle_wakes_when_the_last_socket_closes() {
+        let relay = Relay::new(RelayConfig::default()).unwrap();
+        let permit = relay
+            .try_admit_upgraded_socket()
+            .expect("test socket should be admitted while serving");
+        let waiting = {
+            let relay = relay.clone();
+            tokio::spawn(async move { relay.wait_for_idle(Duration::from_secs(1)).await })
+        };
+        tokio::task::yield_now().await;
+        drop(permit);
+        assert!(waiting.await.unwrap());
     }
 
     #[tokio::test]
