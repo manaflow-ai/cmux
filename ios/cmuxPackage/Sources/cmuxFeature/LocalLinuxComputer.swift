@@ -120,6 +120,14 @@ public final class LocalLinuxComputerController {
         let columns = max(1, columns)
         let rows = max(1, rows)
 
+        // Boot failures are intentionally sticky for this controller and its
+        // injected runtime. Re-entering the destination must not repeatedly
+        // mutate a partially initialized process or present a misleading
+        // retry action. The navigation Back action remains the escape path.
+        if state == .failed {
+            return false
+        }
+
         if let session {
             // A natural process exit finishes the session's output stream but
             // leaves the actor object retained by the controller. Clear that
