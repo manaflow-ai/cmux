@@ -55,10 +55,12 @@ import Testing
     }
 
     @Test func cancellingSupersededSubmissionDoesNotCancelNewerMacSwitch() async throws {
+        // Name the paired instances explicitly so both submissions exercise
+        // the warm control-pool promotion path before the display cache loads.
         let pairedStore = DelayedTeamPairedMacStore(
             recordsByTeam: ["": [
-                Self.pairedMac(macDeviceID: "secondary-b"),
-                Self.pairedMac(macDeviceID: "secondary-c"),
+                Self.pairedMac(macDeviceID: "secondary-b", instanceTag: "b"),
+                Self.pairedMac(macDeviceID: "secondary-c", instanceTag: "c"),
             ]],
             blockedTeams: [""]
         )
@@ -68,15 +70,23 @@ import Testing
             router: RoutingHostRouter(),
             pairedMacStore: pairedStore
         )
+        defer {
+            // The successful switch starts a trailing aggregation pass. Stop
+            // the lifecycle owner so its delayed store read receives the same
+            // cancellation signal as a real background transition.
+            store.suspendForegroundRefresh()
+        }
         try installSecondaryClient(
             on: store,
             macDeviceID: "secondary-b",
+            instanceTag: "b",
             router: routerB,
             supportedHostCapabilities: ["workspace.task_create.v1"]
         )
         try installSecondaryClient(
             on: store,
             macDeviceID: "secondary-c",
+            instanceTag: "c",
             router: routerC,
             supportedHostCapabilities: ["workspace.task_create.v1"]
         )
@@ -86,6 +96,7 @@ import Testing
         let submissionB = Task { @MainActor in
             await store.submitTaskComposer(
                 macDeviceID: "secondary-b",
+                instanceTag: "b",
                 spec: MobileWorkspaceCreateSpec(title: "B", operationID: UUID()),
                 willStartCreate: { boundaryBCount += 1 }
             )
@@ -97,6 +108,7 @@ import Testing
         let submissionC = Task { @MainActor in
             await store.submitTaskComposer(
                 macDeviceID: "secondary-c",
+                instanceTag: "c",
                 spec: MobileWorkspaceCreateSpec(title: "C", operationID: UUID()),
                 willStartCreate: { boundaryCCount += 1 }
             )
@@ -105,7 +117,6 @@ import Testing
 
         submissionB.cancel()
         #expect(store.isMacSwitchInFlight)
-        await pairedStore.release(teamID: nil)
         _ = await submissionB.value
         #expect(store.isMacSwitchInFlight)
 
@@ -124,7 +135,10 @@ import Testing
         #expect(await routerC.recordedWorkspaceCreateCount() == 1)
     }
 
-    private static func pairedMac(macDeviceID: String) -> MobilePairedMac {
+    private static func pairedMac(
+        macDeviceID: String,
+        instanceTag: String? = nil
+    ) -> MobilePairedMac {
         MobilePairedMac(
             macDeviceID: macDeviceID,
             displayName: macDeviceID,
@@ -132,7 +146,8 @@ import Testing
             createdAt: Date(),
             lastSeenAt: Date(),
             isActive: false,
-            stackUserID: "routing-user"
+            stackUserID: "routing-user",
+            instanceTag: instanceTag
         )
     }
 }
