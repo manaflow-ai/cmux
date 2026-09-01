@@ -1,5 +1,6 @@
-import Foundation
 import Darwin
+import CmuxTopMemory
+import Foundation
 
 extension TerminalController {
     /// Builds a stable identifier for a workspace status tag.
@@ -48,9 +49,11 @@ extension TerminalController {
         topGroupLimit: Int = 12
     ) -> [String: Any] {
         var unattributedTTYCandidates: Set<Int> = []
+        var unattributedTTYReasonByProcessID: [Int: String] = [:]
         let attributionByPID = v2TopMemoryAttributionByPID(
             in: annotatedWindows,
-            unattributedTTYProcessIDs: &unattributedTTYCandidates
+            unattributedTTYProcessIDs: &unattributedTTYCandidates,
+            unattributedTTYReasonByProcessID: &unattributedTTYReasonByProcessID
         )
         return processSnapshot.memoryDiagnosticPayload(
             appPID: Int(Darwin.getpid()),
@@ -60,7 +63,8 @@ extension TerminalController {
                 candidates: unattributedTTYCandidates,
                 processSnapshot: processSnapshot,
                 provenProcessIDs: Set(attributionByPID.keys)
-            )
+            ),
+            unattributedTTYReasonByProcessID: unattributedTTYReasonByProcessID
         )
     }
 
@@ -69,8 +73,11 @@ extension TerminalController {
         _ windows: inout [[String: Any]],
         processSnapshot: CmuxTopProcessSnapshot,
         browserPIDOccurrences: [Int: Int],
-        includeProcesses: Bool
+        includeProcesses: Bool,
+        ownershipResolver: CmuxTopProcessOwnershipResolver? = nil
     ) -> Set<Int> {
+        let ownershipResolver = ownershipResolver
+            ?? processSnapshot.terminalProcessOwnershipResolver()
         var allPIDs: Set<Int> = []
         for index in windows.indices {
             var workspaces = windows[index]["workspaces"] as? [[String: Any]] ?? []
@@ -84,7 +91,8 @@ extension TerminalController {
                         &workspaces[workspaceIndex],
                         processSnapshot: processSnapshot,
                         browserPIDOccurrences: browserPIDOccurrences,
-                        includeProcesses: includeProcesses
+                        includeProcesses: includeProcesses,
+                        ownershipResolver: ownershipResolver
                     )
                 )
                 windowTopLevelPIDs.formUnion(v2TopIntArray(workspaces[workspaceIndex]["top_level_pids"]))
@@ -109,7 +117,8 @@ extension TerminalController {
         _ workspace: inout [String: Any],
         processSnapshot: CmuxTopProcessSnapshot,
         browserPIDOccurrences: [Int: Int],
-        includeProcesses: Bool
+        includeProcesses: Bool,
+        ownershipResolver: CmuxTopProcessOwnershipResolver
     ) -> Set<Int> {
         var workspacePIDs: Set<Int> = []
         var workspaceTopLevelPIDs: Set<Int> = []
@@ -122,7 +131,8 @@ extension TerminalController {
                     &panes[paneIndex],
                     processSnapshot: processSnapshot,
                     browserPIDOccurrences: browserPIDOccurrences,
-                    includeProcesses: includeProcesses
+                    includeProcesses: includeProcesses,
+                    ownershipResolver: ownershipResolver
                 )
             )
             workspaceTopLevelPIDs.formUnion(v2TopIntArray(panes[paneIndex]["top_level_pids"]))
@@ -155,7 +165,8 @@ extension TerminalController {
         _ pane: inout [String: Any],
         processSnapshot: CmuxTopProcessSnapshot,
         browserPIDOccurrences: [Int: Int],
-        includeProcesses: Bool
+        includeProcesses: Bool,
+        ownershipResolver: CmuxTopProcessOwnershipResolver
     ) -> Set<Int> {
         var panePIDs: Set<Int> = []
         var paneTopLevelPIDs: Set<Int> = []
@@ -167,7 +178,8 @@ extension TerminalController {
                     &surfaces[surfaceIndex],
                     processSnapshot: processSnapshot,
                     browserPIDOccurrences: browserPIDOccurrences,
-                    includeProcesses: includeProcesses
+                    includeProcesses: includeProcesses,
+                    ownershipResolver: ownershipResolver
                 )
             )
             paneTopLevelPIDs.formUnion(v2TopIntArray(surfaces[surfaceIndex]["top_level_pids"]))
@@ -185,7 +197,8 @@ extension TerminalController {
         _ surface: inout [String: Any],
         processSnapshot: CmuxTopProcessSnapshot,
         browserPIDOccurrences: [Int: Int],
-        includeProcesses: Bool
+        includeProcesses: Bool,
+        ownershipResolver: CmuxTopProcessOwnershipResolver
     ) -> Set<Int> {
         var rootPIDs: Set<Int> = []
         var surfacePIDs: Set<Int> = []
@@ -194,7 +207,8 @@ extension TerminalController {
         let ttyName = surface["tty"] as? String
         let ownership = processSnapshot.terminalProcessOwnership(
             surfaceID: surfaceID,
-            ttyName: ttyName
+            ttyName: ttyName,
+            resolver: ownershipResolver
         )
 
         surface["cmux_process_pids"] = ownership.explicitScopeProcessIDs.sorted()

@@ -57,7 +57,7 @@ struct CmuxTaskManagerMemoryAttribution: Sendable {
         if let reason, !reason.isEmpty {
             parts.append(String.localizedStringWithFormat(
                 String(localized: "taskManager.memory.evidence", defaultValue: "Evidence: %@"),
-                reason
+                CmuxTopMemoryReasonLocalization.label(for: reason)
             ))
         }
         return parts.isEmpty

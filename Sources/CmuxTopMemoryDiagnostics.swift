@@ -9,7 +9,8 @@ extension CmuxTopProcessSnapshot {
         appPID: Int = Int(Darwin.getpid()),
         topGroupLimit: Int = cmuxTopMemoryDiagnosticDefaultGroupLimit,
         attributionByPID: [Int: CmuxTopProcessAttribution] = [:],
-        unattributedTTYProcessIDs: Set<Int> = []
+        unattributedTTYProcessIDs: Set<Int> = [],
+        unattributedTTYReasonByProcessID: [Int: String] = [:]
     ) -> [String: Any] {
         let appResources = summaryPayload(for: [appPID], rootPIDs: [appPID])
         let appProcess = processesByPID[appPID]
@@ -28,6 +29,22 @@ extension CmuxTopProcessSnapshot {
                 !childPIDs.contains(processID) &&
                 attributionByPID[processID] == nil
         })
+        let excludedTTYReasonByProcessID = excludedTTYProcessIDs.reduce(into: [Int: String]()) { result, processID in
+            result[processID] = unattributedTTYReasonByProcessID[processID]
+                ?? CmuxTopProcessOwnershipReason.sameTTYUnproven.rawValue
+        }
+        let excludedTTYReasons = Set(excludedTTYReasonByProcessID.values).sorted()
+        let excludedTTYReason: Any
+        if excludedTTYReasons.isEmpty {
+            excludedTTYReason = NSNull()
+        } else if excludedTTYReasons.count == 1, let reason = excludedTTYReasons.first {
+            excludedTTYReason = reason
+        } else {
+            excludedTTYReason = "multiple-evidence"
+        }
+        let excludedTTYReasonPayload = Dictionary(uniqueKeysWithValues: excludedTTYReasonByProcessID
+            .sorted { $0.key < $1.key }
+            .map { (String($0.key), $0.value) })
         let descendantPIDSet = Set(descendantPIDs)
         let reducedSummaries = summaries(for: [childPIDs, descendantPIDSet, excludedTTYProcessIDs])
         let childSummary = reducedSummaries[0]
@@ -68,7 +85,9 @@ extension CmuxTopProcessSnapshot {
                     "process_count": excludedTTYSummary.processCount,
                     "pids": excludedTTYSummary.pids,
                     "ownership": "ambiguous",
-                    "reason": CmuxTopProcessOwnershipReason.sameTTYUnproven.rawValue,
+                    "reason": excludedTTYReason,
+                    "reasons": excludedTTYReasons,
+                    "reason_by_pid": excludedTTYReasonPayload,
                     "os_aggregation": "force-quit-session-aggregation-outside-cmux-control"
                 ] as [String: Any]
             ] as [String: Any],

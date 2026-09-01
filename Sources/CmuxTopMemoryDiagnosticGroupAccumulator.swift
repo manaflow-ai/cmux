@@ -112,9 +112,12 @@ struct CmuxTopMemoryDiagnosticGroupAccumulator {
         let processCount = processIDs.count
         let unattributedProcessCount = max(0, processCount - attributedProcessCount)
         let sortedReasons = attributionReasons.sorted()
-        let reason: String
+        let reason: String?
         if attributedProcessCount == 0 {
-            reason = "unattributed"
+            // The kind already conveys that no owner was proven. Omitting the
+            // duplicate reason prevents displays such as "unattributed
+            // [evidence: unattributed]".
+            reason = nil
         } else if sortedReasons.count == 1, let firstReason = sortedReasons.first {
             reason = firstReason
         } else {
@@ -132,7 +135,7 @@ struct CmuxTopMemoryDiagnosticGroupAccumulator {
             kind = "common"
             ownerPayload = CmuxTopProcessAttribution(
                 owner: commonOwner,
-                reason: reason
+                reason: reason ?? "multiple-evidence"
             ).payload()
         } else {
             kind = "multiple"
@@ -141,7 +144,7 @@ struct CmuxTopMemoryDiagnosticGroupAccumulator {
         return [
             "kind": kind,
             "owner": ownerPayload,
-            "reason": reason,
+            "reason": reason as Any? ?? NSNull(),
             "reasons": sortedReasons,
             "workspace_count": workspaceIdentityKeys.count,
             "owner_count": ownerIdentityKeys.count,

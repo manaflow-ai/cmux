@@ -39,7 +39,7 @@ extension CMUXCLI {
         guard let reason, !reason.isEmpty else { return text }
         let evidence = String.localizedStringWithFormat(
             String(localized: "memory.attribution.evidence", defaultValue: "evidence: %@"),
-            reason
+            CmuxTopMemoryReasonLocalization.label(for: reason)
         )
         return text + " [" + evidence + "]"
     }

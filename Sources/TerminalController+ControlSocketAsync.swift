@@ -207,7 +207,8 @@ extension TerminalController {
         }
 
         let processSnapshot = CmuxTopProcessSnapshot.capture(
-            includeProcessDetails: includeProcesses
+            includeProcessDetails: includeProcesses,
+            includeOwnershipDetails: true
         )
         var windows = windowsObject
         let browserPIDOccurrences = v2TopBrowserPIDOccurrences(in: windows)

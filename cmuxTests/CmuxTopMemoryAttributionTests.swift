@@ -170,7 +170,71 @@ struct CmuxTopMemoryAttributionTests {
         #expect(row.workspaceId == nil)
         #expect(row.surfaceId == nil)
         #expect(!row.canKillProcess)
-        #expect(row.detail.contains(CmuxTopProcessOwnershipReason.sameTTYUnproven.rawValue))
+        #expect(row.detail.contains(
+            CmuxTopMemoryReasonLocalization.label(
+                for: CmuxTopProcessOwnershipReason.sameTTYUnproven.rawValue
+            )
+        ))
+    }
+
+    @Test func diagnosticsPreservePerProcessTTYReasons() throws {
+        let appPID = 700
+        let conflictingPID = 701
+        let unprovenPID = 702
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [
+                process(pid: appPID, parentPID: 1, name: "cmux", residentBytes: 1),
+                process(pid: conflictingPID, parentPID: 1, name: "zsh", residentBytes: 2),
+                process(pid: unprovenPID, parentPID: 1, name: "python3", residentBytes: 3)
+            ],
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: true
+        )
+
+        let payload = snapshot.memoryDiagnosticPayload(
+            appPID: appPID,
+            unattributedTTYProcessIDs: [conflictingPID, unprovenPID],
+            unattributedTTYReasonByProcessID: [
+                conflictingPID: CmuxTopProcessOwnershipReason.conflictingScope.rawValue,
+                unprovenPID: CmuxTopProcessOwnershipReason.sameTTYUnproven.rawValue
+            ]
+        )
+        let children = try #require(payload["children"] as? [String: Any])
+        let unattributed = try #require(children["unattributed_tty"] as? [String: Any])
+        let reasonByPID = try #require(unattributed["reason_by_pid"] as? [String: String])
+
+        #expect(unattributed["reason"] as? String == "multiple-evidence")
+        #expect(unattributed["reasons"] as? [String] == [
+            CmuxTopProcessOwnershipReason.conflictingScope.rawValue,
+            CmuxTopProcessOwnershipReason.sameTTYUnproven.rawValue
+        ].sorted())
+        #expect(reasonByPID == [
+            String(conflictingPID): CmuxTopProcessOwnershipReason.conflictingScope.rawValue,
+            String(unprovenPID): CmuxTopProcessOwnershipReason.sameTTYUnproven.rawValue
+        ])
+    }
+
+    @Test func unattributedCommandGroupOmitsDuplicateReason() throws {
+        let appPID = 800
+        let childPID = 801
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [
+                process(pid: appPID, parentPID: 1, name: "cmux", residentBytes: 1),
+                process(pid: childPID, parentPID: appPID, name: "python3", residentBytes: 2)
+            ],
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: true
+        )
+
+        let payload = snapshot.memoryDiagnosticPayload(appPID: appPID)
+        let children = try #require(payload["children"] as? [String: Any])
+        let groups = try #require(children["groups"] as? [[String: Any]])
+        let group = try #require(groups.first)
+        let attribution = try #require(group["group_attribution"] as? [String: Any])
+
+        #expect(attribution["kind"] as? String == "unattributed")
+        #expect(attribution["reason"] is NSNull)
+        #expect(attribution["reasons"] as? [String] == [])
     }
 
     @Test func knownCMUXHelperNeedsAProvenProcessGroup() {

@@ -251029,7 +251029,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "PIDs: %@"
+            "value": "Prozess-IDs: %@"
           }
         },
         "en": {
@@ -251041,7 +251041,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "PIDs: %@"
+            "value": "Identificadores de proceso: %@"
           }
         },
         "fr": {
@@ -251089,7 +251089,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "PIDs: %@"
+            "value": "IDs de processo: %@"
           }
         },
         "ru": {
@@ -251130,6 +251130,1132 @@
         }
       }
     },
+
+    "taskManager.memory.reason.cmuxScope": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "نطاق cmux"
+            }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux opseg"
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux-omfang"
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux-Bereich"
+            }
+          },
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux scope"
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "ámbito de cmux"
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "périmètre cmux"
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "ambito cmux"
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux スコープ"
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "វិសាលភាព cmux"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux 범위"
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux-omfang"
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "zakres cmux"
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "escopo do cmux"
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "область cmux"
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "ขอบเขต cmux"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux kapsamı"
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "область cmux"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux 作用域"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux 範圍"
+            }
+          }
+        }
+      },
+    "taskManager.memory.reason.descendant": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "نسل تابع لـ cmux"
+            }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux potomak"
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux-efterkommer"
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux-Nachkomme"
+            }
+          },
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux descendant"
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "descendiente de cmux"
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "descendant cmux"
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "discendente cmux"
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux の子孫"
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "ដំណើរការកូន cmux"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux 하위 프로세스"
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux-underprosess"
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "potomek cmux"
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "descendente do cmux"
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "потомок cmux"
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "โปรเซสลูกของ cmux"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux alt süreci"
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "нащадок cmux"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux 子进程"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux 子程序"
+            }
+          }
+        }
+      },
+    "taskManager.memory.reason.processGroup": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "مجموعة عمليات cmux"
+            }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux grupa procesa"
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux-procesgruppe"
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux-Prozessgruppe"
+            }
+          },
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux process group"
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "grupo de procesos de cmux"
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "groupe de processus cmux"
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "gruppo di processi cmux"
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux プロセスグループ"
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "ក្រុមដំណើរការ cmux"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux 프로세스 그룹"
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux-prosessgruppe"
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "grupa procesów cmux"
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "grupo de processos do cmux"
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "группа процессов cmux"
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "กลุ่มโปรเซสของ cmux"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux işlem grubu"
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "група процесів cmux"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux 进程组"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux 程序群組"
+            }
+          }
+        }
+      },
+    "taskManager.memory.reason.sameTTYUnproven": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "TTY نفسه (لم تثبت الملكية)"
+            }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "isti TTY (vlasništvo nije dokazano)"
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "samme TTY (ejerskab ikke bevist)"
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "dasselbe TTY (Zuordnung nicht nachgewiesen)"
+            }
+          },
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "same TTY (ownership unproven)"
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "mismo TTY (propiedad no demostrada)"
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "même TTY (propriété non prouvée)"
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "stesso TTY (proprietà non dimostrata)"
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "同じTTY（所有権未確認）"
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "TTY ដូចគ្នា (មិនបានបញ្ជាក់កម្មសិទ្ធិ)"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "동일 TTY(소유권 미확인)"
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "samme TTY (eierskap ikke bevist)"
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "ten sam TTY (własność niepotwierdzona)"
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "mesmo TTY (propriedade não comprovada)"
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "тот же TTY (владение не подтверждено)"
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "TTY เดียวกัน (ยังยืนยันความเป็นเจ้าของไม่ได้)"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "aynı TTY (sahiplik kanıtlanmadı)"
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "той самий TTY (власність не підтверджено)"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "相同 TTY（所有权未证实）"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "相同 TTY（所有權未證實）"
+            }
+          }
+        }
+      },
+    "taskManager.memory.reason.conflictingScope": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "نطاق cmux متعارض"
+            }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "sukobljeni cmux opseg"
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "modstridende cmux-omfang"
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "widersprüchlicher cmux-Bereich"
+            }
+          },
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "conflicting cmux scope"
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "ámbitos de cmux en conflicto"
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "périmètre cmux en conflit"
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "ambito cmux in conflitto"
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "競合する cmux スコープ"
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "វិសាលភាព cmux មានទំនាស់"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "충돌하는 cmux 범위"
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "motstridende cmux-omfang"
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "sprzeczny zakres cmux"
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "escopos cmux conflitantes"
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "конфликтующая область cmux"
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "ขอบเขต cmux ขัดแย้งกัน"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "çakışan cmux kapsamı"
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "конфліктна область cmux"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "冲突的 cmux 作用域"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "衝突的 cmux 範圍"
+            }
+          }
+        }
+      },
+    "taskManager.memory.reason.webViewRoot": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "عملية WebKit الجذرية"
+            }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "korijenski WebKit proces"
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "WebKit-rodproces"
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "WebKit-Stammprozess"
+            }
+          },
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "WebKit root process"
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "proceso raíz de WebKit"
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "processus racine WebKit"
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "processo radice WebKit"
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "WebKit ルートプロセス"
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "ដំណើរការឫស WebKit"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "WebKit 루트 프로세스"
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "WebKit-rotprosess"
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "proces główny WebKit"
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "processo raiz do WebKit"
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "корневой процесс WebKit"
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "โปรเซสราก WebKit"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "WebKit kök işlemi"
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "кореневий процес WebKit"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "WebKit 根进程"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "WebKit 根程序"
+            }
+          }
+        }
+      },
+    "taskManager.memory.reason.processTree": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "شجرة العمليات"
+            }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "stablo procesa"
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "procestræ"
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Prozessbaum"
+            }
+          },
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "process tree"
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "árbol de procesos"
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "arbre des processus"
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "albero dei processi"
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "プロセスツリー"
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "មែកធាងដំណើរការ"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "프로세스 트리"
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "prosesstre"
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "drzewo procesów"
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "árvore de processos"
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "дерево процессов"
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "แผนผังโปรเซส"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "işlem ağacı"
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "дерево процесів"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "进程树"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "程序樹"
+            }
+          }
+        }
+      },
+    "taskManager.memory.reason.sharedProcessTree": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "شجرة عمليات مشتركة"
+            }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "dijeljeno stablo procesa"
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "delt procestræ"
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "gemeinsamer Prozessbaum"
+            }
+          },
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "shared process tree"
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "árbol de procesos compartido"
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "arbre de processus partagé"
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "albero dei processi condiviso"
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "共有プロセスツリー"
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "មែកធាងដំណើរការរួម"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "공유 프로세스 트리"
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "delt prosesstre"
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "wspólne drzewo procesów"
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "árvore de processos compartilhada"
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "общее дерево процессов"
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "แผนผังโปรเซสร่วม"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "paylaşılan işlem ağacı"
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "спільне дерево процесів"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "共享进程树"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "共用程序樹"
+            }
+          }
+        }
+      },
+    "taskManager.memory.reason.multipleEvidence": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "أدلة متعددة"
+            }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "više dokaza"
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "flere beviser"
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "mehrere Nachweise"
+            }
+          },
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "multiple evidence"
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "múltiples evidencias"
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "plusieurs preuves"
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "più elementi di prova"
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "複数の根拠"
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "ភស្តុតាងច្រើន"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "여러 근거"
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "flere bevis"
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "wiele dowodów"
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "várias evidências"
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "несколько подтверждений"
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "หลักฐานหลายรายการ"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "birden fazla kanıt"
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "кілька підтверджень"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "多个证据"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "多項證據"
+            }
+          }
+        }
+      },
     "taskManager.memory.unattributedTTY": {
       "extractionState": "manual",
       "localizations": {

@@ -14,13 +14,15 @@ extension CmuxTopProcessSnapshot {
     func terminalProcessOwnership(
         surfaceID: UUID?,
         ttyName: String?,
-        applicationPID: Int = Int(Darwin.getpid())
+        applicationPID: Int = Int(Darwin.getpid()),
+        resolver: CmuxTopProcessOwnershipResolver? = nil
     ) -> CmuxTopMemoryTerminalOwnership {
         let ttyDevice = ttyName.flatMap(Self.deviceIdentifier(forTTYName:))
         return terminalProcessOwnership(
             surfaceID: surfaceID,
             ttyDevice: ttyDevice,
-            applicationPID: applicationPID
+            applicationPID: applicationPID,
+            resolver: resolver
         )
     }
 
@@ -29,13 +31,43 @@ extension CmuxTopProcessSnapshot {
     func terminalProcessOwnership(
         surfaceID: UUID?,
         ttyDevice: Int64?,
-        applicationPID: Int = Int(Darwin.getpid())
+        applicationPID: Int = Int(Darwin.getpid()),
+        resolver: CmuxTopProcessOwnershipResolver? = nil
     ) -> CmuxTopMemoryTerminalOwnership {
-        let records = processesByPID.values.map { process in
+        let ownershipResolver = resolver
+            ?? terminalProcessOwnershipResolver(applicationPID: applicationPID)
+        return ownershipResolver.resolve(
+            surfaceID: surfaceID,
+            ttyDevice: ttyDevice
+        )
+    }
+
+    /// Returns the resolver captured with this snapshot, or builds one from
+    /// its immutable process values for manually constructed test snapshots.
+    func terminalProcessOwnershipResolver(
+        applicationPID: Int = Int(Darwin.getpid())
+    ) -> CmuxTopProcessOwnershipResolver {
+        terminalOwnershipResolver
+            ?? Self.makeTerminalProcessOwnershipResolver(
+                processes: Array(processesByPID.values),
+                applicationPID: applicationPID
+            )
+    }
+
+    /// Builds one ownership resolver from a process snapshot's enriched records.
+    ///
+    /// The application path is read from `records`, after path enrichment has
+    /// completed, so helper identity never falls back to a second live process
+    /// lookup during annotation.
+    static func makeTerminalProcessOwnershipResolver(
+        processes: [CmuxTopProcessInfo],
+        applicationPID: Int
+    ) -> CmuxTopProcessOwnershipResolver {
+        let records = processes.map { process in
             CmuxTopMemoryProcessRecord(
                 pid: process.pid,
                 parentPID: process.parentPID,
-                path: process.path ?? ownershipPath(for: process, applicationPID: applicationPID),
+                path: process.path,
                 ttyDevice: process.ttyDevice,
                 workspaceID: process.cmuxWorkspaceID,
                 surfaceID: process.cmuxSurfaceID,
@@ -43,34 +75,27 @@ extension CmuxTopProcessSnapshot {
                 processGroupID: process.processGroupID
             )
         }
-        let resolver = CmuxTopProcessOwnershipResolver(processes: records)
-        return resolver.resolve(
-            surfaceID: surfaceID,
-            ttyDevice: ttyDevice,
+        let applicationPath = records.first { $0.pid == applicationPID }?.path
+        let trustedPaths = trustedCMUXExecutablePaths(applicationPath: applicationPath)
+        return CmuxTopProcessOwnershipResolver(
+            processes: records,
             applicationPID: applicationPID,
-            trustedExecutablePaths: trustedCMUXExecutablePaths(applicationPID: applicationPID)
+            trustedExecutablePaths: trustedPaths
         )
     }
 
-    /// Loads paths only for the app and TTY processes that can affect helper
-    /// ownership, keeping ordinary top snapshots on their cheap path.
-    private func ownershipPath(for process: CmuxTopProcessInfo, applicationPID: Int) -> String? {
-        guard process.pid == applicationPID || process.ttyDevice != nil else { return nil }
-        return Self.executablePathForOwnership(pid: process.pid)
-    }
-
-    /// Derives trusted helper paths from the running app bundle identity.
-    private func trustedCMUXExecutablePaths(applicationPID: Int) -> Set<String> {
+    /// Derives trusted helper paths from the captured app path and bundle identity.
+    private static func trustedCMUXExecutablePaths(applicationPath: String?) -> Set<String> {
         var paths: Set<String> = []
-        if let applicationPath = process(pid: applicationPID)?.path {
-            paths.formUnion(Self.cmuxExecutablePathVariants(anchoredAt: applicationPath))
+        if let applicationPath {
+            paths.formUnion(cmuxExecutablePathVariants(anchoredAt: applicationPath))
         }
         let bundle = Bundle.main
         if bundle.bundleIdentifier?.localizedCaseInsensitiveContains("cmux") == true,
            let executablePath = bundle.executableURL?.path {
-            paths.formUnion(Self.cmuxExecutablePathVariants(anchoredAt: executablePath))
+            paths.formUnion(cmuxExecutablePathVariants(anchoredAt: executablePath))
         }
-        return Set(paths.compactMap(Self.canonicalExecutablePath))
+        return paths
     }
 
     /// Lists the app and bundled helper executable paths for one bundle anchor.
@@ -98,19 +123,5 @@ extension CmuxTopProcessSnapshot {
             current = parent
         }
         return paths
-    }
-
-    /// Canonicalizes a path for exact executable identity comparison.
-    private static func canonicalExecutablePath(_ path: String?) -> String? {
-        guard let path else { return nil }
-        let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedPath.isEmpty else {
-            return nil
-        }
-        let canonicalPath = URL(fileURLWithPath: trimmedPath)
-            .resolvingSymlinksInPath()
-            .standardizedFileURL
-            .path
-        return canonicalPath.hasPrefix("/") ? canonicalPath : nil
     }
 }

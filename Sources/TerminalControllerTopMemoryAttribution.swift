@@ -46,7 +46,8 @@ extension TerminalController {
     /// Resolves annotated tags, surfaces, and WebKit roots in one pass.
     nonisolated func v2TopMemoryAttributionByPID(
         in windows: [[String: Any]],
-        unattributedTTYProcessIDs: inout Set<Int>
+        unattributedTTYProcessIDs: inout Set<Int>,
+        unattributedTTYReasonByProcessID: inout [Int: String]
     ) -> [Int: CmuxTopProcessAttribution] {
         var nodes: [CmuxTopMemoryAttributionNode] = []
         for window in windows {
@@ -76,9 +77,18 @@ extension TerminalController {
                     let paneRef = v2TopString(pane["ref"])
                     let surfaces = pane["surfaces"] as? [[String: Any]] ?? []
                     for surface in surfaces {
-                        unattributedTTYProcessIDs.formUnion(
-                            v2TopIntArray(surface["tty_unattributed_process_pids"])
-                        )
+                        let ttyCandidates = v2TopIntArray(surface["tty_unattributed_process_pids"])
+                        unattributedTTYProcessIDs.formUnion(ttyCandidates)
+                        let ttyOwnership = surface["tty_process_ownership"] as? [String: Any]
+                        let ttyReasons = topMemoryProcessReasons(ttyOwnership?["reason_by_pid"])
+                        for processID in ttyCandidates {
+                            guard let reason = ttyReasons[processID] else { continue }
+                            mergeTopMemoryReason(
+                                reason,
+                                for: processID,
+                                into: &unattributedTTYReasonByProcessID
+                            )
+                        }
                         let surfaceID = v2TopUUID(surface["id"])
                         let surfaceRef = v2TopString(surface["ref"])
                         let surfaceType = v2TopString(surface["type"])
@@ -125,6 +135,22 @@ extension TerminalController {
                 surfaceType: entry.value.surfaceType,
                 reason: entry.value.reason
             )
+        }
+    }
+
+    /// Preserves one raw ownership reason, marking conflicting observations.
+    private nonisolated func mergeTopMemoryReason(
+        _ reason: String,
+        for processID: Int,
+        into reasonsByProcessID: inout [Int: String]
+    ) {
+        guard !reason.isEmpty else { return }
+        guard let existing = reasonsByProcessID[processID] else {
+            reasonsByProcessID[processID] = reason
+            return
+        }
+        if existing != reason {
+            reasonsByProcessID[processID] = "multiple-evidence"
         }
     }
 

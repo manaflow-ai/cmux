@@ -26,19 +26,50 @@ struct CmuxTopMemoryOwnershipTests {
             processGroupID: 30
         )
 
-        let ownership = CmuxTopProcessOwnershipResolver(processes: [app, shell, detached]).resolve(
-            surfaceID: surfaceID,
-            ttyDevice: tty,
+        let ownership = CmuxTopProcessOwnershipResolver(
+            processes: [app, shell, detached],
             applicationPID: app.pid,
             trustedExecutablePaths: [
                 "/Applications/cmux.app/Contents/MacOS/cmux",
                 "/Applications/cmux.app/Contents/Resources/bin/cmux"
             ]
+        ).resolve(
+            surfaceID: surfaceID,
+            ttyDevice: tty
         )
 
         #expect(ownership.ownedTTYProcessIDs == [20])
         #expect(ownership.ambiguousTTYProcessIDs == [30])
         #expect(ownership.reasonByProcessID[30] == CmuxTopMemoryOwnershipReason.sameTTYUnproven.rawValue)
+    }
+
+    @Test func sameOwnerDifferentEvidenceKeepsOwnerAndFirstEvidence() {
+        let workspaceID = UUID(uuidString: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee")!
+        let surfaceID = UUID(uuidString: "ffffffff-ffff-ffff-ffff-ffffffffffff")!
+        let owner = CmuxTopMemoryOwner(
+            workspaceID: workspaceID,
+            workspaceRef: "workspace:same",
+            paneID: nil,
+            paneRef: nil,
+            surfaceID: surfaceID,
+            surfaceRef: "surface:same",
+            surfaceType: "terminal"
+        )
+        let result = CmuxTopMemoryAttributionResolver().resolve(nodes: [
+            CmuxTopMemoryAttributionNode(
+                owner: owner,
+                defaultReason: "surface-process-tree",
+                processIDs: [77]
+            ),
+            CmuxTopMemoryAttributionNode(
+                owner: owner,
+                defaultReason: "cmux-descendant",
+                processIDs: [77]
+            )
+        ])
+
+        #expect(result[77]?.owner == owner)
+        #expect(result[77]?.reason == "surface-process-tree")
     }
 
     @Test func launchdParentedWebKitRootCanBeRepresentedAsExplicitAttribution() {

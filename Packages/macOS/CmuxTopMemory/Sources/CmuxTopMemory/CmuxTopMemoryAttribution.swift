@@ -2,12 +2,19 @@ public import Foundation
 
 /// Identifies the narrowest workspace, pane, or surface that owns a process.
 public struct CmuxTopMemoryOwner: Hashable, Sendable {
+    /// Stable workspace identifier, when available.
     public let workspaceID: UUID?
+    /// Human-readable or protocol workspace reference, when available.
     public let workspaceRef: String?
+    /// Stable pane identifier, when available.
     public let paneID: UUID?
+    /// Human-readable or protocol pane reference, when available.
     public let paneRef: String?
+    /// Stable surface identifier, when available.
     public let surfaceID: UUID?
+    /// Human-readable or protocol surface reference, when available.
     public let surfaceRef: String?
+    /// Surface kind used for display and filtering.
     public let surfaceType: String?
 
     /// Creates owner metadata with any available workspace, pane, and surface identifiers.
@@ -155,13 +162,21 @@ public struct CmuxTopMemoryOwner: Hashable, Sendable {
 
 /// Records an owner together with the evidence used to infer it.
 public struct CmuxTopMemoryAttribution: Hashable, Sendable {
+    /// Stable workspace identifier, when available.
     public let workspaceID: UUID?
+    /// Human-readable or protocol workspace reference, when available.
     public let workspaceRef: String?
+    /// Stable pane identifier, when available.
     public let paneID: UUID?
+    /// Human-readable or protocol pane reference, when available.
     public let paneRef: String?
+    /// Stable surface identifier, when available.
     public let surfaceID: UUID?
+    /// Human-readable or protocol surface reference, when available.
     public let surfaceRef: String?
+    /// Surface kind used for display and filtering.
     public let surfaceType: String?
+    /// Stable raw evidence code for this attribution.
     public let reason: String
 
     /// Creates an attribution value from an owner and evidence label.
@@ -192,9 +207,13 @@ public struct CmuxTopMemoryAttribution: Hashable, Sendable {
 
 /// One already-annotated node supplied to the attribution reducer.
 public struct CmuxTopMemoryAttributionNode: Sendable {
+    /// Owner metadata associated with this annotated node.
     public let owner: CmuxTopMemoryOwner
+    /// Fallback evidence code for processes without a per-process reason.
     public let defaultReason: String
+    /// Process IDs included in the node's resource aggregate.
     public let processIDs: [Int]
+    /// Optional raw evidence overrides keyed by process ID.
     public let processReasons: [Int: String]
 
     /// Creates one reducer input node from an annotated payload.
@@ -247,6 +266,12 @@ public struct CmuxTopMemoryAttributionResolver: Sendable {
                 }
                 if existing == processAttribution { continue }
                 let existingSpecificity = existing.owner.specificity
+                // Different evidence for the same owner must not manufacture a
+                // shared owner. The owner identity is already authoritative;
+                // only the evidence reason differs.
+                if existing.owner == processAttribution.owner {
+                    continue
+                }
                 let commonOwnerSourceSpecificity = commonOwnerSourceSpecificityByPID[pid]
                 let existingSourceSpecificity = commonOwnerSourceSpecificity ?? existingSpecificity
                 let mergedSourceSpecificity = max(existingSourceSpecificity, newSpecificity)

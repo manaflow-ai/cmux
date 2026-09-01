@@ -112,7 +112,7 @@ struct CmuxTaskManagerSnapshot {
                reason != attribution?.reason {
                 detailParts.append(String.localizedStringWithFormat(
                     String(localized: "taskManager.memory.evidence", defaultValue: "Evidence: %@"),
-                    reason
+                    CmuxTopMemoryReasonLocalization.label(for: reason)
                 ))
             }
             return CmuxTaskManagerRow(
@@ -146,7 +146,7 @@ struct CmuxTaskManagerSnapshot {
                 processCountDetail(diagnostic.unattributedTTYProcessCount),
                 String.localizedStringWithFormat(
                     String(localized: "taskManager.memory.evidence", defaultValue: "Evidence: %@"),
-                    reason
+                    CmuxTopMemoryReasonLocalization.label(for: reason)
                 ),
                 String(localized: "taskManager.memory.forceQuitNote", defaultValue: "macOS Force Quit may group by session or TTY; cmux cannot change that view")
             ]

@@ -1,4 +1,5 @@
 import Darwin
+import CmuxTopMemory
 import Foundation
 
 struct CmuxTopResourceSummary: Sendable {
@@ -159,19 +160,32 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
     private let pidsByCMUXSurfaceID: [UUID: [Int]]
     private let pidsByProcessGroupID: [Int: [Int]]
     private let residentMemorySources: [CmuxTopProcessMemorySource]
+    /// Immutable ownership indexes built alongside captures that need TTY attribution.
+    let terminalOwnershipResolver: CmuxTopProcessOwnershipResolver?
 
     static func capture(
         includeProcessDetails: Bool = false,
-        includeCMUXScope: Bool = true
+        includeCMUXScope: Bool = true,
+        includeOwnershipDetails: Bool = false
     ) -> CmuxTopProcessSnapshot {
-        CmuxTopProcessSnapshot(
-            processes: allProcesses(
-                includeProcessDetails: includeProcessDetails,
-                includeCMUXScope: includeCMUXScope
-            ),
+        let applicationPID = Int(Darwin.getpid())
+        let processes = allProcesses(
+            includeProcessDetails: includeProcessDetails,
+            includeCMUXScope: includeCMUXScope,
+            includeOwnershipDetails: includeOwnershipDetails,
+            ownershipApplicationPID: applicationPID
+        )
+        return CmuxTopProcessSnapshot(
+            processes: processes,
             sampledAt: Date(),
             includesProcessDetails: includeProcessDetails,
-            includesCMUXScope: includeCMUXScope
+            includesCMUXScope: includeCMUXScope,
+            terminalOwnershipResolver: includeOwnershipDetails
+                ? Self.makeTerminalProcessOwnershipResolver(
+                    processes: processes,
+                    applicationPID: applicationPID
+                )
+                : nil
         )
     }
 
@@ -179,11 +193,13 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
         processes: [CmuxTopProcessInfo],
         sampledAt: Date,
         includesProcessDetails: Bool,
-        includesCMUXScope: Bool = true
+        includesCMUXScope: Bool = true,
+        terminalOwnershipResolver: CmuxTopProcessOwnershipResolver? = nil
     ) {
         self.sampledAt = sampledAt
         self.includesProcessDetails = includesProcessDetails
         self.includesCMUXScope = includesCMUXScope
+        self.terminalOwnershipResolver = terminalOwnershipResolver
         var processMap: [Int: CmuxTopProcessInfo] = [:]
         processMap.reserveCapacity(processes.count)
         for process in processes {

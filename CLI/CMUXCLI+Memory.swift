@@ -168,7 +168,7 @@ extension CMUXCLI {
             if !ttyReason.isEmpty {
                 lines.append(String.localizedStringWithFormat(
                     String(localized: "cli.memory.output.ownershipReason", defaultValue: "  reason    %@"),
-                    ttyReason
+                    CmuxTopMemoryReasonLocalization.label(for: ttyReason)
                 ))
             }
             if !ttyPIDs.isEmpty {
