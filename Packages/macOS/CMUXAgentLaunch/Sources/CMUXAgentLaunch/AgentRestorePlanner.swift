@@ -70,6 +70,15 @@ public struct AgentRestorePlanner: Sendable {
         guard !sanitizedArguments.isEmpty else { return nil }
 
         var environment = ambientEnvironment
+        if request.mode != .direct, isSubrouterRouted(request: request, kind: kind) {
+            if kind == "codex" {
+                environment.removeValue(forKey: "CODEX_HOME")
+            } else if kind == "claude" {
+                for key in Self.claudeAuthSelectionEnvironmentKeys {
+                    environment.removeValue(forKey: key)
+                }
+            }
+        }
         let restoredEnvironment = restoredEnvironment(for: request, kind: kind)
         environment.merge(restoredEnvironment) { _, restored in restored }
 
@@ -321,5 +330,27 @@ public struct AgentRestorePlanner: Sendable {
 
     private func normalizedKind(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private func isSubrouterRouted(request: AgentRestoreRequest, kind: String) -> Bool {
+        let capturedEnvironment = request.launchCommand?.environment ?? [:]
+        let mergedEnvironment = capturedEnvironment.merging(request.environment) { _, binding in
+            binding
+        }
+        if kind == "claude" {
+            return normalized(mergedEnvironment["ANTHROPIC_BASE_URL"]) != nil
+        }
+        guard kind == "codex" else { return false }
+        let arguments = request.preparedArguments ?? request.launchCommand?.arguments ?? []
+        return arguments.contains { argument in
+            let normalizedArgument = argument
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            return normalizedArgument.contains("model_provider=\"subrouter\"")
+                || normalizedArgument.contains("model_provider='subrouter'")
+                || normalizedArgument.contains("model_provider=subrouter")
+                || normalizedArgument.contains("model_providers.subrouter.")
+                || normalizedArgument.contains("openai_base_url=")
+        }
     }
 }
