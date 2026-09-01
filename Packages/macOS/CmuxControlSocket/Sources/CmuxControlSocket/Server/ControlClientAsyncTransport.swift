@@ -22,6 +22,20 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
         var readBuffer = [UInt8](repeating: 0, count: ControlClientAsyncLineReader.readChunkSize)
     }
 
+    /// The revocation source only needs its cancellation handle; keeping it
+    /// separate from ``SourceBox`` avoids allocating a second read buffer for
+    /// connections that listen for authorization revocation.
+    private final class RevocationSourceBox: @unchecked Sendable {
+        var source: (any DispatchSourceRead)?
+    }
+
+    /// Tracks bytes waiting in the stream and bytes retained by the line
+    /// parser. The two counters share one budget for each connection.
+    struct BufferedByteAccounting: Sendable {
+        var queued = 0
+        var pending = 0
+    }
+
     private let socket: Int32
     private let continuation: AsyncStream<Data>.Continuation
     private var iterator: AsyncStream<Data>.Iterator
@@ -39,10 +53,11 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
     private var deadlineTask: Task<Void, Never>? = nil
     private let monotonicNowNanoseconds: @Sendable () -> UInt64
     private let maximumBufferedBytes: Int
-    /// Bytes yielded into the chunk stream but not yet consumed by the
-    /// reader. Written by the drain callback (utility queue) and the reader
-    /// task, so it needs its own gate.
-    private let queuedUnconsumedBytes: OSAllocatedUnfairLock<Int>
+    /// Shared byte accounting for stream-queued and parser-pending input.
+    /// Written by the drain callback (utility queue) and the reader task, so
+    /// it needs its own gate. Internal visibility lets the package test target
+    /// inspect the source-of-truth counters through `@testable import`.
+    internal let bufferedByteAccounting: OSAllocatedUnfairLock<BufferedByteAccounting>
     // The deadline task and the single reader task may finish/cancel on
     // different executors. This tiny gate protects only the active-limit bit;
     // command buffering remains owned by the reader task.
@@ -54,8 +69,8 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
     ///   - socket: The accepted descriptor. It is changed to `O_NONBLOCK`.
     ///   - initialLimits: Optional preauthorization byte/deadline limits.
     ///   - authorizationRevocationSignal: Signal that finishes an idle read.
-    ///   - maximumBufferedBytes: Defensive cap for one connection's pending
-    ///     input bytes after framing.
+    ///   - maximumBufferedBytes: Defensive cap for the combined stream-queued
+    ///     and parser-pending input bytes on one connection.
     ///   - monotonicNowNanoseconds: Injectable monotonic clock for tests.
     public init(
         socket: Int32,
@@ -66,8 +81,10 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
     ) {
         self.socket = socket
         self.maximumBufferedBytes = max(1, maximumBufferedBytes)
-        let queuedUnconsumedBytes = OSAllocatedUnfairLock(initialState: 0)
-        self.queuedUnconsumedBytes = queuedUnconsumedBytes
+        let bufferedByteAccounting = OSAllocatedUnfairLock(
+            initialState: BufferedByteAccounting()
+        )
+        self.bufferedByteAccounting = bufferedByteAccounting
         self.limitsActive = OSAllocatedUnfairLock(initialState: initialLimits != nil)
         self.monotonicNowNanoseconds = monotonicNowNanoseconds ?? {
             DispatchTime.now().uptimeNanoseconds
@@ -93,12 +110,12 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
             queue: DispatchQueue.global(qos: .utility)
         )
         let byteCapForDrain = self.maximumBufferedBytes
-        readSource.setEventHandler { [streamContinuation, sourceBox, queuedUnconsumedBytes] in
+        readSource.setEventHandler { [streamContinuation, sourceBox, bufferedByteAccounting] in
             Self.drain(
                 socket: socket,
                 continuation: streamContinuation,
                 sourceBox: sourceBox,
-                queuedBytes: queuedUnconsumedBytes,
+                bufferedByteAccounting: bufferedByteAccounting,
                 maximumBufferedBytes: byteCapForDrain
             )
         }
@@ -122,7 +139,7 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
                 revocationSource = nil
             } else {
                 _ = fcntl(duplicate, F_SETFD, FD_CLOEXEC)
-                let revocationBox = SourceBox()
+                let revocationBox = RevocationSourceBox()
                 let revocation = DispatchSource.makeReadSource(
                     fileDescriptor: duplicate,
                     queue: DispatchQueue.global(qos: .utility)
@@ -195,12 +212,14 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
             guard deadlineHasNotExpired, shouldContinueReading() else { return nil }
 
             if let newlineIndex = nextBareNewlineIndex() {
+                let consumedByteCount = newlineIndex + 1 - pendingStartIndex
                 let decoded = String(
                     bytes: pendingBytes[pendingStartIndex..<newlineIndex],
                     encoding: .utf8
                 )
                 pendingStartIndex = newlineIndex + 1
                 newlineSearchIndex = pendingStartIndex
+                releasePendingBytes(consumedByteCount)
                 compactPendingBytesIfNeeded()
                 // Invalid UTF-8 lines are dropped exactly like the blocking
                 // reader, without discarding subsequent framed lines.
@@ -223,7 +242,7 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
             )
             guard let chunk = nextChunk else { return nil }
             guard !chunk.isEmpty else { continue }
-            queuedUnconsumedBytes.withLock { $0 -= chunk.count }
+            guard moveQueuedBytesToPending(chunk.count) else { return nil }
             if limitsActive.withLock({ $0 }), let limits {
                 let (total, overflowed) = limitedBytesRead.addingReportingOverflow(chunk.count)
                 guard !overflowed, total <= limits.maximumBytes else { return nil }
@@ -236,14 +255,6 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
         }
         return nil
     }
-
-    #if DEBUG
-    /// Test-only visibility into the drain's byte accounting, so tests can
-    /// deadline-poll for a write to be drained instead of sleeping blindly.
-    public var queuedUnconsumedBytesForTesting: Int {
-        queuedUnconsumedBytes.withLock { $0 }
-    }
-    #endif
 
     /// Explicitly terminates the reader's event sources.
     public func cancel() {
@@ -269,6 +280,24 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
             return index
         }
         return nil
+    }
+
+    /// Moves a yielded chunk from the stream queue into the parser budget.
+    private func moveQueuedBytesToPending(_ count: Int) -> Bool {
+        bufferedByteAccounting.withLock { state in
+            let (newPending, pendingOverflowed) = state.pending.addingReportingOverflow(count)
+            guard state.queued >= count, !pendingOverflowed else { return false }
+            state.queued -= count
+            state.pending = newPending
+            return true
+        }
+    }
+
+    /// Releases bytes consumed by a complete (or invalid) framed line.
+    private func releasePendingBytes(_ count: Int) {
+        bufferedByteAccounting.withLock { state in
+            state.pending = state.pending >= count ? state.pending - count : 0
+        }
     }
 
     private func compactPendingBytesIfNeeded() {
@@ -342,23 +371,32 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
         socket: Int32,
         continuation: AsyncStream<Data>.Continuation,
         sourceBox: SourceBox,
-        queuedBytes: OSAllocatedUnfairLock<Int>,
+        bufferedByteAccounting: OSAllocatedUnfairLock<BufferedByteAccounting>,
         maximumBufferedBytes: Int
     ) {
         while true {
-            let count = read(socket, &sourceBox.readBuffer, sourceBox.readBuffer.count)
+            let count = sourceBox.readBuffer.withUnsafeMutableBytes { rawBuffer in
+                guard let baseAddress = rawBuffer.baseAddress else { return 0 }
+                return Darwin.read(socket, baseAddress, rawBuffer.count)
+            }
             if count > 0 {
-                let (total, overflowed) = queuedBytes.withLock { state -> (Int, Bool) in
-                    let (sum, didOverflow) = state.addingReportingOverflow(count)
-                    if !didOverflow { state = sum }
-                    return (sum, didOverflow)
+                let accepted = bufferedByteAccounting.withLock { state -> Bool in
+                    let (newQueued, queuedOverflowed) = state.queued.addingReportingOverflow(count)
+                    guard !queuedOverflowed else { return false }
+                    let (total, totalOverflowed) = newQueued.addingReportingOverflow(state.pending)
+                    guard !totalOverflowed, total <= maximumBufferedBytes else { return false }
+                    state.queued = newQueued
+                    return true
                 }
-                if overflowed || total > maximumBufferedBytes {
+                guard accepted else {
                     continuation.finish()
                     sourceBox.source?.cancel()
                     return
                 }
                 if case .dropped = continuation.yield(Data(sourceBox.readBuffer[0..<count])) {
+                    bufferedByteAccounting.withLock { state in
+                        state.queued = state.queued >= count ? state.queued - count : 0
+                    }
                     continuation.finish()
                     sourceBox.source?.cancel()
                     return

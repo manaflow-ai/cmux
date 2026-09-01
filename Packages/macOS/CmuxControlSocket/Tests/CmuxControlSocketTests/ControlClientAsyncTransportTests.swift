@@ -1,4 +1,4 @@
-import CmuxControlSocket
+@testable import CmuxControlSocket
 import Darwin
 import Foundation
 import os
@@ -18,6 +18,12 @@ struct ControlClientAsyncTransportTests {
                 return $0
             }
         }
+    }
+
+    /// Reads the package-internal queue counter without adding a production
+    /// test accessor to ``ControlClientAsyncLineReader``.
+    private func queuedByteCount(_ reader: ControlClientAsyncLineReader) -> Int {
+        reader.bufferedByteAccounting.withLock { $0.queued }
     }
 
     @Test func asyncReaderFramesUtf8WithoutBlockingTheCaller() async throws {
@@ -126,10 +132,10 @@ struct ControlClientAsyncTransportTests {
             // Deadline-poll the drain's byte accounting so every write is
             // drained (one queued chunk each) before the next one, keeping
             // the many-short-chunks shape deterministic under load.
-            while reader.queuedUnconsumedBytesForTesting < index + 1, Date() < deadline {
+            while queuedByteCount(reader) < index + 1, Date() < deadline {
                 try await Task.sleep(nanoseconds: 1_000_000)
             }
-            guard reader.queuedUnconsumedBytesForTesting == index + 1 else {
+            guard queuedByteCount(reader) == index + 1 else {
                 drainedEveryWrite = false
                 break
             }
@@ -169,11 +175,11 @@ struct ControlClientAsyncTransportTests {
         // cap. The drain must close before yielding those five bytes; the old
         // split queue/pending limits incorrectly retained them.
         #expect(writeFully(Array("12345".utf8), to: pair.writer))
-        let deadline = Date().addingTimeInterval(5)
-        while reader.queuedUnconsumedBytesForTesting < 5, Date() < deadline {
+        let deadline = Date().addingTimeInterval(1)
+        while queuedByteCount(reader) < 5, Date() < deadline {
             try await Task.sleep(nanoseconds: 1_000_000)
         }
-        #expect(reader.queuedUnconsumedBytesForTesting == 0)
+        #expect(queuedByteCount(reader) == 0)
     }
 
     /// `maximumBufferedBytes` is caller-provided; an `Int.max` cap must not
