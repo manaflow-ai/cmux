@@ -73,26 +73,61 @@ function isSingleCodePoint(value: string): boolean {
  * readline-compatible bytes rather than named keys, so the behavior does not
  * depend on the remote terminal's application-key or Kitty-keyboard mode.
  */
-function macCommandEditingAction(event: TerminalKeyEvent): TerminalKeyAction | null {
-  if (!event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return null;
+function macEditingAction(event: TerminalKeyEvent): TerminalKeyAction | null {
+  const command = event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey;
+  const option = event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey;
+  if (!command && !option) return null;
 
   switch (event.key) {
     case "Backspace":
-      return { kind: "text", text: "\u0015" }; // Ctrl-U, delete to line start.
+      return {
+        kind: "text",
+        // Command+Backspace is Ctrl-U. Option+Backspace is ESC DEL, which is
+        // the readline word-delete sequence and matches Ghostty's native path.
+        text: command ? "\u0015" : "\u001b\u007f",
+      };
     case "Delete":
-      return { kind: "text", text: "\u000b" }; // Ctrl-K, delete to line end.
+      return {
+        kind: "text",
+        // Command+ForwardDelete is Ctrl-K. Option+ForwardDelete is ESC d,
+        // readline's forward-word deletion sequence.
+        text: command ? "\u000b" : "\u001bd",
+      };
     case "ArrowLeft":
-      return { kind: "text", text: "\u0001" }; // Ctrl-A, line start.
+      return {
+        kind: "text",
+        // Command+Left moves to the line start. Option+Left moves one word.
+        text: command ? "\u0001" : "\u001bb",
+      };
     case "ArrowRight":
-      return { kind: "text", text: "\u0005" }; // Ctrl-E, line end.
+      return {
+        kind: "text",
+        // Command+Right moves to the line end. Option+Right moves one word.
+        text: command ? "\u0005" : "\u001bf",
+      };
     default:
       return null;
   }
 }
 
+/**
+ * Returns true only for editing chords that the browser may consume before
+ * xterm receives them. Option+letter input is intentionally excluded: it is
+ * ordinary terminal text and must keep the generic ESC-prefixed encoding.
+ */
+export function isMacEditingChord(event: TerminalKeyEvent): boolean {
+  return !event.isComposing && macEditingAction(event) !== null;
+}
+
 export function encodeTerminalKey(event: TerminalKeyEvent): TerminalKeyAction | null {
   if (event.isComposing || ignoredKeys.has(event.key)) return null;
-  if (event.metaKey) return macCommandEditingAction(event);
+  if (event.metaKey || event.altKey) {
+    const editing = macEditingAction(event);
+    if (editing !== null) return editing;
+    // Preserve browser Command shortcuts and generic Option text. Command
+    // events must not fall through to text encoding, while Option events do.
+    if (event.metaKey) return null;
+  }
 
   if (event.key === "Tab" && event.shiftKey && !event.ctrlKey && !event.altKey) {
     return { kind: "key", key: "backtab" };

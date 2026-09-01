@@ -15,7 +15,7 @@ import { ATTACH_RECOVERY_STABLE_MS, attachRecoveryDelay } from "../lib/attachRec
 import { debounce } from "../lib/debounce";
 import { t } from "../i18n";
 import { nextFitSize, type TerminalSize } from "../lib/fit";
-import { encodeTerminalKey } from "../lib/keyEncoding";
+import { encodeTerminalKey, isMacEditingChord } from "../lib/keyEncoding";
 import {
   colorsToCursorOptionsPatch,
   colorsToDynamicColorSequence,
@@ -66,11 +66,12 @@ export function useAttachedTerminal({
       if (cancelled || terminal.options.disableStdin) return;
       void client.send(surface, { text }).catch(onError);
     };
-    // xterm.js deliberately leaves Command editing chords to the browser on
-    // macOS. Forward only the editing subset that the render-mode terminal
-    // handles, keeping Cmd-C/V/W and other browser shortcuts untouched.
+    // xterm.js deliberately leaves macOS Command and Option editing chords to
+    // the browser. Forward only the line/word editing subset that the
+    // render-mode terminal handles, keeping Cmd-C/V/W and ordinary Option
+    // text untouched.
     terminal.attachCustomKeyEventHandler((event) => {
-      if (!event.metaKey) return true;
+      if (!isMacEditingChord(event)) return true;
       const action = encodeTerminalKey(event);
       if (action?.kind !== "text") return true;
       // xterm invokes custom handlers even while stdin is disabled. Do not

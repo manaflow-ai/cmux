@@ -4,6 +4,7 @@ import Carbon.HIToolbox
 import CmuxCommandPalette
 import Foundation
 import CmuxTerminal
+import CmuxTerminalCore
 
 func browserOmnibarSelectionDeltaForControlNavigation(
     hasFocusedAddressBar: Bool,
@@ -181,12 +182,12 @@ nonisolated func shouldDispatchTerminalDeleteEquivalentViaFirstResponderKeyDown(
     firstResponderHasMarkedText: Bool = false,
     flags: NSEvent.ModifierFlags
 ) -> Bool {
-    guard firstResponderIsTerminal, !firstResponderHasMarkedText else { return false }
-    guard keyCode == UInt16(kVK_Delete) || keyCode == UInt16(kVK_ForwardDelete) else {
-        return false
-    }
-
-    return browserOmnibarNormalizedModifierFlags(flags) == [.command]
+    terminalDeleteEquivalentShouldDispatch(
+        keyCode: keyCode,
+        firstResponderIsTerminal: firstResponderIsTerminal,
+        firstResponderHasMarkedText: firstResponderHasMarkedText,
+        modifiers: TerminalKeyboardCopyModeModifiers(modifierFlags: flags)
+    )
 }
 
 struct BrowserAddressBarTrackingContext {
