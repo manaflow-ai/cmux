@@ -543,7 +543,17 @@ struct ShellStartReservation {
     active: bool,
 }
 
-fn remove_cached_shell_if_same(inner: &Inner, session: &str, target: &Arc<ShellSession>) -> bool {
+fn remove_cached_shell_if_same_without_viewers(
+    inner: &Inner,
+    session: &str,
+    target: &Arc<ShellSession>,
+) -> bool {
+    // Serialize with viewer start. A concurrent opener may have cloned this
+    // session but cannot publish its viewer while this dispatch lock is held.
+    let _dispatch = target.dispatch_lock.lock().expect("shell dispatch lock");
+    if !target.inner.lock().expect("shell inner lock").viewers.is_empty() {
+        return false;
+    }
     let mut shells = inner.shell_sessions.lock().expect("shell lock");
     if shells.get(session).is_some_and(|cached| Arc::ptr_eq(cached, target)) {
         shells.remove(session);
@@ -2627,8 +2637,10 @@ impl Inner {
                 // identity is cached, and remove only this exact session so a
                 // replacement cannot be disturbed.
                 if cancellation.is_cancelled() {
-                    remove_cached_shell_if_same(&self, session, &shell_session);
-                    shell_session.control.kill();
+                    let removed = remove_cached_shell_if_same_without_viewers(&self, session, &shell_session);
+                    if removed {
+                        shell_session.control.kill();
+                    }
                     self.shell_starting.lock().expect("shell starting lock").remove(session);
                     reservation.active = false;
                     reservation.notify.notify_waiters();
