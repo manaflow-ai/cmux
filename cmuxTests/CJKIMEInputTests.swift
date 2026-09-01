@@ -2307,8 +2307,12 @@ final class GhosttyOptionDeleteRegressionTests: XCTestCase {
             pressEvent = keyEvent
         }
 
+        // AppKit translates Option+Backspace into the U+2202 partial
+        // derivative character during text-input interpretation. The
+        // regression must use that real event shape, otherwise the normal
+        // fallback path can appear to preserve Option by accident.
         let sent = hostedView.debugSendSyntheticKeyPressAndReleaseForUITest(
-            characters: "\u{7F}",
+            characters: "\u{2202}",
             charactersIgnoringModifiers: "\u{7F}",
             keyCode: 51,
             modifierFlags: [.option]
