@@ -4,7 +4,7 @@ import os
 /// Persists the next sequence independently of the best-effort JSONL log.
 /// A floor value survives a restart even when an enqueued event never reaches
 /// the writer, so sequence numbers cannot be silently reused.
-struct CmuxEventSequenceFloor {
+final class CmuxEventSequenceFloor: @unchecked Sendable {
     struct State {
         let nextSequence: Int64?
         let isPresent: Bool
@@ -12,6 +12,10 @@ struct CmuxEventSequenceFloor {
     }
 
     let url: URL
+    // Calls are serialized by CmuxEventBus's floor-write lane. Keeping this
+    // bit on the floor object avoids another directory syscall for each
+    // reserved sequence block while still allowing recovery after a failure.
+    private var directoryCreated = false
 
     init(eventLogURL: URL) {
         self.url = eventLogURL.appendingPathExtension("seq")
@@ -38,23 +42,51 @@ struct CmuxEventSequenceFloor {
         let hasGap: Bool
         if state.isUnreadable {
             hasGap = true
-        } else if let persistedNextSequence = state.nextSequence {
+        } else if durableLatestSequence != nil,
+                  let persistedNextSequence = state.nextSequence {
             hasGap = persistedNextSequence > durableNextSequence
         } else {
-            hasGap = state.isPresent || durableLatestSequence != nil
+            // The durable high-water mark is loaded asynchronously. Defer
+            // comparison with a present/missing floor until the bus seeds from
+            // that completed snapshot.
+            hasGap = false
         }
         return (restoredNextSequence, hasGap)
     }
 
-    /// Replaces the floor atomically after creating its parent directory.
+    /// Replaces the floor atomically, retrying directory creation only after a write failure.
     func write(nextSequence: Int64) -> Bool {
         guard nextSequence >= 1 else { return false }
+        // Reservation callers can be delayed after choosing a range. Never let
+        // a stale writer move the on-disk floor backwards.
+        let persistedNextSequence = read().nextSequence ?? 1
+        let valueToWrite = max(nextSequence, persistedNextSequence)
+        if !directoryCreated {
+            guard createParentDirectory() else { return false }
+        }
+        do {
+            try Data("\(valueToWrite)\n".utf8).write(to: url, options: [.atomic])
+            return true
+        } catch {
+            directoryCreated = false
+            guard createParentDirectory() else { return false }
+            do {
+                try Data("\(valueToWrite)\n".utf8).write(to: url, options: [.atomic])
+                return true
+            } catch {
+                directoryCreated = false
+                return false
+            }
+        }
+    }
+
+    private func createParentDirectory() -> Bool {
         do {
             try FileManager.default.createDirectory(
                 at: url.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
-            try Data("\(nextSequence)\n".utf8).write(to: url, options: [.atomic])
+            directoryCreated = true
             return true
         } catch {
             return false
@@ -165,6 +197,15 @@ final class CmuxEventLogReplayStore: @unchecked Sendable {
     private let eventLogURL: URL
     private let maxEventLineBytes: Int
     private let maxEventLogBytes: UInt64
+    // Initial parsing runs on a utility lane so constructing CmuxEventBus does
+    // not make a main-actor publisher synchronously read both 16 MiB files.
+    private static let initialLoadQueue = DispatchQueue(
+        label: "com.cmux.event-log-replay-load",
+        qos: .utility
+    )
+    // This is a one-shot readiness signal, not mutable-state synchronization;
+    // callers wait only until the utility load publishes the first snapshot.
+    private let initialLoadGroup: DispatchGroup
     // Lock justification: subscriptions copy the ordered cache while the
     // event-log utility queue applies persisted batches in the background.
     private let cachedState: OSAllocatedUnfairLock<Cache>
@@ -180,24 +221,37 @@ final class CmuxEventLogReplayStore: @unchecked Sendable {
         self.eventLogURL = eventLogURL
         self.maxEventLineBytes = normalizedLineBytes
         self.maxEventLogBytes = normalizedLogBytes
-        self.cachedState = OSAllocatedUnfairLock(
-            initialState: Self.readCache(
-                eventLogURL: eventLogURL,
-                maxEventLineBytes: normalizedLineBytes,
-                maxEventLogBytes: normalizedLogBytes
-            )
-        )
+        self.cachedState = OSAllocatedUnfairLock(initialState: Cache(
+            events: [],
+            eventsByID: [:],
+            sequences: [],
+            sequenceStartIndices: [],
+            latestSequence: nil,
+            hasUnavailableRange: false
+        ))
+        let initialLoadGroup = DispatchGroup()
+        initialLoadGroup.enter()
+        self.initialLoadGroup = initialLoadGroup
+        startInitialLoad()
     }
 
-    /// Returns the latest ordered cache without touching the filesystem.
+    /// Returns the latest ordered cache after the initial utility load completes.
     func snapshot() -> Snapshot {
-        cachedState.withLockUnchecked { $0.snapshot() }
+        waitForInitialLoad()
+        return cachedState.withLockUnchecked { $0.snapshot() }
+    }
+
+    /// Returns the durable high-water mark after the initial utility load.
+    func latestSequenceForStartup() -> Int64? {
+        waitForInitialLoad()
+        return cachedState.withLockUnchecked { $0.latestSequence }
     }
 
     /// Applies a successfully persisted writer batch without rescanning either
     /// generation. Rotation, write failure, or malformed data falls back to a
     /// bounded full rebuild so the cache cannot drift from disk.
     func apply(_ batch: CmuxEventLogPersistedBatch) {
+        waitForInitialLoad()
         guard !batch.didRotate, !batch.didFail else {
             refreshFromDisk()
             return
@@ -225,12 +279,31 @@ final class CmuxEventLogReplayStore: @unchecked Sendable {
     /// Rebuilds the cache after startup, rotation, an append failure, or a
     /// detected ordering/identity inconsistency.
     func refreshFromDisk() {
-        let state = Self.readCache(
-            eventLogURL: eventLogURL,
-            maxEventLineBytes: maxEventLineBytes,
-            maxEventLogBytes: maxEventLogBytes
-        )
+        waitForInitialLoad()
+        let state = Self.initialLoadQueue.sync {
+            Self.readCache(
+                eventLogURL: eventLogURL,
+                maxEventLineBytes: maxEventLineBytes,
+                maxEventLogBytes: maxEventLogBytes
+            )
+        }
         cachedState.withLockUnchecked { $0 = state }
+    }
+
+    private func startInitialLoad() {
+        Self.initialLoadQueue.async { [self] in
+            defer { initialLoadGroup.leave() }
+            let state = Self.readCache(
+                eventLogURL: eventLogURL,
+                maxEventLineBytes: maxEventLineBytes,
+                maxEventLogBytes: maxEventLogBytes
+            )
+            cachedState.withLockUnchecked { $0 = state }
+        }
+    }
+
+    private func waitForInitialLoad() {
+        initialLoadGroup.wait()
     }
 
     /// Reads and indexes both generations during initialization or recovery.

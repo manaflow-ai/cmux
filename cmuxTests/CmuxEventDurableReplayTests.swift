@@ -18,7 +18,8 @@ struct CmuxEventDurableReplayTests {
 
         let firstBus = CmuxEventBus(
             retainedEventLimit: 1,
-            eventLogURL: logURL
+            eventLogURL: logURL,
+            sequenceReservationBlock: 1
         )
         firstBus.publish(name: "first", category: "test", source: "first-process")
         let cursor = firstBus.latestSequence
@@ -30,7 +31,8 @@ struct CmuxEventDurableReplayTests {
 
         let secondBus = CmuxEventBus(
             retainedEventLimit: 1,
-            eventLogURL: logURL
+            eventLogURL: logURL,
+            sequenceReservationBlock: 1
         )
         secondBus.publish(name: "third", category: "test", source: "second-process")
         secondBus.flushEventLogForTesting()
@@ -57,7 +59,7 @@ struct CmuxEventDurableReplayTests {
         let logURL = directory.appendingPathComponent("events.jsonl")
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        let firstBus = CmuxEventBus(eventLogURL: logURL)
+        let firstBus = CmuxEventBus(eventLogURL: logURL, sequenceReservationBlock: 1)
         firstBus.publish(name: "one", category: "test", source: "first-process")
         firstBus.publish(name: "two", category: "test", source: "first-process")
         firstBus.publish(name: "three", category: "test", source: "first-process")
@@ -71,7 +73,7 @@ struct CmuxEventDurableReplayTests {
             .appending("\n")
             .write(to: logURL, atomically: true, encoding: .utf8)
 
-        let secondBus = CmuxEventBus(eventLogURL: logURL)
+        let secondBus = CmuxEventBus(eventLogURL: logURL, sequenceReservationBlock: 1)
         let snapshot = secondBus.subscribe(afterSequence: 1, names: [], categories: [])
         defer { secondBus.unsubscribe(snapshot.subscription) }
 
@@ -88,23 +90,29 @@ struct CmuxEventDurableReplayTests {
         let logURL = directory.appendingPathComponent("events.jsonl")
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        var firstBus: CmuxEventBus? = CmuxEventBus(eventLogURL: logURL)
+        var firstBus: CmuxEventBus? = CmuxEventBus(
+            eventLogURL: logURL,
+            sequenceReservationBlock: 4
+        )
         firstBus?.setEventLogFlushSuspendedForTesting(true)
         firstBus?.publish(name: "lost", category: "test", source: "first-process")
 
         let floorURL = logURL.appendingPathExtension("seq")
         let persistedFloor = try String(contentsOf: floorURL, encoding: .utf8)
-        #expect(persistedFloor.trimmingCharacters(in: .whitespacesAndNewlines) == "2")
+        #expect(persistedFloor.trimmingCharacters(in: .whitespacesAndNewlines) == "5")
         firstBus = nil
 
-        let secondBus = CmuxEventBus(eventLogURL: logURL)
+        let secondBus = CmuxEventBus(
+            eventLogURL: logURL,
+            sequenceReservationBlock: 4
+        )
         secondBus.publish(name: "replacement", category: "test", source: "second-process")
         secondBus.flushEventLogForTesting()
 
         let snapshot = secondBus.subscribe(afterSequence: 1, names: [], categories: [])
         defer { secondBus.unsubscribe(snapshot.subscription) }
 
-        #expect(snapshot.replay.compactMap { CmuxEventBus.int64($0["seq"]) } == [2])
+        #expect(snapshot.replay.compactMap { CmuxEventBus.int64($0["seq"]) } == [5])
         #expect(snapshot.replay.compactMap { $0["name"] as? String } == ["replacement"])
         let resume = try #require(snapshot.ack["resume"] as? [String: Any])
         #expect(resume["gap"] as? Bool == true)
@@ -118,7 +126,11 @@ struct CmuxEventDurableReplayTests {
         let logURL = directory.appendingPathComponent("events.jsonl")
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        let bus = CmuxEventBus(retainedEventLimit: 1, eventLogURL: logURL)
+        let bus = CmuxEventBus(
+            retainedEventLimit: 1,
+            eventLogURL: logURL,
+            sequenceReservationBlock: 1
+        )
         bus.publish(name: "first", category: "test", source: "writer")
         bus.flushEventLogForTesting()
         bus.publish(name: "second", category: "test", source: "writer")
@@ -153,6 +165,12 @@ struct CmuxEventDurableReplayTests {
 
         let firstLine = try #require(lines.first)
         let maxBytes = UInt64(max(1, firstLine.utf8.count * 2))
+        try "\(source.latestSequence + 1)\n"
+            .write(
+                to: logURL.appendingPathExtension("seq"),
+                atomically: true,
+                encoding: .utf8
+            )
         let bus = CmuxEventBus(
             retainedEventLimit: 16,
             eventLogURL: logURL,
@@ -176,6 +194,11 @@ struct CmuxEventDurableReplayTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try String(repeating: "x", count: 4_096)
             .write(to: logURL, atomically: true, encoding: .utf8)
+        try "1\n".write(
+            to: logURL.appendingPathExtension("seq"),
+            atomically: true,
+            encoding: .utf8
+        )
 
         let bus = CmuxEventBus(
             retainedEventLimit: 16,

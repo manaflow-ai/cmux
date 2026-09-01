@@ -1,5 +1,106 @@
 import Foundation
 
+// Sendable safety: every mutable field is protected by `lock`; `semaphore` only wakes `next(timeout:)`.
+final class CmuxEventSubscription: @unchecked Sendable {
+    let id: UUID
+    let names: Set<String>
+    let categories: Set<String>
+    let maxPendingEvents: Int
+
+    private let lock = NSLock()
+    private let semaphore = DispatchSemaphore(value: 0)
+    private var queue: [[String: Any]] = []
+    private var closed = false
+    private var closedReason: String?
+
+    init(id: UUID = UUID(), names: Set<String>, categories: Set<String>, maxPendingEvents: Int) {
+        self.id = id
+        self.names = names
+        self.categories = categories
+        self.maxPendingEvents = max(1, maxPendingEvents)
+    }
+
+    func accepts(_ event: [String: Any]) -> Bool {
+        if !names.isEmpty {
+            guard let name = event["name"] as? String, names.contains(name) else { return false }
+        }
+        if !categories.isEmpty {
+            guard let category = event["category"] as? String, categories.contains(category) else { return false }
+        }
+        return true
+    }
+
+    var isClosed: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return closed
+    }
+
+    var closeReason: String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return closedReason
+    }
+
+    func enqueue(_ event: [String: Any]) -> Bool {
+        lock.lock()
+        let shouldSignal: Bool
+        let accepted: Bool
+        if closed {
+            shouldSignal = false
+            accepted = false
+        } else if queue.count >= maxPendingEvents {
+            closed = true
+            closedReason = "pending event buffer exceeded \(maxPendingEvents) events"
+            queue.removeAll()
+            shouldSignal = true
+            accepted = false
+        } else {
+            queue.append(event)
+            shouldSignal = true
+            accepted = true
+        }
+        lock.unlock()
+        if shouldSignal {
+            semaphore.signal()
+        }
+        return accepted
+    }
+
+    func next(timeout: TimeInterval) -> [String: Any]? {
+        lock.lock()
+        if !queue.isEmpty {
+            let event = queue.removeFirst()
+            lock.unlock()
+            return event
+        }
+        if closed {
+            lock.unlock()
+            return nil
+        }
+        lock.unlock()
+
+        let result = semaphore.wait(timeout: .now() + timeout)
+        guard result == .success else { return nil }
+
+        lock.lock()
+        defer { lock.unlock() }
+        guard !queue.isEmpty else { return nil }
+        return queue.removeFirst()
+    }
+
+    func close(reason: String? = nil) {
+        lock.lock()
+        closed = true
+        if let reason {
+            closedReason = reason
+        }
+        queue.removeAll()
+        lock.unlock()
+        semaphore.signal()
+    }
+}
+
 extension CmuxEventBus {
     /// Registers a subscription and captures a replay/live cutover boundary.
     func subscribe(
@@ -7,6 +108,7 @@ extension CmuxEventBus {
         names: Set<String>,
         categories: Set<String>
     ) -> CmuxEventSubscriptionSnapshot {
+        ensureDurableSequenceSeeded()
         let context = makeSubscriptionContext(names: names, categories: categories)
         let subscription = context.subscription
         let latestSequence = context.latestSequence
@@ -28,6 +130,7 @@ extension CmuxEventBus {
                 afterSequence: afterSequence,
                 oldestSequence: replayState.oldestSequence,
                 latestSequence: latestSequence,
+                nextSequence: context.nextSequence,
                 gapReason: replayState.gapReason,
                 names: names,
                 categories: categories,
@@ -56,6 +159,7 @@ extension CmuxEventBus {
             afterSequence: afterSequence,
             oldestSequence: oldestSequence,
             latestSequence: latestSequence,
+            nextSequence: context.nextSequence,
             gapReason: gapReason,
             names: names,
             categories: categories,
@@ -293,6 +397,7 @@ extension CmuxEventBus {
         afterSequence: Int64?,
         oldestSequence: Int64,
         latestSequence: Int64,
+        nextSequence: Int64,
         gapReason: String?,
         names: Set<String>,
         categories: Set<String>,
@@ -304,7 +409,7 @@ extension CmuxEventBus {
                 "requested_after_seq": NSNumber(value: afterSequence ?? latestSequence),
                 "oldest_seq": NSNumber(value: oldestSequence),
                 "latest_seq": NSNumber(value: latestSequence),
-                "next_seq": NSNumber(value: nextSequenceAfter(latestSequence)),
+                "next_seq": NSNumber(value: nextSequence),
                 "gap": gapReason != nil
             ]
             if let gapReason {

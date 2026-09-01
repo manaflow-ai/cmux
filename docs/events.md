@@ -223,15 +223,20 @@ replays both generations, so a reconnect can cross a process restart while the
 records remain on disk. On startup, cmux restores the separately persisted
 sequence floor at `~/.cmuxterm/events.jsonl.seq` before allocating a new `seq`;
 this floor is independent of the JSONL records, so a queued event that is lost
-before disk append cannot reuse its sequence after restart. If the floor is
-missing or unreadable, cmux advances conservatively and reports a durable gap so
-clients must use snapshot recovery. Disk writes are best-effort and batched
-behind a bounded 1,024-line queue. Under sustained disk backpressure, cmux drops the
-oldest pending disk-only lines; the resulting sequence gap is reported in
-`ack.resume` so clients can refresh from a snapshot. Consumers of the JSONL
-files must treat them as potentially incomplete rather than as a complete audit
-source. Feed still writes its specialized long-term audit log to
-`~/.cmuxterm/workstream.jsonl`.
+before disk append cannot reuse its sequence after restart. cmux reserves a
+small sequence range per floor write; unused reserved values are therefore
+reported as gaps after a restart. If the floor is missing or unreadable, cmux
+advances conservatively and reports a durable gap so clients must use snapshot
+recovery. If the floor cannot be persisted while an event is being published,
+cmux discards that event before delivery to connected `events.stream`
+subscribers, the retained buffer, or the JSONL log; the resulting
+`ack.resume.gap` on a later subscription is the only signal. Disk writes are
+best-effort and batched behind a bounded 1,024-line queue. Under sustained disk
+backpressure, cmux drops the oldest pending disk-only lines; the resulting
+sequence gap is reported in `ack.resume` so clients can refresh from a snapshot.
+Consumers of the JSONL files must treat them as potentially incomplete rather
+than as a complete audit source. Feed still writes its specialized long-term
+audit log to `~/.cmuxterm/workstream.jsonl`.
 
 ## CLI
 

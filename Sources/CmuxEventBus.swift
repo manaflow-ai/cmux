@@ -6,107 +6,6 @@ struct CmuxEventSubscriptionSnapshot {
     let ack: [String: Any]
 }
 
-// Sendable safety: every mutable field is protected by `lock`; `semaphore` only wakes `next(timeout:)`.
-final class CmuxEventSubscription: @unchecked Sendable {
-    let id: UUID
-    let names: Set<String>
-    let categories: Set<String>
-    let maxPendingEvents: Int
-
-    private let lock = NSLock()
-    private let semaphore = DispatchSemaphore(value: 0)
-    private var queue: [[String: Any]] = []
-    private var closed = false
-    private var closedReason: String?
-
-    init(id: UUID = UUID(), names: Set<String>, categories: Set<String>, maxPendingEvents: Int) {
-        self.id = id
-        self.names = names
-        self.categories = categories
-        self.maxPendingEvents = max(1, maxPendingEvents)
-    }
-
-    func accepts(_ event: [String: Any]) -> Bool {
-        if !names.isEmpty {
-            guard let name = event["name"] as? String, names.contains(name) else { return false }
-        }
-        if !categories.isEmpty {
-            guard let category = event["category"] as? String, categories.contains(category) else { return false }
-        }
-        return true
-    }
-
-    var isClosed: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return closed
-    }
-
-    var closeReason: String? {
-        lock.lock()
-        defer { lock.unlock() }
-        return closedReason
-    }
-
-    func enqueue(_ event: [String: Any]) -> Bool {
-        lock.lock()
-        let shouldSignal: Bool
-        let accepted: Bool
-        if closed {
-            shouldSignal = false
-            accepted = false
-        } else if queue.count >= maxPendingEvents {
-            closed = true
-            closedReason = "pending event buffer exceeded \(maxPendingEvents) events"
-            queue.removeAll()
-            shouldSignal = true
-            accepted = false
-        } else {
-            queue.append(event)
-            shouldSignal = true
-            accepted = true
-        }
-        lock.unlock()
-        if shouldSignal {
-            semaphore.signal()
-        }
-        return accepted
-    }
-
-    func next(timeout: TimeInterval) -> [String: Any]? {
-        lock.lock()
-        if !queue.isEmpty {
-            let event = queue.removeFirst()
-            lock.unlock()
-            return event
-        }
-        if closed {
-            lock.unlock()
-            return nil
-        }
-        lock.unlock()
-
-        let result = semaphore.wait(timeout: .now() + timeout)
-        guard result == .success else { return nil }
-
-        lock.lock()
-        defer { lock.unlock() }
-        guard !queue.isEmpty else { return nil }
-        return queue.removeFirst()
-    }
-
-    func close(reason: String? = nil) {
-        lock.lock()
-        closed = true
-        if let reason {
-            closedReason = reason
-        }
-        queue.removeAll()
-        lock.unlock()
-        semaphore.signal()
-    }
-}
-
 // Sendable safety: event state is protected by `lock`; disk appends are delegated to `CmuxEventLogWriter`.
 final class CmuxEventBus: @unchecked Sendable {
     static let shared = CmuxEventBus(eventLogURL: defaultEventLogURL())
@@ -118,6 +17,9 @@ final class CmuxEventBus: @unchecked Sendable {
     static let defaultMaxEventLogBytes: UInt64 = 16 * 1024 * 1024
     static let defaultMaxPendingEventLogLines = CmuxEventLogWriter.defaultMaxPendingLines
     static let defaultMaxPendingEventsPerSubscription = 1_024
+    // Reserving a range amortizes the durable-floor write while preserving a
+    // monotonic sequence after a crash (unused reserved values become gaps).
+    static let defaultSequenceReservationBlock: Int64 = 64
     static let maxSanitizedStringBytes = 8 * 1024
     static let maxSanitizedArrayItems = 256
     static let maxSanitizedObjectEntries = 256
@@ -127,16 +29,24 @@ final class CmuxEventBus: @unchecked Sendable {
     // socket and event-log paths without claiming the formatter is Sendable.
     private nonisolated(unsafe) static let isoFormatter: ISO8601DateFormatter = { let formatter = ISO8601DateFormatter(); formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; return formatter }()
     private static let isoFormatterLock = NSLock()
+    private static let sequenceFloorWriteQueue = DispatchQueue(
+        label: "com.cmux.event-sequence-floor-write",
+        qos: .utility
+    )
 
     private let lock = NSLock()
     private let retainedEventLimit: Int
     private let maxEventLineBytes: Int
     private let maxPendingEventsPerSubscription: Int
+    private let sequenceReservationBlock: Int64
     private let eventLogWriter: CmuxEventLogWriter?
     private let bootId = UUID().uuidString
     private var nextSequence: Int64 = 1
+    private var latestAllocatedSequence: Int64 = 0
+    private var reservedSequenceCeiling: Int64 = 0
     private let sequenceFloor: CmuxEventSequenceFloor?
     private var sequenceFloorGap = false
+    private var durableSequenceSeeded = false
     private var retained: [[String: Any]] = []
     private var subscriptions: [UUID: CmuxEventSubscription] = [:]
     private let durableReplayStore: CmuxEventLogReplayStore?
@@ -147,13 +57,16 @@ final class CmuxEventBus: @unchecked Sendable {
         maxEventLogBytes: UInt64 = CmuxEventBus.defaultMaxEventLogBytes,
         maxEventLineBytes: Int = CmuxEventBus.defaultMaxEventLineBytes,
         maxPendingEventLogLines: Int = CmuxEventBus.defaultMaxPendingEventLogLines,
-        maxPendingEventsPerSubscription: Int = CmuxEventBus.defaultMaxPendingEventsPerSubscription
+        maxPendingEventsPerSubscription: Int = CmuxEventBus.defaultMaxPendingEventsPerSubscription,
+        sequenceReservationBlock: Int64 = CmuxEventBus.defaultSequenceReservationBlock
     ) {
         let normalizedMaxEventLineBytes = max(1, maxEventLineBytes)
         let normalizedMaxEventLogBytes = max(1, maxEventLogBytes)
+        let normalizedSequenceReservationBlock = max(1, sequenceReservationBlock)
         self.retainedEventLimit = max(1, retainedEventLimit)
         self.maxEventLineBytes = normalizedMaxEventLineBytes
         self.maxPendingEventsPerSubscription = max(1, maxPendingEventsPerSubscription)
+        self.sequenceReservationBlock = normalizedSequenceReservationBlock
         let replayStore = eventLogURL.map {
             CmuxEventLogReplayStore(
                 eventLogURL: $0,
@@ -167,9 +80,11 @@ final class CmuxEventBus: @unchecked Sendable {
         } else {
             onPersisted = nil
         }
-        let durableSnapshot = replayStore?.snapshot()
         let floor = eventLogURL.map(CmuxEventSequenceFloor.init(eventLogURL:))
-        let restoration = floor?.restoration(durableLatestSequence: durableSnapshot?.latestSequence)
+        // The replay cache is loaded asynchronously. A first publish or
+        // subscription seeds from its completed high-water mark before using
+        // this provisional value, so no durable sequence can be reused.
+        let restoration = floor?.restoration(durableLatestSequence: nil)
         let restoredNextSequence = restoration?.nextSequence ?? 1
         self.durableReplayStore = replayStore
         self.eventLogWriter = eventLogURL.map {
@@ -182,17 +97,56 @@ final class CmuxEventBus: @unchecked Sendable {
         }
         self.sequenceFloor = floor
         self.nextSequence = restoredNextSequence
+        self.latestAllocatedSequence = 0
+        self.reservedSequenceCeiling = Self.sequenceBefore(restoredNextSequence)
         self.sequenceFloorGap = restoration?.hasGap ?? false
-        if let floor,
-           !floor.write(nextSequence: restoredNextSequence) {
-            self.sequenceFloorGap = true
-        }
+        self.durableSequenceSeeded = replayStore == nil
     }
 
     var latestSequence: Int64 {
+        ensureDurableSequenceSeeded()
         lock.lock()
         defer { lock.unlock() }
-        return nextSequence - 1
+        return latestAllocatedSequence
+    }
+
+    /// Seeds the in-memory counter from the utility-loaded durable cache once.
+    func ensureDurableSequenceSeeded() {
+        guard let durableReplayStore else { return }
+        lock.lock()
+        let alreadySeeded = durableSequenceSeeded
+        lock.unlock()
+        guard !alreadySeeded else { return }
+
+        let durableLatestSequence = durableReplayStore.latestSequenceForStartup()
+        let floorState = sequenceFloor?.read()
+        lock.lock()
+        defer { lock.unlock() }
+        guard !durableSequenceSeeded else { return }
+
+        if let durableLatestSequence {
+            let durableNextSequence = Self.sequenceAfter(durableLatestSequence)
+            if durableNextSequence > nextSequence {
+                nextSequence = durableNextSequence
+            }
+            latestAllocatedSequence = max(latestAllocatedSequence, durableLatestSequence)
+            if floorState?.isUnreadable == true
+                || floorState?.nextSequence == nil
+                || (floorState?.nextSequence ?? 0) < durableNextSequence {
+                sequenceFloorGap = true
+            }
+            reservedSequenceCeiling = max(
+                reservedSequenceCeiling,
+                Self.sequenceBefore(durableNextSequence)
+            )
+        } else if let persistedNextSequence = floorState?.nextSequence,
+                  persistedNextSequence > 1 {
+            // A reserved range with no durable records may represent events
+            // lost before append; retain a conservative gap signal and keep
+            // latest_seq at the last known durable allocation (zero here).
+            sequenceFloorGap = true
+        }
+        durableSequenceSeeded = true
     }
 
     func makeSubscriptionContext(
@@ -202,6 +156,7 @@ final class CmuxEventBus: @unchecked Sendable {
         subscription: CmuxEventSubscription,
         retained: [[String: Any]],
         latestSequence: Int64,
+        nextSequence: Int64,
         bootId: String,
         durableReplayStore: CmuxEventLogReplayStore?,
         sequenceFloorGap: Bool
@@ -216,7 +171,8 @@ final class CmuxEventBus: @unchecked Sendable {
         let context = (
             subscription: subscription,
             retained: retained,
-            latestSequence: nextSequence - 1,
+            latestSequence: latestAllocatedSequence,
+            nextSequence: nextSequence,
             bootId: bootId,
             durableReplayStore: durableReplayStore,
             sequenceFloorGap: sequenceFloorGap
@@ -236,59 +192,86 @@ final class CmuxEventBus: @unchecked Sendable {
         windowId: String? = nil,
         payload: [String: Any] = [:]
     ) {
+        ensureDurableSequenceSeeded()
         let occurredAt = Self.isoTimestamp(Date())
         let cleanPayload = Self.sanitizedJSONValue(payload)
 
-        lock.lock()
-        let sequence = nextSequence
-        let nextSequence = sequence == Int64.max ? Int64.max : sequence + 1
-        // The floor write is intentionally synchronous and happens before the
-        // sequence is allocated. A queued JSONL write may be lost, but its
-        // sequence must never be reused after restart. If the floor cannot be
-        // persisted, drop this best-effort event rather than expose a sequence
-        // that a later process could safely allocate again.
-        if let sequenceFloor,
-           !sequenceFloor.write(nextSequence: nextSequence) {
-            sequenceFloorGap = true
+        while true {
+            guard reserveSequenceBlockIfNeeded() else { return }
+            lock.lock()
+            let sequence = nextSequence
+            if sequenceFloor != nil, sequence > reservedSequenceCeiling {
+                lock.unlock()
+                continue
+            }
+            self.nextSequence = Self.sequenceAfter(sequence)
+            self.latestAllocatedSequence = sequence
+
+            var event: [String: Any] = [
+                "type": "event",
+                "protocol": Self.protocolName,
+                "version": Self.protocolVersion,
+                "boot_id": bootId,
+                "seq": sequence,
+                "id": "\(bootId)-\(sequence)",
+                "name": name,
+                "category": category,
+                "source": source,
+                "occurred_at": occurredAt,
+                "workspace_id": workspaceId ?? NSNull(),
+                "surface_id": surfaceId ?? NSNull(),
+                "pane_id": paneId ?? NSNull(),
+                "window_id": windowId ?? NSNull(),
+                "payload": cleanPayload
+            ]
+
+            event = Self.eventByApplyingEncodedByteLimit(event, maxBytes: maxEventLineBytes)
+            retained.append(event)
+            if retained.count > retainedEventLimit {
+                retained.removeFirst(retained.count - retainedEventLimit)
+            }
+            let encodedLine = Self.encodeLine(event)
+            let liveSubscriptions = Array(subscriptions.values)
             lock.unlock()
+
+            if let encodedLine { eventLogWriter?.enqueue(encodedLine) }
+
+            for subscription in liveSubscriptions where subscription.accepts(event) {
+                if !subscription.enqueue(event) {
+                    removeSubscriptionIfStillActive(subscription)
+                }
+            }
             return
         }
-        self.nextSequence = nextSequence
+    }
 
-        var event: [String: Any] = [
-            "type": "event",
-            "protocol": Self.protocolName,
-            "version": Self.protocolVersion,
-            "boot_id": bootId,
-            "seq": sequence,
-            "id": "\(bootId)-\(sequence)",
-            "name": name,
-            "category": category,
-            "source": source,
-            "occurred_at": occurredAt,
-            "workspace_id": workspaceId ?? NSNull(),
-            "surface_id": surfaceId ?? NSNull(),
-            "pane_id": paneId ?? NSNull(),
-            "window_id": windowId ?? NSNull(),
-            "payload": cleanPayload
-        ]
+    /// Reserves a durable sequence range outside the event-state lock.
+    private func reserveSequenceBlockIfNeeded() -> Bool {
+        guard let sequenceFloor else { return true }
 
-        event = Self.eventByApplyingEncodedByteLimit(event, maxBytes: maxEventLineBytes)
-        retained.append(event)
-        if retained.count > retainedEventLimit {
-            retained.removeFirst(retained.count - retainedEventLimit)
+        lock.lock()
+        let sequence = nextSequence
+        guard sequence > reservedSequenceCeiling else {
+            lock.unlock()
+            return true
         }
-        let encodedLine = Self.encodeLine(event)
-        let liveSubscriptions = Array(subscriptions.values)
+        let exclusiveEnd = Self.sequenceAfter(sequence, by: sequenceReservationBlock)
         lock.unlock()
 
-        if let encodedLine { eventLogWriter?.enqueue(encodedLine) }
-
-        for subscription in liveSubscriptions where subscription.accepts(event) {
-            if !subscription.enqueue(event) {
-                removeSubscriptionIfStillActive(subscription)
-            }
+        // Reservation writes are infrequent and serialized on their own lane;
+        // the event-state lock is never held across filesystem I/O.
+        let didWrite = Self.sequenceFloorWriteQueue.sync {
+            sequenceFloor.write(nextSequence: exclusiveEnd)
         }
+        lock.lock()
+        if didWrite {
+            let newCeiling = Self.sequenceBefore(exclusiveEnd)
+            reservedSequenceCeiling = max(reservedSequenceCeiling, newCeiling)
+        } else {
+            sequenceFloorGap = true
+        }
+        lock.unlock()
+        return didWrite
     }
 
     func unsubscribe(_ subscription: CmuxEventSubscription) {
@@ -328,14 +311,17 @@ final class CmuxEventBus: @unchecked Sendable {
     func resetForTesting() {
         lock.lock()
         nextSequence = 1
+        latestAllocatedSequence = 0
+        reservedSequenceCeiling = 0
         sequenceFloorGap = false
+        durableSequenceSeeded = true
         let floor = sequenceFloor
         retained.removeAll()
         let active = Array(subscriptions.values)
         subscriptions.removeAll()
         lock.unlock()
         if let floor,
-           !floor.write(nextSequence: 1) {
+           !Self.writeSequenceFloor(floor, nextSequence: 1) {
             lock.lock()
             sequenceFloorGap = true
             lock.unlock()
@@ -356,6 +342,31 @@ final class CmuxEventBus: @unchecked Sendable {
         eventLogWriter?.backlogSnapshotForTesting() ?? (0, 0)
     }
     #endif
+
+    private static func sequenceAfter(_ sequence: Int64) -> Int64 {
+        sequence == Int64.max ? Int64.max : sequence + 1
+    }
+
+    private static func sequenceAfter(_ sequence: Int64, by distance: Int64) -> Int64 {
+        guard distance > 0,
+              sequence <= Int64.max - distance else {
+            return Int64.max
+        }
+        return sequence + distance
+    }
+
+    private static func sequenceBefore(_ nextSequence: Int64) -> Int64 {
+        nextSequence <= 1 ? 0 : nextSequence - 1
+    }
+
+    private static func writeSequenceFloor(
+        _ floor: CmuxEventSequenceFloor,
+        nextSequence: Int64
+    ) -> Bool {
+        sequenceFloorWriteQueue.sync {
+            floor.write(nextSequence: nextSequence)
+        }
+    }
 
     static func defaultEventLogURL() -> URL {
         FileManager.default.homeDirectoryForCurrentUser
