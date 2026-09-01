@@ -1,3 +1,4 @@
+use std::future::IntoFuture;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, anyhow};
@@ -84,8 +85,9 @@ async fn serve_until_shutdown(
     let server_shutdown = async move {
         let _ = wait_for_shutdown(server_shutdown_receiver).await;
     };
-    let mut server =
-        Box::pin(axum::serve(listener, router).with_graceful_shutdown(server_shutdown));
+    let mut server = Box::pin(
+        axum::serve(listener, router).with_graceful_shutdown(server_shutdown).into_future(),
+    );
 
     let result = tokio::select! {
         result = &mut server => result.context("relay server failed"),
