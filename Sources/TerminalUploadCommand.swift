@@ -12,8 +12,8 @@ struct TerminalUploadCommand: Sendable, Equatable {
 
     /// The first enabled rule whose `hostPattern` matches `destination`, or nil
     /// when none matches (the caller then uses the built-in `scp` transport).
-    func command(forDestination destination: String) -> String? {
-        let host = Self.hostForMatching(destination)
+    func command(forDestination destination: String, sshOptions: [String] = []) -> String? {
+        let host = Self.hostForMatching(destination, sshOptions: sshOptions)
         for rule in rules where rule.enabled {
             guard let pattern = rule.hostPattern else {
                 return rule.command
@@ -30,7 +30,7 @@ struct TerminalUploadCommand: Sendable, Equatable {
     /// `::1`), and lowercases. A non-bracketed `host:port` is matched as-is; the
     /// detected-ssh port is carried separately, so destinations here are bare
     /// hosts in practice.
-    static func hostForMatching(_ destination: String) -> String {
+    static func hostForMatching(_ destination: String, sshOptions: [String] = []) -> String {
         var value = destination.trimmingCharacters(in: .whitespacesAndNewlines)
         if let atIndex = value.lastIndex(of: "@") {
             value = String(value[value.index(after: atIndex)...])
