@@ -165,7 +165,8 @@ struct SocketTerminalBindingRegressionTests {
                 "visible_only": true,
             ])
             guard case .ok(let rawPayload) = scanResult else {
-                return Issue.record("Expected artifact scan success, got \(scanResult)")
+                Issue.record("Expected artifact scan success, got \(scanResult)")
+                return
             }
             let payload = try #require(rawPayload as? [String: Any])
             let artifacts = try #require(payload["artifacts"] as? [[String: Any]])
