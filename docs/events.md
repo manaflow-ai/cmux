@@ -256,6 +256,8 @@ names a stable protocol reason without exposing prompt text. `confirmed` is
 best-effort hook enrichment: an accepted prompt whose agent never emits a
 matching hook stops blocking the workspace FIFO after a bounded confirmation
 window, so later queued messages still deliver.
+The immediate socket response uses the same `delivery_state` vocabulary:
+`accepted` for a non-queued admission and `queued` when the request is retained.
 
 Extension sidebars should bootstrap from the v2 socket method
 `extension.sidebar.snapshot`, then subscribe to `cmux events --category

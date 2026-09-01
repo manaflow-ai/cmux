@@ -7338,7 +7338,11 @@ struct CMUXCLI {
             let (windowOpt, rem2) = parseOption(rem1, name: "--window")
             let addressedAgentDelivery = presentationOptions.atomic
             let windowRaw = windowOpt ?? windowId
-            let workspaceArg = wsArg ?? Self.callerWorkspaceForSurfaceHandle(sfArg, windowRaw: windowRaw)
+            let workspaceArg = wsArg
+                ?? Self.callerWorkspaceForSurfaceHandle(sfArg, windowRaw: windowRaw)
+                ?? (addressedAgentDelivery && windowRaw == nil
+                    ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+                    : nil)
             let surfaceArg = sfArg ?? (wsArg == nil && windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
             let rawText = rem2.dropFirst(rem2.first == "--" ? 1 : 0).joined(separator: " ")
             guard !rawText.isEmpty else { throw CLIError(message: "send requires text") }
@@ -7362,7 +7366,7 @@ struct CMUXCLI {
             )
             if addressedAgentDelivery {
                 let messageID = (payload["message_id"] as? String) ?? ""
-                let state = (payload["delivery_state"] as? String) ?? "submitted"
+                let state = (payload["delivery_state"] as? String) ?? "accepted"
                 printV2Payload(
                     payload,
                     jsonOutput: jsonOutput,
@@ -7426,7 +7430,7 @@ struct CMUXCLI {
                 params: params
             )
             let messageID = (payload["message_id"] as? String) ?? ""
-            let deliveryState = (payload["delivery_state"] as? String) ?? "submitted"
+            let deliveryState = (payload["delivery_state"] as? String) ?? "accepted"
             printV2Payload(
                 payload,
                 jsonOutput: jsonOutput,

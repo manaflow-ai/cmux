@@ -273,23 +273,17 @@ extension TerminalController {
             return .err(code: "invalid_params", message: "Missing session_id", data: nil)
         }
         let text = v2RawString(params, "text") ?? ""
-        let attachments = params["attachments"] as? [[String: Any]] ?? []
+        let rawAttachments = params["attachments"]
+        guard rawAttachments == nil || rawAttachments is [[String: Any]] else {
+            return .err(
+                code: "invalid_params",
+                message: Self.chatAttachmentPreparationErrorMessage,
+                data: nil
+            )
+        }
+        let attachments = (rawAttachments as? [[String: Any]]) ?? []
         guard !text.isEmpty || !attachments.isEmpty else {
             return .err(code: "invalid_params", message: "Nothing to send", data: nil)
-        }
-        guard let terminalParams = await mobileChatTerminalParams(sessionID: sessionID) else {
-            return .err(
-                code: "not_found",
-                message: Self.chatTerminalBindingErrorMessage,
-                data: nil
-            )
-        }
-        guard mobileCanonicalTerminalTarget(params: terminalParams) != nil else {
-            return .err(
-                code: "not_found",
-                message: Self.chatTerminalBindingErrorMessage,
-                data: nil
-            )
         }
         var attachmentPayloads: [MobileChatAttachmentPayload] = []
         attachmentPayloads.reserveCapacity(attachments.count)
@@ -308,6 +302,29 @@ extension TerminalController {
                     fileExtension:
                         (attachment["format"] as? String) ?? "png"
                 )
+            )
+        }
+        guard MobileChatAttachmentPayload.encodedBatchFitsAdmissionBudget(
+            attachmentPayloads
+        ) else {
+            return .err(
+                code: "invalid_params",
+                message: Self.chatAttachmentPreparationErrorMessage,
+                data: nil
+            )
+        }
+        guard let terminalParams = await mobileChatTerminalParams(sessionID: sessionID) else {
+            return .err(
+                code: "not_found",
+                message: Self.chatTerminalBindingErrorMessage,
+                data: nil
+            )
+        }
+        guard mobileCanonicalTerminalTarget(params: terminalParams) != nil else {
+            return .err(
+                code: "not_found",
+                message: Self.chatTerminalBindingErrorMessage,
+                data: nil
             )
         }
 
@@ -395,13 +412,30 @@ extension TerminalController {
         _ attachments: [MobileChatAttachmentPayload],
         pasteboard: TerminalPasteboardService
     ) async -> [URL]? {
+        guard MobileChatAttachmentPayload.encodedBatchFitsAdmissionBudget(
+            attachments
+        ) else {
+            return nil
+        }
         var fileURLs: [URL] = []
         fileURLs.reserveCapacity(attachments.count)
+        var decodedBytes = 0
 
         for attachment in attachments {
             guard let imageData = Data(
                       base64Encoded: attachment.encodedData
                   ),
+                  !imageData.isEmpty,
+                  imageData.count
+                      <= MobileChatAttachmentPayload.maximumPerAttachmentDecodedBytes else {
+                pasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+                return nil
+            }
+            let (nextDecodedBytes, overflowed) =
+                decodedBytes.addingReportingOverflow(imageData.count)
+            guard !overflowed,
+                  nextDecodedBytes
+                      <= MobileChatAttachmentPayload.maximumTotalDecodedBytes,
                   let fileURL = pasteboard.saveImageDataFileURL(
                       imageData,
                       fileExtension: attachment.fileExtension
@@ -409,6 +443,7 @@ extension TerminalController {
                 pasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
                 return nil
             }
+            decodedBytes = nextDecodedBytes
             fileURLs.append(fileURL)
         }
         return fileURLs
@@ -604,10 +639,17 @@ extension TerminalController {
         cmuxDebugLog("mobile.chat binding stale session=\(sessionID.prefix(8)) surface=\(record.surfaceID?.prefix(8) ?? "nil"); refreshing from hook store")
         #endif
         if let refreshed = await service.refreshSessionBindings(sessionID: sessionID),
+           let refreshedWorkspaceID = refreshed.workspaceID,
            let surfaceID = refreshed.surfaceID,
-           mobileChatBindingResolves(workspaceID: workspaceID, surfaceID: surfaceID),
+           mobileChatBindingResolves(
+               workspaceID: refreshedWorkspaceID,
+               surfaceID: surfaceID
+           ),
            mobileChatBindingIsCurrentAgent(refreshed) {
-            return ["workspace_id": workspaceID, "surface_id": surfaceID]
+            return [
+                "workspace_id": refreshedWorkspaceID,
+                "surface_id": surfaceID
+            ]
         }
         #if DEBUG
         cmuxDebugLog("mobile.chat binding unresolved session=\(sessionID.prefix(8))")

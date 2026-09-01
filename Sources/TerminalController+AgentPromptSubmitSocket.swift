@@ -406,7 +406,7 @@ extension TerminalController {
                 "queued": queued,
                 "workspace_id": workspaceID.uuidString,
                 "surface_id": surfaceID.uuidString,
-                "delivery_state": queued ? "queued" : "submitted",
+                "delivery_state": queued ? "queued" : "accepted",
             ]
             if let messageID { payload["message_id"] = messageID.uuidString }
             return .ok(payload)
