@@ -1,0 +1,172 @@
+import AppKit
+import CMUXAgentLaunch
+import Foundation
+import Testing
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+/// Regression coverage for the invariant that a Vault launch has a structured
+/// restore record before its startup selector is admitted to a terminal.
+@MainActor
+@Suite(.serialized)
+struct VaultRestorePathGuaranteeTests {
+    @Test(arguments: ["claude", "codex", "grok", "opencode", "rovodev", "hermes-agent"])
+    func everyBuiltInEntryUsesRestoreVerb(_ rawKind: String) throws {
+        let entry = Self.entry(for: rawKind)
+        let launch = try #require(entry.resumeLaunch)
+
+        #expect(launch.strategy == .restoreVerb)
+        #expect(launch.initialInput.hasPrefix(" \(AgentRestoreLaunch.cliStartupExecutableToken) restore"))
+        #expect(launch.startupRestoreAgent?.sessionId == entry.sessionId)
+        #expect(launch.startupRestoreAgent?.workingDirectory == entry.cwd)
+    }
+
+    @Test
+    func registeredGrokProfileKeepsGrokHomeInRestoreRecord() throws {
+        let registration = CmuxVaultAgentRegistration(
+            id: "grok-profile",
+            name: "Grok profile",
+            detect: CmuxVaultAgentDetectRule(processName: "grok"),
+            sessionIdSource: .grokSessionDirectory,
+            resumeCommand: "env GROK_HOME='/tmp/grok profile' {{executable}} -r {{sessionId}}",
+            cwd: .preserve
+        )
+        let entry = SessionEntry(
+            id: "grok-profile:grok-session",
+            agent: .registered(RegisteredSessionAgent(registration: registration)),
+            sessionId: "grok-session",
+            title: "Grok profile session",
+            cwd: "/tmp/grok-project",
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: 1_800_000_100),
+            fileURL: nil,
+            specifics: .registered(registration)
+        )
+        let launch = try #require(entry.resumeLaunch)
+        let snapshot = try #require(launch.startupRestoreAgent)
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        defer { tabManager.tabs.forEach { $0.teardownAllPanels() } }
+        let workspace = tabManager.addWorkspace(
+            workingDirectory: launch.workingDirectory,
+            initialTerminalInput: launch.initialInput,
+            initialTerminalStartupRestoreAgent: snapshot,
+            autoWelcomeIfNeeded: false
+        )
+        let panelID = try #require(workspace.focusedPanelId)
+        let target = ControlSurfaceResumeTarget.workspace(
+            tabManager: tabManager,
+            workspace: workspace,
+            surfaceID: panelID
+        )
+        let record = try #require(TerminalController.shared.controlSurfaceRestoreRecord(
+            target: target,
+            binding: nil
+        ))
+
+        #expect(launch.strategy == .restoreVerb)
+        #expect(record.kind == "grok-profile")
+        #expect(record.workingDirectory == "/tmp/grok-project")
+        #expect(record.launchCommand?.environment?["GROK_HOME"] == "/tmp/grok profile")
+        #expect(record.preparedArguments == ["grok", "-r", "grok-session"])
+        #expect(record.legacyCommand == nil)
+    }
+
+    @Test
+    func oversizedInvalidRegistrationDoesNotUseUnboundedLegacyFallback() throws {
+        let registration = CmuxVaultAgentRegistration(
+            id: "legacy agent",
+            name: "Legacy agent",
+            detect: CmuxVaultAgentDetectRule(processName: "legacy-agent"),
+            sessionIdSource: .argvOption("--session"),
+            resumeCommand: "{{executable}} --session {{sessionId}} "
+                + String(repeating: "--profile-value ", count: 160),
+            cwd: .preserve
+        )
+        let entry = SessionEntry(
+            id: "legacy agent:legacy-session",
+            agent: .registered(RegisteredSessionAgent(registration: registration)),
+            sessionId: "legacy-session",
+            title: "Legacy session",
+            cwd: "/tmp/legacy-project",
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: 1_800_000_101),
+            fileURL: nil,
+            specifics: .registered(registration)
+        )
+
+        #expect(entry.copyResumeCommand?.utf8.count ?? 0 > 900)
+        #expect(entry.resumeLaunch == nil)
+    }
+
+    @Test
+    func resumeFromRemoteTmuxSelectionCreatesLocalRestoreWorkspace() throws {
+        let workingDirectory = "/tmp/vault-remote-tmux"
+        let manager = TabManager(
+            initialWorkingDirectory: workingDirectory,
+            autoWelcomeIfNeeded: false
+        )
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
+        let mirrorWorkspace = try #require(manager.selectedWorkspace)
+        mirrorWorkspace.isRemoteTmuxMirror = true
+
+        let entry = Self.entry(for: "codex", cwd: workingDirectory)
+        SessionEntryResumeCoordinator.resume(entry, tabManager: manager)
+
+        #expect(manager.tabs.count == 2)
+        let restoredWorkspace = try #require(manager.selectedWorkspace)
+        #expect(restoredWorkspace !== mirrorWorkspace)
+        let panelID = try #require(restoredWorkspace.focusedPanelId)
+        #expect(
+            restoredWorkspace.restoredAgentSnapshotsByPanelId[panelID]?.sessionId
+                == entry.sessionId
+        )
+        #expect(
+            restoredWorkspace.terminalPanel(for: panelID)?.surface.debugInitialInputForTesting()
+                == entry.resumeLaunch?.initialInput
+        )
+    }
+
+    private static func entry(for rawKind: String, cwd: String = "/tmp/vault-project") -> SessionEntry {
+        let sessionID = "vault-\(rawKind)-session"
+        let specifics: AgentSpecifics
+        let agent: SessionAgent
+        switch rawKind {
+        case "claude":
+            agent = .claude
+            specifics = .claude(model: "sonnet", permissionMode: "acceptEdits", configDirectoryForResume: nil)
+        case "codex":
+            agent = .codex
+            specifics = .codex(model: "gpt-5.5", approvalPolicy: "never", sandboxMode: "disabled", effort: "high")
+        case "grok":
+            agent = .grok
+            specifics = .grok(model: "grok-4", permissionMode: "auto", sandboxMode: "danger-full-access", grokHome: nil)
+        case "opencode":
+            agent = .opencode
+            specifics = .opencode(providerModel: "anthropic/claude-sonnet", agentName: "build")
+        case "rovodev":
+            agent = .rovodev
+            specifics = .rovodev
+        default:
+            agent = .hermesAgent
+            specifics = .hermesAgent(source: "tui", model: "gpt-5.5", hermesHome: nil)
+        }
+        return SessionEntry(
+            id: "\(rawKind):\(sessionID)",
+            agent: agent,
+            sessionId: sessionID,
+            title: "Vault \(rawKind)",
+            cwd: cwd,
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: 1_800_000_102),
+            fileURL: nil,
+            specifics: specifics
+        )
+    }
+}
