@@ -8,6 +8,24 @@
     "expiredTitle": "This desktop session expired",
     "expiredBody": "{machine} and everything on it are fine — only this link's session ended. Reopen the desktop from cmux (right-click the machine, then Open Desktop) to get a fresh one."
   },
+  "vmErrors": {
+    "unsupported": {
+      "title": "Cloud VM operation unavailable",
+      "reason": "This machine kind does not provide this operation.",
+      "message": {
+        "snapshot": "This Cloud VM does not support saved VM state.",
+        "restore": "This Cloud VM kind does not support restoring saved VM state.",
+        "fork": "This Cloud VM does not support copying to a new VM.",
+        "default": "This Cloud VM does not support the requested operation."
+      },
+      "action": {
+        "snapshot": "Do not retry. Work on this machine kind is kept on its persistent home volume.",
+        "restore": "Do not retry. Work on this machine kind is kept on its persistent home volume.",
+        "fork": "Do not retry. Create a new VM with `cmux vm new`.",
+        "default": "Do not retry. Run `cmux vm ls` to see your machines, or contact support if you believe this is wrong."
+      }
+    }
+  },
   "ios": {
     "metaTitle": "cmux iOS — your terminals on iPhone and iPad",
     "metaDescription": "The cmux iOS app mirrors your Mac terminals to iPhone and iPad in realtime, over your own Tailscale or local network. Drive your coding agents from anywhere.",

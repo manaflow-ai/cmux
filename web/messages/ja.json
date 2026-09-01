@@ -8,6 +8,24 @@
     "expiredTitle": "このデスクトップセッションは期限切れです",
     "expiredBody": "{machine} とその中身は無事です。このリンクのセッションだけが終了しました。cmux でマシンを右クリックし、「デスクトップを開く」から新しく開き直してください。"
   },
+  "vmErrors": {
+    "unsupported": {
+      "title": "Cloud VM 操作を利用できません",
+      "reason": "このマシン種別ではこの操作を利用できません。",
+      "message": {
+        "snapshot": "この Cloud VM は保存済み状態に対応していません。",
+        "restore": "この Cloud VM 種別では保存済み状態の復元に対応していません。",
+        "fork": "この Cloud VM は新しい VM へのコピーに対応していません。",
+        "default": "この Cloud VM は要求された操作に対応していません。"
+      },
+      "action": {
+        "snapshot": "再試行しても解決しません。このマシン種別では作業が永続ホームボリュームに保存されます。",
+        "restore": "再試行しても解決しません。このマシン種別では作業が永続ホームボリュームに保存されます。",
+        "fork": "再試行しても解決しません。`cmux vm new` で新しい VM を作成してください。",
+        "default": "再試行しても解決しません。`cmux vm ls` でマシンを確認するか、問題が続く場合はサポートに連絡してください。"
+      }
+    }
+  },
   "ios": {
     "metaTitle": "cmux iOS — iPhone と iPad でターミナルを",
     "metaDescription": "cmux iOS アプリは、Mac のターミナルを自分の Tailscale やローカルネットワーク経由で iPhone・iPad にリアルタイムでミラーリング。どこからでもコーディングエージェントを操作できます。",
