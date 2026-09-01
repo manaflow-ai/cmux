@@ -1594,10 +1594,40 @@ impl Inner {
         // ordering gate before crossing the transport boundary so a blocked
         // client cannot stall detach or authority revocation.
         drop(_publication);
+        // A detach may win after the first admission check while this task
+        // prepares the frame. Re-check immediately before each external
+        // callback and retire the exact attachment when the capability is no
+        // longer current.
+        let Some(current_attachment) = self
+            .attachment(pty_id)
+            .filter(|attachment| Arc::ptr_eq(&attachment.publication_gate, &publication_gate))
+        else {
+            return;
+        };
+        let Some(auth) = self.auth_for_transport(context) else {
+            self.retire_if_current(pty_id, &current_attachment);
+            return;
+        };
+        if !self.transport_auth_is_current(context, &auth)
+            || !self.attachment_snapshot_is_current(pty_id, &current_attachment)
+        {
+            self.retire_if_current(pty_id, &current_attachment);
+            return;
+        }
         (context.send)(Value::Object(opened_frame));
 
         // Output only AFTER pty_opened (ordering): banner, then scrollback
         // replay, then live bytes.
+        if context.cancellation.is_cancelled()
+            || !self
+                .auth_for_transport(context)
+                .is_some_and(|auth| self.transport_auth_is_current(context, &auth))
+            || !self
+                .attachment(pty_id)
+                .is_some_and(|attachment| self.attachment_snapshot_is_current(pty_id, &attachment))
+        {
+            return;
+        }
         start();
     }
 
