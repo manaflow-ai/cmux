@@ -1,3 +1,5 @@
+import CMUXAgentLaunch
+import CryptoKit
 import Darwin
 import Foundation
 import Testing
@@ -553,6 +555,137 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(stopHooks.first?.body.contains("cat >/dev/null") == true)
     }
 
+    @Test func codexHookInstallRemovesDisplacedContentAddressedTrustAndIsIdempotent() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-content-addressed-trust-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        let hooksDirectory = root
+            .appendingPathComponent(".cmux", isDirectory: true)
+            .appendingPathComponent("hooks", isDirectory: true)
+        let hooksURL = codexHome.appendingPathComponent("hooks.json", isDirectory: false)
+        let configURL = codexHome.appendingPathComponent("config.toml", isDirectory: false)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: hooksDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let oldScriptContents = "#!/bin/sh\ncmux hooks codex stop\n"
+        let oldScriptName = try #require(CodexHookScriptName(
+            contents: oldScriptContents,
+            subcommand: "persistent-stop"
+        ))
+        let oldScript = hooksDirectory.appendingPathComponent(oldScriptName.filename, isDirectory: false)
+        try oldScriptContents.write(to: oldScript, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: oldScript.path)
+
+        let oldTrustKey = "\(hooksURL.resolvingSymlinksInPath().path):stop:1:1"
+        let oldTrustHash = try codexHookTrustedHash(
+            eventLabel: "stop",
+            matcher: nil,
+            command: oldScript.path,
+            timeout: 5,
+            statusMessage: nil
+        )
+        let userTrustKey = "/tmp/user-codex-hooks.json:stop:0:0"
+        let userTrustHash = "sha256:user-hook-trust"
+        let seededHooks: [String: Any] = [
+            "hooks": [
+                "Stop": [
+                    ["hooks": [["command": "/usr/local/bin/user-first", "timeout": 42, "type": "command"]]],
+                    [
+                        "hooks": [
+                            ["command": "/usr/local/bin/user-stop", "timeout": 42, "type": "command"],
+                            ["command": oldScript.path, "timeout": 5, "type": "command"],
+                        ],
+                    ],
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: seededHooks, options: [.prettyPrinted, .sortedKeys])
+            .write(to: hooksURL, options: .atomic)
+        try """
+        model = "user-selected"
+
+        [custom]
+        preserve = "exactly"
+
+        # cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 begin
+        [hooks.state."\(oldTrustKey)"]
+        trusted_hash = "\(oldTrustHash)"
+        # cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 end
+
+        [hooks.state."\(userTrustKey)"]
+        trusted_hash = "\(userTrustHash)"
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let environment = codexHookTestEnvironment(root: root, codexHome: codexHome)
+        let install = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "install", "--yes"],
+            environment: environment,
+            timeout: 10
+        )
+        #expect(!install.timedOut, Comment(rawValue: install.stderr))
+        #expect(install.status == 0, Comment(rawValue: install.stderr))
+
+        let stopHooks = try codexHookEntries(in: codexHome)
+            .filter { $0.eventName == "Stop" }
+        let currentStopHooks = stopHooks.filter { $0.body.contains("hooks codex stop") }
+        #expect(currentStopHooks.count == 1, "The replaced Stop event must retain one current cmux producer")
+        #expect(!stopHooks.contains { $0.command == oldScript.path })
+        #expect(stopHooks.contains { $0.command == "/usr/local/bin/user-stop" })
+
+        let installedRoot = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: hooksURL)) as? [String: Any]
+        )
+        let installedHooks = try #require(installedRoot["hooks"] as? [String: Any])
+        let installedStopGroups = try #require(installedHooks["Stop"] as? [[String: Any]])
+        var currentStopPositions: [(command: String, groupIndex: Int, handlerIndex: Int)] = []
+        for (groupIndex, group) in installedStopGroups.enumerated() {
+            guard let handlers = group["hooks"] as? [[String: Any]] else { continue }
+            for (handlerIndex, handler) in handlers.enumerated() {
+                guard let command = handler["command"] as? String,
+                      command.hasPrefix(hooksDirectory.path + "/"),
+                      command != oldScript.path,
+                      let body = try? String(contentsOfFile: command, encoding: .utf8),
+                      body.contains("hooks codex stop") else {
+                    continue
+                }
+                currentStopPositions.append((command, groupIndex, handlerIndex))
+            }
+        }
+        #expect(currentStopPositions.count == 1)
+        let currentStop = try #require(currentStopPositions.first)
+        let currentTrustKey = "\(hooksURL.resolvingSymlinksInPath().path):stop:\(currentStop.groupIndex):\(currentStop.handlerIndex)"
+        let currentTrustHash = try codexHookTrustedHash(
+            eventLabel: "stop",
+            matcher: nil,
+            command: currentStop.command,
+            timeout: 5,
+            statusMessage: nil
+        )
+        let configAfterFirstInstall = try String(contentsOf: configURL, encoding: .utf8)
+        #expect(configAfterFirstInstall.contains("model = \"user-selected\""))
+        #expect(configAfterFirstInstall.contains("preserve = \"exactly\""))
+        #expect(configAfterFirstInstall.contains("[hooks.state.\"\(userTrustKey)\"]\ntrusted_hash = \"\(userTrustHash)\""))
+        #expect(!configAfterFirstInstall.contains(oldTrustKey))
+        #expect(!configAfterFirstInstall.contains(oldTrustHash))
+        #expect(configAfterFirstInstall.contains("[hooks.state.\"\(currentTrustKey)\"]\ntrusted_hash = \"\(currentTrustHash)\""))
+
+        let hooksAfterFirstInstall = try Data(contentsOf: hooksURL)
+        let configDataAfterFirstInstall = try Data(contentsOf: configURL)
+        let reinstall = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "install", "--yes"],
+            environment: environment,
+            timeout: 10
+        )
+        #expect(!reinstall.timedOut, Comment(rawValue: reinstall.stderr))
+        #expect(reinstall.status == 0, Comment(rawValue: reinstall.stderr))
+        #expect(try Data(contentsOf: hooksURL) == hooksAfterFirstInstall)
+        #expect(try Data(contentsOf: configURL) == configDataAfterFirstInstall)
+    }
+
     @Test func codexHookInstallPreservesUnrecognizedGeneratedLookingScriptPath() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -1088,5 +1221,38 @@ struct CLICodexHookTimeoutRegressionTests {
             }
             return String(argument[argument.index(argument.startIndex, offsetBy: "hooks.".count)..<equals])
         }
+    }
+
+    private func codexHookTrustedHash(
+        eventLabel: String,
+        matcher: String?,
+        command: String,
+        timeout: Int,
+        statusMessage: String?
+    ) throws -> String {
+        var handler: [String: Any] = [
+            "async": false,
+            "command": command,
+            "timeout": max(timeout, 1),
+            "type": "command",
+        ]
+        if let statusMessage {
+            handler["statusMessage"] = statusMessage
+        }
+        var identity: [String: Any] = [
+            "event_name": eventLabel,
+            "hooks": [handler],
+        ]
+        if let matcher {
+            identity["matcher"] = matcher
+        }
+        let data = try JSONSerialization.data(
+            withJSONObject: identity,
+            options: [.sortedKeys, .withoutEscapingSlashes]
+        )
+        let digest = SHA256.hash(data: data)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        return "sha256:\(digest)"
     }
 }

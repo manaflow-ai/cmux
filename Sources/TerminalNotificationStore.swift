@@ -446,7 +446,7 @@ final class TerminalNotificationStore: ObservableObject {
     var lastNotificationHookFailureDateByKey: [NotificationHookFailureThrottleKey: Date] = [:]
     private var indexes = NotificationIndexes()
     private let inFlightPolicyRequests = TerminalNotificationPolicyInFlightStore()
-    private init(userNotificationCenter: UserNotificationCenterService) {
+    init(userNotificationCenter: UserNotificationCenterService) {
         self.userNotificationCenter = userNotificationCenter
         nativeNotificationDeliveryHooks = NativeNotificationDeliveryHooks(
             userNotificationCenter: userNotificationCenter
@@ -1947,13 +1947,53 @@ final class TerminalNotificationStore: ObservableObject {
         emitNotificationsDismissed(ids: [id.uuidString], drainedSuperseded: supersededDrained)
     }
 
+    /// Clears every notification produced by one workspace correlation key in
+    /// a single collection pass and publishes one coherent index update.
     func clearNotifications(forTabId tabId: UUID, correlationKey: String) {
         inFlightPolicyRequests.discard(forTabId: tabId, correlationKey: correlationKey)
-        let ids = notifications.compactMap {
-            $0.tabId == tabId && $0.correlationKey == correlationKey ? $0.id : nil
+        var remaining: [TerminalNotification] = []
+        remaining.reserveCapacity(notifications.count)
+        var removed: [TerminalNotification] = []
+        for notification in notifications {
+            if notification.tabId == tabId,
+               notification.correlationKey == correlationKey {
+                removed.append(notification)
+            } else {
+                remaining.append(notification)
+            }
         }
-        ids.forEach(remove)
-        removePendingNotificationRequests(withIdentifiers: ids.map(\.uuidString))
+        guard !removed.isEmpty else { return }
+
+        notifications = remaining
+        let removedIDs = Set(removed.map(\.id))
+        notificationFeedHistory.markRead(ids: removedIDs)
+        var clearedIndicators = Set<TabSurfaceKey>()
+        var supersededDrained: [String] = []
+        for notification in removed {
+            let indicator = TabSurfaceKey(
+                tabId: notification.tabId,
+                surfaceId: notification.surfaceId
+            )
+            if clearedIndicators.insert(indicator).inserted {
+                clearFocusedReadIndicator(
+                    forTabId: notification.tabId,
+                    surfaceId: notification.surfaceId
+                )
+            }
+            supersededDrained.append(contentsOf: supersededPhoneDismissBuffer.flush(
+                forKey: SupersededPhoneDismissBuffer.key(
+                    tabId: notification.tabId,
+                    surfaceId: notification.surfaceId
+                )
+            ))
+        }
+        let identifierStrings = removed.map { $0.id.uuidString }
+        removeDeliveredNotifications(withIdentifiers: identifierStrings)
+        removePendingNotificationRequests(withIdentifiers: identifierStrings)
+        emitNotificationsDismissed(
+            ids: identifierStrings,
+            drainedSuperseded: supersededDrained
+        )
     }
 
     /// Clears one surface notification by its producer correlation key. This
@@ -2631,7 +2671,9 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func replaceNotificationsForTesting(_ notifications: [TerminalNotification]) {
-        TerminalMutationBus.shared.discardPendingNotifications()
+        if self === Self.shared {
+            TerminalMutationBus.shared.discardPendingNotifications()
+        }
         self.notifications = notifications
         notificationFeedHistory = NotificationFeedHistoryStore(fileURL: nil) { revision in
             MobileHostService.emitEvent(

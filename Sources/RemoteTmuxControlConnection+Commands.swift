@@ -443,13 +443,21 @@ extension RemoteTmuxControlConnection {
         notifyReconnectReadyIfSeedBatchDrained()
     }
 
-    /// Sends literal key bytes to a pane via tmux `send-keys -H` (hex-encoded),
-    /// which is binary-safe and needs no shell quoting.
+    /// Sends literal key bytes through the package-owned tmux framing policy.
+    ///
+    /// One logical input is admitted and enqueued as a complete ordered batch,
+    /// so writer backpressure cannot expose a partially delivered paste.
     @discardableResult
     func sendKeys(paneId: Int, data: Data) -> Bool {
-        guard !data.isEmpty else { return true }
-        let hex = Self.hexByteArguments(data)
-        return sendInternal("send-keys -t %\(paneId) -H \(hex)", kind: .other)
+        guard let commands = RemoteTmuxSendKeysBatchBuilder.commands(
+            paneID: paneId,
+            data: data
+        ) else { return false }
+        guard !commands.isEmpty else { return true }
+        return sendBatchInternal(
+            commands,
+            kinds: Array(repeating: .other, count: commands.count)
+        )
     }
 
     /// Sends a physical named key and lets tmux encode it for the target pane's
@@ -457,19 +465,6 @@ extension RemoteTmuxControlConnection {
     @discardableResult
     func sendKey(paneId: Int, key: RemoteTmuxKeyName) -> Bool {
         sendInternal("send-keys -t %\(paneId) \(key.value)", kind: .other)
-    }
-
-    nonisolated static func hexByteArguments(_ data: Data) -> String {
-        guard !data.isEmpty else { return "" }
-        let digits = Array("0123456789abcdef".utf8)
-        var bytes: [UInt8] = []
-        bytes.reserveCapacity(data.count * 3 - 1)
-        for byte in data {
-            if !bytes.isEmpty { bytes.append(UInt8(ascii: " ")) }
-            bytes.append(digits[Int(byte >> 4)])
-            bytes.append(digits[Int(byte & 0x0f)])
-        }
-        return String(decoding: bytes, as: UTF8.self)
     }
 
     /// Pastes `text` into `paneId` as a tmux paste (`paste-buffer -p`), which wraps

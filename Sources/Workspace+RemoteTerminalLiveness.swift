@@ -370,11 +370,20 @@ extension Workspace {
         return true
     }
 
+    /// Applies one authoritative terminal recovery to workspace presentation.
+    ///
+    /// Artifact cleanup runs once for each non-connected-to-connected transition;
+    /// additional terminals joining an already connected workspace still publish
+    /// their state without repeatedly scanning workspace logs and notifications.
     private func applyRemoteTerminalConnectedPresentation() {
+        let isRecoveryTransition = remoteConnectionState != .connected
         remoteConnectionState = .connected
         remoteConnectionDetail = nil
-        clearProxyOnlyRemoteSidebarArtifacts()
-        clearRecoveredRemoteDaemonSidebarArtifacts()
+        if isRecoveryTransition {
+            clearProxyOnlyRemoteSidebarArtifacts()
+            clearRecoveredRemoteConnectionSidebarArtifacts()
+            clearRecoveredRemoteDaemonSidebarArtifacts()
+        }
         applyBrowserRemoteWorkspaceStatusToPanels()
         postRemoteConnectionPresentationDidChange()
     }
