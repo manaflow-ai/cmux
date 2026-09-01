@@ -24,7 +24,20 @@ import Testing
         )
         stampedWorkspace.macInstanceTag = "ntab"
 
-        #expect(selection.matches(workspace: stampedWorkspace))
+        #expect(selection.matches(workspace: stampedWorkspace, allowsAnonymousForeground: false))
+        stampedWorkspace.macInstanceTag = nil
+        #expect(selection.matches(workspace: stampedWorkspace, allowsAnonymousForeground: false))
+
+        let anonymousSelection = CreatedTerminalSelection(
+            workspace: anonymousWorkspace,
+            terminalID: "terminal-new"
+        )
+        #expect(anonymousSelection.matches(workspace: anonymousWorkspace, allowsAnonymousForeground: true))
+        #expect(!anonymousSelection.matches(workspace: anonymousWorkspace, allowsAnonymousForeground: false))
+
+        var taggedWorkspace = anonymousWorkspace
+        taggedWorkspace.macInstanceTag = "nightly"
+        #expect(!anonymousSelection.matches(workspace: taggedWorkspace, allowsAnonymousForeground: true))
     }
 
     @Test func remoteCreatedTerminalRemainsSelectedAfterRefresh() async throws {

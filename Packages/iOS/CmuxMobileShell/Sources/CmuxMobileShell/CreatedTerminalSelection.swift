@@ -22,12 +22,36 @@ struct CreatedTerminalSelection: Equatable {
         self.terminalID = terminalID
     }
 
-    func matches(workspace: MobileWorkspacePreview) -> Bool {
-        guard workspace.rpcWorkspaceID == remoteWorkspaceID,
-              Self.deviceIDsMatch(macDeviceID, workspace.macDeviceID) else {
+    func matches(
+        workspace: MobileWorkspacePreview,
+        allowsAnonymousForeground: Bool
+    ) -> Bool {
+        guard workspace.rpcWorkspaceID == remoteWorkspaceID else {
             return false
         }
-        return Self.normalized(macInstanceTag) == Self.normalized(workspace.macInstanceTag)
+        switch (Self.normalized(macDeviceID), Self.normalized(workspace.macDeviceID)) {
+        case (nil, nil):
+            guard allowsAnonymousForeground else { return false }
+        case let (expected?, actual?):
+            guard cmxCanonicalDeviceID(expected) == cmxCanonicalDeviceID(actual) else {
+                return false
+            }
+        default:
+            return false
+        }
+        // A snapshot may omit the instance tag while the host is still
+        // converging. A present tag remains authoritative, so sibling builds
+        // cannot match accidentally; an absent tag is simply unknown.
+        let expectedTag = Self.normalized(macInstanceTag)
+        let actualTag = Self.normalized(workspace.macInstanceTag)
+        if let expectedTag {
+            guard actualTag == nil || expectedTag == actualTag else { return false }
+        } else {
+            // A pin without a tag belongs to the legacy/untagged pairing only;
+            // a tagged row is a distinct sibling until the pin learns that tag.
+            guard actualTag == nil else { return false }
+        }
+        return true
     }
 
     /// A legacy/anonymous workspace row can acquire its stable Mac identity
@@ -39,6 +63,13 @@ struct CreatedTerminalSelection: Equatable {
         if Self.normalized(macInstanceTag) == nil {
             self.macInstanceTag = Self.normalized(instanceTag)
         }
+    }
+
+    /// Learn a tag that was resolved after creation without replacing an
+    /// already-owned sibling identity.
+    mutating func adoptMacInstanceTagIfMissing(_ instanceTag: String) {
+        guard Self.normalized(macInstanceTag) == nil else { return }
+        macInstanceTag = Self.normalized(instanceTag)
     }
 
     static func deviceIDsMatch(_ lhs: String?, _ rhs: String?) -> Bool {

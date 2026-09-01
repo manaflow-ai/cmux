@@ -4614,6 +4614,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let foregroundKeyBeforeTagAdoption = foregroundMacKey
         if activeMacInstanceTag == nil, let resolvedTag, !resolvedTag.isEmpty {
             activeMacInstanceTag = resolvedTag
+            createdTerminalSelection?.adoptMacInstanceTagIfMissing(resolvedTag)
         }
         adoptForegroundMacIdentity(
             reportedID,
@@ -11435,7 +11436,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // otherwise win the fallback below. The pin is scoped to the remote
         // workspace and owning Mac, so a row-id remap cannot retarget it.
         if let created = createdTerminalSelection, selectedTerminalID == created.terminalID {
-            if created.matches(workspace: selectedWorkspace),
+            let allowsAnonymousForeground = foregroundMacDeviceID == nil
+                && selectedWorkspace.macDeviceID == nil
+                && workspacesByMac[.anonymousForeground]?.workspaces.contains {
+                    $0.rpcWorkspaceID == selectedWorkspace.rpcWorkspaceID
+                } == true
+            if created.matches(
+                workspace: selectedWorkspace,
+                allowsAnonymousForeground: allowsAnonymousForeground
+            ),
                let selectedTerminal = selectedWorkspace.terminals.first(where: { $0.id == created.terminalID }) {
                 guard selectedTerminal.isReady else { return }
             }
