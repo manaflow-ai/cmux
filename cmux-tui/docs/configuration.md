@@ -115,7 +115,10 @@ cmux sidebar plugin use fzf
 the optional build command, and verifies the resolved run command is
 executable. `sidebar plugin use <name>` writes `sidebar.plugin.command` as an absolute
 argv and `sidebar.plugin.cwd` as the plugin directory, preserving unrelated
-cmux-tui config keys. A running TUI applies it after config reload; `sidebar plugin use`
+cmux-tui config keys. A running TUI applies changes after `cmux server reload-config`; the
+reload reads the same resolved path selected at process startup. Changing `CMUX_TUI_CONFIG`
+or `CMUX_MUX_CONFIG` in the shell does not move an already-running session to another file.
+`sidebar plugin use`
 sends that reload automatically when the resolved session socket is reachable.
 
 Return to the built-in sidebar with:
