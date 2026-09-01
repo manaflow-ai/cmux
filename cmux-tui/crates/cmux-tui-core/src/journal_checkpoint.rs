@@ -4,7 +4,7 @@ use std::io::Write;
 use anyhow::Context;
 use base64::Engine;
 use flate2::{Compression, GzBuilder};
-use serde_json::{Map, Value, json};
+use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 
 use crate::resource::TerminalPublicId;
@@ -552,14 +552,10 @@ impl RestoreReducer {
             .and_then(Value::as_object)
             .context("checkpoint session_snapshot is not an object")?;
         let Some(cursor) = snapshot.get("cursor") else {
-            return Ok(
-                previous_revision.is_some_and(|previous| previous.checked_add(1) == Some(revision))
-            );
+            return Ok(false);
         };
         if cursor.is_null() {
-            return Ok(
-                previous_revision.is_some_and(|previous| previous.checked_add(1) == Some(revision))
-            );
+            return Ok(false);
         }
         let Some(cursor) = cursor.as_object() else {
             anyhow::bail!("checkpoint cursor is not an object")
