@@ -98,11 +98,10 @@ def usage_line_verbs(source: str) -> list[str]:
 
 def error_usage_verbs(source: str) -> list[str]:
     """The usage line the unknown-verb error prints; a subset, but it must not lie."""
-    return [
-        verb
-        for match in re.findall(r'CLIError\(message: """\n\s+Usage: cmux \\\(command\) <([^>]+)> \[args\.\.\.\]', source)
-        for verb in match.split("|")
-    ]
+    matches = re.findall(r'CLIError\(message: """\n\s+Usage: cmux \\\(command\) <([^>]+)> \[args\.\.\.\]', source)
+    if not matches:
+        raise RuntimeError("cannot find the unknown-verb error's usage line in CLI/cmux.swift")
+    return [verb for match in matches for verb in match.split("|")]
 
 
 def contract_probe_verbs(contract: str) -> list[str]:
