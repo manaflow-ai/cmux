@@ -1402,7 +1402,7 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(agent.sessionId, "antigravity-conversation-123")
         XCTAssertEqual(
             agent.resumeCommand,
-            "cd -- '/tmp/repo' 2>/dev/null || [ ! -d '/tmp/repo' ] && '/usr/local/bin/agy' '--conversation' 'antigravity-conversation-123' '--sandbox' 'danger-full-access'"
+            "cd -- '/tmp/repo' 2>/dev/null && '/usr/local/bin/agy' '--conversation' 'antigravity-conversation-123' '--sandbox' 'danger-full-access'"
         )
     }
 
@@ -1921,7 +1921,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "cd -- '/tmp/cmux project' 2>/dev/null || [ ! -d '/tmp/cmux project' ] && /bin/sh -c "
+            "cd -- '/tmp/cmux project' 2>/dev/null && /bin/sh -c "
                 + shellQuotedForTest("'env' 'CLAUDE_CONFIG_DIR=/tmp/claude config' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' 'a22293b7-bcef-4707-8439-2f538c8517a4' '--model' 'sonnet' '--permission-mode' 'auto'")
         )
         // The captured real-binary path must not survive: it would bypass the wrapper.
@@ -2152,10 +2152,9 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
     /// is a shipped cmux integration (`Resources/shell-integration/fish/`). Session-index
     /// resume commands are typed into the user's shell, so a POSIX-only wrapper token
     /// regresses fish users from working resume to a hard parse error. Uses a working
-    /// directory so the brace-free cwd guard
-    /// (`cd … || [ ! -d … ] && …`, https://github.com/manaflow-ai/cmux/issues/6285) is
-    /// exercised too — older fish rejects the POSIX `{ …; }` grouping the guard used to
-    /// emit. https://github.com/manaflow-ai/cmux/issues/5639
+    /// directory so the brace-free, fail-closed cwd guard is exercised too — older fish
+    /// rejects the POSIX `{ …; }` grouping the guard used to emit. See
+    /// https://github.com/manaflow-ai/cmux/issues/6285 and issue #5639.
     func testClaudeResumeCommandExecutesThroughWrapperInsideFishLauncher() throws {
         let fishURL = ["/usr/local/bin/fish", "/opt/homebrew/bin/fish", "/usr/bin/fish"]
             .map { URL(fileURLWithPath: $0) }
@@ -2622,7 +2621,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             entry.copyResumeCommand,
-            "cd -- '/Users/tiffanysun/fun' 2>/dev/null || [ ! -d '/Users/tiffanysun/fun' ] && /bin/sh -c "
+            "cd -- '/Users/tiffanysun/fun' 2>/dev/null && /bin/sh -c "
                 + shellQuotedForTest("\(AgentResumeArgv.claudeWrapperShellExecutableToken) --resume a22293b7-bcef-4707-8439-2f538c8517a4")
         )
     }
@@ -2889,7 +2888,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "cd -- '/Users/lawrence/fun' 2>/dev/null || [ ! -d '/Users/lawrence/fun' ] && /bin/sh -c "
+            "cd -- '/Users/lawrence/fun' 2>/dev/null && /bin/sh -c "
                 + shellQuotedForTest("'env' 'CLAUDE_CONFIG_DIR=/Users/lawrence/.codex-accounts/claude/_p1775010019397' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' '24ec0052-450c-4914-b1dd-2ee80d4bc84b' '--dangerously-load-development-channels' 'server:custom-dev-channel' '--dangerously-skip-permissions'")
         )
     }
@@ -2924,7 +2923,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ] && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'resume' '019dad34-d218-7943-b81a-eddac5c87951' '-c' 'check_for_update_on_startup=false' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--ask-for-approval' 'never' '--search'"
+            "cd -- '/Users/example/repo' 2>/dev/null && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'resume' '019dad34-d218-7943-b81a-eddac5c87951' '-c' 'check_for_update_on_startup=false' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--ask-for-approval' 'never' '--search'"
         )
     }
 
@@ -2955,7 +2954,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "cd -- '/Users/lawrence/fun/cmuxterm-hq' 2>/dev/null || [ ! -d '/Users/lawrence/fun/cmuxterm-hq' ] && '/Users/lawrence/.bun/bin/codex' 'resume' '019e2bb9-5544-7201-a517-d77bb00d724f' '-c' 'check_for_update_on_startup=false' '--yolo' '--model' 'gpt-5.4'"
+            "cd -- '/Users/lawrence/fun/cmuxterm-hq' 2>/dev/null && '/Users/lawrence/.bun/bin/codex' 'resume' '019e2bb9-5544-7201-a517-d77bb00d724f' '-c' 'check_for_update_on_startup=false' '--yolo' '--model' 'gpt-5.4'"
         )
     }
 
@@ -2987,7 +2986,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ] && 'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'resume' '019dad34-d218-7943-b81a-eddac5c87951' '-c' 'check_for_update_on_startup=false' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'"
+            "cd -- '/Users/example/repo' 2>/dev/null && 'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'resume' '019dad34-d218-7943-b81a-eddac5c87951' '-c' 'check_for_update_on_startup=false' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'"
         )
     }
 
@@ -3019,7 +3018,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ] && 'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'resume' '019dad34-d218-7943-b81a-eddac5c87952' '-c' 'check_for_update_on_startup=false' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'"
+            "cd -- '/Users/example/repo' 2>/dev/null && 'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'resume' '019dad34-d218-7943-b81a-eddac5c87952' '-c' 'check_for_update_on_startup=false' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'"
         )
     }
 
@@ -3277,45 +3276,45 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             claude.forkCommand,
-            "cd -- '/Users/lawrence/fun' 2>/dev/null || [ ! -d '/Users/lawrence/fun' ] && /bin/sh -c "
+            "cd -- '/Users/lawrence/fun' 2>/dev/null && /bin/sh -c "
                 + shellQuotedForTest("'env' 'CLAUDE_CONFIG_DIR=/Users/lawrence/.codex-accounts/claude/_p1775010019397' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' '24ec0052-450c-4914-b1dd-2ee80d4bc84b' '--fork-session' '--dangerously-load-development-channels' 'server:custom-dev-channel' '--dangerously-skip-permissions'")
         )
         XCTAssertEqual(
             claudeFork.forkCommand,
-            "cd -- '/Users/lawrence/fun' 2>/dev/null || [ ! -d '/Users/lawrence/fun' ] && /bin/sh -c "
+            "cd -- '/Users/lawrence/fun' 2>/dev/null && /bin/sh -c "
                 + shellQuotedForTest("'env' 'CLAUDE_CONFIG_DIR=/Users/lawrence/.codex-accounts/claude/_p1775010019397' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' 'claude-fork-child' '--fork-session' '--model' 'sonnet' '--dangerously-skip-permissions'")
         )
         XCTAssertEqual(
             codex.forkCommand,
-            "cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ] && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--ask-for-approval' 'never' '--search'"
+            "cd -- '/Users/example/repo' 2>/dev/null && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--ask-for-approval' 'never' '--search'"
         )
         XCTAssertEqual(
             codexWithImage.forkCommand,
-            "cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ] && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '019image-session' '--model' 'gpt-5.4'"
+            "cd -- '/Users/example/repo' 2>/dev/null && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '019image-session' '--model' 'gpt-5.4'"
         )
         XCTAssertEqual(
             codexFork.forkCommand,
-            "cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ] && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '019e1eca-ee32-7001-ab30-edcae57430bb' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--search'"
+            "cd -- '/Users/example/repo' 2>/dev/null && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '019e1eca-ee32-7001-ab30-edcae57430bb' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--search'"
         )
         XCTAssertEqual(
             codexTeams.forkCommand,
-            "cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ] && 'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'fork' 'codex-teams-session' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'"
+            "cd -- '/Users/example/repo' 2>/dev/null && 'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'fork' 'codex-teams-session' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'"
         )
         XCTAssertEqual(
             directOpenCode.forkCommand,
-            "cd -- '/tmp/direct opencode repo' 2>/dev/null || [ ! -d '/tmp/direct opencode repo' ] && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/opt/homebrew/bin/opencode' '--session' 'direct-opencode-session-456' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '--port' '4096' '/tmp/direct opencode repo'"
+            "cd -- '/tmp/direct opencode repo' 2>/dev/null && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/opt/homebrew/bin/opencode' '--session' 'direct-opencode-session-456' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '--port' '4096' '/tmp/direct opencode repo'"
         )
         XCTAssertEqual(
             directOpenCodeFork.forkCommand,
-            "cd -- '/tmp/direct opencode repo' 2>/dev/null || [ ! -d '/tmp/direct opencode repo' ] && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/opt/homebrew/bin/opencode' '--session' 'direct-opencode-child-session' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '--port' '4096' '/tmp/direct opencode repo'"
+            "cd -- '/tmp/direct opencode repo' 2>/dev/null && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/opt/homebrew/bin/opencode' '--session' 'direct-opencode-child-session' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '--port' '4096' '/tmp/direct opencode repo'"
         )
         XCTAssertEqual(
             omoOpenCode.forkCommand,
-            "cd -- '/tmp/opencode repo' 2>/dev/null || [ ! -d '/tmp/opencode repo' ] && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/usr/local/bin/cmux' 'omo' '--session' 'opencode-session-123' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '/tmp/opencode repo'"
+            "cd -- '/tmp/opencode repo' 2>/dev/null && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/usr/local/bin/cmux' 'omo' '--session' 'opencode-session-123' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '/tmp/opencode repo'"
         )
         XCTAssertEqual(
             omoOpenCodeFork.forkCommand,
-            "cd -- '/tmp/opencode repo' 2>/dev/null || [ ! -d '/tmp/opencode repo' ] && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/usr/local/bin/cmux' 'omo' '--session' 'opencode-child-session' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '/tmp/opencode repo'"
+            "cd -- '/tmp/opencode repo' 2>/dev/null && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/usr/local/bin/cmux' 'omo' '--session' 'opencode-child-session' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '/tmp/opencode repo'"
         )
         XCTAssertNil(unsupported.forkCommand)
     }
@@ -3783,7 +3782,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.forkCommand,
-            "cd -- '/tmp/opencode repo' 2>/dev/null || [ ! -d '/tmp/opencode repo' ] && '\(executable.path)' '--session' 'opencode-session-123' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '--agent' 'build' '--port' '4096' '/tmp/opencode repo'"
+            "cd -- '/tmp/opencode repo' 2>/dev/null && '\(executable.path)' '--session' 'opencode-session-123' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '--agent' 'build' '--port' '4096' '/tmp/opencode repo'"
         )
     }
 
@@ -3914,7 +3913,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "cd -- '/tmp/team repo' 2>/dev/null || [ ! -d '/tmp/team repo' ] && 'env' 'CMUX_CUSTOM_CLAUDE_PATH=/opt/Claude Code/bin/claude' '/Applications/cmux.app/Contents/Resources/bin/cmux' 'claude-teams' '--resume' 'claude-team-session' '--teammate-mode' 'auto' '--model' 'sonnet' '--remote-control-session-name-prefix' 'cmux-team' '--permission-mode' 'auto'"
+            "cd -- '/tmp/team repo' 2>/dev/null && 'env' 'CMUX_CUSTOM_CLAUDE_PATH=/opt/Claude Code/bin/claude' '/Applications/cmux.app/Contents/Resources/bin/cmux' 'claude-teams' '--resume' 'claude-team-session' '--teammate-mode' 'auto' '--model' 'sonnet' '--remote-control-session-name-prefix' 'cmux-team' '--permission-mode' 'auto'"
         )
     }
 
@@ -4126,15 +4125,15 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             direct.resumeCommand,
-            "cd -- '/tmp/direct opencode repo' 2>/dev/null || [ ! -d '/tmp/direct opencode repo' ] && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/opt/homebrew/bin/opencode' '--session' 'direct-opencode-session-456' '--model' 'anthropic/claude-sonnet-4-6' '--port' '4096' '/tmp/direct opencode repo'"
+            "cd -- '/tmp/direct opencode repo' 2>/dev/null && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/opt/homebrew/bin/opencode' '--session' 'direct-opencode-session-456' '--model' 'anthropic/claude-sonnet-4-6' '--port' '4096' '/tmp/direct opencode repo'"
         )
         XCTAssertEqual(
             omo.resumeCommand,
-            "cd -- '/tmp/opencode repo' 2>/dev/null || [ ! -d '/tmp/opencode repo' ] && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/usr/local/bin/cmux' 'omo' '--session' 'opencode-session-123' '--model' 'anthropic/claude-sonnet-4-6' '/tmp/opencode repo'"
+            "cd -- '/tmp/opencode repo' 2>/dev/null && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/usr/local/bin/cmux' 'omo' '--session' 'opencode-session-123' '--model' 'anthropic/claude-sonnet-4-6' '/tmp/opencode repo'"
         )
         XCTAssertEqual(
             staleBunWorker.resumeCommand,
-            "cd -- '/Users/lawrence/fun' 2>/dev/null || [ ! -d '/Users/lawrence/fun' ] && '/Users/lawrence/.bun/bin/opencode' '--session' 'ses_24b0be92affeVRRBplLmUzbXQl'"
+            "cd -- '/Users/lawrence/fun' 2>/dev/null && '/Users/lawrence/.bun/bin/opencode' '--session' 'ses_24b0be92affeVRRBplLmUzbXQl'"
         )
         XCTAssertNil(omx.resumeCommand)
         XCTAssertNil(omc.resumeCommand)
@@ -4189,7 +4188,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.launchCommand?.arguments.first, "/usr/local/bin/codex")
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "cd -- '/tmp/repo' 2>/dev/null || [ ! -d '/tmp/repo' ] && 'env' 'CODEX_HOME=/tmp/codex' '/usr/local/bin/codex' 'resume' 'codex-session-123' '-c' 'check_for_update_on_startup=false' '--model' 'gpt-5.4' '--search'"
+            "cd -- '/tmp/repo' 2>/dev/null && 'env' 'CODEX_HOME=/tmp/codex' '/usr/local/bin/codex' 'resume' 'codex-session-123' '-c' 'check_for_update_on_startup=false' '--model' 'gpt-5.4' '--search'"
         )
     }
 
@@ -4569,7 +4568,7 @@ extension SessionPersistenceTests {
         XCTAssertFalse(prefixed.contains("; }"), prefixed)
         XCTAssertEqual(
             prefixed,
-            "cd -- '/tmp/fish repo' 2>/dev/null || [ ! -d '/tmp/fish repo' ] && claude --resume abc"
+            "cd -- '/tmp/fish repo' 2>/dev/null && claude --resume abc"
         )
     }
 
@@ -6459,7 +6458,7 @@ extension SessionPersistenceTests {
     func testRemoteHermesAgentHookSurfaceResumeBootstrapStaysInsideCwdGuard() throws {
         let binding = SurfaceResumeBindingSnapshot(
             kind: "hermes-agent",
-            command: "cd -- '/tmp/hermes project' 2>/dev/null || [ ! -d '/tmp/hermes project' ] && './hermes' '--provider' 'custom' '--resume' 'hermes-session-123'",
+            command: "cd -- '/tmp/hermes project' 2>/dev/null && './hermes' '--provider' 'custom' '--resume' 'hermes-session-123'",
             cwd: "/tmp/hermes project",
             source: "agent-hook",
             environment: [

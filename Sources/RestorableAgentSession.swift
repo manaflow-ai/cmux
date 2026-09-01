@@ -98,12 +98,10 @@ enum TerminalStartupWorkingDirectoryPrefix {
     static func optionalChangeDirectoryPrefix(for workingDirectory: String?) -> String? {
         guard let workingDirectory = normalized(workingDirectory) else { return nil }
         let quoted = TerminalStartupShellQuoting.singleQuoted(workingDirectory)
-        // No POSIX `{ …; }` grouping: this runs verbatim in the user's login shell
-        // (cmux spawns via `/usr/bin/login → $SHELL`), which may be fish — fish has no
-        // brace grouping and errors before the agent launches (issue #6285). `&&`/`||`
-        // are a left-associative, equal-precedence AND-OR list in sh/bash/zsh/fish, so
-        // `cd … || [ ! -d … ] && cmd` == `(cd || test) && cmd` in every shell.
-        return "cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ] && "
+        // This input runs verbatim in the user's login shell, which may be fish;
+        // avoid POSIX brace grouping. A failed `cd` must stop the resume command so
+        // a missing or inaccessible saved cwd never falls back to the caller's cwd.
+        return "cd -- \(quoted) 2>/dev/null && "
     }
 
     static func prefix(_ command: String, workingDirectory: String?) -> String {

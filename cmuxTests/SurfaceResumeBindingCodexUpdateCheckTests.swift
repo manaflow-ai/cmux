@@ -203,7 +203,7 @@ import Testing
     @Test func staleCodexBindingGainsUpdateCheckSuppressionOnReplay() throws {
         let binding = SurfaceResumeBindingSnapshot(
             kind: "codex",
-            command: "cd -- '/tmp/repo' 2>/dev/null || [ ! -d '/tmp/repo' ] && 'env' 'CODEX_HOME=/tmp/codex' '/opt/company/bin/codex' 'resume' 'session-stale-binding' '--model' 'gpt-5.4'",
+            command: "cd -- '/tmp/repo' 2>/dev/null && 'env' 'CODEX_HOME=/tmp/codex' '/opt/company/bin/codex' 'resume' 'session-stale-binding' '--model' 'gpt-5.4'",
             cwd: "/tmp/repo",
             checkpointId: "session-stale-binding",
             source: "agent-hook",
@@ -357,7 +357,7 @@ import Testing
         )
         let binding = SurfaceResumeBindingSnapshot(
             kind: "codex",
-            command: "cd -- '/tmp/repo' 2>/dev/null || [ ! -d '/tmp/repo' ] && \(wrapped)",
+            command: "cd -- '/tmp/repo' 2>/dev/null && \(wrapped)",
             cwd: "/tmp/repo",
             checkpointId: "wrapped-session",
             source: "agent-hook",

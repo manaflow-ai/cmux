@@ -850,7 +850,7 @@ struct AgentHibernationTests {
         )
 
         expectEqual(snapshot.agentDisplayName, "Local Agent")
-        expectEqual(snapshot.resumeCommand, "cd -- '/tmp/custom-agent' 2>/dev/null || [ ! -d '/tmp/custom-agent' ] && '/usr/local/bin/local-agent' 'resume' 'custom-session'")
+        expectEqual(snapshot.resumeCommand, "cd -- '/tmp/custom-agent' 2>/dev/null && '/usr/local/bin/local-agent' 'resume' 'custom-session'")
     }
 
     @MainActor

@@ -1159,7 +1159,7 @@ struct HermesFirstClassSupportTests {
         )
         #expect(
             entry.copyResumeCommand
-                == "cd -- \(expectedCWD) 2>/dev/null || [ ! -d \(expectedCWD) ] && \(expectedResume)"
+                == "cd -- \(expectedCWD) 2>/dev/null && \(expectedResume)"
         )
     }
 

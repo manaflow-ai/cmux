@@ -222,14 +222,14 @@ struct ShellStartupMatrixTests {
 
     @Test
     func typedShellCommandWrapsPosixForNushellOnly() {
-        let posix = "cd -- '/tmp/p' 2>/dev/null || [ ! -d '/tmp/p' ] && 'claude' '--resume' 'SID'"
+        let posix = "cd -- '/tmp/p' 2>/dev/null && 'claude' '--resume' 'SID'"
         expectEqual(
             TerminalStartupTypedShellCommand(dialect: .posix).typedInput(posixCommand: posix),
             posix
         )
         expectEqual(
             TerminalStartupTypedShellCommand(dialect: .nushell).typedInput(posixCommand: posix),
-            #"^/bin/sh -c "cd -- '/tmp/p' 2>/dev/null || [ ! -d '/tmp/p' ] && 'claude' '--resume' 'SID'""#
+            #"^/bin/sh -c "cd -- '/tmp/p' 2>/dev/null && 'claude' '--resume' 'SID'""#
         )
     }
 
