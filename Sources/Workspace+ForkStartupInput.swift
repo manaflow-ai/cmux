@@ -42,6 +42,7 @@ extension Workspace {
         )
     }
 
+    @MainActor
     private func validatedForkSnapshot(
         _ candidate: SessionRestorableAgentSnapshot,
         panelId: UUID
