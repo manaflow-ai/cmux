@@ -153,11 +153,12 @@ async function stripeProCheckout(
 
     const stripeBillingStatus = await stripeBillingStatusForUser(stackUserId);
     const status = await resolveProPlanStatus(user, { stripeBillingStatus });
-    // Keep stale Upgrade links from opening a second subscription. The portal
-    // can manage active subscriptions and recover past-due/unpaid or
-    // cancel-at-period-end states, but it cannot start a new subscription after
-    // a terminal cancellation.
-    if (isStripePortalRecoverable(stripeBillingStatus)) {
+    // Keep stale Upgrade links from opening a second subscription. Any
+    // currently active row (even behind a newer canceled one) means the portal
+    // is the right destination; the portal also recovers past-due/unpaid and
+    // cancel-at-period-end states, but it cannot start a new subscription
+    // after a terminal cancellation.
+    if (stripeBillingStatus.hasActiveSubscription || isStripePortalRecoverable(stripeBillingStatus)) {
       return NextResponse.redirect(new URL("/api/billing/portal", request.url));
     }
     if (status.isPro) {
@@ -238,7 +239,9 @@ async function stripeTeamCheckout(
     teamId = resolvedTeamId;
 
     const stripeBillingStatus = await stripeBillingStatusForTeam(resolvedTeamId);
-    if (isStripePortalRecoverable(stripeBillingStatus)) {
+    // Same rule as personal checkout: an already-paying team manages billing
+    // in the portal; checkout would create a duplicate subscription.
+    if (stripeBillingStatus.hasActiveSubscription || isStripePortalRecoverable(stripeBillingStatus)) {
       const portalURL = new URL("/api/billing/portal", request.url);
       portalURL.searchParams.set("scope", "team");
       return NextResponse.redirect(portalURL);
