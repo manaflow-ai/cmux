@@ -27,7 +27,7 @@ struct BrokerCredentialTests {
             Issue.record("config missing identityPrivB64")
             return
         }
-        let identity = PeerIdentity(
+        let identity = try PeerIdentity(
             appIdentity: "dev.cmux.lite", deviceID: config.deviceId, privateKeyData: priv)
         let client = BrokerCredentialClient(config: config, identity: identity)
 

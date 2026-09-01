@@ -2,6 +2,11 @@ import Foundation
 import CryptoKit
 import os
 
+/// Errors raised when persisted identity key material cannot be parsed.
+public enum PeerIdentityError: Error, Equatable, Sendable {
+    case invalidPrivateKey
+}
+
 /// A peer identity: one Ed25519 keypair scoped to (device, app identity), plus
 /// the durable device ID. cmux BETA, cmux INTERNAL, and cmux-lite on the same
 /// phone are three fully separate peers (contract 1.4) that share one device ID
@@ -19,35 +24,45 @@ public struct PeerIdentity: Sendable, Equatable {
     /// stays with the key the wire authenticates.
     public let deviceID: String
     public let privateKeyData: Data
+    private let publicKeyDataStorage: Data
 
-    public init(appIdentity: String, deviceID: String, privateKeyData: Data) {
+    /// Creates an identity after validating its private key bytes.
+    /// - Throws: ``PeerIdentityError/invalidPrivateKey`` when the bytes are
+    ///   truncated or otherwise not a Curve25519 signing key.
+    public init(
+        appIdentity: String, deviceID: String, privateKeyData: Data
+    ) throws {
+        guard let key = try? Curve25519.Signing.PrivateKey(
+            rawRepresentation: privateKeyData) else {
+            throw PeerIdentityError.invalidPrivateKey
+        }
         self.appIdentity = appIdentity
         self.deviceID = deviceID
-        // Keychain/legacy migration data is external state. If it is truncated
-        // or otherwise malformed, replace it with a fresh valid key so callers
-        // fail closed at admission rather than trapping the process while
-        // reading `publicKeyData`.
-        self.privateKeyData = (try? Curve25519.Signing.PrivateKey(
-            rawRepresentation: privateKeyData))?.rawRepresentation
-            ?? Curve25519.Signing.PrivateKey().rawRepresentation
+        self.privateKeyData = key.rawRepresentation
+        self.publicKeyDataStorage = key.publicKey.rawRepresentation
+    }
+
+    private init(
+        validatedAppIdentity: String, deviceID: String,
+        privateKeyData: Data, publicKeyData: Data
+    ) {
+        self.appIdentity = validatedAppIdentity
+        self.deviceID = deviceID
+        self.privateKeyData = privateKeyData
+        self.publicKeyDataStorage = publicKeyData
     }
 
     public static func generate(appIdentity: String, deviceID: String) -> PeerIdentity {
-        PeerIdentity(
-            appIdentity: appIdentity,
+        let key = Curve25519.Signing.PrivateKey()
+        return PeerIdentity(
+            validatedAppIdentity: appIdentity,
             deviceID: deviceID,
-            privateKeyData: Curve25519.Signing.PrivateKey().rawRepresentation)
+            privateKeyData: key.rawRepresentation,
+            publicKeyData: key.publicKey.rawRepresentation)
     }
 
-    /// Fails CLOSED, like `sign`: an identity whose private key bytes do not
-    /// parse must never quietly present an empty key (an empty key in a hello
-    /// or grant is an admission-side landmine, not a local error). The key
-    /// bytes are locally owned state, so failing to parse them is a
-    /// programming or storage-corruption error, not an input error.
-    public var publicKeyData: Data {
-        (try? Curve25519.Signing.PrivateKey(rawRepresentation: privateKeyData))?
-            .publicKey.rawRepresentation ?? Data()
-    }
+    /// Returns the validated public key corresponding to this identity.
+    public var publicKeyData: Data { publicKeyDataStorage }
 
     public func sign(_ message: Data) throws -> Data {
         try Curve25519.Signing.PrivateKey(rawRepresentation: privateKeyData)

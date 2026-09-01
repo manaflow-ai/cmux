@@ -47,9 +47,22 @@ extension TransportLane {
 /// dependence (contract 3.3, 4.4). The code namespace is shared with
 /// DenialCode.rawValue and CloseReason.code.
 public struct ConnectionTermination: Sendable, Equatable {
-    public var code: String
+    public enum Authority: Sendable, Equatable {
+        /// The substrate supplied a structured/local reason suitable for
+        /// lifecycle decisions.
+        case authoritative
+        /// The code was recovered from a human-rendered remote diagnostic and
+        /// is safe for display/denial reporting only.
+        case renderedHint
+    }
 
-    public init(code: String) { self.code = code }
+    public var code: String
+    public var authority: Authority
+
+    public init(code: String, authority: Authority = .authoritative) {
+        self.code = code
+        self.authority = authority
+    }
 }
 
 /// One side of one live peer connection: independent named lanes (5.2) that

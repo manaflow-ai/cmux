@@ -469,8 +469,14 @@ public actor ReconnectOwner {
         connection = nil
         let termination = await conn.termination()
         let code = termination?.code ?? "connection-lost"
-        let willAutoRedial =
-            !Self.terminalCloseCodes.contains(code) && DenialCode(rawValue: code) == nil
+        // The substrate's structured termination is the sole authority for
+        // automatic recovery. An unparsed/render-only close is deliberately
+        // fail-closed: treating it as a transport failure could redial after a
+        // deliberate supersession/user close (or misclassify an unrelated
+        // reason that merely contains a denial word).
+        let willAutoRedial = termination?.authority == .authoritative
+            && !Self.terminalCloseCodes.contains(code)
+            && DenialCode(rawValue: code) == nil
         if TransportDebugLog.enabled {
             TransportDebugLog.core.notice(
                 """

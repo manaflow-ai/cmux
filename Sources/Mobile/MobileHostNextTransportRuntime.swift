@@ -1104,10 +1104,19 @@ final class MobileHostNextTransportRuntime {
             account: identityKeyAccount, legacyDefaultsKey: legacyIdentityKeyDefaultsKey),
             let deviceID = defaults.string(forKey: identityDeviceIDDefaultsKey)
         {
-            mobileHostNextTransportLog.notice(
-                "host identity LOADED device=\(String(deviceID.prefix(8)), privacy: .public)")
-            return PeerIdentity(
+            if let identity = try? PeerIdentity(
                 appIdentity: "dev.cmux.next.host", deviceID: deviceID, privateKeyData: key)
+            {
+                mobileHostNextTransportLog.notice(
+                    "host identity LOADED device=\(String(deviceID.prefix(8)), privacy: .public)")
+                return identity
+            }
+            mobileHostNextTransportLog.error(
+                "host identity key bytes invalid; generating a fresh identity")
+            let fresh = PeerIdentity.generate(
+                appIdentity: "dev.cmux.next.host", deviceID: deviceID)
+            await storeSecret(fresh.privateKeyData, account: identityKeyAccount)
+            return fresh
         }
         let fresh = PeerIdentity.generate(
             appIdentity: "dev.cmux.next.host",
@@ -1130,13 +1139,16 @@ final class MobileHostNextTransportRuntime {
         if let key = await loadOrMigrateSecret(
             account: signerKeyAccount, legacyDefaultsKey: legacySignerKeyDefaultsKey)
         {
-            let signer = GrantSigner(privateKeyData: key)
-            mobileHostNextTransportLog.notice(
-                """
-                host signer LOADED (persisted; prior phone grants stay valid) \
-                signerKey=\(Self.hex(Data(signer.publicKeyData.prefix(4))), privacy: .public)
-                """)
-            return signer
+            if let signer = try? GrantSigner(privateKeyData: key) {
+                mobileHostNextTransportLog.notice(
+                    """
+                    host signer LOADED (persisted; prior phone grants stay valid) \
+                    signerKey=\(Self.hex(Data(signer.publicKeyData.prefix(4))), privacy: .public)
+                    """)
+                return signer
+            }
+            mobileHostNextTransportLog.error(
+                "host signer key bytes invalid; generating a fresh signer")
         }
         let signer = GrantSigner()
         await storeSecret(signer.privateKeyData, account: signerKeyAccount)

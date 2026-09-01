@@ -207,7 +207,7 @@ struct LoopbackSessionTests {
         // And one app presenting the OTHER app's grant is denied (1.4, 3.2).
         let (crossClient, crossHostEnd) = LoopbackWire().makeEnds()
         async let crossServe: Void = host.serve(connection: crossHostEnd, now: now)
-        let crossIdentity = PeerIdentity(
+        let crossIdentity = try PeerIdentity(
             appIdentity: "dev.cmux.beta", deviceID: "phone-1",
             privateKeyData: internalApp.privateKeyData)
         let cross = try await TransportClient.connect(

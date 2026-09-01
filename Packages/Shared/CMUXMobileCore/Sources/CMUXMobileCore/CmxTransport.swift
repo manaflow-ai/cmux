@@ -269,8 +269,20 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
     private struct FailableRoute: Decodable {
         let value: CmxAttachRoute?
 
-        init(from decoder: any Decoder) {
-            value = try? CmxAttachRoute(from: decoder)
+        private enum CodingKeys: String, CodingKey {
+            case kind
+        }
+
+        init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            let rawKind = try container.decode(String.self, forKey: .kind)
+            guard CmxAttachTransportKind(rawValue: rawKind) == nil else {
+                // Known routes retain their strict validation errors; only a
+                // genuinely unknown enum value is forward-compatible.
+                value = try CmxAttachRoute(from: decoder)
+                return
+            }
+            value = nil
         }
     }
 

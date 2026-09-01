@@ -572,6 +572,28 @@ private func profile(
     #expect(ticket.routes.map(\.kind) == [.tailscale])
 }
 
+@Test func attachTicketStillRejectsMalformedKnownRoute() throws {
+    let data = Data("""
+    {
+      "version": 1,
+      "workspaceID": "workspace-1",
+      "terminalID": null,
+      "macDeviceID": "mac-1",
+      "routes": [
+        {
+          "id": "tailscale",
+          "kind": "tailscale",
+          "endpoint": { "type": "host_port", "host": "100.64.1.2", "port": 0 }
+        }
+      ]
+    }
+    """.utf8)
+
+    #expect(throws: CmxAttachRouteError.invalidPort(0)) {
+        _ = try JSONDecoder().decode(CmxAttachTicket.self, from: data)
+    }
+}
+
 @Test func nextTransportRouteIsNeverPreferredByLegacySupportedKinds() throws {
     let ticket = try CmxAttachTicket(
         workspaceID: "workspace-1",

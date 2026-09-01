@@ -892,8 +892,13 @@ public final class NextTransportDialClient {
             defaults.set(deviceID, forKey: idKey)
         }
         if let key = IdentityKeychain.read(service: keychainService, account: IdentityKeychain.account) {
-            return PeerIdentity(
+            if let identity = try? PeerIdentity(
                 appIdentity: "dev.cmux.next.ios", deviceID: deviceID, privateKeyData: key)
+            {
+                return identity
+            }
+            nextTransportLog.error(
+                "identity keychain bytes invalid; replacing the corrupted identity")
         }
         // One-time migration: early dev builds kept the private key in
         // UserDefaults. Move it into the Keychain and clear the old slot
@@ -907,8 +912,14 @@ public final class NextTransportDialClient {
                 defaults.removeObject(forKey: legacyKeyKey)
                 nextTransportLog.notice("identity key migrated defaults -> keychain")
             }
-            return PeerIdentity(
+            if let identity = try? PeerIdentity(
                 appIdentity: "dev.cmux.next.ios", deviceID: deviceID, privateKeyData: key)
+            {
+                return identity
+            }
+            defaults.removeObject(forKey: legacyKeyKey)
+            nextTransportLog.error(
+                "legacy identity bytes invalid; generating a fresh identity")
         }
         let fresh = PeerIdentity.generate(
             appIdentity: "dev.cmux.next.ios", deviceID: deviceID)

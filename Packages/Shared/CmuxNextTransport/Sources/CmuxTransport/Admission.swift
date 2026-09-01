@@ -1,6 +1,11 @@
 import Foundation
 import CryptoKit
 
+/// Errors raised when persisted grant-signer key material cannot be parsed.
+public enum GrantSignerError: Error, Equatable, Sendable {
+    case invalidPrivateKey
+}
+
 /// Server-signed pairing grant (decision D8): the backend is the trust root.
 /// Macs verify OFFLINE against a pinned server public key, so admission works
 /// with the backend unreachable (contract 9.3, 9.5).
@@ -130,27 +135,28 @@ public struct PairingGrant: Sendable, Equatable {
 /// it is the fake backend used by the loopback host and later by hostd.
 public struct GrantSigner: Sendable {
     public let privateKeyData: Data
+    private let publicKeyDataStorage: Data
 
     public init() {
-        privateKeyData = Curve25519.Signing.PrivateKey().rawRepresentation
+        let key = Curve25519.Signing.PrivateKey()
+        privateKeyData = key.rawRepresentation
+        publicKeyDataStorage = key.publicKey.rawRepresentation
     }
 
-    public init(privateKeyData: Data) {
-        // Persisted key bytes are external state. Recover with a fresh signer
-        // when a restore/migration yields truncated data; never crash while
-        // computing the public verification key.
-        self.privateKeyData = (try? Curve25519.Signing.PrivateKey(
-            rawRepresentation: privateKeyData))?.rawRepresentation
-            ?? Curve25519.Signing.PrivateKey().rawRepresentation
+    /// Creates a signer after validating persisted private-key bytes.
+    /// - Throws: ``GrantSignerError/invalidPrivateKey`` when the bytes are not
+    ///   a valid Curve25519 signing key.
+    public init(privateKeyData: Data) throws {
+        guard let key = try? Curve25519.Signing.PrivateKey(
+            rawRepresentation: privateKeyData) else {
+            throw GrantSignerError.invalidPrivateKey
+        }
+        self.privateKeyData = key.rawRepresentation
+        self.publicKeyDataStorage = key.publicKey.rawRepresentation
     }
 
-    /// Fails CLOSED, like `mint`: a signer whose key bytes do not parse must
-    /// never quietly hand out an empty pinned key (an empty verifier key
-    /// rejects every grant with invalid-signature and no clue why).
-    public var publicKeyData: Data {
-        (try? Curve25519.Signing.PrivateKey(rawRepresentation: privateKeyData))?
-            .publicKey.rawRepresentation ?? Data()
-    }
+    /// Returns the validated public key corresponding to this signer.
+    public var publicKeyData: Data { publicKeyDataStorage }
 
     public func mint(
         accountID: String, deviceID: String, devicePublicKey: Data, appIdentity: String,

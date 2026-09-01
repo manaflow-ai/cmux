@@ -60,10 +60,10 @@ struct RelayE2ETests {
         let host = TransportHost(
             verifier: GrantVerifier(serverPublicKeyData: signer.publicKeyData))
 
-        let mac = PeerIdentity(
+        let mac = try PeerIdentity(
             appIdentity: "dev.cmux.lite.mac", deviceID: "relay-mac-1",
             privateKeyData: try Self.data(fromHex: config.server.secretHex))
-        let phone = PeerIdentity(
+        let phone = try PeerIdentity(
             appIdentity: "dev.cmux.lite", deviceID: "relay-phone-1",
             privateKeyData: try Self.data(fromHex: config.client.secretHex))
         let grant = try signer.mint(
@@ -153,7 +153,7 @@ struct RelayE2ETests {
         let host = TransportHost(
             verifier: GrantVerifier(serverPublicKeyData: signer.publicKeyData))
 
-        let mac = PeerIdentity(
+        let mac = try PeerIdentity(
             appIdentity: "dev.cmux.lite.mac", deviceID: "relay-mac-1",
             privateKeyData: try Self.data(fromHex: config.server.secretHex))
         let server = try await IrohSubstrate.endpoint(

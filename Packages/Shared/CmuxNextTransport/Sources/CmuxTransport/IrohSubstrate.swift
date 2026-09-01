@@ -260,7 +260,9 @@ public actor IrohPeerConnection: PeerConnection {
     /// first lane frame.
     private let handshakeSleep: @Sendable (Duration) async throws -> Void
     private var lanes: [String: IrohLane] = [:]
-    private var laneWaiters: [String: [CheckedContinuation<any TransportLane, Never>]] = [:]
+    private var laneWaiters: [String: [(id: UInt64, continuation: CheckedContinuation<any TransportLane, Never>)]] = [:]
+    private var laneWaiterTasks: [UInt64: Task<Void, Never>] = [:]
+    private var laneWaiterCounter: UInt64 = 0
     private var acceptLoop: Task<Void, Never>?
     /// One bounded worker per accepted bidirectional stream. The accept loop
     /// itself never waits for a peer's `lane.open`/`raw.open` handshake.
@@ -278,6 +280,7 @@ public actor IrohPeerConnection: PeerConnection {
     private static let maxConcurrentInboundStreams = 64
     private static let maxLaneCount = 128
     private static let inboundOpenDeadline: Duration = .seconds(10)
+    private static let laneWaitDeadline: Duration = .seconds(10)
 
     public init(
         connection: Connection,
@@ -435,31 +438,87 @@ public actor IrohPeerConnection: PeerConnection {
                 return DeadLane(name: name)
             }
         case .acceptor:
-            return await withCheckedContinuation { continuation in
-                if let existing = lanes[name] {
-                    continuation.resume(returning: existing)
-                } else if closedFlag {
-                    if TransportDebugLog.enabled {
-                        TransportDebugLog.core.notice(
-                            """
-                            conn \(TransportDebugLog.id(self), privacy: .public) lane \
-                            name=\(name, privacy: .public) -> dead lane (closed while waiting)
-                            """)
+            laneWaiterCounter &+= 1
+            let waiterID = laneWaiterCounter
+            return await withTaskCancellationHandler(operation: {
+                await withCheckedContinuation { continuation in
+                    if let existing = lanes[name] {
+                        continuation.resume(returning: existing)
+                    } else if closedFlag {
+                        if TransportDebugLog.enabled {
+                            TransportDebugLog.core.notice(
+                                """
+                                conn \(TransportDebugLog.id(self), privacy: .public) lane \
+                                name=\(name, privacy: .public) -> dead lane (closed while waiting)
+                                """)
+                        }
+                        continuation.resume(returning: DeadLane(name: name))
+                    } else {
+                        if TransportDebugLog.enabled {
+                            TransportDebugLog.core.notice(
+                                """
+                                conn \(TransportDebugLog.id(self), privacy: .public) lane wait \
+                                (acceptor) name=\(name, privacy: .public) \
+                                waiters=\((self.laneWaiters[name]?.count ?? 0) + 1, privacy: .public)
+                                """)
+                        }
+                        laneWaiters[name, default: []].append(
+                            (id: waiterID, continuation: continuation))
+                        let sleep = handshakeSleep
+                        laneWaiterTasks[waiterID] = Task { [weak self] in
+                            do {
+                                try await sleep(Self.laneWaitDeadline)
+                            } catch {
+                                return
+                            }
+                            guard let self else { return }
+                            await self.expireLaneWaiter(name: name, id: waiterID)
+                        }
                     }
-                    continuation.resume(returning: DeadLane(name: name))
-                } else {
-                    if TransportDebugLog.enabled {
-                        TransportDebugLog.core.notice(
-                            """
-                            conn \(TransportDebugLog.id(self), privacy: .public) lane wait \
-                            (acceptor) name=\(name, privacy: .public) \
-                            waiters=\((self.laneWaiters[name]?.count ?? 0) + 1, privacy: .public)
-                            """)
-                    }
-                    laneWaiters[name, default: []].append(continuation)
                 }
-            }
+            }, onCancel: {
+                Task { [weak self] in
+                    await self?.cancelLaneWaiter(name: name, id: waiterID)
+                }
+            })
         }
+    }
+
+    /// Resolves one acceptor waiter as a dead lane after the bounded deadline.
+    private func expireLaneWaiter(name: String, id: UInt64) {
+        guard var waiters = laneWaiters[name],
+            let index = waiters.firstIndex(where: { $0.id == id })
+        else { return }
+        let waiter = waiters.remove(at: index)
+        if waiters.isEmpty {
+            laneWaiters.removeValue(forKey: name)
+        } else {
+            laneWaiters[name] = waiters
+        }
+        laneWaiterTasks.removeValue(forKey: id)?.cancel()
+        waiter.continuation.resume(returning: DeadLane(name: name))
+        if TransportDebugLog.enabled {
+            TransportDebugLog.core.notice(
+                "conn \(TransportDebugLog.id(self), privacy: .public) lane wait expired name=\(name, privacy: .public)")
+        }
+    }
+
+    /// Removes a cancelled waiter without resuming it twice.
+    private func cancelLaneWaiter(name: String, id: UInt64) {
+        guard var waiters = laneWaiters[name],
+            let index = waiters.firstIndex(where: { $0.id == id })
+        else {
+            laneWaiterTasks.removeValue(forKey: id)?.cancel()
+            return
+        }
+        let waiter = waiters.remove(at: index)
+        if waiters.isEmpty {
+            laneWaiters.removeValue(forKey: name)
+        } else {
+            laneWaiters[name] = waiters
+        }
+        laneWaiterTasks.removeValue(forKey: id)?.cancel()
+        waiter.continuation.resume(returning: DeadLane(name: name))
     }
 
     /// No sleeps, no drains (Aziz redline 08-19: we can't depend on time).
@@ -497,6 +556,8 @@ public actor IrohPeerConnection: PeerConnection {
         rawDeliveryTask = nil
         rawDeliveryQueue.removeAll()
         pendingRawStreams.removeAll()
+        for task in laneWaiterTasks.values { task.cancel() }
+        laneWaiterTasks.removeAll()
         let openLanes = Array(lanes.values)
         lanes.removeAll()
         for lane in openLanes {
@@ -540,7 +601,7 @@ public actor IrohPeerConnection: PeerConnection {
         } else {
             rendered = await connection.closed()
         }
-        for code in Self.knownTerminationCodes where rendered.contains(code) {
+        for code in Self.knownTerminationCodes where Self.renderedReasonContains(rendered, code: code) {
             if TransportDebugLog.enabled {
                 TransportDebugLog.core.notice(
                     """
@@ -549,7 +610,12 @@ public actor IrohPeerConnection: PeerConnection {
                     rendered=\(rendered, privacy: .public)
                     """)
             }
-            return ConnectionTermination(code: code)
+            let value = rendered.trimmingCharacters(in: .whitespacesAndNewlines)
+            let authority: ConnectionTermination.Authority =
+                value == code || value.hasSuffix("reason=\(code)")
+                    ? .authoritative
+                    : .renderedHint
+            return ConnectionTermination(code: code, authority: authority)
         }
         if TransportDebugLog.enabled {
             TransportDebugLog.core.notice(
@@ -559,6 +625,19 @@ public actor IrohPeerConnection: PeerConnection {
                 """)
         }
         return nil
+    }
+
+    /// Matches only reason-shaped renderings, never an arbitrary substring of
+    /// a transport diagnostic (for example `not-expired`). Local closes use
+    /// ``localTermination`` above; this parser is solely a conservative bridge
+    /// for remote FFI strings that have no structured reason accessor.
+    private static func renderedReasonContains(_ rendered: String, code: String) -> Bool {
+        let value = rendered.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value == code
+            || value.hasSuffix(" \(code)")
+            || value.hasSuffix(":\(code)")
+            || value.contains("reason=\(code)")
+            || value.contains("reason: \(code)")
     }
 
     /// Creates a lane whose end callback returns ownership to this
@@ -733,7 +812,8 @@ public actor IrohPeerConnection: PeerConnection {
                 """)
         }
         for waiter in resumed {
-            waiter.resume(returning: lane)
+            laneWaiterTasks.removeValue(forKey: waiter.id)?.cancel()
+            waiter.continuation.resume(returning: lane)
         }
     }
 
@@ -778,10 +858,12 @@ public actor IrohPeerConnection: PeerConnection {
         }
         for (name, waiters) in laneWaiters {
             for waiter in waiters {
-                waiter.resume(returning: DeadLane(name: name))
+                laneWaiterTasks.removeValue(forKey: waiter.id)?.cancel()
+                waiter.continuation.resume(returning: DeadLane(name: name))
             }
         }
         laneWaiters.removeAll()
+        laneWaiterTasks.removeAll()
     }
 
     /// Starts the one FIFO raw-stream delivery worker, if a handler is ready.
