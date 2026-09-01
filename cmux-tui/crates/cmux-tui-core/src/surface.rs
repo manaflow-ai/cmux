@@ -2963,7 +2963,13 @@ impl Surface {
                 cwd: snapshot
                     .cwd
                     .as_deref()
-                    .and_then(platform::terminal_pwd_to_local_path)
+                    .and_then(|cwd| {
+                        if protocol_version >= crate::terminal_host_protocol::PROTOCOL_VERSION {
+                            platform::terminal_pwd_to_local_path(cwd)
+                        } else {
+                            platform::spawn_cwd_to_local_path(cwd)
+                        }
+                    })
                     .map(|path| path.to_string_lossy().into_owned()),
                 exit: Mutex::new(None),
                 local_pty_drained: AtomicBool::new(true),
@@ -5448,9 +5454,27 @@ impl Surface {
     }
 
     pub fn local_cwd(&self) -> Option<String> {
+        let hosted = match self {
+            Surface::Pty(pty) => {
+                #[cfg(unix)]
+                {
+                    matches!(&*pty.runtime.lock().unwrap(), PtyRuntime::Hosted(_))
+                }
+                #[cfg(not(unix))]
+                {
+                    false
+                }
+            }
+            Surface::Browser(_) => false,
+        };
+        let terminal_pwd_to_local_path = if hosted {
+            platform::terminal_pwd_to_local_path
+        } else {
+            platform::local_terminal_pwd_to_local_path
+        };
         self.pwd()
             .as_deref()
-            .and_then(platform::terminal_pwd_to_local_path)
+            .and_then(terminal_pwd_to_local_path)
             .map(|path| path.to_string_lossy().into_owned())
             .or_else(|| {
                 self.spawn_cwd()
