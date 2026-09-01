@@ -5484,6 +5484,11 @@ impl Surface {
             })
     }
 
+    #[cfg(test)]
+    pub(crate) fn set_test_pwd(&self, pwd: Option<String>) {
+        *self.as_pty().expect("test PTY surface").pwd.lock().unwrap() = pwd;
+    }
+
     pub fn process_id(&self) -> Option<u32> {
         self.as_pty().and_then(|pty| pty.pid)
     }
