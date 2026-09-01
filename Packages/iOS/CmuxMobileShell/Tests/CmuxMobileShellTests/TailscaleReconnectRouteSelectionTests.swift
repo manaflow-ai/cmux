@@ -32,7 +32,7 @@ import Testing
             [named, iroh],
             supportedKinds: [.iroh, .tailscale],
             preferNonLoopback: true,
-            tailscaleRequirement: MobileShellComposite.TailscaleRouteRequirement(
+            tailscaleRequirement: MobileTailscaleRouteAuthorizer.Requirement(
                 macDeviceID: "test-mac",
                 grantRoutes: [],
                 userGrantRoutes: [named]

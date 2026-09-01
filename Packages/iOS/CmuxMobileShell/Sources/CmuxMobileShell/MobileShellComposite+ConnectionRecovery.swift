@@ -585,7 +585,7 @@ extension MobileShellComposite {
     ) async {
         let ticket: CmxAttachTicket
         do {
-            ticket = try cmuxStoredMacTicket(
+            ticket = try tailscaleRouteAuthorizer.storedMacTicket(
                 name: name,
                 routes: routes,
                 pairedMacDeviceID: pairedMacDeviceID
@@ -593,7 +593,7 @@ extension MobileShellComposite {
             _ = try await connect(
                 ticket: ticket,
                 legacyTailscaleRoutes: legacyTailscaleRoutes,
-                userTailscalePairingAuthorizations: cmuxUserTailscalePairingAuthorizations(from: userAuthorizedTailscaleRoutes),
+                userTailscalePairingAuthorizations: tailscaleRouteAuthorizer.userPairingAuthorizations(from: userAuthorizedTailscaleRoutes),
                 pairedMacDeviceID: pairedMacDeviceID,
                 ifStillCurrent: ifStillCurrent
             )
@@ -758,12 +758,13 @@ extension MobileShellComposite {
             preferNonLoopback: Self.prefersNonLoopbackRoutes,
             tailscaleRequirement: resolvedMethod == .tailscale
                 && methodPinnedCandidates == nil
-                ? Self.TailscaleRouteRequirement(
+                ? MobileTailscaleRouteAuthorizer.Requirement(
                     macDeviceID: pairedMacDeviceID,
                     grantRoutes: legacyTailscaleRoutes,
                     userGrantRoutes: resolvedUserAuthorizedTailscaleRoutes
                 )
-                : nil
+                : nil,
+            authorizer: tailscaleRouteAuthorizer
         )
         if methodPinnedCandidates != nil {
             // A pinned method never rides the dev loopback or any host/port
@@ -775,7 +776,7 @@ extension MobileShellComposite {
         }
 
         var outcome: StoredMacReconnectOutcome = .failed(.unknown)
-        let hasAuthorizedTailscaleRoute = cmuxHasAuthorizedTailscaleRoute(
+        let hasAuthorizedTailscaleRoute = tailscaleRouteAuthorizer.hasAuthorizedTailscaleRoute(
             in: pinnedRoutes,
             macDeviceID: pairedMacDeviceID,
             legacyRoutes: legacyTailscaleRoutes,
@@ -783,7 +784,7 @@ extension MobileShellComposite {
         )
         if firstRoute.kind == .iroh || hasAuthorizedTailscaleRoute {
             do {
-                let ticket = try cmuxStoredMacTicket(
+                let ticket = try tailscaleRouteAuthorizer.storedMacTicket(
                     name: name,
                     routes: pinnedRoutes,
                     pairedMacDeviceID: pairedMacDeviceID
@@ -791,7 +792,7 @@ extension MobileShellComposite {
                 let connectResult = try await connect(
                     ticket: ticket,
                     legacyTailscaleRoutes: legacyTailscaleRoutes,
-                    userTailscalePairingAuthorizations: cmuxUserTailscalePairingAuthorizations(from: resolvedUserAuthorizedTailscaleRoutes),
+                    userTailscalePairingAuthorizations: tailscaleRouteAuthorizer.userPairingAuthorizations(from: resolvedUserAuthorizedTailscaleRoutes),
                     directOnlyDialCandidates: methodPinnedCandidates,
                     pairedMacDeviceID: pairedMacDeviceID,
                     instanceTagExpectation: instanceTagExpectation,
@@ -997,7 +998,8 @@ extension MobileShellComposite {
         let candidateRoutes = Self.storedReconnectRoutes(
             instance.routes,
             supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
+            preferNonLoopback: Self.prefersNonLoopbackRoutes,
+            authorizer: tailscaleRouteAuthorizer
         )
         guard !candidateRoutes.isEmpty else {
             mobileShellLog.error(
@@ -1050,7 +1052,8 @@ extension MobileShellComposite {
         let candidateRoutes = Self.storedReconnectRoutes(
             mac.routes,
             supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
+            preferNonLoopback: Self.prefersNonLoopbackRoutes,
+            authorizer: tailscaleRouteAuthorizer
         )
         guard candidateRoutes.contains(where: { $0.kind == .iroh }) else { return false }
         return (await connectStoredMacOutcome(

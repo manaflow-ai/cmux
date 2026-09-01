@@ -87,6 +87,7 @@ import Testing
         )
         #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "127.0.0.1") == .debugLoopback)
         #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "[::1]") == .debugLoopback)
+        #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "[::1%lo0]") == .debugLoopback)
         #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "127.attacker.example") == .tailscale)
 
         // Loopback never leaves the device and may carry the Stack bearer token.
@@ -113,6 +114,7 @@ import Testing
         #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(pretendLoopback))
 
         #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("127.0.0.1"))
+        #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("[::1%lo0]"))
         #expect(MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("100.71.210.41"))
         #expect(MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("work-mac.tailnet.ts.net"))
         #expect(MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("192.168.1.77"))

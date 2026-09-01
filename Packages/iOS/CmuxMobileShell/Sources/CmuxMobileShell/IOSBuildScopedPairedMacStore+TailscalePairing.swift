@@ -50,30 +50,14 @@ extension IOSBuildScopedPairedMacStore {
         routes: [CmxAttachRoute],
         rawValue: String
     ) async throws {
-        if let atomicInner = inner as? any MobilePairedMacAtomicPairingStoring {
-            try await atomicInner.authorizeUserTailscaleRoutesAndSetConnectionMethod(
-                macDeviceID: macDeviceID,
-                instanceTag: instanceTag,
-                stackUserID: stackUserID,
-                teamID: teamID,
-                routes: routes,
-                rawValue: rawValue
-            )
-        } else {
-            try await inner.authorizeUserTailscaleRoutes(
-                macDeviceID: macDeviceID,
-                instanceTag: instanceTag,
-                stackUserID: stackUserID,
-                teamID: teamID,
-                routes: routes
-            )
-            try await inner.setConnectionMethod(
-                macDeviceID: macDeviceID,
-                instanceTag: instanceTag,
-                rawValue: rawValue,
-                stackUserID: stackUserID,
-                teamID: teamID
-            )
-        }
+        try await authorizeUserTailscaleRoutesAndSetConnectionMethod(
+            forwardingTo: inner,
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            teamID: teamID,
+            routes: routes,
+            rawValue: rawValue
+        )
     }
 }

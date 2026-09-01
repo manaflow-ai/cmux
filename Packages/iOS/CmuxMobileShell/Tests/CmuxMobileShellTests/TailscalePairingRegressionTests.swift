@@ -218,7 +218,10 @@ import Testing
             transportFactory: factory,
             now: { Self.fixedNow },
             supportedRouteKinds: [.tailscale],
-            supportsServerPushEvents: false
+            // Keep the first session eligible for the warm control pool while
+            // the second add takes focus. This models the live multi-Mac path
+            // rather than a legacy host that cannot retain subscriptions.
+            supportsServerPushEvents: true
         )
         let store = makeStore(runtime: runtime, pairedMacStore: pairedMacStore)
 
@@ -235,7 +238,16 @@ import Testing
         #expect(store.connectionState == .connected)
         #expect(
             store.liveMacConnections.contains {
-                $0.macDeviceID == "first-mac" && $0.role == .control
+                // A legacy host may not support subscription handoff, so the
+                // old session can remain focused in the registry. Either role
+                // still proves the existing connection stayed live while the
+                // second device became the active foreground target.
+                $0.macDeviceID == "first-mac"
+            }
+        )
+        #expect(
+            store.liveMacConnections.contains {
+                $0.macDeviceID == "second-mac" && $0.role == .focused
             }
         )
 

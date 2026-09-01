@@ -350,31 +350,15 @@ struct MobileMacCompatiblePairedMacStore: MobilePairedMacStoring, MobilePairedMa
         rawValue: String
     ) async throws {
         guard isCompatible(instanceTag: instanceTag) else { return }
-        if let atomicInner = inner as? any MobilePairedMacAtomicPairingStoring {
-            try await atomicInner.authorizeUserTailscaleRoutesAndSetConnectionMethod(
-                macDeviceID: macDeviceID,
-                instanceTag: instanceTag,
-                stackUserID: stackUserID,
-                teamID: teamID,
-                routes: routes,
-                rawValue: rawValue
-            )
-        } else {
-            try await inner.authorizeUserTailscaleRoutes(
-                macDeviceID: macDeviceID,
-                instanceTag: instanceTag,
-                stackUserID: stackUserID,
-                teamID: teamID,
-                routes: routes
-            )
-            try await inner.setConnectionMethod(
-                macDeviceID: macDeviceID,
-                instanceTag: instanceTag,
-                rawValue: rawValue,
-                stackUserID: stackUserID,
-                teamID: teamID
-            )
-        }
+        try await authorizeUserTailscaleRoutesAndSetConnectionMethod(
+            forwardingTo: inner,
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            teamID: teamID,
+            routes: routes,
+            rawValue: rawValue
+        )
     }
 
     /// Legacy rows remain visible long enough to be claimed by an

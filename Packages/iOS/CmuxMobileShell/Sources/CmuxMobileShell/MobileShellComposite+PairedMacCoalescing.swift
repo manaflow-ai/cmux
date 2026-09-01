@@ -61,7 +61,8 @@ extension MobileShellComposite {
     static func coalescePairedMacsByDialEndpoint(
         _ macs: [MobilePairedMac],
         supportedKinds: [CmxAttachTransportKind],
-        preferNonLoopback: Bool
+        preferNonLoopback: Bool,
+        authorizer: MobileTailscaleRouteAuthorizer = MobileTailscaleRouteAuthorizer()
     ) -> [MobilePairedMac] {
         var selectedByKey: [String: MobilePairedMac] = [:]
         var orderByKey: [String: Int] = [:]
@@ -69,7 +70,8 @@ extension MobileShellComposite {
         for (index, mac) in macs.enumerated() {
             let key = mac.scopedDialEndpointKey(
                 supportedKinds: supportedKinds,
-                preferNonLoopback: preferNonLoopback
+                preferNonLoopback: preferNonLoopback,
+                authorizer: authorizer
             ) ?? "device:\(mac.id)"
             orderByKey[key] = min(orderByKey[key] ?? index, index)
             guard let existing = selectedByKey[key] else {
@@ -98,7 +100,8 @@ extension MobileShellComposite {
     static func coalescePairedMacsByIrohEndpointAuthority(
         _ macs: [MobilePairedMac],
         supportedKinds: [CmxAttachTransportKind],
-        preferNonLoopback: Bool
+        preferNonLoopback: Bool,
+        authorizer: MobileTailscaleRouteAuthorizer = MobileTailscaleRouteAuthorizer()
     ) -> [MobilePairedMac] {
         var selectedByKey: [String: MobilePairedMac] = [:]
         var orderByKey: [String: Int] = [:]
@@ -107,7 +110,8 @@ extension MobileShellComposite {
             let key = irohEndpointID(
                 for: mac,
                 supportedKinds: supportedKinds,
-                preferNonLoopback: preferNonLoopback
+                preferNonLoopback: preferNonLoopback,
+                authorizer: authorizer
             ).map {
                 "iroh-authority:\(Self.scopedIrohEndpointID(endpointID: $0, instanceTag: mac.instanceTag))"
             }
@@ -130,12 +134,14 @@ extension MobileShellComposite {
     static func irohEndpointID(
         for mac: MobilePairedMac,
         supportedKinds: [CmxAttachTransportKind],
-        preferNonLoopback: Bool
+        preferNonLoopback: Bool,
+        authorizer: MobileTailscaleRouteAuthorizer = MobileTailscaleRouteAuthorizer()
     ) -> String? {
         let reconnectRoutes = storedReconnectRoutes(
             mac.routes,
             supportedKinds: supportedKinds,
-            preferNonLoopback: preferNonLoopback
+            preferNonLoopback: preferNonLoopback,
+            authorizer: authorizer
         )
         guard case let .peer(identity, _)? = reconnectRoutes.first?.endpoint else {
             return nil
@@ -163,7 +169,8 @@ extension MobileShellComposite {
         instanceTag: String?,
         in macs: [MobilePairedMac],
         supportedKinds: [CmxAttachTransportKind],
-        preferNonLoopback: Bool
+        preferNonLoopback: Bool,
+        authorizer: MobileTailscaleRouteAuthorizer = MobileTailscaleRouteAuthorizer()
     ) -> [String] {
         guard let target = macs.first(where: {
             MacPairingKey($0) == MacPairingKey(
@@ -171,11 +178,19 @@ extension MobileShellComposite {
                 instanceTag: instanceTag
             )
         }),
-              let key = target.scopedDialEndpointKey(supportedKinds: supportedKinds, preferNonLoopback: preferNonLoopback) else {
+              let key = target.scopedDialEndpointKey(
+                  supportedKinds: supportedKinds,
+                  preferNonLoopback: preferNonLoopback,
+                  authorizer: authorizer
+              ) else {
             return [macDeviceID]
         }
         let matching = macs.filter {
-            $0.scopedDialEndpointKey(supportedKinds: supportedKinds, preferNonLoopback: preferNonLoopback) == key
+            $0.scopedDialEndpointKey(
+                supportedKinds: supportedKinds,
+                preferNonLoopback: preferNonLoopback,
+                authorizer: authorizer
+            ) == key
         }.map(\.macDeviceID)
         return matching.isEmpty ? [macDeviceID] : matching
     }
@@ -183,26 +198,30 @@ extension MobileShellComposite {
     func macDeviceIDAliasSetsByPairedMacID(
         in macs: [MobilePairedMac],
         supportedKinds: [CmxAttachTransportKind],
-        preferNonLoopback: Bool
+        preferNonLoopback: Bool,
+        authorizer: MobileTailscaleRouteAuthorizer = MobileTailscaleRouteAuthorizer()
     ) -> [String: Set<String>] {
         macDeviceIDAliasesByPairedMacID(
             in: macs,
             supportedKinds: supportedKinds,
-            preferNonLoopback: preferNonLoopback
+            preferNonLoopback: preferNonLoopback,
+            authorizer: authorizer
         ).mapValues(Set.init)
     }
 
     func macDeviceIDAliasesByPairedMacID(
         in macs: [MobilePairedMac],
         supportedKinds: [CmxAttachTransportKind],
-        preferNonLoopback: Bool
+        preferNonLoopback: Bool,
+        authorizer: MobileTailscaleRouteAuthorizer = MobileTailscaleRouteAuthorizer()
     ) -> [String: [String]] {
         var groupKeyByPairingID: [String: String] = [:]
         var idsByGroupKey: [String: [String]] = [:]
         for mac in macs {
             let key = mac.scopedDialEndpointKey(
                 supportedKinds: supportedKinds,
-                preferNonLoopback: preferNonLoopback
+                preferNonLoopback: preferNonLoopback,
+                authorizer: authorizer
             ) ?? "device:\(mac.id)"
             groupKeyByPairingID[mac.id] = key
             idsByGroupKey[key, default: []].append(mac.macDeviceID)
@@ -221,78 +240,84 @@ extension MobileShellComposite {
 /// the cryptographic Iroh endpoint joins renamed rows that still compete for
 /// one physical control connection. The alias component is scoped by the
 /// authenticated app instance, so Stable and Nightly never share a component.
-@MainActor
-func physicalMacAliasCanonicalIDsByCanonicalID(
-    in macs: [MobilePairedMac],
-    supportedKinds: [CmxAttachTransportKind],
-    preferNonLoopback: Bool
-) -> [String: Set<String>] {
-    var unionFind = PairedMacAliasUnionFind()
-    var pairingIDs: Set<String> = []
-    var firstCanonicalIDByDialEndpoint: [String: String] = [:]
-    var firstCanonicalIDByIrohEndpoint: [String: String] = [:]
+extension MobileShellComposite {
+    @MainActor
+    static func physicalMacAliasCanonicalIDsByCanonicalID(
+        in macs: [MobilePairedMac],
+        supportedKinds: [CmxAttachTransportKind],
+        preferNonLoopback: Bool,
+        authorizer: MobileTailscaleRouteAuthorizer = MobileTailscaleRouteAuthorizer()
+    ) -> [String: Set<String>] {
+        var unionFind = PairedMacAliasUnionFind()
+        var pairingIDs: Set<String> = []
+        var firstCanonicalIDByDialEndpoint: [String: String] = [:]
+        var firstCanonicalIDByIrohEndpoint: [String: String] = [:]
 
-    for mac in macs where !mac.macDeviceID.isEmpty {
-        let canonicalID = cmxCanonicalDeviceID(mac.macDeviceID)
-        let pairingID = MobilePairedMac.pairingID(
-            macDeviceID: canonicalID,
-            instanceTag: mac.instanceTag
-        )
-        pairingIDs.insert(pairingID)
-        unionFind.insert(pairingID)
-
-        if let dialEndpoint = mac.scopedDialEndpointKey(
-            supportedKinds: supportedKinds,
-            preferNonLoopback: preferNonLoopback
-        ) {
-            if let first = firstCanonicalIDByDialEndpoint[dialEndpoint] {
-                unionFind.union(pairingID, first)
-            } else {
-                firstCanonicalIDByDialEndpoint[dialEndpoint] = pairingID
-            }
-        }
-        if let irohEndpoint = MobileShellComposite.irohEndpointID(
-            for: mac,
-            supportedKinds: supportedKinds,
-            preferNonLoopback: preferNonLoopback
-        ) {
-            // One physical Iroh endpoint can serve sibling app builds. The
-            // endpoint is useful for historical alias repair only within the
-            // same authenticated build instance, never across Stable/Nightly.
-            let scopedIrohEndpoint = MobileShellComposite.scopedIrohEndpointID(
-                endpointID: irohEndpoint,
+        for mac in macs where !mac.macDeviceID.isEmpty {
+            let canonicalID = cmxCanonicalDeviceID(mac.macDeviceID)
+            let pairingID = MobilePairedMac.pairingID(
+                macDeviceID: canonicalID,
                 instanceTag: mac.instanceTag
             )
-            if let first = firstCanonicalIDByIrohEndpoint[scopedIrohEndpoint] {
-                unionFind.union(pairingID, first)
-            } else {
-                firstCanonicalIDByIrohEndpoint[scopedIrohEndpoint] = pairingID
+            pairingIDs.insert(pairingID)
+            unionFind.insert(pairingID)
+
+            if let dialEndpoint = mac.scopedDialEndpointKey(
+                supportedKinds: supportedKinds,
+                preferNonLoopback: preferNonLoopback,
+                authorizer: authorizer
+            ) {
+                if let first = firstCanonicalIDByDialEndpoint[dialEndpoint] {
+                    unionFind.union(pairingID, first)
+                } else {
+                    firstCanonicalIDByDialEndpoint[dialEndpoint] = pairingID
+                }
+            }
+            if let irohEndpoint = MobileShellComposite.irohEndpointID(
+                for: mac,
+                supportedKinds: supportedKinds,
+                preferNonLoopback: preferNonLoopback,
+                authorizer: authorizer
+            ) {
+                // One physical Iroh endpoint can serve sibling app builds. The
+                // endpoint is useful for historical alias repair only within the
+                // same authenticated build instance, never across Stable/Nightly.
+                let scopedIrohEndpoint = MobileShellComposite.scopedIrohEndpointID(
+                    endpointID: irohEndpoint,
+                    instanceTag: mac.instanceTag
+                )
+                if let first = firstCanonicalIDByIrohEndpoint[scopedIrohEndpoint] {
+                    unionFind.union(pairingID, first)
+                } else {
+                    firstCanonicalIDByIrohEndpoint[scopedIrohEndpoint] = pairingID
+                }
             }
         }
-    }
 
-    var groupsByRoot: [String: Set<String>] = [:]
-    for pairingID in pairingIDs {
-        let identity = MobilePairedMac.pairingIdentity(from: pairingID)
-        let canonicalID = cmxCanonicalDeviceID(identity.macDeviceID)
-        let root = unionFind.root(of: pairingID)
-        groupsByRoot[root, default: []].insert(canonicalID)
+        var groupsByRoot: [String: Set<String>] = [:]
+        for pairingID in pairingIDs {
+            let identity = MobilePairedMac.pairingIdentity(from: pairingID)
+            let canonicalID = cmxCanonicalDeviceID(identity.macDeviceID)
+            let root = unionFind.root(of: pairingID)
+            groupsByRoot[root, default: []].insert(canonicalID)
+        }
+        var aliasesByCanonicalID: [String: Set<String>] = [:]
+        for pairingID in pairingIDs {
+            let identity = MobilePairedMac.pairingIdentity(from: pairingID)
+            let canonicalID = cmxCanonicalDeviceID(identity.macDeviceID)
+            let root = unionFind.root(of: pairingID)
+            aliasesByCanonicalID[pairingID] = groupsByRoot[root] ?? [canonicalID]
+        }
+        return aliasesByCanonicalID
     }
-    var aliasesByCanonicalID: [String: Set<String>] = [:]
-    for pairingID in pairingIDs {
-        let identity = MobilePairedMac.pairingIdentity(from: pairingID)
-        let canonicalID = cmxCanonicalDeviceID(identity.macDeviceID)
-        let root = unionFind.root(of: pairingID)
-        aliasesByCanonicalID[pairingID] = groupsByRoot[root] ?? [canonicalID]
-    }
-    return aliasesByCanonicalID
 }
 
 private extension MobilePairedMac {
     @MainActor
     func unscopedDialEndpointKey(
         supportedKinds: [CmxAttachTransportKind],
-        preferNonLoopback: Bool
+        preferNonLoopback: Bool,
+        authorizer: MobileTailscaleRouteAuthorizer = MobileTailscaleRouteAuthorizer()
     ) -> String? {
         guard let displayName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
               !displayName.isEmpty else {
@@ -301,7 +326,8 @@ private extension MobilePairedMac {
         let reconnectRoutes = MobileShellComposite.storedReconnectRoutes(
             routes,
             supportedKinds: supportedKinds,
-            preferNonLoopback: preferNonLoopback
+            preferNonLoopback: preferNonLoopback,
+            authorizer: authorizer
         )
         if case let .peer(identity, _)? = reconnectRoutes.first?.endpoint {
             return "iroh:\(identity.endpointID):name:\(displayName.lowercased())"
@@ -319,11 +345,13 @@ private extension MobilePairedMac {
     @MainActor
     func scopedDialEndpointKey(
         supportedKinds: [CmxAttachTransportKind],
-        preferNonLoopback: Bool
+        preferNonLoopback: Bool,
+        authorizer: MobileTailscaleRouteAuthorizer = MobileTailscaleRouteAuthorizer()
     ) -> String? {
         guard let endpointKey = unscopedDialEndpointKey(
             supportedKinds: supportedKinds,
-            preferNonLoopback: preferNonLoopback
+            preferNonLoopback: preferNonLoopback,
+            authorizer: authorizer
         ) else {
             return nil
         }

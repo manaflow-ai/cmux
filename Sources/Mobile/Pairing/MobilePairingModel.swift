@@ -4,11 +4,10 @@ import CmuxAuthRuntime
 import Foundation
 import Observation
 
-/// Drives the in-app iOS pairing window. Gates pairing on the Mac being signed
-/// in (authorization is a Stack same-account check), then turns on the pairing
-/// host and mints a Tailscale pairing code. Automatic Iroh discovery needs no
-/// QR. The displayed Tailscale code never expires and is never regenerated on
-/// a timer; Refresh Code re-mints on demand.
+/// Drives the Mac-side mobile connection page. Iroh is the normal account-backed
+/// path; when a user asks for a manual compatibility path, the model turns on
+/// the pairing host and mints a Tailscale QR. The displayed code never expires
+/// and is never regenerated on a timer; Refresh Code re-mints on demand.
 ///
 /// Reads auth state from the app's shared ``CmuxAuthRuntime/AuthCoordinator``
 /// (via `AppDelegate`); sign-in routes through the shared ``HostAccountFlow``
@@ -45,8 +44,8 @@ final class MobilePairingModel {
         let attachURL: String
         /// Reachable Tailscale `host:port` routes represented by the code.
         let tailscaleLines: [String]
-        /// The best route for manual phone entry, behind the "Copy IP" and
-        /// "Copy Port" buttons. `nil` when no phone-dialable route exists.
+        /// The best route for manual phone entry, behind the copy buttons.
+        /// `nil` when no phone-dialable route exists.
         let manualEntry: CmxManualPairingEntry?
         /// Whether this Mac's Iroh endpoint is registered, so signed-in
         /// iPhones can discover it automatically without any QR.

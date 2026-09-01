@@ -62,7 +62,8 @@ extension MobileShellComposite {
         let aliasSetsByMacID = macDeviceIDAliasSetsByPairedMacID(
             in: candidates,
             supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
+            preferNonLoopback: Self.prefersNonLoopbackRoutes,
+            authorizer: tailscaleRouteAuthorizer
         )
         return candidates.first { candidate in
             guard MacPairingKey(candidate) != MacPairingKey(

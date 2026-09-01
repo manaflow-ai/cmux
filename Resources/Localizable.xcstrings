@@ -145823,6 +145823,125 @@
         }
       }
     },
+    "mobile.connection.window.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mobile Connection"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モバイル接続"
+          }
+        }
+      }
+    },
+    "mobile.connection.heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mobile Connection"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モバイル接続"
+          }
+        }
+      }
+    },
+    "mobile.connection.subheading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to the same cmux account on your iPhone to find this Mac automatically."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone で同じ cmux アカウントにサインインすると、この Mac が自動的に見つかります。"
+          }
+        }
+      }
+    },
+    "mobile.connection.tailscale.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Need a manual connection?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動接続が必要ですか？"
+          }
+        }
+      }
+    },
+    "mobile.connection.tailscale.button": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Tailscale Pairing…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale ペアリングを開く…"
+          }
+        }
+      }
+    },
+    "mobile.connection.back": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Back to Mobile Connection"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モバイル接続に戻る"
+          }
+        }
+      }
+    },
+    "mobile.connection.tailscale.manualTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can't scan? Enter this Mac's Tailscale IP, MagicDNS name, or local-network address and port:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スキャンできない場合は、この Mac の Tailscale IP、MagicDNS 名、またはローカルネットワークのアドレスとポートを入力してください："
+          }
+        }
+      }
+    },
     "mobile.panel.artifact.error.forbidden": {
       "extractionState": "manual",
       "localizations": {
@@ -186085,6 +186204,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "同じアカウントでサインインしているデバイスは自動的に接続されます。このQRはTailscale経由のペアリングにのみ使用します。"
+          }
+        }
+      }
+    },
+    "settings.mobile.connection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mobile Connection"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モバイル接続"
+          }
+        }
+      }
+    },
+    "settings.mobile.connection.button": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Mobile Connection…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モバイル接続を開く…"
+          }
+        }
+      }
+    },
+    "settings.mobile.connection.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to the same cmux account on your iPhone to find this Mac automatically over Iroh. Open Tailscale Pairing from the next page when you need a manual connection."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone で同じ cmux アカウントにサインインすると、この Mac が Iroh 経由で自動的に見つかります。手動接続が必要な場合は、次のページから Tailscale ペアリングを開いてください。"
           }
         }
       }

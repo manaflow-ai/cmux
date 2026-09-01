@@ -118,7 +118,8 @@ extension MobileShellComposite {
     /// Tailscale grant. A grant for an old endpoint is not usable after the Mac
     /// changes address, so both route sets must still agree.
     public nonisolated static func hasUsableTailscaleAuthorization(
-        in macs: [MobilePairedMac]
+        in macs: [MobilePairedMac],
+        authorizer: MobileTailscaleRouteAuthorizer = MobileTailscaleRouteAuthorizer()
     ) -> Bool {
         // An Iroh-identified pairing with a numeric Tailscale address dials
         // the Iroh lane pinned to that address: admission authenticates it,
@@ -140,7 +141,7 @@ extension MobileShellComposite {
             }
         }
         for mac in macs {
-            let userAuthorizations = cmuxUserTailscalePairingAuthorizationsSet(
+            let userAuthorizations = authorizer.userPairingAuthorizationsSet(
                 from: mac.userAuthorizedTailscaleRoutes ?? []
             )
             for route in mac.routes {
@@ -150,7 +151,7 @@ extension MobileShellComposite {
                 ), authorizedEndpoints.contains(endpoint) {
                     return true
                 }
-                if cmuxUserTailscalePairingAuthorization(
+                if authorizer.userPairingAuthorization(
                     for: route,
                     authorizations: userAuthorizations
                 ) != nil {
@@ -215,7 +216,8 @@ extension MobileShellComposite {
         _ routes: [CmxAttachRoute],
         supportedKinds: [CmxAttachTransportKind],
         preferNonLoopback: Bool = false,
-        tailscaleRequirement: TailscaleRouteRequirement? = nil
+        tailscaleRequirement: MobileTailscaleRouteAuthorizer.Requirement? = nil,
+        authorizer: MobileTailscaleRouteAuthorizer = MobileTailscaleRouteAuthorizer()
     ) -> [CmxAttachRoute] {
         let supportedKinds = Set(supportedKinds)
         var ordered = CmxAttachRoute.addingIrohPrivatePaths(
@@ -228,22 +230,22 @@ extension MobileShellComposite {
             ordered.removeAll { $0.kind == .debugLoopback }
         }
         if let tailscaleRequirement {
-            let legacyAuthorizations = cmuxLegacyTailscaleAuthorizationSet(
+            let legacyAuthorizations = authorizer.legacyAuthorizationSet(
                 macDeviceID: tailscaleRequirement.macDeviceID,
                 from: tailscaleRequirement.grantRoutes
             )
             let userAuthorizations = Set(
-                cmuxUserTailscalePairingAuthorizations(
+                authorizer.userPairingAuthorizations(
                     from: tailscaleRequirement.userGrantRoutes
                 )
             )
             let authorizedTailscale = ordered.filter { route in
-                cmuxLegacyTailscaleAuthorizationEvidence(
+                authorizer.legacyAuthorizationEvidence(
                     for: route,
                     macDeviceID: tailscaleRequirement.macDeviceID,
                     persistedAuthorizations: legacyAuthorizations
                 ) != nil
-                    || cmuxUserTailscalePairingAuthorization(
+                    || authorizer.userPairingAuthorization(
                         for: route,
                         authorizations: userAuthorizations
                     ) != nil
@@ -296,7 +298,8 @@ extension MobileShellComposite {
             preferNonLoopback: Self.prefersNonLoopbackRoutes,
             tailscaleRequirement: tailscaleRidesPinnedIroh
                 ? nil
-                : tailscaleRouteRequirement(for: mac)
+                : tailscaleRouteRequirement(for: mac),
+            authorizer: tailscaleRouteAuthorizer
         )
         // A pinned method rides the Iroh lane EXCLUSIVELY: the transport
         // dials only the method's allowlisted addresses, and no dev-loopback

@@ -36,27 +36,11 @@ extension MobileShellComposite {
         )
     }
 
-    /// The strict Tailscale allowlist used during reconnect. Migration grants
-    /// retain numeric peer proof; user grants also cover explicit DNS/LAN hosts.
-    struct TailscaleRouteRequirement {
-        let macDeviceID: String
-        let grantRoutes: [CmxAttachRoute]
-        let userGrantRoutes: [CmxAttachRoute]
-
-        init(
-            macDeviceID: String,
-            grantRoutes: [CmxAttachRoute],
-            userGrantRoutes: [CmxAttachRoute] = []
-        ) {
-            self.macDeviceID = macDeviceID
-            self.grantRoutes = grantRoutes
-            self.userGrantRoutes = userGrantRoutes
-        }
-    }
-
-    func tailscaleRouteRequirement(for mac: MobilePairedMac) -> TailscaleRouteRequirement? {
+    func tailscaleRouteRequirement(
+        for mac: MobilePairedMac
+    ) -> MobileTailscaleRouteAuthorizer.Requirement? {
         guard connectionMethod(for: mac) == .tailscale else { return nil }
-        return TailscaleRouteRequirement(
+        return MobileTailscaleRouteAuthorizer.Requirement(
             macDeviceID: mac.macDeviceID,
             grantRoutes: mac.legacyTailscaleRoutes ?? [],
             userGrantRoutes: mac.userAuthorizedTailscaleRoutes ?? []

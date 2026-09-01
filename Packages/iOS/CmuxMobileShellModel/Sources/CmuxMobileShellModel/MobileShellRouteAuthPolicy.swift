@@ -137,38 +137,7 @@ public struct MobileShellRouteAuthPolicy {
     }
 
     private static func isLoopbackHost(_ host: String) -> Bool {
-        let normalizedHost = CmxManualHost(host)?.rawValue.lowercased()
-            ?? host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return normalizedHost == "localhost" ||
-            normalizedHost == "::1" ||
-            isIPv4LoopbackHost(normalizedHost)
-    }
-
-    private static func isIPv4LoopbackHost(_ host: String) -> Bool {
-        guard let octets = ipv4Octets(host) else {
-            return false
-        }
-        return octets[0] == 127
-    }
-
-    private static func ipv4Octets(_ host: String) -> [Int]? {
-        let parts = host.split(separator: ".", omittingEmptySubsequences: false)
-        guard parts.count == 4 else {
-            return nil
-        }
-        let octets = parts.compactMap { part -> Int? in
-            guard !part.isEmpty,
-                  part.utf8.allSatisfy({ (48...57).contains($0) }),
-                  let value = Int(part),
-                  (0...255).contains(value) else {
-                return nil
-            }
-            return value
-        }
-        guard octets.count == 4 else {
-            return nil
-        }
-        return octets
+        CmxLoopbackHost().matches(host)
     }
 
 }

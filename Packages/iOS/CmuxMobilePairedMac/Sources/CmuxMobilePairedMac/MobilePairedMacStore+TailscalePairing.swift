@@ -1,6 +1,12 @@
 public import CMUXMobileCore
 
 extension MobilePairedMacStore {
+    private struct PreparedUserTailscaleGrant {
+        let macDeviceID: String
+        let ownerKey: String
+        let routes: [CmxAttachRoute]
+    }
+
     /// Persist `'user'`-origin Tailscale compatibility grants for routes the
     /// user entered explicitly. Upgrades an existing `'migration'` grant for
     /// the same destination to `'user'`, so a deliberate re-scan is not
@@ -12,20 +18,18 @@ extension MobilePairedMacStore {
         teamID: String?,
         routes: [CmxAttachRoute]
     ) throws {
-        try ensureReady()
-        let canonicalMacDeviceID = cmxCanonicalDeviceID(macDeviceID)
-        let ownerKey = Self.ownerKey(
+        guard let prepared = try prepareUserTailscaleGrant(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
             stackUserID: stackUserID,
             teamID: teamID,
-            instanceTag: instanceTag
-        )
-        let grantRoutes = validatedUserTailscaleRoutes(routes)
-        guard !grantRoutes.isEmpty else { return }
+            routes: routes
+        ) else { return }
         try transaction {
             try insertUserTailscaleGrants(
-                grantRoutes,
-                macDeviceID: canonicalMacDeviceID,
-                ownerKey: ownerKey
+                prepared.routes,
+                macDeviceID: prepared.macDeviceID,
+                ownerKey: prepared.ownerKey
             )
         }
     }
@@ -39,20 +43,18 @@ extension MobilePairedMacStore {
         routes: [CmxAttachRoute],
         rawValue: String
     ) throws {
-        try ensureReady()
-        let canonicalMacDeviceID = cmxCanonicalDeviceID(macDeviceID)
-        let ownerKey = Self.ownerKey(
+        guard let prepared = try prepareUserTailscaleGrant(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
             stackUserID: stackUserID,
             teamID: teamID,
-            instanceTag: instanceTag
-        )
-        let grantRoutes = validatedUserTailscaleRoutes(routes)
-        guard !grantRoutes.isEmpty else { return }
+            routes: routes
+        ) else { return }
         try transaction {
             try insertUserTailscaleGrants(
-                grantRoutes,
-                macDeviceID: canonicalMacDeviceID,
-                ownerKey: ownerKey
+                prepared.routes,
+                macDeviceID: prepared.macDeviceID,
+                ownerKey: prepared.ownerKey
             )
             try exec("""
                 UPDATE paired_macs
@@ -60,10 +62,31 @@ extension MobilePairedMacStore {
                 WHERE mac_device_id = ? AND owner_key = ?;
             """, binding: [
                 .text(rawValue),
-                .text(canonicalMacDeviceID),
-                .text(ownerKey),
+                .text(prepared.macDeviceID),
+                .text(prepared.ownerKey),
             ])
         }
+    }
+
+    private func prepareUserTailscaleGrant(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?,
+        routes: [CmxAttachRoute]
+    ) throws -> PreparedUserTailscaleGrant? {
+        try ensureReady()
+        let grantRoutes = validatedUserTailscaleRoutes(routes)
+        guard !grantRoutes.isEmpty else { return nil }
+        return PreparedUserTailscaleGrant(
+            macDeviceID: cmxCanonicalDeviceID(macDeviceID),
+            ownerKey: Self.ownerKey(
+                stackUserID: stackUserID,
+                teamID: teamID,
+                instanceTag: instanceTag
+            ),
+            routes: grantRoutes
+        )
     }
 
     private func validatedUserTailscaleRoutes(

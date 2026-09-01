@@ -55,3 +55,77 @@ extension MobilePairingView {
             .frame(maxWidth: .infinity, minHeight: 200)
     }
 }
+
+/// The account-backed mobile connection overview shown before optional
+/// Tailscale pairing. Iroh is the normal path: signing in on both devices
+/// lets cmux discover the Mac without a QR code.
+struct MobileConnectionOverview: View {
+    let reachableViaIroh: Bool
+    let openTailscalePairing: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Label {
+                Text(String(
+                    localized: "mobile.connection.iroh.title",
+                    defaultValue: "Iroh connection"
+                ))
+                .cmuxFont(.title3, weight: .semibold)
+            } icon: {
+                Image(systemName: "lock.shield.fill")
+                    .foregroundStyle(.green)
+            }
+
+                Text(String(
+                    localized: "mobile.pairing.transport.iroh.detail",
+                    defaultValue: "iPhones signed in to your account find this Mac automatically over Iroh — end-to-end encrypted, direct when possible, through a cmux relay when not. No code needed."
+            ))
+            .cmuxFont(.callout)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(reachableViaIroh ? Color.green : Color.orange)
+                    .frame(width: 7, height: 7)
+                Text(reachableViaIroh
+                    ? String(
+                        localized: "mobile.pairing.transport.status.ready",
+                        defaultValue: "Ready"
+                    )
+                    : String(
+                        localized: "mobile.pairing.transport.status.notRegistered",
+                        defaultValue: "Not registered"
+                    ))
+                .cmuxFont(.caption)
+                .foregroundStyle(.secondary)
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(String(
+                    localized: "mobile.connection.tailscale.prompt",
+                    defaultValue: "Need a manual connection?"
+                ))
+                .cmuxFont(.callout, weight: .medium)
+
+                Button {
+                    openTailscalePairing()
+                } label: {
+                    Label(
+                        String(
+                            localized: "mobile.connection.tailscale.button",
+                            defaultValue: "Open Tailscale Pairing…"
+                        ),
+                        systemImage: "qrcode"
+                    )
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .accessibilityIdentifier("MobileOpenTailscalePairingButton")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}

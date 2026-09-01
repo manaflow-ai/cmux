@@ -4,11 +4,11 @@ import CMUXMobileCore
 import CmuxAuthRuntime
 import SwiftUI
 
-/// The macOS window for pairing an iPhone with this Mac.
+/// The macOS mobile-connection page for pairing an iPhone with this Mac.
 ///
-/// The page presents one pairing artifact: a Tailscale QR for signed-in
-/// iPhones that use the explicit Tailscale connection method. Iroh remains an
-/// automatic, no-QR discovery path and is shown only as status information.
+/// Iroh is the normal account-backed path and is presented first. Tailscale is
+/// an explicit compatibility path that the user opens when a QR or manual
+/// destination is needed.
 struct MobilePairingView: View {
     @State private var model = MobilePairingModel()
     @State private var signInModel = AccountSignInModel(
@@ -20,6 +20,8 @@ struct MobilePairingView: View {
     @State var copiedValue: String?
     /// Bumped per copy so an older flash's dismissal can't clear a newer one.
     @State var copiedValueGeneration = 0
+    /// Whether the optional Tailscale QR flow is currently open.
+    @State private var showingTailscalePairing = false
     /// Reports the scroll content's unconstrained height so the AppKit window
     /// can grow to reveal it while retaining scrolling on shorter displays.
     private let onContentHeightChange: (CGFloat) -> Void
@@ -60,6 +62,7 @@ struct MobilePairingView: View {
         .onPreferenceChange(MobilePairingContentHeightPreferenceKey.self) { measurement in
             onContentHeightChange(measurement.height)
         }
+        .onAppear { showingTailscalePairing = false }
         .task { await model.refresh() }
         .onDisappear { model.stopObserving() }
         .onChange(of: coordinator?.isAuthenticated ?? false) { _, _ in
@@ -74,11 +77,14 @@ struct MobilePairingView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(String(localized: "mobile.pairing.heading", defaultValue: "Pair your iPhone"))
+            Text(String(
+                localized: "mobile.connection.heading",
+                defaultValue: "Mobile Connection"
+            ))
                 .cmuxFont(.title2, weight: .semibold)
             Text(String(
-                localized: "mobile.pairing.subheading",
-                defaultValue: "Sync your terminal workspaces to your iPhone."
+                localized: "mobile.connection.subheading",
+                defaultValue: "Sign in to the same cmux account on your iPhone to find this Mac automatically."
             ))
                 .cmuxFont(.callout)
                 .foregroundStyle(.secondary)
@@ -180,19 +186,40 @@ struct MobilePairingView: View {
 
     @ViewBuilder
     private func readyContent(_ ready: MobilePairingModel.Ready) -> some View {
-        VStack(alignment: .center, spacing: 14) {
-            getIPhoneAppBadge
-            tailscaleReadyBody(ready)
-        }
-        .frame(maxWidth: .infinity)
+        if showingTailscalePairing {
+            VStack(alignment: .center, spacing: 14) {
+                getIPhoneAppBadge
+                tailscaleReadyBody(ready)
+            }
+            .frame(maxWidth: .infinity)
 
-        Divider()
+            Divider()
 
-        tailscaleRow(ready)
-        if ready.reachableViaIroh {
-            irohRow(reachableViaIroh: ready.reachableViaIroh)
+            tailscaleRow(ready)
+            if ready.reachableViaIroh {
+                irohRow(reachableViaIroh: ready.reachableViaIroh)
+            }
+            manualEntry(ready)
+
+            Button {
+                showingTailscalePairing = false
+            } label: {
+                Label(
+                    String(
+                        localized: "mobile.connection.back",
+                        defaultValue: "Back to Mobile Connection"
+                    ),
+                    systemImage: "chevron.left"
+                )
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        } else {
+            MobileConnectionOverview(
+                reachableViaIroh: ready.reachableViaIroh,
+                openTailscalePairing: { showingTailscalePairing = true }
+            )
         }
-        manualEntry(ready)
 
         footer
     }
@@ -283,26 +310,30 @@ struct MobilePairingView: View {
 
     @ViewBuilder
     private func needsReachableTransportContent(reachableViaIroh: Bool) -> some View {
-        VStack(alignment: .center, spacing: 14) {
-            getIPhoneAppBadge
-            tailscaleMissingBody
-            if reachableViaIroh {
-                Text(String(
-                    localized: "mobile.pairing.irohInstruction",
-                    defaultValue: "Install cmux on your iPhone and sign in with the same account. It connects automatically — no code needed."
-                ))
-                .cmuxFont(.caption)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
+        if showingTailscalePairing {
+            VStack(alignment: .center, spacing: 14) {
+                getIPhoneAppBadge
+                tailscaleMissingBody
+                Button {
+                    showingTailscalePairing = false
+                } label: {
+                    Label(
+                        String(
+                            localized: "mobile.connection.back",
+                            defaultValue: "Back to Mobile Connection"
+                        ),
+                        systemImage: "chevron.left"
+                    )
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
             }
-        }
-        .frame(maxWidth: .infinity)
-
-        Divider()
-
-        if reachableViaIroh {
-            irohRow(reachableViaIroh: reachableViaIroh)
+            .frame(maxWidth: .infinity)
+        } else {
+            MobileConnectionOverview(
+                reachableViaIroh: reachableViaIroh,
+                openTailscalePairing: { showingTailscalePairing = true }
+            )
         }
 
         footer
@@ -402,7 +433,7 @@ struct MobilePairingView: View {
     @ViewBuilder
     private func manualEntry(_ ready: MobilePairingModel.Ready) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(String(localized: "mobile.pairing.manual.title", defaultValue: "Can't scan? Enter this Mac's numeric Tailscale IP and port:"))
+            Text(String(localized: "mobile.connection.tailscale.manualTitle", defaultValue: "Can't scan? Enter this Mac's Tailscale IP, MagicDNS name, or local-network address and port:"))
                 .cmuxFont(.caption, weight: .semibold)
                 .foregroundStyle(.secondary)
             ForEach(ready.tailscaleLines, id: \.self) { line in

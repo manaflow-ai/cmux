@@ -179,36 +179,18 @@ extension MobileShellComposite {
                     // method as one store operation so a failed method write
                     // can never leave a bearer-capable grant behind.
                     do {
-                        if let atomicStore = pairedMacStore
-                            as? any MobilePairedMacAtomicPairingStoring {
-                            try await atomicStore
-                                .authorizeUserTailscaleRoutesAndSetConnectionMethod(
-                                    macDeviceID: ticket.macDeviceID,
-                                    instanceTag: instanceTag,
-                                    stackUserID: stackUserID,
-                                    teamID: scope?.teamID,
-                                    routes: userAuthorizedTailscaleRoutes,
-                                    rawValue: MobileConnectionMethod.tailscale.rawValue
-                                )
-                        } else {
-                            // Older test/preview stores do not expose the
-                            // transaction capability; retain their compatibility
-                            // behavior while production stores use the atomic path.
-                            try await pairedMacStore.authorizeUserTailscaleRoutes(
-                                macDeviceID: ticket.macDeviceID,
-                                instanceTag: instanceTag,
-                                stackUserID: stackUserID,
-                                teamID: scope?.teamID,
-                                routes: userAuthorizedTailscaleRoutes
-                            )
-                            try await pairedMacStore.setConnectionMethod(
-                                macDeviceID: ticket.macDeviceID,
-                                instanceTag: instanceTag,
-                                rawValue: MobileConnectionMethod.tailscale.rawValue,
-                                stackUserID: stackUserID,
-                                teamID: scope?.teamID
-                            )
+                        guard let atomicStore = pairedMacStore
+                            as? any MobilePairedMacAtomicPairingStoring else {
+                            throw MobilePairedMacAtomicPairingError.unavailable
                         }
+                        try await atomicStore.authorizeUserTailscaleRoutesAndSetConnectionMethod(
+                            macDeviceID: ticket.macDeviceID,
+                            instanceTag: instanceTag,
+                            stackUserID: stackUserID,
+                            teamID: scope?.teamID,
+                            routes: userAuthorizedTailscaleRoutes,
+                            rawValue: MobileConnectionMethod.tailscale.rawValue
+                        )
                     } catch {
                         accepted = false
                         pairedMacPersistenceLog.error(
