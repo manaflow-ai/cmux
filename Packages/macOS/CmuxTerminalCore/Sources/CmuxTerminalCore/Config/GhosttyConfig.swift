@@ -1100,61 +1100,27 @@ public struct GhosttyConfig {
         from rawThemeValue: String,
         preferredColorScheme: ColorSchemePreference
     ) -> String {
-        var fallbackTheme: String?
-        var lightTheme: String?
-        var darkTheme: String?
-
-        for token in rawThemeValue.split(separator: ",").map(String.init) {
-            let entry = token.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !entry.isEmpty else { continue }
-
-            let parts = entry.split(separator: ":", maxSplits: 1).map(String.init)
-            if parts.count != 2 {
-                if fallbackTheme == nil {
-                    fallbackTheme = entry
-                }
-                continue
-            }
-
-            let key = parts[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !value.isEmpty else { continue }
-
-            switch key {
-            case "light":
-                if lightTheme == nil {
-                    lightTheme = value
-                }
-            case "dark":
-                if darkTheme == nil {
-                    darkTheme = value
-                }
-            default:
-                if fallbackTheme == nil {
-                    fallbackTheme = value
-                }
-            }
-        }
+        let components = conditionalThemeComponents(from: rawThemeValue)
 
         switch preferredColorScheme {
         case .light:
-            if let lightTheme {
-                return lightTheme
+            if let light = components.light {
+                return light
             }
         case .dark:
-            if let darkTheme {
-                return darkTheme
+            if let dark = components.dark {
+                return dark
             }
         }
 
-        if let fallbackTheme {
-            return fallbackTheme
+        if let fallback = components.fallback {
+            return fallback
         }
-        if let darkTheme {
-            return darkTheme
+        if let dark = components.dark {
+            return dark
         }
-        if let lightTheme {
-            return lightTheme
+        if let light = components.light {
+            return light
         }
         return rawThemeValue.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -1175,35 +1141,13 @@ public struct GhosttyConfig {
         from rawThemeValue: String,
         preferredColorScheme: ColorSchemePreference
     ) -> String? {
-        var lightTheme: String?
-        var darkTheme: String?
-
-        for token in rawThemeValue.split(separator: ",").map(String.init) {
-            let entry = token.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !entry.isEmpty else { continue }
-
-            let parts = entry.split(separator: ":", maxSplits: 1).map(String.init)
-            guard parts.count == 2 else { continue }
-
-            let key = parts[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !value.isEmpty else { continue }
-
-            switch key {
-            case "light":
-                if lightTheme == nil { lightTheme = value }
-            case "dark":
-                if darkTheme == nil { darkTheme = value }
-            default:
-                continue
-            }
-        }
+        let components = conditionalThemeComponents(from: rawThemeValue)
 
         switch preferredColorScheme {
         case .light:
-            return lightTheme
+            return components.light
         case .dark:
-            return darkTheme
+            return components.dark
         }
     }
 

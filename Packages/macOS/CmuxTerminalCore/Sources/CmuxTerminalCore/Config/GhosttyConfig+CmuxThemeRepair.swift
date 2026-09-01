@@ -1,6 +1,52 @@
 import Foundation
 
 extension GhosttyConfig {
+    // Shared by the primary config parser and this repair extension. It stays
+    // internal because Swift's `private` members cannot be referenced by a
+    // same-type extension in another file; callers outside this module do not
+    // need the tokenizer itself.
+    static func conditionalThemeComponents(
+        from rawThemeValue: String
+    ) -> (light: String?, dark: String?, fallback: String?) {
+        var fallbackTheme: String?
+        var lightTheme: String?
+        var darkTheme: String?
+
+        for token in rawThemeValue.split(separator: ",").map(String.init) {
+            let entry = token.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !entry.isEmpty else { continue }
+
+            let parts = entry.split(separator: ":", maxSplits: 1).map(String.init)
+            if parts.count != 2 {
+                if fallbackTheme == nil {
+                    fallbackTheme = entry
+                }
+                continue
+            }
+
+            let key = parts[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !value.isEmpty else { continue }
+
+            switch key {
+            case "light":
+                if lightTheme == nil {
+                    lightTheme = value
+                }
+            case "dark":
+                if darkTheme == nil {
+                    darkTheme = value
+                }
+            default:
+                if fallbackTheme == nil {
+                    fallbackTheme = value
+                }
+            }
+        }
+
+        return (light: lightTheme, dark: darkTheme, fallback: fallbackTheme)
+    }
+
     /// Returns a valid two-sided theme value for a stale cmux-managed override.
     ///
     /// Ghostty requires both `light:` and `dark:` entries in a conditional theme
@@ -41,35 +87,8 @@ extension GhosttyConfig {
         }
 
         guard let rawThemeValue else { return nil }
-        return normalizedConditionalThemeValue(from: rawThemeValue)
-    }
-
-    private static func normalizedConditionalThemeValue(from rawThemeValue: String) -> String? {
-        var lightTheme: String?
-        var darkTheme: String?
-
-        for token in rawThemeValue.split(separator: ",").map(String.init) {
-            let entry = token.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !entry.isEmpty else { continue }
-
-            let parts = entry.split(separator: ":", maxSplits: 1).map(String.init)
-            guard parts.count == 2 else { continue }
-
-            let key = parts[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !value.isEmpty else { continue }
-
-            switch key {
-            case "light":
-                if lightTheme == nil { lightTheme = value }
-            case "dark":
-                if darkTheme == nil { darkTheme = value }
-            default:
-                continue
-            }
-        }
-
-        switch (lightTheme, darkTheme) {
+        let components = conditionalThemeComponents(from: rawThemeValue)
+        switch (components.light, components.dark) {
         case let (light?, nil):
             return "light:\(light),dark:\(light)"
         case let (nil, dark?):

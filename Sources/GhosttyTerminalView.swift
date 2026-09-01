@@ -1677,32 +1677,6 @@ class GhosttyApp {
         #endif
     }
 
-    private func currentCmuxAppSupportThemeValue() -> String? {
-        #if os(macOS)
-        let fm = FileManager.default
-        guard let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            return nil
-        }
-        let urls = Self.cmuxAppSupportConfigURLs(
-            currentBundleIdentifier: Bundle.main.bundleIdentifier,
-            appSupportDirectory: appSupport,
-            fileManager: fm
-        )
-
-        var lastValue: String?
-        for url in urls {
-            guard let contents = try? String(contentsOf: url, encoding: .utf8),
-                  let value = GhosttyConfig.lastThemeDirective(in: contents) else {
-                continue
-            }
-            lastValue = value
-        }
-        return lastValue
-        #else
-        return nil
-        #endif
-    }
-
     private func loadLegacyGhosttyConfigIfNeeded(_ config: ghostty_config_t) {
         #if os(macOS)
         // Ghostty 1.3+ prefers `config.ghostty`, but some users still have their real
