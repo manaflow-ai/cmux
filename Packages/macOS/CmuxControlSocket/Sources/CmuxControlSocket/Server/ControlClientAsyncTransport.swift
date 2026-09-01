@@ -71,10 +71,13 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
         // startup script) is never truncated by a fixed chunk count, while a
         // client that pipelines past the byte cap still fails closed instead
         // of growing an unbounded AsyncStream buffer.
-        let bufferedChunkCapacity = max(
-            128,
-            (self.maximumBufferedBytes + Self.readChunkSize - 1) / Self.readChunkSize + 2
-        )
+        // Ceiling division without adding to the input first: the byte cap is
+        // caller-provided and may be `Int.max`, which would overflow (and
+        // trap) in a `+ chunk - 1` ceiling idiom.
+        let fullChunks = self.maximumBufferedBytes / Self.readChunkSize
+        let ceilingChunks = fullChunks +
+            (self.maximumBufferedBytes % Self.readChunkSize == 0 ? 0 : 1)
+        let bufferedChunkCapacity = max(128, ceilingChunks + 2)
         let stream = AsyncStream<Data>.makeStream(
             bufferingPolicy: .bufferingOldest(bufferedChunkCapacity)
         )

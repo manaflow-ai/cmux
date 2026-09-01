@@ -65,6 +65,26 @@ struct ControlClientAsyncTransportTests {
         #expect(await reader.nextLine(shouldContinueReading: { true }) == nil)
     }
 
+    /// `maximumBufferedBytes` is caller-provided; an `Int.max` cap must not
+    /// overflow the stream-capacity ceiling math during reader creation.
+    @Test func asyncReaderAcceptsAMaximalBufferedByteCap() async throws {
+        let pair = try UnixSocketFixture.makeSocketPair()
+        defer {
+            close(pair.reader)
+            close(pair.writer)
+        }
+
+        let reader = ControlClientAsyncLineReader(
+            socket: pair.reader,
+            maximumBufferedBytes: .max
+        )
+        let payload = Array("capped\n".utf8)
+        payload.withUnsafeBufferPointer { buffer in
+            _ = Darwin.write(pair.writer, buffer.baseAddress, buffer.count)
+        }
+        #expect(await reader.nextLine(shouldContinueReading: { true }) == "capped")
+    }
+
     /// A single control request can exceed 512 KiB (`cmux ssh` workspace
     /// creation carries its inline remote startup script). The reader must
     /// frame it intact rather than dropping chunks once a fixed chunk-count
