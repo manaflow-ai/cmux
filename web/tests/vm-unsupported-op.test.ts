@@ -56,16 +56,16 @@ describe("unsupported provider operations", () => {
     expect(payload.message).toContain("restoring");
   });
 
-  test("the gateway's capability refusal maps the same way", async () => {
+  test("a provider message containing the capability phrase stays retryable", async () => {
     const response = await vmWorkflowErrorResponse(new VmProviderOperationError({
       provider: "e2b",
       operation: "snapshot",
       cause: new Error("Cloud VM snapshots are not supported by this provider gateway"),
     }));
-    expect(response!.status).toBe(501);
+    expect(response!.status).toBe(502);
     const payload = await response!.json() as { error: string; retryable: boolean };
-    expect(payload.error).toBe("vm_operation_unsupported");
-    expect(payload.retryable).toBe(false);
+    expect(payload.error).toBe("vm_cloud_service_unavailable");
+    expect(payload.retryable).toBe(true);
   });
 
   test("transient provider failures keep the retryable 502 path", async () => {
