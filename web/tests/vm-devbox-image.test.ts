@@ -221,6 +221,24 @@ describe("devbox image template", () => {
     expect(freestyleScript).toContain("Restart=always");
   });
 
+  test("the Freestyle replay carries the ble.sh cache bake", () => {
+    // The replay embeds its own copy of the Dockerfile bake; pin the guards
+    // and both cache targets so the provider-specific path cannot silently
+    // drift while the Dockerfile path stays correct.
+    const freestyleScript = readScript("build-devbox-freestyle.ts");
+    expect(freestyleScript).toContain("mkdir -p /etc/cmux/blesh-cache-seed");
+    for (const term of ["xterm-256color", "screen-256color", "tmux-256color", "linux"]) {
+      expect(freestyleScript).toContain(
+        `test -s /etc/cmux/blesh-cache-seed/blesh/*/term.${term}`,
+      );
+    }
+    expect(freestyleScript).toContain("/usr/local/share/blesh/cache.d/0/");
+    expect(freestyleScript).toContain("/usr/local/share/blesh/cache.d/1000/");
+    expect(freestyleScript).toContain(
+      "chown -R 1000:1000 /usr/local/share/blesh/cache.d/1000",
+    );
+  });
+
   test("the beta SDK serves the bake, verify, and beta driver arm; the legacy arm stays on 0.1.51", () => {
     expect(readScript("build-devbox-freestyle.ts")).toContain('from "freestyle-beta"');
     expect(readScript("verify-devbox-image.ts")).toContain('from "freestyle-beta"');
