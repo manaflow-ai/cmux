@@ -29,7 +29,7 @@ FROM debian:bookworm-slim
 # Cache-buster: bump the date to force remote builders past stale layer
 # caches (Daytona's cache served stale layers for chatmux on 2026-08-21 and
 # 2026-08-25; E2B skips cache by default).
-ENV CMUX_IMAGE_EPOCH=2026-08-31-r2
+ENV CMUX_IMAGE_EPOCH=2026-09-01-r1
 
 ENV LANG=C.UTF-8 \
     DEBIAN_FRONTEND=noninteractive
@@ -129,7 +129,7 @@ RUN jq -e '.DefaultSearchProviderSearchURL | test("duckduckgo")' /etc/opt/chrome
 # cua computer-use driver, pinned (dormant until an X display exists).
 ENV CUA_DRIVER_RS_HOME=/opt/cua-driver
 RUN curl -fsSL https://cua.ai/driver/install.sh -o /tmp/cua-install.sh \
-  && CUA_DRIVER_RS_VERSION=0.19.3 CUA_DRIVER_BIN_DIR=/usr/local/bin CUA_DRIVER_NO_MODIFY_PATH=1 bash /tmp/cua-install.sh \
+  && CUA_DRIVER_RS_VERSION=0.23.2 CUA_DRIVER_BIN_DIR=/usr/local/bin CUA_DRIVER_NO_MODIFY_PATH=1 bash /tmp/cua-install.sh \
   && rm -f /tmp/cua-install.sh \
   && chmod -R a+rX /opt/cua-driver \
   && cua-driver --version
@@ -137,11 +137,11 @@ RUN curl -fsSL https://cua.ai/driver/install.sh -o /tmp/cua-install.sh \
 # Coding agents, pinned at bake time (bump with the image epoch; keep in
 # lockstep with ../blaxel/Dockerfile). Installed on the mise node so they
 # ride the same toolchain users get.
-ARG CMUX_IMAGE_CLAUDE_CODE_VERSION=2.1.246
-ARG CMUX_IMAGE_CODEX_VERSION=0.150.0
-ARG CMUX_IMAGE_OPENCODE_VERSION=1.18.23
-ARG CMUX_IMAGE_PI_VERSION=0.84.3
-ARG CMUX_IMAGE_AGENT_BROWSER_VERSION=0.35.1
+ARG CMUX_IMAGE_CLAUDE_CODE_VERSION=2.1.252
+ARG CMUX_IMAGE_CODEX_VERSION=0.151.0
+ARG CMUX_IMAGE_OPENCODE_VERSION=1.18.25
+ARG CMUX_IMAGE_PI_VERSION=0.84.4
+ARG CMUX_IMAGE_AGENT_BROWSER_VERSION=0.35.2
 RUN npm install -g --foreground-scripts \
     "@anthropic-ai/claude-code@${CMUX_IMAGE_CLAUDE_CODE_VERSION}" \
     "@openai/codex@${CMUX_IMAGE_CODEX_VERSION}" \
@@ -180,6 +180,30 @@ RUN bash -n /etc/cmux/bashrc \
   && echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /root/.bashrc \
   && echo 'set -g default-shell /bin/bash' >> /etc/tmux.conf \
   && bash -ic 'head -2 /root/.bash_history'
+
+# Seed ble.sh tput caches for the TERMs cmux uses, exactly as the Blaxel
+# template does (its Dockerfile carries the full rationale): without them the
+# FIRST shell on a machine prints "ble/term.sh: updating tput cache ... done"
+# into the pane before its first prompt. Both cache homes are seeded: the
+# XDG seed copied by cmux-bashrc from /etc/cmux/blesh-cache-seed, and
+# <blesh>/cache.d for uid 0 plus the provider-created uid-1000 user (numeric
+# chown: E2B/Daytona/Freestyle each name that user differently).
+RUN mkdir -p /etc/cmux/blesh-cache-seed \
+  && for term in xterm-256color screen-256color tmux-256color linux; do \
+       echo exit | TERM="$term" HOME=/tmp/blesh-seed-home XDG_CACHE_HOME=/etc/cmux/blesh-cache-seed \
+         script -qec 'bash -i' /dev/null >/dev/null 2>&1 || true; \
+     done \
+  && rm -rf /tmp/blesh-seed-home \
+  && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-256color \
+  && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.screen-256color \
+  && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.tmux-256color \
+  && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.linux \
+  && mkdir -p /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 \
+  && chmod a+rwxt /usr/local/share/blesh/cache.d \
+  && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/0/ \
+  && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/1000/ \
+  && chmod 700 /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 \
+  && chown -R 1000:1000 /usr/local/share/blesh/cache.d/1000
 
 # Agent harness config: every shell materializes per-harness model-proxy
 # configs from the machine boot env (the coderouter model-plane vars minted
