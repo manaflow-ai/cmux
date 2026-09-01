@@ -28,6 +28,11 @@ final class SidebarState: ObservableObject {
     }
     private var visibilityWillChangeOwnerId: UUID?
     private var visibilityWillChange: ((Bool) -> Void)?
+    /// When installed, visibility changes defer to this orchestrator (the
+    /// toggle animator's width sweep), which applies the final value itself
+    /// through ``applyVisibilityBypassingOrchestrator(_:)``. Returning false
+    /// hands the change back to the instant default path.
+    var animatedVisibilityOrchestrator: ((Bool) -> Bool)?
 
     init(
         isVisible: Bool = true,
@@ -50,6 +55,17 @@ final class SidebarState: ObservableObject {
     }
 
     func setVisible(_ nextValue: Bool) {
+        guard nextValue != isVisible else { return }
+        if let animatedVisibilityOrchestrator, animatedVisibilityOrchestrator(nextValue) {
+            return
+        }
+        visibilityWillChange?(nextValue)
+        isVisible = nextValue
+    }
+
+    /// The orchestrator's commit path: applies visibility without consulting
+    /// the orchestrator again.
+    func applyVisibilityBypassingOrchestrator(_ nextValue: Bool) {
         guard nextValue != isVisible else { return }
         visibilityWillChange?(nextValue)
         isVisible = nextValue

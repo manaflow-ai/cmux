@@ -5,8 +5,14 @@ public import Foundation
 /// holds no state and touches no UI. Construct it with the current mount state
 /// and read ``mountedWorkspaceIds``.
 public struct WorkspaceMountPlan: Equatable {
-    // Keep only the selected workspace mounted to minimize layer-tree traversal.
-    public static let maxMountedWorkspaces = 1
+    // An LRU of recently used workspaces stays mounted, so switching back
+    // to a recent tab is a visibility flip instead of a cold mount of its
+    // whole terminal subtree. One was the old value; every switch paid the
+    // full mount cost, which read as click latency in the sidebar.
+    public static let maxMountedWorkspaces = 4
+    // During workspace cycling, keep the same budget: rapid flicking is
+    // exactly when cold mounts hurt most.
+    public static let maxMountedWorkspacesDuringCycle = 4
 
     private let current: [UUID]
     private let selected: UUID?

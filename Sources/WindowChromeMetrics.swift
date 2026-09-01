@@ -1,5 +1,7 @@
+import AppKit
 import CmuxFoundation
 import CoreGraphics
+import SwiftUI
 
 enum WindowChromeMetrics {
     static let sharedChromeBarHeight: CGFloat = 28
@@ -12,6 +14,48 @@ enum WindowChromeMetrics {
 
     static func clampedTitlebarHeight(_ height: CGFloat) -> CGFloat {
         max(minimumTitlebarHeight, min(maximumTitlebarHeight, height))
+    }
+}
+
+/// The workspace card: the titlebar band plus the terminal panes framed as
+/// one rounded surface, the way Onyx and Aside frame their content. The card
+/// is pure SwiftUI drawn behind the portal-hosted terminal: its fill and
+/// border only show through in the band strip and the gaps around the panes,
+/// so nothing has to clip the terminal's own AppKit layers.
+enum WorkspaceCardMetrics {
+    static let cornerRadius: CGFloat = 16
+    static let borderWidth: CGFloat = 1
+    /// Pane edge to card edge. Larger than the corner sagitta so square pane
+    /// corners never intrude on the card's rounded border.
+    static let paneInset: CGFloat = 8
+    /// Gap between the band's bottom and the first pane row.
+    static let bandGap: CGFloat = 2
+}
+
+/// The card surface, filled with the terminal's own background colour.
+///
+/// Matching the terminal is the whole design: the pane insets stop reading
+/// as a frame-within-a-frame because the gap is the same colour as the pane,
+/// and the pane's square corners vanish against the identically coloured
+/// card behind them. The eye sees exactly two surfaces: the window chrome,
+/// and one rounded content card.
+struct WorkspaceCardBackground: View {
+    let fill: NSColor
+
+    var body: some View {
+        // Rounded only where the card meets the glass: the leading corners.
+        // The trailing and bottom edges run flush to the window, so rounding
+        // them would just notch the window's own frame. No stroke: the card
+        // is one surface against the glass, separated by fill and rounding
+        // alone.
+        UnevenRoundedRectangle(
+            topLeadingRadius: WorkspaceCardMetrics.cornerRadius,
+            bottomLeadingRadius: WorkspaceCardMetrics.cornerRadius,
+            bottomTrailingRadius: 0,
+            topTrailingRadius: 0,
+            style: .continuous
+        )
+        .fill(Color(nsColor: fill))
     }
 }
 
@@ -73,14 +117,12 @@ enum RightSidebarChromeMetrics {
 
 enum SidebarWorkspaceListMetrics {
     static let firstRowTopOffset: CGFloat = MinimalModeChromeMetrics.titlebarHeight + 2
+    /// Height reserved at the head of the list for the new-workspace row.
+    static let newWorkspaceRowHeight: CGFloat = 30
     static let rowVerticalPadding: CGFloat = 8
     static let rowOuterHorizontalPadding: CGFloat = 6
     static let rowContentHorizontalPadding: CGFloat = 10
-    /// The top fade ends where the first row rests, so rows fade only while
-    /// scrolled under the titlebar. It used to reach 20 pt into the list,
-    /// which left the first row partly transparent at rest; over a light
-    /// terminal-matched backdrop that washed out the selected row's top.
-    static let topScrimHeight: CGFloat = firstRowTopOffset
+    static let topScrimHeight: CGFloat = firstRowTopOffset + newWorkspaceRowHeight + 20
     static let bottomScrimHeight: CGFloat = firstRowTopOffset + 20
 
     static var trailingAccessoryRightEdgeOffset: CGFloat {
@@ -92,7 +134,9 @@ enum SidebarWorkspaceListMetrics {
     }
 
     static var scrollTopInset: CGFloat {
-        max(0, firstRowTopOffset - rowVerticalPadding)
+        // The new-workspace row sits in this reserved band, above the first
+        // workspace row.
+        max(0, firstRowTopOffset - rowVerticalPadding) + newWorkspaceRowHeight
     }
 }
 
