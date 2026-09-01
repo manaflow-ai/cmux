@@ -680,14 +680,8 @@ async fn relay_session(
                     }
                 };
                 let snapshot = auth.lock().expect("auth lock").clone();
-                let context = make_context(
-                    &out,
-                    &pending,
-                    &snapshot,
-                    &auth,
-                    &transport,
-                    &connection_token,
-                );
+                let context =
+                    make_context(&out, &pending, &snapshot, &auth, &transport, &connection_token);
                 tokio::select! {
                     biased;
                     _ = connection_token.cancelled() => break,
