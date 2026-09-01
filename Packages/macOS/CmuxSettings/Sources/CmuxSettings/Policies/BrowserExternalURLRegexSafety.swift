@@ -11,7 +11,10 @@ struct BrowserExternalURLRegexSafety: Sendable {
     // for synchronous navigation decisions.
     private let maximumQuantifierCount = 2
     private let maximumAlternationCount = 1
-    private let minimumFixedSeparatorLengthForRepeatedQuantifiers = 7
+    // A three-character literal separator is enough for common bounded URL
+    // forms such as `.*foo.*`; adjacent/overlapping quantifiers remain
+    // rejected below.
+    private let minimumFixedSeparatorLengthForRepeatedQuantifiers = 3
 
     /// Returns whether `expression` has a bounded, supported shape.
     func accepts(_ expression: String) -> Bool {

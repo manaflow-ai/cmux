@@ -25,9 +25,11 @@ final class BrowserExternalURLPolicyCache {
         // UserDefaults returns immutable property-list snapshots. Reusing the
         // same snapshot avoids re-normalizing on every link; the normalized
         // signature below remains the fallback when a bridge returns a copy.
+        // A nil weak reference is ambiguous (absent value vs. released
+        // snapshot), so identity fast paths require both objects to exist.
         if let cachedPolicy,
-           ((cachedRawObject == nil && rawObject == nil) ||
-               (cachedRawObject != nil && cachedRawObject === rawObject)) {
+           cachedRawObject != nil,
+           cachedRawObject === rawObject {
             return cachedPolicy
         }
 
