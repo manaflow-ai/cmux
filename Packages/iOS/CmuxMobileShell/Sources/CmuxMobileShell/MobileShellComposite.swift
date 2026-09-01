@@ -3084,8 +3084,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             hiddenIDs.contains(mac.id)
                 || (mac.instanceTag == nil && hiddenIDs.contains(mac.macDeviceID))
         }
-        let activeMac = loadedActiveMac.flatMap { isHidden($0) ? nil : $0 }
-        let allMacs = loadedMacs.filter { !isHidden($0) }
+        // The demonstration computer is never a dial candidate: it has no
+        // transport, and running it through the reconnect machinery (registry
+        // route refresh, dial-failure cleanup) would degrade its locally
+        // served, always-connected state.
+        let activeMac = loadedActiveMac.flatMap {
+            isHidden($0) || isDemonstrationPairedMac($0) ? nil : $0
+        }
+        let allMacs = loadedMacs.filter {
+            !isHidden($0) && !isDemonstrationPairedMac($0)
+        }
         // Candidate Macs in priority order: the active Mac first, then every
         // other saved Mac. Rows with no locally usable route stay in the list so
         // one authenticated registry snapshot can upgrade an older Tailscale
@@ -6009,6 +6017,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     func secondaryAggregationCandidateMacs(from visibleLoadedMacs: [MobilePairedMac]) -> [MobilePairedMac] {
+        // The demonstration row is never an aggregation dial target. Presence
+        // filtering already excludes it today, but the exclusion must not
+        // depend on the presence service's contents: its state is seeded
+        // locally, never fetched over a control subscription.
+        let visibleLoadedMacs = visibleLoadedMacs.filter {
+            !isDemonstrationPairedMac($0)
+        }
         let supportedRouteKinds = runtime?.supportedRouteKinds ?? []
         // Filter exact saved instances by live presence before coalescing their
         // shared physical-Mac identity. Otherwise a fresher offline tag can win
@@ -7135,6 +7150,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// unavailable, not leave them connected/actionable until a stream callback
     /// happens to run.
     func markSecondaryMacUnavailable(_ ownerKey: MacPairingKey) {
+        // The demonstration entry is served locally; no transport or refresh
+        // failure can make it unavailable.
+        guard ownerKey != demoContentSession?.pairingKey else { return }
         guard var state = workspacesByMac[ownerKey] else { return }
         state.status = .unavailable
         state.workspaceGroupsAreAuthoritative = false
@@ -10517,8 +10535,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // Cancel the live secondary subscriptions (slice 3) and keep only the
             // now-offline foreground Mac's last-known workspaces for the offline
             // view; the derived list recomputes to just the offline Mac's rows.
+            // The demonstration Mac's entry is also retained: it has no
+            // subscription or transport, so unlike a real secondary nothing
+            // re-establishes it, and dropping it here made every failed dial
+            // of an unreachable real Mac erase the demo workspaces. Demo state
+            // is invariant to real-connection teardown by design.
             teardownSecondaryMacSubscriptions()
-            workspacesByMac = workspacesByMac.filter { $0.key == offlineForegroundKey }
+            let demoPairingKey = demoContentSession?.pairingKey
+            workspacesByMac = workspacesByMac.filter {
+                $0.key == offlineForegroundKey || $0.key == demoPairingKey
+            }
         }
         // The retained foreground entry still carries its last-known
         // `status: .connected`; `macConnectionStatuses` (the Computers screen's
@@ -10527,7 +10553,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // it to `.unavailable` to match the global connection state.
         let offlineDeviceID = offlineForegroundKey.canonicalMacDeviceID
         let keysToDowngrade = workspacesByMac.keys.filter { key in
-            key == offlineForegroundKey
+            // The demonstration entry keeps its connected presentation: it is
+            // served locally and its liveness is unrelated to the torn-down
+            // real connection.
+            guard key != demoContentSession?.pairingKey else { return false }
+            return key == offlineForegroundKey
                 || (!preservingOtherMacWorkspaceState
                     && offlineForegroundKey != .anonymousForeground
                     && key.canonicalMacDeviceID == offlineDeviceID)
