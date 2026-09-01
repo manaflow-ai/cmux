@@ -139,6 +139,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     private struct NotificationIndexes {
         var unreadCount = 0
+        var phoneUnreadCount = 0
         var unreadCountByTabId: [UUID: Int] = [:]
         var unreadByTabSurface = Set<TabSurfaceKey>()
         var latestUnreadByTabId: [UUID: TerminalNotification] = [:]
@@ -157,6 +158,7 @@ final class TerminalNotificationStore: ObservableObject {
     static let textReplyCategoryIdentifier = "com.cmuxterm.app.userNotification.textReply"
     static let actionShowIdentifier = "com.cmuxterm.app.userNotification.show"
     static let actionReplyIdentifier = "terminal.reply"
+    static let sessionRestoreRecoveryCorrelationKey = "session-restore-recovery"
     nonisolated static let retargetsToLiveSurfaceOwnerUserInfoKey = "retargetsToLiveSurfaceOwner"
     /// Mobile-host event topic the Mac emits when one or more delivered
     /// notifications are dismissed/cleared on this Mac, so an attached phone can
@@ -296,18 +298,22 @@ final class TerminalNotificationStore: ObservableObject {
     /// and the badge is an absolute SET — and bursts coalesce in
     /// ``PhonePushClient/forwardDismissed(ids:badgeCount:)``.
     private func emitNotificationsDismissed(ids: [String]) {
-        guard !ids.isEmpty else { return }
-        recordDismissTombstones(ids: ids.compactMap { UUID(uuidString: $0) })
-        let unreadCount = indexes.unreadCount
+        let externalIDs = ids.filter { identifier in
+            guard let id = UUID(uuidString: identifier) else { return true }
+            return localOnlyNotificationIDs.remove(id) == nil
+        }
+        guard !externalIDs.isEmpty else { return }
+        recordDismissTombstones(ids: externalIDs.compactMap { UUID(uuidString: $0) })
+        let unreadCount = indexes.phoneUnreadCount
         // Live lane: nonisolated static fan-out; short-circuits when no phone is
         // subscribed.
         MobileHostService.emitEvent(
             topic: Self.dismissedEventTopic,
-            payload: ["ids": ids, "unread_count": unreadCount]
+            payload: ["ids": externalIDs, "unread_count": unreadCount]
         )
         // Cold lane: mirror the dismiss through APNs for every registered
         // device, attached or not (no-op unless phone forwarding is on).
-        PhonePushClient.shared.forwardDismissed(ids: ids, badgeCount: unreadCount)
+        PhonePushClient.shared.forwardDismissed(ids: externalIDs, badgeCount: unreadCount)
     }
 
     /// A user-driven dismiss emit that also carries any stale superseded-banner
@@ -328,6 +334,7 @@ final class TerminalNotificationStore: ObservableObject {
     /// The last unread count pushed over ``badgeEventTopic``, so the chokepoint
     /// only emits on real transitions.
     private var lastEmittedPhoneBadgeCount: Int?
+    private var localOnlyNotificationIDs: Set<UUID> = []
 
     /// Pushes the authoritative unread count to an attached phone whenever it
     /// changes. Runs from ``refreshUnreadPresentation()`` — the same chokepoint
@@ -336,7 +343,7 @@ final class TerminalNotificationStore: ObservableObject {
     /// per-call-site emits. Cheap when nothing is attached (subscriber
     /// short-circuit inside `emitEvent`).
     private func emitUnreadBadgeEventIfChanged() {
-        let count = indexes.unreadCount
+        let count = indexes.phoneUnreadCount
         guard count != lastEmittedPhoneBadgeCount else { return }
         lastEmittedPhoneBadgeCount = count
         MobileHostService.emitEvent(
@@ -480,6 +487,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     private func removeDeliveredNotifications(withIdentifiers identifiers: [String]) {
+        let identifiers = externalNotificationIdentifiers(identifiers)
         guard !identifiers.isEmpty else { return }
         Task { [userNotificationCenter] in
             _ = await userNotificationCenter.removeDeliveredNotifications(
@@ -489,11 +497,19 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     private func removePendingNotificationRequests(withIdentifiers identifiers: [String]) {
+        let identifiers = externalNotificationIdentifiers(identifiers)
         guard !identifiers.isEmpty else { return }
         Task { [userNotificationCenter] in
             _ = await userNotificationCenter.removePendingNotificationRequests(
                 withIdentifiers: identifiers
             )
+        }
+    }
+
+    private func externalNotificationIdentifiers(_ identifiers: [String]) -> [String] {
+        identifiers.filter { identifier in
+            guard let id = UUID(uuidString: identifier) else { return true }
+            return !localOnlyNotificationIDs.contains(id)
         }
     }
 
@@ -1281,7 +1297,7 @@ final class TerminalNotificationStore: ObservableObject {
             tabId: item.tabID,
             surfaceId: item.panelID,
             panelId: item.panelID,
-            correlationKey: "session-restore-recovery",
+            correlationKey: Self.sessionRestoreRecoveryCorrelationKey,
             title: title,
             subtitle: identity,
             body: "\(savedDirectory)\n\(instruction)",
@@ -1544,6 +1560,10 @@ final class TerminalNotificationStore: ObservableObject {
         now: Date,
         cooldownReservation: NotificationCooldownReservation?
     ) {
+        let isLocalOnly = notification.correlationKey == Self.sessionRestoreRecoveryCorrelationKey
+        if isLocalOnly {
+            localOnlyNotificationIDs.insert(notification.id)
+        }
         var updated = notifications
         var idsToClear: [String] = []
         updated.removeAll { existing in
@@ -1584,28 +1604,32 @@ final class TerminalNotificationStore: ObservableObject {
             )
         }
         notifications = updated
-        notificationFeedHistory.record(
-            notification,
-            supersededIDs: Set(idsToClear.compactMap { UUID(uuidString: $0) })
-        )
+        if !isLocalOnly {
+            notificationFeedHistory.record(
+                notification,
+                supersededIDs: Set(idsToClear.compactMap { UUID(uuidString: $0) })
+            )
+        }
         commitCooldownReservation(cooldownReservation, at: now)
 #if DEBUG
         cmuxDebugLog(
             "notification.store.record workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") removed=\(idsToClear.count) unread=\(!notification.isRead ? 1 : 0) paneFlash=\(notification.paneFlash ? 1 : 0) suppressExternal=\(shouldSuppressExternalDelivery ? 1 : 0) total=\(notifications.count)"
         )
 #endif
-        if !idsToClear.isEmpty {
-            removeDeliveredNotifications(withIdentifiers: idsToClear)
-            removePendingNotificationRequests(withIdentifiers: idsToClear)
+        let externalIDsToClear = externalNotificationIdentifiers(idsToClear)
+        let externalIDsToClearSet = Set(externalIDsToClear)
+        if !externalIDsToClear.isEmpty {
+            removeDeliveredNotifications(withIdentifiers: externalIDsToClear)
+            removePendingNotificationRequests(withIdentifiers: externalIDsToClear)
             // Decide replacement admission exactly once in the side-effect
             // chokepoint below. Until then, retain the superseded ids so the
             // actual queue result determines whether dismissal is immediate or
             // ordered after the replacement.
             recordDismissTombstones(
-                ids: idsToClear.compactMap { UUID(uuidString: $0) }
+                ids: externalIDsToClear.compactMap { UUID(uuidString: $0) }
             )
             supersededPhoneDismissBuffer.stash(
-                ids: idsToClear,
+                ids: externalIDsToClear,
                 forKey: SupersededPhoneDismissBuffer.key(
                     tabId: notification.tabId,
                     surfaceId: notification.surfaceId
@@ -1617,6 +1641,11 @@ final class TerminalNotificationStore: ObservableObject {
             shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
             effects: effects
         )
+        for identifier in idsToClear where !externalIDsToClearSet.contains(identifier) {
+            if let id = UUID(uuidString: identifier) {
+                localOnlyNotificationIDs.remove(id)
+            }
+        }
     }
 
     private func shouldSuppressExternalDelivery(tabId: UUID, surfaceId: UUID?) -> Bool {
@@ -1652,6 +1681,7 @@ final class TerminalNotificationStore: ObservableObject {
             surfaceId: notification.surfaceId
         )
         let shouldAttemptPhone = !shouldSuppressExternalDelivery
+            && notification.correlationKey != Self.sessionRestoreRecoveryCorrelationKey
             && Self.shouldAttemptPhoneForward(
                 effects: effects,
                 phoneForwardingEnabled: PhonePushClient.shared
@@ -2079,7 +2109,16 @@ final class TerminalNotificationStore: ObservableObject {
         if didChangeNotifications {
             notifications = nextNotifications
         }
-        notificationFeedHistory.reconcileActiveNotifications(nextNotifications)
+        localOnlyNotificationIDs.formUnion(
+            nextNotifications.lazy
+                .filter { $0.correlationKey == Self.sessionRestoreRecoveryCorrelationKey }
+                .map(\.id)
+        )
+        notificationFeedHistory.reconcileActiveNotifications(
+            nextNotifications.filter {
+                $0.correlationKey != Self.sessionRestoreRecoveryCorrelationKey
+            }
+        )
         let nextIDs = Set(nextNotifications.map(\.id))
         notificationFeedHistory.markRead(
             ids: Set(removedIds.compactMap { UUID(uuidString: $0) }).subtracting(nextIDs)
@@ -2608,6 +2647,9 @@ final class TerminalNotificationStore: ObservableObject {
             }
             guard !notification.isRead else { continue }
             indexes.unreadCount += 1
+            if notification.correlationKey != Self.sessionRestoreRecoveryCorrelationKey {
+                indexes.phoneUnreadCount += 1
+            }
             indexes.unreadCountByTabId[notification.tabId, default: 0] += 1
             indexes.unreadByTabSurface.insert(
                 TabSurfaceKey(tabId: notification.tabId, surfaceId: notification.surfaceId)
@@ -2705,6 +2747,11 @@ final class TerminalNotificationStore: ObservableObject {
 
     func replaceNotificationsForTesting(_ notifications: [TerminalNotification]) {
         TerminalMutationBus.shared.discardPendingNotifications()
+        localOnlyNotificationIDs = Set(
+            notifications.lazy
+                .filter { $0.correlationKey == Self.sessionRestoreRecoveryCorrelationKey }
+                .map(\.id)
+        )
         self.notifications = notifications
         notificationFeedHistory = NotificationFeedHistoryStore(fileURL: nil) { revision in
             MobileHostService.emitEvent(
@@ -2717,6 +2764,12 @@ final class TerminalNotificationStore: ObservableObject {
         clearPanelDerivedWorkspaceUnread()
         clearWorkspaceRestoredUnread()
         focusedReadIndicatorByTabId.removeAll()
+    }
+
+    var phoneUnreadCountForTesting: Int { indexes.phoneUnreadCount }
+    var notificationFeedHistoryRevisionForTesting: Int { notificationFeedHistory.revision }
+    func externalNotificationIdentifiersForTesting(_ identifiers: [String]) -> [String] {
+        externalNotificationIdentifiers(identifiers)
     }
 
     func promptToEnableNotificationsForTesting() {

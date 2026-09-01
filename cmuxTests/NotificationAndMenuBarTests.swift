@@ -834,6 +834,8 @@ final class NotificationDockBadgeTests: XCTestCase {
         store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _, _ in
             suppressedFeedbackCount += 1
         }
+        let phoneUnreadCountBefore = store.phoneUnreadCountForTesting
+        let feedRevisionBefore = store.notificationFeedHistoryRevisionForTesting
 
         store.addSessionRestoreRecoveryInventoryItem(
             SessionRestoreRecoveryInventoryItem(
@@ -849,6 +851,8 @@ final class NotificationDockBadgeTests: XCTestCase {
 
         XCTAssertEqual(deliveredCount, 0)
         XCTAssertEqual(suppressedFeedbackCount, 0)
+        XCTAssertEqual(store.phoneUnreadCountForTesting, phoneUnreadCountBefore)
+        XCTAssertEqual(store.notificationFeedHistoryRevisionForTesting, feedRevisionBefore)
         XCTAssertTrue(store.notifications.contains(where: { $0.id == unrelated.id }))
         let inventory = try XCTUnwrap(store.notifications.first(where: {
             $0.correlationKey == "session-restore-recovery"
@@ -861,6 +865,13 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertTrue(inventory.body.contains("/missing/project"))
         XCTAssertFalse(inventory.isRead)
         XCTAssertTrue(inventory.paneFlash)
+        XCTAssertEqual(
+            store.externalNotificationIdentifiersForTesting([
+                inventory.id.uuidString,
+                unrelated.id.uuidString,
+            ]),
+            [unrelated.id.uuidString]
+        )
     }
 
     func testSessionRestoreRecoveryInventoryIncludesUniqueFallbackManager() {
