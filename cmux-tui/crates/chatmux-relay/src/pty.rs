@@ -248,6 +248,10 @@ fn open_pinned_directory(path: &Path) -> Result<(File, Vec<DirectoryIdentity>), 
     const ACCESS_MODE: libc::c_int = libc::O_RDONLY;
     let flags = ACCESS_MODE | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
     let mut parent = std::fs::OpenOptions::new()
+        // Rust requires an access mode on the builder before it invokes the
+        // OS open call. O_EXEC remains the effective Darwin mode because
+        // custom_flags only adds non-O_ACCMODE bits.
+        .read(true)
         .custom_flags(flags)
         .open("/")
         .map_err(|_| "cwd is not accessible".to_owned())?;
