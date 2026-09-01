@@ -451,10 +451,9 @@ impl ScreenDetectTracker {
                     // host provides the evidence needed to fence it.
                     if let OscMetadataState::Fenced { identity_revision } =
                         &mut entry.osc_metadata_state
+                        && identity_revision.is_none()
                     {
-                        if identity_revision.is_none() {
-                            *identity_revision = stream_revision;
-                        }
+                        *identity_revision = stream_revision;
                     }
                     return false;
                 }
