@@ -20,6 +20,64 @@ import Testing
         #expect(TerminalUploadCommand.hostForMatching("  host  ") == "host")
     }
 
+    // MARK: - Brokered connections (ProxyCommand / jump host)
+
+    /// A connection through a broker is dialled as `localhost`, with the host it
+    /// actually reaches carried in `HostName`. Matching the destination argument
+    /// alone makes every brokered host look like `localhost`, so a rule for the
+    /// real host never fires.
+    @Test func hostNameOptionWinsOverABrokeredLocalhostDestination() {
+        let options = [
+            "ProxyCommand=/usr/local/bin/broker --tunnel 'host1.corp.example.com'",
+            "HostName=host1.corp.example.com",
+        ]
+        #expect(
+            TerminalUploadCommand.hostForMatching("localhost", sshOptions: options)
+                == "host1.corp.example.com"
+        )
+
+        let resolver = TerminalUploadCommand(rules: [
+            TerminalUploadCommandRule(hostPattern: "host*", command: "A"),
+        ])
+        #expect(resolver.command(forDestination: "localhost", sshOptions: options) == "A")
+    }
+
+    @Test func hostNameIsReadRegardlessOfSpellingOrSeparator() {
+        // ssh option keys are case-insensitive, and `-o` accepts `Key value` as
+        // well as `Key=Value`.
+        #expect(
+            TerminalUploadCommand.hostForMatching("localhost", sshOptions: ["hostname=Host1.Example.COM"])
+                == "host1.example.com"
+        )
+        #expect(
+            TerminalUploadCommand.hostForMatching("localhost", sshOptions: ["HostName host1.example.com"])
+                == "host1.example.com"
+        )
+        // ssh uses the first value it obtains for a parameter.
+        #expect(
+            TerminalUploadCommand.hostForMatching(
+                "localhost",
+                sshOptions: ["HostName=first.example.com", "HostName=second.example.com"]
+            ) == "first.example.com"
+        )
+    }
+
+    @Test func withoutAHostNameTheDestinationStillDecides() {
+        #expect(
+            TerminalUploadCommand.hostForMatching("me@host1.example.com", sshOptions: ["Port=22"])
+                == "host1.example.com"
+        )
+        // An empty or valueless HostName is ignored rather than matching "".
+        #expect(
+            TerminalUploadCommand.hostForMatching("host1.example.com", sshOptions: ["HostName="])
+                == "host1.example.com"
+        )
+        #expect(
+            TerminalUploadCommand.hostForMatching("host1.example.com", sshOptions: [])
+                == "host1.example.com"
+        )
+    }
+
     // MARK: - Glob matching (fnmatch / ssh_config style)
 
     @Test func hostMatchesGlob() {
