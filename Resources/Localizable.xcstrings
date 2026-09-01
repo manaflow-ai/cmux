@@ -271917,6 +271917,188 @@
           }
         }
       }
+    },
+    "debug.mobilePairingDesign.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pair Mobile Design Lab" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "モバイルペアリングデザインラボ" } }
+      }
+    },
+    "debug.mobilePairingDesign.menu": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pair Mobile Design Lab…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "モバイルペアリングデザインラボ…" } }
+      }
+    },
+    "debug.mobilePairingDesign.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Compare the same pairing flow in six layouts. The live Pair Mobile window follows the selected design." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "同じペアリングフローを6種類のレイアウトで比較できます。選択したデザインは「モバイルをペアリング」ウインドウに反映されます。" } }
+      }
+    },
+    "debug.mobilePairingDesign.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open Pair Mobile" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "モバイルをペアリングを開く" } }
+      }
+    },
+    "debug.mobilePairingDesign.previewState": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Preview state" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プレビュー状態" } }
+      }
+    },
+    "debug.mobilePairingDesign.selected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Selected: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "選択中: %@" } }
+      }
+    },
+    "debug.mobilePairingDesign.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reset to Default" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デフォルトに戻す" } }
+      }
+    },
+    "debug.mobilePairingDesign.inUse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "In use" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用中" } }
+      }
+    },
+    "debug.mobilePairingDesign.variant.centeredCard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Centered card" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "中央カード" } }
+      }
+    },
+    "debug.mobilePairingDesign.variant.leftAligned": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Left aligned" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "左揃え" } }
+      }
+    },
+    "debug.mobilePairingDesign.variant.methodCards": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Method cards" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "方式カード" } }
+      }
+    },
+    "debug.mobilePairingDesign.variant.settingsList": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Settings list" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "設定リスト" } }
+      }
+    },
+    "debug.mobilePairingDesign.variant.splitView": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Split view" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "分割ビュー" } }
+      }
+    },
+    "debug.mobilePairingDesign.variant.compact": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Compact" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "コンパクト" } }
+      }
+    },
+    "debug.mobilePairingDesign.variant.selected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Selected for Pair Mobile" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "モバイルをペアリングに適用済み" } }
+      }
+    },
+    "debug.mobilePairingDesign.variant.use": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Use in Pair Mobile" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "モバイルをペアリングで使う" } }
+      }
+    },
+    "debug.mobilePairingDesign.scenario.readyBoth": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Iroh + Tailscale" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Iroh + Tailscale" } }
+      }
+    },
+    "debug.mobilePairingDesign.scenario.irohOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Iroh only" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Irohのみ" } }
+      }
+    },
+    "debug.mobilePairingDesign.scenario.tailscaleOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Tailscale only" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Tailscaleのみ" } }
+      }
+    },
+    "debug.mobilePairingDesign.scenario.noTransport": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No reachable transport" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "利用可能な接続なし" } }
+      }
+    },
+    "debug.mobilePairingDesign.summary.centeredCard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "One clear next step, with details contained in a calm card." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "次の操作を1つに絞り、詳細をカードにまとめます。" } }
+      }
+    },
+    "debug.mobilePairingDesign.summary.leftAligned": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Flat surface, left-aligned explanation, and one clear next step." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フラットな背景、左揃えの説明、明確な次の操作。" } }
+      }
+    },
+    "debug.mobilePairingDesign.summary.methodCards": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Makes both connection methods visible before choosing one." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "選択前に2つの接続方式を表示します。" } }
+      }
+    },
+    "debug.mobilePairingDesign.summary.settingsList": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "A familiar settings list with a clear selected method and status." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "選択中の方式と状態が分かる、見慣れた設定リストです。" } }
+      }
+    },
+    "debug.mobilePairingDesign.summary.splitView": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "A persistent left rail for wide windows and frequent switching." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "広いウインドウで方式を頻繁に切り替えるための固定レールです。" } }
+      }
+    },
+    "debug.mobilePairingDesign.summary.compact": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The smallest left-to-right version for a utility window or narrow panel." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ユーティリティウインドウや狭いパネル向けの最小構成です。" } }
+      }
     }
   },
   "version": "1.0"

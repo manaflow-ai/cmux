@@ -677,7 +677,10 @@ struct cmuxApp: App {
                     Button("Menu Bar Extra Debug…") {
                         MenuBarExtraDebugWindowController.shared.show()
                     }
-                    Button("Pair Mobile Design Lab…") {
+                    Button(String(
+                        localized: "debug.mobilePairingDesign.menu",
+                        defaultValue: "Pair Mobile Design Lab…"
+                    )) {
                         MobilePairingDesignDebugWindowController.shared.show()
                     }
                     Button(
@@ -1817,7 +1820,10 @@ private struct DebugWindowControlsView: View {
                         Button("Menu Bar Extra Debug…") {
                             MenuBarExtraDebugWindowController.shared.show()
                         }
-                        Button("Pair Mobile Design Lab…") {
+                        Button(String(
+                            localized: "debug.mobilePairingDesign.menu",
+                            defaultValue: "Pair Mobile Design Lab…"
+                        )) {
                             MobilePairingDesignDebugWindowController.shared.show()
                         }
                         Button(

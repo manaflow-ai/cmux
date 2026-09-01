@@ -15,7 +15,10 @@ import SwiftUI
                 backing: .buffered,
                 defer: false
             )
-            window.title = "Pair Mobile Design Lab"
+            window.title = String(
+                localized: "debug.mobilePairingDesign.title",
+                defaultValue: "Pair Mobile Design Lab"
+            )
             window.identifier = NSUserInterfaceItemIdentifier("cmux.mobilePairingDesignDebug")
             window.minSize = NSSize(width: 900, height: 620)
             window.level = .floating
@@ -43,10 +46,26 @@ import SwiftUI
 
             var title: String {
                 switch self {
-                case .readyBoth: "Iroh + Tailscale"
-                case .irohOnly: "Iroh only"
-                case .tailscaleOnly: "Tailscale only"
-                case .noTransport: "No reachable transport"
+                case .readyBoth:
+                    String(
+                        localized: "debug.mobilePairingDesign.scenario.readyBoth",
+                        defaultValue: "Iroh + Tailscale"
+                    )
+                case .irohOnly:
+                    String(
+                        localized: "debug.mobilePairingDesign.scenario.irohOnly",
+                        defaultValue: "Iroh only"
+                    )
+                case .tailscaleOnly:
+                    String(
+                        localized: "debug.mobilePairingDesign.scenario.tailscaleOnly",
+                        defaultValue: "Tailscale only"
+                    )
+                case .noTransport:
+                    String(
+                        localized: "debug.mobilePairingDesign.scenario.noTransport",
+                        defaultValue: "No reachable transport"
+                    )
                 }
             }
         }
@@ -64,14 +83,23 @@ import SwiftUI
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .firstTextBaseline, spacing: 12) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Pair Mobile Design Lab")
-                            .cmuxFont(.title2, weight: .semibold)
-                        Text("Compare the same pairing flow in six layouts. The live Pair Mobile window follows the selected design.")
-                            .cmuxFont(.callout)
-                            .foregroundStyle(.secondary)
+                        Text(String(
+                            localized: "debug.mobilePairingDesign.title",
+                            defaultValue: "Pair Mobile Design Lab"
+                        ))
+                        .cmuxFont(.title2, weight: .semibold)
+                        Text(String(
+                            localized: "debug.mobilePairingDesign.description",
+                            defaultValue: "Compare the same pairing flow in six layouts. The live Pair Mobile window follows the selected design."
+                        ))
+                        .cmuxFont(.callout)
+                        .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Button("Open Pair Mobile") {
+                    Button(String(
+                        localized: "debug.mobilePairingDesign.open",
+                        defaultValue: "Open Pair Mobile"
+                    )) {
                         _ = AppDelegate.shared?.performMobileConnectWorkspaceAction(
                             focusWorkspace: true,
                             enforceFeatureFlag: false,
@@ -84,11 +112,20 @@ import SwiftUI
 
                 HStack(alignment: .bottom, spacing: 14) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Preview state")
-                            .cmuxFont(.caption, weight: .semibold)
-                            .lineLimit(1)
+                        Text(String(
+                            localized: "debug.mobilePairingDesign.previewState",
+                            defaultValue: "Preview state"
+                        ))
+                        .cmuxFont(.caption, weight: .semibold)
+                        .lineLimit(1)
 
-                        Picker("Preview state", selection: $scenario) {
+                        Picker(
+                            String(
+                                localized: "debug.mobilePairingDesign.previewState",
+                                defaultValue: "Preview state"
+                            ),
+                            selection: $scenario
+                        ) {
                             ForEach(Scenario.allCases) { scenario in
                                 Text(scenario.title).tag(scenario)
                             }
@@ -97,13 +134,23 @@ import SwiftUI
                         .frame(width: 480, alignment: .leading)
                     }
 
-                    Text("Selected: \(variantTitle(selectedVariant))")
-                        .cmuxFont(.caption, weight: .medium)
-                        .foregroundStyle(.secondary)
+                    Text(String(
+                        format: String(
+                            localized: "debug.mobilePairingDesign.selected",
+                            defaultValue: "Selected: %@"
+                        ),
+                        locale: .current,
+                        variantTitle(selectedVariant)
+                    ))
+                    .cmuxFont(.caption, weight: .medium)
+                    .foregroundStyle(.secondary)
 
                     Spacer()
 
-                    Button("Reset to Default") {
+                    Button(String(
+                        localized: "debug.mobilePairingDesign.reset",
+                        defaultValue: "Reset to Default"
+                    )) {
                         selectedVariantRaw = MobilePairingDesignVariant.defaultValue.rawValue
                     }
                     .controlSize(.small)
@@ -150,12 +197,18 @@ import SwiftUI
 
         private func variantTitle(_ variant: MobilePairingDesignVariant) -> String {
             switch variant {
-            case .focused: "Centered card"
-            case .leading: "Left aligned"
-            case .cards: "Method cards"
-            case .list: "Settings list"
-            case .split: "Split view"
-            case .compact: "Compact"
+            case .focused:
+                String(localized: "debug.mobilePairingDesign.variant.centeredCard", defaultValue: "Centered card")
+            case .leading:
+                String(localized: "debug.mobilePairingDesign.variant.leftAligned", defaultValue: "Left aligned")
+            case .cards:
+                String(localized: "debug.mobilePairingDesign.variant.methodCards", defaultValue: "Method cards")
+            case .list:
+                String(localized: "debug.mobilePairingDesign.variant.settingsList", defaultValue: "Settings list")
+            case .split:
+                String(localized: "debug.mobilePairingDesign.variant.splitView", defaultValue: "Split view")
+            case .compact:
+                String(localized: "debug.mobilePairingDesign.variant.compact", defaultValue: "Compact")
             }
         }
     }
@@ -171,9 +224,15 @@ import SwiftUI
                     Text(title)
                         .cmuxFont(.headline, weight: .semibold)
                     if selectedVariantRaw == variant.rawValue {
-                        Label("In use", systemImage: "checkmark.circle.fill")
-                            .cmuxFont(.caption, weight: .medium)
-                            .foregroundStyle(.green)
+                        Label(
+                            String(
+                                localized: "debug.mobilePairingDesign.inUse",
+                                defaultValue: "In use"
+                            ),
+                            systemImage: "checkmark.circle.fill"
+                        )
+                        .cmuxFont(.caption, weight: .medium)
+                        .foregroundStyle(.green)
                     }
                     Spacer(minLength: 4)
                 }
@@ -206,7 +265,15 @@ import SwiftUI
                 )
 
                 Button(
-                    selectedVariantRaw == variant.rawValue ? "Selected for Pair Mobile" : "Use in Pair Mobile"
+                    selectedVariantRaw == variant.rawValue
+                        ? String(
+                            localized: "debug.mobilePairingDesign.variant.selected",
+                            defaultValue: "Selected for Pair Mobile"
+                        )
+                        : String(
+                            localized: "debug.mobilePairingDesign.variant.use",
+                            defaultValue: "Use in Pair Mobile"
+                        )
                 ) {
                     selectedVariantRaw = variant.rawValue
                 }
@@ -231,29 +298,53 @@ import SwiftUI
 
         private var title: String {
             switch variant {
-            case .focused: "Centered card"
-            case .leading: "Left aligned"
-            case .cards: "Method cards"
-            case .list: "Settings list"
-            case .split: "Split view"
-            case .compact: "Compact"
+            case .focused:
+                String(localized: "debug.mobilePairingDesign.variant.centeredCard", defaultValue: "Centered card")
+            case .leading:
+                String(localized: "debug.mobilePairingDesign.variant.leftAligned", defaultValue: "Left aligned")
+            case .cards:
+                String(localized: "debug.mobilePairingDesign.variant.methodCards", defaultValue: "Method cards")
+            case .list:
+                String(localized: "debug.mobilePairingDesign.variant.settingsList", defaultValue: "Settings list")
+            case .split:
+                String(localized: "debug.mobilePairingDesign.variant.splitView", defaultValue: "Split view")
+            case .compact:
+                String(localized: "debug.mobilePairingDesign.variant.compact", defaultValue: "Compact")
             }
         }
 
         private var summary: String {
             switch variant {
             case .focused:
-                "One clear next step, with details contained in a calm card."
+                String(
+                    localized: "debug.mobilePairingDesign.summary.centeredCard",
+                    defaultValue: "One clear next step, with details contained in a calm card."
+                )
             case .leading:
-                "Flat surface, left-aligned explanation, and one clear next step."
+                String(
+                    localized: "debug.mobilePairingDesign.summary.leftAligned",
+                    defaultValue: "Flat surface, left-aligned explanation, and one clear next step."
+                )
             case .cards:
-                "Makes both connection methods visible before choosing one."
+                String(
+                    localized: "debug.mobilePairingDesign.summary.methodCards",
+                    defaultValue: "Makes both connection methods visible before choosing one."
+                )
             case .list:
-                "A familiar settings list with a clear selected method and status."
+                String(
+                    localized: "debug.mobilePairingDesign.summary.settingsList",
+                    defaultValue: "A familiar settings list with a clear selected method and status."
+                )
             case .split:
-                "A persistent left rail for wide windows and frequent switching."
+                String(
+                    localized: "debug.mobilePairingDesign.summary.splitView",
+                    defaultValue: "A persistent left rail for wide windows and frequent switching."
+                )
             case .compact:
-                "The smallest left-to-right version for a utility window or narrow panel."
+                String(
+                    localized: "debug.mobilePairingDesign.summary.compact",
+                    defaultValue: "The smallest left-to-right version for a utility window or narrow panel."
+                )
             }
         }
     }
