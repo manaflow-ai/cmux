@@ -1138,15 +1138,47 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
     use crate::journal_reducers::{
         AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, AgentRoster, RosterEvent,
     };
+    let mut reset_persisted_state = false;
     let mut host = match registry.journal_reducer_state(AGENT_ROSTER_REDUCER_ID)? {
         Some((version, cursor, snapshot)) if version == AGENT_ROSTER_REDUCER_VERSION => {
-            AgentRosterHost { roster: AgentRoster::restore(&snapshot).unwrap_or_default(), cursor }
+            // Never keep a cursor whose snapshot was rejected. The cursor is
+            // only meaningful together with the state it follows; retaining
+            // it would skip the journal prefix needed to rebuild the roster.
+            match AgentRoster::restore(&snapshot) {
+                Some(roster) => AgentRosterHost { roster, cursor },
+                None => {
+                    reset_persisted_state = true;
+                    AgentRosterHost::default()
+                }
+            }
         }
-        _ => AgentRosterHost::default(),
+        Some(_) => {
+            reset_persisted_state = true;
+            AgentRosterHost::default()
+        }
+        None => AgentRosterHost::default(),
     };
     let started_at = host.cursor;
     loop {
-        let page = registry.session_journal_after(host.cursor, 512)?;
+        let page = match registry.session_journal_after(host.cursor, 512) {
+            Ok(page) => page,
+            Err(error) => {
+                // A pruned journal can no longer fill the gap between the
+                // persisted cursor and the first retained record. The roster
+                // is derived state, so fail closed with an empty host rather
+                // than exposing a partial state at a nonzero cursor.
+                eprintln!("cmux-tui: agent roster snapshot cannot be replayed: {error}");
+                if let Err(reset_error) = registry.put_journal_reducer_state(
+                    AGENT_ROSTER_REDUCER_ID,
+                    AGENT_ROSTER_REDUCER_VERSION,
+                    0,
+                    &host.roster.snapshot().to_string(),
+                ) {
+                    eprintln!("cmux-tui: clearing the unreplayable agent roster snapshot failed: {reset_error}");
+                }
+                return Ok(AgentRosterHost::default());
+            }
+        };
         if page.records.is_empty() {
             break;
         }
@@ -1155,7 +1187,7 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
             host.cursor = host.cursor.max(record.sequence);
         }
     }
-    if host.cursor != started_at {
+    if host.cursor != started_at || reset_persisted_state {
         registry.put_journal_reducer_state(
             AGENT_ROSTER_REDUCER_ID,
             AGENT_ROSTER_REDUCER_VERSION,
