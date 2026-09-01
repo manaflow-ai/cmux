@@ -6,7 +6,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 for file in \
   "$ROOT_DIR/.github/workflows/build-ghosttykit.yml" \
-  "$ROOT_DIR/scripts/setup.sh" \
+  "$ROOT_DIR/scripts/ensure-ghosttykit.sh" \
   "$ROOT_DIR/scripts/build-sign-upload.sh"
 do
   if ! grep -Fq -- '-Dxcframework-target=universal' "$file"; then
@@ -14,6 +14,11 @@ do
     exit 1
   fi
 done
+
+if ! grep -Fq -- 'ensure-ghosttykit.sh' "$ROOT_DIR/scripts/setup.sh"; then
+  echo "FAIL: scripts/setup.sh must delegate GhosttyKit setup to ensure-ghosttykit.sh"
+  exit 1
+fi
 
 if ! awk '
   /\/\* Release \*\// { in_release=1; next }
