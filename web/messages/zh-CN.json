@@ -48,6 +48,13 @@
     "description": "基于 Ghostty 构建的免费开源原生 macOS 终端。支持 Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider 及任何 CLI 工具。垂直标签页、通知环、分割面板和 socket API。",
     "ogDescription": "面向 AI 编程 agent 的免费开源 macOS 终端。支持 Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider 及任何 CLI 工具。"
   },
+  "authError": {
+    "emailUnverifiedTitle": "验证邮箱后继续",
+    "emailUnverifiedBody": "请使用最初注册时的方式登录，然后验证邮箱，再使用此登录方式。",
+    "genericTitle": "无法完成登录",
+    "genericBody": "请重试。如果问题仍然存在，请联系支持。",
+    "backToSignIn": "返回登录"
+  },
   "common": {
     "downloadForMac": "下载 Mac 版",
     "viewOnGitHub": "在 GitHub 上查看",

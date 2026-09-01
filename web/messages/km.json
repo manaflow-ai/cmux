@@ -48,6 +48,13 @@
     "description": "ស្ថានីយ macOS ដើមកំណើតប្រភពកូដបើកចំហ និងឥតគិតថ្លៃ បង្កើតលើ Ghostty។ ដំណើរការជាមួយ Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider និងឧបករណ៍ CLI ណាមួយ។ ផ្ទាំងបញ្ឈរ, រង្វង់ជូនដំណឹង, បន្ទះបំបែក, និង socket API។",
     "ogDescription": "ស្ថានីយ macOS ប្រភពកូដបើកចំហ និងឥតគិតថ្លៃសម្រាប់ភ្នាក់ងារសរសេរកូដ AI។ ដំណើរការជាមួយ Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider និងឧបករណ៍ CLI ណាមួយ។"
   },
+  "authError": {
+    "emailUnverifiedTitle": "ផ្ទៀងផ្ទាត់អ៊ីមែលរបស់អ្នក ដើម្បីបន្ត",
+    "emailUnverifiedBody": "ចូលដោយប្រើវិធីដែលអ្នកបានប្រើដំបូង បន្ទាប់មកផ្ទៀងផ្ទាត់អ៊ីមែល មុនពេលប្រើវិធីចូលនេះ។",
+    "genericTitle": "មិនអាចបញ្ចប់ការចូលបានទេ",
+    "genericBody": "សូមព្យាយាមម្តងទៀត។ ប្រសិនបើបញ្ហានៅតែមាន សូមទាក់ទងជំនួយ។",
+    "backToSignIn": "ត្រឡប់ទៅការចូល"
+  },
   "common": {
     "downloadForMac": "ទាញយកសម្រាប់ Mac",
     "viewOnGitHub": "មើលនៅលើ GitHub",
