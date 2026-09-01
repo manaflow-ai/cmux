@@ -18,7 +18,11 @@ import SwiftUI
 import CmuxMobileTerminal
 #endif
 
-private let mobileRootSceneLog = Logger(subsystem: "dev.cmux.ios", category: "mobile-root-scene")
+/// Shared subsystem for feature-owned iOS logs. Keep categories distinct so
+/// one predicate can collect the complete feature trace.
+nonisolated let cmuxIOSLogSubsystem = "dev.cmux.ios"
+
+private let mobileRootSceneLog = Logger(subsystem: cmuxIOSLogSubsystem, category: "mobile-root-scene")
 
 #if os(iOS) && DEBUG
 /// DEBUG launch switches are accepted from either the environment (the

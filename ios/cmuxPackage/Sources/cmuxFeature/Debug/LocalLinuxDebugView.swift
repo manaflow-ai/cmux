@@ -10,7 +10,7 @@ import SwiftUI
 import UIKit
 
 nonisolated private let localLinuxLog = Logger(
-    subsystem: "ai.manaflow.cmux.ios",
+    subsystem: cmuxIOSLogSubsystem,
     category: "local-linux.debug"
 )
 

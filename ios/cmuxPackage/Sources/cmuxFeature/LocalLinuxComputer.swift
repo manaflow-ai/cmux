@@ -5,13 +5,12 @@ import CmuxMobileShellUI
 import CmuxMobileSupport
 import CmuxMobileTerminal
 import Foundation
-import Observation
 import OSLog
 import SwiftUI
 import UIKit
 
 nonisolated private let localLinuxProductionLog = Logger(
-    subsystem: "ai.manaflow.cmux.ios",
+    subsystem: cmuxIOSLogSubsystem,
     category: "local-linux.production"
 )
 

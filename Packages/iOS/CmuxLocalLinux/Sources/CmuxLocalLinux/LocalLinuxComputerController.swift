@@ -3,7 +3,7 @@ import Observation
 import OSLog
 
 nonisolated private let localLinuxProductionLog = Logger(
-    subsystem: "ai.manaflow.cmux.ios",
+    subsystem: "dev.cmux.ios",
     category: "local-linux.production"
 )
 
