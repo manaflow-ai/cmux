@@ -492,6 +492,10 @@ pub async fn stay_online(
                 }
             }
             Err(RelayError::Fatal { message, exit_code }) => {
+                if let Some(task) = tunnel_listener.take() {
+                    task.abort();
+                    let _ = task.await;
+                }
                 return Err(RelayError::Fatal { message, exit_code });
             }
             Err(RelayError::WakeRedial { message }) => {
@@ -508,12 +512,18 @@ pub async fn stay_online(
             }
         }
         if cancellation.is_cancelled() {
+            if let Some(task) = tunnel_listener.take() {
+                let _ = task.await;
+            }
             return Ok(());
         }
         let ceiling = 500_u64.saturating_mul(1_u64 << attempt.min(10)).min(30_000);
         attempt = attempt.saturating_add(1);
         let delay = (ceiling as f64 * jitter()).round().max(0.0) as u64;
         if !wait_for_reconnect(&cancellation, Duration::from_millis(delay)).await {
+            if let Some(task) = tunnel_listener.take() {
+                let _ = task.await;
+            }
             return Ok(());
         }
     }
