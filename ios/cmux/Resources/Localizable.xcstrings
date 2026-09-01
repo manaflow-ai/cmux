@@ -60,6 +60,23 @@
         }
       }
     },
+    "mobile.demo.computerName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demo Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デモMac"
+          }
+        }
+      }
+    },
     "mobile.buildType.demo": {
       "extractionState": "manual",
       "localizations": {
