@@ -38,7 +38,15 @@ grep -Fq "ref: \${{ github.workflow_sha }}" "$WORKFLOW"
 grep -Fq 'sparse-checkout: .github/scripts/rerun-failed-cla.sh' "$WORKFLOW"
 grep -Fq 'bash .github/scripts/rerun-failed-cla.sh' "$WORKFLOW"
 grep -Fq "COMMENT_ID: \${{ github.event.comment.id }}" "$WORKFLOW"
-grep -Fq '      - .github/scripts/rerun-failed-cla.sh' "$ROOT_DIR/.github/workflows/ci.yml"
+# The CI workflow may use either an explicit positive path list or the
+# repository-wide negative filter. In the latter form every path not covered
+# by an exclusion (including this helper) starts CI, so requiring a literal
+# list entry would reject the safer future-app-input trigger contract.
+if ! grep -Fq '      - .github/scripts/rerun-failed-cla.sh' "$ROOT_DIR/.github/workflows/ci.yml" &&
+   ! grep -Fq '    paths-ignore:' "$ROOT_DIR/.github/workflows/ci.yml"; then
+  echo 'FAIL: CI trigger must cover the trusted CLA rerun helper' >&2
+  exit 1
+fi
 if grep -Fq "ref: \${{ github.event.pull_request" "$WORKFLOW"; then
   echo 'FAIL: CLA rerun checkout must never use a pull-request ref' >&2
   exit 1
