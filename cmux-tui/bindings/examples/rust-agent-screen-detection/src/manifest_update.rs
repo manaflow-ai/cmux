@@ -311,10 +311,10 @@ pub fn environment_catalog_url() -> String {
 }
 
 pub fn environment_cache_dir() -> PathBuf {
-    if let Some(path) = std::env::var_os(CACHE_DIR_ENV).map(PathBuf::from) {
-        if !path.as_os_str().is_empty() {
-            return path;
-        }
+    if let Some(path) = std::env::var_os(CACHE_DIR_ENV).map(PathBuf::from)
+        && !path.as_os_str().is_empty()
+    {
+        return path;
     }
     if let Some(path) = std::env::var_os("XDG_CACHE_HOME").map(PathBuf::from) {
         return path.join("cmux").join("agent-detection");
@@ -593,9 +593,10 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let parent = path.parent().ok_or_else(|| format!("path {} has no parent", path.display()))?;
     fs::create_dir_all(parent).map_err(|error| format!("create {}: {error}", parent.display()))?;
     let tmp = parent.join(format!(
-        ".{}.{}.tmp",
+        ".{}.{}-{}.tmp",
         path.file_name().and_then(|name| name.to_str()).unwrap_or("manifest"),
-        format!("{}-{}", std::process::id(), now_nanos())
+        std::process::id(),
+        now_nanos()
     ));
     let result = (|| {
         // Do not follow or overwrite a pre-existing temporary symlink. The

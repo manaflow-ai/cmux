@@ -545,8 +545,7 @@ fn scan_terminal(
         }
         if let Some(emission) =
             state.tracker.record_detection_at(&terminal_id, None, now, identity_edge, true)
-        {
-            if publish_emission(
+            && publish_emission(
                 terminal,
                 plugin_id,
                 plugin_generation,
@@ -554,9 +553,8 @@ fn scan_terminal(
                 Some(process.pid),
                 state,
             )? == PublishResult::Deferred
-            {
-                return Ok(());
-            }
+        {
+            return Ok(());
         }
         return Ok(());
     }
@@ -566,21 +564,18 @@ fn scan_terminal(
     // the shell's old prompt or the previous agent's screen. The first
     // post-grace read is forced even when the PTY revision did not change.
     let agent = manifest.expect("checked above").id();
-    if identity_edge || state.tracker.needs_identity_presence(&terminal_id, agent) {
-        if let Some(emission) = state.tracker.record_identity_presence_at(&terminal_id, agent, now)
-        {
-            if publish_emission(
-                terminal,
-                plugin_id,
-                plugin_generation,
-                &emission,
-                Some(process.pid),
-                state,
-            )? == PublishResult::Deferred
-            {
-                return Ok(());
-            }
-        }
+    if (identity_edge || state.tracker.needs_identity_presence(&terminal_id, agent))
+        && let Some(emission) = state.tracker.record_identity_presence_at(&terminal_id, agent, now)
+        && publish_emission(
+            terminal,
+            plugin_id,
+            plugin_generation,
+            &emission,
+            Some(process.pid),
+            state,
+        )? == PublishResult::Deferred
+    {
+        return Ok(());
     }
     let grace_finished = state.tracker.finish_startup_grace(&terminal_id, now);
     if state.tracker.startup_grace_active(&terminal_id, now) {
@@ -621,18 +616,16 @@ fn scan_terminal(
         now,
         identity_edge,
         false,
-    ) {
-        if publish_emission(
-            terminal,
-            plugin_id,
-            plugin_generation,
-            &emission,
-            Some(process.pid),
-            state,
-        )? == PublishResult::Deferred
-        {
-            return Ok(());
-        }
+    ) && publish_emission(
+        terminal,
+        plugin_id,
+        plugin_generation,
+        &emission,
+        Some(process.pid),
+        state,
+    )? == PublishResult::Deferred
+    {
+        return Ok(());
     }
     Ok(())
 }

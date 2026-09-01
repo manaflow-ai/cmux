@@ -746,7 +746,7 @@ impl ManifestSet {
         let cache_dir =
             environment_path("CMUX_AGENT_MANIFEST_CACHE_DIR").or_else(default_cache_directory);
         if let Some(cache_dir) = cache_dir.as_ref() {
-            set.apply_directory(&cache_dir, |path, manifest| {
+            set.apply_directory(cache_dir, |path, manifest| {
                 let version = manifest
                     .version
                     .clone()
@@ -834,21 +834,20 @@ impl ManifestSet {
         let existing_index = self.manifests.iter().position(|item| item.id() == compiled.id());
         if let Some(index) = existing_index {
             let existing = &self.manifests[index];
-            if matches!(compiled.source, ManifestSource::Remote { .. }) {
-                if let (Some(incoming), Some(current)) =
+            if matches!(compiled.source, ManifestSource::Remote { .. })
+                && let (Some(incoming), Some(current)) =
                     (compiled.version().cloned(), existing.version().cloned())
-                    && incoming < current
-                {
-                    compiled.diagnostics.cached_remote_version = Some(incoming.to_string());
-                    compiled.diagnostics.warning = Some(format!(
-                        "ignored remote manifest {} because incoming version {} is older than active version {}",
-                        compiled.id(),
-                        incoming,
-                        current
-                    ));
-                    self.manifests[index].diagnostics = compiled.diagnostics;
-                    return Ok(());
-                }
+                && incoming < current
+            {
+                compiled.diagnostics.cached_remote_version = Some(incoming.to_string());
+                compiled.diagnostics.warning = Some(format!(
+                    "ignored remote manifest {} because incoming version {} is older than active version {}",
+                    compiled.id(),
+                    incoming,
+                    current
+                ));
+                self.manifests[index].diagnostics = compiled.diagnostics;
+                return Ok(());
             }
             if matches!(compiled.source, ManifestSource::Override(_)) {
                 compiled.diagnostics.cached_remote_version =
@@ -868,14 +867,14 @@ impl ManifestSet {
             // resolve to two adapters and leave the result dependent on file
             // ordering.
             for (candidate_index, candidate) in self.manifests.iter().enumerate() {
-                if candidate_index != index {
-                    if let Some(identity) = conflicting_identity(candidate, &compiled) {
-                        return Err(format!(
-                            "manifest {} conflicts with {} on process identity {identity:?}",
-                            compiled.id(),
-                            candidate.id()
-                        ));
-                    }
+                if candidate_index != index
+                    && let Some(identity) = conflicting_identity(candidate, &compiled)
+                {
+                    return Err(format!(
+                        "manifest {} conflicts with {} on process identity {identity:?}",
+                        compiled.id(),
+                        candidate.id()
+                    ));
                 }
             }
             self.manifests[index] = compiled;

@@ -145,10 +145,10 @@ fn process_candidates(process: &ForegroundProcess) -> Vec<String> {
         push(candidate);
     }
 
-    if is_runtime_or_shell(&runtime) {
-        if let Some(candidate) = wrapped_agent_from_argv(&runtime, &process.argv) {
-            push(candidate);
-        }
+    if is_runtime_or_shell(&runtime)
+        && let Some(candidate) = wrapped_agent_from_argv(&runtime, &process.argv)
+    {
+        push(candidate);
     }
 
     // A runtime can expose a generic argv[0] while its script path names the
@@ -450,7 +450,7 @@ fn known_package_path_agent(path: &str) -> Option<String> {
     let components = path
         .split(['/', '\\'])
         .filter(|component| !component.is_empty())
-        .map(|component| normalized_name(component))
+        .map(normalized_name)
         .collect::<Vec<_>>();
     for window in components.windows(5) {
         if window == ["node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli"] {
@@ -940,7 +940,7 @@ mod platform {
         let mut processes = Vec::new();
         for pid in process_group_pids(process_group_id).into_iter().take(MAX_PROCESS_COUNT) {
             let Some(info) = process_bsdinfo(pid) else { continue };
-            if info.pbi_pgid as u32 != process_group_id {
+            if info.pbi_pgid != process_group_id {
                 continue;
             }
             let Some(name) = comm_from_bsdinfo(&info) else { continue };
