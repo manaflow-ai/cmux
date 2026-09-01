@@ -41,8 +41,10 @@ final class VideoBackgroundWebPlayerView: NSView, VideoBackgroundPlayerView {
         #if DEBUG
         if #available(macOS 13.3, *) { webView.isInspectable = true }
         #endif
-        // A Safari-compatible identity keeps YouTube from serving a degraded player.
-        webView.applyBrowserUserAgentPolicy(for: VideoBackgroundEmbedPage.baseURL)
+        // A Safari-compatible identity keeps YouTube from serving a degraded
+        // player. Resolve the policy for YouTube itself: the document origin
+        // is cmux's own, but every request that matters goes to YouTube.
+        webView.applyBrowserUserAgentPolicy(for: VideoBackgroundEmbedPage.playerHostURL)
         self.webView = webView
         self.evaluateScript = { [weak webView] script in
             webView?.evaluateJavaScript(script, completionHandler: nil)
