@@ -30,6 +30,9 @@ concurrency:
 
 jobs:
   browser-skill:
+    # github-hosted-required: this pull_request job executes untrusted skill
+    # documentation from contributors and must not run it on a self-hosted
+    # runner. The workflow runner guard recognizes this explicit exception.
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
