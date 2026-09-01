@@ -552,14 +552,14 @@ impl RestoreReducer {
             .and_then(Value::as_object)
             .context("checkpoint session_snapshot is not an object")?;
         let Some(cursor) = snapshot.get("cursor") else {
-            return Ok(previous_revision.is_some_and(|previous| {
-                previous.checked_add(1) == Some(revision)
-            }));
+            return Ok(
+                previous_revision.is_some_and(|previous| previous.checked_add(1) == Some(revision))
+            );
         };
         if cursor.is_null() {
-            return Ok(previous_revision.is_some_and(|previous| {
-                previous.checked_add(1) == Some(revision)
-            }));
+            return Ok(
+                previous_revision.is_some_and(|previous| previous.checked_add(1) == Some(revision))
+            );
         }
         let Some(cursor) = cursor.as_object() else {
             anyhow::bail!("checkpoint cursor is not an object");
@@ -941,8 +941,8 @@ mod tests {
         assert_eq!(preview["state"]["session_snapshot"]["cursor"]["revision"], "3");
 
         checkpoint.state["session_snapshot"]["cursor"] = Value::Null;
-        let preview = restore_preview(&checkpoint, &[resource_record(4, 3, 2, "workspace_new")], 4)
-            .unwrap();
+        let preview =
+            restore_preview(&checkpoint, &[resource_record(4, 3, 2, "workspace_new")], 4).unwrap();
         assert_eq!(preview["fully_reducible"], true);
     }
 
