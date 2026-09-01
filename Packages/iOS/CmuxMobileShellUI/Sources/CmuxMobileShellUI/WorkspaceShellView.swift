@@ -400,6 +400,13 @@ struct WorkspaceShellView: View {
                     .primaryTabSelected,
                     detail: .primaryTab(diagnosticPrimaryTab(newValue))
                 )
+                if newValue == .workspaces, !usesCompactStack {
+                    // Returning to Workspaces is a root-navigation action on
+                    // iPad. Restore the split columns if the user arrived
+                    // from a detail-only presentation, so the workspace list
+                    // and its bottom controls are immediately visible.
+                    splitColumnVisibility = .all
+                }
                 if oldValue == .search, newValue != .search {
                     notificationSearchNavigationPath = []
                     workspaceSearchNavigationPath = []
