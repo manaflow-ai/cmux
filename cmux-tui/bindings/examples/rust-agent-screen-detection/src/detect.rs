@@ -637,6 +637,64 @@ mod tests {
     }
 
     #[test]
+    fn failed_journal_admission_rolls_back_an_edge_for_retry() {
+        let mut tracker = ScreenDetectTracker::default();
+
+        let first = tracker
+            .record_detection("term_a", Some(("codex", detection(ScreenState::Working))))
+            .expect("first edge");
+        tracker.commit_emission(&first);
+
+        let blocked = tracker
+            .record_detection("term_a", Some(("codex", detection(ScreenState::Blocked))))
+            .expect("blocked edge");
+        tracker.rollback_emission(&blocked);
+
+        let retry = tracker
+            .record_detection("term_a", Some(("codex", detection(ScreenState::Blocked))))
+            .expect("a rejected edge must be retried");
+        assert_eq!(retry.state, AgentState::Blocked);
+        assert_eq!(retry.agent, "codex");
+    }
+
+    #[test]
+    fn replayed_edge_commits_the_post_state_after_rollback() {
+        let mut tracker = ScreenDetectTracker::default();
+        let working = tracker
+            .record_detection("term_a", Some(("codex", detection(ScreenState::Working))))
+            .expect("working edge");
+        tracker.commit_emission(&working);
+
+        let blocked = tracker
+            .record_detection("term_a", Some(("codex", detection(ScreenState::Blocked))))
+            .expect("blocked edge");
+        tracker.rollback_emission(&blocked);
+        tracker.commit_emission(&blocked);
+
+        assert_eq!(
+            tracker.record_detection("term_a", Some(("codex", detection(ScreenState::Blocked)))),
+            None,
+            "a successful replay must commit the edge exactly once",
+        );
+    }
+
+    #[test]
+    fn committed_edges_ignore_a_late_rollback() {
+        let mut tracker = ScreenDetectTracker::default();
+        let working = tracker
+            .record_detection("term_a", Some(("codex", detection(ScreenState::Working))))
+            .expect("working edge");
+        tracker.commit_emission(&working);
+        tracker.rollback_emission(&working);
+
+        assert_eq!(
+            tracker.record_detection("term_a", Some(("codex", detection(ScreenState::Working)))),
+            None,
+            "a committed edge must not be undone by a late failure callback",
+        );
+    }
+
+    #[test]
     fn screen_detect_tracker_confirms_plain_idle_before_downgrading_working() {
         let mut tracker = ScreenDetectTracker::default();
         let t0 = Instant::now();
@@ -882,6 +940,17 @@ mod tests {
                 .map(|emission| emission.state),
             Some(AgentState::Idle)
         );
+        assert!(!tracker.needs_identity_presence("term_a", "codex"));
+        tracker.rollback_emission(&ScreenDetectEmission {
+            terminal_id: "term_a".into(),
+            agent: "codex".into(),
+            state: AgentState::Idle,
+            matched_rule: None,
+            visible_idle: false,
+            visible_blocker: false,
+            visible_working: false,
+        });
+        assert!(tracker.needs_identity_presence("term_a", "codex"));
 
         // The scanner calls finish once the deadline passes. It clears the
         // evaluated revision so an unchanged viewport is read exactly once.
