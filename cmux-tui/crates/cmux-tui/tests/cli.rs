@@ -3079,13 +3079,7 @@ fn scoped_terminal_attach_streams_pty_and_detaches_without_killing_terminal() {
     let first_marker = "scoped_attach_lifecycle_marker";
     let write = json_cli(
         &server,
-        &[
-            "terminal",
-            &terminal,
-            "write",
-            "--text",
-            &format!("printf '{first_marker}\\n'; sleep 30\\n"),
-        ],
+        &["terminal", &terminal, "write", "--text", &format!("printf '{first_marker}\\n'\\n")],
     );
     assert_success(&write);
     assert!(
