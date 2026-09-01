@@ -3,7 +3,8 @@
 Audit target: [manaflow-ai/cmux#10599](https://github.com/manaflow-ai/cmux/pull/10599)  
 PR branch: `justincrich/cmux:upstream/file-preview-code-view-tokens-gutter`  
 Maintainer update remote: `https://github.com/justincrich/cmux.git`  
-Audited head: `277b400c854ede0338de97ba1877088813d15e96`
+Audited head: the final pushed PR head (the exact SHA is reported with the
+handoff and on the PR; this report's last code-affecting head is noted below)
 
 The branch includes merge commit `7efb561256` with the required parents
 `d1f2e982cb` and `857b5af7a8396d5239679fbb8341fbd3ca8c541e`. The merge conflict
