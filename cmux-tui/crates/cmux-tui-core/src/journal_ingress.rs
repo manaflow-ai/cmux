@@ -25,6 +25,8 @@ const JOURNAL_DURABLE_WAIT: Duration = Duration::from_secs(2);
 const JOURNAL_COMMIT_RESULT_WAIT: Duration = Duration::from_secs(1);
 const JOURNAL_WRITER_SHUTDOWN_WAIT: Duration = Duration::from_secs(1);
 const JOURNAL_SQLITE_RETRY_SLICE: Duration = Duration::from_millis(100);
+const JOURNAL_RETRY_INITIAL_DELAY: Duration = Duration::from_millis(100);
+const JOURNAL_RETRY_MAX_DELAY: Duration = Duration::from_secs(1);
 const COMMIT_PENDING: u8 = 0;
 const COMMIT_ADMITTED: u8 = 1;
 const COMMIT_CANCELED: u8 = 2;
@@ -954,7 +956,7 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
         let Some(batch) = receive_batch(&receivers) else { return };
         let mut pending = VecDeque::from([batch]);
         while let Some(mut batch) = pending.pop_front() {
-            let mut delay = Duration::from_millis(10);
+            let mut delay = JOURNAL_RETRY_INITIAL_DELAY;
             let mut reported_error = None;
             let mut uncompleted_nonretryable_failures = 0_usize;
             let retry_deadline = batch
@@ -1012,7 +1014,7 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                         if retryable_sqlite_error(&error) {
                             let epoch = mux.journal_event_epoch();
                             mux.wait_for_journal_event(epoch, delay.min(remaining));
-                            delay = (delay * 2).min(Duration::from_secs(1));
+                            delay = (delay * 2).min(JOURNAL_RETRY_MAX_DELAY);
                             continue;
                         }
                         if batch.len() > 1 {
@@ -1030,7 +1032,7 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                             }
                             let epoch = mux.journal_event_epoch();
                             mux.wait_for_journal_event(epoch, delay);
-                            delay = (delay * 2).min(Duration::from_secs(1));
+                            delay = (delay * 2).min(JOURNAL_RETRY_MAX_DELAY);
                             continue;
                         } else if batch[0].completion.is_none() {
                             let failure = receivers.state.fail(format!(
@@ -1235,6 +1237,15 @@ mod tests {
         parse: impl FnOnce(String) -> Result<T, crate::resource::ResourceError>,
     ) -> T {
         parse(format!("{prefix}_{value:032x}")).unwrap()
+    }
+
+    #[test]
+    fn retry_schedule_has_bounded_exponential_spacing() {
+        let mut delay = JOURNAL_RETRY_INITIAL_DELAY;
+        for expected in [100, 200, 400, 800, 1000, 1000] {
+            assert_eq!(delay.as_millis(), expected);
+            delay = (delay * 2).min(JOURNAL_RETRY_MAX_DELAY);
+        }
     }
 
     #[test]
