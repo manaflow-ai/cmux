@@ -444,6 +444,70 @@ class TargetScaleCleanupTests(unittest.TestCase):
             self.assertIn("-TERM 456", signals)
             self.assertIn("-KILL 123", signals, result.stderr)
 
+    def test_cleanup_executes_wait_helper_with_nonzero_grace(self) -> None:
+        script = ROOT / "scripts" / "ci" / "cleanup-target-scale.sh"
+        helper = ROOT / "scripts" / "ci" / "wait-for-pids.py"
+        self.assertTrue(os.access(helper, os.X_OK), "wait helper must remain executable")
+        tag = "test-cleanup-wait-helper"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            signal_log = root / "signals.log"
+            helper_log = root / "wait-helper.log"
+            bash_env = root / "bash-env"
+            (fake_bin / "ps").write_text(
+                "#!/bin/sh\n"
+                "case \" $* \" in\n"
+                "  *' -o user= -p '* ) printf 'runner\\n' ;;\n"
+                "  * ) printf '123 cmux DEV %s.app/Contents/MacOS/cmux DEV\\n' \"$CMUX_TEST_TAG\" ;;\n"
+                "esac\n",
+                encoding="utf-8",
+            )
+            (fake_bin / "lsof").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            # The helper is launched through its executable shebang.  This
+            # shim records the argv and returns the tagged PID as still
+            # pending, so the test covers TERM -> wait -> KILL escalation.
+            (fake_bin / "python3").write_text(
+                "#!/bin/sh\n"
+                "printf '%s|%s\\n' \"$*\" \"$CMUX_WAIT_PIDS\" >> \"$CMUX_WAIT_HELPER_LOG\"\n"
+                "printf '123\\n'\n",
+                encoding="utf-8",
+            )
+            bash_env.write_text(
+                "kill() { printf '%s %s\\n' \"$1\" \"$2\" >> \"$CMUX_TEST_SIGNAL_LOG\"; return 0; }\n",
+                encoding="utf-8",
+            )
+            for command in fake_bin.iterdir():
+                command.chmod(0o755)
+
+            result = subprocess.run(
+                ["bash", str(script), tag],
+                cwd=ROOT,
+                env={
+                    **os.environ,
+                    "HOME": str(root / "home"),
+                    "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                    "CMUX_TEST_TAG": tag,
+                    "CMUX_TEST_SIGNAL_LOG": str(signal_log),
+                    "CMUX_WAIT_HELPER_LOG": str(helper_log),
+                    "CMUX_CLEANUP_TERM_GRACE_SECONDS": "1",
+                    "BASH_ENV": str(bash_env),
+                },
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            helper_call = helper_log.read_text(encoding="utf-8")
+            self.assertIn("wait-for-pids.py", helper_call)
+            self.assertIn("--timeout 1", helper_call)
+            self.assertIn("123", helper_call)
+            signals = signal_log.read_text(encoding="utf-8")
+            self.assertIn("-TERM 123", signals)
+            self.assertIn("-KILL 123", signals)
+
     def test_cleanup_revalidates_tag_before_kill_and_uses_literal_matching(self) -> None:
         script = ROOT / "scripts" / "ci" / "cleanup-target-scale.sh"
         tag = "test.cleanup"
