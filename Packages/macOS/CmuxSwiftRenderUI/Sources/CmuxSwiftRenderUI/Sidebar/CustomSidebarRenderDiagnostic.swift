@@ -139,6 +139,7 @@ public struct CustomSidebarRenderDiagnostic: Sendable {
         window.ignoresMouseEvents = true
         window.contentView = hosting
         window.setContentSize(size)
+        defer { window.close() }
 
         guard let contentView = window.contentView else {
             throw CustomSidebarRenderDiagnosticError.mountFailed
@@ -155,10 +156,26 @@ public struct CustomSidebarRenderDiagnostic: Sendable {
         guard !bounds.isEmpty else {
             throw CustomSidebarRenderDiagnosticError.mountFailed
         }
-        guard let bitmap = hosting.bitmapImageRepForCachingDisplay(in: bounds) else {
+        // `bitmapImageRepForCachingDisplay(in:)` follows the window's backing
+        // scale (2x on a Retina host), which would make a request for 160x90
+        // silently produce a 320x180 PNG. Allocate the representation in the
+        // requested pixel dimensions so the wire metadata and artifact agree
+        // on every display.
+        guard let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: width,
+            pixelsHigh: height,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else {
             throw CustomSidebarRenderDiagnosticError.bitmapFailed
         }
-        bitmap.size = bounds.size
+        bitmap.size = size
         hosting.cacheDisplay(in: bounds, to: bitmap)
         guard let pngData = bitmap.representation(using: .png, properties: [:]) else {
             throw CustomSidebarRenderDiagnosticError.bitmapFailed
