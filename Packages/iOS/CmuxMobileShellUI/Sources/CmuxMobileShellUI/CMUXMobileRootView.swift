@@ -883,12 +883,16 @@ struct CMUXMobileRootView: View {
             isAuthenticated: isAuthenticated,
             connectionPhase: onboardingConnectionPhase,
             connectionMethod: connectionMethodStore?.method ?? .automatic,
+            keepAwakeOffer: OnboardingKeepAwakeOfferSource.offer(from: store),
             onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
             onEnablePush: { await pushCoordinator.enable(trigger: "onboarding") },
             onReachedConnection: markOnboardingReadyToConnect,
             onSkip: completeOnboarding,
             onRetryConnection: retryAutomaticConnection,
             onStartTailscalePairing: showOnboardingPairingScanner,
+            onSetKeepAwake: { [store] enabled in
+                await OnboardingKeepAwakeOfferSource.set(enabled, on: store)
+            },
             onComplete: completeOnboarding
         )
         #else
@@ -1205,6 +1209,11 @@ struct CMUXMobileRootView: View {
         let token = UUID()
         openURLTaskToken = token
         openURLTask = Task { @MainActor in
+            // An explicit pairing attempt supersedes parked timed-out auth
+            // phases: one launch-time Stack call hung on a dead pooled
+            // connection otherwise fast-fails this attempt (`timedOut` within
+            // milliseconds) for the damper's remaining 30s.
+            await authManager.supersedeTimedOutAuthPhases()
             let result = await store.connectPairingURLResult(rawURL)
             guard !Task.isCancelled, openURLTaskToken == token else { return }
             let failure: DiagnosticFailureKind? = switch result {
@@ -1352,7 +1361,12 @@ struct CMUXMobileRootView: View {
                 await dogfoodAttachPreparation.waitUntilReady()
             },
             connect: { rawURL in
-                await store.connectPairingURLResult(rawURL)
+                // Same supersede as the open-URL pairing path: the injected
+                // attach fires seconds after the forced dev sign-in, exactly
+                // when a hung launch-time Stack call has the phase damper
+                // armed, and must not inherit that fast-fail.
+                await authManager.supersedeTimedOutAuthPhases()
+                return await store.connectPairingURLResult(rawURL)
             },
             onCompletion: { completion in
                 if completion.result == .needsUserApproval {

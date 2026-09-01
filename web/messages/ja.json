@@ -24,6 +24,11 @@
         "fork": "再試行しても解決しません。`cmux vm new` で新しい VM を作成してください。",
         "default": "再試行しても解決しません。`cmux vm ls` でマシンを確認するか、問題が続く場合はサポートに連絡してください。"
       }
+    },
+    "requiresPro": {
+      "title": "cmux Pro が必要です",
+      "message": "Cloud VM を利用するには cmux Pro プランが必要です。",
+      "action": "{upgradeUrl} で cmux Pro にアップグレードすると Cloud VM を作成できます。"
     }
   },
   "ios": {

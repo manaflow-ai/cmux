@@ -15,6 +15,11 @@
         "fork": "Prøv ikke igen. Opret en ny VM med `cmux vm new`.",
         "default": "Prøv ikke igen. Kør `cmux vm ls`, eller kontakt support, hvis du mener, at dette er forkert."
       }
+    },
+    "requiresPro": {
+      "title": "cmux Pro påkrævet",
+      "message": "Cloud VM'er kræver en cmux Pro-plan.",
+      "action": "Opgrader til cmux Pro på {upgradeUrl} for at oprette Cloud VM'er."
     }
   },
   "billingRecovery": {

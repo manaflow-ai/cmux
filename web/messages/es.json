@@ -15,6 +15,11 @@
         "fork": "No vuelvas a intentarlo. Crea una nueva VM con `cmux vm new`.",
         "default": "No vuelvas a intentarlo. Ejecuta `cmux vm ls` o contacta con soporte si crees que esto es un error."
       }
+    },
+    "requiresPro": {
+      "title": "Se requiere cmux Pro",
+      "message": "Las Cloud VM requieren un plan cmux Pro.",
+      "action": "Actualiza a cmux Pro en {upgradeUrl} para crear Cloud VM."
     }
   },
   "billingRecovery": {
