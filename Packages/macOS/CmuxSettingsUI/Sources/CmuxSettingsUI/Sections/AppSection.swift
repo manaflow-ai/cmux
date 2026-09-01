@@ -1,4 +1,3 @@
-import AppKit
 import CmuxFoundation
 import CmuxSettings
 import SwiftUI
@@ -57,6 +56,9 @@ public struct AppSection: View {
     @State private var soundName: DefaultsValueModel<String>
     @State private var soundCommand: DefaultsValueModel<String>
     @State private var customSoundFile: DefaultsValueModel<String>
+    @State private var soundOverrides: DefaultsValueModel<String>
+    @State private var soundOverridesModel: NotificationSoundOverridesModel
+    @State private var soundAgents: [NotificationSoundAgentOption] = []
     @State private var telemetry: DefaultsValueModel<Bool>
     @State private var confirmQuit: DefaultsValueModel<ConfirmQuitMode>
     @State private var warnCloseTab: DefaultsValueModel<Bool>
@@ -111,6 +113,10 @@ public struct AppSection: View {
         _soundName = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.sound))
         _soundCommand = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.command))
         _customSoundFile = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.customSoundFilePath))
+        _soundOverrides = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.soundOverrides))
+        _soundOverridesModel = State(initialValue: NotificationSoundOverridesModel(
+            initialJSON: defaultsStore.initialValue(for: catalog.notifications.soundOverrides)
+        ))
         _telemetry = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.sendAnonymousTelemetry))
         _confirmQuit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.confirmQuitMode))
         _warnCloseTab = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingTab))
@@ -121,7 +127,6 @@ public struct AppSection: View {
     }
 
     private static let columnWidth: CGFloat = 196
-    private static let notificationSoundControlWidth: CGFloat = 280
 
     /// Languages legacy `AppLanguage` exposes (cmuxApp.swift line
     /// 4338). The shared `CmuxSettings.AppLanguage` adds `.vi` for a
@@ -140,8 +145,14 @@ public struct AppSection: View {
             mainCard
         }
         .task {
-            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
+            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
+            if soundAgents.isEmpty {
+                soundAgents = await hostActions.notificationSoundAgentOptions()
+            }
             if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
+        }
+        .onChange(of: soundOverrides.current) { _, newValue in
+            soundOverridesModel.accept(newValue)
         }
     }
 
@@ -652,10 +663,46 @@ public struct AppSection: View {
             )
             SettingsCardDivider()
 
-            // Notification Sound — Picker over NSSound names with
-            // Preview button. Custom-file path field appears when the
-            // user selects "custom".
-            notificationSoundRow(model: soundName)
+            NotificationSoundGlobalRow(
+                soundModel: soundName,
+                customFileModel: customSoundFile,
+                hostActions: hostActions
+            )
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("notifications.soundOverrides"),
+                String(localized: "settings.notifications.soundOverrides.title", defaultValue: "Per-Agent Notification Sounds"),
+                subtitle: String(localized: "settings.notifications.soundOverrides.subtitle", defaultValue: "Override the sound for a specific agent and alert type."),
+                verticalAlignment: .top,
+                trailingFillsWidth: true
+            ) {
+                NotificationSoundOverridesView(
+                    parsedOverrides: soundOverridesModel.parsed ?? .empty,
+                    isPersistedValueMalformed: soundOverridesModel.isMalformed,
+                    onChange: { value, agentID, alertType in
+                        guard var overrides = NotificationSoundOverrides(
+                            jsonString: soundOverrides.current
+                        ) else {
+                            // Never replace a malformed persisted matrix with
+                            // an empty one while editing a different cell.
+                            return
+                        }
+                        guard overrides.set(value, forAgentID: agentID, alertType: alertType) else {
+                            return
+                        }
+                        let encoded = overrides.jsonString
+                        // A non-empty matrix must never be replaced by the
+                        // serializer's failure sentinel when a cell contains
+                        // an oversized value.
+                        guard overrides.isEmpty || encoded != "{}" else { return }
+                        soundOverrides.set(encoded)
+                    },
+                    hostActions: hostActions,
+                    agents: soundAgents
+                )
+                .frame(minWidth: 510, maxWidth: .infinity, alignment: .leading)
+            }
             SettingsCardDivider()
 
             // Notification Command
@@ -774,122 +821,6 @@ public struct AppSection: View {
                     .controlSize(.small)
                     .accessibilityIdentifier("CommandPaletteSearchAllSurfacesToggle")
             }
-        }
-    }
-
-    /// Standard macOS notification sound names plus cmux-specific
-    /// sentinels for default / none / custom-file. Matches the
-    /// legacy `NotificationSoundSettings.systemSounds` list shape
-    /// (order, labels, and the `custom_file` sentinel value).
-    private static let customSoundFileValue = "custom_file"
-    private static let systemSoundOptions: [(value: String, label: String)] = [
-        ("default", "Default"),
-        ("Basso", "Basso"),
-        ("Blow", "Blow"),
-        ("Bottle", "Bottle"),
-        ("Frog", "Frog"),
-        ("Funk", "Funk"),
-        ("Glass", "Glass"),
-        ("Hero", "Hero"),
-        ("Morse", "Morse"),
-        ("Ping", "Ping"),
-        ("Pop", "Pop"),
-        ("Purr", "Purr"),
-        ("Sosumi", "Sosumi"),
-        ("Submarine", "Submarine"),
-        ("Tink", "Tink"),
-        (customSoundFileValue, "Custom File..."),
-        ("none", "None"),
-    ]
-
-    @ViewBuilder
-    private func notificationSoundRow(model: DefaultsValueModel<String>) -> some View {
-        let customFile = customSoundFile
-        SettingsCardRow(
-            configurationReview: .json("notifications.sound", "notifications.customSoundFilePath"),
-            String(localized: "settings.notifications.sound.title", defaultValue: "Notification Sound"),
-            subtitle: String(localized: "settings.notifications.sound.subtitle", defaultValue: "Sound played when a notification arrives."),
-            controlWidth: Self.notificationSoundControlWidth
-        ) {
-            VStack(alignment: .trailing, spacing: 6) {
-                HStack(spacing: 6) {
-                    Picker("", selection: Binding(get: { model.current }, set: { model.set($0) })) {
-                        ForEach(Self.systemSoundOptions, id: \.value) { option in
-                            Text(option.label).tag(option.value)
-                        }
-                    }
-                    .labelsHidden()
-                    Button {
-                        hostActions.previewNotificationSound(value: model.current, customFilePath: customFile.current)
-                    } label: {
-                        Image(systemName: "play.fill")
-                            .cmuxFont(size: 9)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(!canPreviewNotificationSound(soundValue: model.current, customFilePath: customFile.current))
-                }
-                if model.current == Self.customSoundFileValue {
-                    HStack(spacing: 6) {
-                        // Legacy AppSection always renders the file
-                        // display name slot, with a "No file selected"
-                        // fallback when the path is empty.
-                        Text(customSoundFileDisplayName(path: customFile.current))
-                            .cmuxFont(size: 11)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .frame(width: 170, alignment: .trailing)
-                        Button(String(localized: "settings.notifications.sound.custom.choose.button", defaultValue: "Choose...")) {
-                            chooseCustomNotificationSound(into: customFile)
-                        }
-                        .controlSize(.small)
-                        Button(String(localized: "settings.notifications.sound.custom.clear.button", defaultValue: "Clear")) {
-                            customFile.reset()
-                        }
-                        .controlSize(.small)
-                        .disabled(customFile.current.isEmpty)
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .trailing)
-        }
-    }
-
-    private func chooseCustomNotificationSound(into model: DefaultsValueModel<String>) {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = Self.customNotificationSoundAllowedContentTypes
-        panel.title = String(localized: "settings.notifications.sound.custom.panelTitle", defaultValue: "Choose Notification Sound")
-        if panel.runModal() == .OK, let url = panel.url {
-            model.set(url.path)
-        }
-    }
-
-    /// Mirrors legacy `notificationSoundCustomFileDisplayName`.
-    private func customSoundFileDisplayName(path: String) -> String {
-        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            return String(
-                localized: "settings.notifications.sound.custom.file.none",
-                defaultValue: "No file selected"
-            )
-        }
-        return URL(fileURLWithPath: trimmed).lastPathComponent
-    }
-
-    /// Mirrors legacy `canPreviewNotificationSound`. Custom-file mode
-    /// can only preview when a path is present.
-    private func canPreviewNotificationSound(soundValue: String, customFilePath: String) -> Bool {
-        switch soundValue {
-        case "none":
-            return false
-        case Self.customSoundFileValue:
-            return !customFilePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        default:
-            return true
         }
     }
 
