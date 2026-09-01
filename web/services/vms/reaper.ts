@@ -313,10 +313,25 @@ function reportOrphanVolumes(
       }
       const remaining = input.scanLimit - summary.orphanVolumes.scanned;
       const requestLimit = Math.max(1, Math.min(VM_REAPER_MAX_BATCH_LIMIT, remaining));
+      // The wall-clock budget must bound the in-flight call too, not only
+      // loop entry: a hung provider request otherwise runs to the platform
+      // limit. Timeout lands in the error branch below as partial coverage.
+      const remainingBudgetMs = Math.max(
+        1_000,
+        VM_REAPER_SCAN_DEADLINE_MS - (Date.now() - scanStartedAtMs),
+      );
       const listed = yield* listVolumes("blaxel", {
         limit: requestLimit,
         ...(cursor ? { cursor } : {}),
-      }).pipe(Effect.either);
+      }).pipe(
+        Effect.timeoutFail({
+          duration: remainingBudgetMs,
+          onTimeout: () => new Error(
+            `provider volume list exceeded the scan deadline (${remainingBudgetMs}ms remaining)`,
+          ),
+        }),
+        Effect.either,
+      );
       if (listed._tag === "Left") {
         summary.orphanVolumes.errors += 1;
         summary.orphanVolumes.coveragePartial = true;
