@@ -1529,6 +1529,10 @@ pub enum PipeIoEvent {
     Output(Vec<u8>),
     SurfaceExited,
     TransportLost,
+    /// The embedder sent a malformed request or an operation failed in a way
+    /// that a reconnect cannot repair. This is distinct from both a clean
+    /// parent close and a daemon transport loss.
+    ProtocolError,
     StdinClosed,
 }
 
@@ -2938,6 +2942,17 @@ impl RemoteSession {
         sender: std::sync::mpsc::SyncSender<PipeIoEvent>,
     ) {
         *self.pipe_io_tap.lock().unwrap() = Some(PipeIoTap { surface, sender });
+    }
+
+    /// Removes a scoped pipe-IO tap when its relay has finished. A relay is
+    /// one-shot, so leaving its sender installed would let a later unrelated
+    /// surface event fill a dead queue and disconnect an otherwise healthy
+    /// session.
+    pub fn clear_pipe_io_tap(&self, surface: SurfaceId) {
+        let mut tap = self.pipe_io_tap.lock().unwrap();
+        if tap.as_ref().is_some_and(|current| current.surface == surface) {
+            *tap = None;
+        }
     }
 
     /// Forwards one tap event, treating a full or dropped queue as a lost

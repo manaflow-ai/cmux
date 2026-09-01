@@ -16,7 +16,8 @@
 //! - stderr: one final JSON line `{"exit":{"reason":...}}`.
 //! - exit code: 0 when the terminal ended or the embedder closed stdin (do
 //!   not respawn), 2 when the daemon connection was lost (respawning
-//!   reattaches and resyncs from a fresh replay).
+//!   reattaches and resyncs from a fresh replay), and 1 when the embedder
+//!   violated this protocol or the relay cannot establish its contract.
 
 use std::io::{BufRead, Write};
 use std::path::Path;
@@ -33,6 +34,9 @@ use crate::session::{PipeIoEvent, RemoteSession, Session, SurfaceAttach, Surface
 pub const EXIT_DO_NOT_RESPAWN: i32 = 0;
 /// The daemon connection was lost: the embedder may respawn to resync.
 pub const EXIT_DAEMON_LOST: i32 = 2;
+/// The request stream or relay contract is invalid. Retrying the same
+/// request cannot repair it.
+pub const EXIT_PROTOCOL_ERROR: i32 = 1;
 
 /// Bounded event queue between the session reader thread and the stdout
 /// pump. A full queue means the embedder stopped reading; the session
@@ -49,6 +53,7 @@ pub enum PipeIoExitReason {
     TerminalEnded,
     DaemonLost,
     ParentClosed,
+    ProtocolError,
 }
 
 impl PipeIoExitReason {
@@ -57,6 +62,7 @@ impl PipeIoExitReason {
             Self::TerminalEnded => "terminal-ended",
             Self::DaemonLost => "daemon-lost",
             Self::ParentClosed => "parent-closed",
+            Self::ProtocolError => "protocol-error",
         }
     }
 
@@ -64,6 +70,7 @@ impl PipeIoExitReason {
         match self {
             Self::TerminalEnded | Self::ParentClosed => EXIT_DO_NOT_RESPAWN,
             Self::DaemonLost => EXIT_DAEMON_LOST,
+            Self::ProtocolError => EXIT_PROTOCOL_ERROR,
         }
     }
 }
@@ -83,11 +90,27 @@ pub enum PipeIoRequest {
 
 pub fn parse_request(line: &str) -> anyhow::Result<PipeIoRequest> {
     let value: serde_json::Value = serde_json::from_str(line)?;
-    if let Some(encoded) = value.get("input").and_then(serde_json::Value::as_str) {
+    if !value.is_object() {
+        anyhow::bail!("a pipe-io request must be a JSON object");
+    }
+    let has_input = value.get("input").is_some();
+    let has_resize = value.get("resize").is_some();
+    if has_input && has_resize {
+        anyhow::bail!("a pipe-io request must contain one verb");
+    }
+    if has_input {
+        let encoded = value
+            .get("input")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| anyhow::anyhow!("input must be a base64 string"))?;
         let bytes = base64::engine::general_purpose::STANDARD.decode(encoded)?;
         return Ok(PipeIoRequest::Input(bytes));
     }
-    if let Some(resize) = value.get("resize") {
+    if has_resize {
+        let resize = value
+            .get("resize")
+            .and_then(serde_json::Value::as_object)
+            .ok_or_else(|| anyhow::anyhow!("resize must be an object"))?;
         let cols = resize.get("cols").and_then(serde_json::Value::as_u64);
         let rows = resize.get("rows").and_then(serde_json::Value::as_u64);
         let (Some(cols), Some(rows)) = (cols, rows) else {
@@ -111,29 +134,102 @@ pub fn run(
     let (sender, receiver) = std::sync::mpsc::sync_channel(EVENT_QUEUE_CAPACITY);
     // Install before attach so the initial replay cannot be missed.
     remote.install_pipe_io_tap(surface, sender.clone());
-    let handle = match session.try_surface_sized(surface, Some((cols.max(1), rows.max(1))))? {
-        SurfaceAttach::Attached(handle) => handle,
-        SurfaceAttach::Retired | SurfaceAttach::Missing => {
+    let handle = match session.try_surface_sized(surface, Some((cols.max(1), rows.max(1)))) {
+        Ok(SurfaceAttach::Attached(handle)) => handle,
+        Ok(SurfaceAttach::Retired | SurfaceAttach::Missing) => {
+            remote.clear_pipe_io_tap(surface);
             return Ok(PipeIoExitReason::TerminalEnded);
         }
-        SurfaceAttach::Deferred => anyhow::bail!("terminal attach was deferred by the server"),
+        Ok(SurfaceAttach::Deferred) => {
+            report_diag("attach", "terminal attach was deferred by the server");
+            remote.clear_pipe_io_tap(surface);
+            return Ok(PipeIoExitReason::ProtocolError);
+        }
+        Err(error) => {
+            report_diag("attach", &error.to_string());
+            let reason = classify_remote_error(&error, surface);
+            remote.clear_pipe_io_tap(surface);
+            return Ok(reason);
+        }
     };
-    // The daemon resizes a terminal's PTY only for its geometry-authority
-    // client (the full TUI client claims this for its active surface). The
-    // relay is the embedder's only viewer of this terminal, so claim the
-    // authority or every embedder resize is recorded but never applied.
-    if let Err(error) = session.claim_terminal_geometry(surface) {
-        eprintln!(
-            "{}",
-            serde_json::json!({"diag": {"claim-terminal-geometry": {"error": error.to_string()}}})
-        );
+    let desired = (cols.max(1), rows.max(1));
+    // Older servers do not carry the initial size in attach-surface. Report
+    // the size after attach so the authority claim has a concrete geometry to
+    // apply. Newer servers answer this as a no-op.
+    if let Err(error) = handle.resize(desired.0, desired.1) {
+        report_diag("initial-resize", &error.to_string());
+        let reason = classify_handle_error(&handle, &error, surface);
+        remote.clear_pipe_io_tap(surface);
+        return Ok(reason);
     }
-    spawn_stdin_pump(handle, sender);
+    // The relay is the sole viewer for this scoped stream. The claim is
+    // required, not advisory: continuing after rejection would make later
+    // resize requests look accepted while another client owns the PTY.
+    if let Err(error) = session.claim_terminal_geometry(surface) {
+        report_diag("claim-terminal-geometry", &error.to_string());
+        let reason = classify_remote_error(&error, surface);
+        remote.clear_pipe_io_tap(surface);
+        return Ok(reason);
+    }
+    // Reassert after claiming in case another viewer changed the PTY between
+    // attach and the authority transition.
+    if let Err(error) = handle.reassert_size(desired.0, desired.1) {
+        report_diag("authoritative-resize", &error.to_string());
+        let reason = classify_handle_error(&handle, &error, surface);
+        remote.clear_pipe_io_tap(surface);
+        return Ok(reason);
+    }
+    spawn_stdin_pump(handle, surface, sender);
     let reason = pump_events_to_stdout(&receiver, &mut std::io::stdout().lock())?;
+    remote.clear_pipe_io_tap(surface);
     if reason == PipeIoExitReason::DaemonLost {
         return Ok(classify_daemon_loss(remote, socket_path, terminal));
     }
     Ok(reason)
+}
+
+fn report_diag(operation: &str, error: &str) {
+    let mut detail = serde_json::Map::new();
+    detail.insert(operation.to_string(), serde_json::json!({"error": error}));
+    eprintln!("{}", serde_json::json!({"diag": detail}));
+}
+
+fn classify_remote_error(error: &anyhow::Error, surface: SurfaceId) -> PipeIoExitReason {
+    if crate::session::is_remote_surface_unavailable(error, surface) {
+        PipeIoExitReason::TerminalEnded
+    } else if crate::session::is_remote_transport_failure(error)
+        || crate::session::is_remote_timeout(error)
+        || crate::session::is_remote_shutdown(error)
+    {
+        PipeIoExitReason::DaemonLost
+    } else {
+        PipeIoExitReason::ProtocolError
+    }
+}
+
+fn classify_handle_error(
+    handle: &SurfaceHandle,
+    error: &anyhow::Error,
+    surface: SurfaceId,
+) -> PipeIoExitReason {
+    if handle.is_dead() || crate::session::is_remote_surface_unavailable(error, surface) {
+        PipeIoExitReason::TerminalEnded
+    } else {
+        classify_remote_error(error, surface)
+    }
+}
+
+fn classify_handle_event(
+    handle: &SurfaceHandle,
+    error: &anyhow::Error,
+    surface: SurfaceId,
+) -> PipeIoEvent {
+    match classify_handle_error(handle, error, surface) {
+        PipeIoExitReason::TerminalEnded => PipeIoEvent::SurfaceExited,
+        PipeIoExitReason::DaemonLost => PipeIoEvent::TransportLost,
+        PipeIoExitReason::ProtocolError => PipeIoEvent::ProtocolError,
+        PipeIoExitReason::ParentClosed => PipeIoEvent::StdinClosed,
+    }
 }
 
 /// The stream ended without a terminal-exit event, but "stream lost" covers
@@ -164,21 +260,33 @@ fn classify_daemon_loss(
 
 /// Forwards embedder requests from stdin until EOF, then reports the closed
 /// parent through the shared event queue.
-fn spawn_stdin_pump(handle: SurfaceHandle, sender: SyncSender<PipeIoEvent>) {
+fn spawn_stdin_pump(handle: SurfaceHandle, surface: SurfaceId, sender: SyncSender<PipeIoEvent>) {
     std::thread::Builder::new()
         .name("pipe-io-stdin".into())
         .spawn(move || {
             let stdin = std::io::stdin();
+            let mut exit_event = PipeIoEvent::StdinClosed;
             for line in stdin.lock().lines() {
-                let Ok(line) = line else { break };
+                let line = match line {
+                    Ok(line) => line,
+                    Err(error) => {
+                        report_diag("stdin", &error.to_string());
+                        exit_event = PipeIoEvent::ProtocolError;
+                        break;
+                    }
+                };
                 if line.trim().is_empty() {
                     continue;
                 }
                 match parse_request(&line) {
                     Ok(PipeIoRequest::Input(bytes)) => {
-                        if handle.write_bytes(&bytes).is_err() {
-                            // The transport owns loss reporting; input can
-                            // only stop early.
+                        if let Err(error) = handle.write_bytes(&bytes) {
+                            report_diag("input", &error.to_string());
+                            exit_event = classify_handle_event(
+                                &handle,
+                                &error,
+                                surface,
+                            );
                             break;
                         }
                     }
@@ -193,23 +301,30 @@ fn spawn_stdin_pump(handle: SurfaceHandle, sender: SyncSender<PipeIoEvent>) {
                                     "diag": {"resize": {"cols": cols, "rows": rows, "accepted": accepted}}
                                 })
                             ),
-                            Err(error) => eprintln!(
-                                "{}",
-                                serde_json::json!({
-                                    "diag": {"resize": {"cols": cols, "rows": rows, "error": error.to_string()}}
-                                })
-                            ),
+                            Err(error) => {
+                                report_diag("resize", &error.to_string());
+                                exit_event = classify_handle_event(
+                                    &handle,
+                                    &error,
+                                    surface,
+                                );
+                                break;
+                            }
                         }
                     }
                     Ok(PipeIoRequest::Unknown) => {}
                     // A malformed line means the embedder side is broken;
                     // stop consuming rather than misinterpreting input.
-                    Err(_) => break,
+                    Err(error) => {
+                        report_diag("stdin", &error.to_string());
+                        exit_event = PipeIoEvent::ProtocolError;
+                        break;
+                    }
                 }
             }
             // Blocking send: the queue is drained until the main loop
             // returns, and a dropped receiver just ends this thread.
-            let _ = sender.send(PipeIoEvent::StdinClosed);
+            let _ = sender.send(exit_event);
         })
         .expect("spawn pipe-io stdin pump");
 }
@@ -233,6 +348,7 @@ fn pump_events_to_stdout(
             PipeIoEvent::Output(bytes) => stdout.write_all(bytes).and_then(|()| stdout.flush()),
             PipeIoEvent::SurfaceExited => return Ok(PipeIoExitReason::TerminalEnded),
             PipeIoEvent::TransportLost => return Ok(PipeIoExitReason::DaemonLost),
+            PipeIoEvent::ProtocolError => return Ok(PipeIoExitReason::ProtocolError),
             PipeIoEvent::StdinClosed => return Ok(PipeIoExitReason::ParentClosed),
         };
         if write_result.is_err() {
@@ -276,9 +392,11 @@ mod tests {
         assert_eq!(PipeIoExitReason::TerminalEnded.exit_code(), EXIT_DO_NOT_RESPAWN);
         assert_eq!(PipeIoExitReason::ParentClosed.exit_code(), EXIT_DO_NOT_RESPAWN);
         assert_eq!(PipeIoExitReason::DaemonLost.exit_code(), EXIT_DAEMON_LOST);
+        assert_eq!(PipeIoExitReason::ProtocolError.exit_code(), EXIT_PROTOCOL_ERROR);
         assert_eq!(PipeIoExitReason::TerminalEnded.as_str(), "terminal-ended");
         assert_eq!(PipeIoExitReason::DaemonLost.as_str(), "daemon-lost");
         assert_eq!(PipeIoExitReason::ParentClosed.as_str(), "parent-closed");
+        assert_eq!(PipeIoExitReason::ProtocolError.as_str(), "protocol-error");
     }
 
     #[test]
@@ -301,6 +419,7 @@ mod tests {
     fn stdout_pump_maps_lifecycle_events_to_exit_reasons() {
         for (event, expected) in [
             (PipeIoEvent::TransportLost, PipeIoExitReason::DaemonLost),
+            (PipeIoEvent::ProtocolError, PipeIoExitReason::ProtocolError),
             (PipeIoEvent::StdinClosed, PipeIoExitReason::ParentClosed),
         ] {
             let (sender, receiver) = std::sync::mpsc::sync_channel(8);
@@ -317,5 +436,12 @@ mod tests {
             pump_events_to_stdout(&receiver, &mut stdout).unwrap(),
             PipeIoExitReason::DaemonLost
         );
+    }
+
+    #[test]
+    fn parse_request_rejects_malformed_known_verbs_and_ambiguous_lines() {
+        assert!(parse_request(r#"{"input":null}"#).is_err());
+        assert!(parse_request(r#"{"resize":null}"#).is_err());
+        assert!(parse_request(r#"{"input":"aGk=","resize":{"cols":80,"rows":24}}"#).is_err());
     }
 }
