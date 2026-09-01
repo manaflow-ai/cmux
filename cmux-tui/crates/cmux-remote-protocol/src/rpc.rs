@@ -1088,6 +1088,19 @@ mod tests {
     }
 
     #[test]
+    fn process_io_rejects_unknown_variant_fields() {
+        let error = serde_json::from_value::<ProcessIo>(serde_json::json!({
+            "type": "pty",
+            "cols": 80,
+            "rows": 24,
+            "term": "xterm-256color",
+            "stdiin": true
+        }))
+        .expect_err("a misspelled process I/O field must not be silently ignored");
+        assert!(error.to_string().contains("unknown field"), "{error}");
+    }
+
+    #[test]
     fn process_handle_spawn_has_a_stable_wire_shape() {
         let request = WorkspaceRequest::SpawnProcessWithHandle {
             process: ProcessId::from_u128(0x5a17),
