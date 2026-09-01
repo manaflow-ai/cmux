@@ -1,5 +1,6 @@
 import AppKit
 import CMUXMobileCore
+import CmuxFoundation
 import SwiftUI
 
 /// Renders the transport chooser and its two pairing presentations.
