@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import type * as StackLib from "../../../lib/stack";
 
@@ -99,7 +99,12 @@ async function stripeCustomerIdForStackUser(stackUserId: string): Promise<string
   const rows = await cloudDb()
     .select({ id: stripeCustomers.id })
     .from(stripeCustomers)
-    .where(eq(stripeCustomers.stackUserId, stackUserId))
+    .where(
+      and(
+        eq(stripeCustomers.stackUserId, stackUserId),
+        isNull(stripeCustomers.stackTeamId),
+      ),
+    )
     .limit(1);
   return rows[0]?.id ?? null;
 }

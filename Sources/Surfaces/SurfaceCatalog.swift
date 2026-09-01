@@ -219,17 +219,26 @@ final class SurfaceCatalog {
 
     /// The only open path. Reuses an existing projection when `reuseExisting` is set and one
     /// exists (focusing it), otherwise asks the provider to materialize a pane.
+    ///
+    /// `reuseInWorkspace` narrows reuse to projections in that local workspace: a pane
+    /// showing the resource in ANOTHER workspace neither satisfies the open nor steals
+    /// focus — the resource materializes at `destination` instead. A workspace's own
+    /// Desktop row uses this so "open this workspace's screen" never teleports to a
+    /// different workspace's VNC pane. Nil keeps the global open-or-focus jump.
     @discardableResult
-    func project(_ id: SurfaceResourceID, into destination: SurfaceDestination, focus: Bool = true, reuseExisting: Bool = true) async throws -> (projection: SurfaceProjection, reused: Bool) {
+    func project(_ id: SurfaceResourceID, into destination: SurfaceDestination, focus: Bool = true, reuseExisting: Bool = true, reuseInWorkspace: UUID? = nil) async throws -> (projection: SurfaceProjection, reused: Bool) {
         guard let resource = resources[id] else { throw SurfaceCatalogError.unknownResource(id) }
-        if reuseExisting, let existing = projections.first(where: { $0.resource == id }) {
+        if reuseExisting, let existing = projections.first(where: { $0.resource == id && (reuseInWorkspace == nil || $0.workspaceID == reuseInWorkspace) }) {
             try claimCompletedMaterializationIfNeeded(id, projection: existing)
             if focus { focusProjection?(existing) }
             return (existing, true)
         }
         guard let provider = providers[id.machine] else { throw SurfaceCatalogError.noProvider(id.machine) }
 
-        if reuseExisting {
+        // Workspace-scoped reuse missed: an in-flight materialization bound elsewhere
+        // must not be adopted either (it would land — and focus — in that other
+        // workspace), so scoped calls go straight to a fresh materialization.
+        if reuseExisting, reuseInWorkspace == nil {
             let waiterID = UUID()
             let result = try await withTaskCancellationHandler {
                 try await awaitMaterialization(

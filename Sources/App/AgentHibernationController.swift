@@ -22,7 +22,6 @@ struct AgentHibernationRecord {
     let processIDs: Set<Int>
     let processIdentities: [Int: AgentPIDProcessIdentity]
     let processLiveness: RestorableAgentProcessLiveness
-
     init(
         key: AgentHibernationPanelKey,
         workspace: Workspace,
