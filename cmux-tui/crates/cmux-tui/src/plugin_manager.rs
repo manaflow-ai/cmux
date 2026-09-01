@@ -1430,6 +1430,28 @@ mod tests {
     }
 
     #[test]
+    fn relative_run_command_cannot_escape_plugin_directory() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-plugin-command-boundary-{}-{}",
+            std::process::id(),
+            now_nanos()
+        ));
+        let plugin_dir = root.join("plugin");
+        let outside_dir = root.join("outside");
+        fs::create_dir_all(&plugin_dir).unwrap();
+        fs::create_dir_all(&outside_dir).unwrap();
+        let outside_executable = outside_dir.join("agent");
+        fs::write(&outside_executable, b"#!/bin/sh\n").unwrap();
+
+        let mut manifest = parse_manifest(&manifest_text("fzf")).unwrap();
+        manifest.run.command[0] = "../outside/agent".into();
+        let error = resolved_run_command(&manifest, &plugin_dir).unwrap_err().to_string();
+        assert!(error.contains("escapes plugin directory"), "{error}");
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn bounded_manifest_reader_rejects_oversized_files() {
         let root = std::env::temp_dir().join(format!(
             "cmux-plugin-manifest-limit-{}-{}",
