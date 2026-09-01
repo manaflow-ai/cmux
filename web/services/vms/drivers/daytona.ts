@@ -9,6 +9,7 @@ import {
   type CmuxRemoteEndpoint,
   type CreateOptions,
   type ExecResult,
+  type VMResumeOptions,
   type SSHEndpoint,
   type SnapshotRef,
   type VMHandle,
@@ -16,6 +17,8 @@ import {
   type VMStatus,
 } from "./types";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
+import { nativeRelayProviderEnvironment } from "../nativeRelay";
+import { shellQuote } from "./wsLease";
 import {
   CMUX_TUI_INSTALL_TIMEOUT_MS,
   CMUX_TUI_PORT,
@@ -23,6 +26,8 @@ import {
   approveCmuxTuiEnrollment,
   cmuxTuiDaemonBuild,
   cmuxTuiDaemonCommand,
+  cmuxNativeRelayProcessHealthyCommand,
+  cmuxNativeRelayInstallCommand,
   cmuxTuiInstallCommand,
   cmuxTuiPinCheckCommand,
   isCmuxTuiDeviceEnrolled,
@@ -128,7 +133,11 @@ export class DaytonaProvider implements VMProvider {
           const sandbox = await client().create(
             {
               snapshot: image,
-              envVars: { ...DEFAULT_SANDBOX_ENVS, ...(options.envs ?? {}) },
+              envVars: {
+                ...DEFAULT_SANDBOX_ENVS,
+                ...(options.envs ?? {}),
+                ...nativeRelayProviderEnvironment(options.nativeRelay),
+              },
               // Persistent cloud computer shape: never auto-stop. Pause/resume is an explicit
               // cmux workflow, mapped onto Daytona stop/start below.
               autoStopInterval: 0,
@@ -137,7 +146,7 @@ export class DaytonaProvider implements VMProvider {
           );
           setSpanAttributes(span, { "cmux.vm.id": sandbox.id });
           try {
-            await this.bootstrapCmuxTui(sandbox);
+            await this.bootstrapCmuxTui(sandbox, options.nativeRelay);
           } catch (err) {
             // A sandbox that failed to bootstrap must not survive as an orphan.
             await sandbox.delete(LIFECYCLE_TIMEOUT_SECONDS).catch((cleanupErr) => {
@@ -211,7 +220,7 @@ export class DaytonaProvider implements VMProvider {
     );
   }
 
-  async resume(vmId: string): Promise<VMHandle> {
+  async resume(vmId: string, options?: VMResumeOptions): Promise<VMHandle> {
     return withVmSpan(
       "cmux.vm.provider.resume",
       { "cmux.vm.provider": "daytona", "cmux.vm.operation": "resume", "cmux.vm.id": vmId },
@@ -223,9 +232,10 @@ export class DaytonaProvider implements VMProvider {
           // start, but heal best-effort here so the first attach after resume
           // doesn't race the entrypoint.
           try {
-            await this.ensureCmuxTuiRunning(sandbox);
+            await this.ensureCmuxTuiRunning(sandbox, options?.nativeRelay);
           } catch (healthErr) {
             recordSpanError(span, healthErr);
+            if (options?.nativeRelay) throw healthErr;
           }
           return {
             provider: "daytona",
@@ -367,23 +377,32 @@ export class DaytonaProvider implements VMProvider {
       async (span) => {
         try {
           const sandbox = await client().get(vmId);
-          await this.ensureCmuxTuiRunning(sandbox);
+          await this.ensureCmuxTuiRunning(sandbox, options?.nativeRelay);
           const invoke = this.cmuxTuiInvoke(sandbox);
           // Preview tokens are invalidated when a sandbox restarts, so mint a fresh
           // route per attach instead of caching one.
-          const preview = await sandbox.getPreviewLink(CMUX_TUI_PORT);
-          const token = preview.token?.trim() ?? "";
-          if (!token) {
-            throw new Error(`preview link for port ${CMUX_TUI_PORT} carried no token`);
+          let route: string;
+          let token: string;
+          if (options?.nativeRelay) {
+            route = options.nativeRelay.routes[0]?.route ?? "";
+            token = "native-relay";
+          } else {
+            const preview = await sandbox.getPreviewLink(CMUX_TUI_PORT);
+            token = preview.token?.trim() ?? "";
+            if (!token) {
+              throw new Error(`preview link for port ${CMUX_TUI_PORT} carried no token`);
+            }
+            const host = preview.url.replace(/^https?:\/\//, "").replace(/\/+$/, "");
+            // The Daytona proxy accepts the preview token as this query parameter
+            // (the Daytona SDK dials its own WebSockets the same way), so the route
+            // carries its ingress auth URL-only, as the cmux-remote contract needs.
+            route = `wss://${host}/v1/link?DAYTONA_SANDBOX_AUTH_KEY=${encodeURIComponent(token)}`;
           }
-          const host = preview.url.replace(/^https?:\/\//, "").replace(/\/+$/, "");
-          // The Daytona proxy accepts the preview token as this query parameter
-          // (the Daytona SDK dials its own WebSockets the same way), so the route
-          // carries its ingress auth URL-only, as the cmux-remote contract needs.
-          const route = `wss://${host}/v1/link?DAYTONA_SANDBOX_AUTH_KEY=${encodeURIComponent(token)}`;
           const expiresAtUnix = Math.floor(Date.now() / 1000) + ROUTE_TOKEN_TTL_SECONDS;
           let invitation: CmuxRemoteEndpoint["invitation"];
-          const enrolled = options?.deviceFingerprint
+          const enrolled = options?.includeInvitation === false
+            ? true
+            : options?.deviceFingerprint
             ? await isCmuxTuiDeviceEnrolled(invoke, options.deviceFingerprint)
             : false;
           if (!enrolled) {
@@ -428,13 +447,19 @@ export class DaytonaProvider implements VMProvider {
   }
 
   /** Installs the pinned binary; the image entrypoint (or the fallback below) runs the daemon. */
-  private async bootstrapCmuxTui(sandbox: Sandbox): Promise<void> {
+  private async bootstrapCmuxTui(sandbox: Sandbox, nativeRelay?: CreateOptions["nativeRelay"]): Promise<void> {
     const source = await resolveCmuxTuiSource("daytona");
     const install = await this.execOrThrow(sandbox, cmuxTuiInstallCommand(source), CMUX_TUI_INSTALL_TIMEOUT_MS).catch((err: unknown) => {
       throw new ProviderError("daytona", `cmux-tui install in ${sandbox.id} failed`, err);
     });
     void install;
-    await this.startCmuxTuiDaemonIfDead(sandbox);
+    if (nativeRelay) {
+      const helper = await this.execResult(sandbox, cmuxNativeRelayInstallCommand());
+      if (!helper || helper.exitCode !== 0) {
+        throw new ProviderError("daytona", `native relay helper install in ${sandbox.id} failed`);
+      }
+    }
+    await this.startCmuxTuiDaemonIfDead(sandbox, nativeRelay);
     await waitForCmuxTuiReady(this.cmuxTuiInvoke(sandbox), "daytona", sandbox.id);
   }
 
@@ -444,9 +469,23 @@ export class DaytonaProvider implements VMProvider {
    * manifest pin change supersedes it. Daytona stop kills processes, so this runs
    * for real after every stop/start cycle that beat the image entrypoint.
    */
-  private async ensureCmuxTuiRunning(sandbox: Sandbox): Promise<void> {
-    const running = await this.execResult(sandbox, "pgrep -f 'cmux-tui server start' >/dev/null 2>&1");
+  private async ensureCmuxTuiRunning(sandbox: Sandbox, nativeRelay?: CreateOptions["nativeRelay"]): Promise<void> {
+    if (nativeRelay) {
+      const helper = await this.execResult(sandbox, cmuxNativeRelayInstallCommand());
+      if (!helper || helper.exitCode !== 0) {
+        throw new ProviderError("daytona", `native relay helper install in ${sandbox.id} failed`);
+      }
+    }
+    const running = await this.execResult(
+      sandbox,
+      nativeRelay
+        ? cmuxNativeRelayProcessHealthyCommand()
+        : "pgrep -f 'cmux-tui server start' >/dev/null 2>&1",
+    );
     if (running?.exitCode === 0) return;
+    if (nativeRelay) {
+      await this.execResult(sandbox, "pkill -f '[c]mux-tui server start' >/dev/null 2>&1 || true");
+    }
     const source = await resolveCmuxTuiSource("daytona");
     const pinned = await this.execResult(sandbox, cmuxTuiPinCheckCommand(source));
     if (pinned?.exitCode !== 0) {
@@ -454,20 +493,23 @@ export class DaytonaProvider implements VMProvider {
         throw new ProviderError("daytona", `cmux-tui install in ${sandbox.id} failed`, err);
       });
     }
-    await this.startCmuxTuiDaemonIfDead(sandbox);
+    await this.startCmuxTuiDaemonIfDead(sandbox, nativeRelay);
     await waitForCmuxTuiReady(this.cmuxTuiInvoke(sandbox), "daytona", sandbox.id);
   }
 
-  private async startCmuxTuiDaemonIfDead(sandbox: Sandbox): Promise<void> {
+  private async startCmuxTuiDaemonIfDead(sandbox: Sandbox, nativeRelay?: CreateOptions["nativeRelay"]): Promise<void> {
     // Prefer the image's supervisor (the registered entrypoint; restarts the daemon
     // if it ever exits); fall back to launching the daemon directly on images that
     // predate the supervisor script.
+    const processCheck = nativeRelay
+      ? cmuxNativeRelayProcessHealthyCommand()
+      : "pgrep -af '[c]mux-tui server start' >/dev/null 2>&1";
     const start = [
-      "if ! pgrep -f 'cmux-tui server start' >/dev/null 2>&1; then",
+      `if ! ${processCheck}; then`,
       `if [ -x ${CMUX_DEVBOX_BOOT_PATH} ]; then`,
       `pgrep -f ${CMUX_DEVBOX_BOOT_PATH.split("/").pop()} >/dev/null 2>&1 || (setsid nohup ${CMUX_DEVBOX_BOOT_PATH} >>/tmp/cmux-devbox-boot.log 2>&1 &);`,
       "else",
-      `(setsid nohup sh -c '${cmuxTuiDaemonCommand()}' >>/tmp/cmux-tui-daemon.log 2>&1 &);`,
+      `(setsid nohup sh -c ${shellQuote(cmuxTuiDaemonCommand(undefined, nativeRelay))} >>/tmp/cmux-tui-daemon.log 2>&1 &);`,
       "fi;",
       "fi",
     ].join(" ");

@@ -15,6 +15,11 @@ actor CloudMachineLink {
         let session: String
     }
 
+    struct ForwardedPort: Sendable, Equatable {
+        let port: Int
+        let url: URL
+    }
+
     enum LinkError: Error, LocalizedError {
         case clientMissing
         case spawnFailed(String)
@@ -42,6 +47,10 @@ actor CloudMachineLink {
 
     private(set) var state: SurfaceLinkState = .connecting
     private(set) var lastError: String?
+    /// True only after the control plane supplied native relay grants for this
+    /// link. Surface ports use this to avoid returning a stale provider-preview
+    /// URL during a transport rollout.
+    private(set) var nativeRelayActive = false
 
     /// Human-readable text for a link failure. Typed cmux errors describe
     /// themselves (`VMClientError` is `CustomStringConvertible`, the link and
@@ -67,6 +76,14 @@ actor CloudMachineLink {
     private var process: Process?
     private var eventsProcess: Process?
     private var inviteFileURL: URL?
+    /// Relay credentials are shared by the headless link and local forwards. The
+    /// file paths stay fixed while the ticket contents rotate, so cmux-tui can
+    /// read a fresh credential whenever it reconnects without seeing a Stack token.
+    private var relayTicketFiles: [String: URL] = [:]
+    private var relayRefreshTask: Task<Void, Never>?
+    private var forwardProcesses: [Int: Process] = [:]
+    private var forwardProcessTokens: [Int: UUID] = [:]
+    private var forwardURLs: [Int: URL] = [:]
     private var stderrTail: [String] = []
 
     /// One tick per daemon-side change (from `session current events`) or link state
@@ -84,7 +101,16 @@ actor CloudMachineLink {
     var isConnected: Bool { connected != nil && state == .connected }
 
     /// Spawns the headless client against `route` and waits for its local socket.
-    func connect(route: String, session: String, invitationURI: String?, timeout: Duration = .seconds(60)) async throws -> Connected {
+    /// Relay tickets are kept in short-lived mode-0600 files because the CLI
+    /// rejects inline credentials and must be able to refresh them on reconnect.
+    func connect(
+        route: String,
+        session: String,
+        invitationURI: String?,
+        relayGrants: [VMCmuxRemoteEndpoint.RelayGrant] = [],
+        relayRefresh: (@Sendable () async throws -> [VMCmuxRemoteEndpoint.RelayGrant])? = nil,
+        timeout: Duration = .seconds(60)
+    ) async throws -> Connected {
         if let connected, state == .connected { return connected }
         try paths.ensureStateDir()
         var inviteFilePath: String?
@@ -96,13 +122,29 @@ actor CloudMachineLink {
             inviteFileURL = url
             inviteFilePath = url.path
         }
+        do {
+            try installRelayTicketFiles(relayGrants)
+        } catch {
+            removeInviteFile()
+            removeRelayTicketFiles()
+            throw error
+        }
+        let relayArguments: [CloudTuiCommandLine.RelayAccess]
+        do {
+            relayArguments = try relayAccess(for: relayGrants)
+        } catch {
+            removeInviteFile()
+            removeRelayTicketFiles()
+            throw error
+        }
         let process = Process()
         process.executableURL = clientURL
         process.arguments = CloudTuiCommandLine.linkArguments(
             route: route,
             deviceName: CloudTuiClientPaths.deviceName(),
             stateDir: paths.stateDir.path,
-            inviteFilePath: inviteFilePath
+            inviteFilePath: inviteFilePath,
+            relayAccess: relayArguments
         )
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_REMOTE_STATE_DIR"] = paths.stateDir.path
@@ -124,6 +166,7 @@ actor CloudMachineLink {
             state = .error
             lastError = Self.errorText(error)
             removeInviteFile()
+            removeRelayTicketFiles()
             throw LinkError.spawnFailed(error.localizedDescription)
         }
         self.process = process
@@ -150,30 +193,146 @@ actor CloudMachineLink {
             }
             defer { group.cancelAll() }
             guard let first = try await group.next(), let socket = first else {
+                process.terminate()
                 throw LinkError.timedOut
             }
             return socket
         }
         guard process.isRunning else {
+            removeRelayTicketFiles()
             throw LinkError.exited(status: process.terminationStatus, output: stderrTail.joined(separator: "\n"))
         }
         let connected = Connected(socketPath: socketPath, session: session)
         self.connected = connected
         state = .connected
+        nativeRelayActive = !relayGrants.isEmpty
+        startRelayRefresh(grants: relayGrants, refresh: relayRefresh)
         startEventsSubscription(socketPath: socketPath)
         changesContinuation.yield()
         return connected
     }
 
     func disconnect() {
+        relayRefreshTask?.cancel()
+        relayRefreshTask = nil
+        for process in forwardProcesses.values { process.terminate() }
+        forwardProcesses.removeAll()
+        forwardProcessTokens.removeAll()
+        forwardURLs.removeAll()
         eventsProcess?.terminate()
         eventsProcess = nil
         process?.terminate()
         process = nil
         connected = nil
+        nativeRelayActive = false
         state = .unavailable
         removeInviteFile()
+        removeRelayTicketFiles()
         changesContinuation.finish()
+    }
+
+    /// Starts (or reuses) a local loopback forward for one remote port. The
+    /// cmux-tui forward command owns the authenticated TcpTunnel connection;
+    /// this actor only supervises its process and exposes the local URL.
+    func forward(
+        port: Int,
+        endpoint: VMOpenPortEndpoint,
+        timeout: Duration = .seconds(60)
+    ) async throws -> ForwardedPort {
+        guard endpoint.transport == "cmux-remote",
+              let route = endpoint.route, !route.isEmpty,
+              !endpoint.relays.isEmpty,
+              (1...65535).contains(port) else {
+            throw LinkError.spawnFailed("Cloud VM did not return a native relay port endpoint.")
+        }
+        if let existing = forwardProcesses[port], existing.isRunning, let url = forwardURLs[port] {
+            return ForwardedPort(port: port, url: url)
+        }
+        if let stale = forwardProcesses.removeValue(forKey: port) { stale.terminate() }
+        forwardProcessTokens[port] = nil
+        forwardURLs[port] = nil
+        try paths.ensureStateDir()
+
+        let token = UUID()
+        do {
+            try installOrRefreshRelayTicketFiles(endpoint.relays)
+        } catch {
+            throw error
+        }
+        let relayAccess = try relayAccess(for: endpoint.relays)
+
+        let process = Process()
+        process.executableURL = clientURL
+        process.arguments = CloudTuiCommandLine.forwardArguments(
+            route: route,
+            workspaceRoot: "/root",
+            port: port,
+            relayAccess: relayAccess,
+            inviteFilePath: nil
+        )
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_REMOTE_STATE_DIR"] = paths.stateDir.path
+        process.environment = environment
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+        process.standardInput = FileHandle.nullDevice
+        process.terminationHandler = { [weak self] terminated in
+            let status = terminated.terminationStatus
+            Task { await self?.forwardProcessDidExit(port: port, token: token, status: status) }
+        }
+        let firstURL = CloudLinkFirstValue<URL>()
+        let stdoutLines = CloudLinkPipe.lines(from: stdout.fileHandleForReading)
+        Task.detached {
+            for await line in stdoutLines {
+                if let url = URL(string: line.trimmingCharacters(in: .whitespacesAndNewlines)),
+                   let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" {
+                    firstURL.resolve(url)
+                }
+            }
+            firstURL.resolve(nil)
+        }
+        drainStderr(stderr.fileHandleForReading)
+        do {
+            try process.run()
+        } catch {
+            throw LinkError.spawnFailed(error.localizedDescription)
+        }
+        forwardProcesses[port] = process
+        forwardProcessTokens[port] = token
+        var url: URL?
+        do {
+            url = try await withThrowingTaskGroup(of: URL?.self) { group in
+                group.addTask { await firstURL.result }
+                group.addTask {
+                    try await Task.sleep(for: timeout)
+                    return nil
+                }
+                defer { group.cancelAll() }
+                return try await group.next() ?? nil
+            }
+        } catch {
+            process.terminate()
+            throw error
+        }
+        guard let url else {
+            process.terminate()
+            throw LinkError.timedOut
+        }
+        guard process.isRunning else {
+            throw LinkError.exited(status: process.terminationStatus, output: stderrTail.joined(separator: "\n"))
+        }
+        forwardURLs[port] = url
+        return ForwardedPort(port: port, url: url)
+    }
+
+    /// Returns a live local listener without minting another control-plane
+    /// endpoint. The process check closes the small race where the termination
+    /// callback has not reached this actor yet.
+    func forwardedURL(port: Int) -> URL? {
+        guard let process = forwardProcesses[port], process.isRunning else { return nil }
+        return forwardURLs[port]
     }
 
     /// Runs one cmux-tui command against the link's socket and returns its stdout.
@@ -261,9 +420,17 @@ actor CloudMachineLink {
     private func linkProcessDidExit(status: Int32) {
         eventsProcess?.terminate()
         eventsProcess = nil
+        relayRefreshTask?.cancel()
+        relayRefreshTask = nil
+        for forward in forwardProcesses.values { forward.terminate() }
+        forwardProcesses.removeAll()
+        forwardProcessTokens.removeAll()
+        forwardURLs.removeAll()
         process = nil
         connected = nil
+        nativeRelayActive = false
         removeInviteFile()
+        removeRelayTicketFiles()
         if state != .unavailable {
             state = status == 0 ? .unavailable : .error
             lastError = status == 0 ? nil : LinkError.exited(status: status, output: stderrTail.joined(separator: "\n")).errorDescription
@@ -272,10 +439,186 @@ actor CloudMachineLink {
         changesContinuation.finish()
     }
 
+    private func forwardProcessDidExit(port: Int, token: UUID, status: Int32) {
+        guard forwardProcessTokens[port] == token else { return }
+        forwardProcessTokens[port] = nil
+        forwardProcesses[port] = nil
+        forwardURLs[port] = nil
+        if status != 0 { changesContinuation.yield() }
+    }
+
     private func removeInviteFile() {
         if let inviteFileURL {
             try? FileManager.default.removeItem(at: inviteFileURL)
             self.inviteFileURL = nil
+        }
+    }
+
+    private func removeRelayTicketFiles() {
+        for url in relayTicketFiles.values {
+            try? FileManager.default.removeItem(at: url)
+        }
+        relayTicketFiles.removeAll()
+        // Do not remove the shared per-machine directory. A second app instance
+        // can have a live forward for the same VM; only this link's file names
+        // are owned here. The directory contains no credential after the files
+        // above are removed and remains mode 0700.
+    }
+
+    // MARK: - relay credentials
+
+    private var relayTicketDirectory: URL {
+        // Keep credentials below the app-owned 0700 state directory, not in
+        // the shared system temporary directory. The prefix prevents a
+        // malformed machine id from becoming `.` or `..` if this path is ever
+        // constructed from an untrusted API response.
+        let safeID = machineID
+            .replacingOccurrences(of: "[^A-Za-z0-9._-]", with: "-", options: .regularExpression)
+            .prefix(80)
+        return paths.stateDir
+            .appendingPathComponent("relay-tickets", isDirectory: true)
+            .appendingPathComponent("machine-\(safeID.isEmpty ? "unknown" : String(safeID))", isDirectory: true)
+    }
+
+    private func ensureRelayTicketDirectory() throws {
+        try FileManager.default.createDirectory(
+            at: relayTicketDirectory,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: relayTicketDirectory.path)
+    }
+
+    private func installRelayTicketFiles(
+        _ grants: [VMCmuxRemoteEndpoint.RelayGrant]
+    ) throws {
+        removeRelayTicketFiles()
+        guard !grants.isEmpty else { return }
+        try ensureRelayTicketDirectory()
+        var installed: [String: URL] = [:]
+        do {
+            for grant in grants {
+                guard installed[grant.route] == nil else {
+                    throw LinkError.spawnFailed("Cloud VM returned a repeated relay route.")
+                }
+                let url = relayTicketDirectory
+                    .appendingPathComponent("cmux-cloud-relay-ticket-\(UUID().uuidString.lowercased())")
+                try writeRelayTicket(grant.ticket, to: url)
+                installed[grant.route] = url
+            }
+            relayTicketFiles = installed
+        } catch {
+            for url in installed.values { try? FileManager.default.removeItem(at: url) }
+            throw error
+        }
+    }
+
+    /// A port endpoint is minted by a separate request, so refresh its ticket
+    /// contents before starting a forward. The route set must remain stable,
+    /// because cmux-tui receives the route list only at process launch.
+    private func installOrRefreshRelayTicketFiles(
+        _ grants: [VMCmuxRemoteEndpoint.RelayGrant]
+    ) throws {
+        guard !grants.isEmpty else {
+            throw LinkError.spawnFailed("Cloud VM returned no relay credentials.")
+        }
+        let routes = Set(grants.map(\.route))
+        if relayTicketFiles.isEmpty {
+            try installRelayTicketFiles(grants)
+            return
+        }
+        guard routes == Set(relayTicketFiles.keys) else {
+            throw LinkError.spawnFailed("Cloud VM changed its relay routes while the link was active.")
+        }
+        for grant in grants {
+            guard let url = relayTicketFiles[grant.route] else {
+                throw LinkError.spawnFailed("Cloud VM returned an unknown relay route.")
+            }
+            try writeRelayTicket(grant.ticket, to: url)
+        }
+    }
+
+    private func relayAccess(
+        for grants: [VMCmuxRemoteEndpoint.RelayGrant]
+    ) throws -> [CloudTuiCommandLine.RelayAccess] {
+        try grants.map { grant in
+            guard let url = relayTicketFiles[grant.route] else {
+                throw LinkError.spawnFailed("Cloud VM relay credential file is unavailable.")
+            }
+            return CloudTuiCommandLine.RelayAccess(route: grant.route, slot: grant.slot, ticketFilePath: url.path)
+        }
+    }
+
+    private func writeRelayTicket(_ ticket: String, to url: URL) throws {
+        guard !ticket.isEmpty, ticket.count <= 4096,
+              !ticket.contains(where: { $0 == "\n" || $0 == "\r" || $0.isWhitespace }) else {
+            throw LinkError.spawnFailed("Cloud VM returned an invalid relay ticket.")
+        }
+        let temporary = url.deletingLastPathComponent()
+            .appendingPathComponent(".cmux-cloud-relay-ticket-\(UUID().uuidString.lowercased())")
+        do {
+            try (ticket + "\n").data(using: .utf8)!.write(to: temporary, options: .atomic)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: temporary.path)
+            if FileManager.default.fileExists(atPath: url.path) {
+                _ = try FileManager.default.replaceItemAt(url, withItemAt: temporary)
+            } else {
+                try FileManager.default.moveItem(at: temporary, to: url)
+            }
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        } catch {
+            try? FileManager.default.removeItem(at: temporary)
+            throw error
+        }
+    }
+
+    private func startRelayRefresh(
+        grants: [VMCmuxRemoteEndpoint.RelayGrant],
+        refresh: (@Sendable () async throws -> [VMCmuxRemoteEndpoint.RelayGrant])?
+    ) {
+        relayRefreshTask?.cancel()
+        relayRefreshTask = nil
+        guard let refresh, !grants.isEmpty else { return }
+        relayRefreshTask = Task { [weak self] in
+            await self?.relayRefreshLoop(initialGrants: grants, refresh: refresh)
+        }
+    }
+
+    private func relayRefreshLoop(
+        initialGrants: [VMCmuxRemoteEndpoint.RelayGrant],
+        refresh: @Sendable () async throws -> [VMCmuxRemoteEndpoint.RelayGrant]
+    ) async {
+        var grants = initialGrants
+        var retrySeconds: UInt64 = 5
+        while !Task.isCancelled {
+            let now = Int64(Date().timeIntervalSince1970)
+            let refreshAt = grants.map(\.refreshAfterUnix).min() ?? now + 60
+            let waitSeconds = max(1, min(120, refreshAt - now))
+            do {
+                try await Task.sleep(for: .seconds(waitSeconds))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            do {
+                let next = try await refresh()
+                guard !Task.isCancelled, state == .connected else { return }
+                try installOrRefreshRelayTicketFiles(next)
+                grants = next
+                retrySeconds = 5
+            } catch {
+                #if DEBUG
+                cmuxDebugLog("cloud.link.relayRefreshFailed machine=\(machineID) error=\(Self.errorText(error))")
+                #endif
+                // Keep the previous file until its expiry, then retry with a
+                // bounded delay. cmux-tui's own reconnect loop will fail over
+                // between shards while this broker request is unavailable.
+                do {
+                    try await Task.sleep(for: .seconds(retrySeconds))
+                } catch {
+                    return
+                }
+                retrySeconds = min(retrySeconds * 2, 60)
+            }
         }
     }
 }
@@ -377,7 +720,8 @@ final class CloudLinkFirstValue<Value: Sendable>: @unchecked Sendable {
 
     private let lock = NSLock()
     private var state: State = .pending
-    private var waiters: [CheckedContinuation<Value?, Never>] = []
+    private var waiters: [UUID: CheckedContinuation<Value?, Never>] = [:]
+    private var cancelledWaiters: Set<UUID> = []
 
     func resolve(_ value: Value?) {
         lock.lock()
@@ -386,8 +730,9 @@ final class CloudLinkFirstValue<Value: Sendable>: @unchecked Sendable {
             return
         }
         state = .done(value)
-        let waiting = waiters
-        waiters = []
+        let waiting = Array(waiters.values)
+        waiters = [:]
+        cancelledWaiters.removeAll()
         lock.unlock()
         for waiter in waiting {
             waiter.resume(returning: value)
@@ -396,16 +741,39 @@ final class CloudLinkFirstValue<Value: Sendable>: @unchecked Sendable {
 
     var result: Value? {
         get async {
-            await withCheckedContinuation { continuation in
-                lock.lock()
-                if case .done(let value) = state {
-                    lock.unlock()
-                    continuation.resume(returning: value)
-                } else {
-                    waiters.append(continuation)
-                    lock.unlock()
+            let waiterID = UUID()
+            return await withTaskCancellationHandler {
+                await withCheckedContinuation { continuation in
+                    lock.lock()
+                    if case .done(let value) = state {
+                        lock.unlock()
+                        continuation.resume(returning: value)
+                    } else if Task.isCancelled || cancelledWaiters.remove(waiterID) != nil {
+                        lock.unlock()
+                        continuation.resume(returning: nil)
+                    } else {
+                        waiters[waiterID] = continuation
+                        lock.unlock()
+                    }
                 }
+            } onCancel: {
+                cancel(waiterID)
             }
+        }
+    }
+
+    private func cancel(_ waiterID: UUID) {
+        lock.lock()
+        if let continuation = waiters.removeValue(forKey: waiterID) {
+            lock.unlock()
+            continuation.resume(returning: nil)
+        } else if case .pending = state {
+            // Cancellation can race registration. Keep a marker for the
+            // operation closure, which removes it while holding the same lock.
+            cancelledWaiters.insert(waiterID)
+            lock.unlock()
+        } else {
+            lock.unlock()
         }
     }
 }

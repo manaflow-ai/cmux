@@ -236,6 +236,9 @@ describe("Freestyle beta platform contract", () => {
       { action: "allow", source: {}, destination: { public: true } },
       { action: "allow", source: { public: true }, destination: { port: 1337, protocol: "tcp" } },
     ]);
+    expect(freestyleBetaFirewallRules(true)).toEqual([
+      { action: "allow", source: {}, destination: { public: true } },
+    ]);
   });
 
   test("cmux-remote route is the public IPv6 straight to the daemon", () => {
@@ -255,6 +258,25 @@ describe("Freestyle beta platform contract", () => {
     expect(start).toContain("Environment=CMUX_TUI_REMOTE_WS_BIND=[::]:1337");
     expect(start).toContain("systemctl restart cmux-tui-daemon");
     expect(start).toContain("--remote-ws [::]:1337"); // non-systemd fallback
+  });
+
+  test("native relay supervision loads the root-only bootstrap file and checks the helper", () => {
+    const nativeHealth = freestyleBetaDaemonHealthyCommand(true);
+    expect(nativeHealth).toContain("--relay-ticket-command /usr/local/libexec/cmux-native-relay-ticket");
+    expect(nativeHealth).not.toContain("/proc/net/tcp6");
+    const nativeStart = freestyleBetaStartDaemonCommand({
+      slot: "vm-id",
+      ticketUrl: "https://cmux.example/api/internal/vm/id/relay-ticket",
+      bootstrapToken: "bootstrap-token",
+      routes: [
+        { id: "relay-a", route: "relay+wss://relay-a.example/v1/relay", slot: "vm-id" },
+        { id: "relay-b", route: "relay+wss://relay-b.example/v1/relay", slot: "vm-id" },
+      ],
+    });
+    expect(nativeStart).toContain("EnvironmentFile=-/root/.config/cmux/native-relay.env");
+    expect(nativeStart).toContain("rm -f /etc/systemd/system/cmux-tui-daemon.service.d/10-cmux-remote-ws-bind.conf");
+    expect(nativeStart).toContain("cmux-native-relay-daemon");
+    expect(nativeStart).toContain("sh -c");
   });
 
   test("model-plane env renders the exact file agent-config.sh persists", () => {

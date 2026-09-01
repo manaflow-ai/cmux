@@ -39,6 +39,7 @@ import type {
   CmuxRemoteApprovalResult,
   CmuxRemoteAttachOptions,
   CmuxRemoteEndpoint,
+  VMResumeOptions,
 } from "./types";
 
 // Freestyle VMs reach the outside world only via their SSH gateway, which terminates on
@@ -250,8 +251,8 @@ export class FreestyleProvider implements VMProvider {
     );
   }
 
-  async resume(vmId: string): Promise<VMHandle> {
-    if (isFreestyleBetaVmId(vmId)) return this.beta.resume(vmId);
+  async resume(vmId: string, options?: VMResumeOptions): Promise<VMHandle> {
+    if (isFreestyleBetaVmId(vmId)) return this.beta.resume(vmId, options);
     return withVmSpan(
       "cmux.vm.provider.resume",
       {

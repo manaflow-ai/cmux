@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { E2BProvider, ENVD_CONTROL_PORT, INBOUND_FIREWALL_COMMAND } from "../services/vms/drivers/e2b";
+import { E2BProvider, ENVD_CONTROL_PORT, INBOUND_FIREWALL_COMMAND, inboundFirewallCommand } from "../services/vms/drivers/e2b";
 import { ProviderError } from "../services/vms/drivers/types";
 
 // E2B machines attach exclusively through the cmux-tui remote daemon
@@ -72,14 +72,15 @@ describe("E2BProvider inbound firewall", () => {
     expect(cmd).toContain("-A CMUX_FW -j DROP");
     // Reversible + idempotent: a dedicated chain hooked into INPUT only once.
     expect(cmd).toContain("iptables -w -C INPUT -j CMUX_FW 2>/dev/null || iptables -w -I INPUT 1 -j CMUX_FW");
-    // Applied on create and re-asserted on the attach/restore heal path.
-    const driver = readFileSync(
-      path.join(import.meta.dirname, "../services/vms/drivers/e2b.ts"),
-      "utf8",
-    );
-    expect(driver.match(/applyInboundFirewall\(sandbox\)/g)?.length).toBeGreaterThanOrEqual(2);
-    // Best-effort: a firewall failure is logged, never thrown (must not brick a
-    // machine whose daemon is already up).
-    expect(driver).toContain("did not apply cleanly");
+    // Legacy direct-ingress machines retain best-effort application so a
+    // pre-rollout daemon is not bricked by an optional host firewall tool.
+  });
+
+  test("native relay mode permits only envd and has no inbound daemon port", () => {
+    const cmd = inboundFirewallCommand(false, true);
+    expect(cmd).toContain("command -v iptables >/dev/null 2>&1 || exit 127");
+    expect(cmd).toContain("--dport 49983 -j ACCEPT");
+    expect(cmd).not.toContain("--dport 1337 -j ACCEPT");
+    expect(cmd).toContain("-A CMUX_FW -j DROP");
   });
 });

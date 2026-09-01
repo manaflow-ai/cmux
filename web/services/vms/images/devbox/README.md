@@ -16,13 +16,19 @@ Blaxel counterparts, so edit both copies together.
 
 ## Session daemon: cmux-tui
 
-Every provider attaches through the cmux-tui remote daemon on port 1337
-(transport `cmux-remote`, docs/cloud-cmux-tui-daemon.md) — the same model as
-Blaxel. The binary is NOT baked: each driver installs the pinned
+Every provider attaches through the cmux-tui remote daemon (transport
+`cmux-remote`, docs/cloud-cmux-tui-daemon.md). Native relay machines use an
+outbound-only daemon session and do not expose port 1337. Legacy machines keep
+the direct provider listener on port 1337. The binary is NOT baked: each driver installs the pinned
 files.cmux.com build (sha256-verified) at create time and heals pin drift on
 attach (`web/services/vms/drivers/cmuxTuiDaemon.ts`). The image ships only
 `cmux-devbox-boot`, the supervisor that waits for the binary and restarts
 the daemon:
+
+Native relay machines receive two redundant relay routes and a machine-scoped
+bootstrap credential. The daemon fetches short-lived tickets from the control
+plane, sends PTY, browser, and loopback port traffic as opaque encrypted frames,
+and the local client binds forwarded ports to 127.0.0.1 only.
 
 - e2b: no start command; the driver starts the daemon as a root background
   command (E2B pause/resume preserves processes) and heals on attach. The

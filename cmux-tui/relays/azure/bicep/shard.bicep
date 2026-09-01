@@ -631,5 +631,5 @@ resource appGateway 'Microsoft.Network/applicationGateways@2023-11-01' = {
 }
 
 output relayHostname string = publicIp.properties.dnsSettings.fqdn
-output relayRoute string = 'relay+wss://${publicIp.properties.dnsSettings.fqdn}'
+output relayRoute string = 'relay+wss://${publicIp.properties.dnsSettings.fqdn}/v1/relay'
 output shardName string = shard

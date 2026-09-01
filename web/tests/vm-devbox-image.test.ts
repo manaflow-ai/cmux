@@ -423,7 +423,9 @@ describe("model-plane env reaches provider creates", () => {
       path.join(import.meta.dirname, "../services/vms/drivers/e2b.ts"),
       "utf8",
     );
-    expect(driver).toContain("envs: { ...DEFAULT_SANDBOX_ENVS, ...(options.envs ?? {}) }");
+    expect(driver).toContain("envs: {");
+    expect(driver).toContain("...nativeRelayProviderEnvironment(options.nativeRelay)");
+    expect(driver).toContain("...(options.envs ?? {})");
   });
 
   test("daytona create forwards options.envs", () => {
@@ -431,6 +433,8 @@ describe("model-plane env reaches provider creates", () => {
       path.join(import.meta.dirname, "../services/vms/drivers/daytona.ts"),
       "utf8",
     );
-    expect(driver).toContain("envVars: { ...DEFAULT_SANDBOX_ENVS, ...(options.envs ?? {}) }");
+    expect(driver).toContain("envVars: {");
+    expect(driver).toContain("...nativeRelayProviderEnvironment(options.nativeRelay)");
+    expect(driver).toContain("...(options.envs ?? {})");
   });
 });

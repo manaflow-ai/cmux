@@ -193,7 +193,34 @@ extension TerminalController {
             }
             return v2VmCall(id: id) {
                 let endpoint = try await VMClient.shared.openPort(id: vmId, port: port)
-                return ["url": endpoint.url, "token": endpoint.token, "open_url": endpoint.openUrl]
+                var payload: [String: Any] = [
+                    "url": endpoint.url,
+                    "token": endpoint.token,
+                    "open_url": endpoint.openUrl,
+                    "transport": endpoint.transport,
+                ]
+                if let route = endpoint.route { payload["route"] = route }
+                if let endpointPort = endpoint.port { payload["port"] = endpointPort }
+                if !endpoint.relays.isEmpty {
+                    payload["relays"] = endpoint.relays.map { relay in
+                        [
+                            "shard_id": relay.shardID,
+                            "route": relay.route,
+                            "slot": relay.slot,
+                            "ticket": relay.ticket,
+                            "expires_at_unix": relay.expiresAtUnix,
+                            "refresh_after_unix": relay.refreshAfterUnix,
+                        ]
+                    }
+                }
+                if let invitation = endpoint.invitation {
+                    payload["invitation"] = [
+                        "uri": invitation.uri,
+                        "invitation_id": invitation.invitationId,
+                        "expires_at_unix": invitation.expiresAtUnix,
+                    ]
+                }
+                return payload
             }
         case "vm.cloud_agent_open":
             // Shared entrypoint with the Machines panel's cloud-agent menu:
@@ -262,6 +289,18 @@ extension TerminalController {
                     if let remoteProtocol = build.remoteProtocol { raw["remote_protocol"] = remoteProtocol }
                     if let version = build.version { raw["version"] = version }
                     payload["daemon_build"] = raw
+                }
+                if !endpoint.relays.isEmpty {
+                    payload["relays"] = endpoint.relays.map { relay in
+                        [
+                            "shard_id": relay.shardID,
+                            "route": relay.route,
+                            "slot": relay.slot,
+                            "ticket": relay.ticket,
+                            "expires_at_unix": relay.expiresAtUnix,
+                            "refresh_after_unix": relay.refreshAfterUnix,
+                        ]
+                    }
                 }
                 if let invitation = endpoint.invitation {
                     payload["invitation"] = [

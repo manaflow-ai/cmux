@@ -80,4 +80,46 @@ describe("Cloud VM access revocation", () => {
     expect(revokedProviderVMs).toEqual(["machine-a"]);
     expect(markedLeaseIDs.sort()).toEqual(["lease-a", "lease-b"]);
   });
+
+  test("does not call provider cleanup for native relay leases", async () => {
+    const revokedProviderVMs: string[] = [];
+    const leases = [{
+      id: "lease-native",
+      vmId: "vm-native",
+      userId: "user-a",
+      kind: "pty",
+      tokenHash: "hash-native",
+      providerIdentityHandle: null,
+      sessionId: "session-native",
+      transport: "cmux-remote",
+      metadata: { nativeRelay: true },
+      expiresAt: new Date(Date.now() + 60_000),
+      consumedAt: null,
+      revokedAt: null,
+      createdAt: new Date(),
+      provider: "blaxel",
+      providerVmId: "machine-native",
+    }] as unknown as CloudVmAccessLeaseRow[];
+    const repo = {
+      activeAccessLeasesForUser: () => Effect.succeed(leases),
+      markLeasesRevoked: () => Effect.void,
+    } as unknown as VmRepositoryShape;
+    const provider = {
+      revokeEndpointLeases: (_provider: string, providerVmId: string) => {
+        revokedProviderVMs.push(providerVmId);
+        return Effect.void;
+      },
+    } as unknown as VmProviderGatewayShape;
+    const layer = Layer.mergeAll(
+      Layer.succeed(VmRepository, repo),
+      Layer.succeed(VmProviderGateway, provider),
+    );
+
+    const result = await Effect.runPromise(
+      revokeUserVmAccess({ userId: "user-a" }).pipe(Effect.provide(layer)),
+    );
+
+    expect(result.revoked).toBe(1);
+    expect(revokedProviderVMs).toEqual([]);
+  });
 });

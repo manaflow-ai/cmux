@@ -64,15 +64,20 @@ export async function POST(
           providerVmId: id,
           port,
         }));
-        // People see and keep openUrl, so it points at the cmux desktop
-        // wrapper (`cmux_token` on our origin, honest expiry screen); the raw
-        // gateway URL and token stay available for programmatic callers.
+        // Native relay ports are loopback-only tunnels. They have no public
+        // URL to wrap; the client opens a local forward over its enrolled
+        // cmux-tui session. Legacy provider previews keep the desktop wrapper.
+        if ("transport" in endpoint && endpoint.transport === "cmux-remote") return jsonResponse(endpoint);
+        if (!("url" in endpoint)) {
+          throw new Error("Cloud VM port endpoint did not include a preview URL or relay transport");
+        }
+        const expiresAtMs = "expiresAtMs" in endpoint ? endpoint.expiresAtMs : undefined;
         const wrapped = desktopWrapperUrl({
           origin: new URL(request.url).origin,
           vmId: id,
           upstreamUrl: endpoint.url,
           token: endpoint.token,
-          expiresAtMs: endpoint.expiresAtMs,
+          expiresAtMs,
         });
         return jsonResponse(wrapped ? { ...endpoint, openUrl: wrapped } : endpoint);
       } catch (err) {

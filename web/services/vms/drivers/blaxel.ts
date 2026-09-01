@@ -20,14 +20,20 @@ import {
   type CmuxRemoteApprovalResult,
   type CmuxRemoteAttachOptions,
   type CmuxRemoteEndpoint,
+  type VMResumeOptions,
 } from "./types";
 import { VmOperationUnsupportedError } from "../errors";
 import { withVmSpan } from "../telemetry";
+import { nativeRelayProviderEnvironment } from "../nativeRelay";
 import { shellQuote } from "./wsLease";
 import {
   approveCmuxTuiEnrollment,
+  CMUX_NATIVE_RELAY_DAEMON_PATH,
+  CMUX_NATIVE_RELAY_PROCESS_MARKER,
+  cmuxNativeRelayProcessHealthyCommand,
   cmuxTuiDaemonBuild,
   cmuxTuiDaemonCommand as sharedCmuxTuiDaemonCommand,
+  cmuxNativeRelayInstallCommand,
   cmuxTuiInstallCommand as sharedCmuxTuiInstallCommand,
   isCmuxTuiDeviceEnrolled,
   mintCmuxTuiInvitation,
@@ -49,7 +55,10 @@ import {
 // build onto its persistent home volume and starting `cmux-tui server start` under the
 // sandbox supervisor. Blaxel freezes a sandbox ~15 s after the last open connection
 // unless a keepAlive process runs; the smart-sleep watcher below is that process, so a
-// busy machine stays awake and an idle one drops to (free) standby.
+// busy machine stays awake and an idle legacy machine drops to (free) standby.
+// Native relay machines keep this process alive while the outbound session
+// daemon is present, because no provider ingress connection can wake a frozen
+// sandbox.
 // 8080 is the Blaxel sandbox-api (control channel); never expose it through a preview.
 const CMUX_SANDBOX_API_PORT = 8080;
 const SMART_SLEEP_PATH = "/usr/local/bin/cmux-smart-sleep";
@@ -82,6 +91,11 @@ INTERVAL=\${CMUX_SMART_SLEEP_INTERVAL:-15}
 idle=0
 while true; do
   busy=""
+  # Native relay has no local listener to inspect. The relay daemon is the
+  # wake/reconnect anchor, so keep the sandbox running until it exits.
+  if [ "\${CMUX_NATIVE_RELAY_ENABLED:-}" = "1" ] && pgrep -af '[c]mux-tui server start' >/dev/null 2>&1; then
+    busy=relay
+  fi
   for cm in $(pidof cmux-tui 2>/dev/null); do
     for c in $(pgrep -P "$cm" 2>/dev/null); do
       if pgrep -P "$c" >/dev/null 2>&1; then busy=jobs; break 2; fi
@@ -285,6 +299,8 @@ type BlaxelSandbox = {
 type BlaxelProcess = {
   pid?: string;
   name?: string;
+  /** The control-plane API includes the command for process inspection. Older responses omit it. */
+  command?: string;
   status?: string;
   exitCode?: number;
   stdout?: string;
@@ -869,8 +885,11 @@ export class BlaxelProvider implements VMProvider {
                   runtime: {
                     image,
                     memory: memoryMb,
-                    envs: sandboxEnvs(options.envs),
-                    ports: sandboxPorts(),
+                    envs: sandboxEnvs({
+                      ...(options.envs ?? {}),
+                      ...nativeRelayProviderEnvironment(options.nativeRelay),
+                    }),
+                    ports: sandboxPorts(!!options.nativeRelay),
                   },
                   ...(homeVolume ? { volumes: [{ name: homeVolume, mountPath: HOME_VOLUME_MOUNT_PATH }] } : {}),
                 },
@@ -897,20 +916,12 @@ export class BlaxelProvider implements VMProvider {
           if (!sandboxUrl) {
             throw new Error("create response is missing metadata.url for the sandbox API");
           }
-          // The daemon previews are minted through the same paths attach uses, so a
-          // machine is born at https://<name>.vm.cmux.sh (or <name>-cmux.preview.bl.run)
-          // rather than an opaque hash it would then keep for life; the raw preview is
-          // the route for clients that cannot pass the branded ingress. Previews live on
-          // the control plane and only need the sandbox to exist, so they are created in
-          // parallel with the in-sandbox daemon bootstrap.
-          // All branches settle before any rollback (allSettled, not all): a
-          // fast-failing bootstrap must not start deleting the sandbox while a
-          // preview POST is still in flight, or the late preview recreates the
-          // orphaned branded route the rollback exists to remove.
-          const [bootstrapResult, previewResult, rawPreviewResult] = await Promise.allSettled([
-            timedStep("bootstrap_daemon", () => this.bootstrapMachine(name, sandboxUrl)),
-            timedStep("ensure_preview", () => this.ensurePreview(name, CMUX_TUI_PREVIEW_NAME, CMUX_TUI_PORT, { branded: true })),
-            timedStep("ensure_raw_preview", () => this.ensurePreview(name, CMUX_TUI_RAW_PREVIEW_NAME, CMUX_TUI_PORT, { branded: false })),
+          // Native relay machines do not need a provider preview. Their daemon
+          // makes one outbound connection to each relay shard, so creating a
+          // public ingress record here would add an unused attack surface. Keep
+          // the legacy preview pair for machines that still use provider ingress.
+          const [bootstrapResult] = await Promise.allSettled([
+            timedStep("bootstrap_daemon", () => this.bootstrapMachine(name, sandboxUrl, options.nativeRelay)),
           ]);
           // A machine that failed to bootstrap must not survive as an orphaned
           // sandbox (its previews die with it). A per-machine home volume dies with
@@ -935,15 +946,22 @@ export class BlaxelProvider implements VMProvider {
             await rollback();
             throw bootstrapResult.reason;
           }
-          if (previewResult.status === "rejected") {
-            await rollback();
-            throw previewResult.reason;
+          let previewUrl: string | undefined;
+          if (!options.nativeRelay) {
+            const [previewResult, rawPreviewResult] = await Promise.allSettled([
+              timedStep("ensure_preview", () => this.ensurePreview(name, CMUX_TUI_PREVIEW_NAME, CMUX_TUI_PORT, { branded: true })),
+              timedStep("ensure_raw_preview", () => this.ensurePreview(name, CMUX_TUI_RAW_PREVIEW_NAME, CMUX_TUI_PORT, { branded: false })),
+            ]);
+            if (previewResult.status === "rejected") {
+              await rollback();
+              throw previewResult.reason;
+            }
+            if (rawPreviewResult.status === "rejected") {
+              await rollback();
+              throw rawPreviewResult.reason;
+            }
+            previewUrl = previewResult.value;
           }
-          if (rawPreviewResult.status === "rejected") {
-            await rollback();
-            throw rawPreviewResult.reason;
-          }
-          const previewUrl = previewResult.value;
           span.setAttribute("cmux.vm.id", name);
           return {
             provider: "blaxel",
@@ -954,7 +972,7 @@ export class BlaxelProvider implements VMProvider {
             providerMetadata: homeVolume
               ? {
                   sandboxUrl,
-                  previewUrl,
+                  ...(previewUrl ? { previewUrl } : {}),
                   homeVolume,
                   homeVolumeMb,
                   image,
@@ -963,7 +981,7 @@ export class BlaxelProvider implements VMProvider {
                   // this marker is that ownership record.
                   ...(perMachineHomeVolume ? { homeVolumePerMachine: true } : {}),
                 }
-              : { sandboxUrl, previewUrl, image, memoryMb },
+              : { sandboxUrl, ...(previewUrl ? { previewUrl } : {}), image, memoryMb },
           };
         } catch (err) {
           throw err instanceof ProviderError ? err : new ProviderError("blaxel", `create(${image}) failed`, err);
@@ -975,7 +993,11 @@ export class BlaxelProvider implements VMProvider {
   // MARK: cmux-tui remote daemon
 
   /** Create-time bootstrap: the smart-sleep watcher, the cmux-tui daemon, the hostname/VNC chain and background provisioning. */
-  private async bootstrapMachine(name: string, sandboxUrl: string): Promise<void> {
+  private async bootstrapMachine(
+    name: string,
+    sandboxUrl: string,
+    nativeRelay?: CreateOptions["nativeRelay"],
+  ): Promise<void> {
     // A just-created sandbox answers 404 ("VM not found") on its API for a few
     // seconds; the first write is the readiness probe and retries instead.
     await this.awaitSandboxApi(name, sandboxUrl, () =>
@@ -991,7 +1013,7 @@ export class BlaxelProvider implements VMProvider {
     // essentials come with the machine without delaying attach; the .bashrc seed is
     // write-once — /root persists, and a user's edits win).
     await Promise.all([
-      timedStep("cmux_tui_bootstrap", () => this.bootstrapCmuxTui(name, sandboxUrl)),
+      timedStep("cmux_tui_bootstrap", () => this.bootstrapCmuxTui(name, sandboxUrl, nativeRelay)),
       timedStep("watcher_start", () => this.startWatcherProcess(sandboxUrl)),
       (async () => {
         await timedStep("hostname_setup", () => this.sandboxExec(sandboxUrl, hostnameSetupCommand(name)).catch(() => undefined));
@@ -1025,23 +1047,36 @@ export class BlaxelProvider implements VMProvider {
   }
 
   /** Installs (or re-verifies) the pinned binary and starts the daemon. */
-  private async bootstrapCmuxTui(name: string, sandboxUrl: string): Promise<void> {
+  private async bootstrapCmuxTui(
+    name: string,
+    sandboxUrl: string,
+    nativeRelay?: CreateOptions["nativeRelay"],
+  ): Promise<void> {
     const source = await sharedResolveCmuxTuiSource("blaxel");
     const install = await this.sandboxExec(sandboxUrl, sharedCmuxTuiInstallCommand(source), CMUX_TUI_INSTALL_TIMEOUT_MS);
     if (install.exitCode !== 0) {
       throw new ProviderError("blaxel", `cmux-tui install in ${name} failed: ${install.stderr || install.stdout}`);
     }
-    await this.startCmuxTuiProcess(sandboxUrl);
+    if (nativeRelay) {
+      const helper = await this.sandboxExec(sandboxUrl, cmuxNativeRelayInstallCommand());
+      if (helper.exitCode !== 0) {
+        throw new ProviderError("blaxel", `native relay helper install in ${name} failed: ${helper.stderr || helper.stdout}`);
+      }
+    }
+    await this.startCmuxTuiProcess(sandboxUrl, nativeRelay);
     await this.waitForCmuxTuiReady(name, sandboxUrl);
   }
 
-  private async startCmuxTuiProcess(sandboxUrl: string): Promise<void> {
+  private async startCmuxTuiProcess(
+    sandboxUrl: string,
+    nativeRelay?: CreateOptions["nativeRelay"],
+  ): Promise<void> {
     await blaxelFetch<BlaxelProcess>("POST", `${sandboxUrl}/process`, {
       name: CMUX_TUI_PROCESS_NAME,
-      command: sharedCmuxTuiDaemonCommand(),
+      command: sharedCmuxTuiDaemonCommand(undefined, nativeRelay),
       waitForCompletion: false,
-      // Not keepAlive: the smart-sleep watcher counts connections on the daemon's port,
-      // so an idle machine still drops to standby.
+      // The smart-sleep watcher keeps legacy machines idle-suspendable. Native
+      // relay machines remain awake because their only session path is outbound.
       keepAlive: false,
       restartOnFailure: true,
       maxRestarts: 10,
@@ -1061,10 +1096,34 @@ export class BlaxelProvider implements VMProvider {
     return (args, timeoutMs) => this.cmuxTuiExec(sandboxUrl, args, timeoutMs ?? EXEC_DEFAULT_TIMEOUT_MS);
   }
 
-  private async ensureCmuxTuiRunning(vmId: string, sandboxUrl: string): Promise<void> {
+  private async ensureCmuxTuiRunning(
+    vmId: string,
+    sandboxUrl: string,
+    nativeRelay?: CreateOptions["nativeRelay"],
+  ): Promise<void> {
+    if (nativeRelay) {
+      const helper = await this.sandboxExec(sandboxUrl, cmuxNativeRelayInstallCommand()).catch(() => null);
+      if (!helper || helper.exitCode !== 0) {
+        throw new ProviderError("blaxel", `native relay helper install in ${vmId} failed`);
+      }
+    }
     const source = await sharedResolveCmuxTuiSource("blaxel");
     const proc = await blaxelFetch<BlaxelProcess>("GET", `${sandboxUrl}/process/${CMUX_TUI_PROCESS_NAME}`).catch(() => null);
-    if (proc?.status !== "running") {
+    let nativeProcess = false;
+    if (nativeRelay && proc?.status === "running") {
+      // The API's command is the outer supervisor command, not necessarily the
+      // final argv after the helper's exec. Probe the guest process so a healthy
+      // daemon is not restarted on every attach. Keep the metadata fallback for
+      // older sandboxes whose exec endpoint is temporarily unavailable.
+      const probe = await this.sandboxExec(sandboxUrl, cmuxNativeRelayProcessHealthyCommand()).catch(() => null);
+      nativeProcess = probe
+        ? probe.exitCode === 0
+        : Boolean(proc.command?.includes(CMUX_NATIVE_RELAY_PROCESS_MARKER) || proc.command?.includes(CMUX_NATIVE_RELAY_DAEMON_PATH));
+    }
+    if (proc?.status !== "running" || (nativeRelay && !nativeProcess)) {
+      if (nativeRelay && proc?.status === "running") {
+        await this.sandboxExec(sandboxUrl, "pkill -f '[c]mux-tui server start' >/dev/null 2>&1 || true").catch(() => undefined);
+      }
       // The binary lives on the persistent volume, so a resurrected sandbox usually only
       // needs the process started; a pin change or a fresh volume re-runs the install.
       const installed = await this.sandboxExec(
@@ -1073,9 +1132,9 @@ export class BlaxelProvider implements VMProvider {
       ).catch(() => null);
       if (installed?.exitCode !== 0) {
         // Missing, or a different build than the manifest now pins: (re)install.
-        await this.bootstrapCmuxTui(vmId, sandboxUrl);
+        await this.bootstrapCmuxTui(vmId, sandboxUrl, nativeRelay);
       } else {
-        await this.startCmuxTuiProcess(sandboxUrl);
+        await this.startCmuxTuiProcess(sandboxUrl, nativeRelay);
         await this.waitForCmuxTuiReady(vmId, sandboxUrl);
       }
     }
@@ -1093,7 +1152,11 @@ export class BlaxelProvider implements VMProvider {
    * 404 or a still-listed TERMINATED/DELETING record — Blaxel deletion is asynchronous, so
    * both shapes mean the compute is dead.
    */
-  private async liveSandboxForAttach(vmId: string, providerMetadata?: Record<string, unknown>): Promise<BlaxelSandbox> {
+  private async liveSandboxForAttach(
+    vmId: string,
+    providerMetadata?: Record<string, unknown>,
+    nativeRelay?: CreateOptions["nativeRelay"],
+  ): Promise<BlaxelSandbox> {
     let sandbox: BlaxelSandbox | null = null;
     try {
       const fetched = await this.getSandbox(vmId);
@@ -1103,7 +1166,7 @@ export class BlaxelProvider implements VMProvider {
       if (!gone) throw err;
     }
     if (!sandbox) {
-      sandbox = providerMetadata ? await this.resurrectSandbox(vmId, providerMetadata) : null;
+      sandbox = providerMetadata ? await this.resurrectSandbox(vmId, providerMetadata, nativeRelay) : null;
       if (!sandbox) {
         throw new ProviderError("blaxel", `sandbox ${vmId} is gone and has no persistent home to resurrect from`);
       }
@@ -1117,32 +1180,39 @@ export class BlaxelProvider implements VMProvider {
       { "cmux.vm.provider": "blaxel", "cmux.vm.operation": "open_cmux_remote", "cmux.vm.id": vmId },
       async (span) => {
         try {
-          const sandbox = await this.liveSandboxForAttach(vmId, options?.providerMetadata);
+          const sandbox = await this.liveSandboxForAttach(vmId, options?.providerMetadata, options?.nativeRelay);
           const sandboxUrl = sandbox.metadata?.url;
           if (!sandboxUrl) {
             throw new Error("sandbox is missing metadata.url");
           }
-          await this.ensureCmuxTuiRunning(vmId, sandboxUrl);
-          const branded = cmuxTuiPreviewBranded(options?.clientCapabilities);
-          const previewUrl = await this.ensurePreview(
-            vmId,
-            branded ? CMUX_TUI_PREVIEW_NAME : CMUX_TUI_RAW_PREVIEW_NAME,
-            CMUX_TUI_PORT,
-            { branded },
-          );
+          await this.ensureCmuxTuiRunning(vmId, sandboxUrl, options?.nativeRelay);
+          const branded = options?.nativeRelay ? false : cmuxTuiPreviewBranded(options?.clientCapabilities);
+          const previewUrl = options?.nativeRelay
+            ? undefined
+            : await this.ensurePreview(
+              vmId,
+              branded ? CMUX_TUI_PREVIEW_NAME : CMUX_TUI_RAW_PREVIEW_NAME,
+              CMUX_TUI_PORT,
+              { branded },
+            );
           span.setAttribute("cmux.vm.cmux_remote.branded", branded);
-          const token = await this.mintPreviewToken(vmId, branded ? CMUX_TUI_PREVIEW_NAME : CMUX_TUI_RAW_PREVIEW_NAME);
+          const token = options?.nativeRelay
+            ? "native-relay"
+            : await this.mintPreviewToken(vmId, branded ? CMUX_TUI_PREVIEW_NAME : CMUX_TUI_RAW_PREVIEW_NAME);
           const expiresAtUnix = Math.floor(Date.now() / 1000) + PREVIEW_TOKEN_TTL_SECONDS;
-          const host = previewUrl.replace(/^https?:\/\//, "").replace(/\/+$/, "");
-          // The gateway accepts the preview token as a query parameter and the Rust dialer
-          // passes the URL through verbatim, so the tokenized route is the whole story
-          // (proven by scripts/spike-cmux-tui-blaxel.sh). It travels only in this response,
-          // never inside an invitation.
-          const route = `wss://${host}/v1/link?bl_preview_token=${encodeURIComponent(token)}`;
+          // Native relay routes are outbound-only from the VM. They never expose
+          // a provider preview or a bearer in the route URL.
+          const route = options?.nativeRelay?.routes[0]?.route ?? (() => {
+            if (!previewUrl) throw new Error("Blaxel preview URL was not created");
+            const host = previewUrl.replace(/^https?:\/\//, "").replace(/\/+$/, "");
+            return `wss://${host}/v1/link?bl_preview_token=${encodeURIComponent(token)}`;
+          })();
 
           const invoke = this.cmuxTuiInvoke(sandboxUrl);
           let invitation: CmuxRemoteEndpoint["invitation"];
-          const enrolled = options?.deviceFingerprint
+          const enrolled = options?.includeInvitation === false
+            ? true
+            : options?.deviceFingerprint
             ? await isCmuxTuiDeviceEnrolled(invoke, options.deviceFingerprint)
             : false;
           if (!enrolled) {
@@ -1256,12 +1326,16 @@ export class BlaxelProvider implements VMProvider {
     void vmId;
   }
 
-  async resume(vmId: string): Promise<VMHandle> {
+  async resume(vmId: string, options?: VMResumeOptions): Promise<VMHandle> {
     return withVmSpan(
       "cmux.vm.provider.resume",
       { "cmux.vm.provider": "blaxel", "cmux.vm.operation": "resume", "cmux.vm.id": vmId },
       async () => {
         const sandbox = await this.getSandbox(vmId);
+        const sandboxUrl = sandbox.metadata?.url;
+        if (sandboxUrl) {
+          await this.ensureCmuxTuiRunning(vmId, sandboxUrl, options?.nativeRelay);
+        }
         return this.handleFromSandbox(vmId, sandbox);
       },
     );
@@ -1476,6 +1550,7 @@ export class BlaxelProvider implements VMProvider {
   private async resurrectSandbox(
     vmId: string,
     metadata: Record<string, unknown>,
+    nativeRelay?: CreateOptions["nativeRelay"],
   ): Promise<BlaxelSandbox | null> {
     const homeVolume = typeof metadata.homeVolume === "string" ? metadata.homeVolume : null;
     const image = typeof metadata.image === "string" ? metadata.image : null;
@@ -1494,10 +1569,11 @@ export class BlaxelProvider implements VMProvider {
         runtime: {
           image,
           memory: memoryMb,
-          // Create-time model-plane envs are gone here by design; the machine
-          // re-sources them from the home volume (see sandboxEnvs).
-          envs: sandboxEnvs(),
-          ports: sandboxPorts(),
+          // Model-plane values are re-sourced from the home volume. Native
+          // relay bootstrap is added again because it is machine-scoped and
+          // must be present before the daemon starts.
+          envs: sandboxEnvs(nativeRelayProviderEnvironment(nativeRelay)),
+          ports: sandboxPorts(!!nativeRelay),
         },
         volumes: [{ name: homeVolume, mountPath: HOME_VOLUME_MOUNT_PATH }],
       },
@@ -1506,7 +1582,7 @@ export class BlaxelProvider implements VMProvider {
     if (!sandboxUrl) {
       throw new ProviderError("blaxel", `resurrect(${vmId}) returned no sandbox url`);
     }
-    await this.bootstrapMachine(vmId, sandboxUrl);
+    await this.bootstrapMachine(vmId, sandboxUrl, nativeRelay);
     return created;
   }
 
@@ -1842,8 +1918,8 @@ const NAME_ANIMALS = [
   "raven", "seal", "sparrow", "stoat", "swan", "tern", "wombat", "wren",
 ];
 
-export function sandboxPorts(): Array<{ name: string; protocol: "HTTP"; target: number }> {
-  return [{ name: CMUX_TUI_PREVIEW_NAME, protocol: "HTTP", target: CMUX_TUI_PORT }];
+export function sandboxPorts(nativeRelay = false): Array<{ name: string; protocol: "HTTP"; target: number }> {
+  return nativeRelay ? [] : [{ name: CMUX_TUI_PREVIEW_NAME, protocol: "HTTP", target: CMUX_TUI_PORT }];
 }
 
 /**

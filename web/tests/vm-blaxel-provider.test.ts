@@ -80,6 +80,7 @@ describe("BlaxelProvider session transport", () => {
 
   test("the sandbox exposes only the cmux-tui daemon port", () => {
     expect(sandboxPorts()).toEqual([{ name: "cmuxtui", protocol: "HTTP", target: 1337 }]);
+    expect(sandboxPorts(true)).toEqual([]);
   });
 
   test("machine env always carries LANG and appends caller env after it", () => {

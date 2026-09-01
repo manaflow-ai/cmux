@@ -85,6 +85,32 @@ describe("cmux-tui install and daemon commands", () => {
     expect(command.startsWith("cd /root && env HOME=/root")).toBe(true);
     expect(command).toContain("server start --session cloud --remote-ws 0.0.0.0:1337 --remote-ws-insecure-bind");
   });
+
+  test("native relay daemon receives all assigned routes and fetches tickets on demand", () => {
+    const command = cmuxTuiDaemonCommand("0.0.0.0:1337", {
+      slot: "vm-id",
+      ticketUrl: "https://cmux.example/api/internal/vm/id/relay-ticket",
+      bootstrapToken: "bootstrap-token",
+      routes: [
+        { id: "relay-a", route: "relay+wss://relay-a.example/v1/relay", slot: "vm-id" },
+        { id: "relay-b", route: "relay+wss://relay-b.example/v1/relay", slot: "vm-id" },
+      ],
+    });
+    expect(command).toContain("cmux-native-relay-daemon");
+    // The helper reads route and credential values from the provider env at
+    // launch time, so secrets and route values are not embedded in this
+    // command string.
+    expect(command).toContain("cmux-native-relay-ticket");
+    expect(command).not.toContain("bootstrap-token");
+    const encodedScripts = [...command.matchAll(/printf '%s' '([^']+)' \| base64 -d/g)].map(
+      (match) => Buffer.from(match[1]!, "base64").toString("utf8"),
+    );
+    const helper = encodedScripts.join("\n");
+    expect(helper).toContain("CMUX_NATIVE_RELAY_1_URL");
+    expect(helper).toContain("CMUX_NATIVE_RELAY_2_URL");
+    expect(helper).not.toContain("--remote-ws");
+    expect(helper).toContain('[ "${CMUX_NATIVE_RELAY_ENABLED:-}" = "1" ] || exit 78');
+  });
 });
 
 describe("enrollment invitation parsing", () => {

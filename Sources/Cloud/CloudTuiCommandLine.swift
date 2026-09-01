@@ -6,13 +6,66 @@ import Foundation
 /// `--socket`/`--json`/`--jsonl` as global options, and `attach --terminal <id>` as the
 /// single-terminal renderer (`spec/cli.md` §"attach").
 struct CloudTuiCommandLine: Sendable {
+    struct RelayAccess: Sendable, Equatable {
+        let route: String
+        let slot: String
+        let ticketFilePath: String
+    }
+
     /// `remote connect <route> --device-name … --state-dir … --headless --json [--invite-file …]`:
     /// a headless link whose stdout carries `connection-snapshot` JSON lines with the
     /// local mux socket path (`remote_cli.rs` `connect_with_flags`).
-    static func linkArguments(route: String, deviceName: String, stateDir: String, inviteFilePath: String?) -> [String] {
+    static func linkArguments(
+        route: String,
+        deviceName: String,
+        stateDir: String,
+        inviteFilePath: String?,
+        relayAccess: [RelayAccess] = []
+    ) -> [String] {
         var arguments = ["remote", "connect", route, "--device-name", deviceName, "--state-dir", stateDir, "--headless", "--json"]
         if let inviteFilePath, !inviteFilePath.isEmpty {
             arguments += ["--invite-file", inviteFilePath]
+        }
+        for access in relayAccess {
+            arguments += [
+                "--relay-route", access.route,
+                "--relay-slot", access.slot,
+                "--relay-ticket-file", access.ticketFilePath,
+            ]
+        }
+        return arguments
+    }
+
+    /// `remote forward` creates a daemon-owned loopback route and exposes it
+    /// on a loopback listener in this process. The relay credentials stay in
+    /// files, never in argv.
+    static func forwardArguments(
+        route: String,
+        workspaceRoot: String,
+        host: String = "127.0.0.1",
+        port: Int,
+        listen: String = "127.0.0.1:0",
+        scheme: String = "http",
+        relayAccess: [RelayAccess] = [],
+        inviteFilePath: String? = nil
+    ) -> [String] {
+        var arguments = [
+            "remote", "forward", route,
+            "--workspace-root", workspaceRoot,
+            "--host", host,
+            "--port", String(port),
+            "--listen", listen,
+            "--scheme", scheme,
+        ]
+        if let inviteFilePath, !inviteFilePath.isEmpty {
+            arguments += ["--invite-file", inviteFilePath]
+        }
+        for access in relayAccess {
+            arguments += [
+                "--relay-route", access.route,
+                "--relay-slot", access.slot,
+                "--relay-ticket-file", access.ticketFilePath,
+            ]
         }
         return arguments
     }

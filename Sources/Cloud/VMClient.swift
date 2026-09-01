@@ -215,6 +215,15 @@ private func cloudVMInt(_ value: Any?) -> Int? {
     return nil
 }
 
+private func cloudVMInt64(_ value: Any?) -> Int64? {
+    if let int = value as? Int64 { return int }
+    if let int = value as? Int { return Int64(int) }
+    if let double = value as? Double, double.isFinite { return Int64(double) }
+    if let number = value as? NSNumber { return number.int64Value }
+    if let string = value as? String { return Int64(string.trimmingCharacters(in: .whitespacesAndNewlines)) }
+    return nil
+}
+
 private func cloudVMValueDescription(_ value: Any) -> String {
     if let string = value as? String {
         return limitedSingleLine(string)
@@ -358,11 +367,18 @@ struct VMCapabilities: Equatable, Sendable {
     }
 }
 
-struct VMOpenPortEndpoint {
+struct VMOpenPortEndpoint: Sendable {
+    /// `preview` is a provider URL. `cmux-remote` is a loopback tunnel and
+    /// must be opened through the machine's enrolled link.
+    let transport: String
     let url: String
     let token: String
     /// URL with the preview token embedded as a query parameter, ready for a browser.
     let openUrl: String
+    let port: Int?
+    let route: String?
+    let relays: [VMCmuxRemoteEndpoint.RelayGrant]
+    let invitation: VMCmuxRemoteEndpoint.Invitation?
 }
 
 struct VMSnapshotResult {
@@ -432,8 +448,8 @@ struct VMWebSocketDaemonEndpoint {
 /// Attach through the cmux-tui remote daemon in the machine (Phase 1 of the
 /// cmuxd-remote → cmux-tui migration). The route carries the ingress token; the
 /// invitation is present only when this device is not yet enrolled with the daemon.
-struct VMCmuxRemoteEndpoint {
-    struct Invitation {
+struct VMCmuxRemoteEndpoint: Sendable {
+    struct Invitation: Sendable {
         let uri: String
         let invitationId: String
         let expiresAtUnix: Int64
@@ -445,13 +461,26 @@ struct VMCmuxRemoteEndpoint {
     let session: String
     let invitation: Invitation?
     /// The machine daemon's build identity, for naming a protocol mismatch.
-    struct DaemonBuild {
+    struct DaemonBuild: Sendable {
         let commit: String?
         let remoteProtocol: Int?
         let version: String?
     }
 
     let daemonBuild: DaemonBuild?
+
+    /// Short-lived credentials for the redundant native relay routes. The
+    /// ticket is written to a mode-0600 file before it reaches cmux-tui.
+    struct RelayGrant: Sendable, Equatable {
+        let shardID: String
+        let route: String
+        let slot: String
+        let ticket: String
+        let expiresAtUnix: Int64
+        let refreshAfterUnix: Int64
+    }
+
+    let relays: [RelayGrant]
 }
 
 struct VMCmuxRemoteApproval {
@@ -879,12 +908,12 @@ actor VMClient {
               let session = obj["session"] as? String else {
             throw VMClientError.malformedResponse("Cloud VM cmux-remote attach response was missing required fields.")
         }
-        let expiresAtUnix = (obj["expiresAtUnix"] as? Int64) ?? Int64((obj["expiresAtUnix"] as? Double) ?? 0)
+        let expiresAtUnix = cloudVMInt64(obj["expiresAtUnix"]) ?? 0
         var invitation: VMCmuxRemoteEndpoint.Invitation?
         if let raw = obj["invitation"] as? [String: Any],
            let uri = raw["uri"] as? String, !uri.isEmpty,
            let invitationId = raw["invitationId"] as? String, !invitationId.isEmpty {
-            let invitationExpires = (raw["expiresAtUnix"] as? Int64) ?? Int64((raw["expiresAtUnix"] as? Double) ?? 0)
+            let invitationExpires = cloudVMInt64(raw["expiresAtUnix"]) ?? 0
             invitation = .init(uri: uri, invitationId: invitationId, expiresAtUnix: invitationExpires)
         }
         var daemonBuild: VMCmuxRemoteEndpoint.DaemonBuild?
@@ -895,14 +924,40 @@ actor VMClient {
                 version: raw["version"] as? String
             )
         }
+        let relays = try Self.decodeRelayGrants(obj["relays"], context: "attach")
+        try Self.validateNativeRelayEndpoint(route: route, relays: relays, context: "attach")
         return VMCmuxRemoteEndpoint(
             route: route,
             token: token,
             expiresAtUnix: expiresAtUnix,
             session: session,
             invitation: invitation,
-            daemonBuild: daemonBuild
+            daemonBuild: daemonBuild,
+            relays: relays
         )
+    }
+
+    /// Refreshes the short-lived client tickets for an already connected native
+    /// relay link. The Stack-authenticated request is the only place the app
+    /// receives these credentials; they are passed to cmux-tui through files.
+    func refreshRelayGrants(id: String) async throws -> [VMCmuxRemoteEndpoint.RelayGrant] {
+        let encodedID = try pathSegment(id, fieldName: "vm id")
+        let (data, http) = try await request(
+            "POST",
+            path: "/api/vm/\(encodedID)/relay-ticket",
+            jsonBody: [:],
+            timeoutSeconds: 30
+        )
+        try ensureOK(http, data: data)
+        let obj = try decodeJSONObject(data)
+        guard (obj["transport"] as? String) == "cmux-remote" else {
+            throw VMClientError.malformedResponse("Cloud VM relay refresh response used an unsupported transport.")
+        }
+        let relays = try Self.decodeRelayGrants(obj["relays"], context: "refresh")
+        guard relays.count >= 2 else {
+            throw VMClientError.malformedResponse("Cloud VM relay refresh response contained no route grants.")
+        }
+        return relays
     }
 
     func approveCmuxRemoteEnrollment(id: String, invitationId: String) async throws -> VMCmuxRemoteApproval {
@@ -1081,7 +1136,107 @@ actor VMClient {
               let openUrl = obj["openUrl"] as? String else {
             throw VMClientError.malformedResponse("Cloud VM open-port response was missing required fields.")
         }
-        return VMOpenPortEndpoint(url: url, token: token, openUrl: openUrl)
+        let transport = (obj["transport"] as? String) ?? "preview"
+        guard transport == "preview" || transport == "cmux-remote" else {
+            throw VMClientError.malformedResponse("Cloud VM open-port response used an unsupported transport.")
+        }
+        let relays = try Self.decodeRelayGrants(obj["relays"], context: "open-port")
+        if transport == "cmux-remote" {
+            guard let route = obj["route"] as? String, !route.isEmpty else {
+                throw VMClientError.malformedResponse("Cloud VM native relay open-port response was missing its route.")
+            }
+            try Self.validateNativeRelayEndpoint(route: route, relays: relays, context: "open-port")
+        }
+        var invitation: VMCmuxRemoteEndpoint.Invitation?
+        if let raw = obj["invitation"] as? [String: Any],
+           let uri = raw["uri"] as? String, !uri.isEmpty,
+           let invitationID = raw["invitationId"] as? String, !invitationID.isEmpty {
+            let expires = cloudVMInt64(raw["expiresAtUnix"]) ?? 0
+            invitation = .init(uri: uri, invitationId: invitationID, expiresAtUnix: expires)
+        }
+        return VMOpenPortEndpoint(
+            transport: transport,
+            url: url,
+            token: token,
+            openUrl: openUrl,
+            port: (obj["port"] as? Int) ?? (obj["port"] as? Double).map(Int.init),
+            route: obj["route"] as? String,
+            relays: relays,
+            invitation: invitation
+        )
+    }
+
+    private static func decodeRelayGrants(
+        _ rawValue: Any?,
+        context: String
+    ) throws -> [VMCmuxRemoteEndpoint.RelayGrant] {
+        guard let rawRelays = rawValue as? [[String: Any]] else { return [] }
+        var seenRoutes = Set<String>()
+        var grants: [VMCmuxRemoteEndpoint.RelayGrant] = []
+        for raw in rawRelays {
+            let shardID = (raw["shardId"] as? String ?? raw["shard_id"] as? String ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let route = (raw["route"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let slot = (raw["slot"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let rawTicket = raw["ticket"] as? String ?? ""
+            let ticket = rawTicket.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !shardID.isEmpty, !route.isEmpty, !slot.isEmpty, !ticket.isEmpty,
+                  rawTicket == ticket,
+                  ticket.hasPrefix("v2."),
+                  ticket.count <= 4096,
+                  !ticket.contains(where: { $0.isWhitespace || $0 == "\n" || $0 == "\r" }),
+                  let parsedRoute = URL(string: route),
+                  ["relay+ws", "relay+wss", "relay+https"].contains(parsedRoute.scheme?.lowercased()),
+                  parsedRoute.host?.isEmpty == false,
+                  parsedRoute.path == "/v1/relay" || parsedRoute.path == "/v1/relay/",
+                  parsedRoute.user == nil,
+                  parsedRoute.password == nil,
+                  parsedRoute.query == nil,
+                  parsedRoute.fragment == nil,
+                  seenRoutes.insert(route).inserted else {
+                throw VMClientError.malformedResponse("Cloud VM relay \(context) response contained an invalid route grant.")
+            }
+            let expires = cloudVMInt64(raw["expiresAtUnix"] ?? raw["expires_at_unix"]) ?? 0
+            let refresh = cloudVMInt64(raw["refreshAfterUnix"] ?? raw["refresh_after_unix"]) ?? 0
+            guard expires > 0, refresh > 0, refresh < expires else {
+                throw VMClientError.malformedResponse("Cloud VM relay \(context) response contained an invalid ticket lifetime.")
+            }
+            grants.append(.init(
+                shardID: shardID,
+                route: route,
+                slot: slot,
+                ticket: ticket,
+                expiresAtUnix: expires,
+                refreshAfterUnix: refresh
+            ))
+        }
+        return grants
+    }
+
+    private static func validateNativeRelayEndpoint(
+        route: String,
+        relays: [VMCmuxRemoteEndpoint.RelayGrant],
+        context: String
+    ) throws {
+        guard let parsed = URL(string: route),
+              let scheme = parsed.scheme?.lowercased(),
+              ["relay+ws", "relay+wss", "relay+https"].contains(scheme) else {
+            // A non-relay route is the legacy provider ingress and remains
+            // valid while a deployment rolls out native relay gradually.
+            return
+        }
+        guard parsed.host?.isEmpty == false,
+              parsed.path == "/v1/relay" || parsed.path == "/v1/relay/",
+              parsed.user == nil,
+              parsed.password == nil,
+              parsed.query == nil,
+              parsed.fragment == nil else {
+            throw VMClientError.malformedResponse("Cloud VM native relay \(context) response contained an invalid route.")
+        }
+        guard relays.count >= 2,
+              relays.contains(where: { $0.route == route || $0.route == route + "/" }) else {
+            throw VMClientError.malformedResponse("Cloud VM native relay \(context) response did not contain redundant grants for its route.")
+        }
     }
 
     /// Best-effort native sign-out tail. This deliberately does not read the
