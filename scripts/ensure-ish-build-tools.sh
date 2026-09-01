@@ -22,6 +22,13 @@ NINJA_VERSION="${CMUX_ISH_NINJA_VERSION:-$DEFAULT_NINJA_VERSION}"
 TOOLS_ROOT="${CMUX_ISH_TOOLS_DIR:-$ROOT/build/ish-tools}"
 BIN_DIR="$TOOLS_ROOT/bin"
 VENV_DIR="$TOOLS_ROOT/venv"
+TOOLS_LOCK_FILE="$TOOLS_ROOT/.provision.lock"
+TOOLS_LOCK_WAIT_SECONDS="${CMUX_ISH_TOOLS_LOCK_WAIT_SECONDS:-${CMUX_ISH_LOCK_WAIT_SECONDS:-1800}}"
+
+if [[ ! "$TOOLS_LOCK_WAIT_SECONDS" =~ ^[0-9]+$ ]]; then
+  echo "error: CMUX_ISH_TOOLS_LOCK_WAIT_SECONDS must be a non-negative integer" >&2
+  exit 2
+fi
 
 usage() {
   cat <<'EOF'
@@ -33,6 +40,8 @@ mode prints the same directory and appends it to GITHUB_PATH when available.
 
 Environment:
   CMUX_ISH_TOOLS_DIR       Private tool cache (default: build/ish-tools).
+  CMUX_ISH_TOOLS_LOCK_WAIT_SECONDS
+                           Lock wait timeout (default: 1800 seconds).
   CMUX_ISH_MESON_VERSION   Meson version for the pip fallback.
   CMUX_ISH_NINJA_VERSION   Ninja version for the pip fallback.
 EOF
@@ -46,6 +55,52 @@ while [[ $# -gt 0 ]]; do
   esac
   shift
 done
+
+mkdir -p "$TOOLS_ROOT"
+
+if ! command -v lockf >/dev/null 2>&1; then
+  echo "error: missing required command 'lockf' (provided by macOS)" >&2
+  exit 1
+fi
+if [[ -L "$TOOLS_LOCK_FILE" ]]; then
+  echo "error: tool provisioning lock is a symlink, refusing to follow it: $TOOLS_LOCK_FILE" >&2
+  exit 1
+fi
+if [[ -e "$TOOLS_LOCK_FILE" && ! -f "$TOOLS_LOCK_FILE" ]]; then
+  echo "error: tool provisioning lock is not a regular file: $TOOLS_LOCK_FILE" >&2
+  exit 1
+fi
+
+TOOLS_LOCK_FD_OPEN=0
+tools_cleanup() {
+  local exit_status=$?
+  set +e
+  if [[ "$TOOLS_LOCK_FD_OPEN" == 1 ]]; then
+    # Keep the inode persistent. Unlinking it while another helper waits can
+    # split the advisory lock across two files.
+    exec 8>&-
+    TOOLS_LOCK_FD_OPEN=0
+  fi
+  set -e
+  exit "$exit_status"
+}
+trap tools_cleanup EXIT
+trap 'exit 130' INT TERM
+
+# lockf locks the inode, not the pathname. FD 8 stays open until cleanup, so
+# every venv and symlink mutation below is serialized without a stale-owner
+# PID protocol.
+if ! exec 8>>"$TOOLS_LOCK_FILE"; then
+  echo "error: could not open tool provisioning lock: $TOOLS_LOCK_FILE" >&2
+  exit 1
+fi
+TOOLS_LOCK_FD_OPEN=1
+if ! lockf -s -t "$TOOLS_LOCK_WAIT_SECONDS" 8; then
+  exec 8>&-
+  TOOLS_LOCK_FD_OPEN=0
+  echo "error: another iSH tool provisioning process is still running after ${TOOLS_LOCK_WAIT_SECONDS}s" >&2
+  exit 1
+fi
 
 mkdir -p "$BIN_DIR"
 
