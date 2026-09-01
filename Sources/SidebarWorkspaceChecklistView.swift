@@ -6,23 +6,16 @@ import SwiftUI
 
 /// Pure mount/compact policy for todo affordances in compact sidebar rows.
 /// Checklist content must stay mounted while it is visible or anchoring an
-/// open/add-requested popover; status stays visible only when the row is in
-/// compact detail mode and the workspace has opted into status display.
+/// open/add-requested popover; workspace status is represented by the
+/// title-line glyph when a manual status is set.
 struct SidebarWorkspaceTodoMinimalVisibility: Equatable {
     let itemCount: Int
     let addFieldActivationToken: Int
     let isPopoverPresented: Bool
     let canAddItems: Bool
-    let hidesAllDetails: Bool
-    let taskStatus: WorkspaceTaskStatus?
-    let featureEnabled: Bool
 
     var showsChecklistSection: Bool {
         itemCount > 0 || (canAddItems && (addFieldActivationToken > 0 || isPopoverPresented))
-    }
-
-    var showsCompactStatus: Bool {
-        featureEnabled && hidesAllDetails && taskStatus != nil
     }
 }
 
