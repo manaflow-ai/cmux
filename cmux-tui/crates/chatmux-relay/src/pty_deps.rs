@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use cmux_pty::{MasterPty, PtySize};
+use cmux_pty::{ChildKiller, MasterPty, PtySize};
 use sha2::{Digest, Sha256};
 use tokio_util::sync::CancellationToken;
 
