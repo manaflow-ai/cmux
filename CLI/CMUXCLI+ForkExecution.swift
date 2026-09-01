@@ -60,7 +60,7 @@ extension CMUXCLI {
         case .providerSetupFailed:
             return String(
                 localized: "cli.fork.error.providerSetupFailed",
-                defaultValue: "fork: provider setup failed. Check the agent's provider settings, then retry."
+                defaultValue: "fork: agent setup failed. Check the agent settings, then retry."
             )
         case .workingDirectoryFailed:
             return String(
@@ -287,7 +287,7 @@ extension CMUXCLI {
            isCodexForkBindingOwner(bindingPayload, checkpointID: record.checkpointID),
            let surfaceID,
            let checkpointID = normalizedHookValue(record.checkpointID) {
-            _ = clearAgentSurfaceResumeBindingOutcome(
+            let clearOutcome = clearAgentSurfaceResumeBindingOutcome(
                 client: client,
                 workspaceId: workspaceID ?? "",
                 surfaceId: surfaceID,
@@ -295,6 +295,11 @@ extension CMUXCLI {
                 updatedAt: (bindingPayload?["updated_at"] as? NSNumber)?.doubleValue,
                 sessionDidEnd: true
             )
+            if clearOutcome == .failed {
+                forkFailureLogger.notice(
+                    "Codex stale fork clear failed; retaining checkpoint guard"
+                )
+            }
         }
         switch result {
         case .bindingChanged:

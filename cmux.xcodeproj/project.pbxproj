@@ -2854,6 +2854,7 @@
 		E3309A05 /* Workspace+EqualizeSplitsSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A06 /* Workspace+EqualizeSplitsSupport.swift */; };
 		F0ACC0DE0000000000000009 /* Workspace+ForkAgentConversationAvailability.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE000000000000000A /* Workspace+ForkAgentConversationAvailability.swift */; };
 		F0ACC0DE0000000000000003 /* Workspace+ForkConversationContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE0000000000000004 /* Workspace+ForkConversationContextMenu.swift */; };
+		112950000000000000000010 /* Workspace+ForkStartupInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11295000000000000000000F /* Workspace+ForkStartupInput.swift */; };
 		F17F00000000000000000005 /* Workspace+FullWidthTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17F00000000000000000006 /* Workspace+FullWidthTab.swift */; };
 		C0DE1A050000000000000001 /* Workspace+LayoutCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1A050000000000000002 /* Workspace+LayoutCapture.swift */; };
 		9504A0010000000000000001 /* Workspace+MovingTabSplit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9504A0010000000000000002 /* Workspace+MovingTabSplit.swift */; };
@@ -5845,6 +5846,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		E3309A06 /* Workspace+EqualizeSplitsSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+EqualizeSplitsSupport.swift"; sourceTree = "<group>"; };
 		F0ACC0DE000000000000000A /* Workspace+ForkAgentConversationAvailability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+ForkAgentConversationAvailability.swift"; sourceTree = "<group>"; };
 		F0ACC0DE0000000000000004 /* Workspace+ForkConversationContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+ForkConversationContextMenu.swift"; sourceTree = "<group>"; };
+		11295000000000000000000F /* Workspace+ForkStartupInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+ForkStartupInput.swift"; sourceTree = "<group>"; };
 		F17F00000000000000000006 /* Workspace+FullWidthTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+FullWidthTab.swift"; sourceTree = "<group>"; };
 		C0DE1A050000000000000002 /* Workspace+LayoutCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+LayoutCapture.swift"; sourceTree = "<group>"; };
 		9504A0010000000000000002 /* Workspace+MovingTabSplit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+MovingTabSplit.swift"; sourceTree = "<group>"; };
@@ -7055,6 +7057,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				F0ACC0DE000000000000000A /* Workspace+ForkAgentConversationAvailability.swift */,
 				F0ACC0DE000000000000000C /* WorkspaceForkAgentConversationAvailability.swift */,
 				F0ACC0DE0000000000000004 /* Workspace+ForkConversationContextMenu.swift */,
+				11295000000000000000000F /* Workspace+ForkStartupInput.swift */,
 				C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */,
 				C3744E100000000000000002 /* Workspace+SidebarStatusVisibility.swift */,
 				A6AC73020000000000000002 /* Workspace+AgentLifecycle.swift */,
@@ -11502,6 +11505,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				E3309A05 /* Workspace+EqualizeSplitsSupport.swift in Sources */,
 				F0ACC0DE0000000000000009 /* Workspace+ForkAgentConversationAvailability.swift in Sources */,
 				F0ACC0DE0000000000000003 /* Workspace+ForkConversationContextMenu.swift in Sources */,
+				112950000000000000000010 /* Workspace+ForkStartupInput.swift in Sources */,
 				F17F00000000000000000005 /* Workspace+FullWidthTab.swift in Sources */,
 				C0DE1A050000000000000001 /* Workspace+LayoutCapture.swift in Sources */,
 				9504A0010000000000000001 /* Workspace+MovingTabSplit.swift in Sources */,

@@ -12776,17 +12776,17 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let remoteConfiguration = forkAgentRemoteConfigurationForNewWorkspace(fromPanelId: panelId)
         let isRemoteFork = remoteConfiguration?.terminalStartupCommand?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         guard panels[panelId] is TerminalPanel,
-              let startupInput = launchSnapshot.forkStartupInput(
+              let startupInput = forkStartupInput(
+                  snapshot: launchSnapshot,
+                  panelId: panelId,
                   useLocalForkVerb: !isRemoteFork,
                   fileManager: fileManager,
                   temporaryDirectory: temporaryDirectory,
                   allowLauncherScript: !isRemoteFork,
-                  // Remote forks type into the remote host's shell: keep POSIX.
                   dialect: isRemoteFork ? .remoteHost : .loginShell
               ) else {
             return nil
         }
-
         return AgentConversationForkWorkspaceLaunch(
             workingDirectory: workingDirectory,
             terminalWorkingDirectory: isRemoteFork ? nil : workingDirectory,
@@ -12810,17 +12810,17 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let remoteStartupCommand = forkAgentRemoteStartupCommand(fromPanelId: panelId)
         guard panels[panelId] is TerminalPanel,
               let paneId = paneId(forPanelId: panelId),
-              let startupInput = launchSnapshot.forkStartupInput(
+              let startupInput = forkStartupInput(
+                  snapshot: launchSnapshot,
+                  panelId: panelId,
                   useLocalForkVerb: remoteStartupCommand == nil,
                   fileManager: fileManager,
                   temporaryDirectory: temporaryDirectory,
                   allowLauncherScript: remoteStartupCommand == nil,
-                  // Remote forks type into the remote host's shell: keep POSIX.
                   dialect: remoteStartupCommand == nil ? .loginShell : .remoteHost
               ) else {
             return nil
         }
-
         let zoomedPaneId = bonsplitController.zoomedPaneId
         if zoomedPaneId != nil {
             clearSplitZoom()
@@ -12879,17 +12879,17 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let launchSnapshot = snapshot.retargetingForkWorkingDirectory(workingDirectory)
         let remoteStartupCommand = forkAgentRemoteStartupCommand(fromPanelId: panelId)
         guard panels[panelId] is TerminalPanel,
-              let startupInput = launchSnapshot.forkStartupInput(
+              let startupInput = forkStartupInput(
+                  snapshot: launchSnapshot,
+                  panelId: panelId,
                   useLocalForkVerb: remoteStartupCommand == nil,
                   fileManager: fileManager,
                   temporaryDirectory: temporaryDirectory,
                   allowLauncherScript: remoteStartupCommand == nil,
-                  // Remote forks type into the remote host's shell: keep POSIX.
                   dialect: remoteStartupCommand == nil ? .loginShell : .remoteHost
               ) else {
             return nil
         }
-
         let zoomedPaneId = bonsplitController.zoomedPaneId
         if zoomedPaneId != nil {
             clearSplitZoom()
@@ -12901,7 +12901,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             focus: true,
             workingDirectory: remoteStartupCommand == nil ? workingDirectory : nil,
             initialInput: startupInput,
-            startupRestoreAgent: remoteStartupCommand == nil ? launchSnapshot : nil
+            startupRestoreAgent: remoteStartupCommand == nil ? launchSnapshot : nil, suppressWorkspaceRemoteStartupCommand: remoteStartupCommand == nil
         )
         if let forkedPanel {
             _ = reorderSurface(panelId: forkedPanel.id, toIndex: targetIndex)

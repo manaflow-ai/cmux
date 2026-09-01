@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 /// The command family sharing surface-selector and restore-record semantics.
@@ -9,6 +10,7 @@ enum CMUXCLIContinuationVerb: String, Sendable {
 }
 
 enum CMUXCLIContinuationErrorKind: Sendable, Equatable {
+    case checkpointNotFound
     case surfaceUsage
     case positionalUsage
     case malformedRecord
@@ -24,15 +26,15 @@ extension CMUXCLI {
         commandArgs: [String],
         client: SocketClient,
         processEnvironment: [String: String]
-    ) throws {
+    ) async throws {
         if command == CMUXCLIContinuationVerb.fork.commandName {
-            try runForkCommand(
+            try await runForkCommand(
                 commandArgs: commandArgs,
                 client: client,
                 processEnvironment: processEnvironment
             )
         } else {
-            try runRestoreCommand(
+            try await runRestoreCommand(
                 commandArgs: commandArgs,
                 client: client,
                 processEnvironment: processEnvironment
@@ -118,6 +120,16 @@ extension CMUXCLI {
         verb: CMUXCLIContinuationVerb
     ) -> CLIError {
         switch (verb, kind) {
+        case (.restore, .checkpointNotFound):
+            return CLIError(message: String(
+                localized: "cli.restore.error.noRecord",
+                defaultValue: "restore: this session has nothing to restore. Start the agent again in this terminal."
+            ))
+        case (.fork, .checkpointNotFound):
+            return CLIError(message: String(
+                localized: "cli.fork.error.noRecord",
+                defaultValue: "fork: this session has nothing to fork. Start the agent again in this terminal."
+            ))
         case (.restore, .surfaceUsage):
             return CLIError(message: String(
                 localized: "cli.restore.usage.surface",
@@ -220,12 +232,23 @@ extension CMUXCLI {
         verb: CMUXCLIContinuationVerb
     ) throws -> String {
         if let surface = selector.surface {
-            let surfaceID = try normalizeSurfaceHandle(
-                surface,
-                client: client,
-                workspaceHandle: nil,
-                windowHandle: nil
-            )
+            let surfaceID: String?
+            do {
+                surfaceID = try normalizeSurfaceHandle(
+                    surface,
+                    client: client,
+                    workspaceHandle: nil,
+                    windowHandle: nil
+                )
+            } catch {
+                guard isContinuationSurfaceNotFound(error) else { throw error }
+                throw loggedContinuationError(
+                    .surfaceNotFound,
+                    verb: verb,
+                    stage: "surface.lookup",
+                    detail: surface
+                )
+            }
             guard let surfaceID else {
                 throw loggedContinuationError(
                     .surfaceNotFound,
@@ -267,6 +290,111 @@ extension CMUXCLI {
             .currentSurfaceUnknown,
             verb: verb,
             stage: "surface.current"
+        )
+    }
+
+    /// Fetches the continuation record while translating only a genuine
+    /// missing-surface response into the verb-specific localized diagnostic.
+    func continuationSurfaceResumePayload(
+        surfaceID: String,
+        client: SocketClient,
+        verb: CMUXCLIContinuationVerb
+    ) throws -> [String: Any] {
+        do {
+            return try client.sendV2(
+                method: "surface.resume.get",
+                params: ["surface_id": surfaceID]
+            )
+        } catch {
+            guard isContinuationSurfaceNotFound(error) else { throw error }
+            throw loggedContinuationError(
+                .surfaceNotFound,
+                verb: verb,
+                stage: "surface.resume.lookup",
+                detail: surfaceID
+            )
+        }
+    }
+
+    /// Identifies only the not-found failures emitted by surface-handle lookup.
+    /// Invalid handles and transport failures retain their established errors.
+    func isContinuationSurfaceNotFound(_ error: Error) -> Bool {
+        guard let cliError = error as? CLIError else { return false }
+        if cliError.v2Code == "not_found" { return true }
+        let message = cliError.message.lowercased()
+        return message == "surface not found"
+            || message == "surface index not found"
+            || message == "surface not found in window"
+    }
+
+    /// Repairs a transient Hermes checkpoint for either continuation verb.
+    ///
+    /// Hermes can persist a short-lived TUI identity before its durable
+    /// conversation row exists. Keep this recovery seam shared so `restore`
+    /// and `fork` make the same identity decision and report the same class of
+    /// missing-checkpoint failure with their verb-specific copy.
+    func recoveredHermesContinuationRecord(
+        _ record: RestoreRecord,
+        surfaceID: String,
+        processEnvironment: [String: String],
+        verb: CMUXCLIContinuationVerb
+    ) async throws -> RestoreRecord {
+        guard record.kind == "hermes-agent",
+              let checkpointID = record.checkpointID,
+              let surfaceUUID = UUID(uuidString: surfaceID) else {
+            return record
+        }
+        var recoveryEnvironment = processEnvironment
+        recoveryEnvironment.merge(record.environment) { _, restored in restored }
+        if let captured = record.launchCommand?.environment {
+            recoveryEnvironment.merge(captured) { _, restored in restored }
+        }
+        let hookStatePath = agentHookStatePath(
+            sessionStoreSuffix: "hermes-agent",
+            env: processEnvironment
+        )
+        let expectedWorkingDirectory = record.workingDirectory
+            ?? record.launchCommand?.workingDirectory
+        let resolution = await Self.resolveHermesCheckpoint(
+            surfaceID: surfaceUUID,
+            checkpointID: checkpointID,
+            expectedWorkingDirectory: expectedWorkingDirectory,
+            hookStatePath: hookStatePath,
+            environment: recoveryEnvironment
+        )
+        switch resolution {
+        case .valid, .legacyRestore, .unavailable:
+            return record
+        case .missing:
+            throw loggedContinuationError(
+                .checkpointNotFound,
+                verb: verb,
+                stage: "hermes.checkpoint.missing",
+                detail: checkpointID
+            )
+        case .recovered(let candidate):
+            return record.repairingHermesCheckpoint(
+                candidate.sessionID,
+                fallbackLaunchCommand: candidate.launchCommand
+            )
+        }
+    }
+
+    /// Performs the focused Hermes state read on Swift's concurrent executor.
+    @concurrent
+    private static func resolveHermesCheckpoint(
+        surfaceID: UUID,
+        checkpointID: String,
+        expectedWorkingDirectory: String?,
+        hookStatePath: String,
+        environment: [String: String]
+    ) async -> HermesLegacySessionIdentityRecovery.Resolution {
+        HermesLegacySessionIdentityRecovery().resolve(
+            surfaceID: surfaceID,
+            corruptSessionID: checkpointID,
+            expectedWorkingDirectory: expectedWorkingDirectory,
+            hookStateFileURL: URL(fileURLWithPath: hookStatePath),
+            environment: environment
         )
     }
 }

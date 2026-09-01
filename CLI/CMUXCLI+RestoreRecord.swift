@@ -2,7 +2,7 @@ import CMUXAgentLaunch
 
 extension CMUXCLI {
     /// The socket continuation payload after validation and typed decoding.
-    struct RestoreRecord {
+    struct RestoreRecord: Sendable {
         let mode: String
         let kind: String
         let checkpointID: String?

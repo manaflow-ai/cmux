@@ -627,38 +627,35 @@ enum AgentResumeCommandBuilder {
         customRegistration: CmuxVaultAgentRegistration?,
         observedPermissionMode: String? = nil
     ) -> [String]? {
-        let forkArgv = AgentForkArgv()
-        switch forkArgv.launcherResolution(
-            launcher: launchCommand?.launcher,
-            sessionId: sessionId,
-            executablePath: launchCommand?.executablePath,
-            arguments: launchCommand?.arguments ?? []
-        ) {
-        case .resolved(let argv):
-            return argv
-        case .passthrough:
-            break
-        }
-        if let customRegistration,
-           normalized(customRegistration.forkCommand) != nil {
-            let arguments = customForkArguments(
-                registration: customRegistration,
-                sessionId: sessionId,
-                launchCommand: launchCommand,
-                workingDirectory: workingDirectory
+        let customTemplate = customRegistration?.forkCommand.map { command in
+            AgentForkRequest.CustomTemplate(
+                command: command,
+                defaultExecutable: customRegistration?.defaultExecutable ?? kind.rawValue,
+                sessionDirectory: normalized(customRegistration?.sessionDirectory).map {
+                    ($0 as NSString).expandingTildeInPath
+                }
             )
-            return arguments.isEmpty ? nil : arguments
         }
-        if case .custom = kind {
-            return nil
-        }
-        return forkArgv.builtInKind(
+        return AgentForkRequest(
             kind: kind.rawValue,
-            sessionId: sessionId,
-            executablePath: launchCommand?.executablePath,
-            arguments: launchCommand?.arguments ?? [],
-            observedPermissionMode: observedPermissionMode
-        )
+            checkpointID: sessionId,
+            launchCommand: launchCommand.map {
+                AgentLaunchCommand(
+                    launcher: $0.launcher,
+                    executablePath: $0.executablePath,
+                    arguments: $0.arguments,
+                    workingDirectory: $0.workingDirectory,
+                    environment: $0.environment,
+                    verificationHome: $0.verificationHome,
+                    capturedAt: $0.capturedAt,
+                    source: $0.source
+                )
+            },
+            workingDirectory: workingDirectory,
+            observedPermissionMode: observedPermissionMode,
+            isCustomKind: kind.customAgentID != nil,
+            customTemplate: customTemplate
+        ).forkArguments()
     }
 
     private static func customResumeArguments(

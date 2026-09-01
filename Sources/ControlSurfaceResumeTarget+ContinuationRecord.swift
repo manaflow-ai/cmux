@@ -67,9 +67,13 @@ extension TerminalController {
     ) -> ControlSurfaceRestoreRecord {
         let trimmedKind = binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedKind = trimmedKind.flatMap { $0.isEmpty ? nil : $0 } ?? "command"
-        let mode: AgentRestoreRequestMode = binding.isAgentHookBinding
-            ? .resumeAgent
-            : .direct
+        let mode: AgentRestoreRequestMode
+        if let kind = RestorableAgentKind(rawValue: normalizedKind),
+           kind.restoreMode == .relaunchCommand {
+            mode = .relaunchAgent
+        } else {
+            mode = binding.isAgentHookBinding ? .resumeAgent : .direct
+        }
         // A superseded snapshot cannot authorize its registry template. Rebuild
         // only native argv from the binding that now owns the surface.
         let workingDirectory = binding.cwd ?? binding.launchCommand?.workingDirectory
@@ -149,7 +153,9 @@ extension TerminalController {
         normalizedKind: String,
         workingDirectory: String?
     ) -> [String]? {
-        guard let kind = RestorableAgentKind(rawValue: normalizedKind),
+        guard binding.isAgentHookBinding,
+              let kind = RestorableAgentKind(rawValue: normalizedKind),
+              RestorableAgentKind.allCases.contains(kind),
               kind.restoreMode == .resumeSession,
               let checkpointID = binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines),
               !checkpointID.isEmpty else {

@@ -390,7 +390,7 @@ extension TerminalController {
         return controlSurfaceBindingContinuationRecord(
             binding: binding,
             compatibilityBinding: compatibilityBinding,
-            restoredAgentExists: restoredAgent != nil
+            restoredAgentExists: restoredAgent != nil && binding.isAgentHookBinding
         )
     }
 

@@ -226,6 +226,17 @@ extension ContentView {
             }
         }
 
+        guard let authoritativeSnapshot = await currentContext.workspace.authoritativeForkSnapshot(
+            selected: snapshot,
+            panelId: panelId,
+            isRemoteContext: isRemoteContext
+        ) else {
+            clearCommandPaletteForkableAgentCache(panelKey: panelKey)
+            NSSound.beep()
+            return
+        }
+        snapshot = authoritativeSnapshot
+
         let fallbackFingerprint: String?
         if selection.usedFallbackSnapshot {
             fallbackFingerprint = fallbackSnapshot.map {

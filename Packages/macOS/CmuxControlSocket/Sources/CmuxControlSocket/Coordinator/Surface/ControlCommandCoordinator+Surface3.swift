@@ -343,7 +343,7 @@ extension ControlCommandCoordinator {
             "fork_arguments_working_directory": orNull(record.forkArgumentsWorkingDirectory),
             "permission_mode": orNull(record.permissionMode),
             "legacy_command": orNull(record.legacyCommand),
-            "fork_command": orNull(record.legacyForkCommand),
+            "fork_command": orNull(record.forkCommand),
         ])
     }
     private func doubleValue(_ value: JSONValue?) -> Double? {

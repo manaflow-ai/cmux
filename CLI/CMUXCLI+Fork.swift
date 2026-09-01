@@ -18,9 +18,7 @@ extension CMUXCLI {
                cmux fork --surface=<id|ref> <kind> <checkpoint-id>
                cmux fork --surface [id|ref]
 
-        Replace this CLI process with the provider's fork launch from the
-        persisted surface record. New records preserve fork arguments and
-        cwd as structured values; command-only records use a compatibility shell.
+        Start a fork from the saved session on the selected surface.
         With no id or ref, --surface uses the calling cmux surface.
         """)
     }
@@ -31,7 +29,7 @@ extension CMUXCLI {
         commandArgs: [String],
         client: SocketClient,
         processEnvironment: [String: String]
-    ) throws {
+    ) async throws {
         let selector = try continuationSelector(commandArgs, verb: .fork)
         let workingDirectoryBeforeFork = FileManager.default.currentDirectoryPath
         let surfaceID = try continuationSurfaceID(
@@ -41,7 +39,11 @@ extension CMUXCLI {
             verb: .fork
         )
         let params: [String: Any] = ["surface_id": surfaceID]
-        let payload = try client.sendV2(method: "surface.resume.get", params: params)
+        let payload = try continuationSurfaceResumePayload(
+            surfaceID: surfaceID,
+            client: client,
+            verb: .fork
+        )
         guard let rawRecord = payload["restore_record"] as? [String: Any] else {
             throw loggedForkError(
                 .noRecord,
@@ -74,10 +76,11 @@ extension CMUXCLI {
             )
         }
 
-        record = try recoveredForkRestoreRecord(
+        record = try await recoveredHermesContinuationRecord(
             record,
             surfaceID: surfaceID,
-            processEnvironment: processEnvironment
+            processEnvironment: processEnvironment,
+            verb: .fork
         )
 
         let bindingPayload = payload["resume_binding"] as? [String: Any]
@@ -127,9 +130,11 @@ extension CMUXCLI {
         }
 
         let legacyCommand = legacyForkCommand(for: record)
-        let environment = processEnvironment.merging(record.environment) { _, restored in
-            restored
+        var environment = processEnvironment
+        if let capturedEnvironment = record.launchCommand?.environment {
+            environment.merge(capturedEnvironment) { _, captured in captured }
         }
+        environment.merge(record.environment) { _, restored in restored }
         if record.forkArguments == nil,
            let legacyCommand {
             try execLegacyForkRecord(
@@ -229,49 +234,6 @@ extension CMUXCLI {
             invocation,
             appliedWorkingDirectory: effectiveWorkingDirectory
         )
-    }
-
-    private func recoveredForkRestoreRecord(
-        _ record: RestoreRecord,
-        surfaceID: String,
-        processEnvironment: [String: String]
-    ) throws -> RestoreRecord {
-        guard record.kind == "hermes-agent",
-              let checkpointID = record.checkpointID,
-              let surfaceUUID = UUID(uuidString: surfaceID) else {
-            return record
-        }
-        var recoveryEnvironment = processEnvironment
-        recoveryEnvironment.merge(record.environment) { _, restored in restored }
-        if let captured = record.launchCommand?.environment {
-            recoveryEnvironment.merge(captured) { _, restored in restored }
-        }
-        let hookStatePath = agentHookStatePath(
-            sessionStoreSuffix: "hermes-agent",
-            env: processEnvironment
-        )
-        switch HermesLegacySessionIdentityRecovery().resolve(
-            surfaceID: surfaceUUID,
-            corruptSessionID: checkpointID,
-            expectedWorkingDirectory: record.workingDirectory
-                ?? record.launchCommand?.workingDirectory,
-            hookStateFileURL: URL(fileURLWithPath: hookStatePath),
-            environment: recoveryEnvironment
-        ) {
-        case .valid, .legacyRestore, .unavailable:
-            return record
-        case .missing:
-            throw loggedForkError(
-                .noRecord,
-                stage: "hermes.checkpoint.missing",
-                detail: checkpointID
-            )
-        case .recovered(let candidate):
-            return record.repairingHermesCheckpoint(
-                candidate.sessionID,
-                fallbackLaunchCommand: candidate.launchCommand
-            )
-        }
     }
 
     private func legacyForkCommand(for record: RestoreRecord) -> String? {

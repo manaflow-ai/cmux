@@ -90,6 +90,15 @@ extension Workspace {
             }
         }
 
+        guard let authoritativeSnapshot = await authoritativeForkSnapshot(
+            selected: snapshot,
+            panelId: panelId,
+            isRemoteContext: isRemoteContext
+        ) else {
+            return false
+        }
+        snapshot = authoritativeSnapshot
+
         return forkAgentConversation(
             mutationPanelId: ownership.containerPanelID,
             snapshot: snapshot,
@@ -147,12 +156,11 @@ extension Workspace {
         snapshot: SessionRestorableAgentSnapshot,
         destination: AgentConversationForkDestination
     ) -> Bool {
-        var launchSnapshot = snapshot
         let workingDirectory = Self.normalizedForkWorkingDirectory(
             snapshot.workingDirectory
                 ?? remoteTmuxSessionMirror?.cwdByPane[location.pane.tmuxPaneID]
         )
-        launchSnapshot.workingDirectory = workingDirectory
+        let launchSnapshot = snapshot.retargetingForkWorkingDirectory(workingDirectory)
         guard let shellCommand = launchSnapshot.forkCommand,
               RemoteTmuxHost.controlModeLineSafeName(shellCommand) != nil else {
             return false

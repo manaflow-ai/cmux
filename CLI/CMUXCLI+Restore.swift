@@ -42,7 +42,7 @@ extension CMUXCLI {
         commandArgs: [String],
         client: SocketClient,
         processEnvironment: [String: String]
-    ) throws {
+    ) async throws {
         let selector = try restoreSelector(commandArgs)
         let workingDirectoryBeforeRestore = FileManager.default.currentDirectoryPath
         let surfaceID = try continuationSurfaceID(
@@ -52,8 +52,11 @@ extension CMUXCLI {
             verb: .restore
         )
         let params: [String: Any] = ["surface_id": surfaceID]
-
-        let payload = try client.sendV2(method: "surface.resume.get", params: params)
+        let payload = try continuationSurfaceResumePayload(
+            surfaceID: surfaceID,
+            client: client,
+            verb: .restore
+        )
         guard let rawRecord = payload["restore_record"] as? [String: Any] else {
             throw loggedRestoreError(
                 stage: "record.missing",
@@ -86,10 +89,11 @@ extension CMUXCLI {
             )
         }
 
-        record = try recoveredHermesRestoreRecord(
+        record = try await recoveredHermesContinuationRecord(
             record,
             surfaceID: surfaceID,
-            processEnvironment: processEnvironment
+            processEnvironment: processEnvironment,
+            verb: .restore
         )
 
         let bindingPayload = payload["resume_binding"] as? [String: Any]
@@ -270,54 +274,6 @@ extension CMUXCLI {
         )
     }
 
-    /// Repairs transient Hermes TUI identities using hook process-generation
-    /// evidence and the durable Hermes state database.
-    private func recoveredHermesRestoreRecord(
-        _ record: RestoreRecord,
-        surfaceID: String,
-        processEnvironment: [String: String]
-    ) throws -> RestoreRecord {
-        guard record.kind == "hermes-agent",
-              let checkpointID = record.checkpointID,
-              let surfaceUUID = UUID(uuidString: surfaceID) else {
-            return record
-        }
-        var recoveryEnvironment = processEnvironment
-        recoveryEnvironment.merge(record.environment) { _, restored in restored }
-        if let captured = record.launchCommand?.environment {
-            recoveryEnvironment.merge(captured) { _, restored in restored }
-        }
-        let hookStatePath = agentHookStatePath(
-            sessionStoreSuffix: "hermes-agent",
-            env: processEnvironment
-        )
-        switch HermesLegacySessionIdentityRecovery().resolve(
-            surfaceID: surfaceUUID,
-            corruptSessionID: checkpointID,
-            expectedWorkingDirectory: record.workingDirectory
-                ?? record.launchCommand?.workingDirectory,
-            hookStateFileURL: URL(fileURLWithPath: hookStatePath),
-            environment: recoveryEnvironment
-        ) {
-        case .valid, .legacyRestore, .unavailable:
-            return record
-        case .missing:
-            throw loggedRestoreError(
-                stage: "hermes.checkpoint.missing",
-                detail: checkpointID,
-                message: String(
-                    localized: "cli.restore.error.noRecord",
-                    defaultValue: "restore: this session has nothing to restore. Start the agent again in this terminal."
-                )
-            )
-        case .recovered(let candidate):
-            return record.repairingHermesCheckpoint(
-                candidate.sessionID,
-                fallbackLaunchCommand: candidate.launchCommand
-            )
-        }
-    }
-
     func currentRestoreSurfaceID(
         client: SocketClient,
         processEnvironment: [String: String]
@@ -489,13 +445,13 @@ extension CMUXCLI {
             let hasLegacyForkFallback = legacyForkCommand != nil
                 || legacyCommand?.contains("--fork") == true
                 || legacyCommand?.contains("--fork-session") == true
+            let hasStructuredForkData = object["fork_arguments"] != nil
+                || object["prepared_fork_arguments"] != nil
             let canUseLegacyFallback: Bool
             if verb == .fork {
                 canUseLegacyFallback = mode == AgentRestoreRequestMode.forkAgent.rawValue
-                    ? legacyCommand != nil
-                    : hasLegacyForkFallback
-                        || object["fork_arguments"] != nil
-                        || object["prepared_fork_arguments"] != nil
+                    ? (legacyCommand != nil || hasLegacyForkFallback || hasStructuredForkData)
+                    : (hasLegacyForkFallback || hasStructuredForkData)
             } else {
                 canUseLegacyFallback = legacyCommand != nil
             }

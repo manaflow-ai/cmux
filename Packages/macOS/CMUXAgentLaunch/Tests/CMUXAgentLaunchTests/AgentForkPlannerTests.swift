@@ -3,6 +3,32 @@ import Testing
 
 @Suite("AgentForkPlanner")
 struct AgentForkPlannerTests {
+    @Test("Custom fork templates render through the package boundary")
+    func customForkTemplateRendersStructuredArguments() throws {
+        let request = AgentForkRequest(
+            kind: "custom-agent",
+            checkpointID: "checkpoint",
+            launchCommand: AgentLaunchCommand(
+                executablePath: "/opt/bin/agent",
+                arguments: ["/opt/bin/agent", "--model", "fast"]
+            ),
+            workingDirectory: "/tmp/fork repo",
+            isCustomKind: true,
+            customTemplate: AgentForkRequest.CustomTemplate(
+                command: "{{executable}} --branch {{sessionId}} --cwd {{cwd}}",
+                defaultExecutable: "custom-agent"
+            )
+        )
+
+        #expect(request.forkArguments() == [
+            "/opt/bin/agent",
+            "--branch",
+            "checkpoint",
+            "--cwd",
+            "/tmp/fork repo",
+        ])
+    }
+
     @Test("Uses prepared fork argv with restore environment policy")
     func preparedForkArgumentsStayStructured() throws {
         let checkpointID = "fork-session"

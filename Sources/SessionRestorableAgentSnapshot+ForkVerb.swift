@@ -18,10 +18,11 @@ extension SessionRestorableAgentSnapshot {
     /// Returns a fork snapshot retargeted to the directory selected by the
     /// destination surface while preserving the captured launch metadata.
     func retargetingForkWorkingDirectory(_ workingDirectory: String?) -> Self {
+        let effectiveWorkingDirectory = registration?.cwd == .ignore ? nil : workingDirectory
         var retargeted = self
-        retargeted.workingDirectory = workingDirectory
+        retargeted.workingDirectory = effectiveWorkingDirectory
         if var launchCommand = retargeted.launchCommand {
-            launchCommand.workingDirectory = workingDirectory
+            launchCommand.workingDirectory = effectiveWorkingDirectory
             retargeted.launchCommand = launchCommand
         }
         return retargeted

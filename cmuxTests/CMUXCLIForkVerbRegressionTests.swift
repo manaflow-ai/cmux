@@ -85,6 +85,34 @@ struct CMUXCLIForkVerbRegressionTests {
     }
 
     @Test
+    func ignoredRegistrationDoesNotRetargetForkWorkingDirectory() throws {
+        let registration = CmuxVaultAgentRegistration(
+            id: "ignore-cwd-agent",
+            name: "Ignore CWD Agent",
+            detect: CmuxVaultAgentDetectRule(processNames: ["ignore-cwd-agent"]),
+            sessionIdSource: .argvOption("--session"),
+            resumeCommand: "{{executable}} --resume {{sessionId}}",
+            forkCommand: "{{executable}} --fork {{sessionId}}",
+            cwd: .ignore
+        )
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .custom(registration.id),
+            sessionId: "ignore-cwd-session",
+            workingDirectory: "/tmp/original",
+            launchCommand: AgentLaunchCommandSnapshot(
+                arguments: ["ignore-cwd-agent"],
+                workingDirectory: "/tmp/original"
+            ),
+            registration: registration
+        )
+
+        let retargeted = snapshot.retargetingForkWorkingDirectory("/tmp/destination")
+        #expect(retargeted.workingDirectory == nil)
+        #expect(retargeted.launchCommand?.workingDirectory == nil)
+        #expect(retargeted.preparedForkArguments() == ["ignore-cwd-agent", "--fork", "ignore-cwd-session"])
+    }
+
+    @Test
     func surfaceResumeCanonicalizerUsesForkSelectorForLocalBindings() throws {
         let sessionID = "019dad34-d218-7943-b81a-eddac5c87951"
         let binding = SurfaceResumeBindingSnapshot(
@@ -96,6 +124,73 @@ struct CMUXCLIForkVerbRegressionTests {
         )
         #expect(binding.usesLocalForkVerb)
         #expect(binding.forkStartupInput() == " cmux fork claude \(sessionID)\n")
+    }
+
+    @Test
+    func directBindingsDoNotAdvertisePreparedForkArguments() throws {
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        defer { tabManager.tabs.forEach { $0.teardownAllPanels() } }
+        let workspace = try #require(tabManager.addWorkspaceIfActive(autoWelcomeIfNeeded: false))
+        let panelID = try #require(workspace.focusedPanelId)
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "claude",
+            command: "claude --resume direct-session",
+            checkpointId: "direct-session",
+            source: "manual",
+            autoResume: false
+        )
+        workspace.setRestoredAgentSnapshotForTesting(
+            SessionRestorableAgentSnapshot(
+                kind: .claude,
+                sessionId: "stale-session",
+                workingDirectory: nil,
+                launchCommand: AgentLaunchCommandSnapshot(arguments: ["claude"])
+            ),
+            panelId: panelID
+        )
+        workspace.surfaceResumeBindingsByPanelId[panelID] = binding
+        let target = ControlSurfaceResumeTarget.workspace(
+            tabManager: tabManager,
+            workspace: workspace,
+            surfaceID: panelID
+        )
+
+        let record = try #require(
+            TerminalController.shared.controlSurfaceRestoreRecord(
+                target: target,
+                binding: binding
+            )
+        )
+        #expect(record.forkArguments == nil)
+    }
+
+    @Test
+    func agentHookRelaunchKindsKeepRelaunchMode() throws {
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        defer { tabManager.tabs.forEach { $0.teardownAllPanels() } }
+        let workspace = try #require(tabManager.addWorkspaceIfActive(autoWelcomeIfNeeded: false))
+        let panelID = try #require(workspace.focusedPanelId)
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "ollama",
+            command: "ollama run llama3",
+            checkpointId: nil,
+            source: "agent-hook",
+            autoResume: true
+        )
+        workspace.surfaceResumeBindingsByPanelId[panelID] = binding
+        let target = ControlSurfaceResumeTarget.workspace(
+            tabManager: tabManager,
+            workspace: workspace,
+            surfaceID: panelID
+        )
+
+        let record = try #require(
+            TerminalController.shared.controlSurfaceRestoreRecord(
+                target: target,
+                binding: binding
+            )
+        )
+        #expect(record.modeRawValue == AgentRestoreRequestMode.relaunchAgent.rawValue)
     }
 
     @Test
@@ -147,16 +242,13 @@ struct CMUXCLIForkVerbRegressionTests {
             ["--surface", "surface:4", "claude"],
             ["--surface=surface:4", "--surface", "surface:5", "claude", "checkpoint"],
         ]
+        let home = try isolatedCLIHome()
+        defer { try? FileManager.default.removeItem(at: home) }
         for form in malformedForms {
             let socketPath = "/tmp/cmux-continuation-selector-\(UUID().uuidString.prefix(8)).sock"
             let responder = try UnixSocketResponder(path: socketPath, response: "{\"ok\":true,\"result\":{}}")
             defer { responder.stop() }
-            var environment = ProcessInfo.processInfo.environment
-            for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
-                environment.removeValue(forKey: key)
-            }
-            environment["CMUX_SOCKET_PATH"] = socketPath
-            environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+            var environment = isolatedCLIEnvironment(socketPath: socketPath, home: home)
             let restore = try runCLI(arguments: ["restore"] + form, environment: environment)
             let fork = try runCLI(arguments: ["fork"] + form, environment: environment)
             #expect(restore.status != 0)
@@ -246,12 +338,9 @@ struct CMUXCLIForkVerbRegressionTests {
         )
         defer { responder.stop() }
 
-        var environment = ProcessInfo.processInfo.environment
-        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
-            environment.removeValue(forKey: key)
-        }
-        environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        let home = try isolatedCLIHome()
+        defer { try? fileManager.removeItem(at: home) }
+        var environment = isolatedCLIEnvironment(socketPath: socketPath, home: home)
         environment["FORK_TEST_MARKER"] = marker.path
         environment["PATH"] = "/usr/bin:/bin"
 
@@ -270,6 +359,7 @@ struct CMUXCLIForkVerbRegressionTests {
 
     @Test
     func cliForkVerbReportsMissingForkSupport() throws {
+        let fileManager = FileManager.default
         let surfaceID = UUID().uuidString.lowercased()
         let checkpointID = "unsupported-fork-checkpoint"
         let responseData = try JSONSerialization.data(withJSONObject: [
@@ -293,12 +383,9 @@ struct CMUXCLIForkVerbRegressionTests {
         )
         defer { responder.stop() }
 
-        var environment = ProcessInfo.processInfo.environment
-        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
-            environment.removeValue(forKey: key)
-        }
-        environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        let home = try isolatedCLIHome()
+        defer { try? fileManager.removeItem(at: home) }
+        var environment = isolatedCLIEnvironment(socketPath: socketPath, home: home)
         environment["PATH"] = "/usr/bin:/bin"
 
         let result = try runCLI(
@@ -339,5 +426,30 @@ struct CMUXCLIForkVerbRegressionTests {
             stdout: String(decoding: stdout.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self),
             stderr: String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
         )
+    }
+
+    private func isolatedCLIHome() throws -> URL {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-fork-cli-home-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        return home
+    }
+
+    private func isolatedCLIEnvironment(
+        socketPath: String,
+        home: URL
+    ) -> [String: String] {
+        var environment = ProcessInfo.processInfo.environment.filter {
+            !$0.key.hasPrefix("CMUX_") && !$0.key.hasPrefix("CMUXD_")
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["HOME"] = home.path
+        environment["CFFIXED_USER_HOME"] = home.path
+        environment["AppleLanguages"] = "(en)"
+        environment["AppleLocale"] = "en_US_POSIX"
+        environment["LANG"] = "en_US.UTF-8"
+        environment["LC_ALL"] = "C"
+        return environment
     }
 }

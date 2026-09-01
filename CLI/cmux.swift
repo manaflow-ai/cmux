@@ -4961,7 +4961,7 @@ struct CMUXCLI {
         )
     }
 
-    func run() throws {
+    func run() async throws {
         let processEnv = ProcessInfo.processInfo.environment
         let cliBundleIdentifier = CLISocketPathResolver.currentAppBundleIdentifier()
         var explicitSocketPath: String? = nil
@@ -5433,7 +5433,7 @@ struct CMUXCLI {
         } catch {
             cliTelemetry.breadcrumb("socket.connect.failure", data: ["path": resolvedSocketPath])
             cliTelemetry.captureError(stage: "socket_connect", error: error)
-            if (command == "restore" || command == "fork"), explicitSocketPath == nil {
+            if command == "restore", explicitSocketPath == nil {
                 cliDebugLog("socket.connect.wait.entered path=\(resolvedSocketPath)")
                 cliTelemetry.breadcrumb(
                     "socket.connect.wait",
@@ -7055,7 +7055,7 @@ struct CMUXCLI {
             )
 
         case "restore", "fork":
-            try runContinuationCommand(
+            try await runContinuationCommand(
                 command: command,
                 commandArgs: commandArgs,
                 client: client,
@@ -8195,7 +8195,7 @@ struct CMUXCLI {
     /// complete the on-demand startup instead of discovery failing first.
     private func commandCanLaunchAppWhenSocketUnavailable(_ command: String) -> Bool {
         switch command {
-        case "settings", "shortcuts", "open", "diff", "restore", "fork", "restore-session", "feedback":
+        case "settings", "shortcuts", "open", "diff", "restore", "restore-session", "feedback":
             return true
         default:
             return false
@@ -40783,7 +40783,7 @@ private enum CMUXCLIOutput {
 
 @main
 struct CMUXTermMain {
-    static func main() {
+    static func main() async {
         let initialSIGPIPEInspectionPayload = CMUXCLI.currentSIGPIPEInspectionPayload()
         _ = signal(SIGPIPE, SIG_DFL)
         configureCLIStdioNoSIGPIPE()
@@ -40792,7 +40792,7 @@ struct CMUXTermMain {
             initialSIGPIPEInspectionPayload: initialSIGPIPEInspectionPayload
         )
         do {
-            try cli.run()
+            try await cli.run()
         } catch {
             if !cli.shouldSuppressSSHPTYAttachRetryError(error) {
                 CMUXCLIOutput.writeStandardError("Error: \(error)\n")
