@@ -4070,7 +4070,7 @@ extension CMUXCLI {
     ) throws -> DiffViewerWriteResult {
         let target = try makeDiffViewerGitHTMLSetTarget(runtime: runtime)
         if selectedSource != .lastTurn,
-           !diffViewerUsesTypedSidecar(runtime: target.runtime) {
+           !shouldUseTypedDiffSidecar(runtime: target.runtime, context: context) {
             return try writeOpeningGitDiffViewerHTMLSet(
                 selectedSource: selectedSource,
                 titleOverride: titleOverride,
@@ -4175,7 +4175,7 @@ extension CMUXCLI {
                         target: target,
                         extraAllowedPageURL: openingFileURL
                     )
-                    if !diffViewerUsesTypedSidecar(runtime: target.runtime) {
+                    if completed.deferredSourceSet != nil {
                         var finalized = completed
                         var completedPageURLs = Set<URL>()
                         if let selectedCompletion = try completeDeferredDiffViewerSelectedSource(
@@ -4245,7 +4245,7 @@ extension CMUXCLI {
         target: DiffViewerGitHTMLSetTarget,
         extraAllowedPageURL: URL? = nil
     ) throws -> DiffViewerWriteResult {
-        if diffViewerUsesTypedSidecar(runtime: target.runtime) {
+        if shouldUseTypedDiffSidecar(runtime: target.runtime, context: context) {
             return try writeTypedGitDiffViewerPage(
                 selectedSource: selectedSource,
                 titleOverride: titleOverride,
@@ -4499,7 +4499,7 @@ extension CMUXCLI {
             try writeDiffViewerBranchSession(session, rootDirectory: directory)
             sessionPersisted = true
         } catch {
-            if diffViewerUsesTypedSidecar(runtime: target.runtime) {
+            if shouldUseTypedDiffSidecar(runtime: target.runtime, context: selectedContext) {
                 throw error
             }
             // Legacy hosts can still render the selected page without a session,
@@ -4887,7 +4887,7 @@ extension CMUXCLI {
             if let completeDeferred = viewer.completeDeferred {
                 return try completeDeferred()
             }
-            if !diffViewerUsesTypedSidecar(runtime: viewer.deferredSourceSet?.runtime) {
+            if viewer.deferredSourceSet != nil {
                 let selectedCompletion = try completeDeferredDiffViewerSources(
                     viewer.deferredSourceSet,
                     selectedURL: viewer.fileURL
