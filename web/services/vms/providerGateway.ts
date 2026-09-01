@@ -18,7 +18,7 @@ import {
   type CmuxRemoteAttachOptions,
   type CmuxRemoteEndpoint,
 } from "./drivers";
-import { VmProviderOperationError } from "./errors";
+import { VmOperationUnsupportedError, VmProviderOperationError } from "./errors";
 
 export type VmProviderGatewayShape = {
   readonly create: (provider: ProviderId, options: CreateOptions) => Effect.Effect<VMHandle, VmProviderOperationError>;
@@ -127,7 +127,7 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     providerEffect(provider, "fork", async () => {
       const driver = getProvider(provider);
       if (!driver.fork) {
-        throw new Error("Cloud VM forks are not supported by this provider");
+        throw new VmOperationUnsupportedError({ provider, operation: "fork" });
       }
       return await driver.fork(vmId);
     }),
