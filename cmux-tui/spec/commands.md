@@ -147,7 +147,7 @@ Size-aware creation commands are `apply-layout`, `new-tab`, `new-browser-tab`, `
 | --- | --- |
 | both `cols` and `rows` supplied | Clamp each to `1..10000`, use the pair for the new surface or surfaces, and record the effective grid as the latest client size |
 | neither supplied | Use the latest active client size, or the configured server default when no client reports remain |
-| only one supplied | Preserve protocol-v6 behavior: the incomplete pair is ignored; clients must always send both |
+| only one supplied | Optional-size commands ignore the incomplete pair. `create-terminal` and `attach-surface` are strict exceptions: they return an error and require `cols` and `rows` together. |
 
 `resize-surface` requires both fields and clamps each to `1..10000`. Attached
 clients retain the report until release; an unattached one-shot report is
@@ -2847,7 +2847,13 @@ Errors:
 | status | implemented |
 | since | protocol 5 |
 
-Moves an existing tab, identified by `surface`, into `pane` at zero-based `index`. Moving a tab to its current pane and current index is an `ok:true` no-op. This command is documented from the consumer-side landed contract; it is not present in this branch's `server.rs`, so out-of-range index behavior and event emission could not be verified here.
+Moves an existing tab, identified by `surface`, into `pane` at zero-based `index`.
+The server clamps an out-of-range destination index to the end. For a same-pane
+move, the index is interpreted after removing the tab, so an index after the
+current position is reduced by one. Moving a tab to its current position is an
+`ok:true` no-op and leaves the active tab unchanged. A cross-pane move removes
+the tab from its source, collapses an empty source pane, and inserts it at the
+clamped destination index.
 
 Params:
 
@@ -2867,10 +2873,8 @@ Errors:
 
 | Error | Condition |
 | --- | --- |
-| `unknown surface <id>` | Surface id does not exist |
-| `unknown pane <id>` | Destination pane does not exist |
+| `unknown surface/pane` | The surface, destination pane, or the surface's current pane does not exist |
 | `bad request: ...` | Missing fields or wrong JSON type |
-| unverified error string | Non-same-position out-of-range index behavior could not be checked in this branch |
 
 CLI mapping:
 
