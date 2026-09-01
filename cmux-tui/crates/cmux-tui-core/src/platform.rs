@@ -749,18 +749,11 @@ pub fn foreground_process_name(pid: u32) -> Option<String> {
 
 #[cfg(target_os = "linux")]
 fn process_name(pid: u32) -> Option<String> {
-    // argv[0]'s basename beats /proc/<pid>/comm: comm truncates to 15
-    // bytes and wrapper launchers exec with a meaningful argv[0].
-    let argv0 = std::fs::read(format!("/proc/{pid}/cmdline")).ok().and_then(|cmdline| {
-        let argv0 = cmdline.split(|byte| *byte == 0).next()?;
-        let argv0 = std::str::from_utf8(argv0).ok()?.trim();
-        (!argv0.is_empty()).then(|| argv0.to_string())
-    });
-    argv0.or_else(|| {
-        let comm = std::fs::read_to_string(format!("/proc/{pid}/comm")).ok()?;
-        let comm = comm.trim();
-        (!comm.is_empty()).then(|| comm.to_string())
-    })
+    // Resolve the kernel-owned executable path. argv[0] and /proc/comm are
+    // caller-controlled or truncated, so they cannot establish agent
+    // identity. Manifest matching accepts absolute executable paths.
+    let path = std::fs::read_link(format!("/proc/{pid}/exe")).ok()?;
+    (!path.as_os_str().is_empty()).then(|| path.to_string_lossy().into_owned())
 }
 
 #[cfg(target_os = "macos")]
@@ -1357,5 +1350,14 @@ mod tests {
     fn local_hostname_decoder_accepts_non_utf8_os_bytes() {
         assert_eq!(decode_local_hostname(b"host\xff"), Some("host�".to_string()));
         assert_eq!(decode_local_hostname(b""), None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_process_name_uses_kernel_executable_path() {
+        let pid = std::process::id();
+        let expected = std::fs::read_link(format!("/proc/{pid}/exe")).unwrap();
+        assert_eq!(process_name(pid), Some(expected.to_string_lossy().into_owned()));
+        assert_eq!(process_name(u32::MAX), None);
     }
 }
