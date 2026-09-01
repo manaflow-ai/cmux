@@ -714,6 +714,27 @@ pub(crate) fn validate_journal_hook_manifest(manifest: &JournalHookManifest) -> 
 }
 
 impl WorkspaceRegistry {
+    /// Look up an exact ingress receipt before the caller validates against the
+    /// current producer manifest. A retry can carry an older manifest version
+    /// after a producer upgrade, but an ingress that has never committed must
+    /// still pass current admission below.
+    pub(crate) fn replay_journal_ingress(
+        &self,
+        ingress: &JournalIngress,
+        origin: &str,
+        idempotency_key: &str,
+    ) -> anyhow::Result<Option<JournalAppendCommit>> {
+        validate_journal_ingress_shape(ingress, origin, idempotency_key)?;
+        let fingerprint = journal_ingress_fingerprint(ingress)?;
+        ingress_receipt(
+            &self.connection,
+            &ingress.producer_id,
+            origin,
+            idempotency_key,
+            fingerprint.as_slice(),
+        )
+    }
+
     #[cfg(test)]
     pub(crate) fn append_journal_ingress_events(
         &mut self,
@@ -1413,7 +1434,7 @@ impl WorkspaceRegistry {
         validated: &crate::journal_kernel::ValidatedJournalIngress,
         origin: &str,
         idempotency_key: &str,
-    ) -> anyhow::Result<JournalAppendCommit> {
+) -> anyhow::Result<JournalAppendCommit> {
         let tx = self.connection.transaction()?;
         let commit =
             append_journal_ingress_transaction(&tx, ingress, validated, origin, idempotency_key)?;
@@ -1429,17 +1450,8 @@ fn append_journal_ingress_transaction(
     origin: &str,
     idempotency_key: &str,
 ) -> anyhow::Result<JournalAppendCommit> {
-    validate_identifier("journal ingress origin", origin)?;
-    validate_identifier("journal ingress idempotency key", idempotency_key)?;
-    validate_plugin_component("producer_id", &ingress.producer_id)?;
-    validate_dotted_kind(&ingress.kind)?;
-    anyhow::ensure!(ingress.schema_version > 0, "schema_version must be positive");
-    anyhow::ensure!(
-        serde_json::to_vec(&ingress.payload)?.len() <= MAX_EVENT_PAYLOAD_BYTES,
-        "journal event payload exceeds {MAX_EVENT_PAYLOAD_BYTES} bytes"
-    );
-    let ingress_value = serde_json::to_value(ingress)?;
-    let fingerprint = Sha256::digest(canonical_json(&ingress_value)?.as_bytes());
+    validate_journal_ingress_shape(ingress, origin, idempotency_key)?;
+    let fingerprint = journal_ingress_fingerprint(ingress)?;
     if let Some(commit) =
         ingress_receipt(tx, &ingress.producer_id, origin, idempotency_key, fingerprint.as_slice())?
     {
@@ -3044,14 +3056,36 @@ fn insert_operation_receipt(
     Ok(())
 }
 
+fn validate_journal_ingress_shape(
+    ingress: &JournalIngress,
+    origin: &str,
+    idempotency_key: &str,
+) -> anyhow::Result<()> {
+    validate_identifier("journal ingress origin", origin)?;
+    validate_identifier("journal ingress idempotency key", idempotency_key)?;
+    validate_plugin_component("producer_id", &ingress.producer_id)?;
+    validate_dotted_kind(&ingress.kind)?;
+    anyhow::ensure!(ingress.schema_version > 0, "schema_version must be positive");
+    anyhow::ensure!(
+        serde_json::to_vec(&ingress.payload)?.len() <= MAX_EVENT_PAYLOAD_BYTES,
+        "journal event payload exceeds {MAX_EVENT_PAYLOAD_BYTES} bytes"
+    );
+    Ok(())
+}
+
+fn journal_ingress_fingerprint(ingress: &JournalIngress) -> anyhow::Result<[u8; 32]> {
+    let ingress_value = serde_json::to_value(ingress)?;
+    Ok(Sha256::digest(canonical_json(&ingress_value)?.as_bytes()).into())
+}
+
 fn ingress_receipt(
-    transaction: &Transaction<'_>,
+    connection: &Connection,
     producer_id: &str,
     origin: &str,
     idempotency_key: &str,
     fingerprint: &[u8],
 ) -> anyhow::Result<Option<JournalAppendCommit>> {
-    let stored = transaction
+    let stored = connection
         .query_row(
             "SELECT fingerprint, event_id, journal_sequence
              FROM journal_ingress_receipts

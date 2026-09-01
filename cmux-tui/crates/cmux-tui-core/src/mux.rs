@@ -5495,7 +5495,22 @@ impl Mux {
         origin: &str,
         idempotency_key: &str,
     ) -> anyhow::Result<crate::JournalAppendCommit> {
-        let validated = self.journal_kernel.validate_ingress(ingress)?;
+        let validated = match self.journal_kernel.validate_ingress(ingress) {
+            Ok(validated) => validated,
+            Err(validation_error) => {
+                // A receipt is authoritative for an exact retry. Its ingress
+                // may name a superseded manifest after a producer upgrade,
+                // while a new ingress must still pass current validation.
+                if let Some(commit) = self.workspace_registry.lock().unwrap().replay_journal_ingress(
+                    ingress,
+                    origin,
+                    idempotency_key,
+                )? {
+                    return self.finish_journal_ingress(ingress, origin, idempotency_key, commit);
+                }
+                return Err(validation_error);
+            }
+        };
         let commit = if self.journal_ingress.enabled() {
             self.journal_ingress.send_producer(
                 ingress.clone(),
@@ -5515,6 +5530,16 @@ impl Mux {
             }
             commit
         };
+        self.finish_journal_ingress(ingress, origin, idempotency_key, commit)
+    }
+
+    fn finish_journal_ingress(
+        &self,
+        ingress: &crate::JournalIngress,
+        origin: &str,
+        idempotency_key: &str,
+        commit: crate::JournalAppendCommit,
+    ) -> anyhow::Result<crate::JournalAppendCommit> {
         // Replayed journal commits still need projection reconciliation. A
         // process can crash after the durable journal commit and before the
         // in-memory/resource projection update. The sequence guard makes this
