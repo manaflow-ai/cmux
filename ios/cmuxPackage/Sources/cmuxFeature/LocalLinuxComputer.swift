@@ -262,13 +262,7 @@ private struct LocalLinuxTerminalRepresentable: UIViewRepresentable {
 
     func makeUIView(context: Context) -> UIView {
         guard let runtime = try? GhosttyRuntime.shared() else {
-            let placeholder = LocalLinuxProductionRendererFailurePlaceholderView()
-            placeholder.onInstall = { [weak coordinator = context.coordinator] in
-                coordinator?.rendererFailurePlaceholderDidInstall()
-            }
-            placeholder.backgroundColor = .black
-            placeholder.isAccessibilityElement = false
-            return placeholder
+            return makeRendererFailurePlaceholder(context: context)
         }
 
         let view = GhosttySurfaceView(
@@ -277,6 +271,17 @@ private struct LocalLinuxTerminalRepresentable: UIViewRepresentable {
             fontSize: 12,
             isMacRemote: false
         )
+        // The shared runtime can exist while libghostty still fails to create
+        // the actual surface. Do not start a local PTY behind a view that can
+        // only discard its output. The placeholder reports the same deferred
+        // failure as a runtime acquisition error after UIKit installs it.
+        guard view.hasRendererSurface else {
+            // The bridge can retain a failed view until its C teardown is
+            // complete. Dispose it before returning a different UIView from
+            // this representable, so a failed mount cannot leak a view cycle.
+            view.prepareForDismantle()
+            return makeRendererFailurePlaceholder(context: context)
+        }
         view.accessibilityIdentifier = "cmux.local-linux.surface"
         context.coordinator.surfaceView = view
         context.coordinator.startIfNeeded()
@@ -290,6 +295,16 @@ private struct LocalLinuxTerminalRepresentable: UIViewRepresentable {
                 ?? context.coordinator.fallbackKeyboardFrameTracker,
             keyboardDockRebuildRevertEnabled: context.environment.keyboardDockRebuildRevertEnabled
         )
+    }
+
+    private func makeRendererFailurePlaceholder(context: Context) -> UIView {
+        let placeholder = LocalLinuxProductionRendererFailurePlaceholderView()
+        placeholder.onInstall = { [weak coordinator = context.coordinator] in
+            coordinator?.rendererFailurePlaceholderDidInstall()
+        }
+        placeholder.backgroundColor = .black
+        placeholder.isAccessibilityElement = false
+        return placeholder
     }
 
     func updateUIView(_ uiView: UIView, context: Context) {
@@ -350,6 +365,10 @@ private struct LocalLinuxTerminalRepresentable: UIViewRepresentable {
             guard isWindowAttached || surfaceView?.window != nil else {
                 // UIKit may call makeUIView before assigning a window. The
                 // attachment callback below starts the lane at that boundary.
+                return
+            }
+            guard let surfaceView, surfaceView.hasRendererSurface else {
+                rendererFailurePlaceholderDidInstall()
                 return
             }
             guard sceneIsActive, outputTask == nil else { return }
@@ -535,6 +554,10 @@ private struct LocalLinuxTerminalRepresentable: UIViewRepresentable {
         func ghosttySurfaceViewDidResetRenderPipeline(_ surfaceView: GhosttySurfaceView) {
             guard self.surfaceView === surfaceView,
                   sceneIsActive else { return }
+            guard surfaceView.hasRendererSurface else {
+                rendererFailurePlaceholderDidInstall()
+                return
+            }
             // Render recovery creates a fresh Ghostty surface but keeps the
             // local iSH session alive. Reopen the attachment so its replay
             // restores the terminal model on the replacement surface.

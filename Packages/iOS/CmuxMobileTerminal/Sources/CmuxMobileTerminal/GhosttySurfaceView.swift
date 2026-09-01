@@ -663,6 +663,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     var surface: ghostty_surface_t?
     var surfaceGeneration: UInt64 = 0
+    /// Whether libghostty created a usable terminal surface for this view.
+    ///
+    /// Surface creation can fail after the shared ``GhosttyRuntime`` has
+    /// opened successfully, for example when a render callback cannot be
+    /// registered or a recovered IOSurface cannot be allocated. Hosts that
+    /// own a local PTY must check this before publishing a running session;
+    /// otherwise output is accepted into a black view with no recovery path.
+    public var hasRendererSurface: Bool {
+        surface != nil
+    }
     #if DEBUG
     var latencyLastAppliedSequence: UInt64?
     #endif
@@ -3713,6 +3723,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         artifactChipAccessibilityObserverTokens.removeAll()
         prepareForReuseAfterDetach()
+        // SwiftUI dismantle releases the host view, but the bridge deliberately
+        // retains its view while libghostty callbacks are possible. Dispose the
+        // C surface here instead of relying on deinit, which cannot run while
+        // that bridge-to-view cycle is alive. Transient window detaches still
+        // use `prepareForReuseAfterDetach()` and keep the surface for reattach.
+        disposeSurface()
     }
 
     /// Quiesces the surface on window detach: resigns input, stops the display
@@ -3923,11 +3939,22 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         stopDisplayLink()
         cancelRenderPipelineRecoveryResumeTimer()
         resetScrollStateForSurfaceReplacement()
-        guard let surface else { return }
+        let currentBridge = bridge
+        guard let surface else {
+            // Surface creation failures release the bridge owner at their
+            // failure boundary. If a caller dismantles this view a second
+            // time while a prior free is still queued, do not release that
+            // owner before libghostty has finished using its raw UIView
+            // pointer.
+            return
+        }
         GhosttySurfaceView.unregister(surface: surface)
         self.surface = nil
-        let currentBridge = bridge
         let currentQueue = outputQueue
+        // Disable callbacks immediately, but keep the bridge's strong view
+        // owner until the queued free returns. libghostty stores the iOS view
+        // as a borrowed raw pointer, so releasing that owner before the serial
+        // teardown drains would permit a use-after-free.
         currentBridge.detach()
         // Free on the SAME serial `outputQueue` that runs `process_output`,
         // `render_now`, and `binding_action` (all of which capture this C
@@ -3937,22 +3964,35 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // never use-after-free against the free, and no two of them ever touch
         // the surface concurrently. `processOutput`'s main-actor guard stops new
         // work from being enqueued once `surface` is nil, so only the bounded
-        // backlog drains before the free. The host-owned bridge retain stays
+        // backlog drains before the free. The bridge keeps the raw UIKit owner
         // alive until synchronous libghostty teardown has stopped callbacks.
-        enqueueSurfaceFree(surface, generation: surfaceGeneration, on: currentQueue)
+        enqueueSurfaceFree(
+            surface,
+            bridge: currentBridge,
+            generation: surfaceGeneration,
+            on: currentQueue
+        )
     }
 
     func enqueueSurfaceFree(
         _ surface: ghostty_surface_t,
+        bridge: GhosttySurfaceBridge,
         generation: UInt64, on queue: GhosttySurfaceWorkQueue,
         completion: (@MainActor @Sendable () -> Void)? = nil
     ) {
-        surfaceFreeDrainWatchdog.start(generation: generation) { [weak self] in self?.pendingSurfaceFreeCount ?? 0 }
-        queue.async { [weak self] in
+        let watchdog = surfaceFreeDrainWatchdog
+        let pendingFreesAtEnqueue = pendingSurfaceFreeCount
+        watchdog.start(generation: generation) { pendingFreesAtEnqueue }
+        let finish: @MainActor @Sendable () -> Void = { [bridge, watchdog, completion] in
+            bridge.releaseSurfaceViewAfterFree()
+            watchdog.cancel(generation: generation)
+            completion?()
+        }
+        queue.async {
             let userdata = ghostty_surface_userdata(surface)
             ghostty_surface_free(surface)
             GhosttySurfaceBridge.releaseRetainedOpaque(userdata)
-            Task { @MainActor in self?.surfaceFreeDrainWatchdog.cancel(generation: generation); completion?() }
+            Task { @MainActor in finish() }
         }
     }
 
@@ -3985,18 +4025,25 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     func initializeSurface() {
-        guard let app = runtime?.app else { return }
-        surface = makeSurface(app: app)
-        if let surface {
-            GhosttySurfaceView.register(surface: surface, for: self)
-            appliedTerminalConfigTheme = nil
-            applyTerminalConfigTheme()
-            // A live C surface is not proof that its first pixels reached the
-            // IOSurface layer. Keep the fallback visible until a tokened frame
-            // is acknowledged by Ghostty.
-            surfaceHasReceivedOutput = false
-            hasAppliedOutput = false
+        guard let app = runtime?.app,
+              let createdSurface = makeSurface(app: app) else {
+            // `bridge` retains the view for libghostty callbacks. No C
+            // surface owns that retain when creation fails, so release the
+            // cycle here instead of waiting for deinit, which cannot run while
+            // the bridge still points back to this view.
+            bridge.releaseSurfaceViewAfterFree()
+            stopDisplayLink()
+            return
         }
+        surface = createdSurface
+        GhosttySurfaceView.register(surface: createdSurface, for: self)
+        appliedTerminalConfigTheme = nil
+        applyTerminalConfigTheme()
+        // A live C surface is not proof that its first pixels reached the
+        // IOSurface layer. Keep the fallback visible until a tokened frame
+        // is acknowledged by Ghostty.
+        surfaceHasReceivedOutput = false
+        hasAppliedOutput = false
         setNeedsGeometrySync()
         startDisplayLink()
     }
@@ -5410,6 +5457,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         surfaceConfig.io_write_userdata = bridgePointer
         guard let createdSurface = ghostty_surface_new(app, &surfaceConfig) else {
             retainedBridge.release()
+            bridge.releaseSurfaceViewAfterFree()
             return nil
         }
         guard ghostty_surface_set_render_presented_callback(
@@ -5419,6 +5467,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         ) else {
             ghostty_surface_free(createdSurface)
             retainedBridge.release()
+            bridge.releaseSurfaceViewAfterFree()
             return nil
         }
         guard ghostty_surface_set_render_failed_callback(
@@ -5428,6 +5477,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         ) else {
             ghostty_surface_free(createdSurface)
             retainedBridge.release()
+            bridge.releaseSurfaceViewAfterFree()
             return nil
         }
         return createdSurface

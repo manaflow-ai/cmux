@@ -247,11 +247,19 @@ public final class LocalLinuxComputerController {
         guard let candidate else { return }
         let previous = closeBarrier
         let barrierID = UUID()
-        let task = Task.detached(priority: .utility) {
-            if let previous {
+        // `beginClose()` is the nonisolated, nonblocking lifecycle seam. Start
+        // the first close immediately so a synchronous renderer or input
+        // failure cannot leave the pty waiting for a detached actor hop to be
+        // scheduled. Keep later closes serialized because iSH teardown shares
+        // process-global state.
+        let task: Task<Void, Never>
+        if let previous {
+            task = Task.detached(priority: .utility) {
                 await previous.value
+                await candidate.beginClose().value
             }
-            await candidate.hangup()
+        } else {
+            task = candidate.beginClose()
         }
         closeBarrier = task
         closeBarrierID = barrierID
@@ -667,6 +675,13 @@ public final class LocalLinuxComputerController {
                         self.inputQueue.consume(accepted)
                     }
                 } catch {
+                    // The send may resume after teardown has cancelled this
+                    // worker and installed a replacement session. Never let
+                    // that stale result classify the replacement pty as
+                    // failed, and never publish an error after cancellation.
+                    guard !Task.isCancelled,
+                          self.inputWorkerID == workerID,
+                          self.session === session else { return }
                     // `closed` is expected during teardown. Keep the
                     // remainder until the failure boundary decides whether
                     // the pty is still usable.
@@ -717,8 +732,13 @@ public final class LocalLinuxComputerController {
 
     /// Marks a renderer setup failure so the destination does not remain on a
     /// permanent loading overlay when Ghostty cannot create its surface.
+    ///
+    /// The controller outlives a terminal view, so this can happen after a
+    /// healthy session was already running (for example, when a new surface
+    /// cannot be created after navigation). Fence that session too. An ended
+    /// controller ignores a stale callback from a dismantled view.
     public func markRendererFailure() {
-        guard state != .running else { return }
+        guard state != .ended, state != .failed else { return }
         // Renderer creation can fail while the detached boot/open task is
         // still producing a session. Fence that generation before publishing
         // the failure, otherwise its later install could resurrect a terminal
