@@ -38911,6 +38911,7 @@ export default CMUXSessionRestore;
             surfaceId: liveTarget?.surfaceId ?? ambientSurfaceId,
             agentID: source,
             includeAgentContext: true,
+            source: source,
             approvalIdentity: approvalIdentity
         ) else { return }
         _ = try? activeClient.send(

@@ -453,6 +453,7 @@ struct FeedEventClassifier {
         surfaceId: String?,
         agentID: String = "codex",
         includeAgentContext: Bool = false,
+        source: String? = nil,
         approvalIdentity: CodexApprovalNotificationIdentity? = nil
     ) -> String? {
         guard classification.notifiesNativeApprovalPrompt
@@ -462,18 +463,29 @@ struct FeedEventClassifier {
               let surfaceRaw = surfaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
               let surfaceUUID = UUID(uuidString: surfaceRaw)
         else { return nil }
+        // A Codex approval is correlated by an exact identity. Other native
+        // approval producers retain the historical pane-scoped command shape;
+        // callers that omit `source` are treated as Codex for compatibility
+        // with the strict, identity-required test/helper path.
+        let requiresCorrelatedIdentity = source?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() == "codex" || source == nil
         // A hook payload is bounded, but a single tool-name field could still
         // consume nearly the entire budget and force large socket/UI copies.
         // Keep attention lines small and predictable on the synchronous path.
-        guard !classification.notifiesNativeApprovalPrompt || approvalIdentity != nil else {
+        guard !classification.notifiesNativeApprovalPrompt
+                || !requiresCorrelatedIdentity
+                || approvalIdentity != nil else {
             return nil
         }
         if classification.clearsNativeApprovalPrompt {
-            // Never fall back to a pane-wide or turn-wide clear. A delayed or
-            // malformed completion must not erase a newer approval; the
-            // generic Stop hook owns the explicit turn-scope fallback.
-            guard let approvalIdentity else { return nil }
-            return "clear_notifications --tab=\(workspaceUUID.uuidString) --panel=\(surfaceUUID.uuidString) --approval-id=\(approvalIdentity.approvalID)"
+            if let approvalIdentity {
+                return "clear_notifications --tab=\(workspaceUUID.uuidString) --panel=\(surfaceUUID.uuidString) --approval-id=\(approvalIdentity.approvalID)"
+            }
+            // Legacy non-Codex producers have no exact approval identity and
+            // historically clear their own pane-scoped prompt.
+            guard !requiresCorrelatedIdentity else { return nil }
+            return "clear_notifications --tab=\(workspaceUUID.uuidString) --panel=\(surfaceUUID.uuidString)"
         }
         let subtitle = String(
             localized: "agent.generic.notification.subtitle.permission",
@@ -493,7 +505,8 @@ struct FeedEventClassifier {
             )
         }
         let meta: String?
-        if let approvalIdentity {
+        if requiresCorrelatedIdentity {
+            guard let approvalIdentity else { return nil }
             meta = AgentHookNotifyCategory.needsPermission.metaSegment(
                 pending: false,
                 approvalID: approvalIdentity.approvalID

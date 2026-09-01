@@ -291,6 +291,7 @@ struct FeedEventClassificationTests {
             toolName: tool,
             workspaceId: workspaceId,
             surfaceId: surfaceId,
+            source: source,
             approvalIdentity: approvalIdentity
         )
     }
@@ -342,6 +343,41 @@ struct FeedEventClassificationTests {
     @Test func nativeApprovalAttentionRequiresCorrelationIdentity() {
         #expect(attentionCommand("codex", "PermissionRequest", tool: "shell", approvalIdentity: nil) == nil)
         #expect(attentionCommand("codex", "PostToolUse", tool: "shell", approvalIdentity: nil) == nil)
+    }
+
+    @Test func nonCodexNativeApprovalRetainsLegacyPaneScopedCommands() {
+        let prompt = FeedEventClassification(
+            hookEventName: "PreToolUse",
+            isActionable: false,
+            notifiesNativeApprovalPrompt: true,
+            clearsNativeApprovalPrompt: false
+        )
+        let clear = FeedEventClassification(
+            hookEventName: "PostToolUse",
+            isActionable: false,
+            notifiesNativeApprovalPrompt: false,
+            clearsNativeApprovalPrompt: true
+        )
+        #expect(
+            FeedEventClassifier.nativeApprovalPromptAttentionCommand(
+                classification: prompt,
+                displayName: "Claude",
+                toolName: "Bash",
+                workspaceId: Self.workspaceUUID,
+                surfaceId: Self.surfaceUUID,
+                source: "claude"
+            ) == "notify_target_async \(Self.workspaceUUID) \(Self.surfaceUUID) Claude|Permission|Bash needs approval|c=needs-permission;p=0"
+        )
+        #expect(
+            FeedEventClassifier.nativeApprovalPromptAttentionCommand(
+                classification: clear,
+                displayName: "Claude",
+                toolName: "Bash",
+                workspaceId: Self.workspaceUUID,
+                surfaceId: Self.surfaceUUID,
+                source: "claude"
+            ) == "clear_notifications --tab=\(Self.workspaceUUID) --panel=\(Self.surfaceUUID)"
+        )
     }
 
     @Test func codexRequestAndCompletionBuildCorrelatedSettleCommands() throws {
