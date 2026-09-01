@@ -555,7 +555,11 @@ struct AgentResumeCommandBuilder {
             normalized(launchCommand?.workingDirectory),
         ].compactMap { $0 }
         let workingDirectoryOptionPolicyBuiltInKind: String? = if customRegistration == nil {
-            kind.rawValue
+            if case .custom = kind {
+                nil
+            } else {
+                kind.rawValue
+            }
         } else {
             customRegistration.flatMap { $0.registeredResumeKind?.rawValue }
         }

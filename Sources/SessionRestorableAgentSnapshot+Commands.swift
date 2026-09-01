@@ -56,10 +56,12 @@ extension SessionRestorableAgentSnapshot {
     /// A user registration may reuse a registry-owned id such as `kimi`, so its
     /// raw kind must not enable built-in-only option removal.
     var workingDirectoryOptionPolicyBuiltInKind: String? {
-        guard registration == nil || registration?.registeredResumeKind != nil else {
-            return nil
+        if case .custom = kind {
+            return registration?.registeredResumeKind?.rawValue
         }
-        return kind.rawValue
+        return registration == nil || registration?.registeredResumeKind != nil
+            ? kind.rawValue
+            : nil
     }
 
     /// Returns a copy whose persisted cwd state cannot outlive the supplied trust decision.

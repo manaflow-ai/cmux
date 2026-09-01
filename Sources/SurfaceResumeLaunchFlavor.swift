@@ -35,7 +35,11 @@ enum SurfaceResumeLaunchFlavor: Equatable, Hashable, Sendable {
         case (.local, .local):
             true
         case let (.persistentSSH(lhs), .persistentSSH(rhs)):
-            lhs.normalizedPersistentPTYSessionID == rhs.normalizedPersistentPTYSessionID
+            guard let lhsSessionID = lhs.normalizedPersistentPTYSessionID,
+                  let rhsSessionID = rhs.normalizedPersistentPTYSessionID else {
+                return false
+            }
+            return lhsSessionID == rhsSessionID
         default:
             false
         }

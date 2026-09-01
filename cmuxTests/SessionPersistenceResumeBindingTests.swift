@@ -229,6 +229,24 @@ import Testing
         )
     }
 
+    @Test func blankPersistentPTYIDsNeverShareExecutionLocation() {
+        let lhs = SurfaceResumeLaunchFlavor.persistentSSH(
+            SurfaceResumeRemoteContext(
+                workspaceID: UUID(),
+                surfaceID: UUID(),
+                persistentPTYSessionID: " "
+            )
+        )
+        let rhs = SurfaceResumeLaunchFlavor.persistentSSH(
+            SurfaceResumeRemoteContext(
+                workspaceID: UUID(),
+                surfaceID: UUID(),
+                persistentPTYSessionID: "\n"
+            )
+        )
+        #expect(!lhs.representsSameExecutionLocation(as: rhs))
+    }
+
     @MainActor
     @Test func detachedIdKeyedRetargetRefreshesCwdSelection() throws {
         let oldDirectory = "/remote/old-project"
