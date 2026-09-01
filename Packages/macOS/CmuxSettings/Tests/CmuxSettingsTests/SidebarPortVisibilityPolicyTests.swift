@@ -69,6 +69,32 @@ struct SidebarPortVisibilityPolicyTests {
         #expect(policy.visiblePorts(from: [3_000, 3_001, 8_000, 8_005, 8_011]) == [3_000, 8_011])
     }
 
+    @Test("Overlapping and adjacent rules preserve visible-port order and duplicates")
+    func overlappingRulesPreserveVisiblePortOrderAndDuplicates() throws {
+        let firstRange = try #require(SidebarIgnoredPortRule(range: 8_000...8_010))
+        let adjacentPort = try #require(SidebarIgnoredPortRule(port: 7_999))
+        let overlappingRange = try #require(SidebarIgnoredPortRule(range: 8_005...8_020))
+        let exactPort = try #require(SidebarIgnoredPortRule(port: 3_001))
+        let coalescedRange = try #require(SidebarIgnoredPortRule(range: 7_999...8_020))
+        let policy = SidebarPortVisibilityPolicy(ignoredRules: [
+            firstRange,
+            adjacentPort,
+            overlappingRange,
+            exactPort,
+        ])
+        let equivalentPolicy = SidebarPortVisibilityPolicy(ignoredRules: [
+            exactPort,
+            coalescedRange,
+        ])
+
+        #expect(policy == equivalentPolicy)
+        #expect(policy.visiblePorts(from: [8_021, 8_000, 3_000, 3_001, 7_999, 3_000]) == [
+            8_021,
+            3_000,
+            3_000,
+        ])
+    }
+
     @Test(
         "Invalid textual rules are rejected",
         arguments: [
