@@ -38650,16 +38650,124 @@
     "cli.events.error.connectionDenied": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم رفض الاتصال بـ cmux. شغّل هذا الأمر من طرفية cmux أو راجع الوصول إلى المقبس في الإعدادات > الأتمتة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veza s cmuxom je odbijena. Pokrenite ovu naredbu iz cmux terminala ili provjerite pristup utičnici u Postavkama > Automatizacija."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbindelsen til cmux blev afvist. Kør denne kommando fra en cmux-terminal, eller gennemgå socketadgangen under Indstillinger > Automatisering."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Verbindung zu cmux wurde abgelehnt. Führen Sie diesen Befehl in einem cmux-Terminal aus oder überprüfen Sie den Socket-Zugriff unter Einstellungen > Automatisierung."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Connection to cmux was denied. Run this command from a cmux terminal or review socket access in Settings > Automation."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se rechazó la conexión con cmux. Ejecuta este comando desde un terminal de cmux o revisa el acceso al socket en Ajustes > Automatización."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion à cmux a été refusée. Exécutez cette commande depuis un terminal cmux ou vérifiez l’accès au socket dans Réglages > Automatisation."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connessione a cmux è stata rifiutata. Esegui questo comando da un terminale cmux oppure verifica l’accesso al socket in Impostazioni > Automazione."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "cmuxへの接続が拒否されました。cmuxのターミナルからこのコマンドを実行するか、「設定」>「自動化」でソケットアクセスを確認してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការតភ្ជាប់ទៅ cmux ត្រូវបានបដិសេធ។ សូមដំណើរការពាក្យបញ្ជានេះពីស្ថានីយ cmux ឬពិនិត្យមើលការចូលប្រើ socket នៅ ការកំណត់ > ស្វ័យប្រវត្តិកម្ម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 연결이 거부되었습니다. cmux 터미널에서 이 명령을 실행하거나 설정 > 자동화에서 소켓 접근을 확인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilkoblingen til cmux ble avvist. Kjør denne kommandoen fra en cmux-terminal, eller sjekk sokkeltilgangen under Innstillinger > Automatisering."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odmówiono połączenia z cmux. Uruchom to polecenie z terminala cmux albo sprawdź dostęp do gniazda w Ustawienia > Automatyzacja."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A conexão com o cmux foi negada. Execute este comando em um terminal do cmux ou verifique o acesso ao socket em Ajustes > Automação."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Соединение с cmux отклонено. Запустите эту команду из терминала cmux или проверьте доступ к сокету в разделе «Настройки» > «Автоматизация»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเชื่อมต่อกับ cmux ถูกปฏิเสธ เรียกใช้คำสั่งนี้จากเทอร์มินัล cmux หรือตรวจสอบการเข้าถึงซ็อกเก็ตที่ การตั้งค่า > ระบบอัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux bağlantısı reddedildi. Bu komutu bir cmux terminalinden çalıştırın veya Ayarlar > Otomasyon bölümünde soket erişimini gözden geçirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підключення до cmux відхилено. Запустіть цю команду з термінала cmux або перевірте доступ до сокета в Налаштуваннях > Автоматизація."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "与 cmux 的连接被拒绝。请在 cmux 终端中运行此命令，或在“设置”>“自动化”中检查套接字访问权限。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "與 cmux 的連線遭拒。請在 cmux 終端機中執行此命令，或在「設定」>「自動化」中檢查通訊端存取權限。"
           }
         }
       }
