@@ -1013,13 +1013,8 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                             return;
                         }
                         if retryable_sqlite_error(&error) {
-                            // Do not retain the owning mux while sleeping. Shutdown and drop
-                            // must be able to release the writer even when SQLite stays locked.
-                            let journal = mux.shared_journal_handle();
-                            let epoch = journal.epoch();
-                            drop(mux);
-                            journal.wait(epoch, delay.min(remaining));
-                            delay = (delay * 2).min(JOURNAL_RETRY_MAX_DELAY);
+                            wait_for_journal_retry(mux, delay.min(remaining));
+                            delay = next_journal_retry_delay(delay);
                             continue;
                         }
                         if batch.len() > 1 {
@@ -1035,10 +1030,10 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                             if receivers.state.pause_nonretryable_failure_for_test() {
                                 continue;
                             }
-                            let journal = mux.shared_journal_handle();
-                            let epoch = journal.epoch();
-                            drop(mux);
-                            journal.wait(epoch, JOURNAL_NONRETRYABLE_RETRY_DELAY.min(remaining));
+                            wait_for_journal_retry(
+                                mux,
+                                JOURNAL_NONRETRYABLE_RETRY_DELAY.min(remaining),
+                            );
                             continue;
                         } else if batch[0].completion.is_none() {
                             let failure = receivers.state.fail(format!(
@@ -1061,6 +1056,19 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
             }
         }
     }
+}
+
+fn wait_for_journal_retry(mux: Arc<Mux>, timeout: Duration) {
+    // Do not retain the owning mux while sleeping. Shutdown and drop must be
+    // able to release the writer even when SQLite stays locked.
+    let journal = mux.shared_journal_handle();
+    let epoch = journal.epoch();
+    drop(mux);
+    journal.wait(epoch, timeout);
+}
+
+fn next_journal_retry_delay(delay: Duration) -> Duration {
+    delay.saturating_mul(2).min(JOURNAL_RETRY_MAX_DELAY)
 }
 
 fn admit_batch_commit(
@@ -1250,10 +1258,27 @@ mod tests {
         let mut delay = JOURNAL_RETRY_INITIAL_DELAY;
         for expected in [100, 200, 400, 800, 1000, 1000] {
             assert_eq!(delay.as_millis(), expected);
-            delay = (delay * 2).min(JOURNAL_RETRY_MAX_DELAY);
+            delay = next_journal_retry_delay(delay);
         }
+        assert_eq!(JOURNAL_NONRETRYABLE_RETRY_DELAY, Duration::from_millis(10));
+        assert_eq!(next_journal_retry_delay(Duration::MAX), JOURNAL_RETRY_MAX_DELAY);
         let remaining = Duration::from_millis(3);
         assert_eq!(JOURNAL_NONRETRYABLE_RETRY_DELAY.min(remaining), remaining);
+    }
+
+    #[test]
+    fn retry_wait_releases_mux_before_waiting() {
+        let mux = Mux::new("journal-retry-wait-drop", crate::SurfaceOptions::default());
+        let weak = Arc::downgrade(&mux);
+        let started = Instant::now();
+
+        wait_for_journal_retry(mux, Duration::from_secs(5));
+
+        assert!(weak.upgrade().is_none(), "retry wait retained the owning mux");
+        assert!(
+            started.elapsed() < Duration::from_millis(500),
+            "shutdown wake did not interrupt the retry wait"
+        );
     }
 
     #[test]
