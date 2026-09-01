@@ -10,12 +10,12 @@ import OSLog
 import SwiftUI
 import UIKit
 
-private let localLinuxProductionLog = Logger(
+nonisolated private let localLinuxProductionLog = Logger(
     subsystem: "ai.manaflow.cmux.ios",
     category: "local-linux.production"
 )
 
-private enum LocalLinuxBootResult: Sendable {
+private nonisolated enum LocalLinuxBootResult: Sendable {
     case success(LocalLinuxSession)
     case failure(LocalLinuxError)
     case cancelled
@@ -270,6 +270,11 @@ public final class LocalLinuxComputerController {
     /// cancellation handler forwards controller teardown to the worker, and a
     /// session opened in the cancellation race is synchronously fenced before
     /// this helper returns.
+#if compiler(>=6.2)
+    @concurrent
+#else
+    @Sendable
+#endif
     private nonisolated static func bootSession(
         runtime: LocalLinuxRuntime,
         columns: Int,

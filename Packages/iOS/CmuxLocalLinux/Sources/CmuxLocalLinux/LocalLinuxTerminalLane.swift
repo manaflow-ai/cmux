@@ -25,7 +25,7 @@ public nonisolated protocol LocalLinuxOutputSource: AnyObject, Sendable {
 extension LocalLinuxSession: LocalLinuxOutputSource {}
 
 /// Errors raised while driving a local Linux lane.
-public enum LocalLinuxLaneError: Error, Equatable, Sendable {
+public nonisolated enum LocalLinuxLaneError: Error, Equatable, Sendable {
     case closed
     case emptyInput
     case inputTooLarge

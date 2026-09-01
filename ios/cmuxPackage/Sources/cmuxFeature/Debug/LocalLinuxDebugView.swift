@@ -764,12 +764,17 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
         }
     }
 
-    private enum BootResult: Sendable {
+    private nonisolated enum BootResult: Sendable {
         case success(LocalLinuxSession)
         case failure(LocalLinuxError)
         case cancelled
     }
 
+#if compiler(>=6.2)
+    @concurrent
+#else
+    @Sendable
+#endif
     private nonisolated static func bootSession(runtime: LocalLinuxRuntime) async -> BootResult {
         let worker = Task.detached(priority: .userInitiated) {
             do {
