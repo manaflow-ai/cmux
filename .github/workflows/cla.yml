@@ -27,58 +27,10 @@ jobs:
     name: "CLA Assistant"
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
-      - name: "Authorize repository-owned reload snapshots"
-        id: cla-provenance
-        # A transient GitHub API failure must fall back to the base allowlist;
-        # it must not prevent the CLA Assistant action from running.
-        continue-on-error: true
-        # The transport identity below is accepted only after GitHub confirms
-        # that the PR is owned by the repository and the authenticated owner
-        # triggered this run. A commit display name alone is forgeable.
-        if: >-
-          (
-            github.event_name == 'pull_request_target' &&
-            github.event.action != 'closed'
-          ) ||
-          (
-            github.event_name == 'issue_comment' &&
-            github.event.issue.pull_request &&
-            (
-              github.event.comment.body == 'recheck' ||
-              github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA'
-            )
-          )
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
-          EVENT_ACTOR: ${{ github.actor }}
-        run: |
-          set -euo pipefail
-          allowlist='lawrencecchen,github-actions[bot],chatmux-connections[bot]'
-          if [[ "$EVENT_ACTOR" == "austinywang" && -n "$PR_NUMBER" ]]; then
-            pr_json="$(gh api "repos/${GH_REPOSITORY}/pulls/${PR_NUMBER}")"
-            head_repo="$(jq -r '.head.repo.full_name // empty' <<<"$pr_json")"
-            pr_author="$(jq -r '.user.login // empty' <<<"$pr_json")"
-            author_association="$(jq -r '.author_association // empty' <<<"$pr_json")"
-            if [[ "$head_repo" == "$GH_REPOSITORY" \
-              && "$pr_author" == "austinywang" \
-              && "$author_association" =~ ^(OWNER|MEMBER|COLLABORATOR)$ ]]; then
-              # This exact name is emitted by the repository-owned HQ transport
-              # while it snapshots a tree. It is never enabled for fork PRs or
-              # runs triggered by an untrusted actor.
-              allowlist+=',cmux reload-cloud'
-            fi
-          fi
-          echo "allowlist=$allowlist" >> "$GITHUB_OUTPUT"
-
       - name: "CLA Assistant"
         # The action handles signing and status updates. Merged pull requests
         # use the explicit lock step below because the archived action sends
         # an invalid lock request.
-        # Keep this trigger expression in lockstep with cla-provenance above:
-        # both steps intentionally accept the same pull_request_target and
-        # explicit issue-comment events.
         if: >-
           (
             github.event_name == 'pull_request_target' &&
@@ -104,10 +56,9 @@ jobs:
           lock-pullrequest-aftermerge: 'false'
           # signatures live on the unprotected cla-signatures branch so required checks on main don't block the bot's signature commits
           branch: 'cla-signatures'
-          # The provenance step supplies the transport name only after the
-          # repository/owner/actor checks above; otherwise this is the explicit
-          # bot-only allowlist.
-          allowlist: ${{ steps.cla-provenance.outputs.allowlist || 'lawrencecchen,github-actions[bot],chatmux-connections[bot]' }}
+          # Keep this list explicit. A username prefix is not proof that an
+          # account is a GitHub bot and would let a human bypass the CLA.
+          allowlist: lawrencecchen,github-actions[bot],chatmux-connections[bot]
 
       - name: "Lock merged pull request"
         if: >-
