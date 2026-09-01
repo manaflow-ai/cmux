@@ -94,6 +94,7 @@ describe("render terminal key encoding", () => {
 
   it("recognizes macOS browser platform identifiers", () => {
     expect(browserIsMacPlatform({ userAgentData: { platform: "macOS" } })).toBe(true);
+    expect(browserIsMacPlatform({ userAgentData: { platform: "" }, platform: "MacIntel" })).toBe(true);
     expect(browserIsMacPlatform({ platform: "MacIntel" })).toBe(true);
     expect(browserIsMacPlatform({ userAgent: "Mozilla/5.0 (X11; Linux x86_64)" })).toBe(false);
     expect(browserIsMacPlatform({ platform: "Win32" })).toBe(false);
