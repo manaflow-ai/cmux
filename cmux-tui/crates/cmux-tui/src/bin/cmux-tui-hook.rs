@@ -14,6 +14,9 @@ const MAX_NATIVE_PAYLOAD_BYTES: u64 = 1024 * 1024;
 const MAX_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
 const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 const SOCKET_TIMEOUT: Duration = Duration::from_secs(4);
+/// codex kills SessionEnd hooks at 3s (its hard cap), so the helper must give
+/// up first and report its own error instead of dying mid-append.
+const CODEX_SESSION_END_SOCKET_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Debug, PartialEq, Eq)]
 struct Args {
@@ -57,7 +60,7 @@ fn run(args: Args) -> anyhow::Result<()> {
         native,
     )?;
     let event = serde_json::to_value(ingress)?;
-    append(&socket, event)
+    append(&socket, event, socket_timeout(&args.source, &args.native_event))
 }
 
 fn shadowed_by_grok(source: &str, grok_hook_event: Option<&std::ffi::OsStr>) -> bool {
@@ -98,7 +101,15 @@ fn read_native_payload(reader: impl Read) -> anyhow::Result<Value> {
     Ok(json!({"encoding":"base64","data":BASE64.encode(bytes)}))
 }
 
-fn append(socket: &Path, event: Value) -> anyhow::Result<()> {
+fn socket_timeout(source: &str, native_event: &str) -> Duration {
+    if source == "codex" && native_event == "SessionEnd" {
+        CODEX_SESSION_END_SOCKET_TIMEOUT
+    } else {
+        SOCKET_TIMEOUT
+    }
+}
+
+fn append(socket: &Path, event: Value, timeout: Duration) -> anyhow::Result<()> {
     let (request_id, idempotency_key) = random_identifiers()?;
     let request = json!({
         "protocol":"cmux.protocol/2",
@@ -114,7 +125,7 @@ fn append(socket: &Path, event: Value) -> anyhow::Result<()> {
         bail!("agent hook request exceeds the 4 MiB protocol limit");
     }
 
-    retry_until(SOCKET_TIMEOUT, |deadline| append_once(socket, &encoded, &request_id, deadline))
+    retry_until(timeout, |deadline| append_once(socket, &encoded, &request_id, deadline))
 }
 
 #[derive(Debug)]
@@ -339,6 +350,13 @@ fn random_identifiers() -> anyhow::Result<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn codex_session_end_gives_up_before_the_codex_hook_cap() {
+        assert!(socket_timeout("codex", "SessionEnd") < Duration::from_secs(3));
+        assert_eq!(socket_timeout("codex", "Stop"), SOCKET_TIMEOUT);
+        assert_eq!(socket_timeout("claude", "SessionEnd"), SOCKET_TIMEOUT);
+    }
 
     #[test]
     fn parses_short_positional_source_and_event() {
