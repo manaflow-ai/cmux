@@ -30,7 +30,7 @@ use ghostty_vt::{
 use crate::mux::ResourceWaitWake;
 use crate::platform;
 use crate::resource::{ContentPublicId, TabResourceIdentity, TerminalPublicId};
-use crate::terminal_host_protocol::{TerminalExit, wait_for_native_child_status};
+use crate::terminal_host_protocol::{TerminalExit, wait_for_native_child_status_with_reap_result};
 use crate::{Mux, MuxEvent, SurfaceId};
 
 pub use crate::browser::{
@@ -1493,6 +1493,48 @@ enum PtyRuntime {
     ExitedHosted,
 }
 
+/// Owns a freshly spawned PTY child until the child reaper has taken over.
+///
+/// `portable_pty::Child` does not stop or reap a process when its handle is
+/// dropped. Startup performs several fallible operations after spawning, so a
+/// guard keeps every error path terminating and reaping the child. The guard
+/// moves into the reaper closure; if thread creation fails, dropping that
+/// closure runs this cleanup instead.
+struct PtyChildStartupGuard {
+    child: Box<dyn cmux_pty::Child + Send + Sync>,
+    reaped: bool,
+}
+
+impl PtyChildStartupGuard {
+    fn new(child: Box<dyn cmux_pty::Child + Send + Sync>) -> Self {
+        Self { child, reaped: false }
+    }
+
+    fn process_id(&self) -> Option<u32> {
+        self.child.process_id()
+    }
+
+    fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
+        self.child.clone_killer()
+    }
+
+    fn wait_for_exit(&mut self) -> TerminalExit {
+        let (exit, reaped) = wait_for_native_child_status_with_reap_result(self.child.as_mut());
+        self.reaped = reaped;
+        exit
+    }
+}
+
+impl Drop for PtyChildStartupGuard {
+    fn drop(&mut self) {
+        if self.reaped {
+            return;
+        }
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PtyLifetime {
     SessionOwned,
@@ -2294,7 +2336,8 @@ impl Surface {
             cmd.cwd(cwd);
         }
 
-        let cmux_pty::SpawnedPty { master, mut child } = pty.spawn(cmd)?;
+        let cmux_pty::SpawnedPty { master, child } = pty.spawn(cmd)?;
+        let mut child = PtyChildStartupGuard::new(child);
         let pid = child.process_id();
         let killer = child.clone_killer();
         #[cfg(unix)]
@@ -2566,7 +2609,7 @@ impl Surface {
         std::thread::Builder::new().name(format!("surface-{id}-wait")).spawn({
             let surface = surface.clone();
             move || {
-                let exit = wait_for_native_child_status(child.as_mut());
+                let exit = child.wait_for_exit();
                 if let Some(pty) = surface.as_pty() {
                     *pty.exit.lock().unwrap() = Some(exit);
                 }
@@ -6098,6 +6141,47 @@ impl ChildKiller for TestChildKiller {
     }
 }
 
+#[cfg(test)]
+#[derive(Debug, Default)]
+struct StartupChildState {
+    kill_count: AtomicUsize,
+    wait_count: AtomicUsize,
+}
+
+#[cfg(test)]
+#[derive(Debug)]
+struct StartupChild {
+    state: Arc<StartupChildState>,
+}
+
+#[cfg(test)]
+impl cmux_pty::ChildKiller for StartupChild {
+    fn kill(&mut self) -> std::io::Result<()> {
+        self.state.kill_count.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    }
+
+    fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
+        Box::new(TestChildKiller)
+    }
+}
+
+#[cfg(test)]
+impl cmux_pty::Child for StartupChild {
+    fn try_wait(&mut self) -> std::io::Result<Option<cmux_pty::ExitStatus>> {
+        Err(std::io::Error::other("test child has no process"))
+    }
+
+    fn wait(&mut self) -> std::io::Result<cmux_pty::ExitStatus> {
+        self.state.wait_count.fetch_add(1, Ordering::Relaxed);
+        Err(std::io::Error::other("test child has no process"))
+    }
+
+    fn process_id(&self) -> Option<u32> {
+        None
+    }
+}
+
 impl PtySurface {
     fn journal_target(&self) -> Option<(Arc<Mux>, Arc<TerminalPublicId>)> {
         let terminal_id = self.terminal_public_id.clone()?;
@@ -6850,6 +6934,17 @@ mod tests {
 
     use super::*;
     use crate::MuxEvent;
+
+    #[test]
+    fn pty_child_startup_guard_kills_and_waits_on_drop() {
+        let state = Arc::new(StartupChildState::default());
+        {
+            let _guard = PtyChildStartupGuard::new(Box::new(StartupChild { state: state.clone() }));
+        }
+
+        assert_eq!(state.kill_count.load(Ordering::Relaxed), 1);
+        assert_eq!(state.wait_count.load(Ordering::Relaxed), 1);
+    }
 
     #[test]
     fn agent_browser_provider_uses_a_terminal_local_daemon_session() {
