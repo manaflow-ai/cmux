@@ -18030,13 +18030,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // resolving every configured shortcut (and its UserDefaults/when
         // clause) for those events; cmux's browser-conflicting bindings all
         // carry a modifier in the browser surface.
-        let normalizedFlags = event.modifierFlags
-            .intersection(.deviceIndependentFlagsMask)
-            .subtracting([.numericPad, .function, .capsLock])
         guard browserCaptureEventCanHaveShortcut(event) else {
             return false
         }
-        let routingModifierFlags = normalizedFlags.intersection([.command, .control])
         if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
            browserCaptureShouldRunCandidatePreflight(event) {
             // The ownership caller normally performs this preflight before it
@@ -18074,11 +18070,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // A remapped action leaves its old menu equivalent behind until the
-        // menu refreshes. The snapshot contains only menu-backed defaults;
-        // retain the action's effective `when` gate so an unavailable stale
-        // item cannot steal a native AppKit command from the page.
+        // menu refreshes. Resolve menu-backing at match time because the live
+        // menu can change independently of the shortcut/config revisions.
         for entry in snapshot.staleDefaults {
-            guard entry.whenClause.evaluate(focusContext.shortcutContext),
+            guard isMenuBackedShortcutAction(entry.action),
+                  entry.whenClause.evaluate(focusContext.shortcutContext),
                   matchesKeyboardShortcutEvent(
                       event,
                       action: entry.action,
@@ -18160,9 +18156,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     guard let shortcut = action.shortcut, !shortcut.isUnbound else { return nil }
                     return shortcut
                 }
-            },
-            isMenuBacked: { action in
-                isMenuBackedShortcutAction(action)
             }
         )
     }
@@ -18221,11 +18214,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // The snapshot's stale list is restricted to menu-backed actions and
-        // carries each action's effective `when` clause, matching the app-level
-        // stale-menu suppression contract.
+        // Apply the same menu-backed and effective-`when` eligibility as the
+        // app-level stale-menu suppression path.
         for entry in snapshot.staleDefaults {
-            guard entry.action.shortcutContext == .browserPanel
+            guard isMenuBackedShortcutAction(entry.action),
+                  entry.action.shortcutContext == .browserPanel
                     || entry.action.shortcutContext == .browserOrFilePreviewTextEditor,
                   entry.whenClause.evaluate(focusContext.shortcutContext),
                   matchesKeyboardShortcutEvent(

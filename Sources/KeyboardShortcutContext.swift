@@ -511,9 +511,7 @@ extension AppDelegate {
         // descendants of its direct content child, whereas inspector and
         // companion views are sibling children. Resolve that structural root
         // instead of treating every web-view descendant as page content.
-        guard let pageRoot = webView.subviews.first(where: {
-            !$0.isHidden && $0.alphaValue > 0 && !cmuxIsWebInspectorObject($0)
-        }) else {
+        guard let pageRoot = cmuxBrowserPageContentRoot(for: webView) else {
             return false
         }
         return shortcutResponderBelongs(to: pageRoot, responder: responder)

@@ -16,6 +16,32 @@ private var cmuxBrowserPortalNeedsRenderingStateReattachKey: UInt8 = 0
 private var cmuxBrowserPortalNeedsFirstSizedRevealNudgeKey: UInt8 = 0
 private var cmuxBrowserPortalFirstSizedRevealNudgeGenerationKey: UInt8 = 0
 
+/// Resolves the primary page-content child of a macOS `WKWebView` without
+/// depending on WebKit's sibling ordering. Inspector/companion children are
+/// excluded explicitly; when multiple candidates overlap, the unique child
+/// covering the largest portion of the web view wins and ties fail closed.
+func cmuxBrowserPageContentRoot(for webView: WKWebView) -> NSView? {
+    let candidates = webView.subviews.filter {
+        !$0.isHidden && $0.alphaValue > 0 && !cmuxIsWebInspectorObject($0)
+    }
+    guard !candidates.isEmpty else { return nil }
+    guard candidates.count > 1 else { return candidates[0] }
+
+    let webBounds = webView.bounds
+    let webArea = max(webBounds.width * webBounds.height, 1)
+    let scored = candidates.map { view in
+        let intersection = view.frame.intersection(webBounds)
+        let area = max(0, intersection.width) * max(0, intersection.height)
+        return (view: view, coverage: area / webArea)
+    }
+    guard let maximumCoverage = scored.map(\.coverage).max(), maximumCoverage > 0 else {
+        return nil
+    }
+    let winners = scored.filter { abs($0.coverage - maximumCoverage) <= 0.01 }
+    guard winners.count == 1 else { return nil }
+    return winners[0].view
+}
+
 #if DEBUG
 private func browserPortalRenderingStateDebugToken(_ view: NSView?) -> String {
     guard let view else { return "nil" }

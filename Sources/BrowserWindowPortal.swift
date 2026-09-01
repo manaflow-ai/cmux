@@ -1725,9 +1725,7 @@ final class WindowBrowserSlotView: NSView {
         // content lives below a direct internal child (typically WKFlippedView),
         // while WebKit inspector/companion views can be sibling children. Use
         // that structural root so unknown siblings fail closed.
-        guard let pageRoot = webView.subviews.first(where: {
-            !$0.isHidden && $0.alphaValue > 0 && !cmuxIsWebInspectorObject($0)
-        }) else {
+        guard let pageRoot = cmuxBrowserPageContentRoot(for: webView) else {
             return false
         }
         return responderBelongs(to: pageRoot, responder: responder)

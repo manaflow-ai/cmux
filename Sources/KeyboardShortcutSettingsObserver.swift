@@ -44,7 +44,13 @@ final class KeyboardShortcutSettingsObserver {
     @ObservationIgnored
     private var inputSourceObserver: NSObjectProtocol?
     @ObservationIgnored
-    private var browserCaptureMatcherSnapshotCache: BrowserCaptureMatcherSnapshot?
+    // A fixed-size ring keeps one snapshot per recently used window/config
+    // without retaining an unbounded set of per-window entries.
+    private var browserCaptureMatcherSnapshotCache: [BrowserCaptureMatcherSnapshot] = []
+    @ObservationIgnored
+    private var browserCaptureMatcherCacheNextIndex = 0
+
+    private static let browserCaptureMatcherCacheCapacity = 4
 
     init(
         notificationCenter: NotificationCenter = .default,
@@ -109,20 +115,21 @@ final class KeyboardShortcutSettingsObserver {
 
     /// Returns the browser-capture matcher snapshot for the current shortcut
     /// and config revisions. The configured-shortcut provider is evaluated only
-    /// when the revision key changes, keeping command events out of the config
-    /// filtering/sorting path.
+    /// on a bounded-cache miss, keeping command events out of the config
+    /// filtering/sorting path. Stale-default menu eligibility is intentionally
+    /// left to the caller at match time because menu state is independent.
     func browserCaptureMatcherSnapshot(
         settingsStoreID: ObjectIdentifier,
         configStoreID: ObjectIdentifier?,
         configRevision: UInt64?,
-        configuredShortcuts: () -> [StoredShortcut],
-        isMenuBacked: (KeyboardShortcutSettings.Action) -> Bool
+        configuredShortcuts: () -> [StoredShortcut]
     ) -> BrowserCaptureMatcherSnapshot {
-        if let snapshot = browserCaptureMatcherSnapshotCache,
-           snapshot.settingsRevision == revision,
-           snapshot.settingsStoreID == settingsStoreID,
-           snapshot.configStoreID == configStoreID,
-           snapshot.configRevision == configRevision {
+        if let snapshot = browserCaptureMatcherSnapshotCache.first(where: { snapshot in
+            snapshot.settingsRevision == revision
+                && snapshot.settingsStoreID == settingsStoreID
+                && snapshot.configStoreID == configStoreID
+                && snapshot.configRevision == configRevision
+        }) {
             return snapshot
         }
 
@@ -158,8 +165,7 @@ final class KeyboardShortcutSettingsObserver {
 
             let defaultShortcut = action.defaultShortcut
             if currentShortcut != defaultShortcut,
-               !defaultShortcut.isUnbound,
-               isMenuBacked(action) {
+               !defaultShortcut.isUnbound {
                 staleDefaults.append(
                     BrowserCaptureMatcherEntry(
                         action: action,
@@ -186,7 +192,13 @@ final class KeyboardShortcutSettingsObserver {
             staleDefaults: staleDefaults,
             candidateStrokes: candidateStrokes
         )
-        browserCaptureMatcherSnapshotCache = snapshot
+        if browserCaptureMatcherSnapshotCache.count < Self.browserCaptureMatcherCacheCapacity {
+            browserCaptureMatcherSnapshotCache.append(snapshot)
+        } else {
+            browserCaptureMatcherSnapshotCache[browserCaptureMatcherCacheNextIndex] = snapshot
+            browserCaptureMatcherCacheNextIndex =
+                (browserCaptureMatcherCacheNextIndex + 1) % Self.browserCaptureMatcherCacheCapacity
+        }
         return snapshot
     }
 

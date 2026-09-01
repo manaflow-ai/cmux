@@ -288,6 +288,36 @@ final class BrowserShortcutCaptureTests {
     }
 
     @Test
+    func captureRecognizesFocusedPageContentDescendant() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        try withCaptureEnabled { harness in
+            guard let pageRoot = cmuxBrowserPageContentRoot(for: harness.webView) else {
+                throw BrowserCaptureFixtureError.browserUnavailable
+            }
+
+            let pageChild = BrowserCaptureFocusableView(
+                frame: pageRoot.bounds.insetBy(dx: 4, dy: 4)
+            )
+            pageRoot.addSubview(pageChild)
+            defer { pageChild.removeFromSuperview() }
+            #expect(harness.window.makeFirstResponder(pageChild))
+
+            let commandR = try #require(makeKeyDownEvent(
+                key: "r",
+                modifiers: [.command],
+                keyCode: 15,
+                windowNumber: harness.window.windowNumber
+            ))
+
+            #expect(
+                appDelegate.shortcutEventBrowserWebView(commandR) === harness.webView,
+                "A responder below the real page-content root must resolve to its browser web view"
+            )
+            #expect(appDelegate.shouldCaptureBrowserKeyboardShortcuts(for: commandR))
+        }
+    }
+
+    @Test
     func configuredShortcutIsDeliveredToFocusedPopupPageBeforeCloseHandling() throws {
         let opener = BrowserPanel(workspaceId: UUID(), isRemoteWorkspace: false)
         defer { opener.close() }
