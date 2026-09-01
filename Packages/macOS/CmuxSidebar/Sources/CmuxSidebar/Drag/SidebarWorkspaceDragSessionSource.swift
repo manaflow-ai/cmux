@@ -7,6 +7,9 @@ final class SidebarWorkspaceDragSessionSource: NSObject, NSDraggingSource {
     private let capabilityValue: String
     private weak var registry: SidebarWorkspaceDragRegistry?
     private var didFinish = false
+    private var sourceView: NSView?
+
+    var sessionIdentifier: UUID { sessionId }
 
     deinit {}
 
@@ -36,6 +39,18 @@ final class SidebarWorkspaceDragSessionSource: NSObject, NSDraggingSource {
         finishDrag()
     }
 
+    /// Retains the source view until AppKit delivers this source's `endedAt` callback.
+    func bind(sourceView: NSView) {
+        guard !didFinish else { return }
+        self.sourceView = sourceView
+    }
+
+    /// Completes this source after a later native pointer boundary proves that
+    /// AppKit has left the older drag loop, even if `endedAt` was omitted.
+    func finishAfterNativeBoundary() {
+        finishDrag()
+    }
+
     private func finishDrag() {
         guard !didFinish else { return }
         didFinish = true
@@ -43,5 +58,6 @@ final class SidebarWorkspaceDragSessionSource: NSObject, NSDraggingSource {
             sessionId: sessionId,
             capabilityValue: capabilityValue
         )
+        sourceView = nil
     }
 }
