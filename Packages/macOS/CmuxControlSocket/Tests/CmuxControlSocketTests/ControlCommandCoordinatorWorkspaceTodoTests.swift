@@ -22,6 +22,16 @@ final class FakeWorkspaceTodoControlCommandContext: ControlCommandContext {
     var queueResolution: ControlWorkspaceTaskQueueResolution = .tabManagerUnavailable
     var queueDispatchResolution: ControlWorkspaceTaskQueueDispatchResolution = .tabManagerUnavailable
     var queueRevealResolution: ControlWorkspaceTaskQueueRevealResolution = .tabManagerUnavailable
+    var queueTargetResolution: ControlWorkspaceTaskQueueTargetResolution = .tabManagerUnavailable
+    var queueStrings = ControlWorkspaceTaskQueueStrings()
+    var lastQueueWindowID: UUID?
+    var lastQueueSortKey: ControlWorkspaceTaskQueueSortKey?
+    var lastQueueTarget: (workingDirectory: String?, agentCommand: String?, agentName: String?)?
+    var queueTargetCallCount = 0
+
+    var controlWorkspaceTaskQueueStrings: ControlWorkspaceTaskQueueStrings {
+        queueStrings
+    }
 
     func controlWorkspaceTaskStatus(
         routing: ControlRoutingSelectors,
@@ -111,8 +121,12 @@ final class FakeWorkspaceTodoControlCommandContext: ControlCommandContext {
 
     func controlWorkspaceTaskQueueList(
         statusRaw: String?,
-        workspaceID: UUID?
+        workspaceID: UUID?,
+        windowID: UUID?,
+        sortKey: ControlWorkspaceTaskQueueSortKey?
     ) -> ControlWorkspaceTaskQueueResolution {
+        lastQueueWindowID = windowID
+        lastQueueSortKey = sortKey
         queueResolution
     }
 
@@ -127,6 +141,17 @@ final class FakeWorkspaceTodoControlCommandContext: ControlCommandContext {
         itemID: UUID
     ) -> ControlWorkspaceTaskQueueRevealResolution {
         queueRevealResolution
+    }
+
+    func controlWorkspaceTaskQueueSetTarget(
+        itemID: UUID,
+        workingDirectory: String?,
+        agentCommand: String?,
+        agentName: String?
+    ) -> ControlWorkspaceTaskQueueTargetResolution {
+        queueTargetCallCount += 1
+        lastQueueTarget = (workingDirectory, agentCommand, agentName)
+        queueTargetResolution
     }
 }
 

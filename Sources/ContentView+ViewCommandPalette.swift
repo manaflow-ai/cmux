@@ -85,7 +85,7 @@ extension ContentView {
             TaskManagerWindowController.shared.show()
         }
         registry.register(commandId: "palette.openTaskQueue") {
-            WorkspaceTaskQueueWindowController.shared.show()
+            AppDelegate.shared?.openTaskQueueWindow()
         }
         registry.register(commandId: "palette.sleepyMode") {
             SleepyModeController.shared.activate()

@@ -474,9 +474,40 @@ extension TerminalController: ControlWorkspaceTodoContext {
 // MARK: - Cross-workspace task queue
 
 extension TerminalController: ControlWorkspaceTaskQueueContext {
+    var controlWorkspaceTaskQueueStrings: ControlWorkspaceTaskQueueStrings {
+        ControlWorkspaceTaskQueueStrings(
+            invalidStatus: String(
+                localized: "socket.workspaceTodo.queue.error.invalidStatus",
+                defaultValue: "status must be one of: pending, in-progress, completed"
+            ),
+            unavailable: String(
+                localized: "socket.workspaceTodo.queue.error.unavailable",
+                defaultValue: "TabManager not available"
+            ),
+            itemIDRequired: String(
+                localized: "socket.workspaceTodo.queue.error.itemIDRequired",
+                defaultValue: "item_id is required"
+            ),
+            notFound: String(
+                localized: "socket.workspaceTodo.queue.error.notFound",
+                defaultValue: "Queue item not found"
+            ),
+            notDispatchable: String(
+                localized: "socket.workspaceTodo.queue.error.notDispatchable",
+                defaultValue: "Queue item has no dispatch target"
+            ),
+            invalidTarget: String(
+                localized: "socket.workspaceTodo.queue.error.invalidTarget",
+                defaultValue: "target must be an object, null, or omitted"
+            )
+        )
+    }
+
     func controlWorkspaceTaskQueueList(
         statusRaw: String?,
-        workspaceID: UUID?
+        workspaceID: UUID?,
+        windowID: UUID?,
+        sortKey: ControlWorkspaceTaskQueueSortKey?
     ) -> ControlWorkspaceTaskQueueResolution {
         guard let app = AppDelegate.shared else { return .tabManagerUnavailable }
         let workspaces = app.allWorkspacesForAgentTodoRetirement
@@ -491,14 +522,16 @@ extension TerminalController: ControlWorkspaceTaskQueueContext {
                     windowID: windowID,
                     boundWorkspace: item.boundWorkspaceID.flatMap { workspacesByID[$0] }
                 )
-                guard workspaceID == nil || projected.workspaceID == workspaceID else { return nil }
+                guard workspaceID == nil || projected.workspaceID == workspaceID,
+                      windowID == nil || projected.windowID == windowID else { return nil }
                 return projected
             }
         }
-        return .resolved(items.sorted {
-            if $0.state != $1.state { return queueStateRank($0.state) < queueStateRank($1.state) }
-            if $0.workspaceTitle != $1.workspaceTitle { return $0.workspaceTitle < $1.workspaceTitle }
-            return $0.text.localizedStandardCompare($1.text) == .orderedAscending
+        // Each workspace contributes at most 50 checklist rows. Sort exactly
+        // once at the projection boundary; the queue model receives this
+        // ordered snapshot and does not resort it during rendering.
+        return .resolved(items.sorted { lhs, rhs in
+            queueItemPrecedes(lhs, rhs, sortKey: sortKey)
         })
     }
 
@@ -526,28 +559,20 @@ extension TerminalController: ControlWorkspaceTaskQueueContext {
                     owner.itemID == itemID && owner.sourceWorkspaceID == source.id
                 }
             if let boundWorkspace {
-                // A workspace can outlive the process it dispatched. Revalidate
-                // the structured PID identities before treating the binding as
-                // active; a stale lifecycle/status row must not block retry.
-                _ = boundWorkspace.clearStaleAgentPIDs(refreshPorts: false)
-                let normalizedAgent = target.agentName?
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                    .lowercased()
-                let candidateStatusKeys: Set<String> = if let normalizedAgent,
-                                                               !normalizedAgent.isEmpty {
-                    [
-                        normalizedAgent,
-                        FeedCoordinator.lifecycleStatusKey(forSource: normalizedAgent),
-                    ]
-                } else {
-                    []
-                }
-                let boundWorkspaceIsLive = boundWorkspace.agentPIDs.keys.contains { key in
-                    candidateStatusKeys.isEmpty
-                        || candidateStatusKeys.contains(boundWorkspace.agentStatusKey(forAgentPIDKey: key))
-                }
-                if boundWorkspaceIsLive || hasRegisteredDispatch {
+                // A workspace can outlive the process it dispatched. Use only
+                // the workspace's structured PID/process-generation record;
+                // `target.agentName` is display metadata and cannot prove
+                // liveness. A complete record that is stale can be retired;
+                // an absent/incomplete record must remain bound so recovery
+                // never creates a duplicate workspace on a guess.
+                if hasRegisteredDispatch {
                     return .notDispatchable
+                }
+                switch boundWorkspace.recordedAgentProcessLiveness() {
+                case .some(true), .none:
+                    return .notDispatchable
+                case .some(false):
+                    _ = boundWorkspace.clearStaleAgentPIDs(refreshPorts: false)
                 }
             } else if hasRegisteredDispatch {
                 // Keep a just-created binding authoritative until its target
@@ -708,6 +733,38 @@ extension TerminalController: ControlWorkspaceTaskQueueContext {
             boundWorkspaceTitle: boundWorkspace?.title,
             boundWindowID: boundWindowID
         )
+    }
+
+    private func queueItemPrecedes(
+        _ lhs: ControlWorkspaceTaskQueueItem,
+        _ rhs: ControlWorkspaceTaskQueueItem,
+        sortKey: ControlWorkspaceTaskQueueSortKey?
+    ) -> Bool {
+        switch sortKey {
+        case .activity:
+            if lhs.lastActivityAt != rhs.lastActivityAt {
+                return (lhs.lastActivityAt ?? .distantPast) > (rhs.lastActivityAt ?? .distantPast)
+            }
+        case .workspace:
+            if lhs.workspaceTitle != rhs.workspaceTitle {
+                return lhs.workspaceTitle < rhs.workspaceTitle
+            }
+        case .status, nil:
+            if lhs.state != rhs.state {
+                return queueStateRank(lhs.state) < queueStateRank(rhs.state)
+            }
+        }
+        if lhs.workspaceTitle != rhs.workspaceTitle {
+            return lhs.workspaceTitle < rhs.workspaceTitle
+        }
+        if lhs.state != rhs.state {
+            return queueStateRank(lhs.state) < queueStateRank(rhs.state)
+        }
+        let textOrder = lhs.text.localizedStandardCompare(rhs.text)
+        if textOrder != .orderedSame {
+            return textOrder == .orderedAscending
+        }
+        return lhs.id.uuidString < rhs.id.uuidString
     }
 
     private func queueStateRank(_ raw: String) -> Int {

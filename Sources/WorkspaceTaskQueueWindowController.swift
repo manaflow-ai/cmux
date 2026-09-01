@@ -4,11 +4,9 @@ import SwiftUI
 /// Window controller for the cross-workspace task queue.
 @MainActor
 final class WorkspaceTaskQueueWindowController: ReleasingWindowController {
-    static let shared = WorkspaceTaskQueueWindowController()
-
     private let model = WorkspaceTaskQueueModel()
 
-    private override init() {
+    override init() {
         super.init()
     }
 

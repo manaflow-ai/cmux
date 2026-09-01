@@ -5,10 +5,13 @@ import Foundation
 /// by this workstream but absent from the report are retired.
 public struct WorkspaceAgentChecklistSync: Sendable {
     /// Creates a stateless sync service.
-    public init() {}
+    ///
+    /// This value-only helper has no main-actor state and is safe to construct
+    /// from any isolation domain.
+    public nonisolated init() {}
 
     /// Computes the full replacement for one workstream's report.
-    public func replacement(
+    public nonisolated func replacement(
         existing: [WorkspaceChecklistItem],
         agentTasks: [WorkspaceAgentChecklistTask],
         workstreamId: String

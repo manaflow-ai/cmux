@@ -53,39 +53,43 @@ extension ControlCommandCoordinator {
     }
 
     private func workspaceTaskQueueList(_ params: [String: JSONValue]) -> ControlCallResult {
+        let strings = context?.controlWorkspaceTaskQueueStrings ?? ControlWorkspaceTaskQueueStrings()
         let status = string(params, "status")
         if let status, !["pending", "in-progress", "completed"].contains(status) {
             return .err(
                 code: "invalid_params",
-                message: "status must be one of: pending, in-progress, completed",
+                message: strings.invalidStatus,
                 data: .object(["status": .string(status)])
             )
         }
         switch context?.controlWorkspaceTaskQueueList(
             statusRaw: status,
-            workspaceID: uuid(params, "workspace_id")
+            workspaceID: uuid(params, "workspace_id"),
+            windowID: uuid(params, "window_id"),
+            sortKey: string(params, "sort").flatMap(ControlWorkspaceTaskQueueSortKey.init(rawValue:))
         ) ?? .tabManagerUnavailable {
         case .tabManagerUnavailable:
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(code: "unavailable", message: strings.unavailable, data: nil)
         case .resolved(let items):
             return .ok(queueItemsPayload(items))
         }
     }
 
     private func workspaceTaskQueueDispatch(_ params: [String: JSONValue]) -> ControlCallResult {
+        let strings = context?.controlWorkspaceTaskQueueStrings ?? ControlWorkspaceTaskQueueStrings()
         guard let itemID = queueItemID(params) else {
-            return .err(code: "invalid_params", message: "item_id is required", data: nil)
+            return .err(code: "invalid_params", message: strings.itemIDRequired, data: nil)
         }
         switch context?.controlWorkspaceTaskQueueDispatch(
             itemID: itemID,
             routing: routingSelectors(params)
         ) ?? .tabManagerUnavailable {
         case .tabManagerUnavailable:
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(code: "unavailable", message: strings.unavailable, data: nil)
         case .notFound:
-            return .err(code: "not_found", message: "Queue item not found", data: nil)
+            return .err(code: "not_found", message: strings.notFound, data: nil)
         case .notDispatchable:
-            return .err(code: "invalid_state", message: "Queue item has no dispatch target", data: nil)
+            return .err(code: "invalid_state", message: strings.notDispatchable, data: nil)
         case .created(let item, let workspaceID, let windowID):
             return .ok(.object([
                 "item": queueItemPayload(item),
@@ -99,14 +103,15 @@ extension ControlCommandCoordinator {
     }
 
     private func workspaceTaskQueueReveal(_ params: [String: JSONValue]) -> ControlCallResult {
+        let strings = context?.controlWorkspaceTaskQueueStrings ?? ControlWorkspaceTaskQueueStrings()
         guard let itemID = queueItemID(params) else {
-            return .err(code: "invalid_params", message: "item_id is required", data: nil)
+            return .err(code: "invalid_params", message: strings.itemIDRequired, data: nil)
         }
         switch context?.controlWorkspaceTaskQueueReveal(itemID: itemID) ?? .tabManagerUnavailable {
         case .tabManagerUnavailable:
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(code: "unavailable", message: strings.unavailable, data: nil)
         case .notFound:
-            return .err(code: "not_found", message: "Queue item not found", data: nil)
+            return .err(code: "not_found", message: strings.notFound, data: nil)
         case .revealed(let item):
             return .ok(.object([
                 "item": queueItemPayload(item),
@@ -117,15 +122,19 @@ extension ControlCommandCoordinator {
     }
 
     private func workspaceTaskQueueSetTarget(_ params: [String: JSONValue]) -> ControlCallResult {
+        let strings = context?.controlWorkspaceTaskQueueStrings ?? ControlWorkspaceTaskQueueStrings()
         guard let itemID = queueItemID(params) else {
-            return .err(code: "invalid_params", message: "item_id is required", data: nil)
+            return .err(code: "invalid_params", message: strings.itemIDRequired, data: nil)
         }
         let target = params["target"]
         let targetObject: [String: JSONValue]?
-        if case .object(let object)? = target {
-            targetObject = object
-        } else {
+        switch target {
+        case nil, .null:
             targetObject = nil
+        case .object(let object):
+            targetObject = object
+        default:
+            return .err(code: "invalid_params", message: strings.invalidTarget, data: nil)
         }
         let cwd = targetObject.flatMap { string($0, "working_directory") }
         let command = targetObject.flatMap { string($0, "agent_command") }
@@ -137,20 +146,23 @@ extension ControlCommandCoordinator {
             agentName: agent
         ) ?? .tabManagerUnavailable {
         case .tabManagerUnavailable:
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(code: "unavailable", message: strings.unavailable, data: nil)
         case .notFound:
-            return .err(code: "not_found", message: "Queue item not found", data: nil)
+            return .err(code: "not_found", message: strings.notFound, data: nil)
         case .updated(let item):
             return .ok(.object(["item": queueItemPayload(item)]))
         }
     }
 
     private func queueItemID(_ params: [String: JSONValue]) -> UUID? {
-        if let id = uuid(params, "item_id") ?? uuid(params, "id") { return id }
+        let requestedID = uuid(params, "item_id") ?? uuid(params, "id")
+        if let requestedID { return requestedID }
         guard let index = int(params, "index"), index >= 0,
               case .resolved(let items) = context?.controlWorkspaceTaskQueueList(
                   statusRaw: string(params, "status"),
-                  workspaceID: uuid(params, "workspace_id")
+                  workspaceID: uuid(params, "workspace_id"),
+                  windowID: uuid(params, "window_id"),
+                  sortKey: string(params, "sort").flatMap(ControlWorkspaceTaskQueueSortKey.init(rawValue:))
               ) else { return nil }
         return items.indices.contains(index) ? items[index].id : nil
     }

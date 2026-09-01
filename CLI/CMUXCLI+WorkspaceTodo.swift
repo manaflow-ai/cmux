@@ -42,7 +42,7 @@ extension CMUXCLI {
         if let number = Int(trimmed), number >= 1 {
             return ["index": number - 1]
         }
-        throw CLIError(message: "Invalid todo item: \(trimmed) (expected an item UUID or a 1-based index from `cmux todo list`)")
+        throw CLIError(message: String(format: String(localized: "cli.todo.error.invalidItem", defaultValue: "Invalid todo item: %@ (expected an item UUID or a 1-based index from `cmux todo list`)"), trimmed))
     }
 
     // MARK: - workspace status
@@ -119,7 +119,7 @@ extension CMUXCLI {
             return
         }
         guard let sub = commandArgs.first?.lowercased() else {
-            throw CLIError(message: "todo requires a subcommand. Try: add, list, queue, dispatch, reveal, target, check, uncheck, start, edit, rm, move, clear, set, open")
+            throw CLIError(message: String(localized: "cli.todo.error.missingSubcommand", defaultValue: "todo requires a subcommand. Try: add, list, queue, dispatch, reveal, target, check, uncheck, start, edit, rm, move, clear, set, open"))
         }
         let aggregateSubcommands: Set<String> = [
             "queue", "all", "refresh", "dispatch", "reveal", "target",
@@ -143,7 +143,7 @@ extension CMUXCLI {
             let (agentArg, rem4) = parseOption(rem3, name: "--agent")
             let text = rem4.filter { !$0.hasPrefix("--") }.joined(separator: " ")
             guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                throw CLIError(message: "Usage: cmux todo add \"text\" [--state <pending|in-progress|completed>] [--origin <user|agent>]")
+                throw CLIError(message: String(localized: "cli.todo.error.addUsage", defaultValue: "Usage: cmux todo add \"text\" [--state <pending|in-progress|completed>] [--origin <user|agent>] [--cwd <dir>] [--command <agent command>] [--agent <name>]"))
             }
             addParams["text"] = text
             if let stateArg { addParams["state"] = stateArg }
@@ -160,13 +160,18 @@ extension CMUXCLI {
                     "agent": (agentArg as Any?) ?? NSNull(),
                 ]
                 let targeted = try client.sendV2(method: "workspace.todo.queue.target", params: targetParams)
-                printV2Payload(targeted, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
+                printV2Payload(
+                    targeted,
+                    jsonOutput: jsonOutput,
+                    idFormat: idFormat,
+                    fallbackText: String(localized: "common.ok", defaultValue: "OK")
+                )
             } else {
                 printTodoMutationPayload(payload, jsonOutput: jsonOutput, idFormat: idFormat)
             }
         case "check", "uncheck", "start":
             guard let selector = rest.first(where: { !$0.hasPrefix("--") }) else {
-                throw CLIError(message: "Usage: cmux todo \(sub) <index|id>")
+                throw CLIError(message: String(format: String(localized: "cli.todo.error.selectorUsage", defaultValue: "Usage: cmux todo %@ <index|id>"), sub))
             }
             var stateParams = params
             for (key, value) in try workspaceTodoItemSelectorParams(selector) {
@@ -178,7 +183,7 @@ extension CMUXCLI {
         case "edit":
             let positional = rest.filter { !$0.hasPrefix("--") }
             guard positional.count >= 2 else {
-                throw CLIError(message: "Usage: cmux todo edit <index|id> \"new text\"")
+                throw CLIError(message: String(localized: "cli.todo.error.editUsage", defaultValue: "Usage: cmux todo edit <index|id> \"new text\""))
             }
             var editParams = params
             for (key, value) in try workspaceTodoItemSelectorParams(positional[0]) {
@@ -189,7 +194,7 @@ extension CMUXCLI {
             printTodoMutationPayload(payload, jsonOutput: jsonOutput, idFormat: idFormat)
         case "rm", "remove":
             guard let selector = rest.first(where: { !$0.hasPrefix("--") }) else {
-                throw CLIError(message: "Usage: cmux todo rm <index|id>")
+                throw CLIError(message: String(localized: "cli.todo.error.removeUsage", defaultValue: "Usage: cmux todo rm <index|id>"))
             }
             var removeParams = params
             for (key, value) in try workspaceTodoItemSelectorParams(selector) {
@@ -200,7 +205,7 @@ extension CMUXCLI {
         case "move", "mv":
             let positional = rest.filter { !$0.hasPrefix("--") }
             guard positional.count >= 2, let newIndex = Int(positional[1]), newIndex >= 1 else {
-                throw CLIError(message: "Usage: cmux todo move <index|id> <newIndex> (newIndex is 1-based)")
+                throw CLIError(message: String(localized: "cli.todo.error.moveUsage", defaultValue: "Usage: cmux todo move <index|id> <newIndex> (newIndex is 1-based)"))
             }
             var moveParams = params
             for (key, value) in try workspaceTodoItemSelectorParams(positional[0]) {
@@ -225,7 +230,7 @@ extension CMUXCLI {
             let (statusArg, remainder) = parseOption(rest, name: "--status")
             if let statusArg { queueParams["status"] = statusArg }
             guard remainder.filter({ $0.hasPrefix("--") }).isEmpty else {
-                throw CLIError(message: "Usage: cmux todo queue [--status <pending|in-progress|completed>] [--workspace <id|ref|index>]")
+                throw CLIError(message: String(localized: "cli.todo.error.queueUsage", defaultValue: "Usage: cmux todo queue [--status <pending|in-progress|completed>] [--workspace <id|ref|index>] [--window <id|ref|index>]"))
             }
             let payload = try client.sendV2(
                 method: sub == "refresh" ? "workspace.todo.queue.refresh" : "workspace.todo.queue.list",
@@ -234,7 +239,7 @@ extension CMUXCLI {
             printTodoQueuePayload(payload, jsonOutput: jsonOutput, idFormat: idFormat)
         case "dispatch":
             guard let selector = rest.first(where: { !$0.hasPrefix("--") }) else {
-                throw CLIError(message: "Usage: cmux todo dispatch <index|id>")
+                throw CLIError(message: String(localized: "cli.todo.error.dispatchUsage", defaultValue: "Usage: cmux todo dispatch <index|id>"))
             }
             var dispatchParams = params
             for (key, value) in try workspaceTodoItemSelectorParams(selector) {
@@ -242,10 +247,10 @@ extension CMUXCLI {
             }
             dispatchParams["focus"] = false
             let payload = try client.sendV2(method: "workspace.todo.queue.dispatch", params: dispatchParams)
-            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK (focused: false)")
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: String(localized: "cli.todo.output.focusUnchanged", defaultValue: "OK (focus unchanged)"))
         case "reveal":
             guard let selector = rest.first(where: { !$0.hasPrefix("--") }) else {
-                throw CLIError(message: "Usage: cmux todo reveal <index|id>")
+                throw CLIError(message: String(localized: "cli.todo.error.revealUsage", defaultValue: "Usage: cmux todo reveal <index|id>"))
             }
             var revealParams = params
             for (key, value) in try workspaceTodoItemSelectorParams(selector) {
@@ -255,11 +260,11 @@ extension CMUXCLI {
                 method: "workspace.todo.queue.reveal",
                 params: revealParams
             )
-            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK (focused: false)")
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: String(localized: "cli.todo.output.focusUnchanged", defaultValue: "OK (focus unchanged)"))
         case "target":
             let positional = rest.filter { !$0.hasPrefix("--") }
             guard let selector = positional.first else {
-                throw CLIError(message: "Usage: cmux todo target <index|id> --command <agent command> [--cwd <directory>] [--agent <name>]")
+                throw CLIError(message: String(localized: "cli.todo.error.targetUsage", defaultValue: "Usage: cmux todo target <index|id> --command <agent command> [--cwd <directory>] [--agent <name>]"))
             }
             let (cwdArg, rem0) = parseOption(rest, name: "--cwd")
             let (commandArg, rem1) = parseOption(rem0, name: "--command")
@@ -274,9 +279,14 @@ extension CMUXCLI {
                 "agent": (agentArg as Any?) ?? NSNull(),
             ]
             let payload = try client.sendV2(method: "workspace.todo.queue.target", params: targetParams)
-            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
+            printV2Payload(
+                payload,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                fallbackText: String(localized: "common.ok", defaultValue: "OK")
+            )
         default:
-            throw CLIError(message: "Unknown todo subcommand: \(sub). Try: add, list, queue, dispatch, reveal, target, check, uncheck, start, edit, rm, move, clear, set, open")
+            throw CLIError(message: String(format: String(localized: "cli.todo.error.unknownSubcommand", defaultValue: "Unknown todo subcommand: %@. Try: add, list, queue, dispatch, reveal, target, check, uncheck, start, edit, rm, move, clear, set, open"), sub))
         }
     }
 
@@ -331,19 +341,22 @@ extension CMUXCLI {
         }
         let items = payload["items"] as? [[String: Any]] ?? []
         guard !items.isEmpty else {
-            print("No todo items.")
+            print(String(localized: "cli.todo.output.empty", defaultValue: "No todo items."))
             return
         }
         for (index, item) in items.enumerated() {
             let state = item["state"] as? String ?? "pending"
             let marker = state == "completed" ? "[x]" : (state == "in-progress" ? "[>]" : "[ ]")
-            let origin = (item["origin"] as? String) == "agent" ? "  (agent)" : ""
-            print("\(index + 1). \(marker) \(item["text"] as? String ?? "")\(origin)")
+            let origin = (item["origin"] as? String) == "agent"
+                ? String(localized: "cli.todo.output.agentSuffix", defaultValue: "  (agent)")
+                : ""
+            let text = item["text"] as? String ?? ""
+            print(String(format: String(localized: "cli.todo.output.item", defaultValue: "%d. %@ %@%@"), index + 1, marker, text, origin))
         }
         if let progress = payload["progress"] as? [String: Any],
            let completed = intFromAny(progress["completed"]),
            let total = intFromAny(progress["total"]) {
-            print("\(completed)/\(total) completed")
+            print(String(format: String(localized: "cli.todo.output.progress", defaultValue: "%d/%d completed"), completed, total))
         }
     }
 
@@ -372,14 +385,16 @@ extension CMUXCLI {
         }
         let items = payload["items"] as? [[String: Any]] ?? []
         guard !items.isEmpty else {
-            print("No queued tasks.")
+            print(String(localized: "cli.todo.output.queueEmpty", defaultValue: "No queued tasks."))
             return
         }
         for (index, item) in items.enumerated() {
             let state = item["state"] as? String ?? "pending"
-            let workspace = item["workspace_title"] as? String ?? "workspace"
+            let workspace = item["workspace_title"] as? String
+                ?? String(localized: "cli.todo.output.workspaceFallback", defaultValue: "workspace")
             let agent = (item["owning_agent"] as? String).map { "  [\($0)]" } ?? ""
-            print("\(index + 1). [\(state)] \(item["text"] as? String ?? "")  —  \(workspace)\(agent)")
+            let text = item["text"] as? String ?? ""
+            print(String(format: String(localized: "cli.todo.output.queueItem", defaultValue: "%d. [%@] %@  —  %@%@"), index + 1, state, text, workspace, agent))
         }
     }
 
@@ -463,8 +478,8 @@ extension CMUXCLI {
       add "text" [--state <pending|in-progress|completed>] [--origin <user|agent>] [--cwd <dir>] [--command <agent command>] [--agent <name>]
       list                    Print items (1-based indexes) and progress
       queue [--status ...]    Aggregate every workspace's checklist
-      refresh                 Refresh the aggregate queue (focus-safe)
-      dispatch <index|id>     Create the target workspace with focus=false
+      refresh                 Refresh the aggregate queue without changing focus
+      dispatch <index|id>     Create the target workspace without changing focus
       reveal <index|id>       Reveal the owning workspace without selecting it
       target <index|id> ...   Set/clear a working directory and agent command
       check <index|id>        Mark an item completed

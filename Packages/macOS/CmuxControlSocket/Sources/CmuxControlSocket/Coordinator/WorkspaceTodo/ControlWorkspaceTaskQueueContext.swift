@@ -3,9 +3,22 @@ public import Foundation
 /// Read/dispatch seam for the cross-workspace task queue.
 @MainActor
 public protocol ControlWorkspaceTaskQueueContext: AnyObject {
+    /// Localized response strings resolved by the application composition root.
+    var controlWorkspaceTaskQueueStrings: ControlWorkspaceTaskQueueStrings { get }
+
+    /// Reads queue rows using the requested scope and presentation order.
+    ///
+    /// - Parameters:
+    ///   - statusRaw: Optional lifecycle-state filter.
+    ///   - workspaceID: Optional source-workspace filter.
+    ///   - windowID: Optional owning-window filter.
+    ///   - sortKey: Optional presentation order; `nil` preserves the default
+    ///     status/workspace/text ordering used by socket clients.
     func controlWorkspaceTaskQueueList(
         statusRaw: String?,
-        workspaceID: UUID?
+        workspaceID: UUID?,
+        windowID: UUID?,
+        sortKey: ControlWorkspaceTaskQueueSortKey?
     ) -> ControlWorkspaceTaskQueueResolution
 
     func controlWorkspaceTaskQueueDispatch(
@@ -29,9 +42,15 @@ public protocol ControlWorkspaceTaskQueueContext: AnyObject {
 /// The default is an unavailable response until the app conformance supplies
 /// the live workspace projection.
 public extension ControlWorkspaceTaskQueueContext {
+    var controlWorkspaceTaskQueueStrings: ControlWorkspaceTaskQueueStrings {
+        ControlWorkspaceTaskQueueStrings()
+    }
+
     func controlWorkspaceTaskQueueList(
         statusRaw: String?,
-        workspaceID: UUID?
+        workspaceID: UUID?,
+        windowID: UUID?,
+        sortKey: ControlWorkspaceTaskQueueSortKey?
     ) -> ControlWorkspaceTaskQueueResolution {
         .tabManagerUnavailable
     }

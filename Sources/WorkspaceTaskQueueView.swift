@@ -31,8 +31,13 @@ struct WorkspaceTaskQueueView: View {
             }
         }
         .frame(minWidth: 860, minHeight: 480)
-        .onReceive(NotificationCenter.default.publisher(for: .workspaceTaskQueueDidChange)) { _ in
-            model.scheduleRefresh()
+        .task {
+            for await _ in NotificationCenter.default.notifications(
+                named: .workspaceTaskQueueDidChange
+            ) {
+                guard !Task.isCancelled else { return }
+                model.scheduleRefresh()
+            }
         }
     }
 

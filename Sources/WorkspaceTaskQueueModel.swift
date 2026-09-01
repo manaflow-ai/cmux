@@ -32,6 +32,13 @@ final class WorkspaceTaskQueueModel {
         case workspace
 
         var id: String { rawValue }
+        var controlKey: ControlWorkspaceTaskQueueSortKey {
+            switch self {
+            case .activity: .activity
+            case .status: .status
+            case .workspace: .workspace
+            }
+        }
         var title: String {
             switch self {
             case .activity: String(localized: "taskQueue.sort.activity", defaultValue: "Last activity")
@@ -42,6 +49,7 @@ final class WorkspaceTaskQueueModel {
     }
 
     private(set) var rows: [ControlWorkspaceTaskQueueItem] = []
+    private(set) var workspaceOptions: [(id: UUID, title: String)] = []
     private(set) var isRefreshing = false
     private(set) var errorMessage: String?
     @ObservationIgnored private var scheduledRefresh: Task<Void, Never>?
@@ -49,19 +57,11 @@ final class WorkspaceTaskQueueModel {
     @ObservationIgnored private var refreshGeneration: UInt64 = 0
     var statusFilter: StatusFilter = .all { didSet { refresh() } }
     var workspaceFilter: UUID? { didSet { refresh() } }
-    var sortKey: SortKey = .activity { didSet { sortRows() } }
+    var sortKey: SortKey = .activity { didSet { refresh() } }
     var selectedRowID: UUID?
 
     init() {
         refresh()
-    }
-
-    var workspaceOptions: [(id: UUID, title: String)] {
-        let values = rows.reduce(into: [UUID: String]()) { result, row in
-            result[row.workspaceID] = row.workspaceTitle
-        }
-        return values.keys.sorted { values[$0, default: ""] < values[$1, default: ""] }
-            .map { ($0, values[$0, default: ""]) }
     }
 
     func refresh() {
@@ -77,15 +77,18 @@ final class WorkspaceTaskQueueModel {
         let status = statusFilter == .all ? nil : statusFilter.rawValue
         switch TerminalController.shared.controlWorkspaceTaskQueueList(
             statusRaw: status,
-            workspaceID: workspaceFilter
+            workspaceID: workspaceFilter,
+            windowID: nil,
+            sortKey: sortKey.controlKey
         ) {
         case .tabManagerUnavailable:
             rows = []
+            workspaceOptions = []
             errorMessage = String(localized: "taskQueue.error.unavailable", defaultValue: "Task queue is unavailable while cmux is starting.")
         case .resolved(let items):
             rows = items
+            rebuildWorkspaceOptions(from: items)
             errorMessage = nil
-            sortRows()
         }
     }
 
@@ -145,29 +148,15 @@ final class WorkspaceTaskQueueModel {
         }
     }
 
-    private func sortRows() {
-        rows.sort { lhs, rhs in
-            switch sortKey {
-            case .activity:
-                if lhs.lastActivityAt != rhs.lastActivityAt {
-                    return (lhs.lastActivityAt ?? .distantPast) > (rhs.lastActivityAt ?? .distantPast)
-                }
-            case .status:
-                if lhs.state != rhs.state { return stateRank(lhs.state) < stateRank(rhs.state) }
-            case .workspace:
-                if lhs.workspaceTitle != rhs.workspaceTitle { return lhs.workspaceTitle < rhs.workspaceTitle }
-            }
-            return lhs.id.uuidString < rhs.id.uuidString
+    private func rebuildWorkspaceOptions(from rows: [ControlWorkspaceTaskQueueItem]) {
+        let values = rows.reduce(into: [UUID: String]()) { result, row in
+            result[row.workspaceID] = row.workspaceTitle
         }
-    }
-
-    private func stateRank(_ state: String) -> Int {
-        switch state {
-        case "in-progress": 0
-        case "pending": 1
-        case "completed": 2
-        default: 3
-        }
+        workspaceOptions = values.keys.sorted { lhs, rhs in
+            let leftTitle = values[lhs, default: ""]
+            let rightTitle = values[rhs, default: ""]
+            return leftTitle == rightTitle ? lhs.uuidString < rhs.uuidString : leftTitle < rightTitle
+        }.map { ($0, values[$0, default: ""]) }
     }
 
     deinit {

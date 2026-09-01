@@ -29,10 +29,6 @@ final class FeedCoordinator: @unchecked Sendable {
     // The store runs on the main actor. The coordinator is not isolated,
     // so it hops to main explicitly when touching the store.
     @MainActor private(set) var store: WorkstreamStore!
-    /// Last workspace that each workstream updated. This is a fast path for
-    /// task re-homing; persisted row ownership remains the correctness source.
-    @MainActor var lastTodoWorkspaceByWorkstream: [String: UUID] = [:]
-    @MainActor private var todoWorkspaceRecency: [String] = []
     @MainActor private let maxTrackedTodoWorkstreams = 128
     @MainActor private var todoRecoveryEpochByWorkstream: [String: UInt64] = [:]
     @MainActor private var todoRecoveryRecency: [String] = []
@@ -256,22 +252,7 @@ final class FeedCoordinator: @unchecked Sendable {
     }
 
     @MainActor
-    func recordTodoWorkspace(workstreamId: String, workspaceID: UUID) {
-        lastTodoWorkspaceByWorkstream[workstreamId] = workspaceID
-        todoWorkspaceRecency.removeAll { $0 == workstreamId }
-        todoWorkspaceRecency.append(workstreamId)
-        guard todoWorkspaceRecency.count > maxTrackedTodoWorkstreams else { return }
-        let overflow = todoWorkspaceRecency.count - maxTrackedTodoWorkstreams
-        for old in todoWorkspaceRecency.prefix(overflow) {
-            lastTodoWorkspaceByWorkstream.removeValue(forKey: old)
-        }
-        todoWorkspaceRecency.removeFirst(overflow)
-    }
-
-    @MainActor
     private func forgetTodoWorkspace(for workstreamId: String) {
-        lastTodoWorkspaceByWorkstream.removeValue(forKey: workstreamId)
-        todoWorkspaceRecency.removeAll { $0 == workstreamId }
         todoRecoveryEpochByWorkstream.removeValue(forKey: workstreamId)
         todoRecoveryRecency.removeAll { $0 == workstreamId }
     }

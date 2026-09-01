@@ -86,8 +86,9 @@ extension FeedCoordinator {
 
     @MainActor
     private func retireAgentTodos(for workstreamId: String, excluding workspaceID: UUID) {
-        if lastTodoWorkspaceByWorkstream[workstreamId] == workspaceID { return }
-        defer { recordTodoWorkspace(workstreamId: workstreamId, workspaceID: workspaceID) }
+        // Persisted checklist ownership is authoritative. Always inspect the
+        // live workspace set so a stale or cold cache cannot leave duplicate
+        // rows behind after a workstream is re-homed.
         for workspace in AppDelegate.shared?.allWorkspacesForAgentTodoRetirement ?? [] where workspace.id != workspaceID {
             guard workspace.todoState.checklist.contains(where: {
                 $0.agentTaskRef?.workstreamId == workstreamId

@@ -79,37 +79,42 @@ struct WorkstreamTaskToolTodos: Sendable {
         }
     }
 
-    private func pendingOperationIndex(
+    private func matchIndex<Operation>(
+        in operations: [Operation],
         tool: WorkstreamTaskTool,
         inputJSON: String?,
-        requestID: String?
+        requestID: String?,
+        toolKeyPath: KeyPath<Operation, WorkstreamTaskTool>,
+        requestIDKeyPath: KeyPath<Operation, String?>,
+        inputJSONKeyPath: KeyPath<Operation, String?>
     ) -> Int? {
         if let requestID, !requestID.isEmpty,
-           let index = pendingPreOperations.firstIndex(where: {
-                $0.tool == tool && $0.requestID == requestID
+           let index = operations.firstIndex(where: {
+                $0[keyPath: toolKeyPath] == tool
+                    && $0[keyPath: requestIDKeyPath] == requestID
            }) {
             return index
         }
         let normalized = normalizedInput(inputJSON)
-        let normalizedMatches = pendingPreOperations.indices.filter {
-            pendingPreOperations[$0].tool == tool
-                && normalizedInput(pendingPreOperations[$0].inputJSON) == normalized
+        let normalizedMatches = operations.indices.filter {
+            operations[$0][keyPath: toolKeyPath] == tool
+                && normalizedInput(operations[$0][keyPath: inputJSONKeyPath]) == normalized
         }
         if normalizedMatches.count == 1, let index = normalizedMatches.first {
             return index
         }
         let input = object(from: inputJSON)
         if let id = taskID(in: input) {
-            let matches = pendingPreOperations.indices.filter {
-                pendingPreOperations[$0].tool == tool
-                    && taskID(in: object(from: pendingPreOperations[$0].inputJSON)) == id
+            let matches = operations.indices.filter {
+                operations[$0][keyPath: toolKeyPath] == tool
+                    && taskID(in: object(from: operations[$0][keyPath: inputJSONKeyPath])) == id
             }
             if matches.count == 1, let index = matches.first { return index }
         }
         if let subject = content(in: input) {
-            let matches = pendingPreOperations.indices.filter {
-                pendingPreOperations[$0].tool == tool
-                    && content(in: object(from: pendingPreOperations[$0].inputJSON)) == subject
+            let matches = operations.indices.filter {
+                operations[$0][keyPath: toolKeyPath] == tool
+                    && content(in: object(from: operations[$0][keyPath: inputJSONKeyPath])) == subject
             }
             if matches.count == 1, let index = matches.first { return index }
             if tool == .taskCreate, let first = matches.first { return first }
@@ -117,42 +122,36 @@ struct WorkstreamTaskToolTodos: Sendable {
         return nil
     }
 
+    private func pendingOperationIndex(
+        tool: WorkstreamTaskTool,
+        inputJSON: String?,
+        requestID: String?
+    ) -> Int? {
+        matchIndex(
+            in: pendingPreOperations,
+            tool: tool,
+            inputJSON: inputJSON,
+            requestID: requestID,
+            toolKeyPath: \.tool,
+            requestIDKeyPath: \.requestID,
+            inputJSONKeyPath: \.inputJSON
+        )
+    }
+
     private func pendingPostIndex(
         tool: WorkstreamTaskTool,
         inputJSON: String?,
         requestID: String?
     ) -> Int? {
-        if let requestID, !requestID.isEmpty,
-           let index = pendingPostOperations.firstIndex(where: {
-                $0.tool == tool && $0.requestID == requestID
-           }) {
-            return index
-        }
-        let normalized = normalizedInput(inputJSON)
-        let normalizedMatches = pendingPostOperations.indices.filter {
-            pendingPostOperations[$0].tool == tool
-                && normalizedInput(pendingPostOperations[$0].inputJSON) == normalized
-        }
-        if normalizedMatches.count == 1, let index = normalizedMatches.first {
-            return index
-        }
-        let input = object(from: inputJSON)
-        if let id = taskID(in: input) {
-            let matches = pendingPostOperations.indices.filter {
-                pendingPostOperations[$0].tool == tool
-                    && taskID(in: object(from: pendingPostOperations[$0].inputJSON)) == id
-            }
-            if matches.count == 1, let index = matches.first { return index }
-        }
-        if let subject = content(in: input) {
-            let matches = pendingPostOperations.indices.filter {
-                pendingPostOperations[$0].tool == tool
-                    && content(in: object(from: pendingPostOperations[$0].inputJSON)) == subject
-            }
-            if matches.count == 1, let index = matches.first { return index }
-            if tool == .taskCreate, let first = matches.first { return first }
-        }
-        return nil
+        matchIndex(
+            in: pendingPostOperations,
+            tool: tool,
+            inputJSON: inputJSON,
+            requestID: requestID,
+            toolKeyPath: \.tool,
+            requestIDKeyPath: \.requestID,
+            inputJSONKeyPath: \.inputJSON
+        )
     }
 
     private func projectedState() -> WorkstreamTaskToolTodos {
