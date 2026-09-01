@@ -1479,7 +1479,7 @@ impl Inner {
         // Keep the opening reservation held until the attachment is installed.
         // The short state lock couples this transition with revocation, while
         // no PTY operation runs under it.
-        let (surface, start, previous) = {
+        let (surface, start, previous, publication_gate) = {
             let _state = self.tunnel_state.lock().expect("tunnel state lock");
             let auth_changed = self
                 .transport_auth
@@ -1580,6 +1580,10 @@ impl Inner {
         opened_frame.insert("created".to_owned(), Value::from(opened.created));
         opened_frame.insert("cols".to_owned(), Value::from(cols));
         opened_frame.insert("rows".to_owned(), Value::from(rows));
+        // The attachment is fully visible in the registry. Release the
+        // ordering gate before crossing the transport boundary so a blocked
+        // client cannot stall detach or authority revocation.
+        drop(_publication);
         (context.send)(Value::Object(opened_frame));
 
         // Output only AFTER pty_opened (ordering): banner, then scrollback
@@ -1702,6 +1706,7 @@ impl Inner {
         // Exit publication crosses the transport boundary. Release the
         // lifecycle state before invoking the callback.
         drop(_operation);
+        drop(_publication);
         (auth.send)(json!({
             "version": PTY_PROTOCOL_VERSION,
             "type": "pty_exit",
@@ -2596,6 +2601,17 @@ impl PtyControl for ShellViewerControl {
         };
         if should_pause {
             self.session.control.pause();
+            // A release may have removed the last paused viewer while the
+            // control call was in flight. Re-check the shared state and
+            // undo the stale pause so the shell cannot remain wedged.
+            let should_resume = {
+                let _flow = self.session.flow_lock.lock().expect("shell flow lock");
+                let inner = self.session.inner.lock().expect("shell inner lock");
+                inner.paused_viewers.is_empty()
+            };
+            if should_resume {
+                self.session.control.resume();
+            }
         }
     }
     fn resume(&self) {
