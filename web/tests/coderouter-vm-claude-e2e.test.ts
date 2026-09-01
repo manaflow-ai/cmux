@@ -70,7 +70,18 @@ function materializeMachineEnv(
         "-c",
         `. ${agentConfigPath} && printf '%s\\n%s\\n' "$ANTHROPIC_BASE_URL" "$ANTHROPIC_AUTH_TOKEN"`,
       ],
-      { env: { ...process.env, ...mintedEnv, HOME: home }, encoding: "utf8" },
+      {
+        // A developer's own Claude Code env must not leak in: the generator
+        // is set-if-unset, so clear both so the derivation path is exercised.
+        env: {
+          ...process.env,
+          ANTHROPIC_BASE_URL: "",
+          ANTHROPIC_AUTH_TOKEN: "",
+          ...mintedEnv,
+          HOME: home,
+        },
+        encoding: "utf8",
+      },
     );
     if (result.status !== 0) {
       throw new Error(`agent-config.sh exited ${result.status}: ${result.stderr}`);

@@ -205,6 +205,26 @@ describe("claude messages proxy", () => {
     );
   });
 
+  test("an account still rejected after a forced refresh is cooled down and the session moves", async () => {
+    accountsToServe = [
+      { id: "acct-1", sticky: true },
+      { id: "acct-2", sticky: false },
+    ];
+    upstreamStatuses = [401, 401, 200];
+    const response = await proxy(messagesRequest());
+    expect(response.status).toBe(200);
+    expect(credentialCalls).toEqual([
+      { accountId: "acct-1" },
+      { accountId: "acct-1", force: true },
+      { accountId: "acct-2" },
+    ]);
+    expect(cooldowns).toEqual(["acct-1"]);
+    expect(upstreamCalls).toHaveLength(3);
+    expect(upstreamCalls[2]?.headers.get("authorization")).toBe(
+      "Bearer claude-access-acct-2",
+    );
+  });
+
   test("cools down a rate-limited account and retries excluding it", async () => {
     accountsToServe = [
       { id: "acct-1", sticky: true },

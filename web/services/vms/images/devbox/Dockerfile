@@ -29,7 +29,7 @@ FROM debian:bookworm-slim
 # Cache-buster: bump the date to force remote builders past stale layer
 # caches (Daytona's cache served stale layers for chatmux on 2026-08-21 and
 # 2026-08-25; E2B skips cache by default).
-ENV CMUX_IMAGE_EPOCH=2026-08-31-r1
+ENV CMUX_IMAGE_EPOCH=2026-08-31-r2
 
 ENV LANG=C.UTF-8 \
     DEBIAN_FRONTEND=noninteractive
@@ -172,6 +172,7 @@ RUN curl -fsSL https://github.com/akinomyoga/ble.sh/releases/download/nightly/bl
   && mv /tmp/ble-nightly /usr/local/share/blesh \
   && rm -f /tmp/ble.tar.xz \
   && test -f /usr/local/share/blesh/ble.sh
+
 COPY cmux-bashrc /etc/cmux/bashrc
 COPY seed-history /etc/cmux/seed-history
 RUN bash -n /etc/cmux/bashrc \
@@ -180,6 +181,37 @@ RUN bash -n /etc/cmux/bashrc \
   && echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /root/.bashrc \
   && echo 'set -g default-shell /bin/bash' >> /etc/tmux.conf \
   && bash -ic 'head -2 /root/.bash_history'
+
+# Pre-generate ble.sh's per-TERM tput caches for the terminals cmux panes use
+# (Blaxel parity; see that Dockerfile for the two cache homes ble.sh resolves).
+# Must run AFTER the rc chain above: the seed shell loads ble.sh through it.
+# Without them the FIRST shell on a machine prints "ble/term.sh: updating tput
+# cache for TERM=... done" into the pane before its first prompt. Generation
+# runs ble.sh itself under a pty (`script`; ble.sh refuses ttyless shells) with
+# `echo exit` as its input — E2B strips backslash escapes from RUN lines, so no
+# printf. cache.d/<uid> is seeded for root and, when the provider image ships
+# one, its uid-1000 `user`; cmux-bashrc copies the XDG variant per HOME.
+RUN mkdir -p /etc/cmux/blesh-cache-seed \
+  && for term in xterm-256color screen-256color tmux-256color linux; do \
+       echo exit | TERM="$term" HOME=/tmp/blesh-seed-home XDG_CACHE_HOME=/etc/cmux/blesh-cache-seed \
+         script -qec 'bash -i' /dev/null >/dev/null 2>&1 || true; \
+     done \
+  && rm -rf /tmp/blesh-seed-home \
+  && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-256color \
+  && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.screen-256color \
+  && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.tmux-256color \
+  && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.linux \
+  && mkdir -p /usr/local/share/blesh/cache.d/0 \
+  && chmod a+rwxt /usr/local/share/blesh/cache.d \
+  && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/0/ \
+  && chmod 700 /usr/local/share/blesh/cache.d/0 \
+  && if id -u user >/dev/null 2>&1; then \
+       mkdir -p "/usr/local/share/blesh/cache.d/$(id -u user)" \
+       && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* "/usr/local/share/blesh/cache.d/$(id -u user)/" \
+       && chmod 700 "/usr/local/share/blesh/cache.d/$(id -u user)" \
+       && chown -R user:user "/usr/local/share/blesh/cache.d/$(id -u user)"; \
+     fi
+
 
 # Agent harness config: every shell materializes per-harness model-proxy
 # configs from the machine boot env (the coderouter model-plane vars minted

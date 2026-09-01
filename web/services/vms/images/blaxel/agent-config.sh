@@ -52,7 +52,10 @@ cmux_write_agent_configs() {
   # skip the first-run wizard and land straight in the REPL. Write-once;
   # Claude Code owns the file afterwards, and no secret lands in it.
   if [ -n "${ANTHROPIC_AUTH_TOKEN-}" ] && [ ! -e "$HOME/.claude.json" ]; then
-    printf '%s\n' '{ "hasCompletedOnboarding": true }' > "$HOME/.claude.json" 2>/dev/null
+    (
+      umask 077
+      printf '%s\n' '{ "hasCompletedOnboarding": true }' > "$HOME/.claude.json" 2>/dev/null
+    )
   fi
 
   # codex: a CUSTOM provider, not the built-in openai one. A custom provider

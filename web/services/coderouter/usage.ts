@@ -6,10 +6,10 @@ import {
 import { freshCredential } from "./refresh";
 import { fetchProviderRead } from "./providerFetch";
 import { addCoderouterBreadcrumb, reportCoderouterFailure } from "./observability";
+import { CLAUDE_OAUTH_BETA } from "./claudeOAuth";
 
 const CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
 const CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
-const CLAUDE_OAUTH_BETA = "oauth-2025-04-20";
 const usageRequests = new Map<
   string,
   Promise<Awaited<ReturnType<typeof loadAccountsWithUsage>>>

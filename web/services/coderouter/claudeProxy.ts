@@ -11,11 +11,9 @@ import {
   reportCoderouterFailure,
 } from "./observability";
 import { observeModelUsage, type ModelUsage } from "./responseUsage";
+import { CLAUDE_OAUTH_BETA } from "./claudeOAuth";
 
 const CLAUDE_UPSTREAM_ORIGIN = "https://api.anthropic.com";
-// Claude Max OAuth access tokens are only honored when the request carries
-// this beta capability, exactly as the Claude CLI itself sends it.
-const CLAUDE_OAUTH_BETA = "oauth-2025-04-20";
 const ALLOWED_REQUEST_HEADERS = [
   "accept",
   "content-encoding",
@@ -281,6 +279,17 @@ async function proxyClaudeRequestWith(
         });
         continue;
       }
+      // Still rejected with a fresh token: this account is unusable right now
+      // (revoked subscription, provider-side block). Cool it down and let a
+      // healthy sibling take the session instead of surfacing its 401.
+      if (upstream.status === 401) {
+        reportCoderouterFailure("provider_refresh", new Error("credential rejected after refresh"), {
+          provider: "claude",
+          status: 401,
+        });
+        await dependencies.cooldown(account.id, rateLimitDelay(upstream.headers));
+        continue;
+      }
     }
     // 429: this account is out of quota; 529: Anthropic is overloaded for it.
     // Either way, cool the account down and let another one take the session.
@@ -457,12 +466,15 @@ function captureModelUsage(teamId: string, usage: ModelUsage | null): void {
     properties: {
       provider: "claude",
       model: usage.model ?? "unknown",
-      // Anthropic reports cache reads outside input_tokens; fold them back in
-      // so cached ⊆ input holds like it does for the OpenAI-shaped planes.
-      input_tokens: usage.inputTokens + usage.cachedInputTokens,
+      // Anthropic reports cache reads and cache writes outside input_tokens;
+      // fold both back in so cached ⊆ input holds like it does for the
+      // OpenAI-shaped planes and no prompt token goes uncounted.
+      input_tokens: usage.inputTokens + usage.cachedInputTokens +
+        usage.cacheCreationInputTokens,
       cached_input_tokens: usage.cachedInputTokens,
       output_tokens: usage.outputTokens,
-      total_tokens: usage.totalTokens + usage.cachedInputTokens,
+      total_tokens: usage.totalTokens + usage.cachedInputTokens +
+        usage.cacheCreationInputTokens,
     },
   });
 }

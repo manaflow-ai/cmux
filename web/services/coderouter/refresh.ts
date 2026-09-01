@@ -12,15 +12,14 @@ import {
 } from "./encryption";
 import type { CodeRouterCredential } from "./types";
 import { addCoderouterBreadcrumb, reportCoderouterFailure } from "./observability";
+import {
+  CLAUDE_OAUTH_BETA,
+  CLAUDE_OAUTH_CLIENT_ID,
+  CLAUDE_OAUTH_TOKEN_URL,
+} from "./claudeOAuth";
 
 const CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const OPENCODE_CLIENT_ID = "opencode-cli";
-// The Claude Code first-party OAuth client. Refreshes go to the platform
-// token endpoint and must carry the OAuth beta header, mirroring what the
-// Claude CLI itself sends.
-const CLAUDE_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
-const CLAUDE_TOKEN_URL = "https://platform.claude.com/v1/oauth/token";
-const CLAUDE_OAUTH_BETA = "oauth-2025-04-20";
 const REFRESH_SKEW_MS = 60_000;
 
 export class CodeRouterRefreshBusy extends Error {
@@ -189,12 +188,14 @@ export async function refreshProviderCredential(
   }
 
   if (credential.provider === "claude") {
+    // Refreshes go to the platform token endpoint and must carry the OAuth
+    // beta header, mirroring what the Claude CLI itself sends.
     const token = await postJson(
-      CLAUDE_TOKEN_URL,
+      CLAUDE_OAUTH_TOKEN_URL,
       {
         grant_type: "refresh_token",
         refresh_token: credential.refreshToken,
-        client_id: CLAUDE_CLIENT_ID,
+        client_id: CLAUDE_OAUTH_CLIENT_ID,
       },
       { "anthropic-beta": CLAUDE_OAUTH_BETA },
     );

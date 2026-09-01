@@ -9,7 +9,8 @@ type CodeRouterFailure =
   | "rds"
   | "analytics_delivery"
   | "analytics_query"
-  | "upstream_transport";
+  | "upstream_transport"
+  | "proxy_unhandled";
 
 const SENSITIVE_CONTEXT_KEY = /account.?id|authorization|body|content|cookie|credential|email|header|key|prompt|response|secret|session|team.?id|token/i;
 
