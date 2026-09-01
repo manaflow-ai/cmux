@@ -187,7 +187,11 @@ pub fn hashed_runtime_dir_for_base(base: &Path) -> PathBuf {
 /// Private root for compatibility paths produced from invalid session text.
 /// These paths are never opened by a fallible connector.
 pub fn invalid_runtime_dir() -> PathBuf {
-    PathBuf::from("/tmp").join(format!("cmux-tui-invalid-{}", user_id_component()))
+    #[cfg(windows)]
+    let base = std::env::temp_dir();
+    #[cfg(not(windows))]
+    let base = PathBuf::from("/tmp");
+    base.join(format!("cmux-tui-invalid-{}", user_id_component()))
 }
 
 /// Default root for durable workspace/session state. Runtime sockets stay in
