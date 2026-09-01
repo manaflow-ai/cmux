@@ -2877,7 +2877,6 @@ private enum TopTextFormat: Equatable {
     case tree
     case tsv
 }
-
 final class SocketClient {
     private struct RelayEndpoint {
         let host: String
