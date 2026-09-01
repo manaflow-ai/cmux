@@ -98,10 +98,8 @@ struct MobilePrimaryTabScaffold<
                 primaryTabs
                 searchTab
             }
-            // This is Apple's adaptive Liquid Glass tab presentation. On an
-            // iPad it owns the native top tab bar and can move the tabs into
-            // the sidebar when the available width calls for it.
-            .tabViewStyle(.sidebarAdaptable)
+            // The default iPadOS 26 presentation is the native Liquid Glass
+            // tab strip. Let TabView own its safe area and toolbar placement.
             .tabViewSearchActivation(.searchTabSelection)
             .accessibilityIdentifier("MobilePrimaryTabs")
             .onChange(of: selection, initial: true) { _, selection in
@@ -111,7 +109,6 @@ struct MobilePrimaryTabScaffold<
             TabView(selection: $selection) {
                 primaryTabs
             }
-            .tabViewStyle(.sidebarAdaptable)
             .accessibilityIdentifier("MobilePrimaryTabs")
         }
     }
