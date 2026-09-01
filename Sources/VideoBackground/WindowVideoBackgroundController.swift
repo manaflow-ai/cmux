@@ -26,7 +26,9 @@ final class VideoBackgroundPresentation {
 /// in two windows at once), but all controllers consume this one coordinator's
 /// source index, generation, and elapsed playhead. A newly created terminal
 /// therefore joins the currently playing item instead of restarting at zero;
-/// an end event from any window advances every other window exactly once.
+/// an end event from any window advances every other window exactly once. The
+/// clock advances only while at least one registered player is running, and a
+/// failed queue entry is skipped at most once so an all-failing queue settles.
 @MainActor
 final class VideoBackgroundPlaybackCoordinator {
     /// Immutable state delivered to registered window controllers.
@@ -44,15 +46,23 @@ final class VideoBackgroundPlaybackCoordinator {
         }
     }
 
+    private let now: () -> CFTimeInterval
     private var sources: [VideoBackgroundSource] = []
     private var index = 0
     private var generation: UInt64 = 0
     private var quality = VideoBackgroundSettings.defaultQuality
-    private var startedAt = CACurrentMediaTime()
-    private var hasStarted = false
+    private var failedIndices: Set<Int> = []
+    private var isExhausted = false
+    private var accumulatedPosition: TimeInterval = 0
+    private var runningSince: CFTimeInterval?
+    private var runningTokens: Set<UUID> = []
     private var observers: [UUID: @MainActor (Snapshot) -> Void] = [:]
 
-    init() {}
+    /// Creates a coordinator using a monotonic clock; tests can inject a
+    /// deterministic clock without waiting on wall time.
+    init(now: @escaping () -> CFTimeInterval = { CACurrentMediaTime() }) {
+        self.now = now
+    }
 
     /// Replaces the shared queue when settings change and returns its current
     /// snapshot. Identical queues/quality leave the current item and playhead
@@ -66,10 +76,11 @@ final class VideoBackgroundPlaybackCoordinator {
 
         sources = parsedSources
         self.quality = normalizedQuality
+        failedIndices.removeAll()
+        isExhausted = false
         index = 0
         generation &+= 1
-        startedAt = CACurrentMediaTime()
-        hasStarted = false
+        resetClock()
         let next = snapshot()
         notify(next)
         return next
@@ -87,40 +98,98 @@ final class VideoBackgroundPlaybackCoordinator {
     /// Removes a controller callback after its window closes.
     func unregister(_ token: UUID?) {
         guard let token else { return }
+        if runningTokens.remove(token) != nil, runningTokens.isEmpty {
+            freezeClock()
+        }
         observers.removeValue(forKey: token)
+    }
+
+    /// Records whether one registered player is currently able to advance the
+    /// shared playhead. The clock runs while at least one player is running and
+    /// is frozen as soon as the last player pauses or is removed.
+    func setPlayerRunning(_ running: Bool, for token: UUID?) {
+        guard let token, observers[token] != nil else { return }
+        if running {
+            guard runningTokens.insert(token).inserted else { return }
+            if runningTokens.count == 1 {
+                runningSince = now()
+            }
+        } else if runningTokens.remove(token) != nil, runningTokens.isEmpty {
+            freezeClock()
+        }
     }
 
     /// Advances the queue exactly once for the generation that emitted an end
     /// event. Stale events from players being replaced are ignored.
     func advance(after generation: UInt64) {
-        guard generation == self.generation, sources.count > 1 else { return }
-        index = (index + 1) % sources.count
-        self.generation &+= 1
-        startedAt = CACurrentMediaTime()
-        hasStarted = false
-        notify(snapshot())
+        guard generation == self.generation, sources.count > 1, !isExhausted else { return }
+        advanceToNextPlayableSource()
     }
 
-    /// Anchors the monotonic clock to the first player that actually becomes
-    /// ready for this generation. This avoids a late-created window joining a
-    /// playhead that started counting while WebKit was still loading.
-    func markStarted(for generation: UInt64) {
-        guard generation == self.generation, !hasStarted else { return }
-        startedAt = CACurrentMediaTime()
-        hasStarted = true
+    /// Marks the current source as failed and advances at most once for this
+    /// generation. Once every queued source has failed, the snapshot becomes
+    /// empty so controllers tear down instead of retrying forever.
+    func recordFailure(after generation: UInt64) {
+        guard generation == self.generation,
+              !isExhausted,
+              sources.indices.contains(index) else { return }
+        failedIndices.insert(index)
+        advanceToNextPlayableSource()
     }
 
     /// Returns a fresh playhead snapshot without changing queue identity.
     func synchronizedSnapshot() -> Snapshot { snapshot() }
 
-    private func snapshot(now: CFTimeInterval = CACurrentMediaTime()) -> Snapshot {
+    private func snapshot() -> Snapshot {
         Snapshot(
             sources: sources,
             index: index,
             generation: generation,
-            position: hasStarted ? max(0, now - startedAt) : 0,
+            position: currentPosition(),
             quality: quality
         )
+    }
+
+    private func currentPosition() -> TimeInterval {
+        guard let runningSince else { return accumulatedPosition }
+        return accumulatedPosition + max(0, now() - runningSince)
+    }
+
+    private func freezeClock() {
+        guard let runningSince else { return }
+        accumulatedPosition = currentPosition()
+        self.runningSince = nil
+    }
+
+    private func resetClock() {
+        accumulatedPosition = 0
+        runningSince = nil
+        runningTokens.removeAll()
+    }
+
+    private func advanceToNextPlayableSource() {
+        resetClock()
+        guard let nextIndex = nextPlayableIndex() else {
+            isExhausted = true
+            index = sources.count
+            generation &+= 1
+            notify(snapshot())
+            return
+        }
+        index = nextIndex
+        self.generation &+= 1
+        notify(snapshot())
+    }
+
+    private func nextPlayableIndex() -> Int? {
+        guard !sources.isEmpty else { return nil }
+        for offset in 1...sources.count {
+            let candidate = (index + offset) % sources.count
+            if !failedIndices.contains(candidate) {
+                return candidate
+            }
+        }
+        return nil
     }
 
     private func notify(_ value: Snapshot) {
@@ -350,9 +419,12 @@ final class WindowVideoBackgroundController {
     private func applyPlaybackSnapshot(
         _ snapshot: VideoBackgroundPlaybackCoordinator.Snapshot
     ) {
-        guard let window,
-              lastObservedEnabled != false,
-              let source = snapshot.currentSource else {
+        guard let window, lastObservedEnabled != false else {
+            playbackCoordinator.setPlayerRunning(false, for: playbackObserverToken)
+            return
+        }
+        guard let source = snapshot.currentSource else {
+            removeLayer()
             return
         }
         installHostViewIfNeeded(in: window)
@@ -363,6 +435,7 @@ final class WindowVideoBackgroundController {
         if needsReplacement {
             playerIsReady = false
             presentation.isActive = false
+            playbackCoordinator.setPlayerRunning(false, for: playbackObserverToken)
             replacePlayerView(
                 with: source,
                 position: snapshot.position,
@@ -428,6 +501,7 @@ final class WindowVideoBackgroundController {
         quality: String,
         volume: Double
     ) {
+        playbackCoordinator.setPlayerRunning(false, for: playbackObserverToken)
         playerView?.removeFromSuperview()
         playerView = nil
         playerIsReady = false
@@ -497,7 +571,6 @@ final class WindowVideoBackgroundController {
         guard generation == playerGeneration, playerView != nil else { return }
         playerIsReady = true
         presentation.isActive = true
-        playbackCoordinator.markStarted(for: generation)
         updatePlaybackState()
     }
 
@@ -506,31 +579,40 @@ final class WindowVideoBackgroundController {
     /// The failed source is remembered so a broken embed doesn't reload in a
     /// loop; editing the source setting clears the latch and retries.
     func handlePlayerFailure(reason: String, generation: UInt64? = nil) {
+        let currentSnapshot = playbackCoordinator.synchronizedSnapshot()
+        if let generation {
+            // A player can report an asynchronous failure after its source has
+            // already been replaced. Never let that stale callback tear down
+            // the newer player or latch the current source as failed.
+            guard generation == currentSnapshot.generation,
+                  generation == playerGeneration,
+                  playerView != nil,
+                  lastObservedEnabled != false else { return }
+        }
         #if DEBUG
         cmuxDebugLog("videoBackground.playerFailure reason=\(reason)")
         #endif
-        if let generation,
-           playbackCoordinator.synchronizedSnapshot().sources.count > 1 {
-            // A broken entry should not silence an otherwise valid queue. The
-            // coordinator advances every window and generation-gates duplicate
-            // WebKit/AVFoundation failures from the same item.
-            playbackCoordinator.advance(after: generation)
-            return
+        playbackCoordinator.setPlayerRunning(false, for: playbackObserverToken)
+        playbackCoordinator.recordFailure(after: generation ?? currentSnapshot.generation)
+        if playbackCoordinator.synchronizedSnapshot().currentSource == nil {
+            let failedSources: [String]
+            if let queue = lastObservedQueue, !queue.isEmpty {
+                failedSources = queue
+            } else {
+                failedSources = [lastObservedSourceText ?? ""]
+            }
+            failedSourceText = failedSources.joined(separator: "\u{1F}")
+            removeLayer()
         }
-        let failedSources: [String]
-        if let queue = lastObservedQueue, !queue.isEmpty {
-            failedSources = queue
-        } else {
-            failedSources = [lastObservedSourceText ?? ""]
-        }
-        failedSourceText = failedSources.joined(separator: "\u{1F}")
-        removeLayer()
     }
 
     /// Plays only while the window is actually visible and the machine isn't
     /// asleep or conserving power; every input is a real system signal.
     private func updatePlaybackState() {
-        guard let window, let playerView else { return }
+        guard let window, let playerView else {
+            playbackCoordinator.setPlayerRunning(false, for: playbackObserverToken)
+            return
+        }
         // AppKit reports cmux's transparent main window as fully occluded even
         // while it is frontmost and uncovered (observed on macOS 26; the debug
         // render stats in `GhosttyTerminalView` apply the same key-window
@@ -550,9 +632,14 @@ final class WindowVideoBackgroundController {
         }
         lastPlayerPaused = shouldPause
         playerView.setPaused(shouldPause)
+        playbackCoordinator.setPlayerRunning(
+            playerIsReady && !shouldPause,
+            for: playbackObserverToken
+        )
     }
 
     private func removeLayer() {
+        playbackCoordinator.setPlayerRunning(false, for: playbackObserverToken)
         playerView?.setPaused(true)
         lastPlayerPaused = true
         playerView?.removeFromSuperview()
