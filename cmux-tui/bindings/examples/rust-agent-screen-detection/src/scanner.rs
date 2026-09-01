@@ -542,10 +542,11 @@ fn scan_terminal(
                 .or_else(|| process.argv.first().map(String::as_str))
                 .and_then(|name| manifests.identify(name))
         });
+    let process_group_id = state.process_cache.authoritative_group_id(&terminal_id);
     let identity_edge = state.tracker.note_foreground_job_at_with_revision(
         &terminal_id,
         manifest.map(|item| item.id()),
-        state.process_cache.authoritative_group_id(&terminal_id),
+        process_group_id,
         snapshot.stream_revision,
         now,
     );
@@ -603,14 +604,23 @@ fn scan_terminal(
         return Ok(());
     }
     let screen = terminal.read_screen(ReadScreenOptions).map_err(|error| error.to_string())?;
-    if snapshot.stream_revision.is_none() {
+    // Keep the host revision separate from the local text hash. The hash is
+    // only a scheduling fallback; it is not evidence that retained OSC
+    // metadata belongs to the current process.
+    let metadata_revision = merged_stream_revision(snapshot.stream_revision, screen.revision);
+    let mut evaluation_revision = metadata_revision;
+    if evaluation_revision.is_none() {
         let mut hasher = DefaultHasher::new();
         screen.text.hash(&mut hasher);
-        let revision = hasher.finish();
-        let due = state.tracker.observe_revision(&terminal_id, revision, now);
-        if !due && !identity_edge {
-            return Ok(());
-        }
+        evaluation_revision = Some(hasher.finish());
+    }
+    let revision_due_after_read = evaluation_revision
+        .map(|revision| state.tracker.observe_revision(&terminal_id, revision, now));
+    if snapshot.stream_revision.is_none()
+        && revision_due_after_read == Some(false)
+        && !identity_edge
+    {
+        return Ok(());
     }
     let manifest = manifest.expect("checked above");
     // The daemon exposes OSC title and progress as generic terminal
@@ -618,7 +628,16 @@ fn scan_terminal(
     // change, so the userland plugin must wait for a post-edge output
     // revision before attributing them to the new agent. Older daemons do
     // not expose revisions, and the tracker keeps the compatibility path.
-    let metadata_revision = screen.revision.or(snapshot.stream_revision);
+    // A screen read can carry the first revision on hosts whose catalog
+    // snapshot did not. Enrich the identity after the read before consulting
+    // OSC fields, closing that compatibility race without a daemon change.
+    let _ = state.tracker.note_foreground_job_at_with_revision(
+        &terminal_id,
+        Some(agent),
+        process_group_id,
+        metadata_revision,
+        now,
+    );
     let metadata_fresh = state.tracker.metadata_is_fresh(&terminal_id, metadata_revision);
     let osc_title = if metadata_fresh { snapshot.title.as_str() } else { "" };
     let osc_progress =
@@ -887,6 +906,17 @@ fn now_ms() -> u64 {
         .unwrap_or_default()
 }
 
+/// Pick the newest revision when the catalog and screen reads overlap. The
+/// daemon contract makes both values monotonic, but either field can be
+/// unavailable on an older host.
+fn merged_stream_revision(catalog: Option<u64>, screen: Option<u64>) -> Option<u64> {
+    match (catalog, screen) {
+        (Some(catalog), Some(screen)) => Some(catalog.max(screen)),
+        (Some(revision), None) | (None, Some(revision)) => Some(revision),
+        (None, None) => None,
+    }
+}
+
 fn now_nanos() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -1075,6 +1105,15 @@ mod tests {
         assert_ne!(first, second);
         assert!(first.len() <= 128);
         assert!(second.len() <= 128);
+    }
+
+    #[test]
+    fn merged_stream_revision_uses_the_newest_available_host_value() {
+        assert_eq!(merged_stream_revision(None, None), None);
+        assert_eq!(merged_stream_revision(Some(7), None), Some(7));
+        assert_eq!(merged_stream_revision(None, Some(8)), Some(8));
+        assert_eq!(merged_stream_revision(Some(7), Some(8)), Some(8));
+        assert_eq!(merged_stream_revision(Some(9), Some(8)), Some(9));
     }
 
     #[test]

@@ -1212,6 +1212,26 @@ mod tests {
         // An older daemon has no revision. Keep its metadata usable because
         // the plugin cannot prove that it predates the identity edge.
         assert!(tracker.metadata_is_fresh("term_a", None));
+
+        // If the catalog omitted the revision on the edge but the screen read
+        // provides it, a steady positive probe enriches the identity without
+        // restarting grace and fences retained metadata from that point.
+        assert!(tracker.note_foreground_job_at_with_revision(
+            "term_b",
+            Some("codex"),
+            None,
+            None,
+            t0,
+        ));
+        assert!(!tracker.note_foreground_job_at_with_revision(
+            "term_b",
+            Some("codex"),
+            None,
+            Some(41),
+            t0,
+        ));
+        assert!(!tracker.metadata_is_fresh("term_b", Some(41)));
+        assert!(tracker.metadata_is_fresh("term_b", Some(42)));
     }
 
     #[test]
