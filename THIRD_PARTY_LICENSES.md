@@ -91,6 +91,7 @@ manifests and adapted detector sources live under
 - **License:** Apache License 2.0
 - **Source:** https://github.com/herdrdev/herdr
 - **Detector source reference:** commit `7b675f42af35508eab66ac42fe1598628597a893`
+- **Pi bundled-launcher correction:** commit `b1ff4582e9688f52ffb943cfa8bee4871ae122e4`
 - **Manifest snapshot:** commit `2290257acb2085ce6842ba5c7e3ca50c3ba64f02`
 - **License text:** `cmux-tui/bindings/examples/rust-agent-screen-detection/manifests/LICENSE`
 

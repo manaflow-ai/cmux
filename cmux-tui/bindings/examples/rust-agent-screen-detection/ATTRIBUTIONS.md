@@ -4,6 +4,7 @@ The files under `manifests/` are derived from the herdr project:
 
 * Project: https://github.com/herdrdev/herdr
 * Detector source reference revision: `7b675f42af35508eab66ac42fe1598628597a893`
+* Pi bundled-launcher correction: `b1ff4582e9688f52ffb943cfa8bee4871ae122e4`
 * Manifest snapshot revision: `2290257acb2085ce6842ba5c7e3ca50c3ba64f02`
 * License: Apache-2.0, reproduced in `manifests/LICENSE`
 * Unchanged vendored material: 17 of the 21 `manifests/*.toml` files, copied
@@ -32,9 +33,12 @@ derived herdr material.
 `src/process.rs` adapts herdr's `src/platform/{linux,macos}.rs` and
 `src/detect/mod.rs` foreground process-group and wrapper discovery. It adds
 bounded traversal, safer path candidates, and an explicit Linux child-group
-fallback. The reference package targets macOS and Linux because its Rust SDK
-transport is Unix-only. A Windows publication needs a Windows-capable SDK
-transport and process backend; it must not claim a public-process fallback.
+fallback. Its strict Pi package-entrypoint check includes herdr's Windows fix
+from commit `b1ff4582e9688f52ffb943cfa8bee4871ae122e4`; the check is adapted to
+the replaceable manifest catalog. The reference package targets macOS and
+Linux because its Rust SDK transport is Unix-only. A Windows publication needs
+a Windows-capable SDK transport and process backend; it must not claim a
+public-process fallback.
 
 `src/detect.rs` adapts herdr's `src/detect/mod.rs` and
 `src/pane/agent_detection.rs` debounce, identity-edge, miss-confirmation, and
