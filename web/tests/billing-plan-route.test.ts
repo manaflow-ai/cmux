@@ -111,7 +111,7 @@ describe("billing plan route", () => {
     currentUser = planUser({
       selectedTeam: { id: "team-plan", clientReadOnlyMetadata: {} },
     });
-    stripeSubscriptionResults = [[], [{ id: "sub_team" }]];
+    stripeSubscriptionResults = [[], [], [{ id: "sub_team" }]];
 
     const response = await planResponse();
 
