@@ -90,6 +90,28 @@ struct PanelArtifactAuthorizationStoreTests {
         ) == "/safe/panel.md")
     }
 
+    @Test("a real panel grant captures the authorized inode")
+    func realGrantCapturesIdentity() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-panel-identity-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("panel.md")
+        try Data("authorized".utf8).write(to: file)
+
+        let store = PanelArtifactAuthorizationStore()
+        #expect(store.record(
+            workspaceID: "workspace",
+            surfaceID: "surface",
+            filePath: file.path
+        ) != nil)
+        #expect(store.authorizedIdentity(
+            workspaceID: "workspace",
+            surfaceID: "surface",
+            requestedPath: file.path
+        ) != nil)
+    }
+
     private struct FakeResolver: ChatArtifactScope.FileSystemResolving {
         var symlinks: [String: String] = [:]
 

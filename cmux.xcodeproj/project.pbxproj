@@ -17,8 +17,19 @@
 		A5C017000000000000000007 /* AccountSignInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C017000000000000000008 /* AccountSignInView.swift */; };
 		A9E020000000000000000006 /* agent-session-react in Resources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000006 /* agent-session-react */; };
 		A9E020000000000000000007 /* agent-session-solid in Resources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000007 /* agent-session-solid */; };
+		A85870000000000000000053 /* AgentArtifactAutomaticPathBoundTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000052 /* AgentArtifactAutomaticPathBoundTests.swift */; };
+		A8587000000000000000004B /* AgentArtifactCaptureCheckpoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8587000000000000000004A /* AgentArtifactCaptureCheckpoint.swift */; };
+		A85870000000000000000021 /* AgentArtifactCaptureCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000020 /* AgentArtifactCaptureCoordinator.swift */; };
+		A85870000000000000000049 /* AgentArtifactCaptureCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000048 /* AgentArtifactCaptureCoordinatorTests.swift */; };
+		A85870000000000000000063 /* AgentArtifactCaptureCoordinatorTestStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000062 /* AgentArtifactCaptureCoordinatorTestStore.swift */; };
+		A8587000000000000000006F /* AgentArtifactCaptureProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8587000000000000000006E /* AgentArtifactCaptureProgress.swift */; };
+		A85870000000000000000045 /* AgentArtifactCaptureSaveError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000044 /* AgentArtifactCaptureSaveError.swift */; };
+		A8610D000000000000000001 /* AgentArtifactCompletedCaptureState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8610D000000000000000002 /* AgentArtifactCompletedCaptureState.swift */; };
+		C7A858700000000000000002 /* AgentArtifactProjectAuthorityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A858700000000000000001 /* AgentArtifactProjectAuthorityTests.swift */; };
+		A8587000000000000000002B /* AgentArtifactReferenceCursor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8587000000000000000002A /* AgentArtifactReferenceCursor.swift */; };
 		C7AF10000000000000000005 /* AgentChatArtifactGalleryBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7AF10000000000000000006 /* AgentChatArtifactGalleryBuilder.swift */; };
 		C7AF10000000000000000001 /* AgentChatArtifactIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7AF10000000000000000002 /* AgentChatArtifactIndex.swift */; };
+		A8587000000000000000004D /* AgentChatArtifactIndexSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8587000000000000000004C /* AgentChatArtifactIndexSafetyTests.swift */; };
 		5FAC71D5AC71D5AC71D50001 /* AgentChatChildRunTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FAC71D5AC71D5AC71D50002 /* AgentChatChildRunTests.swift */; };
 		C7A52E000000000000000002 /* AgentChatEndedTranscriptListabilityCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A52E000000000000000001 /* AgentChatEndedTranscriptListabilityCache.swift */; };
 		C7A53F000000000000000002 /* AgentChatFallbackTranscriptResolutionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A53F000000000000000001 /* AgentChatFallbackTranscriptResolutionCoordinator.swift */; };
@@ -27,7 +38,9 @@
 		C7A531000000000000000002 /* AgentChatObservationHandle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A531000000000000000001 /* AgentChatObservationHandle.swift */; };
 		C7A532000000000000000002 /* AgentChatObservationInFlight.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A532000000000000000001 /* AgentChatObservationInFlight.swift */; };
 		C7A530000000000000000002 /* AgentChatObservationScope.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A530000000000000000001 /* AgentChatObservationScope.swift */; };
+		C7A85870000000000000000A /* AgentChatObservedWorkingDirectoryResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A858700000000000000009 /* AgentChatObservedWorkingDirectoryResolver.swift */; };
 		99230001992300019923000C /* AgentChatResumeIntentRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99230001992300019923000B /* AgentChatResumeIntentRecorder.swift */; };
+		A8587F000000000000000031 /* AgentChatSessionRecencyIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8587F000000000000000030 /* AgentChatSessionRecencyIndex.swift */; };
 		ACA7C4A70000000000000001 /* AgentChatSessionRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A70000000000000002 /* AgentChatSessionRecord.swift */; };
 		C7A52D100000000000000012 /* AgentChatSessionRegistry+ChildRuns.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A52D100000000000000011 /* AgentChatSessionRegistry+ChildRuns.swift */; };
 		C8711A000000000000000002 /* AgentChatSessionRegistry+CodexRolloutFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8711A000000000000000001 /* AgentChatSessionRegistry+CodexRolloutFiles.swift */; };
@@ -42,12 +55,24 @@
 		C7A51D100000000000000002 /* AgentChatSessionRegistryObservationReviewRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A51D100000000000000001 /* AgentChatSessionRegistryObservationReviewRegressionTests.swift */; };
 		C7A51D000000000000000002 /* AgentChatSessionRegistryObservationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A51D000000000000000001 /* AgentChatSessionRegistryObservationTests.swift */; };
 		C0DE71A00000000000000001 /* AgentChatThemeSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE71A00000000000000002 /* AgentChatThemeSync.swift */; };
+		A8587F000000000000000032 /* AgentChatTranscriptBoundedLineIterator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8587F000000000000000033 /* AgentChatTranscriptBoundedLineIterator.swift */; };
+		A8587F000000000000000034 /* AgentChatTranscriptBoundedLineSequence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8587F000000000000000035 /* AgentChatTranscriptBoundedLineSequence.swift */; };
+		A8610B000000000000000002 /* AgentChatTranscriptIncrementalLineBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8610B000000000000000001 /* AgentChatTranscriptIncrementalLineBuffer.swift */; };
+		C7A858700000000000000006 /* AgentChatTranscriptInitialTailReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A858700000000000000005 /* AgentChatTranscriptInitialTailReader.swift */; };
+		A8610D000000000000000003 /* AgentChatTranscriptInitialTailSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8610D000000000000000004 /* AgentChatTranscriptInitialTailSnapshot.swift */; };
+		A8587F000000000000000011 /* AgentChatTranscriptReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8587F000000000000000010 /* AgentChatTranscriptReader.swift */; };
+		C7A85870000000000000000B /* AgentChatTranscriptResolutionReviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A85870000000000000000C /* AgentChatTranscriptResolutionReviewTests.swift */; };
 		ACA7C4A70000000000000005 /* AgentChatTranscriptResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A70000000000000006 /* AgentChatTranscriptResolver.swift */; };
 		992300019923000199230008 /* AgentChatTranscriptResumeIntentRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 992300019923000199230007 /* AgentChatTranscriptResumeIntentRecorder.swift */; };
+		A85870000000000000000023 /* AgentChatTranscriptService+ArtifactCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000022 /* AgentChatTranscriptService+ArtifactCapture.swift */; };
 		A1B2C3D4E5F60718293A4B5D /* AgentChatTranscriptService+ArtifactSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5C /* AgentChatTranscriptService+ArtifactSession.swift */; };
+		C7A85870000000000000000D /* AgentChatTranscriptService+Resolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A85870000000000000000E /* AgentChatTranscriptService+Resolution.swift */; };
 		C7A52F000000000000000002 /* AgentChatTranscriptService+Wire.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A52F000000000000000001 /* AgentChatTranscriptService+Wire.swift */; };
 		ACA7C4A7000000000000000B /* AgentChatTranscriptService.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A7000000000000000C /* AgentChatTranscriptService.swift */; };
+		A8587F000000000000000021 /* AgentChatTranscriptSlice.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8587F000000000000000020 /* AgentChatTranscriptSlice.swift */; };
 		ACA7C4A70000000000000009 /* AgentChatTranscriptTailer.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A7000000000000000A /* AgentChatTranscriptTailer.swift */; };
+		C7A858700000000000000004 /* AgentChatTranscriptTailerBoundedReadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A858700000000000000003 /* AgentChatTranscriptTailerBoundedReadTests.swift */; };
+		C7A858700000000000000008 /* AgentChatWorkingDirectoryAuthority.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A858700000000000000007 /* AgentChatWorkingDirectoryAuthority.swift */; };
 		C0A710A10000000000000002 /* AgentCursorPointerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710A10000000000000001 /* AgentCursorPointerView.swift */; };
 		79390005AA11BB22CC33DD05 /* AgentDeliveryTargetResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79390006AA11BB22CC33DD06 /* AgentDeliveryTargetResolution.swift */; };
 		93800001AA11BB22CC33EE01 /* AgentDeliveryTTYBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93800002AA11BB22CC33EE02 /* AgentDeliveryTTYBindingTests.swift */; };
@@ -187,7 +212,9 @@
 		A5C01700000000000000000D /* AppDelegate+AccountSignInWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C01700000000000000000E /* AppDelegate+AccountSignInWorkspace.swift */; };
 		804100000000000000000009 /* AppDelegate+AdjacentNavigationShortcut.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80410000000000000000000A /* AppDelegate+AdjacentNavigationShortcut.swift */; };
 		C0DE45AC0000000000000001 /* AppDelegate+AgentChat.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE45AC0000000000000002 /* AppDelegate+AgentChat.swift */; };
+C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */; };
 		C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */; };
+		A8587000000000000000003D /* AppDelegate+Artifacts.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8587000000000000000003C /* AppDelegate+Artifacts.swift */; };
 		986900010000000000000001 /* AppDelegate+BrowserActionRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 986900010000000000000002 /* AppDelegate+BrowserActionRouting.swift */; };
 		D35A00000000000000000001 /* AppDelegate+BrowserDesignMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000001 /* AppDelegate+BrowserDesignMode.swift */; };
 		C4A570010000000000000001 /* AppDelegate+CanvasShortcutRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4A570010000000000000002 /* AppDelegate+CanvasShortcutRouting.swift */; };
@@ -259,6 +286,23 @@
 		A5001621 /* AppleScriptSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001620 /* AppleScriptSupport.swift */; };
 		A5001A02A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001A03A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift */; };
 		A5001A00A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001A01A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift */; };
+		A85870000000000000000047 /* ArtifactCLIArguments.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000046 /* ArtifactCLIArguments.swift */; };
+		A8610D00000000000000000D /* ArtifactCLIIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8610D00000000000000000E /* ArtifactCLIIntegrationTests.swift */; };
+		A85870000000000000000051 /* ArtifactCLITerminalSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000050 /* ArtifactCLITerminalSafetyTests.swift */; };
+		A85870000000000000000067 /* ArtifactHTMLPreviewDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000066 /* ArtifactHTMLPreviewDocument.swift */; };
+		A8610D000000000000000005 /* ArtifactHTMLPreviewNavigationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8610D000000000000000006 /* ArtifactHTMLPreviewNavigationPolicy.swift */; };
+		A85870000000000000000065 /* ArtifactHTMLPreviewSecurityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000064 /* ArtifactHTMLPreviewSecurityTests.swift */; };
+		A8610D000000000000000007 /* ArtifactHTMLPreviewWebViewFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8610D000000000000000008 /* ArtifactHTMLPreviewWebViewFactory.swift */; };
+		A8610D00000000000000000F /* ArtifactRightSidebarModeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8610D000000000000000010 /* ArtifactRightSidebarModeTests.swift */; };
+		A85870000000000000000069 /* ArtifactRuntimeLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000068 /* ArtifactRuntimeLifecycleTests.swift */; };
+		A8610D00000000000000000B /* ArtifactSidebarBinding.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8610D00000000000000000C /* ArtifactSidebarBinding.swift */; };
+		A85870000000000000000071 /* ArtifactSidebarFileAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000070 /* ArtifactSidebarFileAccess.swift */; };
+		A85870000000000000000031 /* ArtifactSidebarPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000030 /* ArtifactSidebarPanelView.swift */; };
+		A85870000000000000000033 /* ArtifactSidebarRowActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000032 /* ArtifactSidebarRowActions.swift */; };
+		A85870000000000000000035 /* ArtifactSidebarRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000034 /* ArtifactSidebarRowView.swift */; };
+		A8587000000000000000006B /* ArtifactSidebarSearchField.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8587000000000000000006A /* ArtifactSidebarSearchField.swift */; };
+		A8587000000000000000006D /* ArtifactSidebarSearchFieldView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8587000000000000000006C /* ArtifactSidebarSearchFieldView.swift */; };
+		A85870000000000000000037 /* ArtifactSidebarThumbnailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000036 /* ArtifactSidebarThumbnailView.swift */; };
 		A5001100 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5001101 /* Assets.xcassets */; };
 		961300000000000000000003 /* AttributedString+SidebarRowLinks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 961300000000000000000004 /* AttributedString+SidebarRowLinks.swift */; };
 		D9FEC58D5BACCF76459F1BBE /* AuthEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43430FA5929121E2EAAB3091 /* AuthEnvironment.swift */; };
@@ -429,6 +473,7 @@
 		C67540060000000000000001 /* BrowserPanel+PDFDocumentActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C67540060000000000000002 /* BrowserPanel+PDFDocumentActions.swift */; };
 		B424PWAD000000000000PW01 /* BrowserPanel+PrewarmedWebViewAdoption.swift in Sources */ = {isa = PBXBuildFile; fileRef = B424PWAD000000000000PW02 /* BrowserPanel+PrewarmedWebViewAdoption.swift */; };
 		A5001402 /* BrowserPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001412 /* BrowserPanel.swift */; };
+		A8610D000000000000000009 /* BrowserPanelContentMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8610D00000000000000000A /* BrowserPanelContentMode.swift */; };
 		B1F0C0090000000000000001 /* BrowserPanelDeveloperToolsLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F0C0090000000000000002 /* BrowserPanelDeveloperToolsLifecycle.swift */; };
 		C62530010000000000000001 /* BrowserPanelReloadMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = C62530010000000000000002 /* BrowserPanelReloadMode.swift */; };
 		B65060010000000000000002 /* BrowserPanelSessionRestoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B65060010000000000000001 /* BrowserPanelSessionRestoreTests.swift */; };
@@ -668,6 +713,9 @@
 		A5001001 /* cmuxApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001011 /* cmuxApp.swift */; };
 		C9A2B00000000000000000B3 /* CmuxAppKitSupportUI in Frameworks */ = {isa = PBXBuildFile; productRef = C9A2B00000000000000000B2 /* CmuxAppKitSupportUI */; };
 		C9A2B00000000000000000C3 /* CmuxAppKitSupportUI in Frameworks */ = {isa = PBXBuildFile; productRef = C9A2B00000000000000000C2 /* CmuxAppKitSupportUI */; };
+		A85870000000000000000003 /* CmuxArtifacts in Frameworks */ = {isa = PBXBuildFile; productRef = A85870000000000000000002 /* CmuxArtifacts */; };
+		A85870000000000000000004 /* CmuxArtifacts in Frameworks */ = {isa = PBXBuildFile; productRef = A85870000000000000000002 /* CmuxArtifacts */; };
+		A85870000000000000000005 /* CmuxArtifacts in Frameworks */ = {isa = PBXBuildFile; productRef = A85870000000000000000002 /* CmuxArtifacts */; };
 		5EDB6027B346C46521A93C74 /* CMUXAuthCore in Frameworks */ = {isa = PBXBuildFile; productRef = 29813FE5A6CBC1019289A251 /* CMUXAuthCore */; };
 		A99940010000000000000001 /* CMUXAuthCore in Frameworks */ = {isa = PBXBuildFile; productRef = 29813FE5A6CBC1019289A251 /* CMUXAuthCore */; };
 		53750003A0B1C2D3E4F50003 /* CmuxAuthRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = 53750002A0B1C2D3E4F50002 /* CmuxAuthRuntime */; };
@@ -689,6 +737,7 @@
 		C6711A050000000000000001 /* CMUXCLI+AgentHookRestoreEvidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6711B050000000000000001 /* CMUXCLI+AgentHookRestoreEvidence.swift */; };
 		A77A000AA1B2C3D4E5F60001 /* CMUXCLI+AgentJournalEmission.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77A0009A1B2C3D4E5F60001 /* CMUXCLI+AgentJournalEmission.swift */; };
 		B9000068A1B2C3D4E5F60719 /* CMUXCLI+AmpExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000069A1B2C3D4E5F60719 /* CMUXCLI+AmpExtension.swift */; };
+		A85870000000000000000011 /* CMUXCLI+Artifacts.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000010 /* CMUXCLI+Artifacts.swift */; };
 		0CB4E9797AD54D3BB9CF06F9 /* CMUXCLI+AutoNaming.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5257257034CA4729B1211166 /* CMUXCLI+AutoNaming.swift */; };
 		6D9C51AB30A64B1ABC819142 /* CMUXCLI+AutoNaming.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5257257034CA4729B1211166 /* CMUXCLI+AutoNaming.swift */; };
 		6D9C51AB30A64B1ABC81914A /* CMUXCLI+AutoNamingDispatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5257257034CA4729B121116A /* CMUXCLI+AutoNamingDispatch.swift */; };
@@ -722,6 +771,7 @@
 		906902000000000000000002 /* CMUXCLI+MemoryAttribution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 906902000000000000000001 /* CMUXCLI+MemoryAttribution.swift */; };
 		812600000000000000000005 /* CMUXCLI+MoshTerminalTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 812600000000000000000006 /* CMUXCLI+MoshTerminalTransport.swift */; };
 		D7AB0000000000000000000D /* CMUXCLI+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB0000000000000000000E /* CMUXCLI+MoveTabToNewWorkspace.swift */; };
+		A85870000000000000000055 /* CMUXCLI+Notes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000054 /* CMUXCLI+Notes.swift */; };
 		B9000072A1B2C3D4E5F60719 /* CMUXCLI+OmpExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000073A1B2C3D4E5F60719 /* CMUXCLI+OmpExtension.swift */; };
 		C08672010000000000000005 /* CMUXCLI+PiCompactedFeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = C08672010000000000000006 /* CMUXCLI+PiCompactedFeed.swift */; };
 		C05555010000000000000001 /* CMUXCLI+PiExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = C05555010000000000000002 /* CMUXCLI+PiExtension.swift */; };
@@ -731,6 +781,7 @@
 		C05555010000000000000005 /* CMUXCLI+PiExtensionSourcePart1.swift in Sources */ = {isa = PBXBuildFile; fileRef = C05555010000000000000006 /* CMUXCLI+PiExtensionSourcePart1.swift */; };
 		C05555010000000000000007 /* CMUXCLI+PiExtensionSourcePart2.swift in Sources */ = {isa = PBXBuildFile; fileRef = C05555010000000000000008 /* CMUXCLI+PiExtensionSourcePart2.swift */; };
 		B9000054A1B2C3D4E5F60719 /* CMUXCLI+Process.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000055A1B2C3D4E5F60719 /* CMUXCLI+Process.swift */; };
+		A85870000000000000000057 /* CMUXCLI+ProjectFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000056 /* CMUXCLI+ProjectFiles.swift */; };
 		C73660010000000000000001 /* CMUXCLI+RemotePTYErrors.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660010000000000000002 /* CMUXCLI+RemotePTYErrors.swift */; };
 		REE0CA0000000000000000C2 /* CMUXCLI+Remotes.swift in Sources */ = {isa = PBXBuildFile; fileRef = REE0CA0000000000000000C1 /* CMUXCLI+Remotes.swift */; };
 		925800000000000000000002 /* CMUXCLI+Restore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 925800000000000000000001 /* CMUXCLI+Restore.swift */; };
@@ -903,10 +954,14 @@
 		C5A1FED100000000000000D1 /* CmuxSwiftRenderUI in Frameworks */ = {isa = PBXBuildFile; productRef = C5A1FED100000000000000D3 /* CmuxSwiftRenderUI */; };
 		C5A1FED100000000000000D2 /* CmuxSwiftRenderUI in Frameworks */ = {isa = PBXBuildFile; productRef = C5A1FED100000000000000D3 /* CmuxSwiftRenderUI */; };
 		0A1107110000000000000016 /* CmuxTaskManagerCodingAgentDefinition+BuiltIns.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1107110000000000000017 /* CmuxTaskManagerCodingAgentDefinition+BuiltIns.swift */; };
+		A8610C000000000000000004 /* CmuxTaskManagerCodingAgentDefinition+BuiltIns.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1107110000000000000017 /* CmuxTaskManagerCodingAgentDefinition+BuiltIns.swift */; };
+		A8610C000000000000000002 /* CmuxTaskManagerCodingAgentDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8610C000000000000000001 /* CmuxTaskManagerCodingAgentDefinition.swift */; };
+		A8610C000000000000000003 /* CmuxTaskManagerCodingAgentDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8610C000000000000000001 /* CmuxTaskManagerCodingAgentDefinition.swift */; };
 		906901000000000000000004 /* CmuxTaskManagerMemoryAttribution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 906901000000000000000003 /* CmuxTaskManagerMemoryAttribution.swift */; };
 		906901000000000000000006 /* CmuxTaskManagerMemoryGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 906901000000000000000005 /* CmuxTaskManagerMemoryGroup.swift */; };
 		90690100000000000000000C /* CmuxTaskManagerMemoryGroupAttribution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90690100000000000000000B /* CmuxTaskManagerMemoryGroupAttribution.swift */; };
 		C750500000000000000000A3 /* CmuxTerminal in Frameworks */ = {isa = PBXBuildFile; productRef = C750500000000000000000A2 /* CmuxTerminal */; };
+		A8610C000000000000000005 /* CmuxTerminalCore in Frameworks */ = {isa = PBXBuildFile; productRef = C750200000000000000000A2 /* CmuxTerminalCore */; };
 		C750200000000000000000A3 /* CmuxTerminalCore in Frameworks */ = {isa = PBXBuildFile; productRef = C750200000000000000000A2 /* CmuxTerminalCore */; };
 		CFF12E0000000000000000A3 /* CmuxTestSupport in Frameworks */ = {isa = PBXBuildFile; productRef = CFF12E0000000000000000A2 /* CmuxTestSupport */; };
 		A2977C204AD69CF268D38EE3 /* CmuxTestWindowReleaseGuard.m in Sources */ = {isa = PBXBuildFile; fileRef = EA9B442F20273D64D2BA1FC5 /* CmuxTestWindowReleaseGuard.m */; };
@@ -1046,6 +1101,7 @@
 		3023A1003023A1003023A100 /* ConfigSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3023B1003023B1003023B100 /* ConfigSource.swift */; };
 		D1F0A01100000000000000B1 /* ConnectivityInvalidationSubscriberCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A01100000000000000B2 /* ConnectivityInvalidationSubscriberCoordinator.swift */; };
 		C0DE43000000000000000005 /* ContentView+AgentChatCommandPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE43000000000000000006 /* ContentView+AgentChatCommandPalette.swift */; };
+		A8587000000000000000003F /* ContentView+Artifacts.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8587000000000000000003E /* ContentView+Artifacts.swift */; };
 		C0DEA7710000000000000001 /* ContentView+AuthCommandPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA7710000000000000002 /* ContentView+AuthCommandPalette.swift */; };
 		CA52E0010000000000000000 /* ContentView+CanvasCommandPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52F0010000000000000000 /* ContentView+CanvasCommandPalette.swift */; };
 		C51A720000000000000001A1 /* ContentView+CommandPaletteSurfaceMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A720000000000000001A2 /* ContentView+CommandPaletteSurfaceMetadata.swift */; };
@@ -1544,6 +1600,8 @@
 		F2100000000000000000000B /* MobileBrowserStreamCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1100000000000000000000B /* MobileBrowserStreamCoordinator.swift */; };
 		F2100000000000000000000C /* MobileBrowserStreamSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1100000000000000000000C /* MobileBrowserStreamSession.swift */; };
 		F2100000000000000000000D /* MobileBrowserWireEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1100000000000000000000D /* MobileBrowserWireEncoder.swift */; };
+		A8587000000000000000004F /* MobileChatArtifactAuthorizationSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8587000000000000000004E /* MobileChatArtifactAuthorizationSnapshotTests.swift */; };
+		C0DEA7710000000000000009 /* MobileConnectTitlebarAccessory.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA771000000000000000A /* MobileConnectTitlebarAccessory.swift */; };
 		C1A070000000000000000001 /* MobileHostAuthorizationSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A070000000000000000011 /* MobileHostAuthorizationSupport.swift */; };
 		6AA2F2E8BEB19ED6B8E125DB /* MobileHostAuthorizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BD519CFE74530A46DF0925D /* MobileHostAuthorizationTests.swift */; };
 		C7A50B000000000000000016 /* MobileHostBuildIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000015 /* MobileHostBuildIdentity.swift */; };
@@ -1640,6 +1698,8 @@
 		548D90758DB3CF890BFDC603 /* NewMachineSheetPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EC4096C4A05D3A58980308A /* NewMachineSheetPresenter.swift */; };
 		C0DE77060000000000000003 /* NewWorkspaceMenuModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE77060000000000000004 /* NewWorkspaceMenuModel.swift */; };
 		A5FB1400 /* NewWorkspaceMenuModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB1401 /* NewWorkspaceMenuModelTests.swift */; };
+		A85870000000000000000059 /* NoteCLIArguments.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000058 /* NoteCLIArguments.swift */; };
+		A85870000000000000000061 /* NoteCLIIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000060 /* NoteCLIIntegrationTests.swift */; };
 		734F49D37E543DD01C2F4FEF /* NotificationAndMenuBarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */; };
 		C06552010000000000000003 /* NotificationBurstCoalescer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C06552010000000000000004 /* NotificationBurstCoalescer.swift */; };
 		7490C00D7490C00D7490C00D /* NotificationCacheMemoryPressureResponder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D00D7490D00D7490D00D /* NotificationCacheMemoryPressureResponder.swift */; };
@@ -1693,6 +1753,8 @@
 		D7769000000000000000000F /* NotificationsPopoverMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77690000000000000000010 /* NotificationsPopoverMetrics.swift */; };
 		D77690000000000000000007 /* NotificationsPopoverResizeHandle.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77690000000000000000008 /* NotificationsPopoverResizeHandle.swift */; };
 		D77690000000000000000009 /* NotificationsPopoverResizeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7769000000000000000000A /* NotificationsPopoverResizeView.swift */; };
+		A86100000000000000000002 /* NSEvent+RightSidebarKeyboardNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A86100000000000000000001 /* NSEvent+RightSidebarKeyboardNavigation.swift */; };
+		A85870000000000000000043 /* NSView+RightSidebarKeyboardFocus.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000042 /* NSView+RightSidebarKeyboardFocus.swift */; };
 		D36090020000000000000001 /* NSWindow+CmuxPeerWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36090020000000000000002 /* NSWindow+CmuxPeerWindow.swift */; };
 		645645000000000000000002 /* NumberedShortcutSwapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 645645000000000000000001 /* NumberedShortcutSwapTests.swift */; };
 		0A1107110000000000000001 /* OllamaAgentDetectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1107110000000000000002 /* OllamaAgentDetectionTests.swift */; };
@@ -1995,7 +2057,11 @@
 		AA1B2C3D4E5F60720 /* RightSidebarChromeHeightUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B2C3D4E5F60721 /* RightSidebarChromeHeightUITests.swift */; };
 		B7F9A604B7F9A604B7F9A604 /* RightSidebarChromeStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F9A605B7F9A605B7F9A605 /* RightSidebarChromeStyle.swift */; };
 		C3408A000000000000000003 /* RightSidebarCommandPaletteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3408A000000000000000004 /* RightSidebarCommandPaletteTests.swift */; };
+		A86100000000000000000004 /* RightSidebarDisclosureAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = A86100000000000000000003 /* RightSidebarDisclosureAction.swift */; };
+		A8587000000000000000003B /* RightSidebarKeyboardFocusBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8587000000000000000003A /* RightSidebarKeyboardFocusBridge.swift */; };
+		A85870000000000000000041 /* RightSidebarKeyboardFocusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000040 /* RightSidebarKeyboardFocusView.swift */; };
 		B37A00000000000000000003 /* RightSidebarMode+Availability.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A00000000000000000004 /* RightSidebarMode+Availability.swift */; };
+		A85870000000000000000039 /* RightSidebarMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000038 /* RightSidebarMode.swift */; };
 		46814000000000000000000D /* RightSidebarModeShortcutEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46814000000000000000000E /* RightSidebarModeShortcutEntry.swift */; };
 		468110000000000000000005 /* RightSidebarModeShortcutMatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468110000000000000000006 /* RightSidebarModeShortcutMatcher.swift */; };
 		FE003103 /* RightSidebarPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003003 /* RightSidebarPanelView.swift */; };
@@ -3106,8 +3172,19 @@
 		A5C017000000000000000008 /* AccountSignInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSignInView.swift; sourceTree = "<group>"; };
 		A9E010000000000000000006 /* agent-session-react */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "agent-session-react"; sourceTree = "<group>"; };
 		A9E010000000000000000007 /* agent-session-solid */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "agent-session-solid"; sourceTree = "<group>"; };
+		A85870000000000000000052 /* AgentArtifactAutomaticPathBoundTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentArtifactAutomaticPathBoundTests.swift; sourceTree = "<group>"; };
+		A8587000000000000000004A /* AgentArtifactCaptureCheckpoint.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentArtifactCaptureCheckpoint.swift"; sourceTree = "<group>"; };
+		A85870000000000000000020 /* AgentArtifactCaptureCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentArtifactCaptureCoordinator.swift"; sourceTree = "<group>"; };
+		A85870000000000000000048 /* AgentArtifactCaptureCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentArtifactCaptureCoordinatorTests.swift; sourceTree = "<group>"; };
+		A85870000000000000000062 /* AgentArtifactCaptureCoordinatorTestStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentArtifactCaptureCoordinatorTestStore.swift; sourceTree = "<group>"; };
+		A8587000000000000000006E /* AgentArtifactCaptureProgress.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentArtifactCaptureProgress.swift"; sourceTree = "<group>"; };
+		A85870000000000000000044 /* AgentArtifactCaptureSaveError.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentArtifactCaptureSaveError.swift"; sourceTree = "<group>"; };
+		A8610D000000000000000002 /* AgentArtifactCompletedCaptureState.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentArtifactCompletedCaptureState.swift"; sourceTree = "<group>"; };
+		C7A858700000000000000001 /* AgentArtifactProjectAuthorityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentArtifactProjectAuthorityTests.swift; sourceTree = "<group>"; };
+		A8587000000000000000002A /* AgentArtifactReferenceCursor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentArtifactReferenceCursor.swift"; sourceTree = "<group>"; };
 		C7AF10000000000000000006 /* AgentChatArtifactGalleryBuilder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatArtifactGalleryBuilder.swift"; sourceTree = "<group>"; };
 		C7AF10000000000000000002 /* AgentChatArtifactIndex.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatArtifactIndex.swift"; sourceTree = "<group>"; };
+		A8587000000000000000004C /* AgentChatArtifactIndexSafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatArtifactIndexSafetyTests.swift; sourceTree = "<group>"; };
 		5FAC71D5AC71D5AC71D50002 /* AgentChatChildRunTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatChildRunTests.swift; sourceTree = "<group>"; };
 		C7A52E000000000000000001 /* AgentChatEndedTranscriptListabilityCache.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatEndedTranscriptListabilityCache.swift"; sourceTree = "<group>"; };
 		C7A53F000000000000000001 /* AgentChatFallbackTranscriptResolutionCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatFallbackTranscriptResolutionCoordinator.swift"; sourceTree = "<group>"; };
@@ -3116,7 +3193,9 @@
 		C7A531000000000000000001 /* AgentChatObservationHandle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatObservationHandle.swift"; sourceTree = "<group>"; };
 		C7A532000000000000000001 /* AgentChatObservationInFlight.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatObservationInFlight.swift"; sourceTree = "<group>"; };
 		C7A530000000000000000001 /* AgentChatObservationScope.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatObservationScope.swift"; sourceTree = "<group>"; };
+		C7A858700000000000000009 /* AgentChatObservedWorkingDirectoryResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatObservedWorkingDirectoryResolver.swift"; sourceTree = "<group>"; };
 		99230001992300019923000B /* AgentChatResumeIntentRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatResumeIntentRecorder.swift; sourceTree = "<group>"; };
+		A8587F000000000000000030 /* AgentChatSessionRecencyIndex.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatSessionRecencyIndex.swift"; sourceTree = "<group>"; };
 		ACA7C4A70000000000000002 /* AgentChatSessionRecord.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatSessionRecord.swift"; sourceTree = "<group>"; };
 		C7A52D100000000000000011 /* AgentChatSessionRegistry+ChildRuns.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatSessionRegistry+ChildRuns.swift"; sourceTree = "<group>"; };
 		C8711A000000000000000001 /* AgentChatSessionRegistry+CodexRolloutFiles.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatSessionRegistry+CodexRolloutFiles.swift"; sourceTree = "<group>"; };
@@ -3131,12 +3210,24 @@
 		C7A51D100000000000000001 /* AgentChatSessionRegistryObservationReviewRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatSessionRegistryObservationReviewRegressionTests.swift; sourceTree = "<group>"; };
 		C7A51D000000000000000001 /* AgentChatSessionRegistryObservationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatSessionRegistryObservationTests.swift; sourceTree = "<group>"; };
 		C0DE71A00000000000000002 /* AgentChatThemeSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatThemeSync.swift; sourceTree = "<group>"; };
+		A8587F000000000000000033 /* AgentChatTranscriptBoundedLineIterator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptBoundedLineIterator.swift"; sourceTree = "<group>"; };
+		A8587F000000000000000035 /* AgentChatTranscriptBoundedLineSequence.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptBoundedLineSequence.swift"; sourceTree = "<group>"; };
+		A8610B000000000000000001 /* AgentChatTranscriptIncrementalLineBuffer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptIncrementalLineBuffer.swift"; sourceTree = "<group>"; };
+		C7A858700000000000000005 /* AgentChatTranscriptInitialTailReader.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptInitialTailReader.swift"; sourceTree = "<group>"; };
+		A8610D000000000000000004 /* AgentChatTranscriptInitialTailSnapshot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptInitialTailSnapshot.swift"; sourceTree = "<group>"; };
+		A8587F000000000000000010 /* AgentChatTranscriptReader.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptReader.swift"; sourceTree = "<group>"; };
+		C7A85870000000000000000C /* AgentChatTranscriptResolutionReviewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatTranscriptResolutionReviewTests.swift; sourceTree = "<group>"; };
 		ACA7C4A70000000000000006 /* AgentChatTranscriptResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptResolver.swift"; sourceTree = "<group>"; };
 		992300019923000199230007 /* AgentChatTranscriptResumeIntentRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatTranscriptResumeIntentRecorder.swift; sourceTree = "<group>"; };
+		A85870000000000000000022 /* AgentChatTranscriptService+ArtifactCapture.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptService+ArtifactCapture.swift"; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718293A4B5C /* AgentChatTranscriptService+ArtifactSession.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptService+ArtifactSession.swift"; sourceTree = "<group>"; };
+		C7A85870000000000000000E /* AgentChatTranscriptService+Resolution.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptService+Resolution.swift"; sourceTree = "<group>"; };
 		C7A52F000000000000000001 /* AgentChatTranscriptService+Wire.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptService+Wire.swift"; sourceTree = "<group>"; };
 		ACA7C4A7000000000000000C /* AgentChatTranscriptService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptService.swift"; sourceTree = "<group>"; };
+		A8587F000000000000000020 /* AgentChatTranscriptSlice.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptSlice.swift"; sourceTree = "<group>"; };
 		ACA7C4A7000000000000000A /* AgentChatTranscriptTailer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptTailer.swift"; sourceTree = "<group>"; };
+		C7A858700000000000000003 /* AgentChatTranscriptTailerBoundedReadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatTranscriptTailerBoundedReadTests.swift; sourceTree = "<group>"; };
+		C7A858700000000000000007 /* AgentChatWorkingDirectoryAuthority.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatWorkingDirectoryAuthority.swift"; sourceTree = "<group>"; };
 		C0A710A10000000000000001 /* AgentCursorPointerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AgentCursorPointerView.swift; sourceTree = "<group>"; };
 		79390006AA11BB22CC33DD06 /* AgentDeliveryTargetResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentDeliveryTargetResolution.swift; sourceTree = "<group>"; };
 		93800002AA11BB22CC33EE02 /* AgentDeliveryTTYBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentDeliveryTTYBindingTests.swift; sourceTree = "<group>"; };
@@ -3271,7 +3362,9 @@
 		A5C01700000000000000000E /* AppDelegate+AccountSignInWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+AccountSignInWorkspace.swift"; sourceTree = "<group>"; };
 		80410000000000000000000A /* AppDelegate+AdjacentNavigationShortcut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+AdjacentNavigationShortcut.swift"; sourceTree = "<group>"; };
 		C0DE45AC0000000000000002 /* AppDelegate+AgentChat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+AgentChat.swift"; sourceTree = "<group>"; };
+C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+AgentChatNotifications.swift"; sourceTree = "<group>"; };
 		C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+AgentChatNotifications.swift"; sourceTree = "<group>"; };
+		A8587000000000000000003C /* AppDelegate+Artifacts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+Artifacts.swift"; sourceTree = "<group>"; };
 		986900010000000000000002 /* AppDelegate+BrowserActionRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+BrowserActionRouting.swift"; sourceTree = "<group>"; };
 		D35B00000000000000000001 /* AppDelegate+BrowserDesignMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+BrowserDesignMode.swift"; sourceTree = "<group>"; };
 		C4A570010000000000000002 /* AppDelegate+CanvasShortcutRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+CanvasShortcutRouting.swift"; sourceTree = "<group>"; };
@@ -3344,6 +3437,23 @@
 		A5001620 /* AppleScriptSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleScriptSupport.swift; sourceTree = "<group>"; };
 		A5001A03A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/AppWindowBackdropControllerDependencies.swift; sourceTree = "<group>"; };
 		A5001A01A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/AppWindowChromeComposition.swift; sourceTree = "<group>"; };
+		A85870000000000000000046 /* ArtifactCLIArguments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactCLIArguments.swift; sourceTree = "<group>"; };
+		A8610D00000000000000000E /* ArtifactCLIIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactCLIIntegrationTests.swift; sourceTree = "<group>"; };
+		A85870000000000000000050 /* ArtifactCLITerminalSafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactCLITerminalSafetyTests.swift; sourceTree = "<group>"; };
+		A85870000000000000000066 /* ArtifactHTMLPreviewDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactHTMLPreviewDocument.swift; sourceTree = "<group>"; };
+		A8610D000000000000000006 /* ArtifactHTMLPreviewNavigationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactHTMLPreviewNavigationPolicy.swift; sourceTree = "<group>"; };
+		A85870000000000000000064 /* ArtifactHTMLPreviewSecurityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactHTMLPreviewSecurityTests.swift; sourceTree = "<group>"; };
+		A8610D000000000000000008 /* ArtifactHTMLPreviewWebViewFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactHTMLPreviewWebViewFactory.swift; sourceTree = "<group>"; };
+		A8610D000000000000000010 /* ArtifactRightSidebarModeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactRightSidebarModeTests.swift; sourceTree = "<group>"; };
+		A85870000000000000000068 /* ArtifactRuntimeLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactRuntimeLifecycleTests.swift; sourceTree = "<group>"; };
+		A8610D00000000000000000C /* ArtifactSidebarBinding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactSidebarBinding.swift; sourceTree = "<group>"; };
+		A85870000000000000000070 /* ArtifactSidebarFileAccess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactSidebarFileAccess.swift; sourceTree = "<group>"; };
+		A85870000000000000000030 /* ArtifactSidebarPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactSidebarPanelView.swift; sourceTree = "<group>"; };
+		A85870000000000000000032 /* ArtifactSidebarRowActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactSidebarRowActions.swift; sourceTree = "<group>"; };
+		A85870000000000000000034 /* ArtifactSidebarRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactSidebarRowView.swift; sourceTree = "<group>"; };
+		A8587000000000000000006A /* ArtifactSidebarSearchField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactSidebarSearchField.swift; sourceTree = "<group>"; };
+		A8587000000000000000006C /* ArtifactSidebarSearchFieldView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactSidebarSearchFieldView.swift; sourceTree = "<group>"; };
+		A85870000000000000000036 /* ArtifactSidebarThumbnailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactSidebarThumbnailView.swift; sourceTree = "<group>"; };
 		A5001101 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		961300000000000000000004 /* AttributedString+SidebarRowLinks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/AttributedString+SidebarRowLinks.swift"; sourceTree = "<group>"; };
 		43430FA5929121E2EAAB3091 /* AuthEnvironment.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AuthEnvironment.swift; sourceTree = "<group>"; };
@@ -3513,6 +3623,7 @@
 		C67540060000000000000002 /* BrowserPanel+PDFDocumentActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+PDFDocumentActions.swift"; sourceTree = "<group>"; };
 		B424PWAD000000000000PW02 /* BrowserPanel+PrewarmedWebViewAdoption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+PrewarmedWebViewAdoption.swift"; sourceTree = "<group>"; };
 		A5001412 /* BrowserPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPanel.swift; sourceTree = "<group>"; };
+		A8610D00000000000000000A /* BrowserPanelContentMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPanelContentMode.swift; sourceTree = "<group>"; };
 		B1F0C0090000000000000002 /* BrowserPanelDeveloperToolsLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPanelDeveloperToolsLifecycle.swift; sourceTree = "<group>"; };
 		C62530010000000000000002 /* BrowserPanelReloadMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPanelReloadMode.swift; sourceTree = "<group>"; };
 		B65060010000000000000001 /* BrowserPanelSessionRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPanelSessionRestoreTests.swift; sourceTree = "<group>"; };
@@ -3758,6 +3869,7 @@
 		C6711B050000000000000001 /* CMUXCLI+AgentHookRestoreEvidence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AgentHookRestoreEvidence.swift"; sourceTree = "<group>"; };
 		A77A0009A1B2C3D4E5F60001 /* CMUXCLI+AgentJournalEmission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AgentJournalEmission.swift"; sourceTree = "<group>"; };
 		B9000069A1B2C3D4E5F60719 /* CMUXCLI+AmpExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AmpExtension.swift"; sourceTree = "<group>"; };
+		A85870000000000000000010 /* CMUXCLI+Artifacts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Artifacts.swift"; sourceTree = "<group>"; };
 		5257257034CA4729B1211166 /* CMUXCLI+AutoNaming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AutoNaming.swift"; sourceTree = "<group>"; };
 		5257257034CA4729B121116A /* CMUXCLI+AutoNamingDispatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AutoNamingDispatch.swift"; sourceTree = "<group>"; };
 		5257257034CA4729B1211167 /* CMUXCLI+AutoNamingGenericHooks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AutoNamingGenericHooks.swift"; sourceTree = "<group>"; };
@@ -3790,6 +3902,7 @@
 		906902000000000000000001 /* CMUXCLI+MemoryAttribution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+MemoryAttribution.swift"; sourceTree = "<group>"; };
 		812600000000000000000006 /* CMUXCLI+MoshTerminalTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+MoshTerminalTransport.swift"; sourceTree = "<group>"; };
 		D7AB0000000000000000000E /* CMUXCLI+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
+		A85870000000000000000054 /* CMUXCLI+Notes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Notes.swift"; sourceTree = "<group>"; };
 		B9000073A1B2C3D4E5F60719 /* CMUXCLI+OmpExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+OmpExtension.swift"; sourceTree = "<group>"; };
 		C08672010000000000000006 /* CMUXCLI+PiCompactedFeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+PiCompactedFeed.swift"; sourceTree = "<group>"; };
 		C05555010000000000000002 /* CMUXCLI+PiExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+PiExtension.swift"; sourceTree = "<group>"; };
@@ -3799,6 +3912,7 @@
 		C05555010000000000000006 /* CMUXCLI+PiExtensionSourcePart1.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+PiExtensionSourcePart1.swift"; sourceTree = "<group>"; };
 		C05555010000000000000008 /* CMUXCLI+PiExtensionSourcePart2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+PiExtensionSourcePart2.swift"; sourceTree = "<group>"; };
 		B9000055A1B2C3D4E5F60719 /* CMUXCLI+Process.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Process.swift"; sourceTree = "<group>"; };
+		A85870000000000000000056 /* CMUXCLI+ProjectFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+ProjectFiles.swift"; sourceTree = "<group>"; };
 		C73660010000000000000002 /* CMUXCLI+RemotePTYErrors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RemotePTYErrors.swift"; sourceTree = "<group>"; };
 		REE0CA0000000000000000C1 /* CMUXCLI+Remotes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Remotes.swift"; sourceTree = "<group>"; };
 		925800000000000000000001 /* CMUXCLI+Restore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Restore.swift"; sourceTree = "<group>"; };
@@ -3914,6 +4028,7 @@
 		C0DE43000000000000000004 /* CmuxSurfaceTabBarBuiltInAction+Codable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxSurfaceTabBarBuiltInAction+Codable.swift"; sourceTree = "<group>"; };
 		C10D00040000000000000004 /* CmuxSurfaceTabBarBuiltInAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxSurfaceTabBarBuiltInAction.swift; sourceTree = "<group>"; };
 		0A1107110000000000000017 /* CmuxTaskManagerCodingAgentDefinition+BuiltIns.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTaskManagerCodingAgentDefinition+BuiltIns.swift"; sourceTree = "<group>"; };
+		A8610C000000000000000001 /* CmuxTaskManagerCodingAgentDefinition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTaskManagerCodingAgentDefinition.swift; sourceTree = "<group>"; };
 		906901000000000000000003 /* CmuxTaskManagerMemoryAttribution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTaskManagerMemoryAttribution.swift; sourceTree = "<group>"; };
 		906901000000000000000005 /* CmuxTaskManagerMemoryGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTaskManagerMemoryGroup.swift; sourceTree = "<group>"; };
 		90690100000000000000000B /* CmuxTaskManagerMemoryGroupAttribution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTaskManagerMemoryGroupAttribution.swift; sourceTree = "<group>"; };
@@ -4048,6 +4163,7 @@
 		3023B1003023B1003023B100 /* ConfigSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings/ConfigSource.swift; sourceTree = "<group>"; };
 		D1F0A01100000000000000B2 /* ConnectivityInvalidationSubscriberCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ConnectivityInvalidationSubscriberCoordinator.swift; sourceTree = "<group>"; };
 		C0DE43000000000000000006 /* ContentView+AgentChatCommandPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+AgentChatCommandPalette.swift"; sourceTree = "<group>"; };
+		A8587000000000000000003E /* ContentView+Artifacts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+Artifacts.swift"; sourceTree = "<group>"; };
 		C0DEA7710000000000000002 /* ContentView+AuthCommandPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+AuthCommandPalette.swift"; sourceTree = "<group>"; };
 		CA52F0010000000000000000 /* ContentView+CanvasCommandPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+CanvasCommandPalette.swift"; sourceTree = "<group>"; };
 		C51A720000000000000001A2 /* ContentView+CommandPaletteSurfaceMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+CommandPaletteSurfaceMetadata.swift"; sourceTree = "<group>"; };
@@ -4542,6 +4658,8 @@
 		F1100000000000000000000B /* MobileBrowserStreamCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileBrowserStreamCoordinator.swift; sourceTree = "<group>"; };
 		F1100000000000000000000C /* MobileBrowserStreamSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileBrowserStreamSession.swift; sourceTree = "<group>"; };
 		F1100000000000000000000D /* MobileBrowserWireEncoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileBrowserWireEncoder.swift; sourceTree = "<group>"; };
+		A8587000000000000000004E /* MobileChatArtifactAuthorizationSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileChatArtifactAuthorizationSnapshotTests.swift; sourceTree = "<group>"; };
+		C0DEA771000000000000000A /* MobileConnectTitlebarAccessory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileConnectTitlebarAccessory.swift; sourceTree = "<group>"; };
 		C1A070000000000000000011 /* MobileHostAuthorizationSupport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostAuthorizationSupport.swift; sourceTree = "<group>"; };
 		9BD519CFE74530A46DF0925D /* MobileHostAuthorizationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostAuthorizationTests.swift; sourceTree = "<group>"; };
 		C7A50B000000000000000015 /* MobileHostBuildIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostBuildIdentity.swift; sourceTree = "<group>"; };
@@ -4638,6 +4756,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		7EC4096C4A05D3A58980308A /* NewMachineSheetPresenter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NewMachineSheetPresenter.swift; sourceTree = "<group>"; };
 		C0DE77060000000000000004 /* NewWorkspaceMenuModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewWorkspaceMenuModel.swift; sourceTree = "<group>"; };
 		A5FB1401 /* NewWorkspaceMenuModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewWorkspaceMenuModelTests.swift; sourceTree = "<group>"; };
+		A85870000000000000000058 /* NoteCLIArguments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteCLIArguments.swift; sourceTree = "<group>"; };
+		A85870000000000000000060 /* NoteCLIIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteCLIIntegrationTests.swift; sourceTree = "<group>"; };
 		D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationAndMenuBarTests.swift; sourceTree = "<group>"; };
 		C06552010000000000000004 /* NotificationBurstCoalescer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationBurstCoalescer.swift; sourceTree = "<group>"; };
 		7490D00D7490D00D7490D00D /* NotificationCacheMemoryPressureResponder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/NotificationCacheMemoryPressureResponder.swift; sourceTree = "<group>"; };
@@ -4691,6 +4811,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		D77690000000000000000010 /* NotificationsPopoverMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/NotificationsPopoverMetrics.swift; sourceTree = "<group>"; };
 		D77690000000000000000008 /* NotificationsPopoverResizeHandle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/NotificationsPopoverResizeHandle.swift; sourceTree = "<group>"; };
 		D7769000000000000000000A /* NotificationsPopoverResizeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/NotificationsPopoverResizeView.swift; sourceTree = "<group>"; };
+		A86100000000000000000001 /* NSEvent+RightSidebarKeyboardNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSEvent+RightSidebarKeyboardNavigation.swift"; sourceTree = "<group>"; };
+		A85870000000000000000042 /* NSView+RightSidebarKeyboardFocus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSView+RightSidebarKeyboardFocus.swift"; sourceTree = "<group>"; };
 		D36090020000000000000002 /* NSWindow+CmuxPeerWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/NSWindow+CmuxPeerWindow.swift"; sourceTree = "<group>"; };
 		645645000000000000000001 /* NumberedShortcutSwapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NumberedShortcutSwapTests.swift; sourceTree = "<group>"; };
 		0A1107110000000000000002 /* OllamaAgentDetectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaAgentDetectionTests.swift; sourceTree = "<group>"; };
@@ -4989,7 +5111,11 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		AA1B2C3D4E5F60721 /* RightSidebarChromeHeightUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarChromeHeightUITests.swift; sourceTree = "<group>"; };
 		B7F9A605B7F9A605B7F9A605 /* RightSidebarChromeStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarChromeStyle.swift; sourceTree = "<group>"; };
 		C3408A000000000000000004 /* RightSidebarCommandPaletteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarCommandPaletteTests.swift; sourceTree = "<group>"; };
+		A86100000000000000000003 /* RightSidebarDisclosureAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RightSidebarDisclosureAction.swift"; sourceTree = "<group>"; };
+		A8587000000000000000003A /* RightSidebarKeyboardFocusBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarKeyboardFocusBridge.swift; sourceTree = "<group>"; };
+		A85870000000000000000040 /* RightSidebarKeyboardFocusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarKeyboardFocusView.swift; sourceTree = "<group>"; };
 		B37A00000000000000000004 /* RightSidebarMode+Availability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RightSidebarMode+Availability.swift"; sourceTree = "<group>"; };
+		A85870000000000000000038 /* RightSidebarMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarMode.swift; sourceTree = "<group>"; };
 		46814000000000000000000E /* RightSidebarModeShortcutEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarModeShortcutEntry.swift; sourceTree = "<group>"; };
 		468110000000000000000006 /* RightSidebarModeShortcutMatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarModeShortcutMatcher.swift; sourceTree = "<group>"; };
 		FE003003 /* RightSidebarPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarPanelView.swift; sourceTree = "<group>"; };
@@ -6013,6 +6139,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A77A0003A1B2C3D4E5F60001 /* CmuxAgentJournal in Frameworks */,
 				A5B00003A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */,
 				C9A2B00000000000000000B3 /* CmuxAppKitSupportUI in Frameworks */,
+				A85870000000000000000003 /* CmuxArtifacts in Frameworks */,
 				5EDB6027B346C46521A93C74 /* CMUXAuthCore in Frameworks */,
 				53750003A0B1C2D3E4F50003 /* CmuxAuthRuntime in Frameworks */,
 				E3B7A30000000000000000C3 /* CmuxBrowser in Frameworks */,
@@ -6081,6 +6208,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			files = (
 				A77A0004A1B2C3D4E5F60001 /* CmuxAgentJournal in Frameworks */,
 				A5B00004A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */,
+				A85870000000000000000004 /* CmuxArtifacts in Frameworks */,
 				C79470010000000000000005 /* CmuxControlSocket in Frameworks */,
 				CF00F00000000000000000A4 /* CmuxFoundation in Frameworks */,
 				CE57E10000000000000000B4 /* CmuxSentryReporting in Frameworks */,
@@ -6090,6 +6218,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C51A700000000000000000A5 /* CmuxSimulator in Frameworks */,
 				C5A1FED000000000000000C2 /* CmuxSwiftRender in Frameworks */,
 				C5A1FED100000000000000D2 /* CmuxSwiftRenderUI in Frameworks */,
+				A8610C000000000000000005 /* CmuxTerminalCore in Frameworks */,
+				B9000024A1B2C3D4E5F60719 /* Sentry in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -6107,6 +6237,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			files = (
 				B057B0017E57B0017E57B001 /* Bonsplit in Frameworks */,
 				C9A2B00000000000000000C3 /* CmuxAppKitSupportUI in Frameworks */,
+				A85870000000000000000005 /* CmuxArtifacts in Frameworks */,
 				A99940010000000000000001 /* CMUXAuthCore in Frameworks */,
 				A99940020000000000000001 /* CmuxAuthRuntime in Frameworks */,
 				D7032A060000000000000001 /* CmuxBrowser in Frameworks */,
@@ -6259,8 +6390,16 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		ACA7C4A70000000000000100 /* AgentChat */ = {
 			isa = PBXGroup;
 			children = (
+				A8587000000000000000004A /* AgentArtifactCaptureCheckpoint.swift */,
+				A8610D000000000000000002 /* AgentArtifactCompletedCaptureState.swift */,
+				A85870000000000000000020 /* AgentArtifactCaptureCoordinator.swift */,
+				A8587000000000000000006E /* AgentArtifactCaptureProgress.swift */,
+				A8587000000000000000002A /* AgentArtifactReferenceCursor.swift */,
+				A85870000000000000000044 /* AgentArtifactCaptureSaveError.swift */,
 				ACA7C4A70000000000000002 /* AgentChatSessionRecord.swift */,
 				C7AF10000000000000000002 /* AgentChatArtifactIndex.swift */,
+				A8587F000000000000000010 /* AgentChatTranscriptReader.swift */,
+				A8587F000000000000000020 /* AgentChatTranscriptSlice.swift */,
 				C7AF10000000000000000006 /* AgentChatArtifactGalleryBuilder.swift */,
 				ACA7C4A70000000000000004 /* AgentChatHookSessionStore.swift */,
 				C8711C000000000000000001 /* CodexRolloutIdentity.swift */,
@@ -6269,6 +6408,11 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C7A532000000000000000001 /* AgentChatObservationInFlight.swift */,
 				C7A530000000000000000001 /* AgentChatObservationScope.swift */,
 				ACA7C4A70000000000000006 /* AgentChatTranscriptResolver.swift */,
+				ACA7C4A70000000000000008 /* AgentChatSessionRegistry.swift */,
+				A8587F000000000000000030 /* AgentChatSessionRecencyIndex.swift */,
+				A8587F000000000000000033 /* AgentChatTranscriptBoundedLineIterator.swift */,
+				A8587F000000000000000035 /* AgentChatTranscriptBoundedLineSequence.swift */,
+				C7A52D100000000000000001 /* AgentChatSessionRegistry+Lifecycle.swift */,
 					ACA7C4A70000000000000008 /* AgentChatSessionRegistry.swift */,
 					C7A52D100000000000000001 /* AgentChatSessionRegistry+Lifecycle.swift */,
 					C7A52D100000000000000011 /* AgentChatSessionRegistry+ChildRuns.swift */,
@@ -6278,7 +6422,14 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 					C7A52E000000000000000001 /* AgentChatEndedTranscriptListabilityCache.swift */,
 					C7A53F000000000000000001 /* AgentChatFallbackTranscriptResolutionCoordinator.swift */,
 					ACA7C4A7000000000000000A /* AgentChatTranscriptTailer.swift */,
+					A8610B000000000000000001 /* AgentChatTranscriptIncrementalLineBuffer.swift */,
+					C7A858700000000000000005 /* AgentChatTranscriptInitialTailReader.swift */,
+					A8610D000000000000000004 /* AgentChatTranscriptInitialTailSnapshot.swift */,
+					C7A858700000000000000007 /* AgentChatWorkingDirectoryAuthority.swift */,
+					C7A858700000000000000009 /* AgentChatObservedWorkingDirectoryResolver.swift */,
 				ACA7C4A7000000000000000C /* AgentChatTranscriptService.swift */,
+				A85870000000000000000022 /* AgentChatTranscriptService+ArtifactCapture.swift */,
+				C7A85870000000000000000E /* AgentChatTranscriptService+Resolution.swift */,
 				C7A52F000000000000000001 /* AgentChatTranscriptService+Wire.swift */,
 				A1B2C3D4E5F60718293A4B5C /* AgentChatTranscriptService+ArtifactSession.swift */,
 				C7A533000000000000000001 /* ClaudeSessionCanonicalizationContext.swift */,
@@ -7190,6 +7341,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				0A1107110000000000000015 /* AgentRestoreMode.swift */,
 				5977EB347EF8D7692B3759E2 /* AgentResumeLaunchGuard.swift */,
 				8F8DA1BC7420DEC238C4CB0B /* AgentResumeLiveness.swift */,
+				A8610C000000000000000001 /* CmuxTaskManagerCodingAgentDefinition.swift */,
 				0A1107110000000000000017 /* CmuxTaskManagerCodingAgentDefinition+BuiltIns.swift */,
 				0A1107110000000000000019 /* CmuxTopProcessSnapshot+PromptAgentDetection.swift */,
 				0A110711000000000000001B /* PromptTurnNotificationHandler.swift */,
@@ -8046,6 +8198,20 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A5001642 /* RemoteInteractiveShellBootstrapBuilder.swift */,
 				A5001641 /* RemoteRelayZshBootstrap.swift */,
 				C0DE43000000000000000002 /* CmuxAgentChatConfig.swift */,
+				A85870000000000000000070 /* ArtifactSidebarFileAccess.swift */,
+				A85870000000000000000030 /* ArtifactSidebarPanelView.swift */,
+				A8610D00000000000000000C /* ArtifactSidebarBinding.swift */,
+				A8587000000000000000006A /* ArtifactSidebarSearchField.swift */,
+				A8587000000000000000006C /* ArtifactSidebarSearchFieldView.swift */,
+				A85870000000000000000066 /* ArtifactHTMLPreviewDocument.swift */,
+				A8610D000000000000000006 /* ArtifactHTMLPreviewNavigationPolicy.swift */,
+				A8610D000000000000000008 /* ArtifactHTMLPreviewWebViewFactory.swift */,
+				A8610D00000000000000000A /* BrowserPanelContentMode.swift */,
+				A8587000000000000000003C /* AppDelegate+Artifacts.swift */,
+				A8587000000000000000003E /* ContentView+Artifacts.swift */,
+				A85870000000000000000032 /* ArtifactSidebarRowActions.swift */,
+				A85870000000000000000034 /* ArtifactSidebarRowView.swift */,
+				A85870000000000000000036 /* ArtifactSidebarThumbnailView.swift */,
 				A5001651 /* CmuxConfig.swift */,
 				468110000000000000000002 /* CmuxNotificationHookCache.swift */,
 				468140000000000000000006 /* CmuxNotificationHookCacheEntry.swift */,
@@ -8144,7 +8310,13 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				B7F9A601B7F9A601B7F9A601 /* RightSidebarChromeGeometryReporting.swift */,
 				B7F9A605B7F9A605B7F9A605 /* RightSidebarChromeStyle.swift */,
 				B7F9A603B7F9A603B7F9A603 /* WindowChromeMetrics.swift */,
+				A8587000000000000000003A /* RightSidebarKeyboardFocusBridge.swift */,
+				A85870000000000000000040 /* RightSidebarKeyboardFocusView.swift */,
+				A85870000000000000000042 /* NSView+RightSidebarKeyboardFocus.swift */,
+				A85870000000000000000038 /* RightSidebarMode.swift */,
 				B37A00000000000000000004 /* RightSidebarMode+Availability.swift */,
+				A86100000000000000000001 /* NSEvent+RightSidebarKeyboardNavigation.swift */,
+				A86100000000000000000003 /* RightSidebarDisclosureAction.swift */,
 				B37A0000000000000000000E /* RightSidebarRemoteCommand.swift */,
 				FE003003 /* RightSidebarPanelView.swift */,
 				46814000000000000000000E /* RightSidebarModeShortcutEntry.swift */,
@@ -8353,6 +8525,11 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C05555010000000000000008 /* CMUXCLI+PiExtensionSourcePart2.swift */,
 				C08672010000000000000008 /* PiCompactedFeedEventExpander.swift */,
 				B9000070A1B2C3D4E5F60719 /* CMUXCLI+Memory.swift */,
+				A85870000000000000000010 /* CMUXCLI+Artifacts.swift */,
+				A85870000000000000000046 /* ArtifactCLIArguments.swift */,
+				A85870000000000000000054 /* CMUXCLI+Notes.swift */,
+				A85870000000000000000056 /* CMUXCLI+ProjectFiles.swift */,
+				A85870000000000000000058 /* NoteCLIArguments.swift */,
 				906902000000000000000001 /* CMUXCLI+MemoryAttribution.swift */,
 				C51A75000000000000000002 /* CMUXCLI+JSONOutput.swift */,
 				C51A73000000000000000002 /* CMUXCLI+Simulator.swift */,
@@ -8398,6 +8575,19 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			children = (
 				9520B0019520B0019520B001 /* HermesFirstClassSupportTests.swift */,
 				A11CE0020000000000000001 /* AboutLicensesResourceTests.swift */,
+				A8610D00000000000000000E /* ArtifactCLIIntegrationTests.swift */,
+				A85870000000000000000050 /* ArtifactCLITerminalSafetyTests.swift */,
+				A8610D000000000000000010 /* ArtifactRightSidebarModeTests.swift */,
+				A85870000000000000000068 /* ArtifactRuntimeLifecycleTests.swift */,
+				A85870000000000000000060 /* NoteCLIIntegrationTests.swift */,
+				A85870000000000000000048 /* AgentArtifactCaptureCoordinatorTests.swift */,
+				A85870000000000000000062 /* AgentArtifactCaptureCoordinatorTestStore.swift */,
+				A8587000000000000000004E /* MobileChatArtifactAuthorizationSnapshotTests.swift */,
+				A8587000000000000000004C /* AgentChatArtifactIndexSafetyTests.swift */,
+				A85870000000000000000052 /* AgentArtifactAutomaticPathBoundTests.swift */,
+				C7A858700000000000000001 /* AgentArtifactProjectAuthorityTests.swift */,
+				C7A85870000000000000000C /* AgentChatTranscriptResolutionReviewTests.swift */,
+				A85870000000000000000064 /* ArtifactHTMLPreviewSecurityTests.swift */,
 				F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */,
 				F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */,
 				D3571003A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift */,
@@ -8459,6 +8649,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C7A51C000000000000000001 /* AgentChatSessionRegistryHookStoreTests.swift */,
 				C7A51E100000000000000001 /* AgentChatSessionRegistryLifecycleReviewRegressionTests.swift */,
 				C7A51E000000000000000001 /* AgentChatSessionRegistryLifecycleTests.swift */,
+				C7A858700000000000000003 /* AgentChatTranscriptTailerBoundedReadTests.swift */,
 				C7A51D100000000000000001 /* AgentChatSessionRegistryObservationReviewRegressionTests.swift */,
 				C7A51D000000000000000001 /* AgentChatSessionRegistryObservationTests.swift */,
 				C8711B000000000000000001 /* CodexCodeModeRolloutIdentityTests.swift */,
@@ -9196,6 +9387,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				29813FE5A6CBC1019289A251 /* CMUXAuthCore */,
 				53750002A0B1C2D3E4F50002 /* CmuxAuthRuntime */,
 				AC4A6E7C4A700001AC4A0002 /* CmuxAgentChat */,
+				A85870000000000000000002 /* CmuxArtifacts */,
 				C0DE45000000000000000002 /* CmuxExtensionKit */,
 				C0DE4A000000000000000002 /* CmuxSidebarProviderKit */,
 				C0DE49000000000000000002 /* CmuxExtensionSidebarExamples */,
@@ -9259,6 +9451,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			);
 			name = "cmux-cli";
 			packageProductDependencies = (
+				A5001251 /* Sentry */,
+				A85870000000000000000002 /* CmuxArtifacts */,
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
 				A77A0002A1B2C3D4E5F60001 /* CmuxAgentJournal */,
 				C750100000000000000000A2 /* CmuxControlSocket */,
@@ -9266,6 +9460,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C5A1FED100000000000000D3 /* CmuxSwiftRenderUI */,
 				C5A1FED200000000000000E3 /* CmuxSidebarInterpreterClient */,
 				C51A700000000000000000A2 /* CmuxSimulator */,
+				C750200000000000000000A2 /* CmuxTerminalCore */,
 				CD0CFE5200000000CD0CFE52 /* CmuxSettings */,
 				CF00F00000000000000000A2 /* CmuxFoundation */,
 				CE57E10000000000000000B2 /* CmuxSentryReporting */,
@@ -9325,6 +9520,9 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			);
 			name = cmuxTests;
 			packageProductDependencies = (
+				A85870000000000000000002 /* CmuxArtifacts */,
+				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
+				A77A0002A1B2C3D4E5F60001 /* CmuxAgentJournal */,
 				29813FE5A6CBC1019289A251 /* CMUXAuthCore */,
 				53750002A0B1C2D3E4F50002 /* CmuxAuthRuntime */,
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
@@ -9401,6 +9599,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				40B63BB4A170F0BD2D1DEFD1 /* XCLocalSwiftPackageReference "CMUXAuthCore" */,
 				53750001A0B1C2D3E4F50001 /* XCLocalSwiftPackageReference "CmuxAuthRuntime" */,
 				AC4A6E7C4A700001AC4A0003 /* XCLocalSwiftPackageReference "CmuxAgentChat" */,
+				A85870000000000000000001 /* XCLocalSwiftPackageReference "CmuxArtifacts" */,
 				C0DE45000000000000000003 /* XCLocalSwiftPackageReference "CmuxExtensionKit" */,
 				C0DE4A000000000000000003 /* XCLocalSwiftPackageReference "CmuxSidebarProviderKit" */,
 				C0DE49000000000000000003 /* XCLocalSwiftPackageReference "CmuxExtensionSidebarExamples" */,
@@ -9655,6 +9854,12 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A5C017000000000000000009 /* AccountSignInPanel.swift in Sources */,
 				A5C01700000000000000000B /* AccountSignInPanelView.swift in Sources */,
 				A5C017000000000000000007 /* AccountSignInView.swift in Sources */,
+				A8587000000000000000004B /* AgentArtifactCaptureCheckpoint.swift in Sources */,
+				A85870000000000000000021 /* AgentArtifactCaptureCoordinator.swift in Sources */,
+				A8587000000000000000006F /* AgentArtifactCaptureProgress.swift in Sources */,
+				A85870000000000000000045 /* AgentArtifactCaptureSaveError.swift in Sources */,
+				A8610D000000000000000001 /* AgentArtifactCompletedCaptureState.swift in Sources */,
+				A8587000000000000000002B /* AgentArtifactReferenceCursor.swift in Sources */,
 				C7AF10000000000000000005 /* AgentChatArtifactGalleryBuilder.swift in Sources */,
 				C7AF10000000000000000001 /* AgentChatArtifactIndex.swift in Sources */,
 					C7A52E000000000000000002 /* AgentChatEndedTranscriptListabilityCache.swift in Sources */,
@@ -9663,20 +9868,32 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C7A531000000000000000002 /* AgentChatObservationHandle.swift in Sources */,
 				C7A532000000000000000002 /* AgentChatObservationInFlight.swift in Sources */,
 				C7A530000000000000000002 /* AgentChatObservationScope.swift in Sources */,
+				C7A85870000000000000000A /* AgentChatObservedWorkingDirectoryResolver.swift in Sources */,
+				A8587F000000000000000031 /* AgentChatSessionRecencyIndex.swift in Sources */,
 					ACA7C4A70000000000000001 /* AgentChatSessionRecord.swift in Sources */,
 					C7A52D100000000000000012 /* AgentChatSessionRegistry+ChildRuns.swift in Sources */,
 					C8711A000000000000000002 /* AgentChatSessionRegistry+CodexRolloutFiles.swift in Sources */,
 					C7A52D100000000000000002 /* AgentChatSessionRegistry+Lifecycle.swift in Sources */,
 					C7A52D200000000000000002 /* AgentChatSessionRegistry+LiveAgentPID.swift in Sources */,
 					C7A52D000000000000000002 /* AgentChatSessionRegistry+ObserveScan.swift in Sources */,
-					ACA7C4A70000000000000007 /* AgentChatSessionRegistry.swift in Sources */,
+				ACA7C4A70000000000000007 /* AgentChatSessionRegistry.swift in Sources */,
 				C0DE71A00000000000000001 /* AgentChatThemeSync.swift in Sources */,
+				A8587F000000000000000032 /* AgentChatTranscriptBoundedLineIterator.swift in Sources */,
+				A8587F000000000000000034 /* AgentChatTranscriptBoundedLineSequence.swift in Sources */,
+				A8610B000000000000000002 /* AgentChatTranscriptIncrementalLineBuffer.swift in Sources */,
+				C7A858700000000000000006 /* AgentChatTranscriptInitialTailReader.swift in Sources */,
+				A8610D000000000000000003 /* AgentChatTranscriptInitialTailSnapshot.swift in Sources */,
+				A8587F000000000000000011 /* AgentChatTranscriptReader.swift in Sources */,
 				ACA7C4A70000000000000005 /* AgentChatTranscriptResolver.swift in Sources */,
 				992300019923000199230008 /* AgentChatTranscriptResumeIntentRecorder.swift in Sources */,
+				A85870000000000000000023 /* AgentChatTranscriptService+ArtifactCapture.swift in Sources */,
 				A1B2C3D4E5F60718293A4B5D /* AgentChatTranscriptService+ArtifactSession.swift in Sources */,
+				C7A85870000000000000000D /* AgentChatTranscriptService+Resolution.swift in Sources */,
 				C7A52F000000000000000002 /* AgentChatTranscriptService+Wire.swift in Sources */,
 				ACA7C4A7000000000000000B /* AgentChatTranscriptService.swift in Sources */,
+				A8587F000000000000000021 /* AgentChatTranscriptSlice.swift in Sources */,
 				ACA7C4A70000000000000009 /* AgentChatTranscriptTailer.swift in Sources */,
+				C7A858700000000000000008 /* AgentChatWorkingDirectoryAuthority.swift in Sources */,
 					C0A710A10000000000000002 /* AgentCursorPointerView.swift in Sources */,
 				79390005AA11BB22CC33DD05 /* AgentDeliveryTargetResolution.swift in Sources */,
 				A9F200000000000000000001 /* AgentExecutableResolver.swift in Sources */,
@@ -9777,6 +9994,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				804100000000000000000009 /* AppDelegate+AdjacentNavigationShortcut.swift in Sources */,
 				C0DE45AC0000000000000001 /* AppDelegate+AgentChat.swift in Sources */,
 				C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources */,
+				A8587000000000000000003D /* AppDelegate+Artifacts.swift in Sources */,
 				986900010000000000000001 /* AppDelegate+BrowserActionRouting.swift in Sources */,
 				D35A00000000000000000001 /* AppDelegate+BrowserDesignMode.swift in Sources */,
 				C4A570010000000000000001 /* AppDelegate+CanvasShortcutRouting.swift in Sources */,
@@ -9826,6 +10044,17 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A5001621 /* AppleScriptSupport.swift in Sources */,
 				A5001A02A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift in Sources */,
 				A5001A00A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift in Sources */,
+				A85870000000000000000067 /* ArtifactHTMLPreviewDocument.swift in Sources */,
+				A8610D000000000000000005 /* ArtifactHTMLPreviewNavigationPolicy.swift in Sources */,
+				A8610D000000000000000007 /* ArtifactHTMLPreviewWebViewFactory.swift in Sources */,
+				A8610D00000000000000000B /* ArtifactSidebarBinding.swift in Sources */,
+				A85870000000000000000071 /* ArtifactSidebarFileAccess.swift in Sources */,
+				A85870000000000000000031 /* ArtifactSidebarPanelView.swift in Sources */,
+				A85870000000000000000033 /* ArtifactSidebarRowActions.swift in Sources */,
+				A85870000000000000000035 /* ArtifactSidebarRowView.swift in Sources */,
+				A8587000000000000000006B /* ArtifactSidebarSearchField.swift in Sources */,
+				A8587000000000000000006D /* ArtifactSidebarSearchFieldView.swift in Sources */,
+				A85870000000000000000037 /* ArtifactSidebarThumbnailView.swift in Sources */,
 				961300000000000000000003 /* AttributedString+SidebarRowLinks.swift in Sources */,
 					D9FEC58D5BACCF76459F1BBE /* AuthEnvironment.swift in Sources */,
 					C0DE35860000000000000001 /* BackgroundWorkspacePrimeCoordinator.swift in Sources */,
@@ -9949,6 +10178,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C67540060000000000000001 /* BrowserPanel+PDFDocumentActions.swift in Sources */,
 				B424PWAD000000000000PW01 /* BrowserPanel+PrewarmedWebViewAdoption.swift in Sources */,
 				A5001402 /* BrowserPanel.swift in Sources */,
+				A8610D000000000000000009 /* BrowserPanelContentMode.swift in Sources */,
 				B1F0C0090000000000000001 /* BrowserPanelDeveloperToolsLifecycle.swift in Sources */,
 				C62530010000000000000001 /* BrowserPanelReloadMode.swift in Sources */,
 				A5001404 /* BrowserPanelView.swift in Sources */,
@@ -10117,6 +10347,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C0DE43000000000000000003 /* CmuxSurfaceTabBarBuiltInAction+Codable.swift in Sources */,
 				C10D00030000000000000003 /* CmuxSurfaceTabBarBuiltInAction.swift in Sources */,
 				0A1107110000000000000016 /* CmuxTaskManagerCodingAgentDefinition+BuiltIns.swift in Sources */,
+				A8610C000000000000000002 /* CmuxTaskManagerCodingAgentDefinition.swift in Sources */,
 				906901000000000000000004 /* CmuxTaskManagerMemoryAttribution.swift in Sources */,
 				906901000000000000000006 /* CmuxTaskManagerMemoryGroup.swift in Sources */,
 				90690100000000000000000C /* CmuxTaskManagerMemoryGroupAttribution.swift in Sources */,
@@ -10199,6 +10430,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				3023A1003023A1003023A100 /* ConfigSource.swift in Sources */,
 				D1F0A01100000000000000B1 /* ConnectivityInvalidationSubscriberCoordinator.swift in Sources */,
 				C0DE43000000000000000005 /* ContentView+AgentChatCommandPalette.swift in Sources */,
+				A8587000000000000000003F /* ContentView+Artifacts.swift in Sources */,
 				C0DEA7710000000000000001 /* ContentView+AuthCommandPalette.swift in Sources */,
 				CA52E0010000000000000000 /* ContentView+CanvasCommandPalette.swift in Sources */,
 				C51A720000000000000001A1 /* ContentView+CommandPaletteSurfaceMetadata.swift in Sources */,
@@ -10658,6 +10890,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D7769000000000000000000F /* NotificationsPopoverMetrics.swift in Sources */,
 				D77690000000000000000007 /* NotificationsPopoverResizeHandle.swift in Sources */,
 				D77690000000000000000009 /* NotificationsPopoverResizeView.swift in Sources */,
+				A86100000000000000000002 /* NSEvent+RightSidebarKeyboardNavigation.swift in Sources */,
+				A85870000000000000000043 /* NSView+RightSidebarKeyboardFocus.swift in Sources */,
 				D36090020000000000000001 /* NSWindow+CmuxPeerWindow.swift in Sources */,
 				C67540090000000000000001 /* OmnibarAddressButtonStyle.swift in Sources */,
 				A5001670 /* OneShotTerminalLauncherStore.swift in Sources */,
@@ -10849,7 +11083,11 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C7C5FAF2145342F395DB4C40 /* RestoredAgentLifecycleCoordinator.swift in Sources */,
 				B7F9A600B7F9A600B7F9A600 /* RightSidebarChromeGeometryReporting.swift in Sources */,
 				B7F9A604B7F9A604B7F9A604 /* RightSidebarChromeStyle.swift in Sources */,
+				A86100000000000000000004 /* RightSidebarDisclosureAction.swift in Sources */,
+				A8587000000000000000003B /* RightSidebarKeyboardFocusBridge.swift in Sources */,
+				A85870000000000000000041 /* RightSidebarKeyboardFocusView.swift in Sources */,
 				B37A00000000000000000003 /* RightSidebarMode+Availability.swift in Sources */,
+				A85870000000000000000039 /* RightSidebarMode.swift in Sources */,
 				46814000000000000000000D /* RightSidebarModeShortcutEntry.swift in Sources */,
 				468110000000000000000005 /* RightSidebarModeShortcutMatcher.swift in Sources */,
 				FE003103 /* RightSidebarPanelView.swift in Sources */,
@@ -11609,6 +11847,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C3744E030000000000000002 /* AgentPIDProcessIdentity.swift in Sources */,
 				89930002AABBCCDDEEFF0002 /* AgentProcessBindingResolution.swift in Sources */,
 				394139F275D94FB49356E9C7 /* AgentSurfaceResumeBindingClearOutcome.swift in Sources */,
+				A85870000000000000000047 /* ArtifactCLIArguments.swift in Sources */,
 				805500000000000000000004 /* BrowserValueTextFormatter.swift in Sources */,
 				89930005AABBCCDDEEFF0001 /* ClaudeHookSessionStore+SupersededCleanup.swift in Sources */,
 				89930004AABBCCDDEEFF0001 /* ClaudeHookSessionStoreFile.swift in Sources */,
@@ -11628,6 +11867,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C6711A050000000000000001 /* CMUXCLI+AgentHookRestoreEvidence.swift in Sources */,
 				A77A000AA1B2C3D4E5F60001 /* CMUXCLI+AgentJournalEmission.swift in Sources */,
 				B9000068A1B2C3D4E5F60719 /* CMUXCLI+AmpExtension.swift in Sources */,
+				A85870000000000000000011 /* CMUXCLI+Artifacts.swift in Sources */,
 				6D9C51AB30A64B1ABC819142 /* CMUXCLI+AutoNaming.swift in Sources */,
 				6D9C51AB30A64B1ABC81914A /* CMUXCLI+AutoNamingDispatch.swift in Sources */,
 				6D9C51AB30A64B1ABC819143 /* CMUXCLI+AutoNamingGenericHooks.swift in Sources */,
@@ -11660,6 +11900,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				906902000000000000000002 /* CMUXCLI+MemoryAttribution.swift in Sources */,
 				812600000000000000000005 /* CMUXCLI+MoshTerminalTransport.swift in Sources */,
 				D7AB0000000000000000000D /* CMUXCLI+MoveTabToNewWorkspace.swift in Sources */,
+				A85870000000000000000055 /* CMUXCLI+Notes.swift in Sources */,
 				B9000072A1B2C3D4E5F60719 /* CMUXCLI+OmpExtension.swift in Sources */,
 				C08672010000000000000005 /* CMUXCLI+PiCompactedFeed.swift in Sources */,
 				C05555010000000000000001 /* CMUXCLI+PiExtension.swift in Sources */,
@@ -11668,7 +11909,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C08672010000000000000001 /* CMUXCLI+PiExtensionSourceDispatch.swift in Sources */,
 						C05555010000000000000005 /* CMUXCLI+PiExtensionSourcePart1.swift in Sources */,
 						C05555010000000000000007 /* CMUXCLI+PiExtensionSourcePart2.swift in Sources */,
-					B9000054A1B2C3D4E5F60719 /* CMUXCLI+Process.swift in Sources */,
+						B9000054A1B2C3D4E5F60719 /* CMUXCLI+Process.swift in Sources */,
+				A85870000000000000000057 /* CMUXCLI+ProjectFiles.swift in Sources */,
 				C73660010000000000000001 /* CMUXCLI+RemotePTYErrors.swift in Sources */,
 					REE0CA0000000000000000C2 /* CMUXCLI+Remotes.swift in Sources */,
 				925800000000000000000002 /* CMUXCLI+Restore.swift in Sources */,
@@ -11712,6 +11954,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				CC0033E15A1B2C3D4E5F0101 /* CMUXCLI+VMTransfer.swift in Sources */,
 				CC0033E15A1B2C3D4E5F0020 /* CMUXCLI+VMTui.swift in Sources */,
 				06CC2F6C1340C7424D1C7E0A /* CMUXCLI+WorkspaceTodo.swift in Sources */,
+				A8610C000000000000000004 /* CmuxTaskManagerCodingAgentDefinition+BuiltIns.swift in Sources */,
+				A8610C000000000000000003 /* CmuxTaskManagerCodingAgentDefinition.swift in Sources */,
 				918100000000000000000051 /* CodexHookFailureCandidate.swift in Sources */,
 				918100000000000000000041 /* CodexHookFailureSummary.swift in Sources */,
 				918100000000000000000061 /* CodexHookUserInputCandidate.swift in Sources */,
@@ -11733,6 +11977,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A5FB1308 /* JSONCObjectEditor+Remove.swift in Sources */,
 				A5FB1312 /* JSONCObjectEditor+Set.swift in Sources */,
 				C0DEF0B10000000000000003 /* JSONCParser.swift in Sources */,
+				A85870000000000000000059 /* NoteCLIArguments.swift in Sources */,
 						C08672010000000000000007 /* PiCompactedFeedEventExpander.swift in Sources */,
 				835000000000000000000002 /* RemoteInitialCommandBootstrap.swift in Sources */,
 				B9000028A1B2C3D4E5F60719 /* RemoteInteractiveShellBootstrapBuilder.swift in Sources */,
@@ -11831,6 +12076,11 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			files = (
 				A11CE0010000000000000001 /* AboutLicensesResourceTests.swift in Sources */,
 				A5C01700000000000000000F /* AccountSignInModelTests.swift in Sources */,
+				A85870000000000000000053 /* AgentArtifactAutomaticPathBoundTests.swift in Sources */,
+				A85870000000000000000049 /* AgentArtifactCaptureCoordinatorTests.swift in Sources */,
+				A85870000000000000000063 /* AgentArtifactCaptureCoordinatorTestStore.swift in Sources */,
+				C7A858700000000000000002 /* AgentArtifactProjectAuthorityTests.swift in Sources */,
+				A8587000000000000000004D /* AgentChatArtifactIndexSafetyTests.swift in Sources */,
 				5FAC71D5AC71D5AC71D50001 /* AgentChatChildRunTests.swift in Sources */,
 				C7A540000000000000000002 /* AgentChatFallbackTranscriptResolutionCoordinatorTests.swift in Sources */,
 				99230001992300019923000C /* AgentChatResumeIntentRecorder.swift in Sources */,
@@ -11840,6 +12090,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C7A51E000000000000000002 /* AgentChatSessionRegistryLifecycleTests.swift in Sources */,
 				C7A51D100000000000000002 /* AgentChatSessionRegistryObservationReviewRegressionTests.swift in Sources */,
 				C7A51D000000000000000002 /* AgentChatSessionRegistryObservationTests.swift in Sources */,
+				C7A85870000000000000000B /* AgentChatTranscriptResolutionReviewTests.swift in Sources */,
+				C7A858700000000000000004 /* AgentChatTranscriptTailerBoundedReadTests.swift in Sources */,
 				93800001AA11BB22CC33EE01 /* AgentDeliveryTTYBindingTests.swift in Sources */,
 				A9E020000000000000000005 /* AgentExecutableResolverTests.swift in Sources */,
 				8740E0018740E0018740E001 /* AgentHibernationEvaluationSchedulingTests.swift in Sources */,
@@ -11894,6 +12146,11 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A11EAA000000000000000000 /* AppearanceSettingsTests.swift in Sources */,
 				C8046FF15781CC7E4F8EAEA6 /* AppHostWindowReleaseGuardTests.swift in Sources */,
 				A7206E010000000000000001 /* AppIconAppearanceObserverTests.swift in Sources */,
+				A8610D00000000000000000D /* ArtifactCLIIntegrationTests.swift in Sources */,
+				A85870000000000000000051 /* ArtifactCLITerminalSafetyTests.swift in Sources */,
+				A85870000000000000000065 /* ArtifactHTMLPreviewSecurityTests.swift in Sources */,
+				A8610D00000000000000000F /* ArtifactRightSidebarModeTests.swift in Sources */,
+				A85870000000000000000069 /* ArtifactRuntimeLifecycleTests.swift in Sources */,
 				A47E00010000000000000001 /* AuthEnvironmentTests.swift in Sources */,
 				AA9457BF0000000000000001 /* AutoNamingClaudeArgumentsTests.swift in Sources */,
 				FF068325E8A04E51A30AE9BA /* AutoNamingCodexAdapterTests.swift in Sources */,
@@ -12211,6 +12468,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 					7490A0017490A0017490A001 /* MemoryPressureMonitorTests.swift in Sources */,
 				606500010000000000000001 /* MenuBarOnlyActivationPolicyTests.swift in Sources */,
 					C0DE70520000000000000002 /* MenuBarProfilingLauncherTests.swift in Sources */,
+				A8587000000000000000004F /* MobileChatArtifactAuthorizationSnapshotTests.swift in Sources */,
 				6AA2F2E8BEB19ED6B8E125DB /* MobileHostAuthorizationTests.swift in Sources */,
 				C1A071000000000000000002 /* MobileHostConnectionEventLaneTests.swift in Sources */,
 				C1A071000000000000000003 /* MobileHostConnectionLifecycleTests.swift in Sources */,
@@ -12235,6 +12493,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				596100000000000000000001 /* NativeNotificationFallbackCommandTests.swift in Sources */,
 				D5EB22366F37AB2B52CD4B2A /* NewMachineModelTests.swift in Sources */,
 				A5FB1400 /* NewWorkspaceMenuModelTests.swift in Sources */,
+				A85870000000000000000061 /* NoteCLIIntegrationTests.swift in Sources */,
 				734F49D37E543DD01C2F4FEF /* NotificationAndMenuBarTests.swift in Sources */,
 				D7AB00000000000000B021 /* NotificationDismissSyncTests.swift in Sources */,
 				C0DEFEE50000000000000001 /* NotificationFeedHistoryTests.swift in Sources */,
@@ -13053,6 +13312,10 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/Shared/CmuxAgentChat;
 		};
+		A85870000000000000000001 /* XCLocalSwiftPackageReference "CmuxArtifacts" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxArtifacts;
+		};
 		C0DE45000000000000000003 /* XCLocalSwiftPackageReference "CmuxExtensionKit" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxExtensionKit;
@@ -13242,6 +13505,11 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			isa = XCSwiftPackageProductDependency;
 			package = AC4A6E7C4A700001AC4A0003 /* XCLocalSwiftPackageReference "CmuxAgentChat" */;
 			productName = CmuxAgentChat;
+		};
+		A85870000000000000000002 /* CmuxArtifacts */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A85870000000000000000001 /* XCLocalSwiftPackageReference "CmuxArtifacts" */;
+			productName = CmuxArtifacts;
 		};
 		C0DE45000000000000000002 /* CmuxExtensionKit */ = {
 			isa = XCSwiftPackageProductDependency;

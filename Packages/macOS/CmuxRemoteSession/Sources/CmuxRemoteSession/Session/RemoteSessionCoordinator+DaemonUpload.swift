@@ -155,6 +155,7 @@ extension RemoteSessionCoordinator {
         exec 3<&-
         exec 4>&-
         if [ -n "$watchdog_pid" ]; then kill "$watchdog_pid" 2>/dev/null || true; wait "$watchdog_pid" 2>/dev/null || true; fi
+        rmdir "$lock_path" 2>/dev/null || true
         watchdog_pid=
         if [ "$cat_status" -ne 0 ]; then rm -f -- "$temp_path"; fi
         trap - HUP INT TERM

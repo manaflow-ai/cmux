@@ -162,24 +162,10 @@ public struct ChatArtifactGalleryRowEligibility: Sendable {
         }
     }
 
-    /// Counts immediate children for a gallery directory row without sorting
-    /// or per-entry metadata, stopping at the shared listing limit so the cost
-    /// never scales past the cap for large folders.
+    /// Counts immediate non-symlink children for a gallery directory row.
+    /// The reader uses one bounded low-level directory pass and resolves only
+    /// entries whose filesystem type is unknown.
     private func directoryChildCount(path: String) -> (count: Int, isCapped: Bool)? {
-        guard let enumerator = FileManager.default.enumerator(
-            at: URL(fileURLWithPath: path, isDirectory: true),
-            includingPropertiesForKeys: [],
-            options: [.skipsSubdirectoryDescendants]
-        ) else {
-            return nil
-        }
-        var count = 0
-        while enumerator.nextObject() != nil {
-            count += 1
-            if count > ArtifactByteReader.maximumDirectoryEntryCount {
-                return (count: ArtifactByteReader.maximumDirectoryEntryCount, isCapped: true)
-            }
-        }
-        return (count: count, isCapped: false)
+        try? ArtifactByteReader().countImmediateChildren(path: path)
     }
 }

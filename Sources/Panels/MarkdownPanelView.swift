@@ -81,6 +81,7 @@ struct MarkdownPanelView: View {
                 panelId: panel.id,
                 workspaceId: panel.workspaceId,
                 filePath: panel.filePath,
+                allowedLocalResourceRoot: panel.artifactResourceRoot,
                 fontSize: panel.fontSize,
                 fontFamily: panel.fontFamily,
                 maxContentWidth: panel.maxContentWidth,
@@ -134,14 +135,14 @@ struct MarkdownPanelView: View {
                 PanelHeaderIconButton(
                     systemName: "arrow.counterclockwise",
                     label: String(localized: "markdown.toolbar.revert", defaultValue: "Revert"),
-                    isDisabled: !panel.isDirty,
+                    isDisabled: panel.isReadOnly || !panel.isDirty,
                     action: { panel.loadTextContent() }
                 )
 
                 PanelHeaderIconButton(
                     systemName: "square.and.arrow.down",
                     label: String(localized: "markdown.toolbar.save", defaultValue: "Save"),
-                    isDisabled: !panel.isDirty || panel.isSaving,
+                    isDisabled: panel.isReadOnly || !panel.isDirty || panel.isSaving,
                     action: { panel.saveTextContent() }
                 )
             }
@@ -161,7 +162,7 @@ struct MarkdownPanelView: View {
             )
             FileExternalOpenMenu(
                 fileURL: URL(fileURLWithPath: panel.filePath),
-                isDisabled: panel.isFileUnavailable
+                isDisabled: panel.isFileUnavailable || panel.isReadOnly
             )
         }
     }

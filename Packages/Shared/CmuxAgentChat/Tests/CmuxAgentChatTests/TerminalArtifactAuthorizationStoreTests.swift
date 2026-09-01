@@ -84,6 +84,38 @@ struct TerminalArtifactAuthorizationStoreTests {
         ).isEmpty)
     }
 
+    @Test("retained scan identities follow the newest generation")
+    func retainedIdentities() async {
+        let store = TerminalArtifactAuthorizationStore(
+            timeToLive: 60,
+            maximumGenerationsPerSurface: 2
+        )
+        let first = ChatArtifactFileIdentity(device: 1, inode: 10)
+        let second = ChatArtifactFileIdentity(device: 1, inode: 11)
+        let start = Date(timeIntervalSince1970: 100)
+
+        await store.record(
+            workspaceID: "workspace",
+            surfaceID: "surface",
+            canonicalPaths: ["/safe/report.txt"],
+            identities: ["/safe/report.txt": first],
+            at: start
+        )
+        await store.record(
+            workspaceID: "workspace",
+            surfaceID: "surface",
+            canonicalPaths: ["/safe/report.txt"],
+            identities: ["/safe/report.txt": second],
+            at: start.addingTimeInterval(1)
+        )
+
+        #expect(await store.authorizedIdentities(
+            workspaceID: "workspace",
+            surfaceID: "surface",
+            at: start.addingTimeInterval(2)
+        ) == ["/safe/report.txt": second])
+    }
+
     private struct FakeResolver: ChatArtifactScope.FileSystemResolving {
         let files: Set<String>
 

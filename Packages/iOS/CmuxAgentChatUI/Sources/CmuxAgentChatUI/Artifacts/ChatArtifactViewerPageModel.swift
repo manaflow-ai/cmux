@@ -57,6 +57,7 @@ final class ChatArtifactViewerPageModel {
             hasFileActions: viewerModel.hasFileActions,
             isTextFile: viewerModel.isTextFile,
             canCopyContents: viewerModel.canCopyContents,
+            canSaveToArtifacts: viewerModel.canSaveToArtifacts,
             retryGeneration: retryGeneration,
             topRequestID: topRequestID,
             bottomRequestID: bottomRequestID,

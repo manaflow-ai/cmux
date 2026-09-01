@@ -53,7 +53,7 @@ struct ClaudeTranscriptParserTests {
         uuid: String = "r-1",
         toolUseID: String,
         content: Any,
-        isError: Bool? = nil,
+        isError: Bool? = false,
         timestamp: String = "2026-06-12T05:08:23.317Z"
     ) -> String {
         var block: [String: Any] = ["tool_use_id": toolUseID, "type": "tool_result", "content": content]
@@ -164,6 +164,128 @@ struct ClaudeTranscriptParserTests {
         #expect(grep.output == "No matches")
     }
 
+    @Test("Claude results without positive success evidence fail closed")
+    func unknownResultFailsClosed() {
+        let lines = [
+            assistantLine(blocks: [
+                ["type": "tool_use", "id": "toolu_unknown", "name": "Grep",
+                 "input": ["pattern": "needle", "path": "/tmp"]],
+            ]),
+            toolResultLine(toolUseID: "toolu_unknown", content: "Failure: unexpected failure text", isError: nil),
+        ]
+        let result = parser.parse(lines: lines, startingSeq: 0)
+        guard case .toolUse(let tool) = result.messages[0].kind else {
+            Issue.record("expected toolUse kind")
+            return
+        }
+        #expect(tool.status == .failed)
+    }
+
+    @Test("Successful tool output mentioning errors remains successful")
+    func successfulOutputMentioningErrors() {
+        let lines = [
+            assistantLine(blocks: [
+                ["type": "tool_use", "id": "toolu_grep", "name": "Grep",
+                 "input": ["pattern": "error", "path": "/tmp"]],
+            ]),
+            toolResultLine(
+                toolUseID: "toolu_grep",
+                content: "Found 2 error records",
+                isError: nil
+            ),
+        ]
+        let result = parser.parse(lines: lines, startingSeq: 0)
+        guard case .toolUse(let tool) = result.messages[0].kind else {
+            Issue.record("expected toolUse kind")
+            return
+        }
+        #expect(tool.status == .succeeded)
+    }
+
+    @Test("Provider failure prefixes remain failure evidence")
+    func failurePrefixWithDetails() {
+        let lines = [
+            assistantLine(blocks: [
+                ["type": "tool_use", "id": "toolu_failed", "name": "Grep",
+                 "input": ["pattern": "needle", "path": "/tmp"]],
+            ]),
+            toolResultLine(
+                toolUseID: "toolu_failed",
+                content: "Error: permission denied\nadditional details",
+                isError: nil
+            ),
+        ]
+        let result = parser.parse(lines: lines, startingSeq: 0)
+        guard case .toolUse(let tool) = result.messages[0].kind else {
+            Issue.record("expected toolUse kind")
+            return
+        }
+        #expect(tool.status == .failed)
+    }
+
+    @Test("A standalone failure marker remains failure evidence")
+    func standaloneFailureMarker() {
+        let lines = [
+            assistantLine(blocks: [
+                ["type": "tool_use", "id": "toolu_failed_marker", "name": "Grep",
+                 "input": ["pattern": "needle", "path": "/tmp"]],
+            ]),
+            toolResultLine(
+                toolUseID: "toolu_failed_marker",
+                content: "Failed",
+                isError: nil
+            ),
+        ]
+        let result = parser.parse(lines: lines, startingSeq: 0)
+        guard case .toolUse(let tool) = result.messages[0].kind else {
+            Issue.record("expected toolUse kind")
+            return
+        }
+        #expect(tool.status == .failed)
+    }
+
+    @Test("A failure marker with trailing details remains failure evidence")
+    func failureMarkerWithTrailingDetails() {
+        let lines = [
+            assistantLine(blocks: [
+                ["type": "tool_use", "id": "toolu_failed_details", "name": "Grep",
+                 "input": ["pattern": "needle", "path": "/tmp"]],
+            ]),
+            toolResultLine(
+                toolUseID: "toolu_failed_details",
+                content: "Failed\ncontext from the tool",
+                isError: nil
+            ),
+        ]
+        let result = parser.parse(lines: lines, startingSeq: 0)
+        guard case .toolUse(let tool) = result.messages[0].kind else {
+            Issue.record("expected toolUse kind")
+            return
+        }
+        #expect(tool.status == .failed)
+    }
+
+    @Test("Explicit Claude success status wins over the No matches display heuristic")
+    func explicitSuccessStatusWinsForNoMatches() {
+        let lines = [
+            assistantLine(blocks: [
+                ["type": "tool_use", "id": "toolu_grep_success", "name": "Grep",
+                 "input": ["pattern": "needle", "path": "/tmp"]],
+            ]),
+            toolResultLine(
+                toolUseID: "toolu_grep_success",
+                content: "No matches",
+                isError: false
+            ),
+        ]
+        let result = parser.parse(lines: lines, startingSeq: 0)
+        guard case .toolUse(let tool) = result.messages[0].kind else {
+            Issue.record("expected toolUse kind")
+            return
+        }
+        #expect(tool.status == .succeeded)
+    }
+
     @Test("Edit tool maps to a fileEdit with line counts and a -/+ diff")
     func editTool() {
         let line = assistantLine(blocks: [
@@ -199,7 +321,7 @@ struct ClaudeTranscriptParserTests {
         #expect(edit.deletions == 0)
     }
 
-    @Test("MultiEdit and NotebookEdit map to file edits for Created provenance")
+    @Test("MultiEdit and NotebookEdit remain referenced until results arrive")
     func multiEditAndNotebookEditTools() {
         let line = assistantLine(blocks: [
             ["type": "tool_use", "id": "toolu_multi", "name": "MultiEdit",
@@ -224,7 +346,7 @@ struct ClaudeTranscriptParserTests {
             "/repo/Sources/App.swift",
             "/repo/Notes/Research.ipynb",
         ])
-        #expect(artifacts.allSatisfy { $0.provenance == .created })
+        #expect(artifacts.allSatisfy { $0.provenance == .referenced })
     }
 
     @Test("unknown tools map to a generic toolUse with summary and input detail")
@@ -243,6 +365,50 @@ struct ClaudeTranscriptParserTests {
         #expect(tool.inputDetail?.contains("file_path") == true)
         #expect(tool.status == .running)
         #expect(tool.referencedPaths == ["/repo/main.swift"])
+    }
+
+    @Test("Structured tool path extraction is bounded while preserving first-seen order")
+    func structuredToolPathsAreBounded() {
+        let paths = (0..<2_000).map { "/repo/structured-\($0).txt" }
+        let line = assistantLine(blocks: [
+            ["type": "tool_use", "id": "toolu_many_paths", "name": "Read",
+             "input": ["path": paths]],
+        ])
+        let result = parser.parse(lines: [line], startingSeq: 0)
+        guard case .toolUse(let tool) = result.messages[0].kind else {
+            Issue.record("expected toolUse kind")
+            return
+        }
+        #expect(tool.referencedPaths?.count == ChatToolReferencedPathExtractor.maximumPathCount)
+        #expect(tool.referencedPaths?.first == paths.first)
+        #expect(tool.referencedPaths?.last == paths[ChatToolReferencedPathExtractor.maximumPathCount - 1])
+    }
+
+    @Test("Structured tool path extraction rejects oversized paths and caps aggregate bytes")
+    func structuredToolPathsRespectByteBounds() {
+        let oversized = "/repo/" + String(repeating: "x", count: ChatToolReferencedPathExtractor.maximumPathBytes)
+            + "-too-long"
+        let paths = [oversized] + (0..<200).map {
+            "/repo/byte-bound-\($0)-" + String(repeating: "y", count: 500)
+        }
+        let line = assistantLine(blocks: [
+            ["type": "tool_use", "id": "toolu_byte_bound", "name": "Read",
+             "input": ["path": paths]],
+        ])
+        let result = parser.parse(lines: [line], startingSeq: 0)
+        guard case .toolUse(let tool) = result.messages[0].kind else {
+            Issue.record("expected toolUse kind")
+            return
+        }
+        let retained = tool.referencedPaths ?? []
+        #expect(!retained.contains(oversized))
+        #expect(retained.allSatisfy {
+            $0.utf8.count <= ChatToolReferencedPathExtractor.maximumPathBytes
+        })
+        #expect(
+            retained.reduce(0) { $0 + $1.utf8.count }
+                <= ChatToolReferencedPathExtractor.maximumAggregatePathBytes
+        )
     }
 
     @Test("ChatToolUse wire coding preserves optional referenced paths and decodes legacy payloads")
@@ -412,12 +578,12 @@ struct ClaudeTranscriptParserTests {
 
         #expect(result.messages.isEmpty)
         #expect(result.artifactReferences == [
-            ChatArtifactTranscriptReference(path: "/tmp/app.js", provenance: .created, seq: 7),
-            ChatArtifactTranscriptReference(path: "/tmp/app.c", provenance: .created, seq: 7),
+            ChatArtifactTranscriptReference(path: "/tmp/app.js", provenance: .referenced, seq: 7),
+            ChatArtifactTranscriptReference(path: "/tmp/app.c", provenance: .referenced, seq: 7),
         ])
     }
 
-    @Test("only a sidechain mutation target is created")
+    @Test("only a sidechain mutation target remains pending authorization")
     func sidechainMutationTargetProvenance() {
         let line = sidechainAssistantLine(blocks: [[
             "type": "tool_use", "id": "toolu_write", "name": "Write",
@@ -427,7 +593,7 @@ struct ClaudeTranscriptParserTests {
 
         #expect(result.messages.isEmpty)
         #expect(result.artifactReferences == [
-            ChatArtifactTranscriptReference(path: "/tmp/a", provenance: .created, seq: 9),
+            ChatArtifactTranscriptReference(path: "/tmp/a", provenance: .referenced, seq: 9),
             ChatArtifactTranscriptReference(path: "/tmp/b", provenance: .referenced, seq: 9),
         ])
     }

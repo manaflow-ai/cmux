@@ -26,6 +26,7 @@ extension MobileShellComposite {
         "mobile.chat.artifact.fetch",
         "mobile.chat.artifact.gallery",
         "mobile.chat.artifact.list",
+        "mobile.chat.artifact.save",
         "mobile.chat.artifact.stat",
         "mobile.chat.artifact.thumbnail",
         "mobile.chat.history",

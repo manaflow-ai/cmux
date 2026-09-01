@@ -35,7 +35,8 @@ struct MobileHostRPCExecutionContext: Sendable {
     let artifactTransfers: MobileHostIrohArtifactTransferRegistry?
 
     func issueArtifactTransfer(
-        canonicalPath: String
+        canonicalPath: String,
+        authorizedIdentity: ChatArtifactFileIdentity
     ) async throws -> ChatArtifactLaneDescriptor {
         guard case let .irohAdmission(peer) = authorization,
               let artifactTransfers else {
@@ -43,6 +44,7 @@ struct MobileHostRPCExecutionContext: Sendable {
         }
         return try await artifactTransfers.issue(
             canonicalPath: canonicalPath,
+            authorizedIdentity: authorizedIdentity,
             peer: peer
         )
     }

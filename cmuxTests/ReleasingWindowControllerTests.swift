@@ -57,6 +57,23 @@ struct ReleasingWindowControllerTests {
         #expect(controller.window === secondWindow)
     }
 
+    @Test
+    func contentViewWindowReferenceDoesNotRetainWindow() {
+        var window: NSWindow? = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 120, height: 80),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        weak var weakWindow = window
+        let reference = WeakWindowReference(window)
+
+        window = nil
+
+        #expect(weakWindow == nil)
+        #expect(reference.window == nil)
+    }
+
     private final class CountingReleasingWindowController: ReleasingWindowController {
         var makeWindowCount = 0
         var closedWindowIdentifiers: [String] = []

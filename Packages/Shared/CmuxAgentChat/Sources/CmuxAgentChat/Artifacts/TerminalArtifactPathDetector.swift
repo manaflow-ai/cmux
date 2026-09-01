@@ -5,6 +5,8 @@ import Foundation
 /// Input may include VT escape sequences, such as those emitted by a terminal
 /// screen export. Escape sequences are removed before path tokenization.
 public struct TerminalArtifactPathDetector: Sendable {
+    /// Maximum distinct paths returned by one bounded extraction pass.
+    public static let defaultMaximumPathCount = 1_024
     private enum EscapeScanState {
         case text
         case escape
@@ -30,11 +32,39 @@ public struct TerminalArtifactPathDetector: Sendable {
 
     /// Returns unique path-like tokens in display order.
     public func paths(in text: String) -> [String] {
+        paths(in: text, maximumCount: Self.defaultMaximumPathCount)
+    }
+
+    /// Returns at most `maximumCount` unique path-like tokens in display order.
+    /// The bounded pass stops before retaining an unbounded token array.
+    public func paths(in text: String, maximumCount: Int) -> [String] {
+        let limit = max(0, maximumCount)
+        guard limit > 0 else { return [] }
         var seen: Set<String> = []
         var result: [String] = []
-        for token in tokens(in: text) where !seen.contains(token.path) {
-            seen.insert(token.path)
-            result.append(token.path)
+        let stripped = Self.strippingTerminalEscapeSequences(text)
+        var tokenStart: String.Index?
+        var index = stripped.startIndex
+        while index < stripped.endIndex, result.count < limit {
+            let character = stripped[index]
+            if character.isWhitespace {
+                if let tokenStart {
+                    let candidate = Self.trimmedCandidate(String(stripped[tokenStart..<index]))
+                    if Self.isPathLike(candidate), seen.insert(candidate).inserted {
+                        result.append(candidate)
+                    }
+                }
+                tokenStart = nil
+            } else if tokenStart == nil {
+                tokenStart = index
+            }
+            index = stripped.index(after: index)
+        }
+        if result.count < limit, let tokenStart {
+            let candidate = Self.trimmedCandidate(String(stripped[tokenStart..<stripped.endIndex]))
+            if Self.isPathLike(candidate), seen.insert(candidate).inserted {
+                result.append(candidate)
+            }
         }
         return result
     }

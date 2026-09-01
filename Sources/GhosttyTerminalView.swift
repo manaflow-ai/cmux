@@ -4913,6 +4913,30 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         invalidateTextInputCoordinates()
     }
 
+    /// Resolves renderer visibility from AppKit state and the headless display-test contract.
+    static func effectiveRendererWindowVisibility(
+        occlusionVisible: Bool,
+        isVisible: Bool,
+        displayUITestRenderingEnabled: Bool
+    ) -> Bool {
+        occlusionVisible || (displayUITestRenderingEnabled && isVisible)
+    }
+
+    private func effectiveRendererWindowVisibility(for window: NSWindow) -> Bool {
+#if DEBUG
+        let displayUITestRenderingEnabled = ProcessInfo.processInfo.environment[
+            "CMUX_UI_TEST_DISPLAY_RENDER_STATS"
+        ] == "1"
+#else
+        let displayUITestRenderingEnabled = false
+#endif
+        return Self.effectiveRendererWindowVisibility(
+            occlusionVisible: window.occlusionState.contains(.visible),
+            isVisible: window.isVisible,
+            displayUITestRenderingEnabled: displayUITestRenderingEnabled
+        )
+    }
+
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         if GhosttyApp.shared.backgroundLogEnabled {
@@ -12689,7 +12713,15 @@ final class GhosttySurfaceScrollView: NSView {
         } ?? (0, 0, Self.contentsKey(for: surfaceView.layer))
         let inWindow = (window != nil)
         let windowIsKey = window?.isKeyWindow ?? false
-        let windowOcclusionVisible = (window?.occlusionState.contains(.visible) ?? false) || (window?.isKeyWindow ?? false)
+        let windowOcclusionVisible = window.map {
+            GhosttyNSView.effectiveRendererWindowVisibility(
+                occlusionVisible: $0.occlusionState.contains(.visible),
+                isVisible: $0.isVisible,
+                displayUITestRenderingEnabled: ProcessInfo.processInfo.environment[
+                    "CMUX_UI_TEST_DISPLAY_RENDER_STATS"
+                ] == "1"
+            )
+        } ?? false
         let appIsActive = NSApp.isActive
         let fr = window?.firstResponder as? NSView
         let isFirstResponder = fr == surfaceView || (fr?.isDescendant(of: surfaceView) ?? false)

@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxArtifacts
 import AppKit
 import Bonsplit
 import Combine
@@ -1186,17 +1187,23 @@ enum FilePreviewTextLoader {
     }
 
     @concurrent
-    static func load(url: URL) async -> Result {
-        loadSynchronously(url: url)
+    static func load(
+        url: URL,
+        maximumBytes: UInt64 = maximumLoadedTextBytes
+    ) async -> Result {
+        loadSynchronously(url: url, maximumBytes: maximumBytes)
     }
 
-    static func loadSynchronously(url: URL) -> Result {
+    static func loadSynchronously(
+        url: URL,
+        maximumBytes: UInt64 = maximumLoadedTextBytes
+    ) -> Result {
         guard FileManager.default.fileExists(atPath: url.path) else {
             return .unavailable
         }
         guard let fileSize = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
               fileSize >= 0,
-              UInt64(fileSize) <= maximumLoadedTextBytes else {
+              UInt64(fileSize) <= maximumBytes else {
             return .unavailable
         }
 
@@ -1252,6 +1259,10 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .filePreview
     let filePath: String
+    private var artifactFile: ArtifactSidebarFileAccess.OpenedFile?
+    private var artifactReadCopyURL: URL?
+    private var artifactPreviewTask: Task<Void, Never>?
+    private var artifactPreviewToken = UUID()
     private(set) var workspaceId: UUID
     @Published private(set) var displayTitle: String
     @Published private(set) var displayIcon: String?
@@ -1288,6 +1299,27 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         URL(fileURLWithPath: filePath)
     }
 
+    /// Descriptor-backed URL used for reads of an artifact sidebar file.
+    var readURL: URL {
+        if let artifactReadCopyURL {
+            return artifactReadCopyURL
+        }
+        // A refresh removes the materialized copy before asynchronously
+        // revalidating the pathname. Keep in-process readers on the original
+        // descriptor during that interval; falling back to `fileURL` would
+        // reopen a path that may have been replaced or symlinked elsewhere.
+        if let artifactFile {
+            return artifactFile.readURL
+        }
+        return fileURL
+    }
+
+    /// Artifact sidebar previews are read-only so a replaced pathname cannot
+    /// redirect a save operation outside the validated inode.
+    var isReadOnly: Bool {
+        artifactFile != nil
+    }
+
     var previewRevision: Int {
         previewRevisionState.value
     }
@@ -1296,6 +1328,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         workspaceId: UUID,
         filePath: String,
         startFileWatcher: Bool = true,
+        artifactFile: ArtifactSidebarFileAccess.OpenedFile? = nil,
         textLoader: @escaping @Sendable (URL) async -> FilePreviewTextLoader.Result = { url in
             await FilePreviewTextLoader.load(url: url)
         },
@@ -1310,6 +1343,9 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         self.id = UUID()
         self.workspaceId = workspaceId
         self.filePath = filePath
+        self.artifactFile = artifactFile
+        self.artifactReadCopyURL = nil
+        self.artifactPreviewTask = nil
         self.displayTitle = URL(fileURLWithPath: filePath).lastPathComponent
         self.textLoader = textLoader
         self.textSaver = textSaver
@@ -1324,10 +1360,111 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         self.lastObservedFileState = .capture(path: filePath)
 
         prepareContentForPreviewMode()
-        resolvePreviewModeIfNeeded(for: fileURL)
-        if startFileWatcher {
+        if artifactFile != nil {
+            startArtifactPreviewLoad()
+        }
+        if artifactFile == nil {
+            resolvePreviewModeIfNeeded(for: fileURL)
+        }
+        if startFileWatcher, artifactFile == nil {
             startWatchingForFileChanges()
         }
+    }
+
+    @discardableResult
+    private func startArtifactPreviewLoad(force: Bool = false) -> Task<Void, Never>? {
+        let artifactRoot = artifactFile?.artifactRoot
+        if force {
+            artifactPreviewToken = UUID()
+            artifactPreviewTask?.cancel()
+            artifactPreviewTask = nil
+            textLoadCoordinator.cancel()
+            if let artifactReadCopyURL {
+                try? FileManager.default.removeItem(at: artifactReadCopyURL)
+                self.artifactReadCopyURL = nil
+            }
+            // Native preview sessions may receive an unrelated SwiftUI update
+            // while the replacement copy is being staged. Hide them until the
+            // newly validated copy is ready so they cannot consume a stale URL.
+            isFileUnavailable = true
+            guard artifactRoot != nil else {
+                isFileUnavailable = true
+                return nil
+            }
+        }
+        guard let artifactFile, artifactPreviewTask == nil else {
+            return artifactPreviewTask
+        }
+        let token = artifactPreviewToken
+        let sourcePath = filePath
+        let task = Task { @MainActor [weak self, artifactFile, artifactRoot, force] in
+            let fileForPreview: ArtifactSidebarFileAccess.OpenedFile?
+            if force {
+                guard let artifactRoot else {
+                    if let self, self.artifactPreviewToken == token {
+                        self.artifactPreviewTask = nil
+                        self.isFileUnavailable = true
+                    }
+                    return
+                }
+                fileForPreview = await ArtifactSidebarFileAccess().openedFileAsync(
+                    for: URL(fileURLWithPath: sourcePath),
+                    artifactRoot: artifactRoot
+                )
+                guard let self,
+                      self.artifactPreviewToken == token else {
+                    return
+                }
+                guard let fileForPreview else {
+                    self.artifactPreviewTask = nil
+                    self.isFileUnavailable = true
+                    return
+                }
+                self.artifactFile = fileForPreview
+            } else {
+                fileForPreview = artifactFile
+            }
+            guard let fileForPreview else {
+                if let self, self.artifactPreviewToken == token {
+                    self.artifactPreviewTask = nil
+                    self.isFileUnavailable = true
+                }
+                return
+            }
+            let temporaryURL = await fileForPreview.makeTemporaryPreviewURLAsync(
+                maximumBytes: ArtifactCaptureConfiguration.defaultValue.maximumFileBytes
+            )
+            guard let self else {
+                if let temporaryURL {
+                    try? FileManager.default.removeItem(at: temporaryURL)
+                }
+                return
+            }
+            guard self.artifactPreviewToken == token else {
+                if let temporaryURL {
+                    try? FileManager.default.removeItem(at: temporaryURL)
+                }
+                return
+            }
+            self.artifactPreviewTask = nil
+            guard !self.isClosed else {
+                if let temporaryURL {
+                    try? FileManager.default.removeItem(at: temporaryURL)
+                }
+                return
+            }
+            guard let temporaryURL else {
+                self.isFileUnavailable = true
+                return
+            }
+            self.artifactReadCopyURL = temporaryURL
+            self.previewRevisionState.increment()
+            if let contentTask = self.prepareContentForPreviewMode() {
+                await contentTask.value
+            }
+        }
+        artifactPreviewTask = task
+        return task
     }
 
     func focus() {
@@ -1340,12 +1477,19 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     func close() {
         isClosed = true
+        artifactPreviewToken = UUID()
+        artifactPreviewTask?.cancel()
+        artifactPreviewTask = nil
         unbindTabMetadata()
         stopWatchingForFileChanges()
         textLoadCoordinator.cancel()
         modeLoadCoordinator.cancel()
         nativeViewSessions.closeAll()
         textView = nil
+        if let artifactReadCopyURL {
+            try? FileManager.default.removeItem(at: artifactReadCopyURL)
+            self.artifactReadCopyURL = nil
+        }
         focusCoordinator.unregisterAll()
     }
 
@@ -1456,6 +1600,9 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     @discardableResult
     func reloadFromDisk() -> Task<Void, Never> {
         lastObservedFileState = .capture(path: filePath)
+        if artifactFile != nil {
+            return startArtifactPreviewLoad(force: true) ?? Task {}
+        }
         let fileURL = fileURL
         let modeResolver = modeResolver
 
@@ -1490,10 +1637,15 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     @discardableResult
     private func prepareContentForPreviewMode() -> Task<Void, Never>? {
+        if artifactFile != nil, artifactReadCopyURL == nil {
+            isFileUnavailable = true
+            return nil
+        }
         if previewMode == .text {
             return loadTextContent(replacingDirtyContent: false)
         } else {
-            isFileUnavailable = !FileManager.default.fileExists(atPath: filePath)
+            isFileUnavailable = artifactFile == nil
+                && !FileManager.default.fileExists(atPath: filePath)
             return nil
         }
     }
@@ -1531,7 +1683,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         guard previewMode == .text else {
             return Task {}
         }
-        let fileURL = fileURL
+        let fileURL = readURL
         let textLoader = textLoader
 
         return textLoadCoordinator.submit(load: {
@@ -1576,6 +1728,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     @discardableResult
     func saveTextContent() -> Task<Void, Never>? {
         guard previewMode == .text else { return nil }
+        guard !isReadOnly else { return nil }
         guard !isSaving else { return nil }
         let currentContent = textView?.string ?? textContent
         guard currentContent != originalTextContent else {
@@ -1590,7 +1743,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         textContent = currentContent
         isSaving = true
         activeSaveGeneration = generation
-        let fileURL = fileURL
+        let fileURL = readURL
         let encoding = textEncoding
         let textSaver = textSaver
         return Task { [weak self, currentContent, fileURL, encoding, generation, textSaver] in
@@ -1696,14 +1849,14 @@ struct FilePreviewPanelView: View {
                 PanelHeaderIconButton(
                     systemName: "arrow.counterclockwise",
                     label: String(localized: "filePreview.revert", defaultValue: "Revert"),
-                    isDisabled: !panel.isDirty,
+                    isDisabled: panel.isReadOnly || !panel.isDirty,
                     action: { panel.loadTextContent() }
                 )
 
                 PanelHeaderIconButton(
                     systemName: "square.and.arrow.down",
                     label: String(localized: "filePreview.save", defaultValue: "Save"),
-                    isDisabled: !panel.isDirty || panel.isSaving,
+                    isDisabled: panel.isReadOnly || !panel.isDirty || panel.isSaving,
                     action: { panel.saveTextContent() }
                 )
             }
@@ -1714,7 +1867,10 @@ struct FilePreviewPanelView: View {
                 action: { panel.reloadFromDisk() }
             )
 
-            FileExternalOpenMenu(fileURL: panel.fileURL, isDisabled: panel.isFileUnavailable)
+            FileExternalOpenMenu(
+                fileURL: panel.fileURL,
+                isDisabled: panel.isFileUnavailable || panel.isReadOnly
+            )
         }
     }
 

@@ -8,6 +8,8 @@ public protocol ChatEventSource: Sendable {
     var supportsArtifacts: Bool { get }
     /// Whether this source supports recursive artifact folder browsing.
     var supportsArtifactFolders: Bool { get }
+    /// Whether referenced files can be persisted into project-local Artifacts.
+    var supportsArtifactSave: Bool { get }
 
     /// Fetches a page of transcript history for a session.
     ///
@@ -117,6 +119,9 @@ public protocol ChatEventSource: Sendable {
     ///   - path: Absolute Mac host directory path.
     /// - Returns: A capped directory listing.
     func artifactList(sessionID: String, path: String) async throws -> ChatArtifactDirectoryListing
+
+    /// Persists a referenced file into the session project's artifact store.
+    func artifactSave(sessionID: String, path: String) async throws -> ChatArtifactSaveResult
 }
 
 public extension ChatEventSource {
@@ -125,6 +130,9 @@ public extension ChatEventSource {
 
     /// Unsupported-by-default recursive artifact folder capability.
     var supportsArtifactFolders: Bool { false }
+
+    /// Unsupported-by-default project artifact-save capability.
+    var supportsArtifactSave: Bool { false }
 
     /// Unsupported-by-default artifact stat implementation.
     func artifactStat(sessionID: String, path: String) async throws -> ChatArtifactStat {
@@ -169,6 +177,11 @@ public extension ChatEventSource {
 
     /// Unsupported-by-default artifact directory-list implementation.
     func artifactList(sessionID: String, path: String) async throws -> ChatArtifactDirectoryListing {
+        throw ChatArtifactError.unsupported
+    }
+
+    /// Unsupported-by-default project artifact-save implementation.
+    func artifactSave(sessionID: String, path: String) async throws -> ChatArtifactSaveResult {
         throw ChatArtifactError.unsupported
     }
 }

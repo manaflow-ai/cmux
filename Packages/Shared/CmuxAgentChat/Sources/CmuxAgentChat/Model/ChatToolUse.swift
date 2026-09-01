@@ -32,6 +32,9 @@ public struct ChatToolUse: Sendable, Equatable, Codable {
     /// Absolute paths referenced by the tool input, when the parser can infer them.
     public let referencedPaths: [String]?
 
+    /// Source-specific mutation authorization, independent of display completion.
+    public let artifactMutationAuthorized: Bool?
+
     /// Creates a tool invocation record.
     ///
     /// - Parameters:
@@ -41,13 +44,15 @@ public struct ChatToolUse: Sendable, Equatable, Codable {
     ///   - output: Result text, when one has arrived.
     ///   - status: Lifecycle state of the invocation.
     ///   - referencedPaths: Absolute paths referenced by the tool input.
+    ///   - artifactMutationAuthorized: Whether the result positively proved a mutation.
     public init(
         toolName: String,
         summary: String,
         inputDetail: String? = nil,
         output: String? = nil,
         status: Status = .running,
-        referencedPaths: [String]? = nil
+        referencedPaths: [String]? = nil,
+        artifactMutationAuthorized: Bool? = nil
     ) {
         self.toolName = toolName
         self.summary = summary
@@ -55,6 +60,7 @@ public struct ChatToolUse: Sendable, Equatable, Codable {
         self.output = output
         self.status = status
         self.referencedPaths = referencedPaths
+        self.artifactMutationAuthorized = artifactMutationAuthorized
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -64,5 +70,6 @@ public struct ChatToolUse: Sendable, Equatable, Codable {
         case output
         case status
         case referencedPaths = "referenced_paths"
+        case artifactMutationAuthorized = "artifact_mutation_authorized"
     }
 }

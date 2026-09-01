@@ -5,6 +5,7 @@ public actor TerminalArtifactAuthorizationStore {
     private typealias Generation = (
         ordinal: UInt64,
         canonicalPaths: Set<String>,
+        identities: [String: ChatArtifactFileIdentity],
         expiresAt: Date
     )
 
@@ -37,11 +38,14 @@ public actor TerminalArtifactAuthorizationStore {
     ///   - workspaceID: Workspace containing the scanned terminal.
     ///   - surfaceID: Scanned terminal surface.
     ///   - canonicalPaths: Canonical paths returned to the listing client.
+    ///   - identities: Device/inode identities captured with the scan. Paths
+    ///     without an identity are retained for display but cannot be read.
     ///   - date: Scan completion time.
     public func record(
         workspaceID: String,
         surfaceID: String,
         canonicalPaths: Set<String>,
+        identities: [String: ChatArtifactFileIdentity] = [:],
         at date: Date = Date()
     ) {
         purgeExpired(at: date)
@@ -52,6 +56,7 @@ public actor TerminalArtifactAuthorizationStore {
         generations.append((
             ordinal: ordinal,
             canonicalPaths: canonicalPaths,
+            identities: identities.filter { canonicalPaths.contains($0.key) },
             expiresAt: date.addingTimeInterval(timeToLive)
         ))
         if generations.count > maximumGenerationsPerSurface {
@@ -81,6 +86,37 @@ public actor TerminalArtifactAuthorizationStore {
         return generations.reduce(into: Set<String>()) { result, generation in
             result.formUnion(generation.canonicalPaths)
         }
+    }
+
+    /// Returns unexpired path identities from retained terminal scans.
+    ///
+    /// Newer generations win when the same canonical path appears more than
+    /// once. Callers must carry the returned identity into every later read.
+    ///
+    /// - Parameters:
+    ///   - workspaceID: Workspace containing the terminal.
+    ///   - surfaceID: Terminal surface being read.
+    ///   - date: Read time used for deterministic expiry.
+    /// - Returns: Device/inode identities keyed by canonical path.
+    public func authorizedIdentities(
+        workspaceID: String,
+        surfaceID: String,
+        at date: Date = Date()
+    ) -> [String: ChatArtifactFileIdentity] {
+        purgeExpired(at: date)
+        let key = surfaceKey(workspaceID: workspaceID, surfaceID: surfaceID)
+        guard let generations = generationsBySurfaceKey[key] else { return [:] }
+        lastAccessBySurfaceKey[key] = date
+        var seenPaths: Set<String> = []
+        var result: [String: ChatArtifactFileIdentity] = [:]
+        for generation in generations.reversed() {
+            for path in generation.canonicalPaths where seenPaths.insert(path).inserted {
+                if let identity = generation.identities[path] {
+                    result[path] = identity
+                }
+            }
+        }
+        return result
     }
 
     private func surfaceKey(workspaceID: String, surfaceID: String) -> String {

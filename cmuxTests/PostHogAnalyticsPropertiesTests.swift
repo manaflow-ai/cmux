@@ -272,6 +272,31 @@ struct PostHogAnalyticsPropertiesTests {
     }
 
     @MainActor
+    @Test("Artifacts feature flag accepts a remote enable and kill switch")
+    func artifactsFeatureFlagKillSwitch() throws {
+        let suiteName = "cmux.feature.flags.artifacts.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var remoteValues: [String: Any] = [:]
+        let flags = CmuxFeatureFlags(defaults: defaults) { key in
+            remoteValues[key]
+        }
+        let flag = CmuxFeatureFlags.artifactsFlag
+
+        remoteValues[flag.key] = true
+        flags.applyLoadedFlags()
+        #expect(flags.isArtifactsEnabled)
+
+        remoteValues[flag.key] = false
+        flags.applyLoadedFlags()
+        #expect(!flags.isArtifactsEnabled)
+
+        let offlineRelaunch = CmuxFeatureFlags(defaults: defaults) { _ in nil }
+        #expect(!offlineRelaunch.isArtifactsEnabled)
+    }
+
+    @MainActor
     @Test("successful control-plane omission clears a cached remote disable")
     func successfulControlPlaneOmissionClearsCachedDisable() async throws {
         let flag = try #require(CmuxFeatureFlags.allFlags.first {

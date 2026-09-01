@@ -12,6 +12,8 @@ struct AgentChatTranscriptResolver: Sendable {
     private let claudeConfigRoot: URL
     /// Config-dir root for Codex (`$CODEX_HOME` or `~/.codex`).
     private let codexConfigRoot: URL
+    /// Maximum directory entries visited by a Codex fallback scan.
+    private let maximumCodexFallbackEntries: Int
 
     /// Creates a resolver.
     ///
@@ -27,9 +29,12 @@ struct AgentChatTranscriptResolver: Sendable {
     ///   - homeDirectory: Injectable home directory for tests.
     ///   - environment: Injectable environment for tests; defaults to the
     ///     process environment. Empty/whitespace override values are ignored.
+    ///   - maximumCodexFallbackEntries: Maximum entries visited by a Codex
+    ///     sessions-tree fallback before returning no match.
     init(
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        maximumCodexFallbackEntries: Int = 20_000
     ) {
         self.homeDirectory = homeDirectory
         self.claudeConfigRoot = Self.configRoot(
@@ -40,6 +45,7 @@ struct AgentChatTranscriptResolver: Sendable {
             override: environment["CODEX_HOME"],
             default: homeDirectory.appendingPathComponent(".codex", isDirectory: true)
         )
+        self.maximumCodexFallbackEntries = max(0, maximumCodexFallbackEntries)
     }
 
     /// Resolves a config-dir root from an env override, expanding a leading `~`,
@@ -54,14 +60,31 @@ struct AgentChatTranscriptResolver: Sendable {
 
     /// Resolves the transcript path for a session.
     ///
-    /// - Parameters:
-    ///   - record: The session's registry record.
-    ///   - deadline: Optional deadline for recursive fallback enumeration.
+    /// - Parameter record: The session's registry record.
     /// - Returns: An existing transcript path, or `nil` when none is found.
+    /// - Throws: ``CancellationError`` when the calling task is canceled.
+    func transcriptPath(for record: AgentChatSessionRecord) throws -> String? {
+        try transcriptPathThrowing(for: record, deadline: nil)
+    }
+
+    /// Resolves a transcript path for the bounded fallback coordinator.
+    /// Cancellation and deadline expiry are reported as no result so the
+    /// coordinator can discard an abandoned attempt without caching failure.
     func transcriptPath(
         for record: AgentChatSessionRecord,
-        deadline: ContinuousClock.Instant? = nil
+        deadline: ContinuousClock.Instant?
     ) -> String? {
+        try? transcriptPathThrowing(for: record, deadline: deadline)
+    }
+
+    private func transcriptPathThrowing(
+        for record: AgentChatSessionRecord,
+        deadline: ContinuousClock.Instant?
+    ) throws -> String? {
+        try Task.checkCancellation()
+        if let deadline, ContinuousClock.now >= deadline {
+            return nil
+        }
         if let recorded = recordedTranscriptPath(for: record) {
             return recorded
         }
@@ -69,7 +92,7 @@ struct AgentChatTranscriptResolver: Sendable {
         case .claude:
             return claudeFallbackPath(record: record)
         case .codex:
-            return codexFallbackPath(sessionID: record.sessionID, deadline: deadline)
+            return try codexFallbackPath(sessionID: record.sessionID, deadline: deadline)
         case .other:
             return nil
         }
@@ -115,8 +138,8 @@ struct AgentChatTranscriptResolver: Sendable {
     private func codexFallbackPath(
         sessionID: String,
         deadline: ContinuousClock.Instant?
-    ) -> String? {
-        guard !Task.isCancelled else { return nil }
+    ) throws -> String? {
+        try Task.checkCancellation()
         if let deadline, ContinuousClock.now >= deadline {
             return nil
         }
@@ -129,11 +152,14 @@ struct AgentChatTranscriptResolver: Sendable {
             options: [.skipsHiddenFiles]
         ) else { return nil }
         let needle = sessionID.lowercased()
+        var visitedEntryCount = 0
         for case let url as URL in enumerator {
-            guard !Task.isCancelled else { return nil }
+            try Task.checkCancellation()
             if let deadline, ContinuousClock.now >= deadline {
                 return nil
             }
+            guard visitedEntryCount < maximumCodexFallbackEntries else { return nil }
+            visitedEntryCount += 1
             guard url.pathExtension == "jsonl" else { continue }
             if url.lastPathComponent.lowercased().contains(needle) {
                 return url.path

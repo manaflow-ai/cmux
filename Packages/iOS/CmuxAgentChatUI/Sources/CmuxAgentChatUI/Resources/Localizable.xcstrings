@@ -4131,6 +4131,74 @@
         }
       }
     },
+    "chat.artifact.folder.incomplete_empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This folder could not be listed completely. Tap Retry to try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このフォルダを完全に一覧表示できませんでした。再試行をタップしてください。"
+          }
+        }
+      }
+    },
+    "chat.artifact.folder.empty_refresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New items may appear after a refresh."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新すると新しい項目が表示されることがあります。"
+          }
+        }
+      }
+    },
+    "chat.artifact.folder.changed_while_loading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some items changed while loading. Pull to refresh."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み込み中に一部の項目が変更されました。引っ張って更新してください。"
+          }
+        }
+      }
+    },
+    "chat.artifact.folder.changed_empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some items changed while loading. Tap Retry to try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み込み中に一部の項目が変更されました。再試行をタップしてください。"
+          }
+        }
+      }
+    },
     "chat.artifact.folder.load_failed": {
       "extractionState": "manual",
       "localizations": {
@@ -7844,6 +7912,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "⋯ 잘림"
+          }
+        }
+      }
+    },
+    "chat.artifact.save_to_artifacts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save to cmux Artifacts"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux アーティファクトに保存"
+          }
+        }
+      }
+    },
+    "chat.artifact.save_to_artifacts_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t save this file to cmux Artifacts."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルを cmux アーティファクトに保存できませんでした。"
+          }
+        }
+      }
+    },
+    "chat.artifact.saved_to_artifacts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved as %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ として保存しました"
           }
         }
       }

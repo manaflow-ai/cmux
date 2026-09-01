@@ -144,6 +144,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let taskAttachmentCapability = "task.attachments.v1"
     static let taskModelsCapability = "task.models.v1"
     static let chatArtifactCapability = "chat.artifact.v1"
+    static let chatArtifactSaveCapability = "chat.artifact.save.v1"
     static let chatArtifactGalleryCapability = "chat.artifact.gallery.v1"
     static let terminalArtifactCapability = "terminal.artifact.v1"
     static let panelArtifactCapability = "panel.artifact.v1"

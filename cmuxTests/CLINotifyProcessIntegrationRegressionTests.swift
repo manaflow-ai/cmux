@@ -1,5 +1,6 @@
 import XCTest
 import Darwin
+import CmuxArtifacts
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -3461,6 +3462,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             ("sessions-alias", ["right-sidebar", "sessions"], "right_sidebar set sessions", "OK", ""),
             ("feed-alias", ["right-sidebar", "feed"], "right_sidebar set feed", "OK", ""),
             ("dock-alias", ["right-sidebar", "dock"], "right_sidebar set dock", "OK", ""),
+            ("set-artifacts", ["right-sidebar", "set", "artifacts"], "right_sidebar set artifacts", "OK", ""),
+            ("artifacts-alias", ["right-sidebar", "artifacts"], "right_sidebar set artifacts", "OK", ""),
             ("mode", ["right-sidebar", "mode"], "right_sidebar mode", #"{"visible":true,"mode":"find"}"#, #"{"visible":true,"mode":"find"}"# + "\n"),
         ]
 
@@ -3496,6 +3499,130 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertTrue(result.stderr.isEmpty, "\(item.name): \(result.stderr)")
             XCTAssertEqual(state.commands, [item.expectedCommand], item.name)
         }
+    }
+
+    func testNoteRemovalRequiresExplicitConfirmation() async throws {
+        let root = try makeTemporaryDirectory(prefix: "cmux-note-rm-confirm")
+        let git = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: ["git", "-C", root.path, "init", "--quiet"],
+            environment: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"],
+            timeout: 10
+        )
+        XCTAssertFalse(git.timedOut, git.stderr)
+        XCTAssertEqual(git.status, 0, git.stderr)
+
+        let environment = [
+            "PATH": ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin",
+            "HOME": root.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+            "CMUX_WORKSPACE_ID": "workspace:note-confirm",
+            "CLAUDE_CODE_SESSION_ID": "note-confirm-session",
+        ]
+        let cliPath = try bundledCLIPath()
+        let write = runProcess(
+            executablePath: cliPath,
+            arguments: ["note", "write", "draft", "--text", "hello", "--project", root.path],
+            environment: environment,
+            timeout: 10
+        )
+        XCTAssertFalse(write.timedOut, write.stderr)
+        XCTAssertEqual(write.status, 0, write.stderr)
+        let repository = LocalArtifactRepository()
+        let writtenNotes = try await repository.listNotes(projectRoot: root)
+        XCTAssertEqual(writtenNotes.count, 1)
+
+        let unconfirmedRemoval = runProcess(
+            executablePath: cliPath,
+            arguments: ["note", "rm", "draft", "--project", root.path],
+            environment: environment,
+            timeout: 10
+        )
+        XCTAssertFalse(unconfirmedRemoval.timedOut, unconfirmedRemoval.stderr)
+        XCTAssertEqual(unconfirmedRemoval.status, 2, unconfirmedRemoval.stderr)
+        XCTAssertTrue(unconfirmedRemoval.stderr.contains("--yes"), unconfirmedRemoval.stderr)
+        let preservedNotes = try await repository.listNotes(projectRoot: root)
+        XCTAssertEqual(preservedNotes.count, 1)
+
+        let confirmedRemoval = runProcess(
+            executablePath: cliPath,
+            arguments: ["note", "rm", "draft", "--project", root.path, "--yes"],
+            environment: environment,
+            timeout: 10
+        )
+        XCTAssertFalse(confirmedRemoval.timedOut, confirmedRemoval.stderr)
+        XCTAssertEqual(confirmedRemoval.status, 0, confirmedRemoval.stderr)
+        let remainingNotes = try await repository.listNotes(projectRoot: root)
+        XCTAssertTrue(remainingNotes.isEmpty)
+    }
+
+    func testProjectFileWriteRejectsUnboundProviderFallback() throws {
+        let root = try makeTemporaryDirectory(prefix: "cmux-project-file-identity")
+        let cliPath = try bundledCLIPath()
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["note", "write", "draft", "--text", "hello", "--project", root.path],
+            environment: [
+                "PATH": ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin",
+                "HOME": root.path,
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+                "CMUX_AGENT_LAUNCH_KIND": "codex",
+            ],
+            timeout: 10
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 2, result.stderr)
+        XCTAssertTrue(result.stderr.contains("session identity"), result.stderr)
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: root.appendingPathComponent(".cmux").path
+            )
+        )
+    }
+
+    func testProjectFileCleanupBoundsRetainedEditorCopies() throws {
+        let directory = try makeTemporaryDirectory(prefix: "cmux-project-file-cleanup")
+        for index in 0..<300 {
+            let url = directory.appendingPathComponent("cmux-project-file-\(index).md")
+            XCTAssertTrue(
+                FileManager.default.createFile(
+                    atPath: url.path,
+                    contents: Data("copy-\(index)".utf8)
+                )
+            )
+            try FileManager.default.setAttributes(
+                [.modificationDate: Date(timeIntervalSinceNow: -2 * 24 * 60 * 60)],
+                ofItemAtPath: url.path
+            )
+        }
+
+        ProjectFileTemporaryCopyCleaner().cleanup(in: directory)
+
+        let copies = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+            .filter { $0.hasPrefix("cmux-project-file-") }
+        XCTAssertLessThanOrEqual(copies.count, 256)
+    }
+
+    func testProjectFileCleanupReservesSlotForZeroByteHandoff() throws {
+        let directory = try makeTemporaryDirectory(prefix: "cmux-project-file-zero-byte-cleanup")
+        for index in 0..<256 {
+            let url = directory.appendingPathComponent("cmux-project-file-zero-\(index)")
+            XCTAssertTrue(
+                FileManager.default.createFile(
+                    atPath: url.path,
+                    contents: Data()
+                )
+            )
+        }
+
+        XCTAssertFalse(
+            ProjectFileTemporaryCopyCleaner().cleanup(
+                in: directory,
+                reservingBytes: 0,
+                reservingFileCount: 1
+            ),
+            "A zero-byte handoff must still reserve one temporary-file slot"
+        )
     }
 
     func testRightSidebarInvalidCommandValidatesBeforeTargetResolution() throws {

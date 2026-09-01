@@ -89,7 +89,7 @@ extension TerminalController {
                 return TerminalArtifactWire.result(
                     TerminalArtifactScanResponse(
                         artifacts: [],
-                        galleryRowTotal: scanned.artifacts.count
+                        galleryRowTotal: scanned.response.artifacts.count
                     )
                 )
             }
@@ -119,13 +119,15 @@ extension TerminalController {
                 )
             }
         }
-        let response = await Task.detached(priority: .utility) {
+        let scanned = await Task.detached(priority: .utility) {
             context.scan(includeDirectories: includeDirectories)
         }.value
+        let response = scanned.response
         await terminalArtifactAuthorizationStore.record(
             workspaceID: context.workspaceID,
             surfaceID: context.surfaceID,
-            canonicalPaths: Set(response.artifacts.map(\.path))
+            canonicalPaths: Set(response.artifacts.map(\.path)),
+            identities: scanned.identities
         )
         return TerminalArtifactWire.result(response)
     }
@@ -139,8 +141,12 @@ extension TerminalController {
             let outcome = try await Task.detached(priority: .utility) {
                 do {
                     return TerminalArtifactStatOutcome.success(
-                        try context.authorizedStat { reader, canonicalPath in
-                            try reader.stat(path: canonicalPath)
+                        try context.authorizedStat { reader, canonicalPath, identity in
+                            try reader.stat(
+                                path: canonicalPath,
+                                authorizedCanonicalPath: canonicalPath,
+                                authorizedIdentity: identity
+                            )
                         }
                     )
                 } catch TerminalArtifactReadContext.Error.forbidden {
@@ -193,18 +199,27 @@ extension TerminalController {
                         data: nil
                     )
                 }
-                let canonicalPath = try await Task.detached(priority: .utility) {
-                    try context.authorizedRead { _, canonicalPath in canonicalPath }
+                let authorizedPath = try await Task.detached(priority: .utility) {
+                    try context.authorizedRead { _, canonicalPath, identity in
+                        (canonicalPath, identity)
+                    }
                 }.value
                 return TerminalArtifactWire.result(
                     try await executionContext.issueArtifactTransfer(
-                        canonicalPath: canonicalPath
+                        canonicalPath: authorizedPath.0,
+                        authorizedIdentity: authorizedPath.1
                     )
                 )
             }
             let chunk = try await Task.detached(priority: .utility) {
-                try context.authorizedRead { reader, canonicalPath in
-                    try reader.fetch(path: canonicalPath, offset: offset, length: length)
+                try context.authorizedRead { reader, canonicalPath, identity in
+                    try reader.fetch(
+                        path: canonicalPath,
+                        offset: offset,
+                        length: length,
+                        authorizedCanonicalPath: canonicalPath,
+                        authorizedIdentity: identity
+                    )
                 }
             }.value
             return TerminalArtifactWire.result(chunk)
@@ -239,8 +254,13 @@ extension TerminalController {
         let maxDimension = min(max(v2Int(params, "max_dimension") ?? 512, 64), 1024)
         do {
             let thumbnail = try await Task.detached(priority: .utility) {
-                try context.authorizedRead { reader, canonicalPath in
-                    try reader.thumbnail(path: canonicalPath, maxDimension: maxDimension)
+                try context.authorizedRead { reader, canonicalPath, identity in
+                    try reader.thumbnail(
+                        path: canonicalPath,
+                        maxDimension: maxDimension,
+                        authorizedCanonicalPath: canonicalPath,
+                        authorizedIdentity: identity
+                    )
                 }
             }.value
             return TerminalArtifactWire.result(thumbnail)
@@ -261,8 +281,12 @@ extension TerminalController {
         }
         do {
             let listing = try await Task.detached(priority: .utility) {
-                try context.authorizedDirectoryList { reader, canonicalPath in
-                    try reader.list(path: canonicalPath)
+                try context.authorizedDirectoryList { reader, canonicalPath, identity in
+                    try reader.list(
+                        path: canonicalPath,
+                        authorizedCanonicalPath: canonicalPath,
+                        authorizedIdentity: identity
+                    )
                 }
             }.value
             return TerminalArtifactWire.result(listing)
@@ -302,6 +326,12 @@ extension TerminalController {
                 surfaceID: surfaceID
             )
             : []
+        let scanAuthorizedIdentities = requiresPath
+            ? await terminalArtifactAuthorizationStore.authorizedIdentities(
+                workspaceID: workspaceID,
+                surfaceID: surfaceID
+            )
+            : [:]
         let directoryAccessMode = mobileArtifactDirectoryAccessMode()
         return v2MainSync { () -> TerminalArtifactContextResolution in
             guard let resolved = mobileCanonicalTerminalTarget(params: params) else {
@@ -344,6 +374,7 @@ extension TerminalController {
                 requestedPath: v2RawString(params, "path"),
                 sessionID: sessionID,
                 scanAuthorizedPaths: scanAuthorizedPaths,
+                scanAuthorizedIdentities: scanAuthorizedIdentities,
                 directoryAccessMode: directoryAccessMode
             ))
         }
@@ -448,6 +479,7 @@ private struct TerminalArtifactReadContext: Sendable {
     let requestedPath: String?
     let sessionID: String?
     private let scanAuthorizedPaths: Set<String>
+    private let scanAuthorizedIdentities: [String: ChatArtifactFileIdentity]
     private let directoryAccessMode: ChatArtifactScope.DirectoryAccessMode
 
     init(
@@ -458,6 +490,7 @@ private struct TerminalArtifactReadContext: Sendable {
         requestedPath: String?,
         sessionID: String?,
         scanAuthorizedPaths: Set<String>,
+        scanAuthorizedIdentities: [String: ChatArtifactFileIdentity],
         directoryAccessMode: ChatArtifactScope.DirectoryAccessMode
     ) {
         self.workspaceID = workspaceID
@@ -467,10 +500,13 @@ private struct TerminalArtifactReadContext: Sendable {
         self.requestedPath = requestedPath
         self.sessionID = sessionID
         self.scanAuthorizedPaths = scanAuthorizedPaths
+        self.scanAuthorizedIdentities = scanAuthorizedIdentities
         self.directoryAccessMode = directoryAccessMode
     }
 
-    func scan(includeDirectories: Bool) -> TerminalArtifactScanResponse {
+    func scan(
+        includeDirectories: Bool
+    ) -> (response: TerminalArtifactScanResponse, identities: [String: ChatArtifactFileIdentity]) {
         let reader = ArtifactByteReader()
         let scope = TerminalArtifactScope(
             terminalText: terminalText,
@@ -478,9 +514,16 @@ private struct TerminalArtifactReadContext: Sendable {
             resolver: ChatArtifactScope.FoundationResolver(),
             directoryAccessMode: directoryAccessMode
         )
+        var identities: [String: ChatArtifactFileIdentity] = [:]
         let artifacts = scope.artifactPaths(limit: 200).compactMap { path -> TerminalArtifactReference? in
             guard let stat = try? reader.stat(path: path) else { return nil }
             guard includeDirectories || !stat.isDirectory else { return nil }
+            if let identity = try? reader.identity(
+                path: path,
+                authorizedCanonicalPath: path
+            ) {
+                identities[path] = identity
+            }
             return TerminalArtifactReference(
                 path: path,
                 kind: stat.kind,
@@ -489,11 +532,14 @@ private struct TerminalArtifactReadContext: Sendable {
                 modifiedAt: stat.modifiedAt
             )
         }
-        return TerminalArtifactScanResponse(artifacts: artifacts, sessionID: sessionID)
+        return (
+            TerminalArtifactScanResponse(artifacts: artifacts, sessionID: sessionID),
+            identities
+        )
     }
 
     func authorizedRead<T>(
-        _ operation: (ArtifactByteReader, String) throws -> T
+        _ operation: (ArtifactByteReader, String, ChatArtifactFileIdentity) throws -> T
     ) throws -> T {
         guard let requestedPath else { throw Error.forbidden }
         let resolver = ChatArtifactScope.FoundationResolver()
@@ -503,7 +549,11 @@ private struct TerminalArtifactReadContext: Sendable {
             resolver: resolver
         )
         if let canonicalPath = snapshotScope.canonicalFilePath(for: requestedPath) {
-            return try operation(ArtifactByteReader(), canonicalPath)
+            let identity = try authorizedIdentity(
+                for: canonicalPath,
+                requireStored: scanAuthorizedPaths.contains(canonicalPath)
+            )
+            return try operation(ArtifactByteReader(), canonicalPath, identity)
         }
         let scope = TerminalArtifactScope(
             terminalText: terminalText,
@@ -514,13 +564,14 @@ private struct TerminalArtifactReadContext: Sendable {
         guard let canonicalPath = scope.canonicalPath(for: requestedPath) else {
             throw Error.forbidden
         }
-        return try operation(ArtifactByteReader(), canonicalPath)
+        let identity = try authorizedIdentity(for: canonicalPath)
+        return try operation(ArtifactByteReader(), canonicalPath, identity)
     }
 
     /// Stat may be answered for any path the scope would let the client list,
     /// because listing already reveals more than the directory's own metadata.
     func authorizedStat<T>(
-        _ operation: (ArtifactByteReader, String) throws -> T
+        _ operation: (ArtifactByteReader, String, ChatArtifactFileIdentity) throws -> T
     ) throws -> T {
         guard let requestedPath else { throw Error.forbidden }
         let resolver = ChatArtifactScope.FoundationResolver()
@@ -530,10 +581,18 @@ private struct TerminalArtifactReadContext: Sendable {
             resolver: resolver
         )
         if let canonicalPath = snapshotScope.canonicalFilePath(for: requestedPath) {
-            return try operation(ArtifactByteReader(), canonicalPath)
+            let identity = try authorizedIdentity(
+                for: canonicalPath,
+                requireStored: scanAuthorizedPaths.contains(canonicalPath)
+            )
+            return try operation(ArtifactByteReader(), canonicalPath, identity)
         }
         if let canonicalPath = snapshotScope.canonicalDirectoryListPath(for: requestedPath) {
-            return try operation(ArtifactByteReader(), canonicalPath)
+            let identity = try authorizedIdentity(
+                for: canonicalPath,
+                requireStored: scanAuthorizedPaths.contains(canonicalPath)
+            )
+            return try operation(ArtifactByteReader(), canonicalPath, identity)
         }
         let scope = TerminalArtifactScope(
             terminalText: terminalText,
@@ -542,12 +601,14 @@ private struct TerminalArtifactReadContext: Sendable {
             directoryAccessMode: directoryAccessMode
         )
         if let canonicalPath = scope.canonicalPath(for: requestedPath) {
-            return try operation(ArtifactByteReader(), canonicalPath)
+            let identity = try authorizedIdentity(for: canonicalPath)
+            return try operation(ArtifactByteReader(), canonicalPath, identity)
         }
         guard let canonicalPath = scope.canonicalDirectoryListPath(for: requestedPath) else {
             throw Error.forbidden
         }
-        return try operation(ArtifactByteReader(), canonicalPath)
+        let identity = try authorizedIdentity(for: canonicalPath)
+        return try operation(ArtifactByteReader(), canonicalPath, identity)
     }
 
     /// Explains why a stat authorization denied, for the DEBUG denial log.
@@ -580,7 +641,7 @@ private struct TerminalArtifactReadContext: Sendable {
     }
 
     func authorizedDirectoryList<T>(
-        _ operation: (ArtifactByteReader, String) throws -> T
+        _ operation: (ArtifactByteReader, String, ChatArtifactFileIdentity) throws -> T
     ) throws -> T {
         guard let requestedPath else { throw Error.forbidden }
         let resolver = ChatArtifactScope.FoundationResolver()
@@ -590,7 +651,11 @@ private struct TerminalArtifactReadContext: Sendable {
             resolver: resolver
         )
         if let canonicalPath = snapshotScope.canonicalDirectoryListPath(for: requestedPath) {
-            return try operation(ArtifactByteReader(), canonicalPath)
+            let identity = try authorizedIdentity(
+                for: canonicalPath,
+                requireStored: scanAuthorizedPaths.contains(canonicalPath)
+            )
+            return try operation(ArtifactByteReader(), canonicalPath, identity)
         }
         let scope = TerminalArtifactScope(
             terminalText: terminalText,
@@ -601,7 +666,22 @@ private struct TerminalArtifactReadContext: Sendable {
         guard let canonicalPath = scope.canonicalDirectoryListPath(for: requestedPath) else {
             throw Error.forbidden
         }
-        return try operation(ArtifactByteReader(), canonicalPath)
+        let identity = try authorizedIdentity(for: canonicalPath)
+        return try operation(ArtifactByteReader(), canonicalPath, identity)
+    }
+
+    private func authorizedIdentity(
+        for canonicalPath: String,
+        requireStored: Bool = false
+    ) throws -> ChatArtifactFileIdentity {
+        if let identity = scanAuthorizedIdentities[canonicalPath] {
+            return identity
+        }
+        guard !requireStored else { throw Error.forbidden }
+        return try ArtifactByteReader().identity(
+            path: canonicalPath,
+            authorizedCanonicalPath: canonicalPath
+        )
     }
 }
 

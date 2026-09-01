@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import CmuxArtifacts
 import CmuxSettings
 import Foundation
 
@@ -49,7 +50,10 @@ extension TerminalController {
             let pageSize = min(max(v2Int(params, "page_size") ?? 60, 1), 100)
             let query = v2RawString(params, "query")
             let includeDirectories = v2Bool(params, "include_directories") ?? false
-            let orderedItems = await TerminalControllerChatArtifactIndexProvider.ordering.ordered(
+            guard let service = agentChatTranscriptService else {
+                return mobileChatArtifactError(.notFound, path: "")
+            }
+            let orderedItems = await service.artifactGalleryOrderingCache.ordered(
                 indexedSession.snapshot.artifacts,
                 indexID: indexedSession.sessionID,
                 generation: indexedSession.snapshot.generation
@@ -84,19 +88,31 @@ extension TerminalController {
         guard let service = agentChatTranscriptService else {
             throw MobileChatArtifactIndexError.unavailable
         }
-        guard let record = service.sessionRecord(sessionID: sessionID) else {
-            throw MobileChatArtifactIndexError.sessionNotFound
-        }
-        guard let transcriptPath = service.resolver.transcriptPath(for: record) else {
+        let resolved: (record: AgentChatSessionRecord, path: String)
+        do {
+            guard let transcript = try await service.resolvedTranscript(sessionID: sessionID) else {
+                throw MobileChatArtifactIndexError.sessionNotFound
+            }
+            resolved = transcript
+        } catch let error as MobileChatArtifactIndexError {
+            throw error
+        } catch {
             throw MobileChatArtifactIndexError.sessionUnavailable
         }
-        let snapshot = try await TerminalControllerChatArtifactIndexProvider.shared.snapshot(
-            sessionID: record.sessionID,
-            agentKind: record.agentKind,
-            transcriptPath: transcriptPath,
-            workingDirectory: record.workingDirectory
+        let maximumFileBytes = await service.artifactCaptureCoordinator?
+            .maximumTranscriptScanBytes(for: resolved.record)
+        let snapshot = try await service.artifactIndex.snapshot(
+            sessionID: resolved.record.sessionID,
+            agentKind: resolved.record.agentKind,
+            transcriptPath: resolved.path,
+            workingDirectory: resolved.record.workingDirectory,
+            maximumFileBytes: maximumFileBytes
         )
-        return (record.sessionID, snapshot)
+        if service.observesTranscriptsForAutomaticArtifactCapture,
+           maximumFileBytes != nil {
+            service.scheduleIndexedArtifactCapture(record: resolved.record, snapshot: snapshot)
+        }
+        return (resolved.record.sessionID, snapshot)
     }
 
     /// Returns the stat-filtered count for the gallery's default landing view.
@@ -111,7 +127,8 @@ extension TerminalController {
         // the sweep is existence-only over the raw snapshot, runs off the
         // caller inside the cache actor, and concurrent misses on the same
         // (session, generation, filters) key share one computation.
-        await TerminalControllerChatArtifactIndexProvider.rowCounts.total(
+        guard let service = agentChatTranscriptService else { return 0 }
+        return await service.artifactGalleryRowCountCache.total(
             sessionID: sessionID,
             generation: generation,
             includeDirectories: includeDirectories,
@@ -127,15 +144,37 @@ extension TerminalController {
     }
 
     func v2MobileChatArtifactStat(params: [String: Any]) async -> V2CallResult {
-        let resolution = await mobileChatArtifactResolution(params: params, operation: .file)
+        let resolution = await mobileChatArtifactResolution(params: params, operation: .stat)
         guard case .success(let resolved) = resolution else {
             return resolution.failureResult
         }
         do {
             let stat = try await Task.detached {
-                try ArtifactByteReader().stat(path: resolved.canonicalPath)
+                try ArtifactByteReader().stat(
+                    path: resolved.canonicalPath,
+                    authorizedCanonicalPath: resolved.canonicalPath,
+                    authorizedIdentity: resolved.authorizedIdentity
+                )
             }.value
-            return ChatArtifactWire.result(stat)
+            let canSaveToArtifacts: Bool
+            if let context = resolved.authorizedCaptureContext,
+               let coordinator = agentChatTranscriptService?.artifactCaptureCoordinator {
+                canSaveToArtifacts = await coordinator.canSave(
+                    context: context,
+                    sourceURL: URL(fileURLWithPath: resolved.canonicalPath)
+                )
+            } else {
+                canSaveToArtifacts = false
+            }
+            return ChatArtifactWire.result(ChatArtifactStat(
+                exists: stat.exists,
+                isDirectory: stat.isDirectory,
+                size: stat.size,
+                modifiedAt: stat.modifiedAt,
+                kind: stat.kind,
+                mimeType: stat.mimeType,
+                canSaveToArtifacts: canSaveToArtifacts
+            ))
         } catch let error as ArtifactByteReader.Error {
             return mobileArtifactReadFailure(error, path: resolved.requestedPath)
         } catch {
@@ -171,12 +210,19 @@ extension TerminalController {
                 }
                 return ChatArtifactWire.result(
                     try await executionContext.issueArtifactTransfer(
-                        canonicalPath: resolved.canonicalPath
+                        canonicalPath: resolved.canonicalPath,
+                        authorizedIdentity: resolved.authorizedIdentity
                     )
                 )
             }
             let chunk = try await Task.detached {
-                try ArtifactByteReader().fetch(path: resolved.canonicalPath, offset: offset, length: length)
+                try ArtifactByteReader().fetch(
+                    path: resolved.canonicalPath,
+                    offset: offset,
+                    length: length,
+                    authorizedCanonicalPath: resolved.canonicalPath,
+                    authorizedIdentity: resolved.authorizedIdentity
+                )
             }.value
             return ChatArtifactWire.result(chunk)
         } catch let error as MobileHostIrohArtifactTransferRegistry.Error {
@@ -220,7 +266,12 @@ extension TerminalController {
         let maxDimension = min(max(v2Int(params, "max_dimension") ?? 512, 64), 1024)
         do {
             let thumbnail = try await Task.detached {
-                try ArtifactByteReader().thumbnail(path: resolved.canonicalPath, maxDimension: maxDimension)
+                try ArtifactByteReader().thumbnail(
+                    path: resolved.canonicalPath,
+                    maxDimension: maxDimension,
+                    authorizedCanonicalPath: resolved.canonicalPath,
+                    authorizedIdentity: resolved.authorizedIdentity
+                )
             }.value
             return ChatArtifactWire.result(thumbnail)
         } catch let error as ArtifactByteReader.Error {
@@ -237,7 +288,11 @@ extension TerminalController {
         }
         do {
             let listing = try await Task.detached {
-                try ArtifactByteReader().list(path: resolved.canonicalPath)
+                try ArtifactByteReader().list(
+                    path: resolved.canonicalPath,
+                    authorizedCanonicalPath: resolved.canonicalPath,
+                    authorizedIdentity: resolved.authorizedIdentity
+                )
             }.value
             return ChatArtifactWire.result(listing)
         } catch let error as ArtifactByteReader.Error {
@@ -250,26 +305,74 @@ extension TerminalController {
         }
     }
 
-    private enum ChatArtifactOperation {
+    func v2MobileChatArtifactSave(params: [String: Any]) async -> V2CallResult {
+        let resolution = await mobileChatArtifactResolution(params: params, operation: .save)
+        guard case .success(let resolved) = resolution else {
+            return resolution.failureResult
+        }
+        return await v2MobileChatArtifactSave(resolved: resolved)
+    }
+
+    func v2MobileChatArtifactSave(resolved: ResolvedChatArtifact) async -> V2CallResult {
+        guard let service = agentChatTranscriptService else {
+            return mobileChatArtifactError(.notFound, path: resolved.requestedPath)
+        }
+        do {
+            guard let captureContext = resolved.authorizedCaptureContext else {
+                throw AgentArtifactCaptureSaveError.rejected
+            }
+            let result = try await service.saveArtifact(
+                context: captureContext,
+                sourceURL: URL(fileURLWithPath: resolved.canonicalPath, isDirectory: false),
+                expectedCanonicalPath: resolved.canonicalPath,
+                expectedIdentity: resolved.authorizedIdentity
+            )
+            return ChatArtifactWire.result(result)
+        } catch {
+            return .err(
+                code: "artifact_save_failed",
+                message: String(
+                    localized: "mobile.chat.artifact.error.saveFailed",
+                    defaultValue: "The file could not be saved to this project’s Artifacts."
+                ),
+                data: ["path": resolved.requestedPath]
+            )
+        }
+    }
+
+    enum ChatArtifactOperation: Sendable {
+        case stat
         case file
         case list
+        case save
 
         var indexOperation: AgentChatArtifactIndex.Operation {
             switch self {
-            case .file:
+            case .stat, .file, .save:
                 return .file
             case .list:
                 return .list
             }
         }
+
+        var resolvesCaptureProject: Bool {
+            switch self {
+            case .stat, .save:
+                return true
+            case .file, .list:
+                return false
+            }
+        }
     }
 
-    private struct ResolvedChatArtifact: Sendable {
+    struct ResolvedChatArtifact: Sendable {
+        let authorizedCaptureContext: ArtifactCaptureContext?
         let requestedPath: String
         let canonicalPath: String
+        let authorizedIdentity: ChatArtifactFileIdentity
     }
 
-    private enum ChatArtifactResolution {
+    enum ChatArtifactResolution {
         case success(ResolvedChatArtifact)
         case failure(V2CallResult)
 
@@ -283,7 +386,7 @@ extension TerminalController {
         }
     }
 
-    private func mobileChatArtifactResolution(
+    func mobileChatArtifactResolution(
         params: [String: Any],
         operation: ChatArtifactOperation
     ) async -> ChatArtifactResolution {
@@ -303,27 +406,48 @@ extension TerminalController {
         guard let service = agentChatTranscriptService else {
             return .failure(.err(code: "unavailable", message: Self.chatServiceUnavailableErrorMessage, data: nil))
         }
-        guard let record = service.sessionRecord(sessionID: sessionID) else {
-            return .failure(mobileChatArtifactError(.notFound, path: requestedPath))
-        }
-        guard let transcriptPath = service.resolver.transcriptPath(for: record) else {
+        let resolved: (record: AgentChatSessionRecord, path: String)
+        do {
+            guard let transcript = try await service.resolvedTranscript(sessionID: sessionID) else {
+                return .failure(mobileChatArtifactError(.notFound, path: requestedPath))
+            }
+            resolved = transcript
+        } catch {
             return .failure(mobileChatArtifactError(.sessionUnavailable, path: requestedPath))
         }
         do {
-            let pathResult = try await TerminalControllerChatArtifactIndexProvider.shared.canonicalPath(
-                sessionID: record.sessionID,
-                agentKind: record.agentKind,
-                transcriptPath: transcriptPath,
-                workingDirectory: record.workingDirectory,
+            let pathResult = try await service.artifactIndex.canonicalPath(
+                sessionID: resolved.record.sessionID,
+                agentKind: resolved.record.agentKind,
+                transcriptPath: resolved.path,
+                workingDirectory: resolved.record.workingDirectory,
                 requestedPath: requestedPath,
                 operation: operation.indexOperation,
                 directoryAccessMode: mobileArtifactDirectoryAccessMode()
             )
             switch pathResult {
             case .success(let canonicalPath):
+                let authorizedIdentity: ChatArtifactFileIdentity
+                do {
+                    authorizedIdentity = try await Task.detached(priority: .utility) {
+                        try ArtifactByteReader().identity(
+                            path: canonicalPath,
+                            authorizedCanonicalPath: canonicalPath
+                        )
+                    }.value
+                } catch let error as ArtifactByteReader.Error {
+                    return .failure(mobileArtifactReadFailure(error, path: requestedPath))
+                } catch {
+                    return .failure(mobileArtifactReadFailure(.readFailed, path: requestedPath))
+                }
+                let captureContext = operation.resolvesCaptureProject
+                    ? await service.artifactCaptureContext(for: resolved.record)
+                    : nil
                 return .success(ResolvedChatArtifact(
+                    authorizedCaptureContext: captureContext,
                     requestedPath: requestedPath,
-                    canonicalPath: canonicalPath
+                    canonicalPath: canonicalPath,
+                    authorizedIdentity: authorizedIdentity
                 ))
             case .canonicalizationFailed:
                 debugLogMobileChatArtifactDenial(

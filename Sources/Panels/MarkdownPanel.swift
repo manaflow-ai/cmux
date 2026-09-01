@@ -1,6 +1,7 @@
 import AppKit
 import CmuxBrowser
 import CmuxFoundation
+import CmuxArtifacts
 import Combine
 import Foundation
 
@@ -21,6 +22,12 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     /// Absolute path to the markdown file being displayed.
     let filePath: String
+    private var artifactFile: ArtifactSidebarFileAccess.OpenedFile?
+    private var artifactReadCopyURL: URL?
+    private var artifactPreviewTask: Task<Void, Never>?
+    private var artifactPreviewToken = UUID()
+    private var artifactContentTask: Task<Void, Never>?
+    private var artifactContentToken = UUID()
 
     /// The workspace this panel belongs to.
     private(set) var workspaceId: UUID
@@ -48,6 +55,16 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     /// Whether the file has been deleted or is unreadable.
     @Published private(set) var isFileUnavailable: Bool = false
+
+    /// Whether this panel is backed by a descriptor-protected artifact read.
+    var isReadOnly: Bool {
+        artifactFile != nil
+    }
+
+    /// Root used to confine relative images and links in an artifact preview.
+    var artifactResourceRoot: URL? {
+        artifactFile?.artifactRoot
+    }
 
     /// Token incremented to trigger focus flash animation.
     @Published private(set) var focusFlashToken: Int = 0
@@ -122,13 +139,22 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// - Parameter fontSize: Initial body font size in points. When `nil`, the
     ///   panel uses the persistent `markdown.fontSize` default. The value is
     ///   clamped to the supported range.
-    init(workspaceId: UUID, filePath: String, fontSize: Double? = nil) {
+    init(
+        workspaceId: UUID,
+        filePath: String,
+        fontSize: Double? = nil,
+        artifactFile: ArtifactSidebarFileAccess.OpenedFile? = nil
+    ) {
         let defaultSize = MarkdownFontSizeSettings.resolvedDefault()
         let defaultFamily = MarkdownFontFamily.resolvedDefault()
         let defaultMaxWidth = MarkdownMaxWidthSettings.resolvedDefault()
         self.id = UUID()
         self.workspaceId = workspaceId
         self.filePath = filePath
+        self.artifactFile = artifactFile
+        self.artifactReadCopyURL = nil
+        self.artifactPreviewTask = nil
+        self.artifactContentTask = nil
         self.fontSize = MarkdownFontSizeSettings.clamp(fontSize ?? defaultSize)
         self.fontFamily = defaultFamily
         self.maxContentWidth = defaultMaxWidth
@@ -137,8 +163,12 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         self.followedMaxContentWidth = defaultMaxWidth
         self.displayTitle = (filePath as NSString).lastPathComponent
 
-        loadFileContent()
-        startWatching()
+        if artifactFile == nil {
+            loadFileContent()
+            startWatching()
+        } else {
+            startArtifactPreviewLoad()
+        }
         observeTypographyDefaults()
         rendererSession.onMarkdownRendered = { [weak self] in
             self?.replayPendingPreviewFocusAfterWindowAttach()
@@ -259,6 +289,127 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         state.selected = nil
         state.total = nil
         executeFindSearch(state.needle)
+    }
+
+    private func startArtifactPreviewLoad(force: Bool = false) {
+        let artifactRoot = artifactFile?.artifactRoot
+        if force {
+            artifactPreviewToken = UUID()
+            artifactPreviewTask?.cancel()
+            artifactPreviewTask = nil
+            artifactContentToken = UUID()
+            artifactContentTask?.cancel()
+            artifactContentTask = nil
+            if let artifactReadCopyURL {
+                try? FileManager.default.removeItem(at: artifactReadCopyURL)
+                self.artifactReadCopyURL = nil
+            }
+            guard artifactRoot != nil else {
+                isFileUnavailable = true
+                return
+            }
+        }
+        guard let artifactFile, artifactPreviewTask == nil else { return }
+        let token = artifactPreviewToken
+        let sourcePath = filePath
+        artifactPreviewTask = Task { @MainActor [weak self, artifactFile, artifactRoot, force] in
+            let fileForPreview: ArtifactSidebarFileAccess.OpenedFile?
+            if force {
+                guard let artifactRoot else {
+                    if let self, self.artifactPreviewToken == token {
+                        self.artifactPreviewTask = nil
+                        self.isFileUnavailable = true
+                    }
+                    return
+                }
+                fileForPreview = await ArtifactSidebarFileAccess().openedFileAsync(
+                    for: URL(fileURLWithPath: sourcePath),
+                    artifactRoot: artifactRoot
+                )
+                guard let self,
+                      self.artifactPreviewToken == token else {
+                    return
+                }
+                guard let fileForPreview else {
+                    self.artifactPreviewTask = nil
+                    self.isFileUnavailable = true
+                    return
+                }
+                self.artifactFile = fileForPreview
+            } else {
+                fileForPreview = artifactFile
+            }
+            guard let fileForPreview else {
+                if let self, self.artifactPreviewToken == token {
+                    self.artifactPreviewTask = nil
+                    self.isFileUnavailable = true
+                }
+                return
+            }
+            let temporaryURL = await fileForPreview.makeTemporaryPreviewURLAsync(
+                maximumBytes: Int64(FilePreviewTextLoader.maximumLoadedTextBytes)
+            )
+            guard let self else {
+                if let temporaryURL {
+                    try? FileManager.default.removeItem(at: temporaryURL)
+                }
+                return
+            }
+            guard self.artifactPreviewToken == token else {
+                if let temporaryURL {
+                    try? FileManager.default.removeItem(at: temporaryURL)
+                }
+                return
+            }
+            guard !self.isClosed else {
+                if let temporaryURL {
+                    try? FileManager.default.removeItem(at: temporaryURL)
+                }
+                return
+            }
+            self.artifactPreviewTask = nil
+            guard let temporaryURL else {
+                self.isFileUnavailable = true
+                return
+            }
+            self.artifactReadCopyURL = temporaryURL
+            _ = self.startArtifactContentLoad()
+        }
+    }
+
+    /// Loads a materialized artifact copy through the concurrent text-loader
+    /// seam, then publishes the bounded result back on this main-actor panel.
+    @discardableResult
+    private func startArtifactContentLoad(
+        replacingDirtyContent: Bool = true
+    ) -> Task<Void, Never>? {
+        artifactContentTask?.cancel()
+        artifactContentTask = nil
+        artifactContentToken = UUID()
+        guard let artifactReadCopyURL else {
+            isFileUnavailable = true
+            return nil
+        }
+        let readURL = artifactReadCopyURL
+        let contentToken = artifactContentToken
+        let task = Task { @MainActor [weak self, readURL, contentToken, replacingDirtyContent] in
+            let result = await FilePreviewTextLoader.load(
+                url: readURL,
+                maximumBytes: FilePreviewTextLoader.maximumLoadedTextBytes
+            )
+            guard let self,
+                  !Task.isCancelled,
+                  !self.isClosed,
+                  self.artifactContentToken == contentToken,
+                  self.artifactReadCopyURL == readURL else { return }
+            self.artifactContentTask = nil
+            self.applyFileLoadResult(
+                result,
+                replacingDirtyContent: replacingDirtyContent
+            )
+        }
+        artifactContentTask = task
+        return task
     }
 
     /// Adopt a changed typography default (from another viewer's "Set as Default"
@@ -411,12 +562,22 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     func close() {
         isClosed = true
+        artifactPreviewToken = UUID()
+        artifactPreviewTask?.cancel()
+        artifactPreviewTask = nil
+        artifactContentToken = UUID()
+        artifactContentTask?.cancel()
+        artifactContentTask = nil
         pendingPreviewFocus = false
         searchState = nil
         rendererSession.close()
         GlobalSearchCoordinator.shared.purgePanel(id: id)
         textView = nil
         stopWatching()
+        if let artifactReadCopyURL {
+            try? FileManager.default.removeItem(at: artifactReadCopyURL)
+            self.artifactReadCopyURL = nil
+        }
         if let typographyDefaultsObserver {
             NotificationCenter.default.removeObserver(typographyDefaultsObserver)
             self.typographyDefaultsObserver = nil
@@ -442,7 +603,11 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     /// Re-reads the file without discarding an unsaved TextEdit buffer.
     func reloadFromDisk() {
-        loadFileContent(replacingDirtyContent: false)
+        if artifactFile != nil {
+            startArtifactPreviewLoad(force: true)
+        } else {
+            loadFileContent(replacingDirtyContent: false)
+        }
     }
 
     func attachTextView(_ textView: NSTextView) {
@@ -472,11 +637,11 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     @discardableResult
     func loadTextContent(replacingDirtyContent: Bool = true) -> Task<Void, Never>? {
         loadFileContent(replacingDirtyContent: replacingDirtyContent)
-        return nil
     }
 
     @discardableResult
     func saveTextContent() -> Task<Void, Never>? {
+        guard !isReadOnly else { return nil }
         guard !isSaving else { return nil }
         let currentContent = textView?.string ?? textContent
         guard currentContent != originalTextContent else {
@@ -518,8 +683,24 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     // MARK: - File I/O
 
-    private func loadFileContent(replacingDirtyContent: Bool = true) {
-        switch Self.loadMarkdownFile(at: filePath) {
+    private func loadFileContent(replacingDirtyContent: Bool = true) -> Task<Void, Never>? {
+        if artifactFile != nil {
+            return startArtifactContentLoad(replacingDirtyContent: replacingDirtyContent)
+        }
+        let readPath = artifactReadCopyURL?.path ?? filePath
+        let result = Self.loadMarkdownFile(
+            at: readPath,
+            maximumBytes: FilePreviewTextLoader.maximumLoadedTextBytes
+        )
+        applyFileLoadResult(result, replacingDirtyContent: replacingDirtyContent)
+        return nil
+    }
+
+    private func applyFileLoadResult(
+        _ result: FilePreviewTextLoader.Result,
+        replacingDirtyContent: Bool
+    ) {
+        switch result {
         case .loaded(let newContent, let encoding):
             applyLoadedContent(newContent, encoding: encoding, replacingDirtyContent: replacingDirtyContent)
         case .unavailable:
@@ -560,19 +741,14 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
     }
 
-    private static func loadMarkdownFile(at path: String) -> FilePreviewTextLoader.Result {
-        guard let data = FileManager.default.contents(atPath: path) else {
-            return .unavailable
-        }
-        if let decoded = String(data: data, encoding: .utf8) {
-            return .loaded(content: decoded, encoding: .utf8)
-        }
-        // Fallback: ISO Latin-1 accepts all 256 byte values and covers common
-        // legacy encodings like Windows-1252 well enough for a raw editor.
-        if let decoded = String(data: data, encoding: .isoLatin1) {
-            return .loaded(content: decoded, encoding: .isoLatin1)
-        }
-        return .unavailable
+    private static func loadMarkdownFile(
+        at path: String,
+        maximumBytes: UInt64
+    ) -> FilePreviewTextLoader.Result {
+        FilePreviewTextLoader.loadSynchronously(
+            url: URL(fileURLWithPath: path, isDirectory: false),
+            maximumBytes: maximumBytes
+        )
     }
 
     private func applyPendingSearchNeedleIfPossible() {
@@ -623,6 +799,8 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     deinit {
         fileWatchTask?.cancel()
+        artifactPreviewTask?.cancel()
+        artifactContentTask?.cancel()
         if let typographyDefaultsObserver {
             NotificationCenter.default.removeObserver(typographyDefaultsObserver)
         }

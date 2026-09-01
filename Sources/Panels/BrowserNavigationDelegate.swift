@@ -37,6 +37,7 @@ import WebKit
     var didReplaceNavigationForUserAgentPolicy: ((WKWebView, WKNavigation?, WKNavigation?) -> Void)?
     var didRenderPDFDocument: ((URL, Bool) -> Void)?
     var didClearPDFDocument: (() -> Void)?
+    var artifactHTMLPreviewPolicy: ArtifactHTMLPreviewNavigationPolicy?
     /// Direct reference to the download delegate - must be set synchronously in didBecome callbacks.
     var downloadDelegate: WKDownloadDelegate?
     /// Last attempted navigation URL, used to preserve the omnibar URL after provisional failures.
@@ -324,6 +325,14 @@ import WebKit
             label: "BrowserNavigationDelegate.navigationAction"
         ).closure
 
+        let artifactNavigationAllowed = artifactHTMLPreviewPolicy?.allowsNavigation(
+            to: navigationAction.request.url,
+            targetIsMainFrame: navigationAction.targetFrame?.isMainFrame
+        ) == true
+        if artifactHTMLPreviewPolicy != nil, !artifactNavigationAllowed {
+            decisionHandler(.cancel)
+            return
+        }
         if let url = navigationAction.request.url,
            url.scheme == "cmux-browser-action",
            url.host == "bypass-ssl" {
@@ -410,7 +419,8 @@ import WebKit
             }
             let isTrustedDocument = isMainFrame && url.isFileURL
                 && owner?.isTrustedLocalFileDocument(url) == true
-            if !isTrustedInternal,
+            if !artifactNavigationAllowed,
+               !isTrustedInternal,
                !isTrustedDocument,
                url.scheme?.lowercased() != AuthEnvironment.callbackScheme.lowercased(),
                !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
@@ -805,12 +815,17 @@ import WebKit
         if let url = navigationResponse.response.url {
             let isMainFrame = navigationResponse.isForMainFrame
             let isTrustedInternal = trustedInternalNavigation(for: url, in: webView)
+            let artifactNavigationAllowed = artifactHTMLPreviewPolicy?.allowsNavigation(
+                to: url,
+                targetIsMainFrame: navigationResponse.isForMainFrame
+            ) == true
             if isMainFrame, !isTrustedInternal {
                 (webView as? CmuxWebView)?.clearTrustedInternalNavigationGrants()
             }
             let isTrustedDocument = isMainFrame && url.isFileURL
                 && owner?.isTrustedLocalFileDocument(url) == true
-            if !isTrustedInternal,
+            if !artifactNavigationAllowed,
+               !isTrustedInternal,
                !isTrustedDocument,
                !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
                 decisionHandler(.cancel)
@@ -950,6 +965,12 @@ import WebKit
     /// Applies a newly changed policy to the currently displayed document.
     func enforceURLAllowlistPolicy(in webView: WKWebView, displayURL: URL? = nil) {
         guard let url = displayURL ?? webView.url else { return }
+        if artifactHTMLPreviewPolicy?.allowsNavigation(
+            to: url,
+            targetIsMainFrame: true
+        ) == true {
+            return
+        }
         let policy = BrowserURLAllowlistPolicy(defaults: .standard)
         if policy.allows(url) { return }
         if let owner,

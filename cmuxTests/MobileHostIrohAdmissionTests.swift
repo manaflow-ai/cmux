@@ -219,6 +219,20 @@ extension MobileHostAuthorizationTests {
 @MainActor
 @Suite(.serialized)
 struct IrohTailscaleVersionSkewMacGateTests {
+    @Test func artifactCapabilitiesFollowTheExplicitGate() {
+        let enabled = MobileHostService.mobileHostCapabilities(
+            includingWorkspaceChanges: false,
+            includingArtifacts: true
+        )
+        let disabled = MobileHostService.mobileHostCapabilities(
+            includingWorkspaceChanges: false,
+            includingArtifacts: false
+        )
+        #expect(enabled.contains("chat.artifact.save.v1"))
+        #expect(!disabled.contains("chat.artifact.save.v1"))
+        #expect(!disabled.contains("chat.artifact.v1"))
+    }
+
     #if DEBUG
     @Test func testIrohRPCMethodInventorySurvivesTheFramedWirePath() async throws {
         let requestID = "iroh-rpc-inventory"
@@ -554,9 +568,57 @@ extension MobileHostAuthorizationTests {
         try #require(Darwin.mkfifo(fifo.path, 0o600) == 0)
         let registry = MobileHostIrohArtifactTransferRegistry()
         let peer = try irohPeer(endpointCharacter: "f")
+        let identity = ChatArtifactFileIdentity(device: 0, inode: 0)
 
         await #expect(throws: MobileHostIrohArtifactTransferRegistry.Error.notRegularFile) {
-            try await registry.issue(canonicalPath: fifo.path, peer: peer)
+            try await registry.issue(
+                canonicalPath: fifo.path,
+                authorizedIdentity: identity,
+                peer: peer
+            )
+        }
+    }
+
+    @Test func testIrohArtifactIssueRejectsReplacedAuthorizedAncestor() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-iroh-artifact-ancestor-swap-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let insideDirectory = root.appendingPathComponent("inside", isDirectory: true)
+        let outsideDirectory = root.appendingPathComponent("outside", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: insideDirectory,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: outsideDirectory,
+            withIntermediateDirectories: true
+        )
+        let authorizedFile = insideDirectory.appendingPathComponent("preview.bin")
+        let outsideFile = outsideDirectory.appendingPathComponent("preview.bin")
+        try Data("authorized".utf8).write(to: authorizedFile, options: .atomic)
+        try Data("outside".utf8).write(to: outsideFile, options: .atomic)
+        let authorizedPath = authorizedFile.resolvingSymlinksInPath().standardizedFileURL.path
+        let authorizedIdentity = try ArtifactByteReader().identity(
+            path: authorizedPath,
+            authorizedCanonicalPath: authorizedPath
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try FileManager.default.removeItem(at: insideDirectory)
+        try FileManager.default.createSymbolicLink(
+            at: insideDirectory,
+            withDestinationURL: outsideDirectory
+        )
+
+        let registry = MobileHostIrohArtifactTransferRegistry()
+        let peer = try irohPeer(endpointCharacter: "e")
+        await #expect(throws: MobileHostIrohArtifactTransferRegistry.Error.fileNotFound) {
+            try await registry.issue(
+                canonicalPath: authorizedPath,
+                authorizedIdentity: authorizedIdentity,
+                peer: peer
+            )
         }
     }
 
@@ -575,9 +637,14 @@ extension MobileHostAuthorizationTests {
         )
         let peer = try irohPeer(endpointCharacter: "a")
         let otherPeer = try irohPeer(endpointCharacter: "b")
+        let identity = try ArtifactByteReader().identity(
+            path: fixture.path,
+            authorizedCanonicalPath: fixture.path
+        )
 
         let descriptor = try await registry.issue(
             canonicalPath: fixture.path,
+            authorizedIdentity: identity,
             peer: peer
         )
 
@@ -663,7 +730,14 @@ extension MobileHostAuthorizationTests {
             resourceID: { resourceID }
         )
         let peer = try irohPeer(endpointCharacter: "c")
-        _ = try await registry.issue(canonicalPath: fixture.path, peer: peer)
+        _ = try await registry.issue(
+            canonicalPath: fixture.path,
+            authorizedIdentity: try ArtifactByteReader().identity(
+                path: fixture.path,
+                authorizedCanonicalPath: fixture.path
+            ),
+            peer: peer
+        )
         let send = RecordingMobileHostIrohArtifactSendStream()
         let receive = RecordingMobileHostIrohArtifactReceiveStream()
         let handler = MobileHostIrohArtifactLaneHandler(registry: registry)
@@ -697,7 +771,14 @@ extension MobileHostAuthorizationTests {
             resourceID: { resourceID }
         )
         let peer = try irohPeer(endpointCharacter: "d")
-        _ = try await registry.issue(canonicalPath: fixture.path, peer: peer)
+        _ = try await registry.issue(
+            canonicalPath: fixture.path,
+            authorizedIdentity: try ArtifactByteReader().identity(
+                path: fixture.path,
+                authorizedCanonicalPath: fixture.path
+            ),
+            peer: peer
+        )
         let send = MutatingMobileHostIrohArtifactSendStream(path: fixture.path)
         let receive = RecordingMobileHostIrohArtifactReceiveStream()
 
@@ -794,7 +875,7 @@ private struct MobileHostIrohArtifactFixture {
         let file = directory.appendingPathComponent("private-preview.bin")
         try contents.write(to: file, options: .atomic)
         self.directory = directory
-        self.path = file.path
+        self.path = file.resolvingSymlinksInPath().standardizedFileURL.path
     }
 
     func remove() {

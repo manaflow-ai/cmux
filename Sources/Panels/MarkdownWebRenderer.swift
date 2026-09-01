@@ -14,6 +14,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     let panelId: UUID
     let workspaceId: UUID
     let filePath: String
+    let allowedLocalResourceRoot: URL?
     /// Body font size in points, applied as `pageZoom` and to shell-managed SVG zoom.
     let fontSize: Double
     /// Body prose font-family name (empty = System). Applied as an inline
@@ -29,7 +30,12 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     var onViewAttachedToWindow: () -> Void = {}
 
     func makeCoordinator() -> Coordinator {
-        session.coordinator(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
+        session.coordinator(
+            panelId: panelId,
+            workspaceId: workspaceId,
+            filePath: filePath,
+            allowedLocalResourceRoot: allowedLocalResourceRoot
+        )
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -106,7 +112,12 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     func updateNSView(_ nsView: WKWebView, context: Context) {
         // Re-bind panel metadata in case SwiftUI recreated the wrapper while
         // the panel-owned renderer session kept the same coordinator.
-        context.coordinator.bind(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
+        context.coordinator.bind(
+            panelId: panelId,
+            workspaceId: workspaceId,
+            filePath: filePath,
+            allowedLocalResourceRoot: allowedLocalResourceRoot
+        )
         (nsView as? MarkdownWebView)?.onPointerDown = onRequestPanelFocus
         (nsView as? MarkdownWebView)?.setVisibleInUI(isVisibleInUI)
         applyBackground(to: nsView)
@@ -158,6 +169,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         var panelId: UUID = UUID()
         var workspaceId: UUID = UUID()
         var filePath: String = ""
+        var allowedLocalResourceRoot: URL?
         private var pendingMarkdown: String = ""
         private var pendingTheme: MarkdownWebTheme = .resolve(backgroundColor: GhosttyBackgroundTheme.currentColor())
         private var lastMarkdown: String? = nil
@@ -203,10 +215,16 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         }
 #endif
 
-        func bind(panelId: UUID, workspaceId: UUID, filePath: String) {
+        func bind(
+            panelId: UUID,
+            workspaceId: UUID,
+            filePath: String,
+            allowedLocalResourceRoot: URL? = nil
+        ) {
             self.panelId = panelId
             self.workspaceId = workspaceId
             self.filePath = filePath
+            self.allowedLocalResourceRoot = allowedLocalResourceRoot
         }
 
         /// Records the desired body font size and applies it as `pageZoom`.
@@ -544,12 +562,44 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 let fileURL = localImageFileURL(from: requestURL)
                 let mimeType = fileURL
                     .flatMap { Self.localImageMimeType(for: $0.pathExtension) } ?? "image/png"
+                if let fileURL,
+                   let allowedLocalResourceRoot {
+                    return Task { @MainActor in
+                        // Descriptor validation and the bounded staging copy
+                        // both run behind the async utility seam. Never open,
+                        // stat, or resolve an artifact path synchronously on
+                        // the main actor while WebKit is requesting images.
+                        guard let temporaryURL = await ArtifactSidebarFileAccess()
+                            .makeTemporaryPreviewURLAsync(
+                                for: fileURL,
+                                artifactRoot: allowedLocalResourceRoot,
+                                maximumBytes: 8 * 1024 * 1024
+                            ) else {
+                            return ImageLoadResult(data: Data(), mimeType: mimeType)
+                        }
+                        guard !Task.isCancelled else {
+                            try? FileManager.default.removeItem(at: temporaryURL)
+                            return ImageLoadResult(data: Data(), mimeType: mimeType)
+                        }
+                        defer {
+                            try? FileManager.default.removeItem(at: temporaryURL)
+                        }
+                        return await Task.detached(priority: .userInitiated) {
+                            guard FileManager.default.isReadableFile(atPath: temporaryURL.path) else {
+                                return ImageLoadResult(data: Data(), mimeType: mimeType)
+                            }
+                            let data = (try? Data(contentsOf: temporaryURL)) ?? Data()
+                            return ImageLoadResult(data: data, mimeType: mimeType)
+                        }.value
+                    }
+                }
+                let loadURL = allowedLocalResourceRoot == nil ? fileURL : nil
                 return Task.detached(priority: .userInitiated) {
-                    guard let fileURL,
-                          FileManager.default.isReadableFile(atPath: fileURL.path) else {
+                    guard let loadURL,
+                          FileManager.default.isReadableFile(atPath: loadURL.path) else {
                         return ImageLoadResult(data: Data(), mimeType: mimeType)
                     }
-                    let data = (try? Data(contentsOf: fileURL)) ?? Data()
+                    let data = (try? Data(contentsOf: loadURL)) ?? Data()
                     return ImageLoadResult(data: data, mimeType: mimeType)
                 }
             }
@@ -584,6 +634,17 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 return nil
             }
 
+            // Artifact roots are validated by `makeTemporaryPreviewURLAsync`,
+            // which opens the descriptor and resolves containment off-main. Keep
+            // this parser branch filesystem-free so a WebKit image request never
+            // performs synchronous artifact I/O on the main actor.
+            if allowedLocalResourceRoot != nil {
+                guard Self.localImageMimeType(for: fileURL.pathExtension) != nil else {
+                    return nil
+                }
+                return fileURL
+            }
+
             let markdownDirectory = URL(fileURLWithPath: markdownFilePath)
                 .deletingLastPathComponent()
                 .standardizedFileURL
@@ -592,9 +653,11 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 return nil
             }
 
-            let markdownRoot = markdownDirectory.path.hasSuffix("/")
-                ? markdownDirectory.path
-                : markdownDirectory.path + "/"
+            let resourceRoot = allowedLocalResourceRoot?.resolvingSymlinksInPath()
+                .standardizedFileURL ?? markdownDirectory
+            let markdownRoot = resourceRoot.path.hasSuffix("/")
+                ? resourceRoot.path
+                : resourceRoot.path + "/"
             let standardizedURL = fileURL
                 .standardizedFileURL
                 .resolvingSymlinksInPath()
@@ -646,6 +709,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         }
 
         private func openMarkdownFile(_ path: String) {
+            // Artifact previews are intentionally read-only and do not open
+            // mutable relative documents through the pathname-based route.
+            guard allowedLocalResourceRoot == nil else { return }
 #if DEBUG
             NSLog("MarkdownPanel.openMarkdownFile path=\(path)")
 #endif

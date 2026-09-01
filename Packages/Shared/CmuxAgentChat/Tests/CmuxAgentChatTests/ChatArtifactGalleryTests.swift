@@ -273,6 +273,43 @@ struct ChatArtifactGalleryTests {
         #expect(folder.childCountIsCapped)
     }
 
+    @Test("directory child counts skip symlinks without spending the entry cap")
+    func directoryChildCountSkipsSymlinks() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-gallery-symlink-count-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let target = root.appendingPathComponent("target.txt")
+        try Data("target".utf8).write(to: target)
+        for index in 0..<ArtifactByteReader.maximumDirectoryEntryCount {
+            try FileManager.default.createSymbolicLink(
+                at: root.appendingPathComponent("link-\(index)"),
+                withDestinationURL: target
+            )
+        }
+        let readable = root.appendingPathComponent("readable.txt")
+        try Data("visible".utf8).write(to: readable)
+
+        let page = ChatArtifactGalleryBuilder().page(
+            sessionID: "session",
+            items: [ChatArtifactIndexedReference(
+                path: root.path,
+                provenance: .referenced,
+                lastReferencedSeq: 1
+            )],
+            generation: "generation",
+            cursor: nil,
+            pageSize: 10,
+            query: nil,
+            includeDirectories: true
+        )
+
+        let folder = try #require(page.referenced.first)
+        #expect(folder.childCount == 2)
+        #expect(!folder.childCountIsCapped)
+    }
+
     @Test("count-only scan matches every Session section without stat filtering")
     func sessionCountScan() throws {
         let records = [
@@ -431,7 +468,7 @@ struct ChatArtifactGalleryTests {
                 seq: 30,
                 role: .agent,
                 timestamp: timestamp,
-                kind: .fileEdit(ChatFileEdit(filePath: "/tmp/shared.txt", operation: .write))
+                kind: successfulMutation("/tmp/shared.txt")
             ),
             ChatMessage(
                 id: "late-read",
@@ -506,10 +543,7 @@ struct ChatArtifactGalleryTests {
                 seq: 2,
                 role: .agent,
                 timestamp: timestamp,
-                kind: .fileEdit(ChatFileEdit(
-                    filePath: "/private/tmp/report.png",
-                    operation: .edit
-                ))
+                kind: successfulMutation("/private/tmp/report.png")
             ),
         ]
         let records = ChatArtifactIndexedReference.derive(from: messages)
@@ -527,11 +561,7 @@ struct ChatArtifactGalleryTests {
             seq: 1,
             role: .agent,
             timestamp: Date(timeIntervalSince1970: 0),
-            kind: .toolUse(ChatToolUse(
-                toolName: "functions.apply_patch",
-                summary: "patch",
-                referencedPaths: ["Sources/App.swift"]
-            ))
+            kind: successfulMutation("Sources/App.swift")
         )
         let record = try #require(ChatArtifactIndexedReference.derive(
             from: [message],
@@ -539,6 +569,35 @@ struct ChatArtifactGalleryTests {
         ).first)
         #expect(record.path == "/repo/Sources/App.swift")
         #expect(record.provenance == .created)
+    }
+
+    @Test("derived path cap retains the most recent transcript occurrences")
+    func derivedPathCapRetainsNewestOccurrences() {
+        let timestamp = Date(timeIntervalSince1970: 0)
+        let messages = (0...1_024).map { index in
+            ChatMessage(
+                id: "cap-\(index)",
+                seq: index,
+                role: .agent,
+                timestamp: timestamp,
+                kind: .toolUse(ChatToolUse(
+                    toolName: "Read",
+                    summary: "read",
+                    status: .succeeded,
+                    referencedPaths: ["/fixture/cap-\(index).md"]
+                ))
+            )
+        }
+
+        let records = ChatArtifactIndexedReference.derive(
+            from: messages,
+            canonicalizer: ChatArtifactPathCanonicalizer { $0 }
+        )
+
+        #expect(records.count == 1_024)
+        #expect(!records.contains { $0.path == "/fixture/cap-0.md" })
+        #expect(records.contains { $0.path == "/fixture/cap-1024.md" })
+        #expect(records.map(\.lastReferencedSeq).min() == 1)
     }
 
     @Test("cursor remains strictly append-only across generation refresh")
@@ -605,5 +664,12 @@ struct ChatArtifactGalleryTests {
         }
         #expect(pages == 3)
         #expect(paths == (1...8).reversed().map { "/tmp/page-\($0).txt" })
+    }
+    private func successfulMutation(_ path: String) -> ChatMessageKind {
+        .toolUse(ChatToolUse(
+            toolName: "apply_patch", summary: "patch",
+            status: .succeeded,
+            referencedPaths: [path], artifactMutationAuthorized: true
+        ))
     }
 }

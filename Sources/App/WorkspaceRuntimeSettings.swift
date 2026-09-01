@@ -477,13 +477,36 @@ enum AgentHibernationTrackingGate {
 }
 
 enum RightSidebarBetaFeatureSettings {
+    static let artifactsEnabledKey = "rightSidebar.beta.artifacts.enabled"
     static let feedEnabledKey = "rightSidebar.beta.feed.enabled"
     static let dockEnabledKey = "rightSidebar.beta.dock.enabled"
     static let cloudMachinesEnabledKey = "cloud.beta.machines.enabled"
 
+    static let defaultArtifactsEnabled = false
     static let defaultFeedEnabled = false
     static let defaultDockEnabled = false
     static let defaultCloudMachinesEnabled = false
+
+    nonisolated static func isArtifactsEnabled(defaults: UserDefaults = .standard) -> Bool {
+        isArtifactsEnabled(
+            defaults: defaults,
+            remoteEnabled: CmuxFeatureFlags.offMainEffectiveValue(
+                for: CmuxFeatureFlags.artifactsFlag
+            )
+        )
+    }
+
+    /// The local beta toggle is an opt-in, while the remote flag is the
+    /// authoritative production gate and kill switch.
+    nonisolated static func isArtifactsEnabled(
+        defaults: UserDefaults,
+        remoteEnabled: Bool
+    ) -> Bool {
+        let localEnabled = defaults.object(forKey: artifactsEnabledKey) == nil
+            ? defaultArtifactsEnabled
+            : defaults.bool(forKey: artifactsEnabledKey)
+        return localEnabled && remoteEnabled
+    }
 
     nonisolated static func isFeedEnabled(defaults: UserDefaults = .standard) -> Bool {
         guard defaults.object(forKey: feedEnabledKey) != nil else { return defaultFeedEnabled }

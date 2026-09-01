@@ -31,6 +31,7 @@ extension MobileHostService {
         "mobile.chat.artifact.fetch",
         "mobile.chat.artifact.gallery",
         "mobile.chat.artifact.list",
+        "mobile.chat.artifact.save",
         "mobile.chat.artifact.stat",
         "mobile.chat.artifact.thumbnail",
         "mobile.chat.history",
@@ -150,7 +151,10 @@ extension MobileHostService {
             // no browser affordance can work. A user-level disable keeps live
             // panes (session restore re-materializes them), and iOS must
             // still be able to view/stream those, so keep advertising then.
-            includingBrowser: !BrowserAvailabilitySettings.isManagedByPolicy
+            includingBrowser: !BrowserAvailabilitySettings.isManagedByPolicy,
+            includingArtifacts: CmuxFeatureFlags.offMainEffectiveValue(
+                for: CmuxFeatureFlags.artifactsFlag
+            )
         )
     }
 
@@ -169,7 +173,8 @@ extension MobileHostService {
         includingWorkspaceChanges: Bool,
         includingSimulator: Bool = true,
         includingTaskComposer: Bool = true,
-        includingBrowser: Bool = true
+        includingBrowser: Bool = true,
+        includingArtifacts: Bool = true
     ) -> [String] {
         var capabilities = [
             Self.irohPrivatePathsCapability,
@@ -229,6 +234,7 @@ extension MobileHostService {
             Self.taskDirectorySearchV2Capability,
             Self.caffeineControlCapability,
             "chat.artifact.v1",
+            "chat.artifact.save.v1",
             "chat.artifact.folders.v1",
             "chat.artifact.gallery.v1",
             "dogfood.v1",
@@ -263,6 +269,15 @@ extension MobileHostService {
                 Self.taskDirectorySearchV2Capability,
             ]
             capabilities.removeAll { taskComposerCapabilities.contains($0) }
+        }
+        if !includingArtifacts {
+            let artifactCapabilities: Set<String> = [
+                "chat.artifact.v1",
+                "chat.artifact.save.v1",
+                "chat.artifact.folders.v1",
+                "chat.artifact.gallery.v1",
+            ]
+            capabilities.removeAll { artifactCapabilities.contains($0) }
         }
         if !includingBrowser {
             // The embedded browser is disabled by MDM policy: every pane is

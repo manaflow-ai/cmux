@@ -272847,6 +272847,2200 @@
           }
         }
       }
+    },
+    "agent.generic.notification.body.needsAttention": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ needs your attention"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の確認が必要です"
+          }
+        }
+      }
+    },
+    "agent.generic.notification.body.sentNotification": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ sent a notification"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ から通知が届きました"
+          }
+        }
+      }
+    },
+    "cli.artifact.error.addRejected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The artifact was not added."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクトを追加できませんでした。"
+          }
+        }
+      }
+    },
+    "cli.artifact.error.ambiguous": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Artifact name '%@' is ambiguous: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクト名「%@」は複数に一致します: %@"
+          }
+        }
+      }
+    },
+    "cli.artifact.error.batchTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Artifact batch is too large (%lld bytes; limit %lld)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクトのバッチが大きすぎます（%lld バイト、上限 %lld）。"
+          }
+        }
+      }
+    },
+    "cli.artifact.error.candidateLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The artifact capture batch reached its file limit."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクト取得バッチのファイル数上限に達しました。"
+          }
+        }
+      }
+    },
+    "cli.artifact.error.captureDisabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic artifact capture is disabled for this project."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このプロジェクトではアーティファクトの自動取得が無効です。"
+          }
+        }
+      }
+    },
+    "cli.artifact.error.corruptProvenance": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Artifact provenance metadata is corrupt: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクトの来歴メタデータが破損しています: %@"
+          }
+        }
+      }
+    },
+    "cli.artifact.error.gitPrivacyPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git privacy could not be verified for artifact store: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクトストアの Git プライバシーを確認できませんでした: %@"
+          }
+        }
+      }
+    },
+    "cli.artifact.error.gitPrivacyUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic capture paused because Git does not prove the artifact store is ignored and untracked."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクトストアが無視され未追跡であることを Git で確認できないため、自動取得を一時停止しました。"
+          }
+        }
+      }
+    },
+    "cli.artifact.error.missingOperand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "artifact %@ requires a value"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "artifact %@ には値が必要です"
+          }
+        }
+      }
+    },
+    "cli.artifact.error.notFile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not a regular file: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通常のファイルではありません: %@"
+          }
+        }
+      }
+    },
+    "cli.artifact.error.notFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Artifact not found: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクトが見つかりません: %@"
+          }
+        }
+      }
+    },
+    "cli.artifact.error.openFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not open artifact at %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のアーティファクトを開けませんでした"
+          }
+        }
+      }
+    },
+    "cli.artifact.error.outsideStore": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Artifact path escaped the store: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクトのパスがストア外を指しています: %@"
+          }
+        }
+      }
+    },
+    "cli.artifact.error.projectValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "artifact: --project requires a path"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "artifact: --project にはパスが必要です"
+          }
+        }
+      }
+    },
+    "cli.artifact.error.provenanceRejected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The file does not meet this project's artifact capture rules."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルはプロジェクトのアーティファクト取得ルールを満たしていません。"
+          }
+        }
+      }
+    },
+    "cli.artifact.error.rejectedCorruptProvenance": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The artifact store's provenance metadata is corrupt."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクトストアの来歴メタデータが破損しています。"
+          }
+        }
+      }
+    },
+    "cli.artifact.error.rejectedExtension": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The file extension is not allowed by this project's artifact settings."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルの拡張子はプロジェクトのアーティファクト設定で許可されていません。"
+          }
+        }
+      }
+    },
+    "cli.artifact.error.rejectedNotFile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The artifact path is not a regular file."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクトのパスは通常のファイルではありません。"
+          }
+        }
+      }
+    },
+    "cli.artifact.error.rejectedOutsideStore": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The artifact path escaped the local store."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクトのパスがローカルストア外を指しています。"
+          }
+        }
+      }
+    },
+    "cli.artifact.error.rejectedSize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The file exceeds this project's artifact size limit."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルはプロジェクトのアーティファクトサイズ上限を超えています。"
+          }
+        }
+      }
+    },
+    "cli.artifact.error.scanIncomplete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Artifact scan reached its safety limit: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクトのスキャンが安全上限に達しました: %@"
+          }
+        }
+      }
+    },
+    "cli.artifact.error.scanIncompleteCandidate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The artifact store is too large to scan safely right now."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクトストアが大きすぎるため、安全にスキャンできません。"
+          }
+        }
+      }
+    },
+    "cli.artifact.error.storeBusy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The artifact store is busy. Try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクトストアは使用中です。もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "cli.artifact.error.storeBusyPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Artifact store is busy: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクトストアは使用中です: %@"
+          }
+        }
+      }
+    },
+    "cli.artifact.error.tooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Artifact is too large (%lld bytes; limit %lld)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクトが大きすぎます（%lld バイト、上限 %lld）。"
+          }
+        }
+      }
+    },
+    "cli.artifact.error.unsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unsupported artifact extension: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未対応のアーティファクト拡張子です: %@"
+          }
+        }
+      }
+    },
+    "cli.artifact.helpLine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "artifact <list|path|open|add|search> [--project <path>]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "artifact <list|path|open|add|search> [--project <パス>]"
+          }
+        }
+      }
+    },
+    "cli.artifact.output.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No artifacts found."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクトが見つかりません。"
+          }
+        }
+      }
+    },
+    "cli.artifact.output.noMatches": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No artifacts matched."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一致するアーティファクトはありません。"
+          }
+        }
+      }
+    },
+    "cli.artifact.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux artifact list [--project <path>]\n       cmux artifact path <name-or-relative-path> [--project <path>]\n       cmux artifact open <name-or-relative-path> [--project <path>]\n       cmux artifact add <path> [--project <path>]\n       cmux artifact search <query> [--project <path>]\n\nBrowse and add ordinary files under agent-session folders in <project>/.cmux.\nCommands work without a running cmux app or socket. The project defaults\nto the nearest ancestor containing .cmux or .git."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用法: cmux artifact list [--project <パス>]\n       cmux artifact path <名前または相対パス> [--project <パス>]\n       cmux artifact open <名前または相対パス> [--project <パス>]\n       cmux artifact add <パス> [--project <パス>]\n       cmux artifact search <検索語> [--project <パス>]\n\n<プロジェクト>/.cmux 内のエージェントセッションフォルダにある通常ファイルを参照・追加します。\ncmux アプリやソケットが起動していなくても利用できます。プロジェクトは、\n.cmux または .git を含む最も近い親ディレクトリが既定です。"
+          }
+        }
+      }
+    },
+    "cli.hooks.kimi.legacyCleanupWarning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warning: cmux hooks are active at %@, but cmux could not remove its legacy hook block from %@. Check that path and re-run `cmux hooks setup kimi` to finish cleanup."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "警告: cmux hooks は %@ で有効ですが、従来の hook ブロックを %@ から削除できませんでした。そのパスを確認し、`cmux hooks setup kimi` を再実行してクリーンアップを完了してください。"
+          }
+        }
+      }
+    },
+    "cli.hooks.kimi.legacyUninstallWarning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warning: cmux could not remove its legacy hook block from %@. Check that path and re-run `cmux hooks uninstall kimi` to finish cleanup."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "警告: 従来の hook ブロックを %@ から削除できませんでした。そのパスを確認し、`cmux hooks uninstall kimi` を再実行してクリーンアップを完了してください。"
+          }
+        }
+      }
+    },
+    "cli.note.error.ambiguous": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Note name '%@' is ambiguous: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノート名「%@」は曖昧です: %@"
+          }
+        }
+      }
+    },
+    "cli.note.error.confirmDelete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "note rm permanently deletes a note; pass --yes to confirm."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "note rm はノートを完全に削除します。確認するには --yes を渡してください。"
+          }
+        }
+      }
+    },
+    "cli.note.error.input": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "note write and append require exactly one of --text or --stdin"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "note write と append には --text または --stdin のどちらか一方が必要です"
+          }
+        }
+      }
+    },
+    "cli.note.error.inputTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Note input exceeds the 4 MiB limit."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノート入力が 4 MiB の上限を超えています。"
+          }
+        }
+      }
+    },
+    "cli.note.error.inputUTF8": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Note input must be valid UTF-8."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノート入力は有効な UTF-8 である必要があります。"
+          }
+        }
+      }
+    },
+    "cli.note.error.invalidName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid note name: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無効なノート名です: %@"
+          }
+        }
+      }
+    },
+    "cli.note.error.invalidUTF8": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Note is not valid UTF-8: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノートが有効な UTF-8 ではありません: %@"
+          }
+        }
+      }
+    },
+    "cli.note.error.missingOperand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "note %@ requires a value"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "note %@ には値が必要です"
+          }
+        }
+      }
+    },
+    "cli.note.error.notFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Note not found: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノートが見つかりません: %@"
+          }
+        }
+      }
+    },
+    "cli.note.error.openFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not open note at %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のノートを開けませんでした"
+          }
+        }
+      }
+    },
+    "cli.note.error.outsideStore": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Note path escaped the store: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノートのパスがストア外を指しています: %@"
+          }
+        }
+      }
+    },
+    "cli.note.error.projectValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "note: --project requires a path"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "note: --project にはパスが必要です"
+          }
+        }
+      }
+    },
+    "cli.note.error.scanIncomplete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notes scan reached its safety limit: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノートのスキャンが安全上限に達しました: %@"
+          }
+        }
+      }
+    },
+    "cli.note.error.store": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Notes filesystem could not be updated."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノートのファイルシステムを更新できませんでした。"
+          }
+        }
+      }
+    },
+    "cli.note.error.storeBusy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notes store is busy: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノートストアは使用中です: %@"
+          }
+        }
+      }
+    },
+    "cli.note.error.tooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Note is too large (%lld bytes; limit %lld)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノートが大きすぎます（%lld バイト、上限 %lld）。"
+          }
+        }
+      }
+    },
+    "cli.note.helpLine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "note <list|path|read|write|append|search|open|rm> [--project <path>] (rm requires --yes|-y)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "note <list|path|read|write|append|search|open|rm> [--project <パス>] (rm には --yes|-y が必要)"
+          }
+        }
+      }
+    },
+    "cli.note.output.deleted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deleted %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を削除しました"
+          }
+        }
+      }
+    },
+    "cli.note.output.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No notes found."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノートが見つかりません。"
+          }
+        }
+      }
+    },
+    "cli.note.output.noMatches": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No notes matched."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一致するノートはありません。"
+          }
+        }
+      }
+    },
+    "cli.note.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux note list [--project <path>]\n       cmux note path <name-or-relative-path> [--project <path>]\n       cmux note read <name-or-relative-path> [--project <path>]\n       cmux note write <name> (--text <text>|--stdin) [--project <path>]\n       cmux note append <name> (--text <text>|--stdin) [--project <path>]\n       cmux note search <query> [--project <path>]\n       cmux note open <name-or-relative-path> [--project <path>]\n       cmux note rm <name-or-relative-path> [--project <path>] [--yes|-y]\n\nRead and write ordinary Markdown files under the current agent session's\n<project>/.cmux/<agent-session>/notes directory. Commands work without a\nrunning cmux app or socket. Existing notes are rediscovered after moves."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用法: cmux note list [--project <パス>]\n       cmux note path <名前または相対パス> [--project <パス>]\n       cmux note read <名前または相対パス> [--project <パス>]\n       cmux note write <名前> (--text <テキスト>|--stdin) [--project <パス>]\n       cmux note append <名前> (--text <テキスト>|--stdin) [--project <パス>]\n       cmux note search <検索語> [--project <パス>]\n       cmux note open <名前または相対パス> [--project <パス>]\n       cmux note rm <名前または相対パス> [--project <パス>] [--yes|-y]\n\n現在のエージェントセッションの\n<プロジェクト>/.cmux/<エージェントセッション>/notes ディレクトリにある\n通常の Markdown ファイルを読み書きします。cmux アプリやソケットが\n起動していなくても利用でき、移動した既存ノートも再検出されます。"
+          }
+        }
+      }
+    },
+    "cli.projectFiles.error.ambiguousAgentIdentity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Multiple agent session identities are present; refusing to assign project files to an inherited parent session."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複数のエージェントセッション ID が存在するため、継承された親セッションへのプロジェクトファイルの割り当てを拒否しました。"
+          }
+        }
+      }
+    },
+    "cli.projectFiles.error.missingAgentIdentity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A stable agent session identity is required before writing project files."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロジェクトファイルを書き込む前に、安定したエージェントセッション ID が必要です。"
+          }
+        }
+      }
+    },
+    "cli.projectFiles.error.tooManyOpenCopies": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Too many project files are already open; close one and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開いているプロジェクトファイルが多すぎます。1 つ閉じてから再試行してください。"
+          }
+        }
+      }
+    },
+    "featureFlags.artifacts.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enables the project-local Artifacts and Notes sidebar and automatic capture."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロジェクトローカルのArtifactsとNotesサイドバーおよび自動キャプチャを有効にします。"
+          }
+        }
+      }
+    },
+    "featureFlags.artifacts.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Artifacts & Notes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ArtifactsとNotes"
+          }
+        }
+      }
+    },
+    "mobile.chat.artifact.error.capabilityDisabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Artifacts are disabled for this project."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このプロジェクトではArtifactsが無効です。"
+          }
+        }
+      }
+    },
+    "mobile.chat.artifact.error.saveFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The file could not be saved to this project’s Artifacts."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルをプロジェクトのアーティファクトに保存できませんでした。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.getApp.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don't have it yet?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだお持ちでないですか？"
+          }
+        }
+      }
+    },
+    "mobile.pairing.needsTailscale.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac has no Tailscale address, so your iPhone can't reach it. Install Tailscale on this Mac and your iPhone (same account), then refresh."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac には Tailscale アドレスがないため、iPhone から接続できません。この Mac と iPhone の両方に（同じアカウントで）Tailscale をインストールしてから、更新してください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.req.signIn.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to authorize this Mac for pairing."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac のペアリングを許可するにはサインインしてください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.req.signIn.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signed in to cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux にサインイン済み"
+          }
+        }
+      }
+    },
+    "mobile.pairing.req.tailscale.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale must be installed and connected on both this Mac and your iPhone. Both devices must be connected to the same Tailscale network."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac と iPhone の両方に Tailscale をインストールして接続してください。両方のデバイスを同じ Tailscale ネットワークに接続する必要があります。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.req.tailscale.reachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale is connected on this Mac. It must also be installed and connected on your iPhone. Both devices must be connected to the same Tailscale network."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac は Tailscale に接続済みです。iPhone にも Tailscale をインストールして接続してください。両方のデバイスを同じ Tailscale ネットワークに接続する必要があります。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.req.tailscale.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale"
+          }
+        }
+      }
+    },
+    "mobile.pairing.signIn.button": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign In"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインイン"
+          }
+        }
+      }
+    },
+    "mobile.pairing.signIn.connecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ الاتصال…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povezivanje…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbinder…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbindung wird hergestellt…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecting…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectando…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connexion…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connessione…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続しています…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងភ្ជាប់…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kobler til…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Łączenie…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectando…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключение…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังเชื่อมต่อ…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bağlanıyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підключення…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在连接…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在連接…"
+          }
+        }
+      }
+    },
+    "mobile.pairing.signIn.openInBrowser": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح في المتصفح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otvori u pregledniku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbn i browser"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Browser öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open in Browser"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir en el navegador"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir dans le navigateur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri nel browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザで開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើកក្នុងកម្មវិធីរុករក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저에서 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åpne i nettleser"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otwórz w przeglądarce"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir no navegador"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть в браузере"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดในเบราว์เซอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarayıcıda Aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкрити у браузері"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在浏览器中打开"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在瀏覽器中打開"
+          }
+        }
+      }
+    },
+    "mobile.pairing.signIn.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in with your cmux account to pair your iPhone."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone をペアリングするには、cmux アカウントでサインインしてください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.signIn.slowHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قد تتوقف نافذة تسجيل الدخول في النظام عن الاستجابة. إذا لم يحدث شيء، فافتح تسجيل الدخول في المتصفح الافتراضي بدلاً من ذلك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistemski prozor za prijavu može prestati odgovarati. Ako se ništa ne dogodi, otvorite prijavu u zadanom pregledniku."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Systemets loginvindue kan holde op med at svare. Hvis der ikke sker noget, skal du i stedet åbne login i din standardbrowser."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das System-Anmeldefenster reagiert möglicherweise nicht mehr. Wenn nichts passiert, öffne die Anmeldung stattdessen in deinem Standardbrowser."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The system sign-in window may stop responding. If nothing happens, open sign-in in your default browser instead."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La ventana de inicio de sesión del sistema puede dejar de responder. Si no sucede nada, abre el inicio de sesión en tu navegador predeterminado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La fenêtre de connexion du système peut ne plus répondre. Si rien ne se passe, ouvrez plutôt la connexion dans votre navigateur par défaut."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La finestra di accesso di sistema potrebbe smettere di rispondere. Se non succede nulla, apri l’accesso nel browser predefinito."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システムのサインインウィンドウが応答しなくなることがあります。何も起きない場合は、デフォルトのブラウザでサインインを開いてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្អួចចូលគណនីរបស់ប្រព័ន្ធអាចឈប់ឆ្លើយតប។ ប្រសិនបើគ្មានអ្វីកើតឡើង សូមបើកការចូលគណនីក្នុងកម្មវិធីរុករកលំនាំដើមរបស់អ្នកជំនួសវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 로그인 창이 응답하지 않을 수 있습니다. 아무 반응이 없으면 기본 브라우저에서 로그인을 열어 주세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Systemets påloggingsvindu kan slutte å svare. Hvis ingenting skjer, åpner du påloggingen i standardnettleseren i stedet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Systemowe okno logowania może przestać odpowiadać. Jeśli nic się nie dzieje, otwórz logowanie w domyślnej przeglądarce."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A janela de login do sistema pode parar de responder. Se nada acontecer, abra o login no navegador padrão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Системное окно входа может перестать отвечать. Если ничего не происходит, откройте вход в браузере по умолчанию."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หน้าต่างลงชื่อเข้าของระบบอาจหยุดตอบสนอง หากไม่มีอะไรเกิดขึ้น ให้เปิดการลงชื่อเข้าในเบราว์เซอร์เริ่มต้นแทน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistem oturum açma penceresi yanıt vermeyi durdurabilir. Hiçbir şey olmazsa oturum açmayı varsayılan tarayıcınızda açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Системне вікно входу може перестати відповідати. Якщо нічого не відбувається, відкрийте вхід у браузері за умовчанням."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系统登录窗口可能会停止响应。如果没有任何反应，请改用默认浏览器打开登录。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系統登入視窗可能會停止回應。如果沒有任何反應，請改用預設瀏覽器開啟登入。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.step.install": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install cmux on your iPhone and open it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone に cmux をインストールして開きます。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.step.scan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On your iPhone, choose Tailscale, tap Scan QR Code, then scan the code above."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続方法として Tailscale を選び、「QR コードをスキャン」をタップして上のコードにカメラを向けます。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.step.signIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in with the same account you use on this Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac と同じアカウントでサインインします。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.window.heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pair your iPhone with Tailscale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TailscaleでiPhoneをペアリング"
+          }
+        }
+      }
+    },
+    "mobile.pairing.window.subheading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhones on your cmux account connect automatically. Use this code only for Tailscale."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同じ cmux アカウントでサインインしている iPhone は自動的に接続されます。iPhone の接続方法で Tailscale を選択した場合は、このコードを使用してください。"
+          }
+        }
+      }
+    },
+    "rightSidebar.artifacts.add": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Artifact…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクトを追加…"
+          }
+        }
+      }
+    },
+    "rightSidebar.artifacts.add.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add files to Artifacts"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルをアーティファクトに追加"
+          }
+        }
+      }
+    },
+    "rightSidebar.artifacts.addFailed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The file may be unsupported or larger than this project’s capture limit."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未対応のファイルか、プロジェクトの取得上限を超えている可能性があります。"
+          }
+        }
+      }
+    },
+    "rightSidebar.artifacts.addFailed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t Add Artifact"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクトを追加できませんでした"
+          }
+        }
+      }
+    },
+    "rightSidebar.artifacts.addPanel.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose small files to copy into this project’s local artifact store."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このプロジェクトのローカルアーティファクトストアにコピーする小さなファイルを選択してください。"
+          }
+        }
+      }
+    },
+    "rightSidebar.artifacts.addPanel.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加"
+          }
+        }
+      }
+    },
+    "rightSidebar.artifacts.addPanel.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add to cmux Artifacts"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux アーティファクトに追加"
+          }
+        }
+      }
+    },
+    "rightSidebar.artifacts.collapse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collapse folder"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダを折りたたむ"
+          }
+        }
+      }
+    },
+    "rightSidebar.artifacts.copyPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Path"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスをコピー"
+          }
+        }
+      }
+    },
+    "rightSidebar.artifacts.copyReference": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Reference"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "参照をコピー"
+          }
+        }
+      }
+    },
+    "rightSidebar.artifacts.empty.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Files in each agent session’s artifacts and notes folders will appear here."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各エージェントセッションの artifacts と notes フォルダ内のファイルがここに表示されます。"
+          }
+        }
+      }
+    },
+    "rightSidebar.artifacts.empty.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Artifacts or Notes Yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクトやノートはまだありません"
+          }
+        }
+      }
+    },
+    "rightSidebar.artifacts.expand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expand folder"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダを展開"
+          }
+        }
+      }
+    },
+    "rightSidebar.artifacts.loadFailed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check the project folder and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロジェクトフォルダを確認して、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "rightSidebar.artifacts.loadFailed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t Load Project Files"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロジェクトファイルを読み込めませんでした"
+          }
+        }
+      }
+    },
+    "rightSidebar.artifacts.loading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading artifacts and notes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクトとノートを読み込み中"
+          }
+        }
+      }
+    },
+    "rightSidebar.artifacts.noResults.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try another filename or text search."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のファイル名またはテキストで検索してください。"
+          }
+        }
+      }
+    },
+    "rightSidebar.artifacts.noResults.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Matches"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一致する項目はありません"
+          }
+        }
+      }
+    },
+    "rightSidebar.artifacts.noWorkspace.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open a local workspace to browse its artifacts and notes."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルワークスペースを開くと、そのアーティファクトとノートを参照できます。"
+          }
+        }
+      }
+    },
+    "rightSidebar.artifacts.noWorkspace.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Local Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルワークスペースがありません"
+          }
+        }
+      }
+    },
+    "rightSidebar.artifacts.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open File"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを開く"
+          }
+        }
+      }
+    },
+    "rightSidebar.artifacts.retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試行"
+          }
+        }
+      }
+    },
+    "rightSidebar.artifacts.reveal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reveal in Finder"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finder に表示"
+          }
+        }
+      }
+    },
+    "rightSidebar.artifacts.search.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search artifacts and notes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクトとノートを検索"
+          }
+        }
+      }
+    },
+    "rightSidebar.artifacts.searchFailed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check the project’s .cmux folder and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロジェクトの .cmux フォルダを確認して、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "rightSidebar.artifacts.searchFailed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t Search Project Files"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロジェクトファイルを検索できませんでした"
+          }
+        }
+      }
+    },
+    "rightSidebar.mode.artifacts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Artifacts & Notes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクトとノート"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.artifacts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Artifacts & Notes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクトとノート"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.artifacts.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hides Artifacts & Notes from the right sidebar until you enable it here."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここで有効にするまで、右サイドバーからアーティファクトとノートを隠します。"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.artifacts.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows the project’s local artifacts and notes tree in the right sidebar."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロジェクトのローカルアーティファクトとノートのツリーを右サイドバーに表示します。"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.betaFeatures.artifacts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "artifacts notes capture files project local right sidebar agent output beta unstable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクト ノート 取得 ファイル プロジェクト ローカル 右サイドバー エージェント 出力 ベータ 不安定"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

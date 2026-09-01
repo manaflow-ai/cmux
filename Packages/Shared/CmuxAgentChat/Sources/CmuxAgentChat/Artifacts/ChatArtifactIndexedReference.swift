@@ -2,21 +2,52 @@ import Foundation
 
 /// A transcript-derived path with de-duplicated provenance and its last position.
 public struct ChatArtifactIndexedReference: Sendable, Equatable, Codable, Identifiable {
+    private static let maximumDerivedPathCount = ChatToolReferencedPathExtractor.maximumPathCount
+    private static let maximumCanonicalAliasCount = 2_048
+
     /// Canonical display path when the file exists, otherwise its lexical path.
     public let path: String
     /// Highest-precedence provenance observed for the path.
     public let provenance: ChatArtifactProvenance
     /// Last transcript sequence that mentioned, attached, or edited the path.
     public let lastReferencedSeq: Int
+    /// Most recent transcript occurrence that authorizes capture, if any.
+    public let captureAuthorization: ChatArtifactCaptureAuthorization?
 
     /// Stable identity used by ordering and paging.
     public var id: String { path }
 
-    /// Creates an indexed reference.
+    /// Creates an indexed reference from one provenance-bearing occurrence.
+    ///
+    /// Created and attached provenance authorizes capture at `lastReferencedSeq`.
+    /// Use ``init(path:provenance:lastReferencedSeq:captureAuthorization:)``
+    /// when aggregate provenance and the latest authorization differ.
     public init(path: String, provenance: ChatArtifactProvenance, lastReferencedSeq: Int) {
+        self.init(
+            path: path,
+            provenance: provenance,
+            lastReferencedSeq: lastReferencedSeq,
+            captureAuthorization: provenance.captureAuthorization(sequence: lastReferencedSeq)
+        )
+    }
+
+    /// Creates an indexed reference with independently tracked display provenance and capture authorization.
+    ///
+    /// - Parameters:
+    ///   - path: Canonical display path.
+    ///   - provenance: Highest-precedence provenance observed for the path.
+    ///   - lastReferencedSeq: Last transcript sequence that mentioned the path.
+    ///   - captureAuthorization: Most recent capture-authorizing occurrence, if any.
+    public init(
+        path: String,
+        provenance: ChatArtifactProvenance,
+        lastReferencedSeq: Int,
+        captureAuthorization: ChatArtifactCaptureAuthorization?
+    ) {
         self.path = path
         self.provenance = provenance
         self.lastReferencedSeq = lastReferencedSeq
+        self.captureAuthorization = captureAuthorization
     }
 
     /// Derives one record per canonical path identity from parsed transcript messages.
@@ -41,6 +72,7 @@ public struct ChatArtifactIndexedReference: Sendable, Equatable, Codable, Identi
     ) -> [ChatArtifactIndexedReference] {
         var byPath: [String: ChatArtifactIndexedReference] = [:]
         var canonicalPathByLexicalPath: [String: String] = [:]
+        var recencyHeap = ChatArtifactRecencyHeap()
         let detector = TerminalArtifactPathDetector()
         let normalizer = ChatArtifactPathNormalizer(workingDirectory: workingDirectory)
         for message in messages {
@@ -48,25 +80,45 @@ public struct ChatArtifactIndexedReference: Sendable, Equatable, Codable, Identi
             var textOccurrences: [String] = []
             switch message.kind {
             case .fileEdit(let edit):
-                structuredOccurrences = [(edit.filePath, .created)]
+                structuredOccurrences = [(edit.filePath, .referenced)]
             case .attachment(let attachment):
                 structuredOccurrences = attachment.hostPath.map { [($0, .attached)] } ?? []
             case .toolUse(let toolUse):
-                let provenance: ChatArtifactProvenance = Self.isFileMutationTool(toolUse.toolName)
+                let provenance: ChatArtifactProvenance = toolUse.authorizesCreatedArtifactProvenance
                     ? .created
                     : .referenced
-                structuredOccurrences = (toolUse.referencedPaths ?? []).map { ($0, provenance) }
+                structuredOccurrences = (toolUse.referencedPaths ?? [])
+                    .prefix(Self.maximumDerivedPathCount)
+                    .map { ($0, provenance) }
                 if let output = toolUse.output {
-                    textOccurrences = detector.paths(in: output)
+                    textOccurrences = detector.paths(
+                        in: output,
+                        maximumCount: Self.maximumDerivedPathCount
+                    )
                 }
             case .prose(let prose):
-                textOccurrences = detector.paths(in: prose.text)
+                textOccurrences = detector.paths(
+                    in: prose.text,
+                    maximumCount: Self.maximumDerivedPathCount
+                )
             case .thought(let thought):
-                textOccurrences = detector.paths(in: thought.text)
+                textOccurrences = detector.paths(
+                    in: thought.text,
+                    maximumCount: Self.maximumDerivedPathCount
+                )
             case .terminal(let terminal):
-                textOccurrences = detector.paths(in: terminal.command)
+                textOccurrences = detector.paths(
+                    in: terminal.command,
+                    maximumCount: Self.maximumDerivedPathCount
+                )
                 if let output = terminal.output {
-                    textOccurrences.append(contentsOf: detector.paths(in: output))
+                    let remaining = Self.maximumDerivedPathCount - textOccurrences.count
+                    if remaining > 0 {
+                        textOccurrences.append(contentsOf: detector.paths(
+                            in: output,
+                            maximumCount: remaining
+                        ))
+                    }
                 }
             case .permissionRequest, .question, .status, .unsupported:
                 break
@@ -81,7 +133,9 @@ public struct ChatArtifactIndexedReference: Sendable, Equatable, Codable, Identi
                     seq: message.seq,
                     canonicalizer: canonicalizer,
                     canonicalPathByLexicalPath: &canonicalPathByLexicalPath,
-                    into: &byPath
+                    into: &byPath,
+                    recencyHeap: &recencyHeap,
+                    maximumPathCount: Self.maximumDerivedPathCount
                 )
             }
             for rawPath in textOccurrences where
@@ -93,7 +147,9 @@ public struct ChatArtifactIndexedReference: Sendable, Equatable, Codable, Identi
                     seq: message.seq,
                     canonicalizer: canonicalizer,
                     canonicalPathByLexicalPath: &canonicalPathByLexicalPath,
-                    into: &byPath
+                    into: &byPath,
+                    recencyHeap: &recencyHeap,
+                    maximumPathCount: Self.maximumDerivedPathCount
                 )
             }
         }
@@ -111,7 +167,9 @@ public struct ChatArtifactIndexedReference: Sendable, Equatable, Codable, Identi
                 seq: reference.seq,
                 canonicalizer: canonicalizer,
                 canonicalPathByLexicalPath: &canonicalPathByLexicalPath,
-                into: &byPath
+                into: &byPath,
+                recencyHeap: &recencyHeap,
+                maximumPathCount: Self.maximumDerivedPathCount
             )
         }
         return Array(byPath.values)
@@ -123,41 +181,47 @@ public struct ChatArtifactIndexedReference: Sendable, Equatable, Codable, Identi
         seq: Int,
         canonicalizer: ChatArtifactPathCanonicalizer,
         canonicalPathByLexicalPath: inout [String: String],
-        into byPath: inout [String: ChatArtifactIndexedReference]
+        into byPath: inout [String: ChatArtifactIndexedReference],
+        recencyHeap: inout ChatArtifactRecencyHeap,
+        maximumPathCount: Int
     ) {
-        let canonicalPath: String
-        if let cached = canonicalPathByLexicalPath[path] {
-            canonicalPath = cached
-        } else {
-            canonicalPath = canonicalizer.canonicalPathKey(for: path)
+        let canonicalPath = canonicalPathByLexicalPath[path]
+            ?? canonicalizer.canonicalPathKey(for: path)
+        if canonicalPathByLexicalPath[path] == nil,
+           canonicalPathByLexicalPath.count < Self.maximumCanonicalAliasCount {
             canonicalPathByLexicalPath[path] = canonicalPath
         }
         let previous = byPath[canonicalPath]
+        let candidateAuthorization = provenance.captureAuthorization(sequence: seq)
+        let captureAuthorization: ChatArtifactCaptureAuthorization?
+        if let previousAuthorization = previous?.captureAuthorization,
+           let candidateAuthorization {
+            captureAuthorization = previousAuthorization.latest(with: candidateAuthorization)
+        } else {
+            captureAuthorization = previous?.captureAuthorization ?? candidateAuthorization
+        }
         byPath[canonicalPath] = ChatArtifactIndexedReference(
             path: canonicalPath,
-            provenance: Self.higherPrecedence(previous?.provenance, provenance),
-            lastReferencedSeq: max(previous?.lastReferencedSeq ?? Int.min, seq)
+            provenance: previous?.provenance.preferred(over: provenance) ?? provenance,
+            lastReferencedSeq: max(previous?.lastReferencedSeq ?? Int.min, seq),
+            captureAuthorization: captureAuthorization
         )
-    }
-
-    private static func isFileMutationTool(_ toolName: String) -> Bool {
-        let normalized = toolName.split(separator: ".").last.map(String.init) ?? toolName
-        return normalized.lowercased() == "apply_patch"
-    }
-
-    private static func higherPrecedence(
-        _ lhs: ChatArtifactProvenance?,
-        _ rhs: ChatArtifactProvenance
-    ) -> ChatArtifactProvenance {
-        guard let lhs else { return rhs }
-        return Self.rank(lhs) <= Self.rank(rhs) ? lhs : rhs
-    }
-
-    private static func rank(_ provenance: ChatArtifactProvenance) -> Int {
-        switch provenance {
-        case .created: 0
-        case .attached: 1
-        case .referenced: 2
+        recencyHeap.insert(
+            path: canonicalPath,
+            seq: byPath[canonicalPath]?.lastReferencedSeq ?? seq
+        )
+        while byPath.count > maximumPathCount {
+            guard let oldest = recencyHeap.pop() else { break }
+            guard let current = byPath[oldest.path],
+                  current.lastReferencedSeq == oldest.seq else {
+                continue
+            }
+            byPath.removeValue(forKey: oldest.path)
+        }
+        if recencyHeap.count > maximumPathCount * 4 {
+            recencyHeap.compact(
+                currentSequences: byPath.mapValues(\.lastReferencedSeq)
+            )
         }
     }
 }

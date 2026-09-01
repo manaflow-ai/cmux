@@ -15,6 +15,7 @@ struct ObservedAgentSession: Sendable {
     let workspaceID: String?
     let pid: Int
     let workingDirectory: String?
+    let workingDirectoryAuthority: AgentChatWorkingDirectoryAuthority
     let transcriptPath: String?
     let sampledAt: Date
 
@@ -25,6 +26,7 @@ struct ObservedAgentSession: Sendable {
         workspaceID: String?,
         pid: Int,
         workingDirectory: String?,
+        workingDirectoryAuthority: AgentChatWorkingDirectoryAuthority = .processObservation,
         transcriptPath: String?,
         sampledAt: Date = Date()
     ) {
@@ -34,6 +36,7 @@ struct ObservedAgentSession: Sendable {
         self.workspaceID = workspaceID
         self.pid = pid
         self.workingDirectory = workingDirectory
+        self.workingDirectoryAuthority = workingDirectory == nil ? .unknown : workingDirectoryAuthority
         self.transcriptPath = transcriptPath
         self.sampledAt = sampledAt
     }

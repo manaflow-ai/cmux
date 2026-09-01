@@ -103,7 +103,7 @@ final class FilePreviewQuickLookSession {
            let previewView = container.livePreviewView() {
             panel.attachPreviewFocus(root: container, primaryResponder: previewView, intent: .quickLook)
             updatePreviewItem(
-                for: panel.fileURL,
+                for: panel.readURL,
                 title: panel.displayTitle,
                 revision: revision
             )

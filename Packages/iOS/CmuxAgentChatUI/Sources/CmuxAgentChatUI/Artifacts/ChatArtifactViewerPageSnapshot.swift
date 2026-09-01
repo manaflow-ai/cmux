@@ -14,6 +14,7 @@ struct ChatArtifactViewerPageSnapshot: Identifiable, Equatable, Sendable {
     let hasFileActions: Bool
     let isTextFile: Bool
     let canCopyContents: Bool
+    let canSaveToArtifacts: Bool
     let retryGeneration: Int
     let topRequestID: Int
     let bottomRequestID: Int

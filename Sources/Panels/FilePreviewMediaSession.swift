@@ -131,7 +131,7 @@ final class FilePreviewMediaSession {
             drawsBackground: drawsBackground
         )
         panel.attachPreviewFocus(root: view, primaryResponder: view, intent: .mediaPlayer)
-        updatePlayer(in: view, url: panel.fileURL, revision: revision)
+        updatePlayer(in: view, url: panel.readURL, revision: revision)
     }
 
     private func updatePlayer(in playerView: AVPlayerView, url: URL, revision: Int) {

@@ -6,6 +6,7 @@ import SwiftUI
 @MainActor
 protocol FilePreviewTextEditingPanel: AnyObject {
     var textContent: String { get }
+    var isReadOnly: Bool { get }
 
     func attachTextView(_ textView: NSTextView)
     func retryPendingFocus()
@@ -42,6 +43,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         textView.delegate = context.coordinator
         textView.drawsBackground = drawsBackground
         textView.string = panel.textContent
+        textView.isEditable = !panel.isReadOnly
         panel.attachTextView(textView)
 
         scrollView.documentView = textView
@@ -66,6 +68,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         )
         guard let textView = scrollView.documentView as? SavingTextView else { return }
         textView.panel = panel
+        textView.isEditable = !panel.isReadOnly
         textView.applyFilePreviewTextEditorInsets()
         textView.applyFilePreviewWordWrap(wordWrap, scrollView: scrollView)
         panel.attachTextView(textView)

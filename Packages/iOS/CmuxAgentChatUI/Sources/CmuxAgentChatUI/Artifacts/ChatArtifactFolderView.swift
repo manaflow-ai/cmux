@@ -20,6 +20,7 @@ struct ChatArtifactFolderView: View {
 
     @Environment(\.chatArtifactLoader) private var loader
     @State private var state: LoadState = .loading
+    @State private var loadAttempt = UUID()
 
     var body: some View {
         content
@@ -39,10 +40,40 @@ struct ChatArtifactFolderView: View {
                 breadcrumb
                 Divider()
                 if listing.entries.isEmpty {
-                    Text(String(localized: "chat.artifact.folder.empty", defaultValue: "No items", bundle: .module))
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    VStack(spacing: 8) {
+                        Text(String(localized: "chat.artifact.folder.empty", defaultValue: "No items", bundle: .module))
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        if listing.isIncomplete || listing.isTruncated {
+                            Text(String(
+                                localized: "chat.artifact.folder.incomplete_empty",
+                                defaultValue: "This folder could not be listed completely. Tap Retry to try again.",
+                                bundle: .module
+                            ))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                        } else {
+                            Text(String(
+                                localized: "chat.artifact.folder.empty_refresh",
+                                defaultValue: "New items may appear after a refresh.",
+                                bundle: .module
+                            ))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                        }
+                        Button {
+                            Task { await load() }
+                        } label: {
+                            Label(
+                                String(localized: "chat.artifact.retry", defaultValue: "Retry", bundle: .module),
+                                systemImage: "arrow.clockwise"
+                            )
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     List {
                         Section {
@@ -67,7 +98,17 @@ struct ChatArtifactFolderView: View {
                                     bundle: .module
                                 ))
                             }
+                            if listing.isIncomplete {
+                                Text(String(
+                                    localized: "chat.artifact.folder.changed_while_loading",
+                                    defaultValue: "Some items changed while loading. Pull to refresh.",
+                                    bundle: .module
+                                ))
+                            }
                         }
+                    }
+                    .refreshable {
+                        await load()
                     }
                 }
             }
@@ -130,16 +171,55 @@ struct ChatArtifactFolderView: View {
     }
 
     private func load() async {
-        await MainActor.run { state = .loading }
+        let (attempt, previousState) = await MainActor.run {
+            let previousState = state
+            let attempt = UUID()
+            loadAttempt = attempt
+            state = .loading
+            return (attempt, previousState)
+        }
         do {
             let listing = try await loader.list(path: path)
-            guard !Task.isCancelled else { return }
-            await MainActor.run { state = .listing(listing) }
+            guard !Task.isCancelled else {
+                await restoreStateAfterCancellation(
+                    previousState,
+                    attempt: attempt
+                )
+                return
+            }
+            await MainActor.run {
+                guard loadAttempt == attempt else { return }
+                state = .listing(listing)
+            }
         } catch is CancellationError {
-            return
+            await restoreStateAfterCancellation(previousState, attempt: attempt)
         } catch {
             let failure = (error as? ChatArtifactError) ?? .loadFailed
-            await MainActor.run { state = .failed(failure) }
+            await MainActor.run {
+                guard loadAttempt == attempt else { return }
+                state = .failed(failure)
+            }
+        }
+    }
+
+    private func restoreStateAfterCancellation(
+        _ previousState: LoadState,
+        attempt: UUID
+    ) async {
+        await MainActor.run {
+            guard loadAttempt == attempt else { return }
+            switch previousState {
+            case .loading:
+                // An initial load that is cancelled while the view remains
+                // mounted needs a recoverable state instead of a permanent
+                // spinner. The retry button in the failure view starts a new
+                // attempt.
+                state = .failed(.loadFailed)
+            case .listing, .failed:
+                // Refresh cancellation must leave the last usable snapshot
+                // visible so the user can pull to refresh again.
+                state = previousState
+            }
         }
     }
 

@@ -34,6 +34,17 @@ extension TerminalController {
         params: [String: Any],
         executionContext: MobileHostRPCExecutionContext? = nil
     ) async -> V2CallResult {
+        if method.hasPrefix("mobile.chat.artifact."),
+           !CmuxFeatureFlags.offMainEffectiveValue(for: CmuxFeatureFlags.artifactsFlag) {
+            return .err(
+                code: "capability_disabled",
+                message: String(
+                    localized: "mobile.chat.artifact.error.capabilityDisabled",
+                    defaultValue: "Artifacts are disabled for this project."
+                ),
+                data: ["capability": "chat.artifact.v1"]
+            )
+        }
         switch method {
         case "mobile.chat.sessions":
             return await v2MobileChatSessions(params: params)
@@ -58,6 +69,8 @@ extension TerminalController {
             return await v2MobileChatArtifactThumbnail(params: params)
         case "mobile.chat.artifact.list":
             return await v2MobileChatArtifactList(params: params)
+        case "mobile.chat.artifact.save":
+            return await v2MobileChatArtifactSave(params: params)
         case "mobile.chat.artifact.gallery":
             return await v2MobileChatArtifactGallery(params: params)
         default:

@@ -6,8 +6,9 @@ struct TranscriptToolCompletion: Sendable {
     /// The result text, already extracted from the transcript shape.
     let output: String?
 
-    /// Whether the transcript flagged the result as an error.
-    let isError: Bool
+    /// Whether the transcript flagged the result as an error, when it carried
+    /// an explicit flag.
+    let isError: Bool?
 
     /// The exit code, when one was parseable from the result.
     let exitCode: Int?
@@ -15,23 +16,76 @@ struct TranscriptToolCompletion: Sendable {
     /// Wall-clock duration in seconds, when one was parseable.
     let durationSeconds: Double?
 
+    /// Whether source-specific positive evidence authorizes mutation provenance.
+    let authorizesArtifactMutation: Bool
+
+    /// Whether the provider supplied positive completion evidence for display.
+    let hasPositiveSuccessEvidence: Bool
+
+    /// Returns whether a tool result provides enough positive evidence to
+    /// authorize a file mutation.
+    ///
+    /// Claude must carry an explicit `is_error: false` flag before its output
+    /// can authorize a mutation. Textual exit-code headers are display data,
+    /// not provider-authenticated success evidence. An explicit success flag
+    /// also authorizes an intentionally empty result; missing flags still fail
+    /// closed.
+    static func authorizesMutation(
+        output: String?,
+        isError: Bool?,
+        exitCode: Int?
+    ) -> Bool {
+        if let exitCode {
+            return exitCode == 0 && isError == false
+        }
+        guard isError == false else { return false }
+        // Claude's explicit success flag is sufficient even when a command
+        // intentionally produces no stdout (for example, a shell redirect).
+        // Keep textual failure envelopes conservative when output exists.
+        guard let output else { return false }
+        guard !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return true
+        }
+        return !reportsFailureWithoutExitStatus(output)
+    }
+
+    /// Whether the result proves the pending invocation completed successfully.
+    var succeeded: Bool {
+        // An explicit provider flag is authoritative for display. In
+        // particular, Claude's successful Grep result may legitimately say
+        // "No matches"; that text is only a failure heuristic when the
+        // provider omitted its status. Mutation authorization remains
+        // fail-closed in `authorizesMutation` below.
+        if let isError {
+            return !isError
+        }
+        if let exitCode { return exitCode == 0 }
+        if reportsFailureWithoutExitStatus { return false }
+        return hasPositiveSuccessEvidence
+    }
+
     /// Creates a completion.
     ///
     /// - Parameters:
     ///   - output: The extracted result text.
-    ///   - isError: Whether the result was flagged as an error.
+    ///   - isError: Whether the result was explicitly flagged as an error.
     ///   - exitCode: The parsed exit code, when available.
     ///   - durationSeconds: The parsed duration, when available.
+    ///   - authorizesArtifactMutation: Whether the source proved a mutation succeeded.
     init(
         output: String?,
-        isError: Bool,
+        isError: Bool?,
         exitCode: Int? = nil,
-        durationSeconds: Double? = nil
+        durationSeconds: Double? = nil,
+        authorizesArtifactMutation: Bool,
+        hasPositiveSuccessEvidence: Bool = false
     ) {
         self.output = output
         self.isError = isError
         self.exitCode = exitCode
         self.durationSeconds = durationSeconds
+        self.authorizesArtifactMutation = authorizesArtifactMutation
+        self.hasPositiveSuccessEvidence = hasPositiveSuccessEvidence
     }
 
     /// Produces the completed copy of a pending tool message.
@@ -47,20 +101,22 @@ struct TranscriptToolCompletion: Sendable {
             let completed = ChatTerminalCapture(
                 command: capture.command,
                 output: output.map { budget.body($0) },
-                exitCode: exitCode ?? (isError ? 1 : 0),
+                exitCode: exitCode ?? (succeeded ? 0 : 1),
                 durationSeconds: durationSeconds,
                 isRunning: false
             )
             return message.replacingKind(.terminal(completed))
         case .toolUse(let toolUse):
-            let failed = isError || (exitCode ?? 0) != 0
             let completed = ChatToolUse(
                 toolName: toolUse.toolName,
                 summary: toolUse.summary,
                 inputDetail: toolUse.inputDetail,
                 output: output.map { budget.body($0) },
-                status: failed ? .failed : .succeeded,
-                referencedPaths: toolUse.referencedPaths
+                status: succeeded ? .succeeded : .failed,
+                referencedPaths: toolUse.referencedPaths,
+                artifactMutationAuthorized: toolUse.artifactMutationPaths.isEmpty
+                    ? nil
+                    : authorizesArtifactMutation
             )
             return message.replacingKind(.toolUse(completed))
         case .question(let question):
@@ -138,6 +194,42 @@ struct TranscriptToolCompletion: Sendable {
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let answers = root["answers"] as? [String: Any] else { return nil }
         return answers.compactMapValues { $0 as? [String: Any] }
+    }
+
+    /// Some tools can report failure only in their text envelope.
+    static func reportsFailureWithoutExitStatus(_ output: String) -> Bool {
+        let prefix = output
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .prefix(400)
+            .lowercased()
+        // Only provider-style prefixes are status evidence. The remainder of
+        // a transcript is arbitrary command output; scanning its lines for
+        // words such as "error" or "failed" mislabels valid grep/read data.
+        let firstLine = prefix.split(whereSeparator: \.isNewline).first ?? ""
+        return firstLine.hasPrefix("script failed")
+            || firstLine.hasPrefix("tool failed")
+            || firstLine.hasPrefix("apply_patch verification failed")
+            || firstLine.hasPrefix("error:")
+            || firstLine.hasPrefix("permission denied")
+            || firstLine.hasPrefix("access denied")
+            || firstLine.hasPrefix("operation not permitted")
+            || firstLine == "failed"
+            || firstLine.hasPrefix("failed:")
+            || firstLine.hasPrefix("failed to ")
+            || firstLine.hasPrefix("patch failed")
+            || firstLine == "failure"
+            || firstLine.hasPrefix("failure:")
+            || firstLine == "unable"
+            || firstLine.hasPrefix("unable to ")
+            || firstLine == "exception"
+            || firstLine.hasPrefix("exception:")
+            || firstLine == "no matches"
+            || firstLine.hasPrefix("no matches ")
+    }
+
+    private var reportsFailureWithoutExitStatus: Bool {
+        guard let output else { return false }
+        return Self.reportsFailureWithoutExitStatus(output)
     }
 }
 

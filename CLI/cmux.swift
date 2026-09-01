@@ -4759,6 +4759,67 @@ struct CMUXCLI {
         ?? defaultBrowserSettingsDomain
     }
 
+    // Presentation flags are global, but command option values can also look like flags.
+    private static let commandOptionsWithValues: Set<String> = [
+        "--action", "--after-workspace", "--agent", "--amount", "--arch",
+        "--attr", "--before-workspace", "--body", "--color", "--command",
+        "--config", "--cwd", "--description", "--direction", "--domain",
+        "--dx", "--dy", "--email", "--event", "--expires", "--focus",
+        "--function", "--id", "--image", "--index", "--key", "--kind",
+        "--label", "--layout", "--lines", "--load-state", "--max-depth", "--name", "--os",
+        "--order", "--out", "--pane", "--panel", "--path", "--profile", "--project", "--property",
+        "--provider", "--relay-port", "--script", "--selector", "--session",
+        "--shell", "--source", "--subtitle", "--surface", "--tab", "--target-pane", "--team",
+        "--text", "--timeout", "--timeout-ms", "--title", "--transcript",
+        "--turn", "--type", "--url", "--url-contains", "--value", "--window",
+        "--workspace", "--checkpoint", "--checkpoint-id",
+    ]
+
+    private func parsePresentationOptions(
+        _ commandArgs: [String]
+    ) throws -> (jsonOutput: Bool, idFormat: String?, remaining: [String]) {
+        var jsonOutput = false
+        var idFormat: String?
+        var remaining: [String] = []
+        var index = 0
+        var pastTerminator = false
+        while index < commandArgs.count {
+            let arg = commandArgs[index]
+            if pastTerminator {
+                remaining.append(arg)
+                index += 1
+                continue
+            }
+            if arg == "--" {
+                pastTerminator = true
+                remaining.append(arg)
+                index += 1
+                continue
+            }
+            if arg == "--json" {
+                jsonOutput = true
+                index += 1
+                continue
+            }
+            if arg == "--id-format" {
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: "--id-format requires a value (refs|uuids|both)")
+                }
+                idFormat = commandArgs[index + 1]
+                index += 2
+                continue
+            }
+            remaining.append(arg)
+            if Self.commandOptionsWithValues.contains(arg), index + 1 < commandArgs.count {
+                remaining.append(commandArgs[index + 1])
+                index += 2
+                continue
+            }
+            index += 1
+        }
+        return (jsonOutput, idFormat, remaining)
+    }
+
     private func runBrowserAvailabilityCommand(
         command: String,
         commandArgs: [String],
@@ -4961,7 +5022,7 @@ struct CMUXCLI {
         )
     }
 
-    func run() throws {
+    func run() async throws {
         let processEnv = ProcessInfo.processInfo.environment
         let cliBundleIdentifier = CLISocketPathResolver.currentAppBundleIdentifier()
         var explicitSocketPath: String? = nil
@@ -5081,6 +5142,8 @@ struct CMUXCLI {
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "welcome" { printWelcome(); return }
         if command == "sessions" || command == "session-debug" { try runSessionsCommand(commandArgs: command == "session-debug" ? ["debug"] + commandArgs : commandArgs, jsonOutput: jsonOutput, processEnv: processEnv); return }
+        if command == "artifact" { try await runArtifactCommand(commandArgs: commandArgs, jsonOutput: jsonOutput, processEnvironment: processEnv); return }
+        if command == "note" { try await runNoteCommand(commandArgs: commandArgs, jsonOutput: jsonOutput, processEnvironment: processEnv); return }
         if command == "__sigpipe-probe" { try runSIGPIPEProbe(commandArgs: commandArgs); return }
         if command == "__sigpipe-stdin-pipe-probe" { try runSIGPIPEStdinPipeProbe(); return }
         if command == "__sigpipe-inspect" { try runSIGPIPEInspect(commandArgs: commandArgs); return }
@@ -18139,6 +18202,8 @@ struct CMUXCLI {
 
             Check connectivity to the cmux socket server.
             """
+        case "artifact": return artifactUsage()
+        case "note": return noteUsage()
         case "iroh-diag":
             return String(
                 localized: "cli.help.irohDiag",
@@ -20062,7 +20127,7 @@ struct CMUXCLI {
                                              ~/.config/cmux/sidebars as a right panel;
                                              the optional name picks which one.
               mode                           Print {"visible":bool,"mode":string}
-              files|find|vault|sessions|feed|dock|cloud|custom
+              files|find|vault|sessions|artifacts|feed|dock|cloud|custom
                                              Alias for show + set + focus
 
             Flags:
@@ -20797,7 +20862,7 @@ struct CMUXCLI {
 
         case "set":
             guard parsed.positional.count == 2 || parsed.positional.count == 3 else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.setRequiresMode", defaultValue: "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, cloud, or custom [sidebar-name]"))
+                throw CLIError(message: String(localized: "cli.rightSidebar.error.setRequiresMode", defaultValue: "right-sidebar set requires a mode: files, find, vault, sessions, artifacts, feed, dock, cloud, or custom [sidebar-name]"))
             }
             let mode = parsed.positional[1].trimmingCharacters(in: .whitespacesAndNewlines)
             guard isRightSidebarCLIMode(mode) else {
@@ -20817,7 +20882,7 @@ struct CMUXCLI {
             }
             return args
 
-        case "files", "find", "vault", "sessions", "feed", "dock", "cloud", "machines", "custom", "custom-sidebar":
+        case "files", "find", "vault", "sessions", "artifacts", "feed", "dock", "cloud", "machines", "custom", "custom-sidebar":
             guard parsed.positional.count == 1 else {
                 throw CLIError(message: String(localized: "cli.rightSidebar.error.unexpectedArguments", defaultValue: "right-sidebar \(action) received unexpected arguments"))
             }
@@ -40581,6 +40646,8 @@ export default CMUXSessionRestore;
 
         Commands:
           welcome
+          \(String(localized: "cli.artifact.helpLine", defaultValue: "artifact <list|path|open|add|search> [--project <path>]"))
+          \(String(localized: "cli.note.helpLine", defaultValue: "note <list|path|read|write|append|search|open|rm> [--project <path>] (rm requires --yes|-y)"))
           docs [settings|shortcuts|api|browser|agents|dock|sidebars]
           settings [open [target]|path|docs|<target>]
           config <doctor|check|validate|path|paths|docs|documentation|reload>
@@ -40682,7 +40749,7 @@ export default CMUXSessionRestore;
           open-notification --id <uuid>
           jump-to-unread
           clear-notifications [--workspace <id|ref|index>] [--window <id|ref|index>]
-          right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock|cloud> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
+          right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|artifacts|feed|dock|cloud> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
           sidebar <validate|reload|select|open> [name]
           set-status <key> <value> [--workspace <id|ref|index>] [--window <id|ref|index>] [--icon <name>] [--color <#hex>] [--priority <n>]
           clear-status <key> [--workspace <id|ref|index>] [--window <id|ref|index>]
@@ -40786,7 +40853,7 @@ private enum CMUXCLIOutput {
 
 @main
 struct CMUXTermMain {
-    static func main() {
+    static func main() async {
         let initialSIGPIPEInspectionPayload = CMUXCLI.currentSIGPIPEInspectionPayload()
         _ = signal(SIGPIPE, SIG_DFL)
         configureCLIStdioNoSIGPIPE()
@@ -40795,7 +40862,7 @@ struct CMUXTermMain {
             initialSIGPIPEInspectionPayload: initialSIGPIPEInspectionPayload
         )
         do {
-            try cli.run()
+            try await cli.run()
         } catch {
             if !cli.shouldSuppressSSHPTYAttachRetryError(error) {
                 CMUXCLIOutput.writeStandardError("Error: \(error)\n")

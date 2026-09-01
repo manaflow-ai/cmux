@@ -384,6 +384,7 @@ struct FilePreviewTextEditorTextKitTests {
 
     private final class TextEditingPanelSpy: FilePreviewTextEditingPanel {
         var textContent = ""
+        var isReadOnly = false
         var saveCount = 0
 
         func attachTextView(_: NSTextView) {}

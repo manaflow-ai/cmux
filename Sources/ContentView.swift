@@ -1,5 +1,6 @@
 import AppKit
 import CmuxAppKitSupportUI
+import CmuxArtifacts
 import CmuxCommandPalette
 import CmuxCore
 import CmuxFeedback
@@ -848,6 +849,8 @@ struct ContentView: View {
 
     var updateViewModel: UpdateStateModel
     let windowId: UUID
+    let artifactStore: any ArtifactStoring
+    let artifactCaptureService: any ArtifactCapturing
     let featureFlags: CmuxFeatureFlags
     let sidebarUnread: SidebarUnreadModel
     let titlebarControlsLayoutModel: TitlebarControlsLayoutModel
@@ -858,14 +861,20 @@ struct ContentView: View {
         windowId: UUID,
         featureFlags: CmuxFeatureFlags? = nil,
         sidebarUnread: SidebarUnreadModel? = nil,
-        titlebarControlsLayoutModel: TitlebarControlsLayoutModel? = nil
+        titlebarControlsLayoutModel: TitlebarControlsLayoutModel? = nil,
+        artifactStore: (any ArtifactStoring)? = nil,
+        artifactCaptureService: (any ArtifactCapturing)? = nil
     ) {
+        let resolvedArtifactStore = artifactStore ?? LocalArtifactRepository()
         self.updateViewModel = updateViewModel
         self.windowId = windowId
         self.featureFlags = featureFlags ?? .shared
         self.sidebarUnread = sidebarUnread ?? TerminalNotificationStore.shared.sidebarUnread
         self.titlebarControlsLayoutModel = titlebarControlsLayoutModel
             ?? TitlebarControlsLayoutModel()
+        self.artifactStore = resolvedArtifactStore
+        self.artifactCaptureService = artifactCaptureService
+            ?? ArtifactCaptureService(store: resolvedArtifactStore)
     }
 
     @EnvironmentObject var tabManager: TabManager
@@ -1989,14 +1998,21 @@ struct ContentView: View {
             fileExplorerStore: fileExplorerStore,
             fileExplorerState: fileExplorerState,
             sessionIndexStore: sessionIndexStore,
+            featureFlags: featureFlags,
             titlebarHeight: RightSidebarChromeMetrics.titlebarHeight,
             windowAppearance: appearance,
             workspaceId: tabManager.selectedTabId,
+            artifactWorkspace: selectedArtifactWorkspace,
+            artifactStore: artifactStore,
+            artifactCaptureService: artifactCaptureService,
             onResumeSession: { entry in
                 resumeSession(entry: entry)
             },
             onOpenFilePreview: { filePath in
                 openFilePreviewFromSidebar(filePath: filePath)
+            },
+            onOpenArtifact: { artifact in
+                openArtifactFromSidebar(artifact)
             },
             onOpenAsPane: { mode in
                 openRightSidebarToolPane(mode)

@@ -136,7 +136,7 @@ extension RightSidebarRemoteRequest {
             return .success(.init(command: .getState, target: target))
         case "set":
             guard positional.count == 2 || positional.count == 3 else {
-                return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage.set", defaultValue: "ERROR: Usage: right_sidebar set <files|find|vault|sessions|feed|dock|custom> [sidebar-name] [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]")))
+                return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage.set", defaultValue: "ERROR: Usage: right_sidebar set <files|find|vault|sessions|artifacts|feed|dock|custom> [sidebar-name] [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]")))
             }
             let rawMode = positional[1].trimmingCharacters(in: .whitespacesAndNewlines)
             if let mode = RightSidebarMode.from(cliArgument: rawMode) {
@@ -147,7 +147,7 @@ extension RightSidebarRemoteRequest {
                     return .success(.init(command: .setCustomSidebar(name: name, focus: !noFocus), target: target))
                 }
                 guard positional.count == 2 else {
-                    return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage.set", defaultValue: "ERROR: Usage: right_sidebar set <files|find|vault|sessions|feed|dock|custom> [sidebar-name] [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]")))
+                        return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage.set", defaultValue: "ERROR: Usage: right_sidebar set <files|find|vault|sessions|artifacts|feed|dock|custom> [sidebar-name] [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]")))
                 }
                 return .success(.init(command: .setMode(mode, focus: !noFocus), target: target))
             }

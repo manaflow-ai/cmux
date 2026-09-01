@@ -157,6 +157,7 @@ Detailed contributor rules live in `skills/`. Use the task-specific skill before
 - `cmux-testing`: regression policy, Swift Testing, test quality, test wiring, local vs CI validation.
 - `cmux-socket-policy`: socket command threading and focus preservation.
 - `cmux-shared-behavior`: shared action paths for multi-entrypoint behavior and optimistic updates.
+- `cmux-project-files`: read, write, search, reference, and reorganize project-local Notes and Artifacts through the cmux CLI.
 - `cmux-ghostty`: Ghostty submodule and GhosttyKit workflow.
 - `cmux-release`: release, version bump, changelog, pretag guard, release assets.
 - Blacksmith Testbox (remote Linux builds for cmux-tui): warm your own box before any cmux-tui Rust or Zig

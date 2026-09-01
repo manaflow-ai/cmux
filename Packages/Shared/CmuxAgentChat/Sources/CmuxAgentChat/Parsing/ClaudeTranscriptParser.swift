@@ -162,14 +162,31 @@ public struct ClaudeTranscriptParser: Sendable {
         if let output {
             assembler.appendArtifactReferences(paths: artifactText.paths(in: output), seq: seq)
         }
-        let isError = block["is_error"]?.bool ?? false
+        // Keep the distinction between an explicit `false` and a missing
+        // flag. Mutation provenance requires positive success evidence, so a
+        // missing Claude error flag must not be treated as success.
+        let isError = block["is_error"]?.bool
+        let exitCode = parsedExitCode(from: output)
         assembler.resolve(
             key: callID,
             completion: TranscriptToolCompletion(
                 output: output,
                 isError: isError,
-                exitCode: parsedExitCode(from: output)
-            )
+                exitCode: exitCode,
+                authorizesArtifactMutation: TranscriptToolCompletion.authorizesMutation(
+                    output: output,
+                    isError: isError,
+                    exitCode: exitCode
+                ),
+                // Display status may use a non-empty, non-failure result even
+                // when Claude omitted `is_error`; mutation authorization above
+                // remains fail-closed until the explicit false flag arrives.
+                hasPositiveSuccessEvidence: output.map {
+                    !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        && !TranscriptToolCompletion.reportsFailureWithoutExitStatus($0)
+                } ?? false
+            ),
+            resultSeq: seq
         )
     }
 
@@ -425,24 +442,28 @@ public struct ClaudeTranscriptParser: Sendable {
         guard let content = root["message"]?["content"] else { return }
         if root["type"]?.string == "user" {
             for block in content.array ?? [] where block["type"]?.string == "tool_result" {
-                if let output = resultText(from: block["content"]) {
-                    assembler.appendArtifactReferences(
-                        paths: artifactText.paths(in: output),
-                        seq: seq
-                    )
-                }
+                resolveToolResult(block, seq: seq, into: &assembler)
             }
             return
         }
         guard root["type"]?.string == "assistant" else { return }
         for block in content.array ?? [] where block["type"]?.string == "tool_use" {
             guard let toolName = block["name"]?.string else { continue }
+            let callID = block["id"]?.string
             let input = block["input"]
             if toolName == "Bash", let command = input?["command"]?.string {
                 assembler.appendArtifactReferences(
                     paths: artifactText.paths(in: command),
                     seq: seq
                 )
+                if let callID {
+                    assembler.registerArtifactMutation(
+                        paths: ShellArtifactMutationPathDetector()
+                            .pathsAttributedToSuccessfulCommand(in: command),
+                        pendingKey: callID,
+                        seq: seq
+                    )
+                }
             }
             let paths = referencedPaths.referencedPaths(in: input) ?? []
             if Self.isMutationTool(toolName) {
@@ -450,11 +471,15 @@ public struct ClaudeTranscriptParser: Sendable {
                     input?["file_path"]?.string,
                     input?["notebook_path"]?.string,
                 ].compactMap { $0 })
-                assembler.appendArtifactReferences(
-                    paths: paths.filter { targets.contains($0) },
-                    provenance: .created,
-                    seq: seq
-                )
+                let mutationTargets = paths.filter { targets.contains($0) }
+                assembler.appendArtifactReferences(paths: mutationTargets, seq: seq)
+                if let callID {
+                    assembler.registerArtifactMutation(
+                        paths: mutationTargets,
+                        pendingKey: callID,
+                        seq: seq
+                    )
+                }
                 assembler.appendArtifactReferences(
                     paths: paths.filter { !targets.contains($0) },
                     seq: seq
