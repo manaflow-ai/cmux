@@ -151,6 +151,16 @@ describe("devbox image template", () => {
     for (const line of bashrc.split("\n").filter((l) => l.trimStart().startsWith("ble-face"))) {
       expect(line).not.toContain("bg=");
     }
+    // Meta delete chords kill words instead of copying them (parity with
+    // the Blaxel template; stock ble.sh maps them to copy-*-sword).
+    for (const bind of [
+      "ble-bind -m emacs -f 'M-C-?' kill-backward-cword",
+      "ble-bind -m emacs -f 'M-DEL' kill-backward-cword",
+      "ble-bind -m emacs -f 'M-BS' kill-backward-cword",
+      "ble-bind -m emacs -f 'M-delete' kill-forward-cword",
+    ]) {
+      expect(bashrc).toContain(bind);
+    }
     expect(bashrc).toContain("source /usr/local/share/blesh/ble.sh --noattach");
     expect(bashrc).toContain("ble-attach");
     expect(bashrc).toContain('cp /etc/cmux/seed-history "$HOME/.bash_history"');

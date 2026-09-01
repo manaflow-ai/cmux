@@ -1194,6 +1194,23 @@ class GhosttyApp {
         // handling, while Ghostty split-theme pairs follow app appearance.
         let themeColorScheme = conditionalThemeColorScheme ?? preferredColorScheme
 
+        // Default macOS text-editing chord: Option+Backspace deletes the word
+        // left of the cursor. Ghostty's macOS defaults already cover
+        // super+backspace (text:\x15), super+left/right (\x01/\x05), and
+        // alt+left/right (esc:b / esc:f), but leave alt+backspace to the key
+        // encoder, which only ESC-prefixes when `macos-option-as-alt` is
+        // enabled — so the shell receives a plain 0x7f and deletes one
+        // character. Send the emacs/readline word-delete sequence (ESC DEL)
+        // instead, matching Terminal.app. Loaded BEFORE the user's config
+        // files so an explicit user `keybind = alt+backspace=…` (or
+        // `keybind = clear`) still wins.
+        loadInlineGhosttyConfig(
+            #"keybind = alt+backspace=text:\x1b\x7f"#,
+            into: config,
+            prefix: "cmux-default-word-delete",
+            logLabel: "default word delete"
+        )
+
         #if DEBUG
         let startupPreviewProfile = GhosttyStartupAppearancePreviewState.profile
         if startupPreviewProfile.loadsRealUserConfig {

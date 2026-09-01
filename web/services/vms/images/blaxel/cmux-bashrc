@@ -54,6 +54,20 @@ if [ -f /usr/local/share/blesh/ble.sh ] && [ -z "${BLE_VERSION:-}" ]; then
   ble-face syntax_history_expansion=fg=172
   ble-face cmdinfo_cd_cdpath=fg=110
   ble-face menu_filter_input=fg=186
+
+  # macOS text-editing chords: cmux sends ESC DEL for Option+Backspace and
+  # the mirror path delivers CSI 3;3~ for Option+Fn+Delete, but stock ble.sh
+  # leaves M-C-? unbound and puts copy (not kill) on the meta delete keys, so
+  # both chords look dead. Bind every decode spelling to the readline
+  # behavior (backward-kill-word / kill-word):
+  #   bytes      ble.sh key   action                chord
+  #   ESC 0x7f   M-C-?        kill-backward-cword   Option+Backspace
+  #   ESC kbs    M-DEL, M-BS  kill-backward-cword   terminals decoding kbs
+  #   CSI 3;3~   M-delete     kill-forward-cword    Option+Fn+Delete
+  ble-bind -m emacs -f 'M-C-?' kill-backward-cword
+  ble-bind -m emacs -f 'M-DEL' kill-backward-cword
+  ble-bind -m emacs -f 'M-BS' kill-backward-cword
+  ble-bind -m emacs -f 'M-delete' kill-forward-cword
 fi
 
 # half-life palette: purple 135, lime 118, orange 166, hotpink 161. The machine

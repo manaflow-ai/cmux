@@ -154,6 +154,25 @@ describe("Blaxel baked image template", () => {
     }
   });
 
+  test("meta delete chords kill words instead of copying them", () => {
+    // cmux sends ESC DEL for Option+Backspace (default alt+backspace
+    // keybind) and CSI 3;3~ arrives for Option+Fn+Delete. Stock ble.sh
+    // leaves M-C-? unbound and maps the decoded meta delete keys to
+    // copy-*-sword (kill-ring copy, no deletion), so both chords look dead.
+    for (const bind of [
+      "ble-bind -m emacs -f 'M-C-?' kill-backward-cword",
+      "ble-bind -m emacs -f 'M-DEL' kill-backward-cword",
+      "ble-bind -m emacs -f 'M-BS' kill-backward-cword",
+      "ble-bind -m emacs -f 'M-delete' kill-forward-cword",
+    ]) {
+      expect(bashrc).toContain(bind);
+    }
+    // Bound after ble.sh is sourced, before ble-attach.
+    expect(bashrc.indexOf("source /usr/local/share/blesh/ble.sh")).toBeLessThan(
+      bashrc.indexOf("ble-bind -m emacs"),
+    );
+  });
+
   test("agent config generator wires the coderouter model plane per HOME", () => {
     const agentConfig = read("agent-config.sh");
     // Sourced for login/exec shells and every interactive HOME.
