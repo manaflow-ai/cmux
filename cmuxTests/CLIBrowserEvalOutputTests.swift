@@ -107,12 +107,14 @@ final class CLIBrowserEvalOutputTests {
         let value: [String: Any] = [
             "a\u{202E}": "first",
             "a\u{2066}": "second",
+            "a\\u{202E}": "literal escape",
         ]
 
         let output = formatter.string(from: value)
 
         #expect(output.contains("first"))
         #expect(output.contains("second"))
+        #expect(output.contains("literal escape"))
         #expect(!output.contains("\u{202E}"))
         #expect(!output.contains("\u{2066}"))
     }
