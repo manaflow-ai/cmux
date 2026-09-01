@@ -811,6 +811,27 @@ impl Inner {
             opened.control.kill();
             return;
         }
+        // A terminal callback locks its publication gate before it rechecks
+        // the attachment map. Acquire the previous generation's gate before
+        // replacing it, otherwise a same-ID open can overtake a blocked exit.
+        if let Some(previous_gate) =
+            attachments.get(&pty_id).map(|previous| Arc::clone(&previous.publication_gate))
+        {
+            drop(attachments);
+            drop(opening);
+            let _previous_publication = previous_gate.lock().expect("attachment publication lock");
+            attachments = self.attachments.lock().expect("attach lock");
+            opening = self.opening_state.lock().expect("opening state lock");
+            if opening.cancelled.remove(&pty_id) {
+                opening.ids.remove(&pty_id);
+                drop(opening);
+                drop(attachments);
+                reservation.active = false;
+                opened.closing.store(true, Ordering::SeqCst);
+                opened.control.kill();
+                return;
+            }
+        }
         let previous = attachments.insert(
             pty_id.clone(),
             Attachment {
