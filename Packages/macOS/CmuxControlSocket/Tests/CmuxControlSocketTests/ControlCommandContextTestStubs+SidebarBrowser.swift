@@ -97,6 +97,13 @@ extension ControlSidebarContext {
         identity: ControlSidebarLifecycleIdentity?
     ) {}
 
+    nonisolated func controlSidebarScheduleAgentLifecycle(
+        target: ControlSidebarTabTarget,
+        key: String,
+        lifecycleRawValue: String,
+        panelID: UUID?
+    ) {}
+
     func controlSidebarSetWorkspaceLoading(
         tabArg: String?,
         key: String,

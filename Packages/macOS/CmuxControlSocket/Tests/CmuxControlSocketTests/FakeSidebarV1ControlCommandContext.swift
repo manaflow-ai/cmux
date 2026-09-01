@@ -86,6 +86,24 @@ final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
         agentLifecycleCall = (target, key, lifecycleRawValue, panelID, promptBoundary, normalCompletion, hookFailureEvidence, identity)
     }
 
+    nonisolated func controlSidebarScheduleAgentLifecycle(
+        target: ControlSidebarTabTarget,
+        key: String,
+        lifecycleRawValue: String,
+        panelID: UUID?
+    ) {
+        controlSidebarScheduleAgentLifecycle(
+            target: target,
+            key: key,
+            lifecycleRawValue: lifecycleRawValue,
+            panelID: panelID,
+            promptBoundary: false,
+            normalCompletion: false,
+            hookFailureEvidence: false,
+            identity: nil
+        )
+    }
+
     nonisolated func controlSidebarScheduleScopedShellState(
         scope: ControlSidebarPanelScope,
         stateRawValue: String

@@ -39,19 +39,18 @@ extension AgentStallSupervisor {
     /// traversal. Retry-setting changes can cancel several panels at once.
     func clearStatusEverywhere(panelIDs: Set<UUID>) {
         guard !panelIDs.isEmpty else { return }
-        let keys = Set(panelIDs.map(AgentStallPresentation.statusKey))
+        let keysByPanelID = Dictionary(
+            uniqueKeysWithValues: panelIDs.map { ($0, AgentStallPresentation.statusKey($0)) }
+        )
+        let keys = Set(keysByPanelID.values)
         for workspace in app?.openWorkspacesForPetCensus() ?? [] {
-            for key in keys {
+            let matchingKeys = workspace.statusEntries.keys.filter { keys.contains($0) }
+            for key in matchingKeys {
                 workspace.statusEntries.removeValue(forKey: key)
             }
         }
         for dock in DockSplitStore.liveStores {
-            for panelID in panelIDs {
-                dock.clearAgentRuntimeStatusEntry(
-                    key: AgentStallPresentation.statusKey(panelID),
-                    panelId: panelID
-                )
-            }
+            dock.clearAgentRuntimeStatusEntries(keysByPanelID: keysByPanelID)
         }
     }
 }
