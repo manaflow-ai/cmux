@@ -12,7 +12,11 @@ permissions: {}
 jobs:
   validate:
     name: CLA policy guard
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # This control-plane workflow parses attacker-controlled YAML and shell
+    # bytes. Use a GitHub-hosted ephemeral runner; a repository variable must
+    # not be able to redirect it to a persistent or contributor-controlled
+    # machine.
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -21,6 +25,7 @@ jobs:
       - name: Checkout immutable guard revision
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          repository: ${{ github.repository }}
           ref: ${{ github.workflow_sha }}
           fetch-depth: 1
           persist-credentials: false
