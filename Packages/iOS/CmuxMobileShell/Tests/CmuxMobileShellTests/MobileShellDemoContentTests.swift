@@ -126,6 +126,59 @@ import Testing
         })
     }
 
+    /// Live-repro regression (PR #11289 dogfood): on a launch that mounts
+    /// already authenticated, the shell's auth sync runs against the CACHED
+    /// identity card, which predates the server flag and decodes as
+    /// not-flagged. The fresh flagged user arrives later through session
+    /// revalidation WITHOUT another isAuthenticated edge, so no further
+    /// `signIn()` sync re-evaluates activation. The paired-Mac decorator
+    /// reads the flag lazily on every load, so the Demo Mac row appeared
+    /// ("Not connected · 0 workspaces") while the workspace/notification
+    /// seeds never landed. Any paired-Mac list load that can reveal the row
+    /// must therefore also re-evaluate activation.
+    @Test func flagArrivingAfterTheAuthSyncSeedsOnTheNextPairedMacLoad() async {
+        let identity = DemoFlagIdentityProvider(
+            userID: "demo-tests-user",
+            demonstrationContentEnabled: false
+        )
+        let store = CMUXMobileShellStore(
+            pairedMacStore: DemoContentPairedMacStore(
+                inner: RecordingPairedMacStore(),
+                isEnabled: { await identity.demonstrationContentEnabled }
+            ),
+            identityProvider: identity,
+            deliveredNotificationClearer: NoopDeliveredNotificationClearer(),
+            pairingHintDefaults: UserDefaults(
+                suiteName: "demo-content-tests-\(UUID().uuidString)"
+            )!
+        )
+
+        // Auth sync fires while the published user is the cached, unflagged
+        // card: nothing may seed.
+        store.signIn()
+        #expect(store.workspaces.isEmpty)
+        #expect(store.notificationFeedItems.isEmpty)
+
+        // Revalidation refreshes the published user with the server flag; no
+        // isAuthenticated edge accompanies it.
+        identity.demonstrationContentEnabled = true
+
+        // The next paired-Mac load (reconnect bootstrap, Computers sheet,
+        // foreground refresh) reveals the demo row — and must seed with it.
+        await store.loadPairedMacs()
+        #expect(store.pairedMacs.contains {
+            $0.macDeviceID == MobileDemoContentCatalog.macDeviceID
+        })
+        let demoRows = store.workspaces.filter {
+            $0.macDeviceID == MobileDemoContentCatalog.macDeviceID
+        }
+        #expect(demoRows.count == 3)
+        #expect(demoRows.allSatisfy { $0.macConnectionStatus == .connected })
+        #expect(store.workspaceListConnectionStatus == .connected)
+        #expect(!store.notificationFeedItems.isEmpty)
+        #expect(store.hasKnownPairedMac)
+    }
+
     @Test func unflaggedAccountSeesNothing() async {
         let (store, _) = makeStore(demonstrationContentEnabled: false)
 
