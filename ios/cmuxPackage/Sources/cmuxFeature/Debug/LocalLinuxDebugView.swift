@@ -324,6 +324,39 @@ private struct LocalLinuxStatusOverlay: View {
     }
 }
 
+/// Placeholder returned when the shared Ghostty renderer cannot be created.
+///
+/// ``UIViewRepresentable.makeUIView`` runs while SwiftUI is reconciling the
+/// view tree. Reporting the failure from that method can mutate the parent's
+/// ``@State`` during the reconciliation transaction. UIKit calls
+/// ``didMoveToSuperview`` (and, for a late window attach, ``didMoveToWindow``)
+/// only after it has installed the placeholder, so the coordinator can
+/// publish the failure from this post-install lifecycle hook.
+@MainActor
+private final class LocalLinuxRendererFailurePlaceholderView: UIView {
+    var onInstall: (@MainActor () -> Void)?
+
+    private var didReportInstallation = false
+
+    override func didMoveToSuperview() {
+        super.didMoveToSuperview()
+        reportInstallationIfNeeded()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        reportInstallationIfNeeded()
+    }
+
+    private func reportInstallationIfNeeded() {
+        guard superview != nil || window != nil, !didReportInstallation else { return }
+        didReportInstallation = true
+        let callback = onInstall
+        onInstall = nil
+        callback?()
+    }
+}
+
 private struct LocalLinuxDebugRepresentable: UIViewRepresentable {
     let runtime: LocalLinuxRuntime
     let lifecycleFence: LocalLinuxDebugLifecycleFence
@@ -342,15 +375,13 @@ private struct LocalLinuxDebugRepresentable: UIViewRepresentable {
 
     func makeUIView(context: Context) -> UIView {
         guard let runtime = try? GhosttyRuntime.shared() else {
-            // Defer the state write until after UIKit finishes this SwiftUI
-            // update transaction. A synchronous callback here can trigger
-            // "state changed during view update" and leave the retry card in
-            // an indeterminate phase.
-            let coordinator = context.coordinator
-            Task { @MainActor in
-                coordinator.failRenderer()
+            // The placeholder reports its failure after UIKit installs the
+            // representable. This keeps the SwiftUI state write out of
+            // makeUIView's reconciliation pass.
+            let placeholder = LocalLinuxRendererFailurePlaceholderView()
+            placeholder.onInstall = { [weak coordinator = context.coordinator] in
+                coordinator?.rendererFailurePlaceholderDidInstall()
             }
-            let placeholder = UIView()
             placeholder.backgroundColor = .black
             placeholder.isAccessibilityElement = false
             return placeholder
@@ -432,6 +463,10 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
     /// consumes this intent only after the previous operation is quiescent.
     private var bootStartRequested = false
     private var outputTask: Task<Void, Never>?
+    /// Owns the deferred renderer-failure publication until the placeholder
+    /// has been installed. Keeping this task on the coordinator lets teardown
+    /// cancel it before a stale callback can mutate the parent view's state.
+    private var rendererFailureTask: Task<Void, Never>?
     private var inputTask: Task<Void, Never>?
     private var inputWorkerID: UUID?
     private var resizeTask: Task<Void, Never>?
@@ -482,6 +517,7 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
     deinit {
         bootTask?.cancel()
         outputTask?.cancel()
+        rendererFailureTask?.cancel()
         inputTask?.cancel()
         inputWorkerID = nil
         resizeTask?.cancel()
@@ -530,6 +566,21 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
         guard !isStopped else { return }
         stopSession(publish: false)
         report(.failed(.renderer))
+    }
+
+    /// Called by the renderer-failure placeholder after UIKit installs it in
+    /// a window. The extra actor turn keeps the state publication outside the
+    /// current UIKit callback and gives dismantle a chance to cancel a stale
+    /// coordinator before it reports an error.
+    func rendererFailurePlaceholderDidInstall() {
+        guard !isStopped else { return }
+        rendererFailureTask?.cancel()
+        rendererFailureTask = Task { @MainActor [weak self] in
+            await Task.yield()
+            guard let self, !self.isStopped else { return }
+            self.rendererFailureTask = nil
+            self.failRenderer()
+        }
     }
 
     func startIfNeeded() {
@@ -765,6 +816,8 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
 
     func stop() {
         isStopped = true
+        rendererFailureTask?.cancel()
+        rendererFailureTask = nil
         isWindowAttached = false
         stopSession(publish: false)
         surfaceView = nil
