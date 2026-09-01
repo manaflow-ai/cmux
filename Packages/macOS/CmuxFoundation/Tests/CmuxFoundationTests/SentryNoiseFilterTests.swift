@@ -23,6 +23,90 @@ import Testing
         ))
     }
 
+    @Test func dropsExpectedUnavailableCLIErrorInSocketStages() {
+        #expect(filter.isExpectedCLIErrorCode(" unavailable "))
+        #expect(!filter.isExpectedCLIErrorCode("internal_error"))
+        #expect(!filter.isExpectedCLIErrorCode(nil))
+        #expect(filter.isExpectedCLIAppLifecycleError(
+            code: "unavailable",
+            message: "unavailable: TabManager not available"
+        ))
+        #expect(!filter.isExpectedCLIAppLifecycleError(
+            code: "unavailable",
+            message: "Cloud VM action could not be started"
+        ))
+        #expect(filter.isExpectedCLIProtocolOutcomeCode("invalid_params"))
+        #expect(filter.isExpectedCLIProtocolOutcomeCode(" not_found "))
+        #expect(filter.isExpectedCLIProtocolOutcomeCode("protected"))
+        #expect(!filter.isExpectedCLIProtocolOutcomeCode("invalid_state"))
+        #expect(!filter.isExpectedCLIProtocolOutcomeCode("internal_error"))
+        #expect(!filter.isExpectedCLIProtocolOutcomeCode("server_failure"))
+        #expect(filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_command",
+            message: "unavailable: TabManager not available (Code: 1)"
+        ))
+        #expect(filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_command",
+            message: "unavailable: Workspace context is unavailable (Code: 1)"
+        ))
+        #expect(filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_command",
+            message: "The app is still starting",
+            cliErrorCode: "unavailable"
+        ))
+        #expect(!filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_command",
+            message: "unavailable: Cloud VM action could not be started",
+            cliErrorCode: "unavailable"
+        ))
+        #expect(filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_connect",
+            message: "Socket path was removed while the app was restarting",
+            socketPathMissing: true
+        ))
+        #expect(!filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_command",
+            message: "unavailable: TabManager not available (Code: 1)",
+            cliErrorCode: "internal_error"
+        ))
+        #expect(!filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_connect",
+            message: "Failed to connect to socket at /tmp/cmux.sock (Connection refused, errno 61)",
+            cliErrorCode: "not_found"
+        ))
+    }
+
+    @Test func scopesLegacyLifecycleTextToSocketOrAgentHookContext() {
+        #expect(!filter.isExpectedCLISocketTransportMessage(
+            "unavailable: TabManager not available (Code: 1)"
+        ))
+        #expect(filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_command",
+            message: "unavailable: TabManager not available (Code: 1)"
+        ))
+        #expect(filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_command",
+            message: "ERROR: TabManager not available"
+        ))
+        #expect(!filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_command",
+            message: "Remote proxy unavailable: connection refused"
+        ))
+        #expect(!filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_startup_wait",
+            message: "cmux app did not start in time (socket not found at /tmp/cmux.sock)"
+        ))
+        #expect(filter.isExpectedLegacyCLIAppLifecycleMessage(
+            "ERROR: TabManager not available"
+        ))
+        #expect(!filter.isExpectedLegacyCLIAppLifecycleMessage(
+            "remote proxy unavailable: connection refused"
+        ))
+        #expect(!filter.isExpectedLegacyCLIAppLifecycleMessage(
+            "remote proxy failed: TabManager not available"
+        ))
+    }
+
     @Test func keepsActionableSocketFailures() {
         #expect(!filter.isExpectedCLISocketTransportFailure(
             stage: "socket_command",
@@ -103,6 +187,16 @@ import Testing
         #expect(!filter.isExpectedCLISocketTransportFailure(
             stage: "codex-monitor-start",
             message: "Failed to write to socket (Broken pipe, errno 32)"
+        ))
+        #expect(!filter.isExpectedCLISocketTransportFailure(
+            stage: "codex-monitor-start",
+            message: "The app is still starting",
+            cliErrorCode: "unavailable"
+        ))
+        #expect(!filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_command",
+            message: "The app is still starting",
+            cliErrorCode: "internal_error"
         ))
     }
 }
