@@ -4594,7 +4594,7 @@ extension SessionPersistenceTests {
         )
     }
 
-    func testAgentHookSurfaceResumeStartupInputRunsWhenSavedWorkingDirectoryWasDeleted() throws {
+    func testAgentHookSurfaceResumeStartupInputDoesNotRunWhenSavedWorkingDirectoryWasDeleted() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-surface-resume-missing-cwd-\(UUID().uuidString)", isDirectory: true)
@@ -4642,11 +4642,11 @@ extension SessionPersistenceTests {
             data: stderr.fileHandleForReading.readDataToEndOfFile(),
             encoding: .utf8
         ) ?? ""
-        XCTAssertEqual(process.terminationStatus, 0, errorText)
-
-        let output = try String(contentsOf: outputURL, encoding: .utf8)
-        XCTAssertTrue(output.contains("resume session-duplicate-turn -c check_for_update_on_startup=false --yolo"), output)
-        XCTAssertFalse(output.hasPrefix("\(deletedCwd.path)|"), output)
+        XCTAssertNotEqual(process.terminationStatus, 0, errorText)
+        XCTAssertFalse(
+            fileManager.fileExists(atPath: outputURL.path),
+            "a deleted saved cwd must not run the agent from the shell's caller directory"
+        )
     }
 
     func testSurfaceResumeBindingStartupInputUsesSurfaceRestoreVerbWhenLong() throws {
