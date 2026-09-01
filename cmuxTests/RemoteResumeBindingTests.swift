@@ -850,6 +850,7 @@ struct RemoteResumeBindingTests {
     @Test
     func relayedRegistrationUsesExplicitRemoteFlavorAfterAliasRewrite() throws {
         let fixture = try makeRelayedFixture()
+        defer { withExtendedLifetime(fixture.relayPortReservation) {} }
 
         #expect(fixture.localBinding["execution_location"] as? String == "local")
         #expect(fixture.localBinding["remote_workspace_id"] is NSNull)
@@ -869,6 +870,7 @@ struct RemoteResumeBindingTests {
     @Test
     func persistentRestoreRunsRemoteResumeOnlyWhenSessionMustBeCreated() throws {
         let fixture = try makeRelayedFixture()
+        defer { withExtendedLifetime(fixture.relayPortReservation) {} }
         let persistedTerminal = try #require(
             fixture.snapshot.panels.first { $0.id == fixture.surfaceID }?.terminal
         )
@@ -937,6 +939,7 @@ struct RemoteResumeBindingTests {
     @Test
     func mismatchedRemoteBindingNeverFallsBackToLocalExecution() throws {
         let fixture = try makeRelayedFixture()
+        defer { withExtendedLifetime(fixture.relayPortReservation) {} }
         let mismatchedSnapshot = try snapshotByReplacingRemoteContext(
             fixture.snapshot,
             persistentPTYSessionID: "different-persistent-session"
@@ -966,6 +969,7 @@ struct RemoteResumeBindingTests {
     @Test
     func legacyRemoteSnapshotWithoutWorkspaceIDMigratesBindingIntoPersistentSSHContext() throws {
         let fixture = try makeRelayedFixture()
+        defer { withExtendedLifetime(fixture.relayPortReservation) {} }
         let legacySnapshot = try snapshotWithoutLaunchFlavorOrWorkspaceID(fixture.snapshot)
         let suiteName = "cmux-legacy-remote-resume-binding-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
