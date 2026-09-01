@@ -1,4 +1,22 @@
 {
+  "vmErrors": {
+    "unsupported": {
+      "title": "Cloud VM-handling er ikke tilgængelig",
+      "reason": "Denne maskintype tilbyder ikke denne handling.",
+      "message": {
+        "snapshot": "Denne Cloud VM understøtter ikke gemt VM-tilstand.",
+        "restore": "Denne Cloud VM-type understøtter ikke gendannelse af gemt VM-tilstand.",
+        "fork": "Denne Cloud VM understøtter ikke kopiering til en ny VM.",
+        "default": "Denne Cloud VM understøtter ikke den ønskede handling."
+      },
+      "action": {
+        "snapshot": "Prøv ikke igen. Arbejde på denne maskintype gemmes på dens vedvarende hjem-diskenhed.",
+        "restore": "Prøv ikke igen. Arbejde på denne maskintype gemmes på dens vedvarende hjem-diskenhed.",
+        "fork": "Prøv ikke igen. Opret en ny VM med `cmux vm new`.",
+        "default": "Prøv ikke igen. Kør `cmux vm ls`, eller kontakt support, hvis du mener, at dette er forkert."
+      }
+    }
+  },
   "billingRecovery": {
     "message": "Hvis vi fandt en konto, så tjek din e-mail for næste trin"
   },

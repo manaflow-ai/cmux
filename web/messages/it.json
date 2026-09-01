@@ -1,4 +1,22 @@
 {
+  "vmErrors": {
+    "unsupported": {
+      "title": "Operazione Cloud VM non disponibile",
+      "reason": "Questo tipo di macchina non offre questa operazione.",
+      "message": {
+        "snapshot": "Questa Cloud VM non supporta lo stato VM salvato.",
+        "restore": "Questo tipo di Cloud VM non supporta il ripristino dello stato VM salvato.",
+        "fork": "Questa Cloud VM non supporta la copia in una nuova VM.",
+        "default": "Questa Cloud VM non supporta l’operazione richiesta."
+      },
+      "action": {
+        "snapshot": "Non riprovare. Il lavoro su questo tipo di macchina viene conservato nel volume home persistente.",
+        "restore": "Non riprovare. Il lavoro su questo tipo di macchina viene conservato nel volume home persistente.",
+        "fork": "Non riprovare. Crea una nuova VM con `cmux vm new`.",
+        "default": "Non riprovare. Esegui `cmux vm ls` o contatta l’assistenza se ritieni che sia un errore."
+      }
+    }
+  },
   "billingRecovery": {
     "message": "Se abbiamo trovato un account, controlla la tua email per i prossimi passaggi"
   },

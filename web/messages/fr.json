@@ -1,4 +1,22 @@
 {
+  "vmErrors": {
+    "unsupported": {
+      "title": "Opération de Cloud VM indisponible",
+      "reason": "Ce type de machine ne propose pas cette opération.",
+      "message": {
+        "snapshot": "Cette Cloud VM ne prend pas en charge l’état enregistré de la VM.",
+        "restore": "Ce type de Cloud VM ne prend pas en charge la restauration de l’état enregistré de la VM.",
+        "fork": "Cette Cloud VM ne prend pas en charge la copie vers une nouvelle VM.",
+        "default": "Cette Cloud VM ne prend pas en charge l’opération demandée."
+      },
+      "action": {
+        "snapshot": "Ne réessayez pas. Le travail sur ce type de machine est conservé sur son volume personnel persistant.",
+        "restore": "Ne réessayez pas. Le travail sur ce type de machine est conservé sur son volume personnel persistant.",
+        "fork": "Ne réessayez pas. Créez une nouvelle VM avec `cmux vm new`.",
+        "default": "Ne réessayez pas. Exécutez `cmux vm ls` ou contactez le support si cela vous semble incorrect."
+      }
+    }
+  },
   "billingRecovery": {
     "message": "Si nous avons trouvé un compte, consultez votre e-mail pour connaître la suite"
   },

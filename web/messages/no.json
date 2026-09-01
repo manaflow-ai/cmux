@@ -1,4 +1,22 @@
 {
+  "vmErrors": {
+    "unsupported": {
+      "title": "Cloud VM-operasjon er ikke tilgjengelig",
+      "reason": "Denne maskintypen tilbyr ikke denne operasjonen.",
+      "message": {
+        "snapshot": "Denne Cloud VM-en støtter ikke lagret VM-tilstand.",
+        "restore": "Denne Cloud VM-typen støtter ikke gjenoppretting av lagret VM-tilstand.",
+        "fork": "Denne Cloud VM-en støtter ikke kopiering til en ny VM.",
+        "default": "Denne Cloud VM-en støtter ikke den forespurte operasjonen."
+      },
+      "action": {
+        "snapshot": "Ikke prøv på nytt. Arbeid på denne maskintypen lagres på det permanente hjem-volumet.",
+        "restore": "Ikke prøv på nytt. Arbeid på denne maskintypen lagres på det permanente hjem-volumet.",
+        "fork": "Ikke prøv på nytt. Opprett en ny VM med `cmux vm new`.",
+        "default": "Ikke prøv på nytt. Kjør `cmux vm ls`, eller kontakt brukerstøtte hvis du mener dette er feil."
+      }
+    }
+  },
   "billingRecovery": {
     "message": "Hvis vi fant en konto, sjekk e-posten din for neste steg"
   },
