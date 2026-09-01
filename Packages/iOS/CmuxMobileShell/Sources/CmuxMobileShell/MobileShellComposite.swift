@@ -281,6 +281,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// can be remapped while snapshots converge, so recovery UI keys off the
     /// stable RPC workspace identity.
     public private(set) var terminalCreationErrorWorkspaceID: MobileWorkspacePreview.ID?
+    @ObservationIgnored private var terminalCreationErrorTerminalID: MobileTerminalPreview.ID?
     /// Actionable next-step line shown beneath ``connectionError`` (for example
     /// "Check that both devices are on the same Tailscale"). Set and cleared
     /// together with the error by the pairing-failure classifier sink.
@@ -8108,6 +8109,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let targetWorkspaceID = workspaceID ?? selectedWorkspace?.id
         terminalCreationError = nil
         terminalCreationErrorWorkspaceID = nil
+        terminalCreationErrorTerminalID = nil
         guard remoteClient == nil else {
             // Bail BEFORE pinning selection when a create is already in flight,
             // so a second "+" on another workspace can't strand the UI on that
@@ -8196,6 +8198,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 defaultValue: "The new terminal did not finish starting."
             )
             self.terminalCreationErrorWorkspaceID = failedWorkspaceID
+            self.terminalCreationErrorTerminalID = terminalID
             self.recordAppEvent(
                 .terminalCreateFailed,
                 correlationID: terminalID.rawValue,
@@ -11206,7 +11209,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionError = nil
         terminalCreationError = nil
         terminalCreationErrorWorkspaceID = nil
+        terminalCreationErrorTerminalID = nil
         connectionErrorGuidance = nil
+    }
+
+    private func clearTerminalCreationErrorIfRecovered() {
+        guard let errorWorkspaceID = terminalCreationErrorWorkspaceID,
+              let errorTerminalID = terminalCreationErrorTerminalID,
+              workspaces.contains(where: {
+                  $0.rpcWorkspaceID == errorWorkspaceID
+                      && $0.terminals.contains { $0.id == errorTerminalID && $0.isReady }
+              }) else {
+            return
+        }
+        terminalCreationError = nil
+        terminalCreationErrorWorkspaceID = nil
+        terminalCreationErrorTerminalID = nil
     }
 
     private func clearPairingVersionWarning() {
@@ -11444,6 +11462,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     func syncSelectedTerminalForWorkspace() {
+        clearTerminalCreationErrorIfRecovered()
         // A selection held across a degraded-connection window has no live
         // row, and ``selectedWorkspace`` would fall back to an arbitrary
         // first row: re-deriving from that would clobber the held terminal
@@ -12033,8 +12052,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     return false
                 }
             }()
-            let selectedRowMatchesRequest = selectedRow?.id == rowWorkspaceID
-                || selectedRowMatchesKnownOwnerRequest
+            let selectedRowMatchesRequest = selectedRowMatchesKnownOwnerRequest
                 || selectedRowMatchesAnonymousRequest
             if let selectedRow, selectedRowMatchesRequest,
                let createdID = response.createdTerminalID {

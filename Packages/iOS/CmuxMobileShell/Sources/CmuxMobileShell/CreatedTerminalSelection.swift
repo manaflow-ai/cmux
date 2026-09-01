@@ -34,10 +34,17 @@ struct CreatedTerminalSelection: Equatable {
         terminalID: MobileTerminalPreview.ID
     ) {
         remoteWorkspaceID = workspace.rpcWorkspaceID
-        macDeviceID = normalizedCreatedTerminalIdentity(workspace.macDeviceID)
+        let workspaceMacDeviceID = normalizedCreatedTerminalIdentity(workspace.macDeviceID)
+        macDeviceID = workspaceMacDeviceID
             ?? normalizedCreatedTerminalIdentity(fallbackMacDeviceID)
-        macInstanceTag = normalizedCreatedTerminalIdentity(workspace.macInstanceTag)
-            ?? normalizedCreatedTerminalIdentity(fallbackInstanceTag)
+        if workspaceMacDeviceID == nil {
+            macInstanceTag = normalizedCreatedTerminalIdentity(workspace.macInstanceTag)
+                ?? normalizedCreatedTerminalIdentity(fallbackInstanceTag)
+        } else {
+            // A known workspace owner may omit its legacy instance tag. Do not
+            // borrow the global foreground tag from a different sibling.
+            macInstanceTag = normalizedCreatedTerminalIdentity(workspace.macInstanceTag)
+        }
         self.terminalID = terminalID
     }
 
