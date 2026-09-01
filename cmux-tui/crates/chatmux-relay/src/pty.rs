@@ -1602,10 +1602,6 @@ impl Inner {
             return;
         }
 
-        // The attachment is now published in the relay state. Do not hold
-        // the lifecycle gate across transport callbacks, which may block.
-        drop(_publication);
-
         let mut opened_frame = serde_json::Map::new();
         opened_frame.insert("version".to_owned(), Value::from(PTY_PROTOCOL_VERSION));
         opened_frame.insert("type".to_owned(), Value::from("pty_opened"));
@@ -1622,6 +1618,7 @@ impl Inner {
         // Output only AFTER pty_opened (ordering): banner, then scrollback
         // replay, then live bytes.
         start();
+        drop(_publication);
     }
 
     /// Build the per-attachment emit closures (output + exit framing).
@@ -1896,6 +1893,7 @@ impl Inner {
         // caller is allowed to retire, so a late close cannot cancel a
         // replacement that reused the same pty id.
         let opening = {
+            let _state = self.tunnel_state.lock().expect("tunnel state lock");
             let state = self.opening_state.lock().expect("opening state lock");
             state.reservations.get(pty_id).cloned().map(|owner| (owner, None)).or_else(|| {
                 state
@@ -1914,7 +1912,7 @@ impl Inner {
             if !authorized {
                 return;
             }
-            let cancellation = {
+            let cancellation_result = {
                 let _state = self.tunnel_state.lock().expect("tunnel state lock");
                 let mut opening = self.opening_state.lock().expect("opening state lock");
                 if opening.reservations.get(pty_id) == Some(&owner) {
@@ -1935,10 +1933,16 @@ impl Inner {
                     None
                 }
             };
-            if let Some(cancellation) = cancellation.or(active_cancellation) {
+            if let Some(cancellation) = cancellation_result {
+                cancellation.cancel();
+                return;
+            }
+            if let Some(cancellation) = active_cancellation {
+                // The opening completed while the state lock was being
+                // reacquired. Cancel the old token, then continue to the
+                // attachment path so the close cannot be lost.
                 cancellation.cancel();
             }
-            return;
         }
 
         let Some(attachment) = self.attachment(pty_id) else { return };
