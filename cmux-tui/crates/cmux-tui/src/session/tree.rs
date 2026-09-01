@@ -323,44 +323,34 @@ pub fn tree_from_state_with_notifications(
             tabs: pane
                 .tabs
                 .iter()
-                .map(|sid| TabView {
-                    surface: *sid,
-                    public_id: state
-                        .surfaces
-                        .get(sid)
-                        .and_then(|surface| surface.resource_identity())
-                        .map(|identity| identity.tab_id.clone()),
-                    content_id: state
-                        .surfaces
-                        .get(sid)
-                        .and_then(|surface| surface.resource_identity())
-                        .map(|identity| identity.content_id.clone()),
-                    terminal_id: state
-                        .surfaces
-                        .get(sid)
-                        .and_then(|surface| surface.resource_identity())
-                        .and_then(|identity| match &identity.content_id {
+                .map(|sid| {
+                    let surface = state.surfaces.get(sid);
+                    let identity = surface.and_then(|surface| surface.resource_identity());
+                    TabView {
+                        surface: *sid,
+                        public_id: identity.map(|identity| identity.tab_id.clone()),
+                        content_id: identity.map(|identity| identity.content_id.clone()),
+                        terminal_id: identity.and_then(|identity| match &identity.content_id {
                             ContentPublicId::Terminal(id) => Some(id.clone()),
                             ContentPublicId::Browser(_) => None,
                         }),
-                    short_id: short_ids.get(sid).cloned().unwrap_or_default(),
-                    name: state.surfaces.get(sid).and_then(|s| s.name()),
-                    title: state.surfaces.get(sid).map(|s| s.title()).unwrap_or_default(),
-                    kind: state.surfaces.get(sid).map(|s| s.kind()).unwrap_or(SurfaceKind::Pty),
-                    browser_source: state.surfaces.get(sid).and_then(|s| s.browser_source()),
-                    browser_frames_stalled: state
-                        .surfaces
-                        .get(sid)
-                        .and_then(|s| s.browser_frames_stalled())
-                        .unwrap_or(false),
-                    supports_clear_history_key_fallback: state
-                        .surfaces
-                        .get(sid)
-                        .is_some_and(|surface| surface.supports_clear_history_key_fallback()),
-                    notification: notifications.get(sid).map(|notification| TabNotificationView {
-                        unread: notification.unread,
-                        level: notification.level.as_str(),
-                    }),
+                        short_id: short_ids.get(sid).cloned().unwrap_or_default(),
+                        name: surface.and_then(|surface| surface.name()),
+                        title: surface.map(|surface| surface.title()).unwrap_or_default(),
+                        kind: surface.map(|surface| surface.kind()).unwrap_or(SurfaceKind::Pty),
+                        browser_source: surface.and_then(|surface| surface.browser_source()),
+                        browser_frames_stalled: surface
+                            .and_then(|surface| surface.browser_frames_stalled())
+                            .unwrap_or(false),
+                        supports_clear_history_key_fallback: surface
+                            .is_some_and(|surface| surface.supports_clear_history_key_fallback()),
+                        notification: notifications.get(sid).map(|notification| {
+                            TabNotificationView {
+                                unread: notification.unread,
+                                level: notification.level.as_str(),
+                            }
+                        }),
+                    }
                 })
                 .collect(),
         })
