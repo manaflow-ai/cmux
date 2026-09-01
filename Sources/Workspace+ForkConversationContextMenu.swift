@@ -26,6 +26,14 @@ extension Workspace {
             return false
         }
         let isRemoteContext = isRemoteTerminalContext(ownership.surfaceID)
+        guard let authoritativeSnapshot = await authoritativeForkSnapshot(
+            selected: snapshot,
+            panelId: panelId,
+            isRemoteContext: isRemoteContext
+        ) else {
+            return false
+        }
+        snapshot = authoritativeSnapshot
         if AgentForkSupport.requiresForkValidationExecutableIdentity(
             snapshot: snapshot,
             isRemoteContext: isRemoteContext
@@ -89,15 +97,6 @@ extension Workspace {
                 return false
             }
         }
-
-        guard let authoritativeSnapshot = await authoritativeForkSnapshot(
-            selected: snapshot,
-            panelId: panelId,
-            isRemoteContext: isRemoteContext
-        ) else {
-            return false
-        }
-        snapshot = authoritativeSnapshot
 
         return forkAgentConversation(
             mutationPanelId: ownership.containerPanelID,
