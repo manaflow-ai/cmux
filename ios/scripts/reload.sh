@@ -19,6 +19,10 @@ queue (scripts/iphone-install-queue.sh) and auto-installs when the phone
 reconnects. Unless a simulator is named explicitly, the simulator leg uses the
 tag's own isolated device ("cmux-dev-<slug>"), created on demand.
 
+When a trusted phone leg is enabled, the simulator app is installed but not
+launched. The simulator's agent auto-pair would replace the phone's personal
+Mac pairing; use --simulator-only for a connected simulator run.
+
 Every device build requires the same-tag Mac dev build (the iOS app is unusable
 without its Mac); when it is missing, the Mac tag is built first, and the reload
 refuses to ship a phone-only build if that fails.
@@ -80,6 +84,12 @@ ALLOW_DEVICE_REGISTRATION=0
 NO_SIGN_IN=0
 NO_ATTACH=0
 NO_SETUP=0
+# A combined phone + simulator reload uses different auth profiles for each
+# surface. Launching the simulator first would sign the shared tagged Mac into
+# the agent account and invalidate the physical phone's personal pairing. Keep
+# the simulator installed but unlaunched during a trusted phone reload; use
+# --simulator-only for a connected simulator run.
+SIMULATOR_LAUNCH=1
 # Disable AArch64 GlobalISel codegen for this build. Xcode 26's Swift frontend
 # can miscompile under -O/wholemodule on the GlobalISel path, surfacing as bogus
 # "undefined symbol: _abort/_free/..." link failures. Mirrors scripts/reload.sh.
@@ -769,7 +779,7 @@ PY
   xcrun simctl boot "$SIM_ID" >/dev/null 2>&1 || true
   xcrun simctl install "$SIM_ID" "$APP_PATH"
 
-  if [[ "$LAUNCH" -eq 1 ]]; then
+  if [[ "$LAUNCH" -eq 1 && "$SIMULATOR_LAUNCH" -eq 1 ]]; then
     xcrun simctl terminate "$SIM_ID" "$BUNDLE_ID" >/dev/null 2>&1 || true
     if [[ "$NO_SETUP" -eq 1 || "$NO_SIGN_IN" -eq 1 ]]; then
       xcrun simctl launch "$SIM_ID" "$BUNDLE_ID" >/dev/null
@@ -778,6 +788,8 @@ PY
       echo "error: repair the tagged Mac/Iroh route, or pass --no-attach, --no-sign-in, or --no-setup explicitly" >&2
       return 1
     fi
+  elif [[ "$LAUNCH" -eq 1 ]]; then
+    echo "==> simulator installed but not launched because the trusted phone reload owns the tagged Mac pairing"
   fi
 
   cat <<EOF
@@ -1109,6 +1121,11 @@ EOF
 }
 
 echo "==> iOS reload starting (tag: $TAG)"
+
+if [[ "$RELOAD_DEVICE" -eq 1 && "$LAUNCH" -eq 1 && "$NO_SETUP" -eq 0 && "$NO_SIGN_IN" -eq 0 && "$NO_ATTACH" -eq 0 ]]; then
+  SIMULATOR_LAUNCH=0
+  echo "==> combined phone reload will install but not launch the simulator to preserve the personal Mac pairing"
+fi
 
 if [[ "$RELOAD_SIMULATOR" -eq 1 ]]; then
   reload_simulator

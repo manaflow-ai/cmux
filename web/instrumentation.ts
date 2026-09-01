@@ -1,11 +1,17 @@
 import { registerOTel } from "@vercel/otel";
+import { buildCmuxTraceSampler } from "./services/observability/sampler";
 import {
   scrubSentryEvent,
   shouldSendCoderouterSentryEvent,
 } from "./services/sentry";
 
 export async function register() {
-  registerOTel({ serviceName: process.env.OTEL_SERVICE_NAME ?? "cmux-web" });
+  registerOTel({
+    serviceName: process.env.OTEL_SERVICE_NAME ?? "cmux-web",
+    // Keep 100% of Cloud VM traces, sample the rest (CMUX_OTEL_BASE_SAMPLE_RATIO,
+    // default 2%). The unsampled firehose measured ~4M spans/15min in production.
+    traceSampler: buildCmuxTraceSampler(),
+  });
   if (process.env.NEXT_RUNTIME === "nodejs" && process.env.SENTRY_DSN) {
     const Sentry = await import("@sentry/nextjs");
     Sentry.init({
