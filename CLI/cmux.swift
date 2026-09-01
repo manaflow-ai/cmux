@@ -2473,6 +2473,7 @@ final class ClaudeHookSessionStore {
             throw CLIError(message: "Claude hook state deadline exceeded: \(lockPath)")
         }
         var state = try loadUnlocked(deadline: deadline)
+        let originalData = persist ? try encoder.encode(state) : nil
         if let deadline, Date.now >= deadline {
             throw CLIError(message: "Claude hook state deadline exceeded: \(lockPath)")
         }
@@ -2502,7 +2503,10 @@ final class ClaudeHookSessionStore {
             throw CLIError(message: "Claude hook state deadline exceeded: \(lockPath)")
         }
         if persist {
-            try saveUnlocked(state, deadline: deadline)
+            let updatedData = try encoder.encode(state)
+            if updatedData != originalData {
+                try saveUnlocked(updatedData, deadline: deadline)
+            }
         }
         return result
     }
@@ -2708,7 +2712,7 @@ final class ClaudeHookSessionStore {
         }
     }
 
-    private func saveUnlocked(_ state: ClaudeHookSessionStoreFile, deadline: Date? = nil) throws {
+    private func saveUnlocked(_ data: Data, deadline: Date? = nil) throws {
         if let deadline, Date.now >= deadline {
             throw CLIError(message: "Claude hook state deadline exceeded: \(statePath)")
         }
@@ -2720,7 +2724,6 @@ final class ClaudeHookSessionStore {
             attributes: [.posixPermissions: NSNumber(value: Int16(0o700))]
         )
         try? fileManager.setAttributes([.posixPermissions: NSNumber(value: Int16(0o700))], ofItemAtPath: parentURL.path)
-        let data = try encoder.encode(state)
         if let deadline, Date.now >= deadline {
             throw CLIError(message: "Claude hook state deadline exceeded: \(statePath)")
         }
@@ -28269,9 +28272,22 @@ struct CMUXCLI {
 
         case "pre-tool-use":
             telemetry.breadcrumb("claude-hook.pre-tool-use")
-            // Clears "Needs input" status and notification when Claude resumes work
-            // (e.g. after permission grant). Runs async so it doesn't block tool execution.
+            // Older wrappers installed this command for every tool call. Keep that
+            // compatibility path transition-driven: an ordinary tool observed while
+            // the session is already running has no durable or visible work to do.
+            // Current wrappers invoke this command only for the two blocking tools.
+            let toolName = parsedInput.object?["tool_name"] as? String
+            let isBlockingNeedsInputTool = toolName == "AskUserQuestion" || toolName == "ExitPlanMode"
+            let usesVerboseToolStatus = UserDefaults.standard.bool(forKey: "claudeCodeVerboseStatus")
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+            if !isBlockingNeedsInputTool,
+               !usesVerboseToolStatus,
+               mappedSession?.agentLifecycle == .running {
+                didSendFeedTelemetry = true
+                telemetry.breadcrumb("claude-hook.pre-tool-use.unchanged")
+                printClaudeHookAck()
+                return
+            }
             // Skip only the pid/tty scan per tool call; the cheap
             // `{surface_id}` re-home probe stays enabled so a mid-turn pane
             // move cannot make this hook mutate (and re-record) the old
