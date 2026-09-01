@@ -1112,10 +1112,10 @@ mod tests {
         let exit_seen = TestArc::clone(&seen);
         output.subscribe(
             TestArc::new(move |chunk| {
-                data_seen.lock().expect("seen lock").push(format!("data:{}", chunk.len()))
+                data_seen.lock().expect("seen lock").push(format!("data:{}", chunk.len()));
             }),
             TestArc::new(move |code| {
-                exit_seen.lock().expect("seen lock").push(format!("exit:{code}"))
+                exit_seen.lock().expect("seen lock").push(format!("exit:{code}"));
             }),
         );
         assert_eq!(
@@ -1201,10 +1201,10 @@ mod tests {
                 data_seen
                     .lock()
                     .expect("seen lock")
-                    .push(String::from_utf8_lossy(&chunk).into_owned())
+                    .push(String::from_utf8_lossy(&chunk).into_owned());
             }),
             TestArc::new(move |code| {
-                exit_seen.lock().expect("seen lock").push(format!("exit:{code}"))
+                exit_seen.lock().expect("seen lock").push(format!("exit:{code}"));
             }),
         );
 
