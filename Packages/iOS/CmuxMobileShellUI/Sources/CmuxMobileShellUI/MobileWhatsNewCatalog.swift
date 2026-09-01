@@ -61,6 +61,13 @@ struct MobileWhatsNewPage: Identifiable {
 /// (`/api/whats-new` `visibleEntryIds`) both reference it, and the
 /// unseen computation orders pages by catalog index.
 enum MobileWhatsNewCatalog {
+    /// Filled in precisely at the accompanying Mac release cut; the What's
+    /// New compat notice interpolates it. ONE value to edit at cut time.
+    static let requiredMacVersionLabel = L10n.string(
+        "mobile.connectionsUpdate.macUpdate.requiredVersion",
+        defaultValue: "the latest cmux NIGHTLY or cmux RELEASE"
+    )
+
     /// Newest first. The one-time sheet shows every visible entry newer than
     /// the acknowledgement marker.
     static var entries: [MobileWhatsNewPage] {
