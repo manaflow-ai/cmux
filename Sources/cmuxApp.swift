@@ -5390,11 +5390,29 @@ enum AppIconSettings {
     struct Environment {
         let isApplicationFinishedLaunching: () -> Bool
         let imageForMode: (AppIconMode) -> NSImage?
-        let imageForPath: (String) -> NSImage?
+        let prepareImageForPath: (@Sendable (String) async -> AppIconImageResolver.PreparedImage?)?
         let setApplicationIconImage: (NSImage) -> Void
         let startAppearanceObservation: () -> Void
         let stopAppearanceObservation: () -> Void
         let notifyDockTilePlugin: () -> Void
+
+        init(
+            isApplicationFinishedLaunching: @escaping () -> Bool,
+            imageForMode: @escaping (AppIconMode) -> NSImage?,
+            prepareImageForPath: (@Sendable (String) async -> AppIconImageResolver.PreparedImage?)? = nil,
+            setApplicationIconImage: @escaping (NSImage) -> Void,
+            startAppearanceObservation: @escaping () -> Void,
+            stopAppearanceObservation: @escaping () -> Void,
+            notifyDockTilePlugin: @escaping () -> Void
+        ) {
+            self.isApplicationFinishedLaunching = isApplicationFinishedLaunching
+            self.imageForMode = imageForMode
+            self.prepareImageForPath = prepareImageForPath
+            self.setApplicationIconImage = setApplicationIconImage
+            self.startAppearanceObservation = startAppearanceObservation
+            self.stopAppearanceObservation = stopAppearanceObservation
+            self.notifyDockTilePlugin = notifyDockTilePlugin
+        }
 
         static func live() -> Self {
             Self(
@@ -5405,8 +5423,8 @@ enum AppIconSettings {
                     guard let imageName = mode.imageName else { return nil }
                     return NSImage(named: imageName)
                 },
-                imageForPath: { path in
-                    AppIconImageResolver.image(
+                prepareImageForPath: { path in
+                    await AppIconImageResolver.preparedImage(
                         for: path,
                         log: { message in
                             appIconRuntimeLogger.warning("\(message, privacy: .public)")
@@ -5459,12 +5477,25 @@ enum AppIconSettings {
         let environment = environment ?? liveEnvironmentProvider()
         guard environment.isApplicationFinishedLaunching() else { return }
 
-        if let path = resolvedImagePath(defaults: defaults),
-           let icon = environment.imageForPath(path) {
-            environment.stopAppearanceObservation()
-            environment.setApplicationIconImage(icon)
-            environment.notifyDockTilePlugin()
-            return
+        if let path = resolvedImagePath(defaults: defaults) {
+            if let prepareImageForPath = environment.prepareImageForPath {
+                Task { @MainActor in
+                    guard let prepared = await prepareImageForPath(path) else {
+                        guard resolvedImagePath(defaults: defaults) == path else { return }
+                        applyIcon(resolvedMode(defaults: defaults), environment: environment)
+                        return
+                    }
+                    guard resolvedImagePath(defaults: defaults) == path else { return }
+                    environment.stopAppearanceObservation()
+                    environment.setApplicationIconImage(prepared.image)
+                    environment.notifyDockTilePlugin()
+                }
+                return
+            }
+
+            // The live environment always supplies the asynchronous prepared
+            // image closure above. Test/preview environments that omit it use
+            // the selected built-in mode as their deterministic fallback.
         }
 
         applyIcon(resolvedMode(defaults: defaults), environment: environment)

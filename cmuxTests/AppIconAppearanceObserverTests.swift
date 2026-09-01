@@ -155,7 +155,7 @@ struct AppIconAppearanceObserverTests {
     }
 
     @Test
-    func testCustomImagePathValidationResolvesRelativeImageAndRejectsUnsafeSVG() throws {
+    func testCustomImagePathValidationResolvesRelativeImageAndRejectsUnsafeSVG() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-app-icon-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -182,6 +182,10 @@ struct AppIconAppearanceObserverTests {
             for: "icon.png",
             relativeToConfig: configURL.path
         ) != nil)
+        #expect(await AppIconImageResolver.isValid(
+            for: "icon.png",
+            relativeToConfig: configURL.path
+        ))
 
         let validSVGURL = directory.appendingPathComponent("valid.svg")
         try "<svg xmlns=\"http://www.w3.org/2000/svg\"><text>Hello</text></svg>"
@@ -205,6 +209,10 @@ struct AppIconAppearanceObserverTests {
             globalConfigPath: configURL.path
         )
         #expect(unsafe == .failure(.unsafeSVG))
+        #expect(!(await AppIconImageResolver.isValid(
+            for: unsafeSVGURL.path,
+            relativeToConfig: configURL.path
+        )))
     }
 
     @Test
@@ -330,7 +338,7 @@ struct AppIconAppearanceObserverTests {
 
     @Test
     @MainActor
-    func testCustomImageSelectionOverridesBuiltInMode() throws {
+    func testCustomImageSelectionOverridesBuiltInMode() async throws {
         let suiteName = "AppIconAppearanceObserverTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -338,31 +346,34 @@ struct AppIconAppearanceObserverTests {
         defaults.set(AppIconMode.dark.rawValue, forKey: AppIconSettings.modeKey)
 
         let expectedIcon = NSImage(size: NSSize(width: 16, height: 16))
-        var receivedIcon: NSImage?
-        var requestedPath: String?
         var stopCount = 0
         var fallbackModeRequests = 0
         var notificationCount = 0
-        let environment = AppIconSettings.Environment(
-            isApplicationFinishedLaunching: { true },
-            imageForMode: { _ in
-                fallbackModeRequests += 1
-                return nil
-            },
-            imageForPath: { path in
-                requestedPath = path
-                return expectedIcon
-            },
-            setApplicationIconImage: { receivedIcon = $0 },
-            startAppearanceObservation: {},
-            stopAppearanceObservation: { stopCount += 1 },
-            notifyDockTilePlugin: { notificationCount += 1 }
-        )
+        let prepared = AppIconImageResolver.PreparedImage(image: expectedIcon)
 
-        AppIconSettings.applyCurrentIcon(defaults: defaults, environment: environment)
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let environment = AppIconSettings.Environment(
+                isApplicationFinishedLaunching: { true },
+                imageForMode: { _ in
+                    fallbackModeRequests += 1
+                    return nil
+                },
+                prepareImageForPath: { requestedPath in
+                    #expect(requestedPath == "/tmp/custom-icon.png")
+                    return prepared
+                },
+                setApplicationIconImage: { icon in
+                    #expect(icon === expectedIcon)
+                    continuation.resume()
+                },
+                startAppearanceObservation: {},
+                stopAppearanceObservation: { stopCount += 1 },
+                notifyDockTilePlugin: { notificationCount += 1 }
+            )
 
-        #expect(requestedPath == "/tmp/custom-icon.png")
-        #expect(receivedIcon === expectedIcon)
+            AppIconSettings.applyCurrentIcon(defaults: defaults, environment: environment)
+        }
+
         #expect(stopCount == 1)
         #expect(fallbackModeRequests == 0)
         #expect(notificationCount == 1)

@@ -18,6 +18,7 @@ private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category:
 @MainActor
 final class HostSettingsActions: SettingsHostActions {
     private let configFileURL: URL
+    private nonisolated let appIconConfigPath: String
     private let computerUseRuntimeService: ComputerUseRuntimeService
     private var runComputerUseOnboardingAction:
         @MainActor (ComputerUseOnboardingWindowController.StartingPoint) -> Void = { _ in }
@@ -53,6 +54,7 @@ final class HostSettingsActions: SettingsHostActions {
         computerUseRuntimeService: ComputerUseRuntimeService
     ) {
         self.configFileURL = configFileURL
+        self.appIconConfigPath = configFileURL.path
         self.computerUseRuntimeService = computerUseRuntimeService
         startObservingAppIconMode()
     }
@@ -137,14 +139,14 @@ final class HostSettingsActions: SettingsHostActions {
         LanguageSettingsStore(defaults: .standard).applyLanguageOverride(language)
     }
 
-    func isCustomAppIconValid(_ path: String) -> Bool {
-        AppIconImageResolver.image(
+    func isCustomAppIconValid(_ path: String) async -> Bool {
+        await AppIconImageResolver.isValid(
             for: path,
-            relativeToConfig: configFileURL.path,
+            relativeToConfig: appIconConfigPath,
             log: { message in
                 hostSettingsLogger.warning("\(message, privacy: .public)")
             }
-        ) != nil
+        )
     }
 
     func refreshComputerUsePermissions() async {

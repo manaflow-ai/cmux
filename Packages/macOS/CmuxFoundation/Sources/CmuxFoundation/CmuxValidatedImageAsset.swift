@@ -47,7 +47,7 @@ public struct CmuxValidatedImageAsset {
     }
 
     /// Validated image bytes together with their canonical path and fingerprint.
-    public struct Prepared: Equatable {
+    public struct Prepared: Equatable, Sendable {
         /// The bounded image payload.
         public let data: Data
         /// The normalized path that was validated.

@@ -149,10 +149,16 @@ public struct AppSection: View {
         }
         .task(id: appIconImagePath.current) {
             let path = appIconImagePath.current
+            let isValid: Bool
+            if path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                isValid = false
+            } else {
+                isValid = await hostActions.isCustomAppIconValid(path)
+            }
+            guard !Task.isCancelled else { return }
             customAppIconIsValid = Self.customImageIsActive(
                 path: path,
-                isValid: !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    && hostActions.isCustomAppIconValid(path)
+                isValid: isValid
             )
         }
     }

@@ -491,7 +491,6 @@ final class AppIconSettingsTests: XCTestCase {
                 XCTAssertEqual(mode, .dark)
                 return expectedIcon
             },
-            imageForPath: { _ in nil },
             setApplicationIconImage: { icon in
                 receivedRuntimeIcon = icon
             },
@@ -525,7 +524,6 @@ final class AppIconSettingsTests: XCTestCase {
                 XCTFail("Automatic mode should not request a manual icon image: \(mode.rawValue)")
                 return nil
             },
-            imageForPath: { _ in nil },
             setApplicationIconImage: { _ in
                 XCTFail("Automatic mode should delegate live updates to the appearance observer")
             },
@@ -560,7 +558,6 @@ final class AppIconSettingsTests: XCTestCase {
                 imageRequestCount += 1
                 return NSImage(size: NSSize(width: 16, height: 16))
             },
-            imageForPath: { _ in nil },
             setApplicationIconImage: { _ in
                 runtimeIconSetCount += 1
             },
