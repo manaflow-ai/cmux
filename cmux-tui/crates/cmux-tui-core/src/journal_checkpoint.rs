@@ -927,6 +927,11 @@ mod tests {
         };
         let preview = restore_preview(&checkpoint, &[record.clone()], 4).unwrap();
         assert_eq!(preview["fully_reducible"], false);
+        let mut missing_predecessor = record.clone();
+        missing_predecessor.resource_revision = Some(2);
+        missing_predecessor.previous_resource_revision = None;
+        let preview = restore_preview(&checkpoint, &[missing_predecessor], 4).unwrap();
+        assert_eq!(preview["fully_reducible"], false);
         record.previous_resource_revision = Some(1);
         let preview = restore_preview(&checkpoint, &[record], 4).unwrap();
         assert_eq!(preview["fully_reducible"], false);
