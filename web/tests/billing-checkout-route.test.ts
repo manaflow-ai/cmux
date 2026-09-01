@@ -121,8 +121,17 @@ mock.module("../services/billing/stripe", () => ({
 // Checkout tests must never exercise the real PostHog transport. The analytics
 // module has its own test-mode guard, but this route seam also lets these tests
 // assert the exact event contract without starting a background request.
-const captureBillingCheckoutStarted = mock(async () => undefined);
+const actualStripeBillingModule = await import("../services/analytics/stripeBilling");
+const realCaptureBillingCheckoutStarted =
+  actualStripeBillingModule.captureBillingCheckoutStarted;
+const captureBillingCheckoutStarted = mock(async (...args: unknown[]) => {
+  const [input, postHogFetch] = args as Parameters<
+    typeof actualStripeBillingModule.captureBillingCheckoutStarted
+  >;
+  return realCaptureBillingCheckoutStarted(input, postHogFetch);
+});
 mock.module("../services/analytics/stripeBilling", () => ({
+  ...actualStripeBillingModule,
   captureBillingCheckoutStarted,
 }));
 
