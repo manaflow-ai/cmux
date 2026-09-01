@@ -426,12 +426,12 @@ final class MachinesPanelModelTests: XCTestCase {
         ])
         // Port rows: the sidebar side of `cmux vm open <m>:port/<n>` — the same
         // `<m>/browser/port:<n>` resource, so click and CLI open one catalog entry.
-        let byID = Dictionary(CloudTreeNodeBuilder.flattened(nodes).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        if case .port(let resource) = byID["resource:vivid-newt/browser/port:3000"]!.kind {
+        let portRows = Dictionary(CloudTreeNodeBuilder.flattened(nodes).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        if case .port(let resource) = portRows["resource:vivid-newt/browser/port:3000"]!.kind {
             XCTAssertEqual(resource.port, 3000)
             XCTAssertEqual(resource.id, port.id)
         } else { XCTFail("expected a port row") }
-        XCTAssertFalse(byID["resource:vivid-newt/browser/port:3000"]!.isDragSource, "ports open in place; they do not leave the tree by drag")
+        XCTAssertFalse(portRows["resource:vivid-newt/browser/port:3000"]!.isDragSource, "ports open in place; they do not leave the tree by drag")
         // A daemon browser at a localhost URL is a browser, never a port row.
         let localhostBrowser = SurfaceResource(id: SurfaceResourceID(machine: .cloud("vivid-newt"), kind: .browser, key: "browser_9"), title: "app", detail: "http://localhost:3000", lifecycle: .running, agent: nil, remoteWorkspace: nil, port: 3000, url: "http://localhost:3000")
         XCTAssertEqual(CloudTreeNodeBuilder.portResources([localhostBrowser, port]).map(\.id), [port.id])
