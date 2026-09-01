@@ -2142,10 +2142,20 @@ mod tests {
             )
             .unwrap();
         registry.clear_journal_reducer_state("agent_roster", 3, r#"{"entries":{}}"#).unwrap();
+        registry
+            .put_journal_reducer_state_ordered(
+                "agent_roster",
+                3,
+                10,
+                10,
+                r#"{"entries":{"late":{}}}"#,
+            )
+            .unwrap();
 
-        let (_, cursor, snapshot) =
-            registry.journal_reducer_state("agent_roster").unwrap().unwrap();
+        let (_, cursor, ordering_token, snapshot) =
+            registry.journal_reducer_state_with_order("agent_roster").unwrap().unwrap();
         assert_eq!(cursor, 0);
+        assert_eq!(ordering_token, 11);
         assert_eq!(snapshot, r#"{"entries":{}}"#);
     }
 
