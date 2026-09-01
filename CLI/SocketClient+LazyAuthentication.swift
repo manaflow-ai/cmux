@@ -14,7 +14,7 @@ extension SocketClient {
               authenticationPasswordProvider != nil else {
             return nil
         }
-        authenticationModeCoordinator?.recordPasswordRequired()
+        authenticationModeCoordinator.recordPasswordRequired()
         guard let password = resolveDeferredAuthenticationPassword(deadline: operationDeadline) else {
             return nil
         }
@@ -33,9 +33,6 @@ extension SocketClient {
             deadline: operationDeadline,
             allowAuthenticationRetry: false
         )
-        if !SocketAuthenticationChallenge.isRequired(retriedResponse) {
-            authenticationModeEstablished = true
-        }
         return retriedResponse
     }
 
@@ -43,8 +40,7 @@ extension SocketClient {
     func recordCredentialFreeResponseIfNeeded(_ response: String) {
         if authenticationPasswordProvider != nil,
            !SocketAuthenticationChallenge.isRequired(response) {
-            authenticationModeCoordinator?.recordCredentialFree()
-            authenticationModeEstablished = true
+            authenticationModeCoordinator.recordCredentialFree()
         }
     }
 
@@ -65,17 +61,11 @@ extension SocketClient {
     func establishAuthenticationForOneWayIfNeeded(responseTimeout: TimeInterval) throws {
         guard authenticationPassword == nil,
               authenticationPasswordProvider != nil else { return }
-        guard let coordinator = authenticationModeCoordinator else {
-            guard !authenticationPasswordResolutionAttempted,
-                  !authenticationModeEstablished else { return }
-            _ = try send(command: "ping", responseTimeout: responseTimeout)
-            return
-        }
-
+        let coordinator = authenticationModeCoordinator
         let mode = coordinator.current
         switch mode {
         case .credentialFree, .probing, .probeFailed:
-            authenticationModeEstablished = mode == .credentialFree
+            return
         case .passwordRequired:
             try authenticateOneWayClientIfNeeded(responseTimeout: responseTimeout)
         case .unknown:
@@ -100,6 +90,7 @@ extension SocketClient {
         }
     }
 
+    /// Authenticates a one-way client after the shared mode requires a password.
     private func authenticateOneWayClientIfNeeded(responseTimeout: TimeInterval) throws {
         let deadline = Date.now.addingTimeInterval(responseTimeout)
         guard !authenticationPasswordResolutionAttempted,
