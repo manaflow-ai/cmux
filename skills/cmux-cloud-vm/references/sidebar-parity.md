@@ -2,7 +2,7 @@
 
 Every verb in the Cloud sidebar has a CLI verb that goes through the **same socket method** and the same app code path (`SurfaceCatalog`, the machine's `CmuxTuiSurfaceProvider`). An agent can do anything a person can do from the sidebar, and a sidebar action never does something the CLI cannot. Ids come from `cmux vm tree --json` / `cmux surface ls --json` (`<machine>/<kind>/<key>`, `ws_…`, `term_…`).
 
-The Verified column is the last live loop: every row executed from the tag-bound CLI against a fresh machine (issue #11347, 2026-09-01, staging E2B `base` machine; the effect checked through `vm tree --json` / `surface ls --json` / `cmux tree --all`, not the exit code). "unit" means the row's path is pinned by tests but could not be exercised on that machine (no desktop image on staging).
+The Verified column is the last live loop (issue #11347, 2026-09-01): every live-capable row was executed from the tag-bound CLI against a fresh machine (a staging E2B `base` machine), the effect checked through `vm tree --json` / `surface ls --json` / `cmux tree --all`, not the exit code. The exceptions are marked: "unit" rows are pinned by tests but could not be exercised on that machine (no desktop image on staging); ⏳ rows are not implemented yet; ⚪ rows were deliberately not run.
 
 Sidebar (human) | CLI (agent) | Socket method | Verified
 --- | --- | --- | ---
@@ -44,6 +44,6 @@ Rules that keep it 1:1:
 
 - A sidebar verb is implemented as a closure in `CloudTreeNodeActions` that calls the catalog/provider; the matching socket handler in `SurfaceSocketCommands` calls the same catalog/provider method. Adding a sidebar verb without a socket method is a parity bug.
 - Placement flags mean the same everywhere: `--pane <p>` + side = split that pane on that side; `--tab` / `--tabs` = tabs in that pane (never together with a side); nothing = the focused pane of the current (or `--workspace`) local workspace; `--new` = never reuse a pane that already shows the surface. A `--workspace`/`--pane`/`--surface` that names nothing is an error, never a silent open in the selected workspace.
-- Open never creates (D9): an empty workspace opens nothing from the row and answers `opened=0` from the CLI; `surface new-terminal --remote-workspace <ws>` is how a terminal gets there.
+- Open never creates (D9): an empty workspace opens nothing from the row and answers `opened=0` from the CLI; `surface new-terminal --machine <m> --remote-workspace <ws>` is how a terminal gets there.
 - Ports are in the tree (Ports group under a machine, lowest port first): the row and `vm open <m>:port/<n>` open the same `<m>/browser/port:<n>` resource.
 - Agent-only primitives (`cmux vm terminal send|read|wait` → `vm.terminal_write|read|wait`, plus `exec`, `push`, `pull`, `route`, `run`, `agent`) have no sidebar verb by design: a person does those things by typing into a pane. They still go through the machine's `CmuxTuiSurfaceProvider`, so what an agent types headlessly shows up in every pane projecting that terminal.

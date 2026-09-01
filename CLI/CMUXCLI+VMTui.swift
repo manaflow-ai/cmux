@@ -848,7 +848,7 @@ extension CMUXCLI {
                 throw CLIError(message: "vm workspace open: --left/--right/--up/--down need --pane <id|ref>\n\n\(Self.vmWorkspaceUsage)")
             }
             if tabs, direction != nil {
-                throw CLIError(message: "vm workspace open: --tabs and a pane side (--left/--right/--up/--down) are two different placements; pass one\n\n\(Self.vmWorkspaceUsage)")
+                throw CLIError(message: String(localized: "cli.vm.workspace.open.tabsAndSide", defaultValue: "vm workspace open: --tabs and a pane side (--left/--right/--up/--down) are two different placements; pass one") + "\n\n\(Self.vmWorkspaceUsage)")
             }
             if here {
                 params["here"] = true
@@ -862,7 +862,10 @@ extension CMUXCLI {
             let opened = (response["opened"] as? Int) ?? 0
             if (response["empty"] as? Bool) == true {
                 // Same as clicking the row: an empty workspace opens nothing (D9).
-                print("OK opened=0 machine=\(machine) (workspace \(positional[1]) is empty — nothing to open; `cmux surface new-terminal --machine \(machine) --remote-workspace \(positional[1])` starts a terminal in it)")
+                print(String(
+                    format: String(localized: "cli.vm.workspace.open.empty", defaultValue: "OK opened=0 machine=%1$@ (workspace %2$@ is empty — nothing to open; `cmux surface new-terminal --machine %1$@ --remote-workspace %2$@` starts a terminal in it)"),
+                    machine, positional[1]
+                ))
                 return
             }
             let local = (response["workspace_id"] as? String) ?? "?"
@@ -1291,9 +1294,14 @@ extension CMUXCLI {
             let listed = ((catalog["machines"] as? [[String: Any]])?.first?["remote_workspaces"] as? [[String: Any]]) ?? []
             let listedMatch = listed.first { ($0["id"] as? String) == workspace } ?? listed.first { ($0["name"] as? String) == workspace }
             let inWorkspace = terminals.filter { terminal in
-                let remote = terminal["remote_workspace"] as? [String: Any]
-                let id = remote?["id"] as? String
-                return id == workspace || (remote?["name"] as? String) == workspace || (id != nil && id == listedMatch?["id"] as? String)
+                // Membership is every view of the terminal (`remote_views`), not only its
+                // first workspace: a terminal shown in two workspaces belongs to both.
+                var members: [[String: Any]] = ((terminal["remote_views"] as? [[String: Any]]) ?? []).compactMap { $0["workspace"] as? [String: Any] }
+                if members.isEmpty, let first = terminal["remote_workspace"] as? [String: Any] { members = [first] }
+                return members.contains { remote in
+                    let id = remote["id"] as? String
+                    return id == workspace || (remote["name"] as? String) == workspace || (id != nil && id == listedMatch?["id"] as? String)
+                }
             }
             let remoteWorkspaceId = (listedMatch?["id"] as? String)
                 ?? (inWorkspace.first?["remote_workspace"] as? [String: Any])?["id"] as? String
@@ -1419,7 +1427,7 @@ extension CMUXCLI {
                 throw CLIError(message: "surface open: --left/--right/--up/--down/--tab need --pane <id|ref>\n\n\(Self.surfaceUsage)")
             }
             if tab, direction != nil {
-                throw CLIError(message: "surface open: --tab and a pane side (--left/--right/--up/--down) are two different placements; pass one\n\n\(Self.surfaceUsage)")
+                throw CLIError(message: String(localized: "cli.surface.open.tabAndSide", defaultValue: "surface open: --tab and a pane side (--left/--right/--up/--down) are two different placements; pass one") + "\n\n\(Self.surfaceUsage)")
             }
             var params: [String: Any] = ["resource": resource]
             if let workspaceOpt { params["workspace_id"] = workspaceOpt }

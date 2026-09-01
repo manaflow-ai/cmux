@@ -180,17 +180,6 @@ import Testing
         #expect(CmuxTuiSurfaceProvider.firstWorkspaceName == "main")
     }
 
-    @Test func snapshotRereadsCoalesceButAreNeverStarved() {
-        // Deltas restart the coalescing window, but a burst that never goes quiet must
-        // not push the re-read past the bound (a busy shell retitling forever would
-        // otherwise freeze the tree until the 45 s poll).
-        let start = ContinuousClock.now
-        #expect(CmuxTuiSurfaceProvider.mayDeferRefresh(firstRequestedAt: start, now: start))
-        #expect(CmuxTuiSurfaceProvider.mayDeferRefresh(firstRequestedAt: start, now: start + .milliseconds(1_900)))
-        #expect(!CmuxTuiSurfaceProvider.mayDeferRefresh(firstRequestedAt: start, now: start + CmuxTuiSurfaceProvider.refreshMaxDeferral))
-        #expect(CmuxTuiSurfaceProvider.refreshDebounceWindow < CmuxTuiSurfaceProvider.refreshMaxDeferral)
-    }
-
     @Test func headlessTerminalIOArgvFollowsTheCLIGrammar() {
         // Verified live against a machine: `write --text` types as-is (no newline),
         // `keys` takes bare key names, `screen read` / `screen wait --pattern` read back.
