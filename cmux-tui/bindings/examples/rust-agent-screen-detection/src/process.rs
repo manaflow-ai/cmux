@@ -988,7 +988,7 @@ mod platform {
                 size,
             )
         };
-        (written == size && info.e_tpgid > 0).then_some(info.e_tpgid as u32)
+        (written == size && info.e_tpgid > 0).then_some(info.e_tpgid)
     }
 
     fn process_group_pids(process_group_id: u32) -> Vec<u32> {

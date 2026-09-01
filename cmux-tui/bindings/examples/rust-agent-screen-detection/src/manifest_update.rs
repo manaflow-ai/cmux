@@ -129,7 +129,7 @@ pub fn update_catalog(url: &str, cache_dir: &Path) -> Result<ManifestUpdateSumma
         let manifest_url = validated.manifest_url;
         let result = (|| -> Result<(String, crate::manifest::CompiledManifest), String> {
             let content = fetch_text(&manifest_url)
-                .map_err(|error| format!("fetch {}: {error}", manifest_url))?;
+                .map_err(|error| format!("fetch {manifest_url}: {error}"))?;
             let compiled = compile_manifest_source(&content)
                 .map_err(|error| format!("manifest {} is invalid: {error}", entry.id))?;
             if compiled.id() != entry.id {
