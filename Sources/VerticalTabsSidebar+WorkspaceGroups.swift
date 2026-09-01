@@ -147,15 +147,21 @@ extension VerticalTabsSidebar {
                 tabManager?.toggleWorkspaceGroupPinned(groupId: groupId)
             },
             onMarkRead: { [liveGroupContext, weak notificationStore] in
-                guard let (_, anchorId) = liveGroupContext(), let notificationStore else { return }
+                guard let (_, anchorId) = liveGroupContext(),
+                      let notificationStore,
+                      notificationStore.canMarkWorkspaceRead(forTabIds: [anchorId]) else { return }
                 notificationStore.markRead(forTabId: anchorId)
             },
             onMarkUnread: { [liveGroupContext, weak notificationStore] in
-                guard let (_, anchorId) = liveGroupContext(), let notificationStore else { return }
+                guard let (_, anchorId) = liveGroupContext(),
+                      let notificationStore,
+                      notificationStore.canMarkWorkspaceUnread(forTabIds: [anchorId]) else { return }
                 notificationStore.markUnread(forTabId: anchorId)
             },
             onClearLatestNotifications: { [liveGroupContext, weak notificationStore] in
-                guard let (_, anchorId) = liveGroupContext(), let notificationStore else { return }
+                guard let (_, anchorId) = liveGroupContext(),
+                      let notificationStore,
+                      notificationStore.latestNotification(forTabId: anchorId) != nil else { return }
                 notificationStore.clearLatestNotification(forTabId: anchorId)
             },
             onMarkAllRead: { [liveGroupContext, weak notificationStore, groupId = group.id] in
@@ -459,7 +465,9 @@ extension VerticalTabsSidebar {
                 notificationStore.markUnread(forTabId: anchorId)
             },
             onClearLatestNotifications: { [liveGroupContext, weak notificationStore] in
-                guard let (_, anchorId) = liveGroupContext(), let notificationStore else { return }
+                guard let (_, anchorId) = liveGroupContext(),
+                      let notificationStore,
+                      notificationStore.latestNotification(forTabId: anchorId) != nil else { return }
                 notificationStore.clearLatestNotification(forTabId: anchorId)
             },
             onMarkAllRead: { [liveGroupContext, weak notificationStore, groupId = snapshot.groupId] in
@@ -518,11 +526,7 @@ extension VerticalTabsSidebar {
             groupId: snapshot.groupId,
             anchorWorkspaceId: snapshot.anchorWorkspaceId,
             shouldCollectWorkspaceDropTargets: snapshot.shouldCollectWorkspaceDropTargets,
-            onPointerFrameChange: { [pointerInteractionMonitor, weak tabManager, groupId = snapshot.groupId] frame in
-                guard let workspaceId = tabManager?.workspaceGroupAnchor(for: groupId)?.id else {
-                    pointerInteractionMonitor.removeFrame(for: rowId)
-                    return
-                }
+            onPointerFrameChange: { [pointerInteractionMonitor, workspaceId = snapshot.anchorWorkspaceId] frame in
                 pointerInteractionMonitor.updateFrame(frame, for: rowId, workspaceId: workspaceId)
             },
             onPointerFrameDisappear: { [pointerInteractionMonitor] in

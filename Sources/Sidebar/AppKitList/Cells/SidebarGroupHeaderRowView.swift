@@ -573,28 +573,26 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         menu.addItem(.separator())
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.contextMenu.markRead", defaultValue: "Mark Group as Read"),
-            enabled: model.canMarkRead,
             action: actions.onMarkRead
         ))
+        // Retained headers can outlive an anchor promotion. The action closures
+        // resolve live notification state, so do not disable these items from
+        // the older render snapshot.
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.contextMenu.markUnread", defaultValue: "Mark Group as Unread"),
-            enabled: model.canMarkUnread,
             action: actions.onMarkUnread
         ))
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.contextMenu.clearLatestNotifications", defaultValue: "Clear Latest Notifications"),
-            enabled: model.hasLatestNotifications,
             action: actions.onClearLatestNotifications
         ))
         menu.addItem(.separator())
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.contextMenu.markAllRead", defaultValue: "Mark All Workspaces in Group as Read"),
-            enabled: model.canMarkAllRead,
             action: actions.onMarkAllRead
         ))
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.contextMenu.markAllUnread", defaultValue: "Mark All Workspaces in Group as Unread"),
-            enabled: model.canMarkAllUnread,
             action: actions.onMarkAllUnread
         ))
         menu.addItem(.separator())

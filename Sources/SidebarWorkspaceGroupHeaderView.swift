@@ -362,7 +362,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 ),
                 action: onMarkRead
             )
-            .disabled(!canMarkRead)
+            // Notification actions validate the live anchor when invoked;
+            // retained headers must not disable them from stale snapshots.
             Button(
                 String(
                     localized: "workspaceGroup.contextMenu.markUnread",
@@ -370,7 +371,6 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 ),
                 action: onMarkUnread
             )
-            .disabled(!canMarkUnread)
             Button(
                 String(
                     localized: "workspaceGroup.contextMenu.clearLatestNotifications",
@@ -378,7 +378,6 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 ),
                 action: onClearLatestNotifications
             )
-            .disabled(!hasLatestNotifications)
             Divider()
             Button(
                 String(
@@ -387,7 +386,6 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 ),
                 action: onMarkAllRead
             )
-            .disabled(!canMarkAllRead)
             Button(
                 String(
                     localized: "workspaceGroup.contextMenu.markAllUnread",
@@ -395,7 +393,6 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 ),
                 action: onMarkAllUnread
             )
-            .disabled(!canMarkAllUnread)
             Divider()
             Button(
                 String(
