@@ -9936,8 +9936,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let root = ContentView(
             updateViewModel: updateViewModel,
             windowId: windowId,
-            videoBackgroundRuntime: videoBackgroundRuntime,
-            titlebarControlsLayoutModel: titlebarControlsLayoutModel
+            titlebarControlsLayoutModel: titlebarControlsLayoutModel,
+            videoBackgroundRuntime: videoBackgroundRuntime
         )
             .environmentObject(tabManager)
             .environmentObject(notificationStore)
