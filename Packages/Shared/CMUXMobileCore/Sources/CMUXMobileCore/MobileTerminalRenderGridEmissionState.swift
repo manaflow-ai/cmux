@@ -6,6 +6,10 @@
 public struct MobileTerminalRenderGridEmissionState: Equatable, Sendable {
     /// Producer lifetime that owns the revision sequence.
     public let renderEpoch: String
+    /// Capture revision of the frame that produced this state. Deltas diffed
+    /// against this state name it as ``MobileTerminalRenderGridFrame/deltaBaseRenderRevision``
+    /// so a consumer can prove it delivered exactly this frame before patching.
+    public let renderRevision: UInt64
     /// Number of columns in the frame that produced this state.
     public let columns: Int
     /// Number of rows in the frame that produced this state.
@@ -40,6 +44,7 @@ public struct MobileTerminalRenderGridEmissionState: Equatable, Sendable {
     ///     The count must match `rows`.
     public init(
         renderEpoch: String = "",
+        renderRevision: UInt64 = 0,
         columns: Int,
         rows: Int,
         stateSeq: UInt64,
@@ -55,6 +60,7 @@ public struct MobileTerminalRenderGridEmissionState: Equatable, Sendable {
         precondition(rows >= 0, "rows must be non-negative")
         precondition(rowSignatures.count == rows, "rowSignatures count must match rows")
         self.renderEpoch = renderEpoch
+        self.renderRevision = renderRevision
         self.columns = columns
         self.rows = rows
         self.stateSeq = stateSeq
