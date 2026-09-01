@@ -1205,6 +1205,22 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
             }
         };
         if page.records.is_empty() {
+            if page.head_sequence > host.cursor {
+                // A retained journal can advance its head beyond a stale
+                // reducer cursor. Do not trust the snapshot at that cursor,
+                // because replay would otherwise skip the retained prefix.
+                eprintln!(
+                    "cmux-tui: agent roster cursor {} is behind retained journal head {}; resetting",
+                    host.cursor, page.head_sequence
+                );
+                let empty_snapshot = AgentRoster::default().snapshot().to_string();
+                let ordering_token = registry.clear_journal_reducer_state(
+                    AGENT_ROSTER_REDUCER_ID,
+                    AGENT_ROSTER_REDUCER_VERSION,
+                    &empty_snapshot,
+                )?;
+                return Ok(AgentRosterHost { ordering_token, ..AgentRosterHost::default() });
+            }
             break;
         }
         for record in &page.records {
@@ -9943,14 +9959,16 @@ impl Mux {
         drop(sequence_guard);
         if !commit.replayed {
             self.publish_resource_event();
-            self.emit(MuxEvent::AgentChanged {
-                surface: agent.surface,
-                state: Arc::from(agent.state.as_str()),
-                source: Arc::from(agent.source.as_str()),
-                session: agent.session.as_deref().map(Arc::from),
-                agent: agent.agent.as_deref().map(Arc::from),
-                updated_at_ms: agent.updated_at_ms,
-            });
+            if !socket_report_ignored {
+                self.emit(MuxEvent::AgentChanged {
+                    surface: agent.surface,
+                    state: Arc::from(agent.state.as_str()),
+                    source: Arc::from(agent.source.as_str()),
+                    session: agent.session.as_deref().map(Arc::from),
+                    agent: agent.agent.as_deref().map(Arc::from),
+                    updated_at_ms: agent.updated_at_ms,
+                });
+            }
             if origin == AgentReportOrigin::Direct {
                 // The roster only folds journal events, so a direct report
                 // records its intent in the log; the fold recognizes the
