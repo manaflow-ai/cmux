@@ -9,4 +9,4 @@ platforms = ["macos", "linux"]
 command = ["target/release/cmux-agent-screen-detection"]
 
 [build]
-command = ["cargo", "build", "--release"]
+command = ["cargo", "build", "--release", "--locked"]

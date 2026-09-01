@@ -269,6 +269,11 @@ The herdr source and Apache-2.0 license attribution are listed in
 vendored manifests are unchanged at the pinned commit. Files adapted from
 herdr carry the upstream path and pinned commit in their header.
 
+The reference package builds with Cargo `--locked`, so installation uses the
+checked-in dependency graph. Other plugins may choose another build tool, but
+should provide an equivalent lock or integrity check when their tool supports
+one.
+
 ### Herdr capability coverage
 
 The reference package covers the agent-detection capabilities that can be

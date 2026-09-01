@@ -24,7 +24,9 @@ The plugin uses the public Rust SDK. This source-tree reference pins the
 matching `cmux-sdk` release as its contract and uses a path dependency while
 that SDK is unreleased in this checkout. A standalone plugin repository must
 either keep a matching SDK checkout at the same relative path or remove the
-`path` field after the SDK release is available. It registers a namespaced journal
+`path` field after the SDK release is available. Its build command uses Cargo's
+`--locked` mode, so installation does not rewrite the checked-in dependency
+graph. It registers a namespaced journal
 producer, reads terminal process metadata and viewport text, and appends
 `cmux.agent-plugin.v1` events. A different implementation can use Python,
 another language, or a different ruleset without a cmux core change.
