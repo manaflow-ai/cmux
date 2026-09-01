@@ -2186,6 +2186,12 @@ impl Inner {
         if context.cancellation.is_cancelled() || Trust::parse(&context.trust).is_none() {
             return false;
         }
+        // Legacy callers have no transport identity, so their cache write is
+        // the only disconnect fence available. Serialize it with detach and
+        // identified-authority replacement. A frame admitted before a detach
+        // is then included in that detach's cleanup scan rather than
+        // re-registering authority halfway through it.
+        let _update = self.transport_auth_updates.lock().expect("transport auth update lock");
         let _state = self.tunnel_state.lock().expect("tunnel state lock");
         if context.cancellation.is_cancelled() || !self.tunnel_authority_generation_current(context)
         {
