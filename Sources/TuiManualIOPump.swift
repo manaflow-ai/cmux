@@ -270,9 +270,13 @@ struct TuiManualIOResizeScheduler: Equatable {
         guard let inFlight else { return nil }
         if !success {
             // A rejected resize must not be retried from the acknowledgement
-            // callback itself. Mark this size as observed and keep a newer
-            // pending sample for the next genuine geometry event, avoiding a
-            // tight reject/send loop when another pane owns authority.
+            // callback itself. Advance a newer pending sample once, while
+            // dropping the rejected in-flight value to avoid a tight loop.
+            if let pending, pending != inFlight {
+                self.pending = nil
+                self.inFlight = pending
+                return pending
+            }
             lastDelivered = inFlight
             self.inFlight = nil
             if pending == lastDelivered {

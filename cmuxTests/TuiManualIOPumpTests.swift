@@ -212,6 +212,8 @@ struct TuiManualIOPumpTests {
         scheduler.seed(delivered: TuiManualIOGrid(cols: 80, rows: 24))
         let requested = TuiManualIOGrid(cols: 90, rows: 24)
         #expect(scheduler.sample(requested) == requested)
+        #expect(scheduler.sample(TuiManualIOGrid(cols: 91, rows: 24)) == nil)
+        #expect(scheduler.acknowledged(success: false) == TuiManualIOGrid(cols: 91, rows: 24))
         #expect(scheduler.acknowledged(success: false) == nil)
         // A later, changed geometry sample can proceed after authority
         // changes without an acknowledgement-driven retry loop.
