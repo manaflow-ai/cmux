@@ -994,8 +994,8 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
         "archive command does not stamp the beta marketing version",
     )
     _check(
-        "CMUX_CRASH_REPORTING_ENABLED=NO" in archive_call,
-        "App Store archive disables crash reporting",
+        "CMUX_CRASH_REPORTING_ENABLED=YES" in archive_call,
+        "App Store archive enables crash reporting",
     )
     _check(
         all("PRODUCT_BUNDLE_IDENTIFIER=com.cmuxterm.app" not in call for call in archive_call),
@@ -1024,8 +1024,8 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
         "final signed IPA keeps the App Store marketing version",
     )
     _check(
-        info.get("CMUXCrashReportingEnabled") == "NO",
-        "final signed IPA disables crash reporting",
+        info.get("CMUXCrashReportingEnabled") == "YES",
+        "final signed IPA enables crash reporting",
     )
 
 
