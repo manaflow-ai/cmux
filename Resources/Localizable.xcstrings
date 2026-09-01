@@ -1,6 +1,12 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "config.validation.invalidCount": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"must contain %@ item(s)"}},"ja":{"stringUnit":{"state":"translated","value":"%@ 個の項目を含める必要があります"}}}},
+    "config.validation.invalidField": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"must be %@"}},"ja":{"stringUnit":{"state":"translated","value":"%@ である必要があります"}}}},
+    "config.validation.invalidValue": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"has an invalid value"}},"ja":{"stringUnit":{"state":"translated","value":"値が無効です"}}}},
+    "config.validation.missingDefinition": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"must define either 'command' or a workspace layout"}},"ja":{"stringUnit":{"state":"translated","value":"'command' またはワークスペースレイアウトを定義する必要があります"}}}},
+    "config.validation.missingKey": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Missing required key '%@'"}},"ja":{"stringUnit":{"state":"translated","value":"必須キー '%@' がありません"}}}},
+    "config.validation.unknownEntry": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Unknown configuration entry error"}},"ja":{"stringUnit":{"state":"translated","value":"構成エントリの不明なエラー"}}}},
     "socket.error.unknownMethod": {
       "extractionState": "manual",
       "localizations": {

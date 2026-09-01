@@ -17,6 +17,9 @@ struct CmuxConfigFile: Codable, Sendable {
     var newWorkspaceCommand: String?
     var surfaceTabBarButtons: [CmuxSurfaceTabBarButton]?
     var commands: [CmuxCommandDefinition]
+    /// Type-level failures for individual ``commands`` entries. Valid entries
+    /// remain available even when one sibling is malformed.
+    var commandDecodingIssues: [CmuxConfigTypeIssue]
     var vault: CmuxVaultConfigDefinition?
     var workspaceGroups: CmuxConfigWorkspaceGroupsDefinition?
 
@@ -32,6 +35,7 @@ struct CmuxConfigFile: Codable, Sendable {
         newWorkspaceCommand: String? = nil,
         surfaceTabBarButtons: [CmuxSurfaceTabBarButton]? = nil,
         commands: [CmuxCommandDefinition] = [],
+        commandDecodingIssues: [CmuxConfigTypeIssue] = [],
         vault: CmuxVaultConfigDefinition? = nil,
         workspaceGroups: CmuxConfigWorkspaceGroupsDefinition? = nil
     ) {
@@ -42,6 +46,7 @@ struct CmuxConfigFile: Codable, Sendable {
         self.newWorkspaceCommand = newWorkspaceCommand
         self.surfaceTabBarButtons = surfaceTabBarButtons
         self.commands = commands
+        self.commandDecodingIssues = commandDecodingIssues
         self.vault = vault
         self.workspaceGroups = workspaceGroups
     }
@@ -90,7 +95,32 @@ struct CmuxConfigFile: Codable, Sendable {
         } else {
             surfaceTabBarButtons = nil
         }
-        commands = try container.decodeIfPresent([CmuxCommandDefinition].self, forKey: .commands) ?? []
+        var decodedCommands: [CmuxCommandDefinition] = []
+        var commandIssues: [CmuxConfigTypeIssue] = []
+        if container.contains(.commands) {
+            var commandContainer = try container.nestedUnkeyedContainer(forKey: .commands)
+            while !commandContainer.isAtEnd {
+                let index = commandContainer.currentIndex
+                do {
+                    let entryDecoder = try commandContainer.superDecoder()
+                    decodedCommands.append(try CmuxCommandDefinition(from: entryDecoder))
+                } catch {
+                    commandIssues.append(
+                        CmuxConfigTypeIssue(
+                            path: "commands[\(index)]",
+                            message: CmuxConfigTypeIssue.decodingMessage(for: error)
+                        )
+                    )
+                    // `superDecoder()` advances the unkeyed container even
+                    // when the entry's own decoder rejects its contents.
+                    if commandContainer.currentIndex == index {
+                        break
+                    }
+                }
+            }
+        }
+        commands = decodedCommands
+        commandDecodingIssues = commandIssues
         vault = try container.decodeIfPresent(CmuxVaultConfigDefinition.self, forKey: .vault)
         workspaceGroups = try container.decodeIfPresent(
             CmuxConfigWorkspaceGroupsDefinition.self,
@@ -1412,84 +1442,6 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
     }
 }
 
-struct CmuxCommandDefinition: Codable, Sendable, Identifiable {
-    var name: String
-    var description: String?
-    var keywords: [String]?
-    var restart: CmuxRestartBehavior?
-    var workspace: CmuxWorkspaceDefinition?
-    var command: String?
-    var confirm: Bool?
-
-    var id: String {
-        "cmux.config.command." + (name.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? name)
-    }
-
-    init(
-        name: String,
-        description: String? = nil,
-        keywords: [String]? = nil,
-        restart: CmuxRestartBehavior? = nil,
-        workspace: CmuxWorkspaceDefinition? = nil,
-        command: String? = nil,
-        confirm: Bool? = nil
-    ) {
-        self.name = name
-        self.description = description
-        self.keywords = keywords
-        self.restart = restart
-        self.workspace = workspace
-        self.command = command
-        self.confirm = confirm
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        name = try container.decode(String.self, forKey: .name)
-        description = try container.decodeIfPresent(String.self, forKey: .description)
-        keywords = try container.decodeIfPresent([String].self, forKey: .keywords)
-        restart = try container.decodeIfPresent(CmuxRestartBehavior.self, forKey: .restart)
-        workspace = try container.decodeIfPresent(CmuxWorkspaceDefinition.self, forKey: .workspace)
-        command = try container.decodeIfPresent(String.self, forKey: .command)
-        confirm = try container.decodeIfPresent(Bool.self, forKey: .confirm)
-
-        if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            throw DecodingError.dataCorrupted(
-                DecodingError.Context(
-                    codingPath: decoder.codingPath,
-                    debugDescription: "Command name must not be blank"
-                )
-            )
-        }
-        if let cmd = command,
-           cmd.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            throw DecodingError.dataCorrupted(
-                DecodingError.Context(
-                    codingPath: decoder.codingPath,
-                    debugDescription: "Command '\(name)' must not define a blank 'command'"
-                )
-            )
-        }
-
-        if workspace != nil && command != nil {
-            throw DecodingError.dataCorrupted(
-                DecodingError.Context(
-                    codingPath: decoder.codingPath,
-                    debugDescription: "Command '\(name)' must not define both 'workspace' and 'command'"
-                )
-            )
-        }
-        if workspace == nil && command == nil {
-            throw DecodingError.dataCorrupted(
-                DecodingError.Context(
-                    codingPath: decoder.codingPath,
-                    debugDescription: "Command '\(name)' must define either 'workspace' or 'command'"
-                )
-            )
-        }
-    }
-}
-
 indirect enum CmuxLayoutNode: Codable, Sendable, Hashable {
     case pane(CmuxPaneDefinition)
     case split(CmuxSplitDefinition)
@@ -1519,8 +1471,25 @@ indirect enum CmuxLayoutNode: Codable, Sendable, Hashable {
             let pane = try container.decode(CmuxPaneDefinition.self, forKey: .pane)
             self = .pane(pane)
         } else if hasDirection {
-            let splitDef = try CmuxSplitDefinition(from: decoder)
-            self = .split(splitDef)
+            do {
+                let splitDef = try CmuxSplitDefinition(from: decoder)
+                self = .split(splitDef)
+            } catch {
+                // Legacy flattened commands occasionally persisted a
+                // one-child split. It is equivalent to the child itself and
+                // is safe to normalize, while nested workspace definitions
+                // retain the strict two-child invariant.
+                guard String(describing: error).contains("Split node requires exactly 2 children") else {
+                    throw error
+                }
+                guard !decoder.codingPath.contains(where: { $0.stringValue == "workspace" }) else {
+                    throw error
+                }
+                let legacyContainer = try decoder.container(keyedBy: CodingKeys.self)
+                let children = try legacyContainer.decode([CmuxLayoutNode].self, forKey: .children)
+                guard children.count == 1 else { throw error }
+                self = children[0]
+            }
         } else {
             throw DecodingError.dataCorrupted(
                 DecodingError.Context(
@@ -3000,14 +2969,29 @@ final class CmuxConfigStore: ObservableObject {
 
         do {
             let config = try JSONDecoder().decode(CmuxConfigFile.self, from: sanitized)
+            var typeIssues = config.commandDecodingIssues
+            if let validatorIssues = try? CmuxConfigTypeValidator().issues(in: sanitized) {
+                for validatorIssue in validatorIssues where !typeIssues.contains(validatorIssue) {
+                    typeIssues.append(validatorIssue)
+                }
+            }
+            let issue = typeIssues.isEmpty
+                ? nil
+                : schemaIssue(
+                    path: path,
+                    message: typeIssues.map(\.description).joined(separator: "; ")
+                )
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
                 modificationDate: modificationDate,
                 workspaceColorPaletteFingerprint: paletteFingerprint,
                 config: config,
-                issue: nil
+                issue: issue
             )
-            return ParsedConfigResult(config: config, issue: nil)
+            if let issue {
+                NSLog("[CmuxConfig] %@", issue.logMessage)
+            }
+            return ParsedConfigResult(config: config, issue: issue)
         } catch {
             let issue = schemaIssue(path: path, message: schemaErrorMessage(error))
             parsedConfigCache[path] = ParsedConfigCacheEntry(

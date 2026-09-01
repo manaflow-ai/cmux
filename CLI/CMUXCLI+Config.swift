@@ -370,14 +370,14 @@ extension CMUXCLI {
         let paths: [String]
     }
 
-    private struct ConfigDoctorTarget {
+    struct ConfigDoctorTarget {
         let label: String
         let displayPath: String
         let path: String
         let missingIsError: Bool
     }
 
-    private struct ConfigDoctorFinding {
+    struct ConfigDoctorFinding {
         let label: String
         let displayPath: String
         let path: String
@@ -610,15 +610,7 @@ extension CMUXCLI {
                     byteCount: data.count
                 )
             }
-            return ConfigDoctorFinding(
-                label: target.label,
-                displayPath: target.displayPath,
-                path: target.path,
-                status: "ok",
-                message: "JSONC syntax is valid",
-                keys: dictionary.keys.sorted(),
-                byteCount: data.count
-            )
+            return configDoctorDecodedFinding(target: target, dictionary: dictionary, byteCount: data.count)
         } catch {
             return ConfigDoctorFinding(
                 label: target.label,

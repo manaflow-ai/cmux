@@ -1,6 +1,5 @@
 import CMUXAgentLaunch
 import Foundation
-import OSLog
 
 struct CmuxVaultConfigDefinition: Codable, Hashable, Sendable {
     var agents: [CmuxVaultAgentRegistration]
@@ -433,8 +432,6 @@ enum CmuxVaultAgentCWDPolicy: String, Codable, Hashable, Sendable {
 }
 
 struct CmuxVaultAgentRegistry: Sendable {
-    private static let logger = Logger(subsystem: "ai.manaflow.cmux", category: "VaultAgentRegistry")
-
     var registrations: [CmuxVaultAgentRegistration]
 
     init(registrations: [CmuxVaultAgentRegistration]) {
@@ -530,20 +527,4 @@ struct CmuxVaultAgentRegistry: Sendable {
         }
     }
 
-    private static func decodeConfig(at path: String, fileManager: FileManager) -> CmuxConfigFile? {
-        guard fileManager.fileExists(atPath: path),
-              let data = fileManager.contents(atPath: path),
-              !data.isEmpty else {
-            return nil
-        }
-        do {
-            let sanitized = try JSONCParser.preprocess(data: data)
-            return try JSONDecoder().decode(CmuxConfigFile.self, from: sanitized)
-        } catch {
-            logger.fault(
-                "Failed to decode config at \(path, privacy: .public): \(error.localizedDescription, privacy: .public)"
-            )
-            return nil
-        }
-    }
 }
