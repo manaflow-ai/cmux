@@ -6217,12 +6217,11 @@ impl Mux {
                 return;
             }
 
-            let target_sequence = match mux
-                .workspace_registry
-                .lock()
-                .unwrap()
-                .session_journal_after(0, 1)
-            {
+            let journal_head = {
+                let registry = mux.workspace_registry.lock().unwrap();
+                registry.session_journal_after(0, 1)
+            };
+            let target_sequence = match journal_head {
                 Ok(page) => {
                     journal_retry_attempts = 0;
                     page.head_sequence
@@ -6316,12 +6315,11 @@ impl Mux {
                     // cleared is either visible in the head or changes the
                     // epoch and causes this worker to retain ownership.
                     let observed_epoch = mux.journal_event_epoch();
-                    let current_head = match mux
-                        .workspace_registry
-                        .lock()
-                        .unwrap()
-                        .session_journal_after(0, 1)
-                    {
+                    let journal_head = {
+                        let registry = mux.workspace_registry.lock().unwrap();
+                        registry.session_journal_after(0, 1)
+                    };
+                    let current_head = match journal_head {
                         Ok(page) => page.head_sequence,
                         Err(error) => {
                             eprintln!(
