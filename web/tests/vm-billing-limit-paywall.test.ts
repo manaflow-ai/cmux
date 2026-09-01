@@ -4,6 +4,7 @@ import {
   isVmFreeAccessExpired,
   maxActiveVmsForPlan,
   maxMemoryMbForPlan,
+  maxResumeActiveVmsForPlan,
   vmFreeAccessWindowDays,
 } from "../services/vms/entitlements";
 import { vmActiveLimitExceededResponse, vmFreeAccessExpiredResponse } from "../services/vms/routeHelpers";
@@ -24,6 +25,21 @@ describe("free plan VM allowance", () => {
   test("the free allowance stays env-overridable, including back to a demo allowance", () => {
     expect(maxActiveVmsForPlan("free", { CMUX_VM_FREE_MAX_ACTIVE_VMS: "7" })).toBe(7);
     expect(maxActiveVmsForPlan("free", { CMUX_VM_FREE_MAX_ACTIVE_VMS: "0" })).toBe(0);
+  });
+});
+
+describe("resume ceiling for existing machines", () => {
+  test("free resume ceiling floors at one so an in-window machine can resume", () => {
+    expect(maxResumeActiveVmsForPlan("free", {})).toBe(1);
+    expect(maxResumeActiveVmsForPlan("free", { CMUX_VM_FREE_MAX_ACTIVE_VMS: "0" })).toBe(1);
+  });
+
+  test("a demo allowance above one is preserved", () => {
+    expect(maxResumeActiveVmsForPlan("free", { CMUX_VM_FREE_MAX_ACTIVE_VMS: "3" })).toBe(3);
+  });
+
+  test("paid plans keep their create ceiling", () => {
+    expect(maxResumeActiveVmsForPlan("pro", {})).toBe(5);
   });
 });
 

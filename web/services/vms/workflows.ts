@@ -34,7 +34,7 @@ import {
   type VmDatabaseError,
   type VmWorkflowError,
 } from "./errors";
-import { isVmFreeAccessExpired, maxActiveVmsForPlan, vmFreeAccessWindowDays } from "./entitlements";
+import { isVmFreeAccessExpired, maxActiveVmsForPlan, maxResumeActiveVmsForPlan, vmFreeAccessWindowDays } from "./entitlements";
 import { isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import {
@@ -1158,7 +1158,7 @@ function reservePausedResumeIfTeam(
       userId: vm.userId,
       billingTeamId: vm.billingTeamId,
       providerVmId,
-      maxActiveVms: maxActiveVmsForPlan(vm.billingPlanId),
+      maxActiveVms: maxResumeActiveVmsForPlan(vm.billingPlanId),
     });
     if (!reserved) {
       return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
