@@ -296,8 +296,10 @@ struct MacComputerDetailView: View {
             if authorized { showsAddTailscaleConnection = false }
         }
         .task {
-            guard irohSettingsModel == nil, let irohSettingsController else { return }
-            let model = MobileIrohSettingsModel(
+            guard let irohSettingsController else { return }
+            // Reuse the model but restart observation on every appearance;
+            // the previous observe loop died with the previous task.
+            let model = irohSettingsModel ?? MobileIrohSettingsModel(
                 controller: irohSettingsController,
                 diagnosticLog: mobileDiagnosticLog
             )
@@ -418,6 +420,10 @@ struct MacComputerDetailView: View {
                             .lineLimit(2)
                     }
                 }
+                // Disabled while a save is in flight: a second change during
+                // the guarded mutation would be dropped silently, leaving the
+                // switch out of sync with the persisted value.
+                .disabled(model.isMutating)
                 .accessibilityIdentifier("MobileComputerPrivateAddressesToggle")
                 Button(L10n.string("mobile.common.edit", defaultValue: "Edit")) {
                     showsPrivatePathEditor = true
@@ -429,6 +435,7 @@ struct MacComputerDetailView: View {
                 ) {
                     showsPrivatePathRemoveConfirmation = true
                 }
+                .disabled(model.isMutating)
                 .accessibilityIdentifier("MobileComputerPrivateAddressesRemove")
             } else {
                 if thisMacPrivateNetworkRegistryEntry?.supportsPrivatePaths != true {

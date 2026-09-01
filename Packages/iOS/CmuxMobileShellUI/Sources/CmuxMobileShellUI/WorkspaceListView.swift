@@ -668,13 +668,7 @@ struct WorkspaceListView: View {
             settingsPresentation.didDismiss()
             settingsPairingScannerHandoff.settingsDidDismiss(
                 startScanner: showPairingScanner,
-                showComputers: {
-                    if let showComputers {
-                        showComputers()
-                    } else {
-                        deviceTreePresentation.present()
-                    }
-                }
+                showComputers: presentComputers
             )
         }) {
             MobileSettingsView(
@@ -960,13 +954,19 @@ struct WorkspaceListView: View {
     }
 
     #if os(iOS)
+    /// One Computers entry path for the toolbar button and the Settings
+    /// handoff: the root owner when provided, the local sheet otherwise.
+    private func presentComputers() {
+        if let showComputers {
+            showComputers()
+        } else {
+            deviceTreePresentation.present()
+        }
+    }
+
     var devicesButton: some View {
         Button {
-            if let showComputers {
-                showComputers()
-            } else {
-                deviceTreePresentation.present()
-            }
+            presentComputers()
         } label: {
             Image(systemName: "desktopcomputer")
         }

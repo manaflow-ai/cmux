@@ -114,13 +114,14 @@ struct MobileSettingsView: View {
                     }
                 }
 
-                // Hidden when there is no live connection row to show, so the
-                // no-devices screen's reuse of this sheet does not render an
-                // empty header. One row per connected Mac: transport is per
-                // computer (each dials its own configured method), so the old
-                // single "Active Transport" row became a per-row trailing
-                // label, and a row navigates into that computer's detail.
-                if hasConnectionRows {
+                // One row per connected Mac: transport is per computer (each
+                // dials its own configured method), so the old single "Active
+                // Transport" row became a per-row trailing label, and a row
+                // navigates into that computer's detail. The All Computers
+                // entry stays reachable even with zero live connections
+                // (reconnect windows, offline), so the section renders
+                // whenever either has content.
+                if hasConnectionRows || showComputers != nil {
                     Section {
                         if let store, !store.liveMacConnections.isEmpty {
                             ForEach(store.liveMacConnections) { connection in
@@ -645,8 +646,10 @@ struct MobileSettingsView: View {
                 }
             }
         }
+        // Keyed by the app-instance identity (device + tag), not the bare
+        // device id: sibling builds on one Mac are distinct rows.
         .accessibilityIdentifier(
-            "MobileSettingsMacConnection-\(connection.macDeviceID)"
+            "MobileSettingsMacConnection-\(connection.id)"
         )
     }
 
@@ -958,10 +961,13 @@ private struct MobileSettingsDiagnosticsSection: View {
             let urls = await Task.detached(priority: .utility) {
                 (AppLog.appLogFileURLs, AppLog.networkLogFileURLs)
             }.value
+            guard !Task.isCancelled else { return }
             appLogURLs = urls.0
             networkLogURLs = urls.1
-            guard irohSettingsModel == nil, let irohSettingsController else { return }
-            let model = MobileIrohSettingsModel(
+            guard let irohSettingsController else { return }
+            // Reuse the model but restart observation on every appearance;
+            // the previous observe loop died with the previous task.
+            let model = irohSettingsModel ?? MobileIrohSettingsModel(
                 controller: irohSettingsController,
                 diagnosticLog: diagnosticLog
             )

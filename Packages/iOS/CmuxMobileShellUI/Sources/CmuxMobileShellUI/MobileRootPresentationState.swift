@@ -155,12 +155,18 @@ struct MobileRootPresentationState: Equatable {
         case .presentComputers:
             // Settings may hand its sheet over to Computers in place (its
             // Connection section links there), mirroring how pairing swaps
-            // content within the one root sheet host.
-            guard presentation == nil || presentation == .settings else {
+            // content within the one root sheet host. The migration
+            // introduction also yields: a child Settings dismissal can present
+            // it (via its retry effect) before the queued Computers follow-up
+            // runs, and the user's explicit request wins; the migration
+            // re-presents through its usual retry paths.
+            switch presentation {
+            case nil, .settings, .autoConnectMigrationIntroduction:
+                presentation = .computers
+                return .none
+            case .computers, .pairing, .child, .dismissingChild:
                 return .none
             }
-            presentation = .computers
-            return .none
 
         case .dismissComputers:
             guard presentation == .computers else { return .none }
