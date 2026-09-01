@@ -12754,7 +12754,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return newPanel
     }
 
-    struct AgentConversationForkWorkspaceLaunch: Equatable {
+    struct AgentConversationForkWorkspaceLaunch {
         var workingDirectory: String?
         var terminalWorkingDirectory: String?
         var initialTerminalCommand: String?
