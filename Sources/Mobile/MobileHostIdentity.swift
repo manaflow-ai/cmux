@@ -197,8 +197,8 @@ enum MobileHostIdentity {
 
     /// Resolves the app-instance tag from explicit launch metadata first, then
     /// from the bundle channel. Stable keeps the historical `"default"` tag;
-    /// Nightly and Staging must be distinct now that every app bundle on one
-    /// Mac intentionally shares the same physical device identifier.
+    /// Nightly, RC, and Staging remain distinct now that every app bundle on
+    /// one Mac intentionally shares the same physical device identifier.
     static func instanceTag(
         environment: [String: String],
         bundleIdentifier: String?

@@ -4,17 +4,11 @@ internal import Foundation
 
 /// Defines which authenticated Mac app instances one iOS app build may use.
 ///
-/// Mac app identity remains exact (`default`, `nightly`, or a development tag),
+/// Mac app identity remains exact (`default`, `nightly`, `rc`, `staging`, or a
+/// development tag),
 /// while this policy supplies the compatibility boundary used by persistence,
 /// registry projection, and live connection validation.
 public enum MobileMacBuildCompatibilityPolicy: Equatable, Sendable {
-    private static let nonDevelopmentTags: Set<String> = [
-        "default",
-        "nightly",
-        "rc",
-        "staging",
-    ]
-
     /// A tagged development build may use its matching Mac tag plus the tags in
     /// its runtime allowlist. The allowlist starts empty, preserving per-tag
     /// isolation for ordinary development builds; this build's exact-tag Mac
@@ -25,7 +19,8 @@ public enum MobileMacBuildCompatibilityPolicy: Equatable, Sendable {
         expectedInstanceTag: String,
         additionalInstanceTags: MobileMacTagAllowlist
     )
-    /// A distributed iOS build may use Stable and Nightly Mac releases.
+    /// A distributed iOS build may use Stable, Nightly, RC, and Staging Mac
+    /// releases.
     case official
 
     public static func development(
@@ -80,7 +75,7 @@ public enum MobileMacBuildCompatibilityPolicy: Equatable, Sendable {
     /// Whether a normalized tag names a release lane no development build may
     /// use or grant.
     public static func isNonDevelopmentTag(_ normalizedTag: String) -> Bool {
-        nonDevelopmentTags.contains(normalizedTag)
+        CmxPairingURLSchemeResolver.isOfficialMacInstanceTag(normalizedTag)
     }
 
     /// Returns whether an authenticated Mac instance belongs to this policy.
@@ -102,7 +97,7 @@ public enum MobileMacBuildCompatibilityPolicy: Equatable, Sendable {
                !Self.isDevelopmentMacNamespace(clientNamespace) {
                 return false
             }
-            guard !Self.nonDevelopmentTags.contains(normalizedTag) else {
+            guard !Self.isNonDevelopmentTag(normalizedTag) else {
                 return false
             }
             if normalizedTag == Self.normalized(expectedInstanceTag) {
@@ -115,7 +110,7 @@ public enum MobileMacBuildCompatibilityPolicy: Equatable, Sendable {
                !Self.isOfficialMacNamespace(clientNamespace) {
                 return false
             }
-            return normalizedTag == "default" || normalizedTag == "nightly"
+            return CmxPairingURLSchemeResolver.isOfficialMacInstanceTag(normalizedTag)
         }
     }
 
@@ -128,6 +123,10 @@ public enum MobileMacBuildCompatibilityPolicy: Equatable, Sendable {
         value == "mac:com.cmuxterm.app"
             || value == "mac:com.cmuxterm.app.nightly"
             || value.hasPrefix("mac:com.cmuxterm.app.nightly.")
+            || value == "mac:com.cmuxterm.app.rc"
+            || value.hasPrefix("mac:com.cmuxterm.app.rc.")
+            || value == "mac:com.cmuxterm.app.staging"
+            || value.hasPrefix("mac:com.cmuxterm.app.staging.")
     }
 
     /// Returns whether authenticated host status is compatible with this build.

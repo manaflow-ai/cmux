@@ -97,21 +97,32 @@ import Testing
     }
 
     @Test func officialMacUsesOneCanonicalScheme() {
-        let resolver = CmxPairingURLSchemeResolver(
-            currentIOSBundleIdentifier: nil,
-            targetIOSBundleIdentifier: nil,
-            macInstanceTag: nil,
-            isDevelopmentBuild: false
-        )
-        #expect(resolver.resolved?.rawValue == "cmux-ios-com.cmux.app")
+        for tag in ["default", "nightly", "rc", "staging"] {
+            #expect(
+                CmxPairingURLSchemeResolver(
+                    currentIOSBundleIdentifier: nil,
+                    targetIOSBundleIdentifier: nil,
+                    macInstanceTag: tag,
+                    isDevelopmentBuild: true
+                ).resolved?.rawValue == "cmux-ios-com.cmux.app"
+            )
+        }
         #expect(
             CmxPairingURLSchemeResolver(
                 currentIOSBundleIdentifier: nil,
                 targetIOSBundleIdentifier: nil,
-                macInstanceTag: "nightly",
+                macInstanceTag: "feature-a",
                 isDevelopmentBuild: true
-            ).resolved?.rawValue == "cmux-ios-com.cmux.app"
+            ).resolved?.rawValue == "cmux-ios-dev.cmux.ios.feature-a"
         )
+    }
+
+    @Test func officialMacLanePredicateMatchesCanonicalReleaseLanes() {
+        for tag in ["default", "nightly", "rc", "staging"] {
+            #expect(CmxPairingURLSchemeResolver.isOfficialMacInstanceTag(tag))
+        }
+        #expect(!CmxPairingURLSchemeResolver.isOfficialMacInstanceTag("feature-a"))
+        #expect(!CmxPairingURLSchemeResolver.isOfficialMacInstanceTag(nil))
     }
 
     @Test func taggedMacBundleDerivesItsExactIOSSchemeWithoutLaunchEnvironment() {

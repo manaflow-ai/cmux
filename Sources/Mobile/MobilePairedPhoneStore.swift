@@ -264,7 +264,8 @@ final class MobilePairedPhoneStore {
         let normalizedTag = macInstanceTag
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
-        if normalizedTag.isEmpty || normalizedTag == "default" {
+        if normalizedTag.isEmpty || normalizedTag == "default"
+            || normalizedTag == "rc" || normalizedTag == "staging" {
             return "com.cmux.app"
         }
         return MobileIOSAppNamespace(
@@ -295,24 +296,21 @@ final class MobilePairedPhoneStore {
         let normalizedTag = macInstanceTag
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
-        return normalizedTag.isEmpty || normalizedTag == "default"
+        return normalizedTag.isEmpty
+            || CmxPairingURLSchemeResolver.isOfficialMacInstanceTag(normalizedTag)
     }
 
     private func isBundleAllowedForMacLane(
         _ bundleIdentifier: String,
         trustedIOSBuildTag: String? = nil
     ) -> Bool {
-        if isOfficialMacLane {
-            return Self.officialIOSBundleIdentifiers.contains(bundleIdentifier)
-        }
         let normalizedTag = macInstanceTag
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
-        if normalizedTag == "nightly" {
-            // Nightly remains a distinct Mac namespace, but its QR is still
-            // usable by the four official iOS variants.
+        if isOfficialMacLane {
             return Self.officialIOSBundleIdentifiers.contains(bundleIdentifier)
-                || bundleIdentifier == fallbackBundleIdentifier
+                || (normalizedTag == "nightly"
+                    && bundleIdentifier == fallbackBundleIdentifier)
         }
         return bundleIdentifier == fallbackBundleIdentifier
             || bundleIdentifier == Self.trustedCrossTagBundleIdentifier(

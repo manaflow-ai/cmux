@@ -26,6 +26,10 @@ struct MobileHostIdentityTests {
             bundleIdentifier: "com.cmuxterm.app.staging"
         ) == "staging")
         #expect(MobileHostIdentity.instanceTag(
+            environment: [:],
+            bundleIdentifier: "com.cmuxterm.app.rc"
+        ) == "rc")
+        #expect(MobileHostIdentity.instanceTag(
             environment: ["CMUX_TAG": "future-one"],
             bundleIdentifier: "com.cmuxterm.app.debug.future-one"
         ) == "future-one")
@@ -226,10 +230,10 @@ struct MobileHostIdentityTests {
         let lanes: [(String, String)] = [
             ("default", "com.cmux.app"),
             ("nightly", "dev.cmux.ios.nightly"),
-            ("rc", "dev.cmux.ios.rc"),
-            ("staging", "dev.cmux.ios.staging"),
+            ("rc", "com.cmux.app"),
+            ("staging", "com.cmux.app"),
         ]
-        for (tag, _) in lanes {
+        for (tag, backupTarget) in lanes {
             let suiteName = "mobile-ios-target-\(UUID().uuidString)"
             let defaults = try #require(UserDefaults(suiteName: suiteName))
             defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -238,6 +242,8 @@ struct MobileHostIdentityTests {
                 macInstanceTag: tag
             )
             #expect(store.targetBundleIdentifier(accountID: "account-a") == nil)
+            #expect(store.pushBundleIdentifier(accountID: "account-a") == nil)
+            #expect(store.backupBundleIdentifier(accountID: "account-a") == backupTarget)
         }
     }
 
@@ -245,8 +251,8 @@ struct MobileHostIdentityTests {
         let lanes: [(String, String)] = [
             ("default", "com.cmux.app"),
             ("nightly", "com.cmux.app"),
-            ("rc", "dev.cmux.ios.rc"),
-            ("staging", "dev.cmux.ios.staging"),
+            ("rc", "com.cmux.app"),
+            ("staging", "com.cmux.app"),
         ]
         for (tag, expectedBundle) in lanes {
             let suiteName = "mobile-ios-target-\(UUID().uuidString)"
@@ -262,11 +268,11 @@ struct MobileHostIdentityTests {
         }
     }
 
-    @Test func nightlyAndTaggedLanesKeepTheirDistinctBundleValidation() throws {
+    @Test func releaseLanesAcceptOfficialBundlesAndNightlyKeepsItsLegacyNamespace() throws {
         let lanes: [(String, String)] = [
             ("nightly", "dev.cmux.ios.nightly"),
-            ("rc", "dev.cmux.ios.rc"),
-            ("staging", "dev.cmux.ios.staging"),
+            ("rc", "dev.cmux.app.beta"),
+            ("staging", "dev.cmux.app.demo"),
         ]
         for (tag, bundleIdentifier) in lanes {
             let suiteName = "mobile-ios-target-\(UUID().uuidString)"

@@ -69,10 +69,10 @@ public struct CmxPairingURLSchemeResolver: Sendable {
                     : "com.cmux.app"
             )
         }
-        // Stable and Nightly are official Mac lanes even when a launcher
-        // happens to provide the lane name through CMUX_TAG. They must emit the
-        // one canonical release QR, never a synthetic tagged-DEV destination.
-        if normalizedTag == "default" || normalizedTag == "nightly" {
+        // Official Mac lanes must emit the one canonical release QR, never a
+        // synthetic tagged-DEV destination. Keep this predicate shared with
+        // host compatibility and paired-phone routing.
+        if Self.isOfficialMacInstanceTag(normalizedTag) {
             return CmxPairingURLScheme(iOSBundleIdentifier: "com.cmux.app")
         }
         guard let namespace = MobileIOSAppNamespace(
@@ -119,6 +119,24 @@ public struct CmxPairingURLSchemeResolver: Sendable {
         }
         return nil
     }
+
+    /// Returns whether a normalized non-empty Mac tag names a distributed
+    /// release lane rather than a tagged development build.
+    /// - Parameter instanceTag: The Mac instance tag to classify.
+    /// - Returns: `true` for `default`, `nightly`, `rc`, or `staging`.
+    public static func isOfficialMacInstanceTag(_ instanceTag: String?) -> Bool {
+        guard let instanceTag else { return false }
+        let normalized = instanceTag.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return officialMacInstanceTags.contains(normalized)
+    }
+
+    private static let officialMacInstanceTags: Set<String> = [
+        "default",
+        "nightly",
+        "rc",
+        "staging",
+    ]
 
     private static func sanitizeMacInstanceTag(_ rawValue: String) -> String? {
         let normalized = rawValue.lowercased()

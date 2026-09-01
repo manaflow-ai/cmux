@@ -113,14 +113,14 @@ import Testing
         #expect(!untagged.allows(instanceTag: "unrelated"))
     }
 
-    @Test func officialKeepsStableAndNightlyAsDistinctAllowedIdentities() {
+    @Test func officialKeepsReleaseLanesAsDistinctAllowedIdentities() {
         let policy = MobileMacBuildCompatibilityPolicy.official
 
         #expect(policy.allows(instanceTag: "default"))
         #expect(policy.allows(instanceTag: "nightly"))
+        #expect(policy.allows(instanceTag: "rc"))
+        #expect(policy.allows(instanceTag: "staging"))
         #expect(!policy.allows(instanceTag: "icap"))
-        #expect(!policy.allows(instanceTag: "rc"))
-        #expect(!policy.allows(instanceTag: "staging"))
         #expect(!policy.allows(instanceTag: nil))
     }
 
@@ -341,7 +341,7 @@ import Testing
         ).isEmpty)
     }
 
-    @Test func officialStoreKeepsStableAndNightlyButRejectsDevelopment() async throws {
+    @Test func officialStoreKeepsReleaseLanesButRejectsDevelopment() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -354,7 +354,13 @@ import Testing
             kind: .tailscale,
             endpoint: .hostPort(host: "100.64.0.1", port: 22)
         )
-        for (tag, seen) in [("default", 1.0), ("nightly", 2.0), ("icap", 3.0)] {
+        for (tag, seen) in [
+            ("default", 1.0),
+            ("nightly", 2.0),
+            ("rc", 3.0),
+            ("staging", 4.0),
+            ("icap", 5.0),
+        ] {
             try await raw.upsert(
                 macDeviceID: "shared-mac",
                 displayName: tag,
@@ -370,7 +376,7 @@ import Testing
 
         #expect(Set(try await official.loadAll(
             stackUserID: "user-1", teamID: "team-a"
-        ).compactMap(\.instanceTag)) == ["default", "nightly"])
+        ).compactMap(\.instanceTag)) == ["default", "nightly", "rc", "staging"])
     }
 
     @MainActor
