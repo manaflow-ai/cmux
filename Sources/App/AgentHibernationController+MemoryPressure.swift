@@ -25,8 +25,10 @@ extension AgentHibernationController {
     /// The existing hibernation lifecycle remains the sole teardown owner:
     /// pressure only changes which safe idle agents it selects. Transcript
     /// protection, confirmation, activity revalidation, and scoped process
-    /// termination are unchanged. If the caller can no longer prove that the
-    /// same pressure is active, the pending evaluation is abandoned.
+    /// termination are unchanged. Aggregate pressure is only a trigger; it is
+    /// never a quota on memory, agents, panes, or child processes. If the
+    /// caller can no longer prove that the same pressure is active, the
+    /// pending evaluation is abandoned.
     @discardableResult
     func reclaimIdleAgentsForMemoryPressure(
         now: Date,

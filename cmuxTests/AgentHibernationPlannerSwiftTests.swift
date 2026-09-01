@@ -355,6 +355,7 @@ struct AgentHibernationPlannerSwiftTests {
                     key: newer,
                     hasRestorableAgent: true,
                     isLive: true,
+                    processSafetyAllowsHibernation: true,
                     isProtected: false,
                     lifecycle: .idle,
                     hasUnconfirmedTerminalInput: false,
@@ -364,6 +365,7 @@ struct AgentHibernationPlannerSwiftTests {
                     key: older,
                     hasRestorableAgent: true,
                     isLive: true,
+                    processSafetyAllowsHibernation: true,
                     isProtected: false,
                     lifecycle: .idle,
                     hasUnconfirmedTerminalInput: false,
@@ -379,7 +381,7 @@ struct AgentHibernationPlannerSwiftTests {
     }
 
     @Test
-    func criticalPressureSelectsBoundedSafeIdleBatchWhenScheduledHibernationIsDisabled() {
+    func aggregatePressureSelectsEverySafeIdleAgentWhenScheduledHibernationIsDisabled() {
         let workspaceId = UUID()
         let now: TimeInterval = 1_000
         let idle = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
@@ -476,7 +478,7 @@ struct AgentHibernationPlannerSwiftTests {
             trigger: .systemMemoryPressure
         )
 
-        #expect(selected == Set([secondIdle, liveProcess]))
+        #expect(selected == Set([idle, secondIdle, liveProcess]))
     }
 
     @MainActor

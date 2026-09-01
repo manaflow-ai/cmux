@@ -1,4 +1,3 @@
-import CmuxTerminal
 import Foundation
 
 enum AgentHibernationReclaimTrigger: Equatable, Sendable {
@@ -23,7 +22,7 @@ enum AgentHibernationPlanner {
         )
     }
 
-    /// Returns the same bounded pressure candidates in their eviction order.
+    /// Returns pressure candidates in deterministic eviction order.
     /// Oldest activity wins; UUID is a stable tie-breaker across dictionary and
     /// workspace traversal order.
     static func orderedPanelKeys(
@@ -33,22 +32,20 @@ enum AgentHibernationPlanner {
         trigger: AgentHibernationReclaimTrigger = .scheduled
     ) -> [AgentHibernationPanelKey] {
         let liveRestorable = inputs.filter { $0.hasRestorableAgent && $0.isLive }
-        let excess: Int
+        let scheduledExcess: Int?
         switch trigger {
         case .scheduled:
             guard settings.enabled else { return [] }
-            excess = liveRestorable.count - settings.maxLiveTerminals
+            scheduledExcess = liveRestorable.count - settings.maxLiveTerminals
         case .systemMemoryPressure:
-            // Snapshot and reclaim a small batch before the next pressure pass.
-            excess = min(
-                liveRestorable.count,
-                TerminalSurfaceRuntimeTeardownCoordinator
-                    .maximumIsolatedHibernationTeardownCount
-            )
+            // Aggregate pressure is a trigger, not a memory or agent quota.
+            // Every candidate that is already idle and independently proven
+            // safe may enter the ordinary lossless hibernation lifecycle.
+            scheduledExcess = nil
         }
-        guard excess > 0 else { return [] }
+        if let scheduledExcess, scheduledExcess <= 0 { return [] }
 
-        // Liveness contributes to cap pressure but is not itself an exclusion:
+        // The pressure signal never changes the lifecycle eligibility contract:
         // the controller confirms stability, protects the transcript, and
         // revalidates the exact process scope before any teardown.
         let eligible = liveRestorable
@@ -65,11 +62,17 @@ enum AgentHibernationPlanner {
             }
             .sorted { lhs, rhs in
                 if lhs.lastActivityAt == rhs.lastActivityAt {
+                    if lhs.key.workspaceId != rhs.key.workspaceId {
+                        return lhs.key.workspaceId.uuidString < rhs.key.workspaceId.uuidString
+                    }
                     return lhs.key.panelId.uuidString < rhs.key.panelId.uuidString
                 }
                 return lhs.lastActivityAt < rhs.lastActivityAt
             }
 
-        return eligible.prefix(excess).map(\.key)
+        if trigger == .systemMemoryPressure {
+            return eligible.map(\.key)
+        }
+        return eligible.prefix(scheduledExcess ?? 0).map(\.key)
     }
 }

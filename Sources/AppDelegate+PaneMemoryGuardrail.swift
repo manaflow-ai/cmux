@@ -3,8 +3,9 @@ import Foundation
 extension AppDelegate {
     /// Starts the per-pane runaway-memory guardrail and the central
     /// memory-pressure monitor. The pane guardrail keeps its existing
-    /// process-tree accounting timer; global memory pressure is handled through
-    /// responder registration so future reclaim paths are one conformance away.
+    /// process-tree accounting timer; global pressure is handled through
+    /// responder registration. Aggregate pressure is intentionally isolated to
+    /// its warning plus idle-agent-hibernation responder.
     func startPaneMemoryGuardrailIfNeeded() {
         let guardrail = PaneMemoryGuardrail.shared
         guardrail.paneProvider = { [weak self] in
@@ -41,8 +42,8 @@ extension AppDelegate {
                     guard let aggregate = monitor?.aggregateMemoryPressure else { return false }
                     return aggregate.isActionable && aggregate.severity >= .warning
                 },
-                onAggregatePressureWarning: { [weak self] snapshot in
-                    self?.postAggregateMemoryPressureWarning(snapshot: snapshot)
+                onAggregatePressureWarning: { [weak self] _ in
+                    self?.postAggregateMemoryPressureWarning()
                 }
             )
         )
@@ -65,7 +66,7 @@ extension AppDelegate {
         monitor.start()
     }
 
-    private func postAggregateMemoryPressureWarning(snapshot: MemoryPressureSnapshot) {
+    private func postAggregateMemoryPressureWarning() {
         guard let notificationStore else { return }
         let managers = paneMemoryGuardrailTabManagers()
         guard let tabId = tabManager?.selectedTabId

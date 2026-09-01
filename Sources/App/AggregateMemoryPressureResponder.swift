@@ -7,6 +7,7 @@ final class AggregateMemoryPressureResponder: MemoryPressureResponder {
     let memoryPressureResponderID = "aggregate-idle-agent-hibernation"
     let memoryPressureMinimumSeverity: MemoryPressureSeverity = .warning
     let memoryPressurePriority = 85
+    let memoryPressureResponderScope: MemoryPressureResponderScope = .aggregate
 
     private let controller: AgentHibernationController
     private let isAggregatePressureActive: @MainActor () -> Bool
@@ -34,7 +35,7 @@ final class AggregateMemoryPressureResponder: MemoryPressureResponder {
 
         onAggregatePressureWarning(snapshot)
         let responderID = memoryPressureResponderID
-        let severity = snapshot.severity
+        let severity = aggregate.severity
         let didSchedule = controller.reclaimIdleAgentsForMemoryPressure(
             now: snapshot.sampledAt,
             isPressureStillActive: isAggregatePressureActive

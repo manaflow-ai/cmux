@@ -74,10 +74,10 @@ final class MemoryPressureMonitor {
     func start() {
         startMemoryPressureSourceIfNeeded()
         startSampleTimerIfNeeded()
-        samplePhysicalFootprint(at: Date())
+        samplePhysicalFootprint(at: .now)
     }
 
-    func samplePhysicalFootprint(at sampledAt: Date = Date()) {
+    func samplePhysicalFootprint(at sampledAt: Date = .now) {
         let aggregateSample = aggregateSampler.sample(at: sampledAt)
         lastAggregateSample = aggregateSample
         apply(
@@ -88,15 +88,19 @@ final class MemoryPressureMonitor {
         )
     }
 
-    func recordSystemPressure(_ severity: MemoryPressureSeverity, at sampledAt: Date = Date()) {
+    func recordSystemPressure(_ severity: MemoryPressureSeverity, at sampledAt: Date = .now) {
         let heldSeverity = heldSystemSeverity(at: sampledAt) ?? .normal
         let effectiveSeverity = max(severity, heldSeverity)
         activeSystemSeverity = effectiveSeverity
         activeSystemSeverityExpiresAt = sampledAt.addingTimeInterval(systemPressureHoldDuration)
+        // Do not replay an old aggregate sample from an unrelated system event.
+        // The next periodic sample will publish fresh aggregate evidence; until
+        // then an in-flight aggregate hibernation pass must be allowed to stop.
+        lastAggregateSample = nil
         apply(
             systemSeverity: effectiveSeverity,
             physicalFootprintBytes: footprintSampler.physicalFootprintBytes(),
-            aggregateSample: lastAggregateSample,
+            aggregateSample: nil,
             sampledAt: sampledAt
         )
     }
@@ -127,7 +131,7 @@ final class MemoryPressureMonitor {
                   let severity = Self.severity(forDispatchSourceEvent: event) else {
                 return
             }
-            let sampledAt = Date()
+            let sampledAt = Date.now
             Task { @MainActor in
                 self?.recordSystemPressure(severity, at: sampledAt)
             }
@@ -155,9 +159,7 @@ final class MemoryPressureMonitor {
             let aggregateSample = aggregateSampler.sample(at: sampledAt)
             Task { @MainActor in
                 guard let self else { return }
-                if let aggregateSample {
-                    self.lastAggregateSample = aggregateSample
-                }
+                self.lastAggregateSample = aggregateSample
                 self.apply(
                     systemSeverity: self.heldSystemSeverity(at: sampledAt),
                     physicalFootprintBytes: footprintBytes,
@@ -209,7 +211,20 @@ final class MemoryPressureMonitor {
             logTransition(evaluation)
         }
         if evaluation.snapshot.severity >= .warning {
-            registry.dispatch(evaluation.snapshot)
+            registry.dispatch(evaluation.snapshot, signal: .system)
+        }
+        if let aggregateMemoryPressure,
+           aggregateMemoryPressure.isActionable {
+            // Aggregate pressure gets its own dispatch lane. This preserves
+            // the visible warning + idle-agent hibernation contract without
+            // making aggregate thresholds release unrelated hidden resources.
+            let aggregateSnapshot = MemoryPressureSnapshot(
+                severity: aggregateMemoryPressure.severity,
+                physicalFootprintBytes: physicalFootprintBytes,
+                aggregateMemoryPressure: aggregateMemoryPressure,
+                sampledAt: sampledAt
+            )
+            registry.dispatch(aggregateSnapshot, signal: .aggregate)
         }
         if evaluation.didBecomePersistentCritical {
             onPersistentCriticalPressure?(evaluation.snapshot)

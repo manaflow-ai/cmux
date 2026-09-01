@@ -136,7 +136,7 @@ struct DarwinMemoryPressureCoalitionSampler: MemoryPressureCoalitionSampling {
         let coalitionID = coalitionInfo.resourceCoalitionID
         guard coalitionID > 0,
               let symbol = dlsym(
-                  UnsafeMutableRawPointer(bitPattern: -2),
+                  RTLD_DEFAULT,
                   "coalition_info_resource_usage"
               ) else {
             return nil
