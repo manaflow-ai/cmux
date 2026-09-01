@@ -648,6 +648,7 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::sync::Mutex as StdMutex;
     use tokio::net::tcp::OwnedReadHalf;
+    use tokio::sync::Notify;
 
     #[derive(Default)]
     struct FakeState {
@@ -702,11 +703,19 @@ mod tests {
 
     struct FakeDeps {
         spawned: Arc<StdMutex<Vec<FakePty>>>,
+        spawn_gate: Option<Arc<Notify>>,
+        spawn_started: Option<Arc<Notify>>,
     }
 
     #[async_trait]
     impl PtyDeps for FakeDeps {
         async fn spawn_pty(&self, _spec: SpawnSpec) -> PtyHandle {
+            if let Some(started) = &self.spawn_started {
+                started.notify_one();
+            }
+            if let Some(gate) = &self.spawn_gate {
+                gate.notified().await;
+            }
             let pty = FakePty { state: Arc::new(StdMutex::new(FakeState::default())) };
             self.spawned.lock().unwrap().push(pty.clone());
             PtyHandle { control: Arc::new(pty.clone()), output: Arc::new(pty), banner: None }
@@ -750,7 +759,11 @@ mod tests {
 
     async fn rig_with_limits(max_ptys: usize) -> Rig {
         let spawned = Arc::new(StdMutex::new(Vec::new()));
-        let deps = Arc::new(FakeDeps { spawned: Arc::clone(&spawned) });
+        let deps = Arc::new(FakeDeps {
+            spawned: Arc::clone(&spawned),
+            spawn_gate: None,
+            spawn_started: None,
+        });
         let env = HashMap::from([
             ("SHELL".to_owned(), "/bin/fakesh".to_owned()),
             ("HOME".to_owned(), std::env::temp_dir().to_string_lossy().into_owned()),
@@ -773,6 +786,32 @@ mod tests {
         .await
         .expect("bind test listener");
         Rig { manager, spawned, port, cancel }
+    }
+
+    async fn rig_with_blocked_spawn() -> (Rig, Arc<Notify>) {
+        let spawned = Arc::new(StdMutex::new(Vec::new()));
+        let started = Arc::new(Notify::new());
+        let deps = Arc::new(FakeDeps {
+            spawned: Arc::clone(&spawned),
+            spawn_gate: Some(Arc::new(Notify::new())),
+            spawn_started: Some(Arc::clone(&started)),
+        });
+        let env = HashMap::from([
+            ("SHELL".to_owned(), "/bin/fakesh".to_owned()),
+            ("HOME".to_owned(), std::env::temp_dir().to_string_lossy().into_owned()),
+        ]);
+        let manager =
+            Arc::new(PtyManager::with_limits(deps, std::env::temp_dir(), env, 8, 32, 1_048_576));
+        let cancel = CancellationToken::new();
+        let port = start_tunnel_terminal_listener(
+            Arc::clone(&manager),
+            cancel.clone(),
+            TUNNEL_TERMINAL_HOST,
+            0,
+        )
+        .await
+        .expect("bind test listener");
+        (Rig { manager, spawned, port, cancel }, started)
     }
 
     async fn rig() -> Rig {
@@ -1032,6 +1071,27 @@ mod tests {
         assert_eq!(reopened["t"], "opened");
         assert_eq!(reopened["created"], false);
         rig.cancel.cancel();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn parent_cancellation_closes_a_pending_open() {
+        let (rig, spawn_started) = rig_with_blocked_spawn().await;
+        let stream = connect(&rig).await;
+        let (mut read, mut write) = stream.into_split();
+        write
+            .write_all(&encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 })))
+            .await
+            .unwrap();
+
+        tokio::time::timeout(Duration::from_secs(1), spawn_started.notified())
+            .await
+            .expect("open reached the blocked PTY spawn");
+        rig.cancel.cancel();
+
+        tokio::time::timeout(Duration::from_secs(1), read_eof(&mut read))
+            .await
+            .expect("parent cancellation must close the tunnel promptly");
+        assert_eq!(rig.manager.attachment_count(), 0);
     }
 
     #[tokio::test]
