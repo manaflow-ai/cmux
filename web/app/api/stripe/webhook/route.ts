@@ -6,6 +6,8 @@ import type Stripe from "stripe";
 
 import { env } from "../../../env";
 import { canonicalAppOrigin } from "../../../lib/billing";
+import { preferredLocaleFromAcceptLanguage } from "../../../../i18n/accept-language";
+import { routing, type Locale } from "../../../../i18n/routing";
 import { cloudDb } from "../../../../db/client";
 import { stripeWebhookEvents } from "../../../../db/schema";
 import { captureBillingError } from "../../../../services/errors";
@@ -287,7 +289,12 @@ async function processStripeEvent(
         const sendDunningEmail =
           dependencies.sendDunningEmail ?? sendBillingDunningEmailDefault;
         const dunningResult: unknown = await sendDunningEmail(
-          billingDunningInput(event.data.object, result, publicOrigin),
+          await billingDunningInput(
+            event.data.object,
+            result,
+            publicOrigin,
+            dependencies,
+          ),
         );
         // The canonical sender throws for this state. Keep the webhook
         // boundary defensive for injected senders and future implementations:
@@ -428,24 +435,70 @@ function invoiceSubscriptionId(invoice: Stripe.Invoice): string | null {
   return stringId(parent?.subscription_details?.subscription);
 }
 
-function billingDunningInput(
+async function billingDunningInput(
   invoice: Stripe.Invoice,
   result:
     | { readonly scope: "user"; readonly stackUserId: string; readonly isActive: boolean }
     | { readonly scope: "team"; readonly stackTeamId: string; readonly isActive: boolean },
   publicOrigin: string,
-): BillingDunningEmailInput {
+  dependencies: StripeWebhookDependencies,
+): Promise<BillingDunningEmailInput> {
   const portalUrl = new URL("/api/billing/portal", publicOrigin);
   if (result.scope === "team") portalUrl.searchParams.set("scope", "team");
+  const customer = await stripeCustomerForDunning(invoice, dependencies);
   return {
     invoiceId: invoice.id,
     email: invoice.customer_email,
     customerName: invoice.customer_name,
     portalUrl: portalUrl.toString(),
+    locale: dunningLocale(customer),
     scope: result.scope === "user"
       ? { scope: "user", stackUserId: result.stackUserId }
       : { scope: "team", stackTeamId: result.stackTeamId },
   };
+}
+
+/**
+ * Resolve dunning language from Stripe's customer preference. Invoice webhook
+ * payloads do not reliably include a Stack user profile or its locale, so this
+ * boundary intentionally uses preferred_locales only and falls back to English
+ * when the customer is not expanded or Stripe cannot be read.
+ */
+async function stripeCustomerForDunning(
+  invoice: Stripe.Invoice,
+  dependencies: StripeWebhookDependencies,
+): Promise<Stripe.Customer | null> {
+  const invoiceCustomer = invoice.customer;
+  if (typeof invoiceCustomer === "object" && invoiceCustomer !== null) {
+    if ("deleted" in invoiceCustomer && invoiceCustomer.deleted) return null;
+    return invoiceCustomer as Stripe.Customer;
+  }
+  const customerId = stringId(invoiceCustomer);
+  if (!customerId) return null;
+  try {
+    const customers = dependencies.stripe().customers;
+    if (!customers || typeof customers.retrieve !== "function") return null;
+    const customer = await customers.retrieve(customerId);
+    if ("deleted" in customer && customer.deleted) return null;
+    return customer;
+  } catch {
+    // Locale is best effort. A transient customer lookup failure must not make
+    // Stripe retry an otherwise durable dunning delivery.
+    return null;
+  }
+}
+
+function dunningLocale(customer: Stripe.Customer | null): Locale {
+  const preferences = customer?.preferred_locales
+    ?.filter((locale): locale is string => typeof locale === "string")
+    .map((locale) => locale.trim())
+    .filter(Boolean)
+    .join(",") ?? "";
+  return preferredLocaleFromAcceptLanguage(
+    preferences,
+    routing.locales,
+    routing.defaultLocale,
+  );
 }
 
 function stringId(value: string | { id: string } | null | undefined): string | null {

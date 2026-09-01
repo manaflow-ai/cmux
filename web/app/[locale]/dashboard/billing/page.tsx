@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { getTranslations } from "next-intl/server";
 import { redirect } from "next/navigation";
 
@@ -82,14 +82,12 @@ export default async function DashboardBillingPage({
     status,
     billingTeam,
     subscription,
-    hasStripeCustomer,
   ] = await Promise.all([
     getTranslations({ locale, namespace: "dashboard.billing" }),
     getTranslations({ locale, namespace: "pricing" }),
     resolveProPlanStatus(user),
     billingTeamPromise,
     latestActiveStripeSubscription(user.id),
-    hasCustomerRow(user.id),
   ]);
   const [teamSubscription, hasTeamStripeCustomer] = await Promise.all([
     billingTeam ? latestActiveStripeSubscriptionForTeam(billingTeam.id) : Promise.resolve(null),
@@ -99,7 +97,11 @@ export default async function DashboardBillingPage({
   const interval = proBillingInterval(
     Array.isArray(query?.interval) ? query.interval[0] : query?.interval,
   );
-  const isFreePlan = !status.isPro && !hasStripeCustomer && !teamSubscription;
+  // Use the resolver's authoritative recoverability state for the personal
+  // billing action. A customer-only or terminally canceled row must show the
+  // Upgrade flow; only a portal-recoverable subscription shows Manage billing.
+  const canManagePersonalBilling = status.billingManagement === "stripe";
+  const isFreePlan = !status.isPro && !canManagePersonalBilling && !teamSubscription;
   const personalPaymentPastDue = subscription?.status === "past_due";
   const teamPaymentPastDue = teamSubscription?.status === "past_due";
 
@@ -145,16 +147,16 @@ export default async function DashboardBillingPage({
       {isFreePlan ? (
         <FreePlanUpsell t={t} pricingT={pricingT} interval={interval} />
       ) : !status.isPro ? (
-        <FreePlan t={t} showBillingPortal={hasStripeCustomer} />
+        <FreePlan t={t} showBillingPortal={canManagePersonalBilling} />
       ) : subscription ? (
         <StripePlan
           t={t}
           locale={locale}
           subscription={subscription}
-          canManageBilling={hasStripeCustomer}
+          canManageBilling={canManagePersonalBilling}
         />
       ) : (
-        <FreePlan t={t} showBillingPortal={hasStripeCustomer} />
+        <FreePlan t={t} showBillingPortal={canManagePersonalBilling} />
       )}
 
       {billingTeam && teamSubscription ? (
@@ -218,20 +220,6 @@ async function latestActiveStripeSubscriptionForTeam(stackTeamId: string): Promi
     .orderBy(desc(stripeSubscriptions.currentPeriodEnd), desc(stripeSubscriptions.updatedAt))
     .limit(1);
   return rows[0] ?? null;
-}
-
-async function hasCustomerRow(stackUserId: string): Promise<boolean> {
-  const rows = await cloudDb()
-    .select({ id: stripeCustomers.id })
-    .from(stripeCustomers)
-    .where(
-      and(
-        eq(stripeCustomers.stackUserId, stackUserId),
-        isNull(stripeCustomers.stackTeamId),
-      ),
-    )
-    .limit(1);
-  return rows.length > 0;
 }
 
 async function hasTeamCustomerRow(stackTeamId: string): Promise<boolean> {
