@@ -53,7 +53,7 @@ struct NextTransportRelayCredentialCachePolicy: Sendable {
         marginSeconds: Int64? = nil
     ) -> [NextTransportCachedRelayCredential] {
         let marginSeconds = marginSeconds ?? reuseMarginSeconds
-        cached.filter { credential in
+        return cached.filter { credential in
             guard let expiresAt = credential.expiresAt else { return true }
             return expiresAt > now + marginSeconds
         }
@@ -200,7 +200,7 @@ final class MobileHostNextTransportRuntime {
 
     /// Deterministic lowercase hex for identity diagnostics; avoids the
     /// locale-sensitive Foundation formatter on concurrent transport paths.
-    private static func hex(_ bytes: Data) -> String {
+    private nonisolated static func hex(_ bytes: Data) -> String {
         let digits = Array("0123456789abcdef".utf8)
         var output = [UInt8]()
         output.reserveCapacity(bytes.count * 2)
@@ -226,29 +226,29 @@ final class MobileHostNextTransportRuntime {
     }
 
     /// Debug toggle (mirrors CmxIrohTransportVerificationMode's pattern).
-    static let debugDefaultsKey = "dev.cmux.nextTransport.enabled"
+    nonisolated static let debugDefaultsKey = "dev.cmux.nextTransport.enabled"
 
     /// Keychain service holding the host identity and grant-signer private
     /// keys (generic-password items, one account per key).
-    private static let keyStoreService = "dev.cmux.nextTransport.keys"
-    private static let identityKeyAccount = "host-identity"
-    private static let signerKeyAccount = "grant-signer"
+    private nonisolated static let keyStoreService = "dev.cmux.nextTransport.keys"
+    private nonisolated static let identityKeyAccount = "host-identity"
+    private nonisolated static let signerKeyAccount = "grant-signer"
     /// Keychain service holding the last-good relay credential cache.
-    private static let credentialCacheService = "dev.cmux.nextTransport.relayCredentials"
-    private static let credentialCacheAccount = "last-good"
+    private nonisolated static let credentialCacheService = "dev.cmux.nextTransport.relayCredentials"
+    private nonisolated static let credentialCacheAccount = "last-good"
     /// Grants are intentionally finite-lived even though the signer persists;
     /// a stale phone must eventually re-pair rather than retain permanent
     /// access to the bridged application surface.
-    private static let grantLifetimeSeconds: Int64 = 86_400
-    private static let grantExpiryCheckIntervalSeconds: Int64 = 60
-    private static let grantExpiryGraceSeconds: Int64 = 3_600
+    private nonisolated static let grantLifetimeSeconds: Int64 = 86_400
+    private nonisolated static let grantExpiryCheckIntervalSeconds: Int64 = 60
+    private nonisolated static let grantExpiryGraceSeconds: Int64 = 3_600
 
     /// Legacy UserDefaults keys (pre-Keychain). Private keys migrate out of
     /// these exactly once (read old → write Keychain → delete old); the
     /// deviceID is not secret and stays in defaults.
-    private static let legacyIdentityKeyDefaultsKey = "dev.cmux.nextTransport.identity.key"
-    private static let legacySignerKeyDefaultsKey = "dev.cmux.nextTransport.signer.key"
-    private static let identityDeviceIDDefaultsKey = "dev.cmux.nextTransport.identity.deviceID"
+    private nonisolated static let legacyIdentityKeyDefaultsKey = "dev.cmux.nextTransport.identity.key"
+    private nonisolated static let legacySignerKeyDefaultsKey = "dev.cmux.nextTransport.signer.key"
+    private nonisolated static let identityDeviceIDDefaultsKey = "dev.cmux.nextTransport.identity.deviceID"
 
     /// Dev diagnostic string for the Debug menu, derived from readiness.
     private(set) var state: String = "off"
@@ -942,11 +942,13 @@ final class MobileHostNextTransportRuntime {
             // bridged over its raw streams. The bridge runs for the session
             // lifetime inside this tracked task, so stop() can cancel it.
             let isCurrent: @Sendable () async -> Bool = { [weak self] in
+                let runtime = self
                 let enabledAndCurrent = await MainActor.run {
-                    guard let self else { return false }
-                    return self.isEnabled && self.generation == gen
+                    guard let runtime else { return false }
+                    return runtime.isEnabled && runtime.generation == gen
                 }
-                return enabledAndCurrent && await !connection.isClosed
+                guard enabledAndCurrent else { return false }
+                return !(await connection.isClosed)
             }
             await MobileHostNextTransportBridge.run(
                 connection: connection,
