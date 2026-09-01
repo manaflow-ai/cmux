@@ -166,6 +166,31 @@ import Testing
             == ["--socket", "/tmp/s.sock", "--json", "workspace", "ws_1", "close"])
     }
 
+    @Test func newTerminalJoinsTheFocusedElseFirstWorkspace() {
+        // Without `--remote-workspace`, a terminal lands in the daemon's focused workspace,
+        // else the first in daemon order; an empty workspace list means the provider has
+        // to ask the daemon (and only then create `main` — never a workspace named after
+        // the terminal).
+        let main = SurfaceRemoteWorkspace(id: "ws_main", name: "main", index: 0, focused: false)
+        let api = SurfaceRemoteWorkspace(id: "ws_api", name: "api", index: 1, focused: true)
+        let docs = SurfaceRemoteWorkspace(id: "ws_docs", name: "docs", index: 2, focused: false)
+        #expect(CmuxTuiSurfaceProvider.preferredWorkspace([docs, api, main])?.id == "ws_api")
+        #expect(CmuxTuiSurfaceProvider.preferredWorkspace([docs, main])?.id == "ws_main")
+        #expect(CmuxTuiSurfaceProvider.preferredWorkspace([]) == nil)
+        #expect(CmuxTuiSurfaceProvider.firstWorkspaceName == "main")
+    }
+
+    @Test func snapshotRereadsCoalesceButAreNeverStarved() {
+        // Deltas restart the coalescing window, but a burst that never goes quiet must
+        // not push the re-read past the bound (a busy shell retitling forever would
+        // otherwise freeze the tree until the 45 s poll).
+        let start = ContinuousClock.now
+        #expect(CmuxTuiSurfaceProvider.mayDeferRefresh(firstRequestedAt: start, now: start))
+        #expect(CmuxTuiSurfaceProvider.mayDeferRefresh(firstRequestedAt: start, now: start + .milliseconds(1_900)))
+        #expect(!CmuxTuiSurfaceProvider.mayDeferRefresh(firstRequestedAt: start, now: start + CmuxTuiSurfaceProvider.refreshMaxDeferral))
+        #expect(CmuxTuiSurfaceProvider.refreshDebounceWindow < CmuxTuiSurfaceProvider.refreshMaxDeferral)
+    }
+
     @Test func emptyAndMalformedSnapshotsProduceNothing() {
         #expect(CmuxTuiSnapshotParser.terminals(fromSnapshot: [:], machine: Self.machine).isEmpty)
         #expect(CmuxTuiSnapshotParser.terminals(fromSnapshot: ["workspaces": [["name": "no id"]]], machine: Self.machine).isEmpty)

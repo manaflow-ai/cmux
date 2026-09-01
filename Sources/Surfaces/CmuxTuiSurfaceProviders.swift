@@ -76,6 +76,16 @@ final class CmuxTuiSurfaceProviderRegistry {
         providers[machineID]
     }
 
+    /// The explicit Refresh verb — the sidebar's "Refresh" and `cmux vm tree --refresh`
+    /// share it: re-read the fleet (a machine created since the last poll gets its
+    /// provider now instead of at the next 45 s tick), re-sync every cloud provider, then
+    /// every other provider the catalog holds (this Mac).
+    func refreshEverything(catalog: SurfaceCatalog) async {
+        await refresh(force: true)
+        let refreshedCloud = Set(providers.keys)
+        await catalog.refreshAll(where: { machine in machine.cloudMachineID.map { !refreshedCloud.contains($0) } ?? true })
+    }
+
     /// The provider for a machine that may have been created a moment ago (`cmux vm new`
     /// opens its terminal right after `POST /api/vm` returns): when the registry has not
     /// listed it yet, re-read the fleet once instead of failing with "no provider".
@@ -171,6 +181,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     private unowned let catalog: SurfaceCatalog
     private var changeWatcher: Task<Void, Never>?
     private var refreshDebounce: Task<Void, Never>?
+    /// When the pending re-read's burst began (bounds how long deltas may defer it).
+    private var refreshFirstRequestedAt: ContinuousClock.Instant?
     private var portsCache: (ports: [Int], at: Date)?
     private let portsTTL: TimeInterval = 30
     /// Preview endpoints already minted for this machine's ports (``SurfacePortEndpointCache``):
@@ -243,10 +255,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         var linkError: String?
         var remoteWorkspaces: [SurfaceRemoteWorkspace]?
         do {
-            let connected = try await links.connected(machineID: machineID)
-            guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
-            watchChanges(link: link)
-            let data = try await link.run(arguments: CloudTuiCommandLine.snapshotArguments(socketPath: connected.socketPath))
+            let (link, socketPath) = try await connectedLink(warmSnapshot: false)
+            let data = try await link.run(arguments: CloudTuiCommandLine.snapshotArguments(socketPath: socketPath))
             if let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
                 resources = CmuxTuiSnapshotParser.mergingDisplays(
                     pool: resources,
@@ -269,6 +279,21 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         info = Self.info(from: summary, linkState: linkState, linkError: linkError, stats: await stats, remoteWorkspaces: remoteWorkspaces)
         catalog.replaceResources(resources, on: machine, info: info)
         reprojectRestoredPanes()
+    }
+
+    /// The machine's link, connecting if needed — the one way every verb reaches the
+    /// daemon. Whichever verb attaches first also starts the change watcher and, when
+    /// the catalog has never seen this session (`remoteWorkspaces == nil`), warms the
+    /// snapshot: a `vm tree` right after an attach then shows the machine's workspaces
+    /// instead of `(none yet)` until the next poll or `--refresh`.
+    private func connectedLink(warmSnapshot: Bool = true) async throws -> (link: CloudMachineLink, socketPath: String) {
+        let connected = try await links.connected(machineID: machineID)
+        guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
+        watchChanges(link: link)
+        if warmSnapshot, info.remoteWorkspaces == nil {
+            scheduleRefresh()
+        }
+        return (link, connected.socketPath)
     }
 
     /// `terminal <id> close`; a terminal whose process already exited is gone from
@@ -361,27 +386,35 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     }
 
     /// A new terminal in the machine's cmux-tui session (`workspace <ws> run -- argv`).
+    /// Without `remoteWorkspaceID` it joins the machine's focused (else first) workspace;
+    /// when the catalog has not synced this session yet it asks the daemon before
+    /// concluding there is none, and only then creates `main`. `name` titles the
+    /// terminal — it never names a workspace.
     func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource {
-        let connected = try await links.connected(machineID: machineID)
-        guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
+        let (link, socketPath) = try await connectedLink()
         let workspaceID: String
         if let remoteWorkspaceID = remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines), !remoteWorkspaceID.isEmpty {
             workspaceID = remoteWorkspaceID
-        } else if let existing = catalog.snapshot.resources(on: machine).compactMap(\.remoteWorkspace).sorted(by: { ($0.focused ? 0 : 1, $0.index) < ($1.focused ? 0 : 1, $1.index) }).first {
+        } else if let existing = Self.preferredWorkspace(knownRemoteWorkspaces()) {
+            workspaceID = existing.id
+        } else if let existing = Self.preferredWorkspace(try await syncRemoteWorkspaces(link: link, socketPath: socketPath)) {
             workspaceID = existing.id
         } else {
-            let created = try await link.run(arguments: CloudTuiCommandLine.createWorkspaceArguments(socketPath: connected.socketPath, name: name ?? "main"))
+            let created = try await link.run(arguments: CloudTuiCommandLine.createWorkspaceArguments(socketPath: socketPath, name: Self.firstWorkspaceName))
             guard let object = try JSONSerialization.jsonObject(with: created) as? [String: Any],
                   let id = CmuxTuiSnapshotParser.createdWorkspace(fromResult: object) else {
                 throw ProviderError.noWorkspaceOnMachine(machineID)
             }
             workspaceID = id
+            // Optimistic, like `createRemoteWorkspace`: the tree shows the workspace (and
+            // files the terminal under it) before the next snapshot confirms.
+            recordOptimisticWorkspace(SurfaceRemoteWorkspace(id: id, name: Self.firstWorkspaceName, index: 0, focused: true))
         }
         let argv = CloudTuiCommandLine.commandStartingIn(
             cwd: cwd,
             command: (command?.isEmpty == false ? command : nil) ?? CloudTuiCommandLine.defaultTerminalCommand
         )
-        let data = try await link.run(arguments: CloudTuiCommandLine.runArguments(socketPath: connected.socketPath, workspaceID: workspaceID, command: argv))
+        let data = try await link.run(arguments: CloudTuiCommandLine.runArguments(socketPath: socketPath, workspaceID: workspaceID, command: argv))
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let created = CmuxTuiSnapshotParser.createdTerminal(fromRunResult: object) else {
             throw ProviderError.terminalNotCreated(String(data: data, encoding: .utf8) ?? "")
@@ -392,7 +425,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             detail: cwd,
             lifecycle: .launching,
             agent: nil,
-            remoteWorkspace: catalog.snapshot.resources(on: machine).compactMap(\.remoteWorkspace).first { $0.id == (created.workspaceID ?? workspaceID) },
+            remoteWorkspace: knownRemoteWorkspaces().first { $0.id == (created.workspaceID ?? workspaceID) },
             port: nil,
             url: nil
         )
@@ -401,33 +434,63 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         return resource
     }
 
+    /// The name of a workspace the provider has to create because the machine has none.
+    nonisolated static let firstWorkspaceName = "main"
+
+    /// Every workspace the catalog knows on this machine: the machine info's list (which
+    /// includes empty workspaces) first, else the ones its resources point at.
+    private func knownRemoteWorkspaces() -> [SurfaceRemoteWorkspace] {
+        if let listed = info.remoteWorkspaces { return listed }
+        var seen: Set<String> = []
+        return catalog.snapshot.resources(on: machine).flatMap(\.remoteWorkspaces).filter { seen.insert($0.id).inserted }
+    }
+
+    /// Where a terminal lands when the caller names no workspace: the focused one, else
+    /// the first in daemon order. Pure, shared by the create path and its tests.
+    nonisolated static func preferredWorkspace(_ workspaces: [SurfaceRemoteWorkspace]) -> SurfaceRemoteWorkspace? {
+        workspaces.min { ($0.focused ? 0 : 1, $0.index) < ($1.focused ? 0 : 1, $1.index) }
+    }
+
+    /// One snapshot read for the workspace list alone (no ports probe), published to the
+    /// catalog so the tree reflects it too.
+    private func syncRemoteWorkspaces(link: CloudMachineLink, socketPath: String) async throws -> [SurfaceRemoteWorkspace] {
+        let data = try await link.run(arguments: CloudTuiCommandLine.snapshotArguments(socketPath: socketPath))
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [] }
+        let workspaces = CmuxTuiSnapshotParser.workspaces(fromSnapshot: object)
+        info.remoteWorkspaces = workspaces
+        catalog.updateMachine(info)
+        return workspaces
+    }
+
+    /// Show a workspace the daemon just made before its snapshot arrives.
+    private func recordOptimisticWorkspace(_ workspace: SurfaceRemoteWorkspace) {
+        info.remoteWorkspaces = (info.remoteWorkspaces ?? []).filter { $0.id != workspace.id } + [workspace]
+        catalog.updateMachine(info)
+    }
+
     /// A new empty workspace in the machine's cmux-tui session (`workspace create`),
     /// called directly — not as a side effect of creating a terminal.
     func createRemoteWorkspace(name: String?) async throws -> SurfaceRemoteWorkspace {
-        let connected = try await links.connected(machineID: machineID)
-        guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
-        let existingCount = info.remoteWorkspaces?.count
-            ?? Set(catalog.snapshot.resources(on: machine).flatMap { $0.remoteWorkspaces.map(\.id) }).count
+        let (link, socketPath) = try await connectedLink()
+        let existingCount = knownRemoteWorkspaces().count
         let workspaceName = name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
             ? name!.trimmingCharacters(in: .whitespacesAndNewlines)
-            : (existingCount == 0 ? "main" : "workspace-\(existingCount + 1)")
-        let created = try await link.run(arguments: CloudTuiCommandLine.createWorkspaceArguments(socketPath: connected.socketPath, name: workspaceName))
+            : (existingCount == 0 ? Self.firstWorkspaceName : "workspace-\(existingCount + 1)")
+        let created = try await link.run(arguments: CloudTuiCommandLine.createWorkspaceArguments(socketPath: socketPath, name: workspaceName))
         guard let object = try JSONSerialization.jsonObject(with: created) as? [String: Any],
               let id = CmuxTuiSnapshotParser.createdWorkspace(fromResult: object) else {
             throw ProviderError.noWorkspaceOnMachine(machineID)
         }
-        let workspace = SurfaceRemoteWorkspace(id: id, name: workspaceName, index: info.remoteWorkspaces?.count ?? 0, focused: false)
+        let workspace = SurfaceRemoteWorkspace(id: id, name: workspaceName, index: existingCount, focused: false)
         // Optimistic: show the new (empty) workspace now; the next snapshot re-sync is authoritative.
-        info.remoteWorkspaces = (info.remoteWorkspaces ?? []) + [workspace]
-        catalog.updateMachine(info)
+        recordOptimisticWorkspace(workspace)
         scheduleRefresh()
         return workspace
     }
 
     func renameRemoteWorkspace(id: String, name: String) async throws {
-        let connected = try await links.connected(machineID: machineID)
-        guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
-        _ = try await link.run(arguments: CloudTuiCommandLine.renameWorkspaceArguments(socketPath: connected.socketPath, workspaceID: id, name: name))
+        let (link, socketPath) = try await connectedLink()
+        _ = try await link.run(arguments: CloudTuiCommandLine.renameWorkspaceArguments(socketPath: socketPath, workspaceID: id, name: name))
         info.remoteWorkspaces = info.remoteWorkspaces?.map { workspace in
             var renamed = workspace
             if workspace.id == id { renamed.name = name }
@@ -544,13 +607,35 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
     }
 
+    /// Coalescing window for daemon deltas (they arrive in bursts; one re-read per burst).
+    nonisolated static let refreshDebounceWindow: Duration = .milliseconds(400)
+    /// A re-read may be pushed back by newer deltas only this long: a session that
+    /// never goes quiet (a busy shell retitling on every command) must still be
+    /// re-read, not starved until the 45 s poll.
+    nonisolated static let refreshMaxDeferral: Duration = .seconds(2)
+
+    /// Whether a new delta may restart the pending re-read's window, given when the
+    /// first delta of the burst arrived. Pure, so the bound is testable.
+    nonisolated static func mayDeferRefresh(firstRequestedAt: ContinuousClock.Instant, now: ContinuousClock.Instant) -> Bool {
+        now - firstRequestedAt < refreshMaxDeferral
+    }
+
     /// Daemon deltas arrive in bursts; one re-read per burst is plenty. The delay is a
-    /// deliberate coalescing window, cancelled by the next burst.
+    /// deliberate coalescing window, restarted by the next delta — but never past
+    /// `refreshMaxDeferral` from the first one.
     private func scheduleRefresh() {
-        refreshDebounce?.cancel()
+        let now = ContinuousClock.now
+        if let pending = refreshDebounce, !pending.isCancelled, let firstRequestedAt = refreshFirstRequestedAt {
+            guard Self.mayDeferRefresh(firstRequestedAt: firstRequestedAt, now: now) else { return }
+            pending.cancel()
+        } else {
+            refreshFirstRequestedAt = now
+        }
         refreshDebounce = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(400))
+            try? await Task.sleep(for: Self.refreshDebounceWindow)
             guard !Task.isCancelled, let self else { return }
+            self.refreshDebounce = nil
+            self.refreshFirstRequestedAt = nil
             await self.refresh(force: false)
         }
     }
