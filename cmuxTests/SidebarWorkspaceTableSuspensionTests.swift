@@ -317,6 +317,43 @@ struct SidebarWorkspaceTableSuspensionTests {
     }
 
     @Test
+    func hiddenGroupHeaderSurvivesAnchorPromotion() async {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let model = makeGroupHeaderModel()
+        let row = SidebarWorkspaceTableRowConfiguration(
+            groupHeaderModel: model,
+            actions: makeGroupHeaderActions {},
+            environment: SidebarWorkspaceTableEnvironmentSnapshot(
+                colorScheme: .light,
+                globalFontMagnificationPercent: 100,
+                lazyContractProbe: SidebarLazyContractProbe()
+            )
+        )
+
+        controller.apply(
+            rows: [row],
+            actions: makeTableActions(),
+            workspaceIds: [model.anchorWorkspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+
+        // The old anchor has been closed and the group coordinator promoted a
+        // member. The row identity is still the group id, so hiding the table
+        // must not prune the header just because its snapshot workspace id is
+        // no longer live.
+        controller.setPresentationActive(false, workspaceIds: [UUID()])
+        await flushStagedTableMutations()
+
+        #expect(
+            container.tableView.numberOfRows == 1,
+            "A promoted group must retain its stable header row while hidden."
+        )
+    }
+
+    @Test
     func atomicReorderReloadAndDetachmentDeferInlineEditCommits() async throws {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
