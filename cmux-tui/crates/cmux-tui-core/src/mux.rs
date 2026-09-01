@@ -2171,6 +2171,17 @@ struct ConfigReloadState {
     applied: u64,
 }
 
+struct JournalEventSignal {
+    epoch: Mutex<u64>,
+    changed: Condvar,
+}
+
+impl Default for JournalEventSignal {
+    fn default() -> Self {
+        Self { epoch: Mutex::new(0), changed: Condvar::new() }
+    }
+}
+
 /// Describes why an owner did not confirm a requested configuration reload.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ConfigReloadError {
@@ -2303,6 +2314,7 @@ pub struct Mux {
     /// cursor past an earlier committed record.
     agent_roster_fold: Mutex<()>,
     agent_roster_fold_worker_wait: Mutex<()>,
+    agent_roster_fold_worker_handle: Mutex<Option<std::thread::JoinHandle<()>>>,
     /// A single coalesced worker drains replay work that exceeds the bounded
     /// synchronous report budget. The journal remains the source of truth.
     agent_roster_fold_worker_running: AtomicBool,
@@ -2328,8 +2340,7 @@ pub struct Mux {
     journal_hook_runtime: Arc<crate::journal_hooks::JournalHookRuntime>,
     /// Wake-only signal for durable journal subscribers. Consumers always
     /// reread SQLite by cursor, so missed or coalesced notifications are safe.
-    journal_event_epoch: Mutex<u64>,
-    journal_event_changed: Condvar,
+    journal_event_signal: Arc<JournalEventSignal>,
     /// True once a skipped terminal-host reconnect checkpoint has been logged.
     /// A machine resume reconnects every hosted terminal at once, so
     /// per-terminal reporting would emit N warnings for one underlying
@@ -2725,6 +2736,7 @@ impl Mux {
             agent_roster: Mutex::new(agent_roster),
             agent_roster_fold: Mutex::new(()),
             agent_roster_fold_worker_wait: Mutex::new(()),
+            agent_roster_fold_worker_handle: Mutex::new(None),
             agent_roster_fold_worker_running: AtomicBool::new(false),
             agent_roster_fold_worker_changed: Condvar::new(),
             self_reference: OnceLock::new(),
@@ -2738,8 +2750,7 @@ impl Mux {
             journal_ingress,
             journal_hook_dispatcher_started: AtomicBool::new(false),
             journal_hook_runtime: Arc::new(crate::journal_hooks::JournalHookRuntime::default()),
-            journal_event_epoch: Mutex::new(0),
-            journal_event_changed: Condvar::new(),
+            journal_event_signal: Arc::new(JournalEventSignal::default()),
             reconnect_checkpoint_skip_reported: AtomicBool::new(false),
             diagnostic_reporter: OnceLock::new(),
             pending_diagnostic: Mutex::new(None),
@@ -5486,9 +5497,9 @@ impl Mux {
     }
 
     fn wake_journal_event_waiters(&self) {
-        let mut epoch = self.journal_event_epoch.lock().unwrap();
+        let mut epoch = self.journal_event_signal.epoch.lock().unwrap();
         *epoch = epoch.wrapping_add(1);
-        self.journal_event_changed.notify_all();
+        self.journal_event_signal.changed.notify_all();
     }
 
     #[cfg_attr(not(test), allow(dead_code))]
@@ -5687,15 +5698,23 @@ impl Mux {
     }
 
     pub(crate) fn journal_event_epoch(&self) -> u64 {
-        *self.journal_event_epoch.lock().unwrap()
+        *self.journal_event_signal.epoch.lock().unwrap()
     }
 
     pub(crate) fn wait_for_journal_event(&self, epoch: u64, timeout: Duration) -> u64 {
-        let current = self.journal_event_epoch.lock().unwrap();
+        Self::wait_for_journal_event_signal(&self.journal_event_signal, epoch, timeout)
+    }
+
+    fn wait_for_journal_event_signal(
+        signal: &JournalEventSignal,
+        epoch: u64,
+        timeout: Duration,
+    ) -> u64 {
+        let current = signal.epoch.lock().unwrap();
         if *current != epoch {
             return *current;
         }
-        let (current, _) = self.journal_event_changed.wait_timeout(current, timeout).unwrap();
+        let (current, _) = signal.changed.wait_timeout(current, timeout).unwrap();
         *current
     }
 
@@ -6106,9 +6125,9 @@ impl Mux {
         }
     }
 
-    /// Start one detached reducer worker when a bounded synchronous fold did
-    /// not reach its target. The worker owns no durable state and is woken by
-    /// the journal epoch; every pass rereads SQLite from the reducer cursor.
+    /// Start one coalesced reducer worker when a bounded synchronous fold did
+    /// not reach its target. The join handle is retained until completion so
+    /// shutdown can fence the worker before releasing the session lease.
     fn schedule_agent_roster_fold_worker(&self) {
         if self
             .agent_roster_fold_worker_running
@@ -6118,16 +6137,38 @@ impl Mux {
             return;
         }
 
+        if let Some(handle) = self.agent_roster_fold_worker_handle.lock().unwrap().take() {
+            let _ = handle.join();
+        }
+
         let Some(mux) = self.self_reference.get().cloned() else {
             self.mark_agent_roster_fold_worker_stopped();
             return;
         };
-        if let Err(error) = std::thread::Builder::new()
+        let signal = Arc::clone(&self.journal_event_signal);
+        let worker = std::thread::Builder::new()
             .name("agent-roster-fold".into())
-            .spawn(move || Self::run_agent_roster_fold_worker(mux))
-        {
-            self.mark_agent_roster_fold_worker_stopped();
-            eprintln!("cmux-tui: could not start agent roster fold worker: {error}");
+            .spawn(move || {
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    Self::run_agent_roster_fold_worker(mux.clone(), signal)
+                }));
+                if result.is_err() {
+                    if let Some(mux) = mux.upgrade() {
+                        mux.report_internal_diagnostic("agent roster fold worker panicked");
+                    }
+                }
+                if let Some(mux) = mux.upgrade() {
+                    mux.mark_agent_roster_fold_worker_stopped();
+                }
+            });
+        match worker {
+            Ok(handle) => {
+                *self.agent_roster_fold_worker_handle.lock().unwrap() = Some(handle);
+            }
+            Err(error) => {
+                self.mark_agent_roster_fold_worker_stopped();
+                eprintln!("cmux-tui: could not start agent roster fold worker: {error}");
+            }
         }
     }
 
@@ -6157,9 +6198,17 @@ impl Mux {
                 break;
             }
         }
+        drop(wait);
+        if Instant::now() < deadline
+            && !self.agent_roster_fold_worker_running.load(Ordering::Acquire)
+        {
+            if let Some(handle) = self.agent_roster_fold_worker_handle.lock().unwrap().take() {
+                let _ = handle.join();
+            }
+        }
     }
 
-    fn run_agent_roster_fold_worker(mux: Weak<Self>) {
+    fn run_agent_roster_fold_worker(mux: Weak<Self>, signal: Arc<JournalEventSignal>) {
         let mut projection_retry_attempts = 0u32;
         let mut journal_retry_attempts = 0u32;
         loop {
@@ -6192,10 +6241,9 @@ impl Mux {
                         return;
                     }
                     let epoch = mux.journal_event_epoch();
-                    mux.wait_for_journal_event(
-                        epoch,
-                        agent_roster_projection_retry_delay(journal_retry_attempts),
-                    );
+                    let timeout = agent_roster_projection_retry_delay(journal_retry_attempts);
+                    drop(mux);
+                    Self::wait_for_journal_event_signal(&signal, epoch, timeout);
                     continue;
                 }
             };
@@ -6214,7 +6262,12 @@ impl Mux {
                     // at a bounded cadence.
                     projection_retry_attempts = 0;
                     let epoch = mux.journal_event_epoch();
-                    mux.wait_for_journal_event(epoch, AGENT_ROSTER_FOLD_WORKER_BATCH_WAIT);
+                    drop(mux);
+                    Self::wait_for_journal_event_signal(
+                        &signal,
+                        epoch,
+                        AGENT_ROSTER_FOLD_WORKER_BATCH_WAIT,
+                    );
                 }
                 AgentRosterFoldProgress::WaitingForProjection => {
                     // Retry the durable projection receipt. Each failed
@@ -6253,10 +6306,9 @@ impl Mux {
                     // handles repeated failures while the epoch handles
                     // normal commits and successful cleanup wakes promptly.
                     let epoch = mux.journal_event_epoch();
-                    mux.wait_for_journal_event(
-                        epoch,
-                        agent_roster_projection_retry_delay(projection_retry_attempts),
-                    );
+                    let timeout = agent_roster_projection_retry_delay(projection_retry_attempts);
+                    drop(mux);
+                    Self::wait_for_journal_event_signal(&signal, epoch, timeout);
                 }
                 AgentRosterFoldProgress::ReachedTarget => {
                     projection_retry_attempts = 0;
@@ -6277,7 +6329,12 @@ impl Mux {
                                 "cmux-tui: rechecking the agent roster journal head failed: {error}"
                             );
                             let epoch = mux.journal_event_epoch();
-                            mux.wait_for_journal_event(epoch, AGENT_ROSTER_FOLD_WORKER_WAIT);
+                            drop(mux);
+                            Self::wait_for_journal_event_signal(
+                                &signal,
+                                epoch,
+                                AGENT_ROSTER_FOLD_WORKER_WAIT,
+                            );
                             continue;
                         }
                     };
@@ -10895,7 +10952,7 @@ impl Mux {
     pub fn shutdown(&self) {
         self.shutting_down.store(true, Ordering::Release);
         self.config_reload_changed.notify_all();
-        self.journal_event_changed.notify_all();
+        self.wake_journal_event_waiters();
         self.journal_kernel.wake_waiters();
         let hook_deadline = Instant::now() + crate::journal_hooks::SHUTDOWN_WAIT;
         self.wait_for_agent_roster_fold_worker(hook_deadline);
@@ -24874,16 +24931,7 @@ mod tests {
             .is_err()
         );
         mux.shutdown();
-        let mux_weak = Arc::downgrade(&mux);
-        eprintln!(
-            "cmux-tui test authority scope mux strong count after shutdown: {}",
-            mux_weak.strong_count()
-        );
         drop(mux);
-        eprintln!(
-            "cmux-tui test authority scope mux strong count after drop: {}",
-            mux_weak.strong_count()
-        );
 
         let reopened = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
         let records = reopened.agent_records.lock().unwrap();
