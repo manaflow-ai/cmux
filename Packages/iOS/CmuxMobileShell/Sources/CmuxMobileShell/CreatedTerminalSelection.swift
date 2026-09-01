@@ -10,7 +10,7 @@ func createdTerminalDeviceIDsMatch(_ lhs: String?, _ rhs: String?) -> Bool {
     }
 }
 
-private func normalizedCreatedTerminalIdentity(_ value: String?) -> String? {
+func normalizedCreatedTerminalIdentity(_ value: String?) -> String? {
     guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
           !value.isEmpty else {
         return nil

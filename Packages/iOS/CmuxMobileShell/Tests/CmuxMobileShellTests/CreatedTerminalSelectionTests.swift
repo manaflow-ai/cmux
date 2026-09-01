@@ -48,6 +48,23 @@ import Testing
         #expect(!anonymousSelection.matches(workspace: taggedWorkspace, allowsAnonymousForeground: true))
     }
 
+    @Test func knownWorkspaceDoesNotBorrowFallbackInstanceTag() {
+        let workspace = MobileWorkspacePreview(
+            id: "workspace-main",
+            macDeviceID: "mac-main",
+            name: "cmux",
+            terminals: [MobileTerminalPreview(id: "terminal-new", name: "Terminal 2")]
+        )
+        let selection = CreatedTerminalSelection(
+            workspace: workspace,
+            fallbackMacDeviceID: "mac-main",
+            fallbackInstanceTag: "unrelated-sibling",
+            terminalID: "terminal-new"
+        )
+
+        #expect(selection.macInstanceTag == nil)
+    }
+
     @Test func remoteCreatedTerminalRemainsSelectedAfterRefresh() async throws {
         let router = RoutingHostRouter()
         let store = try await makeRoutingConnectedStore(router: router)

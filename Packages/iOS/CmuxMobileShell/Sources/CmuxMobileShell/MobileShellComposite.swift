@@ -11517,14 +11517,28 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 && workspacesByMac[.anonymousForeground]?.workspaces.contains {
                     $0.rpcWorkspaceID == selectedWorkspace.rpcWorkspaceID
                 } == true
-            if created.matches(
-                workspace: selectedWorkspace,
-                allowsAnonymousForeground: allowsAnonymousForeground
-            ),
-               let selectedTerminal = selectedWorkspace.terminals.first(where: { $0.id == created.terminalID }) {
-                guard selectedTerminal.isReady else { return }
+            if let selectedTerminal = selectedWorkspace.terminals.first(where: { $0.id == created.terminalID }) {
+                if selectedTerminal.isReady {
+                    clearCreatedTerminalSelection()
+                    // The timeout banner is cleared separately when a late
+                    // success arrives after the pin's expiry.
+                } else if created.matches(
+                    workspace: selectedWorkspace,
+                    allowsAnonymousForeground: allowsAnonymousForeground
+                ) {
+                    return
+                } else if selectedWorkspace.rpcWorkspaceID == created.remoteWorkspaceID {
+                    // Preserve the pin while identity fields are temporarily
+                    // absent during snapshot convergence. The expiry task is
+                    // the bounded escape hatch for a genuinely stuck create.
+                    return
+                } else {
+                    clearCreatedTerminalSelection()
+                }
+            } else {
+                // The host has confirmed that the created terminal vanished.
+                clearCreatedTerminalSelection()
             }
-            clearCreatedTerminalSelection()
         }
         if let selectedTerminalID,
            let selectedTerminal = selectedWorkspace.terminals.first(where: { $0.id == selectedTerminalID }),
@@ -11984,16 +11998,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
         let requestedRow = workspaces.first { $0.id == rowWorkspaceID }
         let requestedWorkspaceID = remoteWorkspaceID(for: rowWorkspaceID)
-        let requestedMacDeviceID = requestedRow?.macDeviceID ?? foregroundMacDeviceID
+        let requestedMacDeviceID = normalizedCreatedTerminalIdentity(requestedRow?.macDeviceID)
+            ?? normalizedCreatedTerminalIdentity(foregroundMacDeviceID)
         // A known workspace owner may legitimately have no instance tag in a
         // legacy snapshot. Keep that absence instead of borrowing the global
         // foreground tag, which may belong to a different Mac instance.
         let requestedInstanceTag: String? = {
-            guard let requestedRow else { return activeMacInstanceTag }
-            if requestedRow.macDeviceID?.isEmpty == false {
-                return requestedRow.macInstanceTag
+            guard let requestedRow else { return normalizedCreatedTerminalIdentity(activeMacInstanceTag) }
+            if normalizedCreatedTerminalIdentity(requestedRow.macDeviceID) != nil {
+                return normalizedCreatedTerminalIdentity(requestedRow.macInstanceTag)
             }
-            return requestedRow.macInstanceTag ?? activeMacInstanceTag
+            return normalizedCreatedTerminalIdentity(requestedRow.macInstanceTag)
+                ?? normalizedCreatedTerminalIdentity(activeMacInstanceTag)
         }()
         let generation = connectionGeneration
         do {
@@ -12017,7 +12033,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             applyRemoteWorkspaceList(response, mergeExistingWorkspaces: true)
             let selectedRow = explicitlySelectedWorkspace
             let selectedRowMatchesAnonymousRequest: Bool
-            if requestedRow?.macDeviceID?.isEmpty != false,
+            if normalizedCreatedTerminalIdentity(requestedRow?.macDeviceID) == nil,
                let foregroundMacDeviceID,
                let selectedRow,
                selectedRow.rpcWorkspaceID == requestedWorkspaceID,
@@ -12033,6 +12049,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             } else {
                 selectedRowMatchesAnonymousRequest = false
             }
+            let selectedRowMatchesUnidentifiedRequest: Bool = {
+                guard normalizedCreatedTerminalIdentity(requestedRow?.macDeviceID) == nil,
+                      normalizedCreatedTerminalIdentity(foregroundMacDeviceID) == nil,
+                      normalizedCreatedTerminalIdentity(requestedInstanceTag) == nil,
+                      let selectedRow,
+                      selectedRow.rpcWorkspaceID == requestedWorkspaceID,
+                      normalizedCreatedTerminalIdentity(selectedRow.macDeviceID) == nil,
+                      normalizedCreatedTerminalIdentity(selectedRow.macInstanceTag) == nil else {
+                    return false
+                }
+                return workspaces.filter {
+                    $0.rpcWorkspaceID == requestedWorkspaceID
+                        && normalizedCreatedTerminalIdentity($0.macDeviceID) == nil
+                        && normalizedCreatedTerminalIdentity($0.macInstanceTag) == nil
+                }.count == 1
+            }()
             let selectedRowMatchesKnownOwnerRequest: Bool = {
                 guard let selectedRow,
                       selectedRow.rpcWorkspaceID == requestedWorkspaceID,
@@ -12054,6 +12086,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }()
             let selectedRowMatchesRequest = selectedRowMatchesKnownOwnerRequest
                 || selectedRowMatchesAnonymousRequest
+                || selectedRowMatchesUnidentifiedRequest
             if let selectedRow, selectedRowMatchesRequest,
                let createdID = response.createdTerminalID {
                 let createdTerminalID = MobileTerminalPreview.ID(rawValue: createdID)
