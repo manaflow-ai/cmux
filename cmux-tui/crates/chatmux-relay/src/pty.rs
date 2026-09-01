@@ -2673,7 +2673,7 @@ impl Inner {
                 let manager = Arc::clone(&self);
                 let on_session_data: DataSink = Arc::new(move |chunk: Bytes| {
                     let _dispatch = data_session.dispatch_lock.lock().expect("shell dispatch lock");
-                    let viewers_to_notify: Vec<(Arc<Mutex<()>>, Arc<dyn Fn(Bytes) + Send + Sync>)> = {
+                    let (viewers_to_notify, viewers_to_exit) = {
                         let mut inner = data_session.inner.lock().expect("shell inner lock");
                         inner.ring_size += chunk.len();
                         inner.ring.push_back(chunk.clone());
@@ -2682,6 +2682,7 @@ impl Inner {
                             inner.ring_size -= dropped.len();
                         }
                         let mut viewers_to_notify = Vec::new();
+                        let mut overflowed_viewers = HashSet::new();
                         for viewer in &inner.viewers {
                             if inner.paused_viewers.contains(&viewer.id)
                                 || inner.draining_viewers.contains(&viewer.id)
@@ -2694,6 +2695,9 @@ impl Inner {
                                         backlog.bytes -= dropped.len();
                                     }
                                 }
+                                if backlog.bytes > scrollback_limit {
+                                    overflowed_viewers.insert(viewer.id);
+                                }
                             } else {
                                 viewers_to_notify.push((
                                     Arc::clone(&viewer.delivery_lock),
@@ -2701,12 +2705,35 @@ impl Inner {
                                 ));
                             }
                         }
-                        viewers_to_notify
+                        let exits = if !overflowed_viewers.is_empty() {
+                            let exits: Vec<_> = inner
+                                .viewers
+                                .iter()
+                                .filter(|viewer| overflowed_viewers.contains(&viewer.id))
+                                .map(|viewer| {
+                                    (Arc::clone(&viewer.delivery_lock), Arc::clone(&viewer.on_exit))
+                                })
+                                .collect();
+                            inner.viewers.retain(|viewer| !overflowed_viewers.contains(&viewer.id));
+                            for viewer_id in overflowed_viewers {
+                                inner.paused_viewers.remove(&viewer_id);
+                                inner.paused_backlog.remove(&viewer_id);
+                                inner.draining_viewers.remove(&viewer_id);
+                            }
+                            exits
+                        } else {
+                            Vec::new()
+                        };
+                        (viewers_to_notify, exits)
                     };
                     drop(_dispatch);
                     for (delivery_lock, on_data) in viewers_to_notify {
                         let _delivery = delivery_lock.lock().expect("viewer delivery lock");
                         on_data(chunk.clone());
+                    }
+                    for (delivery_lock, on_exit) in viewers_to_exit {
+                        let _delivery = delivery_lock.lock().expect("viewer delivery lock");
+                        on_exit(1);
                     }
                 });
                 let on_session_exit: ExitSink = Arc::new(move |code: i64| {
