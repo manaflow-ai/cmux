@@ -138,13 +138,14 @@ import Testing
     #expect(await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1))
     #expect(try await pollUntil { !collector.lines.isEmpty })
 
-    // Ending the first consumer removes its per-surface lifecycle record.
-    collector.unmount()
-    #expect(try await pollUntil { !store.hasTerminalOutputSink(surfaceID: surfaceID) })
-
+    // A second mount reuses the public surface ID while the old stream's
+    // asynchronous termination callback is still in flight. Registration is
+    // the lifecycle boundary: it must replace the old per-surface state rather
+    // than inherit any retained mirror marker from that ID.
     let replayCountBeforeRemount = await router.count(of: "mobile.terminal.replay")
     await router.enqueueReplayRenderGrid(frame)
-    collector.mount(store: store, surfaceID: surfaceID)
+    let replacementCollector = OutputCollector()
+    replacementCollector.mount(store: store, surfaceID: surfaceID)
     #expect(await router.waitForCount(
         of: "mobile.terminal.replay",
         atLeast: replayCountBeforeRemount + 1
@@ -152,7 +153,8 @@ import Testing
     let remountReplay = try #require(await router.requests(for: "mobile.terminal.replay").last)
     #expect(
         (remountReplay.maxScrollbackRows ?? 0) > 0,
-        "reusing a surface ID after unregistration must hydrate a fresh mirror"
+        "reusing a surface ID for a new mount must hydrate a fresh mirror"
     )
     collector.unmount()
+    replacementCollector.unmount()
 }
