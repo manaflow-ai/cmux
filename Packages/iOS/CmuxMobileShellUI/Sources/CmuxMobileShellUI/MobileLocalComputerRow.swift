@@ -11,8 +11,10 @@ struct MobileLocalComputerRow: View {
     let title: String
     let subtitle: String
     let symbolName: String
-    /// The destination remains a main-actor action because the provider owns
-    /// UI/controller state. It is invoked only when the row is selected.
+    /// SwiftUI may evaluate this while it constructs the ``NavigationLink``,
+    /// before the user selects the row. The closure must only construct and
+    /// return a view value; it must not start a session or mutate UI or
+    /// controller state.
     let destination: @MainActor () -> AnyView
 
     var body: some View {

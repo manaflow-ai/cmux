@@ -78,6 +78,11 @@ struct DeviceTreeView: View {
                 }
                 if computers.isEmpty && store.hiddenComputers.isEmpty {
                     emptySection
+                    if showAddDevice != nil {
+                        Section {
+                            addComputerRow
+                        }
+                    }
                 } else {
                     // One row per Computer, grouped under the connection
                     // method that Computer is configured to use. The method
@@ -113,21 +118,15 @@ struct DeviceTreeView: View {
                             ))
                         }
                     }
-                    if !computers.isEmpty || !store.hiddenComputers.isEmpty {
-                        Section {
-                            if showAddDevice != nil {
-                                addComputerRow
-                            }
-                        } footer: {
-                            Text(L10n.string(
-                                "mobile.connections.footer",
-                                defaultValue: "Each computer connects using the method set in its own configuration. Turning a computer off hides its workspaces on this iPhone; it stays signed in to your account."
-                            ))
-                        }
-                    } else if showAddDevice != nil {
-                        Section {
+                    Section {
+                        if showAddDevice != nil {
                             addComputerRow
                         }
+                    } footer: {
+                        Text(L10n.string(
+                            "mobile.connections.footer",
+                            defaultValue: "Each computer connects using the method set in its own configuration. Turning a computer off hides its workspaces on this iPhone; it stays signed in to your account."
+                        ))
                     }
                 }
             }
