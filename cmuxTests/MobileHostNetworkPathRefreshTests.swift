@@ -481,6 +481,25 @@ struct MobileHostIrohStartupRetryTests {
     }
 
     @Test
+    func deactivationRetryStillRequiresTheCurrentPolicyToBeExpired() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        // A pending retry is only a wake-up hint. The refresh loop must
+        // re-check the endpoint policy's current expiry before revoking it.
+        #expect(
+            !MobileHostIrohRuntime.shouldDeactivateRelayPolicy(
+                policyExpiresAt: now.addingTimeInterval(300),
+                now: now
+            )
+        )
+        #expect(
+            MobileHostIrohRuntime.shouldDeactivateRelayPolicy(
+                policyExpiresAt: now.addingTimeInterval(-1),
+                now: now
+            )
+        )
+    }
+
+    @Test
     func staleDeactivationCannotClearReplacementRuntimeState() async {
         let runtime = MobileHostIrohRuntime.shared
         let originalDesiredActive = runtime.desiredActive

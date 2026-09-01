@@ -277,6 +277,7 @@ final class MobileHostIrohRuntime {
         restartActiveRuntime: Bool = false
     ) -> Task<Void, Never> {
         lifecycleRevision &+= 1
+        invalidateRelayPolicyApplications()
         cancelRetryInspection()
         bindingPersistenceQueue.cancel()
         serverSignalRefreshTask?.cancel()

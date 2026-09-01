@@ -1055,6 +1055,10 @@ final class MobileHostService {
             return
         }
 
+        // The Iroh lifecycle can be scheduled even when both TCP bind
+        // attempts fail. Start the reachability owner first so a failed
+        // activation still receives the path event that wakes recovery.
+        startNetworkPathMonitorIfNeeded()
         CmxIrohTCPFirstActivation.start(
             startTCP: { startListener(usePreferredPort: true) },
             scheduleIroh: { MobileHostIrohRuntime.shared.setDesiredActive(true) }
@@ -1137,6 +1141,7 @@ final class MobileHostService {
 
     func stop() {
         MobileHostIrohRuntime.shared.setDesiredActive(false)
+        stopNetworkPathMonitor()
         stopLegacyListener(reason: "service stopped")
         for connection in MobileHostConnectionRegistry.shared.removeAll() {
             Task { await connection.close(reason: "service stopped") }
@@ -1149,12 +1154,8 @@ final class MobileHostService {
 
     private func stopLegacyListener(reason: String) {
         // A settings change can disable only the legacy listener while the
-        // account-scoped Iroh host remains active. Keep the observer for that
-        // host; the full service stop clears desired-active first and then
-        // tears the observer down here.
-        if !MobileHostIrohRuntime.shared.desiredActive {
-            stopNetworkPathMonitor()
-        }
+        // account-scoped Iroh host remains active. The reachability observer is
+        // owned by the Iroh lifecycle and is stopped by stop().
         listenerGeneration = UUID()
         listenerUsesEphemeralFallback = false
         listener?.stateUpdateHandler = nil
