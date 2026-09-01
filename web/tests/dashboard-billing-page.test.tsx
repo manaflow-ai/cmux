@@ -205,6 +205,7 @@ describe("dashboard billing page", () => {
     subscriptionResults = [
       [],
       [],
+      [],
       [
         stripeSubscriptionRow({
           cancelAtPeriodEnd: false,
@@ -232,6 +233,7 @@ describe("dashboard billing page", () => {
     subscriptionResults = [
       [],
       [],
+      [],
       [
         stripeSubscriptionRow({
           cancelAtPeriodEnd: false,
@@ -252,6 +254,7 @@ describe("dashboard billing page", () => {
     subscriptionResults = [
       [],
       [],
+      [],
       [
         stripeSubscriptionRow({
           cancelAtPeriodEnd: false,
@@ -268,6 +271,7 @@ describe("dashboard billing page", () => {
     expect(await renderBillingPage()).toContain("$35/seat/mo");
 
     subscriptionResults = [
+      [],
       [],
       [],
       [
@@ -297,6 +301,7 @@ describe("dashboard billing page", () => {
       { id: "team-pro", displayName: "Team Pro", clientReadOnlyMetadata: { cmuxPlan: "team" } },
     ]);
     subscriptionResults = [
+      [],
       [],
       [],
       [
