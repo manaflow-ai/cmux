@@ -42,6 +42,7 @@ struct SidebarWorkspaceTableRowConfiguration {
     private let environment: SidebarWorkspaceTableEnvironmentSnapshot
     private let equivalenceValue: Any
     private let isEquivalentValue: (Any) -> Bool
+    private let isHeightEquivalentValue: (Any) -> Bool
 
     private init(
         id: SidebarWorkspaceRenderItemID,
@@ -54,7 +55,8 @@ struct SidebarWorkspaceTableRowConfiguration {
         appKitWorkspaceRowModel: SidebarWorkspaceRowModel?,
         environment: SidebarWorkspaceTableEnvironmentSnapshot,
         equivalenceValue: Any,
-        isEquivalentValue: @escaping (Any) -> Bool
+        isEquivalentValue: @escaping (Any) -> Bool,
+        isHeightEquivalentValue: ((Any) -> Bool)? = nil
     ) {
         self.id = id
         self.workspaceId = workspaceId
@@ -74,6 +76,7 @@ struct SidebarWorkspaceTableRowConfiguration {
         self.environment = environment
         self.equivalenceValue = equivalenceValue
         self.isEquivalentValue = isEquivalentValue
+        self.isHeightEquivalentValue = isHeightEquivalentValue ?? isEquivalentValue
     }
 
     init<Content: View & Equatable>(
@@ -107,6 +110,7 @@ struct SidebarWorkspaceTableRowConfiguration {
             guard let value = value as? Content else { return false }
             return value == equivalenceValue
         }
+        self.isHeightEquivalentValue = self.isEquivalentValue
     }
 
     init(
@@ -137,6 +141,7 @@ struct SidebarWorkspaceTableRowConfiguration {
             guard let value = value as? SidebarGroupHeaderRowModel else { return false }
             return value == groupHeaderModel
         }
+        self.isHeightEquivalentValue = self.isEquivalentValue
     }
 
     init(
@@ -170,11 +175,25 @@ struct SidebarWorkspaceTableRowConfiguration {
             guard let value = value as? SidebarWorkspaceRowModel else { return false }
             return value == workspaceRowModel
         }
+        self.isHeightEquivalentValue = { value in
+            guard let value = value as? SidebarWorkspaceRowModel else { return false }
+            return value.hasHeightEquivalentContent(to: workspaceRowModel)
+        }
     }
 
     func hasEquivalentContent(to other: Self) -> Bool {
         environment.hasEquivalentPresentation(to: other.environment)
             && isEquivalentValue(other.equivalenceValue)
+    }
+
+    /// Content equality restricted to fields that can change the measured row
+    /// height. The height cache keys on this: a close shifts `index` /
+    /// `isFirstRow` for every row below it, and treating those rows as changed
+    /// would both re-measure the whole tail and drop the content-matched
+    /// entries the stale-width `height(for:)` fallback depends on.
+    func hasEquivalentHeightContent(to other: Self) -> Bool {
+        environment.hasEquivalentPresentation(to: other.environment)
+            && isHeightEquivalentValue(other.equivalenceValue)
     }
 
     func applyingUnreadSnapshot(_ snapshot: SidebarUnreadSnapshot) -> Self {
