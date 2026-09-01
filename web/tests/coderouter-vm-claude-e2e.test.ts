@@ -45,9 +45,15 @@ async function deleteTeamRows(): Promise<void> {
 }
 
 afterAll(async () => {
-  await deleteTeamRows();
-  await closeCloudDbForTests();
-  await sql?.end({ timeout: 5 });
+  try {
+    await deleteTeamRows();
+  } finally {
+    try {
+      await closeCloudDbForTests();
+    } finally {
+      await sql?.end({ timeout: 5 });
+    }
+  }
 });
 
 beforeEach(deleteTeamRows);

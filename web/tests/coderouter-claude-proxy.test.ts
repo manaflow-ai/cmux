@@ -127,8 +127,28 @@ describe("claude messages proxy", () => {
     expect(call.headers.get("anthropic-beta")).toBe("oauth-2025-04-20");
     expect(call.headers.get("anthropic-version")).toBe("2023-06-01");
     expect(call.body).toMatchObject({ model: "claude-sonnet-5" });
-    // The caller's abort must propagate to the provider request.
-    expect(call.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  test("the caller's abort propagates to the provider request", async () => {
+    accountsToServe = [{ id: "acct-1", sticky: true }];
+    const controller = new AbortController();
+    const request = new Request("https://coderouter.dev/v1/messages", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer crt_token",
+        "content-type": "application/json",
+      },
+      body: "{}",
+      signal: controller.signal,
+    });
+    const response = await proxy(request);
+    expect(response.status).toBe(200);
+    const upstreamSignal = upstreamCalls[0]?.signal;
+    expect(upstreamSignal?.aborted).toBe(false);
+    controller.abort();
+    // The signal handed to fetch must be the request's own (dependent)
+    // signal, so a caller hang-up aborts the in-flight provider request.
+    expect(upstreamSignal?.aborted).toBe(true);
   });
 
   test("appends the OAuth beta to client-sent beta capabilities", async () => {
