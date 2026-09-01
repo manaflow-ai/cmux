@@ -43,7 +43,9 @@ struct MobileSettingsView: View {
     var initialFocus: MobileSettingsFocus? = nil
     /// Lets the root modal coordinator advance directly to queued content.
     var dismissAction: (() -> Void)? = nil
-    @AppStorage(MobileSettingsView.sendAnonymousTelemetryKey) private var sendAnonymousTelemetry = false
+    // Default mirrors UserDefaultsAnalyticsConsentProvider's fallback: telemetry
+    // is on until the user opts out here.
+    @AppStorage(MobileSettingsView.sendAnonymousTelemetryKey) private var sendAnonymousTelemetry = true
 
     @Environment(\.dismiss) private var dismiss
     @State private var showingShortcuts = false

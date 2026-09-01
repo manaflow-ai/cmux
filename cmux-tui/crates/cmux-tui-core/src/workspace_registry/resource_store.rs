@@ -1,4 +1,6 @@
 use super::*;
+use crate::JournalIngress;
+use crate::resource::TerminalPublicId;
 
 /// Completed pure mutations keep a finite exactly-once replay window. Pruning
 /// runs in batches, so a live registry may temporarily retain the interval as
@@ -551,7 +553,7 @@ impl WorkspaceRegistry {
         origin: &str,
         idempotency_key: &str,
         sequence: u64,
-        ingress: &crate::JournalIngress,
+        ingress: &JournalIngress,
     ) -> anyhow::Result<()> {
         let ingress_json = serde_json::to_string(ingress)?;
         let terminal_id = ingress
@@ -578,7 +580,7 @@ impl WorkspaceRegistry {
         origin: &str,
         idempotency_key: &str,
         sequence: u64,
-        ingress: &crate::JournalIngress,
+        ingress: &JournalIngress,
         error: &str,
         retry_class: AgentHookRetryClass,
     ) -> anyhow::Result<()> {
@@ -645,7 +647,7 @@ impl WorkspaceRegistry {
 
     pub(crate) fn purge_agent_hook_pending_for_terminal(
         &mut self,
-        terminal_id: &crate::resource::TerminalPublicId,
+        terminal_id: &TerminalPublicId,
     ) -> anyhow::Result<()> {
         self.connection.execute(
             "DELETE FROM resource_agent_hook_pending WHERE terminal_id = ?1",
@@ -692,7 +694,7 @@ impl WorkspaceRegistry {
 
     pub fn pending_agent_hook_projections(
         &self,
-    ) -> anyhow::Result<Vec<(String, String, String, u64, crate::JournalIngress)>> {
+    ) -> anyhow::Result<Vec<(String, String, String, u64, JournalIngress)>> {
         let mut statement = self.connection.prepare(
             "SELECT producer_id, origin, idempotency_key, event_sequence, ingress_json
              FROM resource_agent_hook_pending ORDER BY event_sequence ASC, idempotency_key ASC",
@@ -722,8 +724,8 @@ impl WorkspaceRegistry {
 
     pub fn pending_agent_hook_projections_for_terminal(
         &self,
-        terminal_id: &crate::resource::TerminalPublicId,
-    ) -> anyhow::Result<Vec<(String, String, String, u64, crate::JournalIngress)>> {
+        terminal_id: &TerminalPublicId,
+    ) -> anyhow::Result<Vec<(String, String, String, u64, JournalIngress)>> {
         let mut statement = self.connection.prepare(
             "SELECT producer_id, origin, idempotency_key, event_sequence, ingress_json
              FROM resource_agent_hook_pending
@@ -770,7 +772,7 @@ impl WorkspaceRegistry {
         &self,
         after: Option<(u64, String, i64)>,
     ) -> anyhow::Result<(
-        Vec<(String, String, String, u64, crate::JournalIngress)>,
+        Vec<(String, String, String, u64, JournalIngress)>,
         Option<(u64, String, i64)>,
     )> {
         let (after_sequence, after_key, after_rowid) = after.unwrap_or((0, String::new(), 0));
@@ -1592,7 +1594,7 @@ impl WorkspaceRegistry {
     #[cfg(test)]
     pub(crate) fn delete_agent_hook_state_for_test(
         &mut self,
-        terminal_id: &crate::resource::TerminalPublicId,
+        terminal_id: &TerminalPublicId,
     ) -> anyhow::Result<()> {
         self.connection.execute(
             "DELETE FROM resource_agent_hook_state WHERE terminal_id = ?1",

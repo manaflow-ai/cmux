@@ -119,7 +119,7 @@ describe("devbox image template", () => {
     expect(body(agentConfig)).toBe(body(readBlaxel("agent-config.sh")));
   });
 
-  test("agent pins match the Blaxel template ARG for ARG", () => {
+  test("agent and CUA driver pins match the Blaxel template", () => {
     const blaxelDockerfile = readBlaxel("Dockerfile");
     const args = [
       "CMUX_IMAGE_CLAUDE_CODE_VERSION",
@@ -142,6 +142,17 @@ describe("devbox image template", () => {
       "@earendil-works/pi-coding-agent",
       "agent-browser",
     ]);
+
+    const cuaVersion = (source: string): string | undefined =>
+      /CUA_DRIVER_RS_VERSION=(\S+)/.exec(source)?.[1];
+    const devboxCuaVersion = cuaVersion(dockerfile);
+    expect({ tool: "cua-driver", pin: devboxCuaVersion }).toEqual({
+      tool: "cua-driver",
+      pin: cuaVersion(blaxelDockerfile),
+    });
+    expect(readScript("build-devbox-freestyle.ts")).toContain(
+      `CUA_DRIVER_RS_VERSION=${devboxCuaVersion}`,
+    );
   });
 
   test("ble.sh integration stays minimal: no token highlighting, ghost text only", () => {
@@ -219,6 +230,24 @@ describe("devbox image template", () => {
     expect(freestyleScript).toContain("ExecStart=/usr/local/bin/cmux-devbox-boot");
     expect(freestyleScript).toContain("cmux-tui-daemon.service");
     expect(freestyleScript).toContain("Restart=always");
+  });
+
+  test("the Freestyle replay carries the ble.sh cache bake", () => {
+    // The replay embeds its own copy of the Dockerfile bake; pin the guards
+    // and both cache targets so the provider-specific path cannot silently
+    // drift while the Dockerfile path stays correct.
+    const freestyleScript = readScript("build-devbox-freestyle.ts");
+    expect(freestyleScript).toContain("mkdir -p /etc/cmux/blesh-cache-seed");
+    for (const term of ["xterm-256color", "screen-256color", "tmux-256color", "linux"]) {
+      expect(freestyleScript).toContain(
+        `test -s /etc/cmux/blesh-cache-seed/blesh/*/term.${term}`,
+      );
+    }
+    expect(freestyleScript).toContain("/usr/local/share/blesh/cache.d/0/");
+    expect(freestyleScript).toContain("/usr/local/share/blesh/cache.d/1000/");
+    expect(freestyleScript).toContain(
+      "chown -R 1000:1000 /usr/local/share/blesh/cache.d/1000",
+    );
   });
 
   test("the beta SDK serves the bake, verify, and beta driver arm; the legacy arm stays on 0.1.51", () => {

@@ -1,4 +1,5 @@
 import CmuxNotifications
+import CmuxSettings
 import Foundation
 
 struct TerminalNotification: Identifiable, Hashable, Sendable {
@@ -17,6 +18,7 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
     var scrollPosition: TerminalNotificationScrollPosition?
     var clickAction: TerminalNotificationClickAction?
     var replyShape: TerminalNotificationReplyShape = .none
+    var soundContext: NotificationSoundOverrideContext?
 
     init(
         id: UUID,
@@ -33,7 +35,8 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
         paneFlash: Bool = true,
         scrollPosition: TerminalNotificationScrollPosition? = nil,
         clickAction: TerminalNotificationClickAction? = nil,
-        replyShape: TerminalNotificationReplyShape = .none
+        replyShape: TerminalNotificationReplyShape = .none,
+        soundContext: NotificationSoundOverrideContext? = nil
     ) {
         self.id = id
         self.tabId = tabId
@@ -50,6 +53,7 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
         self.scrollPosition = scrollPosition
         self.clickAction = clickAction
         self.replyShape = replyShape
+        self.soundContext = soundContext
     }
 
     func matches(tabId targetTabId: UUID, surfaceId targetSurfaceId: UUID?) -> Bool {

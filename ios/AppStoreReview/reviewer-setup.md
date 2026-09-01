@@ -128,6 +128,36 @@ Support during review:
   or pairing route is unreachable.
 ```
 
+## Demonstration Mode (server-flagged demo account)
+
+Apple's Guideline 2.1(a) rejections invited "a demonstration mode that
+exhibits the app's full features and functionality." The app ships one:
+when the signed-in account's Stack `clientReadOnlyMetadata` carries
+`cmuxReviewDemoContent: true`, a local "Demo Mac" appears in Computers with
+sample developer workspaces (agent task rows with statuses), sample
+notifications, and interactive canned terminals that echo typed input and
+answer common commands. It renders through exactly the same views and stores
+as a live Mac, and it augments the prepared review Mac — real computers still
+appear and connect alongside it. No live infrastructure (device registry,
+relay, presence) is needed for the demonstration content itself; only Stack
+sign-in is required.
+
+Flag the review account before submission (from `web/`, with production Stack
+server credentials in the environment):
+
+```bash
+bun scripts/set-review-demo-content.ts <demo-account-email> on
+```
+
+Turn it off after review with `off`. The flag is read at sign-in; an
+already-signed-in device picks it up on its next launch or sign-in. Only the
+exact flagged account sees demonstration content, and the flag key is
+server-writable only (`client_read_only_metadata`), so no client can enable
+it for itself.
+
+Keep the prepared review Mac online anyway: it proves live pairing, and the
+demonstration mode covers the reviewer if the live route degrades mid-review.
+
 ## Pre-Submission Check
 
 Before submitting:
@@ -136,17 +166,20 @@ Before submitting:
 2. For a Mailinator demo account, request an email code, open the public inbox
    URL that will be pasted into App Store Connect, and confirm the code appears
    in the newest email subject.
-3. Confirm the prepared Mac appears automatically after sign-in, or pair using
+3. Confirm the demonstration flag is set on the review account
+   (`bun scripts/set-review-demo-content.ts <email> on` from `web/`) and that
+   a "Demo Mac" with sample workspaces appears immediately after sign-in.
+4. Confirm the prepared Mac appears automatically after sign-in, or pair using
    the exact fallback Tailscale host, port, and sign-in instructions that will be
    pasted into App Store Connect.
-4. Open the `App Review` workspace.
-5. Send `echo app-review-ok`.
-6. Confirm the prepared Mac remains reachable from a network outside the office
+5. Open the `App Review` workspace.
+6. Send `echo app-review-ok`.
+7. Confirm the prepared Mac remains reachable from a network outside the office
    LAN after signing in with the same Tailscale review access supplied to App
    Review.
-7. Confirm the Privacy Policy URL in App Store Connect is
+8. Confirm the Privacy Policy URL in App Store Connect is
    `https://cmux.com/privacy-policy`.
-8. Replace every angle-bracket placeholder in the notes with the exact live
+9. Replace every angle-bracket placeholder in the notes with the exact live
    review value. Exact demo credentials, Mailinator inbox, Tailscale access,
    host, port, and monitored contact are submission blockers and must never be
    committed here.
