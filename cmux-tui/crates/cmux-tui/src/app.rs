@@ -16896,6 +16896,9 @@ impl App {
         let repeated = previous.as_ref().is_some_and(|previous| {
             Self::selection_repeat_allowed(previous, surface, screen, position, modifiers, now)
         });
+        if !repeated {
+            self.replace_selection(None);
+        }
         let (mut count, mut tracked_anchor) = if repeated {
             let previous = previous.expect("repeated selection click has prior state");
             (previous.count.saturating_add(1).min(3), previous.tracked_anchor)
@@ -27614,6 +27617,17 @@ mod tests {
             Some(((6, 0), (15, 0))),
             "double-click drag must start at the selected word and end at the whole target word"
         );
+
+        let plain_click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 2,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(plain_click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..plain_click })
+            .unwrap();
+        assert!(app.selection.is_none(), "a plain click after a selection drag must clear it");
 
         mux.close_surface(surface.id).unwrap();
     }
