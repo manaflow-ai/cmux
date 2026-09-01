@@ -1,6 +1,7 @@
 import Foundation
 import CMUXAgentLaunch
 import CmuxAgentJournal
+import CmuxControlSocket
 import CmuxFoundation
 import CmuxSettings
 import CmuxSimulator
@@ -4177,28 +4178,28 @@ final class SocketClient {
             deadline: deadline
         )
 
+        let localizedAccessDeniedResponse = "ERROR: " + String(
+            localized: "socket.client.accessDenied",
+            defaultValue: "Access denied - only processes started inside cmux can connect"
+        )
         while true {
             let line = try readStreamLine(deadline: deadline)
-            // The server may reject a stream before the JSON protocol starts. Do not expose the
-            // raw authorization response: it describes process-ancestry policy and is not a safe
-            // user-facing diagnostic.
-            if line.hasPrefix("ERROR:") {
-                let localizedAccessDeniedResponse = "ERROR: " + String(
-                    localized: "socket.client.accessDenied",
-                    defaultValue: "Access denied - only processes started inside cmux can connect"
-                )
-                let isAccessDenied = line == localizedAccessDeniedResponse
-                    || line.hasPrefix("ERROR: Access denied")
-                if isAccessDenied {
+            if let errorKind = SocketStreamErrorKind.classify(
+                line: line,
+                localizedAccessDeniedResponse: localizedAccessDeniedResponse
+            ) {
+                switch errorKind {
+                case .accessDenied:
                     throw CLIError(message: String(
                         localized: "cli.events.error.connectionDenied",
                         defaultValue: "Connection to cmux was denied. Run this command from a cmux terminal or review socket access in Settings > Automation."
                     ))
+                case .server:
+                    throw CLIError(message: String(
+                        localized: "cli.events.error.server",
+                        defaultValue: "cmux returned an error while starting the event stream. Check the command and try again."
+                    ))
                 }
-                throw CLIError(message: String(
-                    localized: "cli.events.error.server",
-                    defaultValue: "cmux returned an error while starting the event stream. Check the command and try again."
-                ))
             }
             try onLine(line)
         }
