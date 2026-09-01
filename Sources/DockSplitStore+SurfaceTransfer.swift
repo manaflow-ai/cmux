@@ -347,7 +347,10 @@ extension DockSplitStore {
             installSubscription(for: panel)
             // The close was rejected, so restore the coordinator's live owner
             // and monitoring state that was fenced before the attempted close.
-            contextCoordinator?.bindingDidChange(panelId: panelId)
+            contextCoordinator?.bindingDidChange(
+                panelIds: [panelId],
+                owner: .dock(self)
+            )
             return nil
         }
         if let terminalPanel = panel as? TerminalPanel {
@@ -640,7 +643,8 @@ extension DockSplitStore {
         // destination tab exists, so preserved pressure can never authorize a
         // PTY write during a failed or partially-created transfer.
         AppDelegate.shared?.agentContextManagementCoordinator.bindingDidChange(
-            panelId: panel.id
+            panelIds: [panel.id],
+            owner: .dock(self)
         )
         if let terminal = panel as? TerminalPanel {
             AppDelegate.shared?.agentContextManagementCoordinator.shellDidChange(

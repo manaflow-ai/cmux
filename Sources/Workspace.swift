@@ -11122,7 +11122,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // Publish one authoritative destination snapshot after every binding
         // retarget, copied lifecycle update, and remote-owner flag is complete.
         AppDelegate.shared?.agentContextManagementCoordinator.bindingDidChange(
-            panelId: detached.panelId
+            panelIds: [detached.panelId],
+            owner: .workspace(self)
         )
         if let index {
             _ = bonsplitController.reorderTab(newTabId, toIndex: index)
