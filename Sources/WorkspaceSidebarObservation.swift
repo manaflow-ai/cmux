@@ -168,6 +168,7 @@ private struct SidebarImmediateObservationState: Equatable {
     let latestConversationMessage: String?
     let latestSubmittedMessage: String?
     let latestSubmittedAt: Date?
+    let panelPrompts: [UUID: SidebarPanelPromptState]
     let taskStatusOverride: WorkspaceTaskStatusOverride?
     let statusHidden: Bool
     let checklist: [WorkspaceChecklistItem]
@@ -213,10 +214,11 @@ extension Workspace {
             $isPinned,
             $customColor
         )
-        let conversationFields = Publishers.CombineLatest3(
+        let conversationFields = Publishers.CombineLatest4(
             $latestConversationMessage,
             $latestSubmittedMessage,
-            $latestSubmittedAt
+            $latestSubmittedAt,
+            sidebarMetadata.panelPromptsPublisher
         )
         // Todo state is row-affecting (status pill, checklist progress) but
         // lives in its own sub-model, so fold its publishers in here the same
@@ -238,6 +240,7 @@ extension Workspace {
                     latestConversationMessage: conversationFields.0,
                     latestSubmittedMessage: conversationFields.1,
                     latestSubmittedAt: conversationFields.2,
+                    panelPrompts: conversationFields.3,
                     taskStatusOverride: todoFields.0,
                     statusHidden: todoFields.1,
                     checklist: todoFields.2

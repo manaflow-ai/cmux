@@ -196,13 +196,15 @@ public struct CustomSidebarDataContextBuilder {
     }
 
     /// Projects one surface snapshot into the interpreter value tree, enriched
-    /// with per-surface directory, pin, git, and ports where available.
+    /// with per-surface directory, pin, git, ports, unread state, and the
+    /// prompt last submitted in that surface where available.
     public func surfaceValue(_ surface: CustomSidebarSurfaceSnapshot) -> SwiftValue {
         var surfaceFields: [String: SwiftValue] = [
             "id": .string(surface.panelId.uuidString),
             "title": .string(surface.title),
             "focused": .bool(surface.isFocused),
             "pinned": .bool(surface.isPinned),
+            "unread": .int(surface.hasUnreadNotification ? 1 : 0),
         ]
         if let surfaceId = surface.surfaceId {
             // The id surface.* verbs accept (surface.focus etc.); `id` above
@@ -218,6 +220,12 @@ public struct CustomSidebarDataContextBuilder {
         }
         if !surface.listeningPorts.isEmpty {
             surfaceFields["ports"] = .array(surface.listeningPorts.map { .int($0) })
+        }
+        if let prompt = surface.latestSubmittedMessage, !prompt.isEmpty {
+            surfaceFields["latestPrompt"] = .string(prompt)
+        }
+        if let at = surface.latestSubmittedAt {
+            surfaceFields["latestAt"] = .int(Int(at.timeIntervalSince1970))
         }
         return .object(surfaceFields)
     }

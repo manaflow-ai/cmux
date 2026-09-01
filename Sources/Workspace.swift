@@ -2919,6 +2919,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         get { sidebarMetadata.panelGitBranches }
         set { sidebarMetadata.panelGitBranches = newValue }
     }
+    var panelPrompts: [UUID: SidebarPanelPromptState] {
+        get { sidebarMetadata.panelPrompts }
+        set { sidebarMetadata.panelPrompts = newValue }
+    }
     var pullRequest: SidebarPullRequestState? {
         get { sidebarMetadata.pullRequest }
         set { sidebarMetadata.pullRequest = newValue }
@@ -6256,6 +6260,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         progress = nil
         gitBranch = nil
         panelGitBranches.removeAll()
+        panelPrompts.removeAll()
         pullRequest = nil
         panelPullRequests.removeAll()
         surfaceListeningPorts.removeAll()
@@ -6463,12 +6468,25 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return true
     }
 
+    /// Records a submitted prompt for the workspace, and for one panel when the
+    /// caller knows which surface it came from.
+    ///
+    /// A `nil` `panelId` — an unresolved or absent hook `surface_id` — updates
+    /// only the workspace-level fields, so callers without surface routing keep
+    /// their previous behaviour.
     @discardableResult
-    func recordSubmittedMessage(_ message: String?) -> Bool {
+    func recordSubmittedMessage(_ message: String?, panelId: UUID? = nil) -> Bool {
         guard let preview = Self.conversationMessagePreview(from: message) else { return false }
         _ = recordConversationMessage(preview)
+        let submittedAt = Date()
         latestSubmittedMessage = preview
-        latestSubmittedAt = Date()
+        latestSubmittedAt = submittedAt
+        if let panelId {
+            panelPrompts[panelId] = SidebarPanelPromptState(
+                message: preview,
+                submittedAt: submittedAt
+            )
+        }
         return true
     }
 

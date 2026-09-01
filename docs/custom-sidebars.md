@@ -280,8 +280,13 @@ with:
   tab's `tabs[k].surfaceId`, accepted by `surface.focus`), `directory`,
   `transcriptPath`, and `pid`.
 - `tabs` (per workspace) — array of surfaces. Always: `id`, `title`,
-  `focused` (Bool), `pinned` (Bool). When available: `directory`, `branch` +
-  `dirty`, `ports` (array of Int).
+  `focused` (Bool), `pinned` (Bool), `unread` (`0`/`1`, whether that surface
+  has an unread notification). When available: `directory`, `branch` +
+  `dirty`, `ports` (array of Int), `latestPrompt` (the prompt last submitted in
+  that surface) + `latestAt` (epoch). `latestPrompt` is the prompt last
+  submitted in that surface, not a pending state; pair it with `unread` to show
+  which of a workspace's agents is waiting, instead of collapsing every surface
+  into the workspace-level `latestPrompt`.
 - `workspaceCount` — Int. `selectedTitle` — active workspace's title.
   `selectedId` — its id. `unreadTotal` — total unread notifications.
 - `clock` — `{ time ("HH:mm:ss"), hour, minute, second, weekday, epoch }`. The
