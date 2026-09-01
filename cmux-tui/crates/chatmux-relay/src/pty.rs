@@ -2524,9 +2524,12 @@ impl Inner {
             "--socket".to_owned(),
             ensured.socket_path.to_string_lossy().into_owned(),
         ]);
-        let handle = self
-            .deps
-            .spawn_pty(
+        let handle = tokio::select! {
+            biased;
+            _ = cancellation.token().cancelled() => {
+                return Err((RelayPtyErrorCode::Failed, "terminal open cancelled".to_owned()));
+            }
+            handle = self.deps.spawn_pty(
                 SpawnSpec {
                     file: cmux_tui.file.clone(),
                     args,
@@ -2538,8 +2541,8 @@ impl Inner {
                 },
                 cancellation.token(),
                 open_permit.clone(),
-            )
-            .await;
+            ) => handle,
+        };
         let control = Arc::clone(&handle.control);
         let output = Arc::clone(&handle.output);
         let banner = handle.banner.clone();
@@ -2624,9 +2627,12 @@ impl Inner {
             };
             {
                 let shell = self.deps.shell();
-                let handle = self
-                    .deps
-                    .spawn_pty(
+                let handle = tokio::select! {
+                    biased;
+                    _ = cancellation.token().cancelled() => {
+                        return Err("terminal open cancelled".to_owned());
+                    }
+                    handle = self.deps.spawn_pty(
                         SpawnSpec {
                             file: shell,
                             args: Vec::new(),
@@ -2638,8 +2644,8 @@ impl Inner {
                         },
                         cancellation.token(),
                         open_permit.clone(),
-                    )
-                    .await;
+                    ) => handle,
+                };
                 if cancellation.is_cancelled() {
                     handle.control.kill();
                     return Err("terminal open cancelled".to_owned());
