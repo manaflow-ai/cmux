@@ -338,6 +338,8 @@ struct CLIExplicitSurfaceRoutingTests {
                 "Usage: cmux agent-submit [--workspace"
             )
         )
+    }
+
     @Test func refusedTerminalReadsAndWritesExitNonzero() throws {
         let cases: [([String], String)] = [
             (["read-screen", "--surface", Self.targetSurfaceRef], "surface.read_text"),

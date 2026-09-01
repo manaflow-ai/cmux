@@ -43,11 +43,24 @@ struct ControlTerminalSocketTarget {
 
     /// Sends a named key through the canonical surface, retaining the panel's
     /// explicit-input resume behavior for an ordinary bound target.
-    func sendNamedKeyResult(_ key: String) -> TerminalSurface.NamedKeySendResult {
+    ///
+    /// - Parameter recordsPromptInput: Whether the key should be attributed to
+    ///   the human prompt ledger. Interrupt keys opt out because they control
+    ///   the agent turn rather than editing its prompt.
+    func sendNamedKeyResult(
+        _ key: String,
+        recordsPromptInput: Bool = true
+    ) -> TerminalSurface.NamedKeySendResult {
         if surface === panel.surface {
-            return panel.sendNamedKeyResult(key)
+            return panel.sendNamedKeyResult(
+                key,
+                recordsPromptInput: recordsPromptInput
+            )
         }
-        return surface.sendNamedKey(key)
+        return surface.sendNamedKey(
+            key,
+            recordsPromptInput: recordsPromptInput
+        )
     }
 
     /// Performs a Ghostty binding action against the canonical surface.

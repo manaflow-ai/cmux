@@ -61644,6 +61644,12 @@
             "state": "translated",
             "value": "%@ is ready"
           }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の準備ができました"
+          }
         }
       }
     },
@@ -62283,6 +62289,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "[cmux] connection lost — reconnecting (attempt %d)…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 接続が失われました — 再接続中（試行 %d）…"
           }
         }
       }

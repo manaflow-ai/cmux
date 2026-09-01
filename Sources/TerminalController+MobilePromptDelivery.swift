@@ -40,20 +40,16 @@ extension TerminalController {
         if let error = mobileTerminalAliasValidationError(params: params) {
             return error
         }
-        guard let resolved = mobileResolveWorkspaceAndSurface(
-            params: params,
-            requireTerminal: true
-        ),
-              let surfaceID = resolved.surfaceId,
-              let terminalPanel = resolved.workspace.terminalInputTarget(
-                  forPanelID: surfaceID
-              )?.panel else {
+        guard let resolved = mobileCanonicalTerminalTarget(params: params) else {
             return .err(
                 code: "not_found",
                 message: "Terminal surface not found",
                 data: nil
             )
         }
+        let surfaceID = resolved.surfaceID
+        let terminalTarget = resolved.target
+        let terminalPanel = terminalTarget.panel
 
         let agentContext = WorkspaceContentView.terminalAgentContext(
             panel: terminalPanel,
@@ -70,7 +66,7 @@ extension TerminalController {
         }
         _ = applyMobileViewportReport(
             params: params,
-            terminalPanel: terminalPanel
+            terminalTarget: terminalTarget
         )
 
         var submitted = false
