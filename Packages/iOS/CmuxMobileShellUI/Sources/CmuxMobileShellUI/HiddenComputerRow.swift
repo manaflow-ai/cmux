@@ -63,8 +63,21 @@ private struct ComputerVisibilityRow: View {
     var style: MacComputerRow.Style
     let connect: @MainActor (MacComputerSnapshot) -> Void
     let isConnecting: Bool
+    var setCaffeine: @MainActor (MacComputerSnapshot, Bool) -> Void = { _, _ in }
+    var isCaffeineMutating: Bool = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var isBusy: Bool { isVisibilityMutating }
+
+    /// The computer this row can toggle keep-awake on via the leading swipe:
+    /// a visible Computers-screen row with a live, capable connection whose
+    /// state is known. Reconnect-style rows have no connection to act on.
+    private var caffeineSwipeTarget: (computer: MacComputerSnapshot, enabled: Bool)? {
+        guard style == .computers,
+              let computer = item.visibleComputer,
+              computer.supportsCaffeineControl,
+              let enabled = computer.caffeineEnabled else { return nil }
+        return (computer, enabled)
+    }
 
     var body: some View {
         HStack(spacing: item.isVisible ? 8 : 12) {
@@ -96,6 +109,39 @@ private struct ComputerVisibilityRow: View {
                 identity: ComputerRowTransitionPhase(shown: true)
             ).animation(.easeOut(duration: 0.12))
         ))
+        // Keep-awake one swipe away; the same control lives visibly in the
+        // computer's detail view, so the hidden gesture is a shortcut, not
+        // the only path. Non-destructive, so full swipe commits it.
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+            if let target = caffeineSwipeTarget {
+                Button {
+                    setCaffeine(target.computer, !target.enabled)
+                } label: {
+                    if target.enabled {
+                        Label(
+                            L10n.string(
+                                "mobile.computers.keepAwake.letSleep",
+                                defaultValue: "Let Sleep"
+                            ),
+                            systemImage: "moon.zzz.fill"
+                        )
+                    } else {
+                        Label(
+                            L10n.string(
+                                "mobile.computers.keepAwake.keepAwake",
+                                defaultValue: "Keep Awake"
+                            ),
+                            systemImage: "cup.and.saucer.fill"
+                        )
+                    }
+                }
+                .tint(target.enabled ? .indigo : .orange)
+                .disabled(isCaffeineMutating)
+                .accessibilityIdentifier(
+                    "MobileComputerCaffeineSwipe-\(target.computer.connectionRef.automationID)"
+                )
+            }
+        }
     }
 
     @ViewBuilder
@@ -173,6 +219,8 @@ struct ComputerVisibilityRows: View {
     var connect: @MainActor (MacComputerSnapshot) -> Void = { _ in }
     var connectingComputerID: String?
     var mutatingComputerIDs: Set<String> = []
+    var setCaffeine: @MainActor (MacComputerSnapshot, Bool) -> Void = { _, _ in }
+    var caffeineMutatingComputerIDs: Set<String> = []
     let hide: @MainActor (MacComputerSnapshot) -> Void
     let unhide: @MainActor (MobileHiddenComputer) -> Void
 
@@ -190,6 +238,8 @@ struct ComputerVisibilityRows: View {
                 style: style,
                 connect: connect,
                 isConnecting: connectingComputerID == item.id,
+                setCaffeine: setCaffeine,
+                isCaffeineMutating: caffeineMutatingComputerIDs.contains(item.id),
             )
         }
     }

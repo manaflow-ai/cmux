@@ -102,6 +102,17 @@ public struct UITestConfig {
         #endif
     }
 
+    /// Forces the exact iOS 27 keyboard seat (notification authority,
+    /// will-frames only) on any simulator OS, so iOS ≤26 CI runners exercise
+    /// the path iOS 27 devices ship with. DEBUG-only.
+    public static var forceIOS27KeyboardSeat: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_FORCE_IOS27_KEYBOARD_SEAT"] == "1"
+        #else
+        return false
+        #endif
+    }
+
     /// Whether the standalone workspace-list layout preview is enabled.
     ///
     /// When `CMUX_UITEST_WORKSPACE_LIST_PREVIEW=1`, the root view renders a

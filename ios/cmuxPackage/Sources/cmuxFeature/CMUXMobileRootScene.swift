@@ -72,6 +72,11 @@ public struct CMUXMobileRootScene: View {
     /// the shell's one-time sheet and Settings > What's New share one fetch
     /// and one cache through `@Environment(MobileWhatsNewCenter.self)`.
     @State private var whatsNewCenter: MobileWhatsNewCenter
+    /// Exchanges the native Stack session for cmux web session cookies so
+    /// in-app webviews (What's New web pages) render as the signed-in user.
+    /// Injected as a plain environment value through
+    /// `\.mobileWebAppSession`.
+    private let webAppSession: MobileWebAppSessionBroker
     #endif
     /// Per-terminal composer drafts for the app session, so an unsent message
     /// survives keyboard dismiss and terminal switches. In-memory only for now;
@@ -159,6 +164,11 @@ public struct CMUXMobileRootScene: View {
         _toastCenter = State(initialValue: ToastCenter(diagnosticLog: diagnosticLog))
         _whatsNewCenter = State(
             initialValue: MobileWhatsNewCenter(apiBaseURL: auth.config.apiBaseURL)
+        )
+        webAppSession = MobileWebAppSessionBroker(
+            tokens: auth.coordinator,
+            apiBaseURL: auth.config.apiBaseURL,
+            projectID: auth.config.stack.projectId
         )
     }
     #else
@@ -388,6 +398,7 @@ public struct CMUXMobileRootScene: View {
             .environment(connectionMethodStore)
             .environment(autoConnectMigrationStore)
             .environment(whatsNewCenter)
+            .environment(\.mobileWebAppSession, webAppSession)
             #endif
     }
 
@@ -460,11 +471,21 @@ public struct CMUXMobileRootScene: View {
             isDevelopmentAuthEnvironment: auth.authEnvironment == .development
         )
         let restoreBoundary = PairedMacRestoreBoundary()
+        // Overlay the demonstration computer OUTSIDE the build-scope/team/
+        // backup stack, so the demo row is account-flag-gated, never persisted,
+        // and never synced, while every store consumer (Computers list,
+        // reconnect, registry route lookup) sees it through the same loadAll
+        // path a real pairing uses.
         let backedUpPairedMacStore = makeBackedUpPairedMacStore(
             restoreBoundary: restoreBoundary,
             buildScope: buildScope,
             buildCompatibilityPolicy: buildCompatibilityPolicy
-        )
+        ).map { store -> any MobilePairedMacStoring in
+            DemoContentPairedMacStore(
+                inner: store,
+                isEnabled: { await identityProvider.demonstrationContentEnabled }
+            )
+        }
         let deviceRegistry = makeDeviceRegistry(pairedMacStore: backedUpPairedMacStore)
         let hiddenMacStore = UserDefaultsPairedMacHiddenStore()
         let feedbackEmailSubmitter = MobileFeedbackEmailClient(apiBaseURL: auth.config.apiBaseURL)
@@ -500,6 +521,9 @@ public struct CMUXMobileRootScene: View {
             feedbackEmailSubmitter: feedbackEmailSubmitter,
             feedbackStampProvider: feedbackStampProvider,
             draftStore: draftStore,
+            // Persistent, unlike the composite's in-memory default: opening a
+            // workspace must restore its last opened tab across app relaunches.
+            lastTabStore: MobileWorkspaceLastTabStore(defaults: .standard),
             taskTemplateStore: UserDefaultsMobileTaskTemplateStore(
                 defaults: .standard,
                 diagnosticLog: diagnosticLog
