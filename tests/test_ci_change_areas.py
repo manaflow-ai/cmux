@@ -66,7 +66,13 @@ def test_ci_trigger_uses_negative_filter_for_future_app_inputs() -> None:
         assert not any(fnmatch(path, pattern) for pattern in ignored), path
 
     # Clearly non-app paths retain the cheap skip behavior.
-    for path in ["docs/ci.md", "ios/cmux/ContentView.swift", "web/app/page.tsx", "cmux-browser/src/index.ts"]:
+    for path in [
+        "docs/ci.md",
+        "ios/cmux/ContentView.swift",
+        "web/app/page.tsx",
+        "cmux-browser/src/index.ts",
+        ".github/workflows/cmux-browser.yml",
+    ]:
         assert any(fnmatch(path, pattern) for pattern in ignored), path
 
 
