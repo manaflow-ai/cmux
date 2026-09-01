@@ -1407,6 +1407,10 @@ pub struct PtyTerminalRuntime {
     /// journal barrier.
     reader_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
     reader_completion: Arc<ReaderCompletion>,
+    /// Owned child reaper join fence. The reaper publishes native exit only
+    /// after PTY master close and the final exit notification are complete.
+    reaper_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
+    reaper_completion: Arc<ReaderCompletion>,
     term: Mutex<Box<Terminal>>,
     stream_progress: Box<TerminalStreamProgress>,
     mouse_encoders: Mutex<Box<MouseEncoders>>,
@@ -2368,6 +2372,8 @@ impl Surface {
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
                 reader_completion: Arc::new(ReaderCompletion::default()),
+                reaper_thread: Mutex::new(None),
+                reaper_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -2562,18 +2568,37 @@ impl Surface {
             .unwrap() = Some(reader_thread);
 
         // Child reaper: retain the native status and rendezvous with PTY EOF
-        // so final output is visible before the mux observes completion.
-        std::thread::Builder::new().name(format!("surface-{id}-wait")).spawn({
-            let surface = surface.clone();
-            move || {
-                let exit = wait_for_native_child_status(child.as_mut());
-                if let Some(pty) = surface.as_pty() {
-                    *pty.exit.lock().unwrap() = Some(exit);
+        // so final output is visible before the mux observes completion. Keep
+        // only a weak surface reference: the owned JoinHandle must not retain
+        // the surface and form a lifecycle cycle.
+        let reaper_completion = surface
+            .as_pty()
+            .expect("local PTY surface owns its reaper")
+            .reaper_completion
+            .clone();
+        let reaper_surface = Arc::downgrade(&surface);
+        let reaper_thread = std::thread::Builder::new()
+            .name(format!("surface-{id}-wait"))
+            .spawn({
+                let reaper_completion = reaper_completion.clone();
+                move || {
+                    let _reaper_completion = ReaderCompletionGuard(reaper_completion);
+                    let exit = wait_for_native_child_status(child.as_mut());
+                    let Some(surface) = reaper_surface.upgrade() else { return };
+                    if let Some(pty) = surface.as_pty() {
+                        *pty.exit.lock().unwrap() = Some(exit);
+                    }
+                    close_local_terminal_master_after_exit(&surface);
+                    publish_local_exit_if_ready(&surface);
                 }
-                close_local_terminal_master_after_exit(&surface);
-                publish_local_exit_if_ready(&surface);
-            }
-        })?;
+            })?;
+        surface
+            .as_pty()
+            .expect("local PTY surface owns its reaper")
+            .reaper_thread
+            .lock()
+            .unwrap()
+            .replace(reaper_thread);
 
         Ok(surface)
     }
@@ -2840,6 +2865,8 @@ impl Surface {
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
                 reader_completion: Arc::new(ReaderCompletion::default()),
+                reaper_thread: Mutex::new(None),
+                reaper_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -3883,6 +3910,8 @@ impl Surface {
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
                 reader_completion: Arc::new(ReaderCompletion::default()),
+                reaper_thread: Mutex::new(None),
+                reaper_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -4108,6 +4137,8 @@ impl Surface {
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
                 reader_completion: Arc::new(ReaderCompletion::default()),
+                reaper_thread: Mutex::new(None),
+                reaper_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -4191,6 +4222,17 @@ impl Surface {
                     "cmux-tui: terminal reader did not stop before the shared shutdown deadline; closing journal capture"
                 );
             }
+        }
+        if pty.reaper_completion.wait_until(deadline) {
+            if let Some(reaper) = pty.reaper_thread.lock().unwrap().take() {
+                if reaper.join().is_err() {
+                    eprintln!("cmux-tui: terminal child reaper thread panicked during shutdown");
+                }
+            }
+        } else {
+            eprintln!(
+                "cmux-tui: terminal child reaper did not stop before the shared shutdown deadline"
+            );
         }
         // A reader that is blocked in the PTY has an even capture epoch and
         // does not delay shutdown. Close the gate between updates. If one
