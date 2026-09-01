@@ -2540,7 +2540,7 @@ impl Mux {
         Ok(mux)
     }
 
-    pub(crate) fn lock_initial_bootstrap(&self) -> MutexGuard<'_, ()> {
+    pub fn lock_initial_bootstrap(&self) -> MutexGuard<'_, ()> {
         self.initial_bootstrap.lock().unwrap()
     }
 
