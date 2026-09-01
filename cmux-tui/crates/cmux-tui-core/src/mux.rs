@@ -6170,7 +6170,7 @@ impl Mux {
         &self,
         terminal_id: &TerminalPublicId,
         state: AgentState,
-        source: AgentSource,
+        _source: AgentSource,
         session: Option<&str>,
         updated_at_ms: u64,
     ) -> anyhow::Result<()> {
@@ -6193,7 +6193,10 @@ impl Mux {
                 "native_event": SOCKET_REPORT_NATIVE_EVENT,
                 "normalized": {
                     "state": state.as_str(),
-                    "source": source.as_str(),
+                    // The journal adapter is the socket trust boundary.
+                    // Never let a caller promote a direct report to hook or
+                    // screen authority by supplying a stronger source label.
+                    "source": AgentSource::Socket.as_str(),
                     "source_session": session,
                     // The direct commit's timestamp, so the roster mirrors
                     // the projection exactly instead of stamping fold time.
