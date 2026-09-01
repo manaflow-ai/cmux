@@ -797,6 +797,28 @@ final class CmuxWebView: WKWebView {
             return finish(true)
         }
 
+        // Standalone popup web views have no BrowserPanel action owner. Offer
+        // browser-scoped shortcuts to WebKit directly so the app router cannot
+        // beep or accidentally apply the opener panel's action to the popup.
+        if isBrowserPopupWebView,
+           AppDelegate.shared?.shouldYieldStandaloneBrowserShortcut(event) == true {
+            if cmuxBrowserWebKitKeyDownDispatchIsActive() {
+                return finish(true)
+            }
+            let result = super.performKeyEquivalent(with: event)
+            guard !result,
+                  normalizedFlags.contains(.command),
+                  let window else {
+                return finish(result)
+            }
+            _ = window.cmuxForceDispatchKeyDownOnce(
+                event,
+                to: self,
+                reason: "standalone browser popup shortcut keyDown fallback"
+            )
+            return finish(true)
+        }
+
         if event.keyCode == 36 || event.keyCode == 76 {
             return finish(AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true)
         }

@@ -340,6 +340,141 @@ final class BrowserShortcutCaptureTests {
         #expect(popupWindow.isVisible, "Page capture must run before popup Close Tab handling")
     }
 
+    @Test
+    func printableShiftAndOptionBindingsRemainCaptureCandidates() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        try withCaptureEnabled { harness in
+            installCmuxUnitTestCmuxWebViewKeyDownOverride()
+            var browserKeyDownCount = 0
+            setCmuxUnitTestCmuxWebViewKeyDownHook({ webView, _ in
+                if webView === harness.webView {
+                    browserKeyDownCount += 1
+                }
+                return false
+            }, for: harness.webView)
+            defer { setCmuxUnitTestCmuxWebViewKeyDownHook(nil, for: harness.webView) }
+
+            let cases: [(
+                shortcut: BrowserCaptureStoredShortcut,
+                characters: String,
+                charactersIgnoringModifiers: String,
+                keyCode: UInt16
+            )] = [
+                (
+                    BrowserCaptureStoredShortcut(
+                        key: "s",
+                        command: false,
+                        shift: true,
+                        option: false,
+                        control: false
+                    ),
+                    "S",
+                    "s",
+                    1
+                ),
+                (
+                    BrowserCaptureStoredShortcut(
+                        key: "p",
+                        command: false,
+                        shift: false,
+                        option: true,
+                        control: false
+                    ),
+                    "π",
+                    "p",
+                    35
+                ),
+            ]
+
+            for (shortcut, characters, charactersIgnoringModifiers, keyCode) in cases {
+                let event = try #require(makeKeyDownEvent(
+                    key: characters,
+                    charactersIgnoringModifiers: charactersIgnoringModifiers,
+                    modifiers: shortcut.modifierFlags,
+                    keyCode: keyCode,
+                    windowNumber: harness.window.windowNumber
+                ))
+                withTemporaryShortcut(action: .toggleBrowserDeveloperTools, shortcut: shortcut) {
+                    #expect(
+                        appDelegate.shouldCaptureBrowserKeyboardShortcuts(for: event),
+                        "Printable \(shortcut.displayString) must remain a browser-capture candidate"
+                    )
+                    NSApp.sendEvent(event)
+                }
+            }
+
+            #expect(browserKeyDownCount == cases.count)
+        }
+    }
+
+    @Test
+    func standalonePopupBrowserScopedShortcutsYieldToWebKitWhenCaptureDisabled() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let opener = BrowserPanel(workspaceId: UUID(), isRemoteWorkspace: false)
+        defer { opener.close() }
+
+        let popupWebView = try #require(
+            opener.createFloatingPopup(
+                configuration: WKWebViewConfiguration(),
+                windowFeatures: WKWindowFeatures()
+            ) as? CmuxWebView
+        )
+        let popupWindow = try #require(popupWebView.window as? BrowserPopupPanel)
+        defer {
+            popupWindow.orderOut(nil)
+            popupWindow.close()
+        }
+
+        popupWindow.makeKeyAndOrderFront(nil)
+        #expect(popupWindow.makeFirstResponder(popupWebView))
+
+        let settingKey = KeyboardShortcutSettings.browserKeyboardShortcutCaptureSetting.userDefaultsKey
+        let previousSetting = UserDefaults.standard.object(forKey: settingKey)
+        defer {
+            if let previousSetting {
+                UserDefaults.standard.set(previousSetting, forKey: settingKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: settingKey)
+            }
+        }
+        UserDefaults.standard.set(false, forKey: settingKey)
+
+        installCmuxUnitTestWKWebViewPerformKeyEquivalentOverride()
+        let previousHook = cmuxUnitTestWKWebViewPerformKeyEquivalentHook
+        var webKitEvents: [NSEvent] = []
+        cmuxUnitTestWKWebViewPerformKeyEquivalentHook = { webView, event in
+            guard webView === popupWebView else { return nil }
+            webKitEvents.append(event)
+            return true
+        }
+        defer { cmuxUnitTestWKWebViewPerformKeyEquivalentHook = previousHook }
+
+        let events = [
+            try #require(makeKeyDownEvent(
+                key: "i",
+                modifiers: [.command, .option],
+                keyCode: 34,
+                windowNumber: popupWindow.windowNumber
+            )),
+            try #require(makeKeyDownEvent(
+                key: "c",
+                modifiers: [.command, .option],
+                keyCode: 8,
+                windowNumber: popupWindow.windowNumber
+            )),
+        ]
+
+        for event in events {
+            #expect(
+                !appDelegate.handleBrowserSurfaceKeyEquivalent(event),
+                "A standalone popup cannot execute BrowserPanel-scoped actions"
+            )
+            #expect(popupWebView.performKeyEquivalent(with: event))
+        }
+
+        #expect(webKitEvents.count == events.count)
+    }
+
     private func withCaptureEnabled(
         _ body: (BrowserCaptureHarness) throws -> Void
     ) throws {
@@ -476,6 +611,7 @@ final class BrowserShortcutCaptureTests {
 
     private func makeKeyDownEvent(
         key: String,
+        charactersIgnoringModifiers: String? = nil,
         modifiers: NSEvent.ModifierFlags,
         keyCode: UInt16,
         windowNumber: Int,
@@ -489,7 +625,7 @@ final class BrowserShortcutCaptureTests {
             windowNumber: windowNumber,
             context: nil,
             characters: key,
-            charactersIgnoringModifiers: key,
+            charactersIgnoringModifiers: charactersIgnoringModifiers ?? key,
             isARepeat: false,
             keyCode: keyCode
         )

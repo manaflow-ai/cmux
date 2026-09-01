@@ -871,9 +871,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let firstStroke: ShortcutStroke
         let windowNumber: Int?
     }
+
+    /// Indexes the modifier-only shortcut strokes that need a browser-capture
+    /// preflight. Printable Shift/Option events are common page input (for
+    /// example, every uppercase character), so the full action/context scan
+    /// below must remain behind a small, revision-keyed candidate index.
+    private struct BrowserCaptureShortcutCandidateCache {
+        let settingsRevision: UInt64
+        let settingsStoreID: ObjectIdentifier
+        let configStoreID: ObjectIdentifier?
+        let configRevision: UInt64?
+        let strokes: Set<ShortcutStroke>
+    }
+
     var pendingConfiguredShortcutChord: PendingConfiguredShortcutChord?
     var activeConfiguredShortcutChordPrefixForCurrentEvent: ShortcutStroke?
     var shortcutEventFocusContextCache: ShortcutEventFocusContextCache?
+    private var browserCaptureShortcutCandidateCache: BrowserCaptureShortcutCandidateCache?
     private var ghosttyConfigObserver: NSObjectProtocol?
     private var globalFontMagnificationObserver: NSObjectProtocol?
     var ghosttyGotoSplitLeftShortcut: StoredShortcut?
@@ -14280,6 +14294,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
+        // A popup is a standalone WebKit surface, not a BrowserPanel. Browser
+        // actions whose normal owner is a BrowserPanel would otherwise match
+        // here, beep because no panel can execute them, and claim the event
+        // before WebKit gets its native equivalent.
+        if shouldYieldStandaloneBrowserShortcut(event) {
+#if DEBUG
+            cmuxDebugLog("browser.popup.shortcut.bypass \(debugShortcutRouteSnapshot(event: event))")
+#endif
+            return false
+        }
+
         let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
         let commandPaletteTargetWindow = commandPaletteWindowForShortcutEvent(event)
         let isPlainEscape = normalizedFlags.isEmpty && event.keyCode == 53
@@ -18003,10 +18028,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
            routingModifierFlags.isEmpty,
            !browserCaptureIsNonPrintableShortcutKey(event.keyCode) {
-            // Shift/Option letters and punctuation are ordinary page text.
-            // They do not need a settings/focus scan; keep the hot path at
-            // WebKit speed. Command/Control remain eligible for cmux bindings.
-            return false
+            // Shift/Option letters and punctuation are ordinarily page text.
+            // Probe the bounded candidate index first so a custom printable
+            // binding (for example Shift+S or Option+P) still reaches the page
+            // when capture is enabled without scanning settings on every
+            // uppercase/Option-composed character.
+            let configuredContext = preferredMainWindowContextForShortcutRouting(event: event)
+            guard browserCaptureHasPrintableShortcutCandidate(
+                event: event,
+                context: configuredContext
+            ) else {
+                return false
+            }
         }
 
         let focusContext = shortcutEventFocusContext(event)
@@ -18071,6 +18104,65 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return matchShortcut(event: event, shortcut: shortcut)
     }
 
+    /// Checks the small set of modifier-only strokes that can make a
+    /// printable Shift/Option event relevant to browser capture. The index is
+    /// replaced whenever shortcut settings or the selected config store
+    /// changes, so this hot path never retains stale or growing entries.
+    private func browserCaptureHasPrintableShortcutCandidate(
+        event: NSEvent,
+        context: MainWindowContext?
+    ) -> Bool {
+        let settingsRevision = KeyboardShortcutSettingsObserver.shared.revision
+        let settingsStoreID = ObjectIdentifier(KeyboardShortcutSettings.settingsFileStore)
+        let configStore = context?.cmuxConfigStore
+        let configStoreID = configStore.map(ObjectIdentifier.init)
+        let configRevision = configStore?.configRevision
+
+        if let cache = browserCaptureShortcutCandidateCache,
+           cache.settingsRevision == settingsRevision,
+           cache.settingsStoreID == settingsStoreID,
+           cache.configStoreID == configStoreID,
+           cache.configRevision == configRevision {
+            return cache.strokes.contains { matchShortcutStroke(event: event, stroke: $0) }
+        }
+
+        var strokes = Set<ShortcutStroke>()
+        func appendCandidate(_ shortcut: StoredShortcut?) {
+            guard let shortcut, !shortcut.isUnbound else { return }
+            let stroke = shortcut.firstStroke
+            let flags = stroke.modifierFlags
+            guard flags.intersection([.command, .control]).isEmpty,
+                  !flags.intersection([.shift, .option]).isEmpty else {
+                return
+            }
+            strokes.insert(stroke)
+        }
+
+        for action in KeyboardShortcutSettings.Action.allCases {
+            // Browser-content actions are deliberately excluded from capture;
+            // their own WebKit/document routers remain authoritative.
+            guard !action.isBrowserContentShortcut else { continue }
+            let currentShortcut = KeyboardShortcutSettings.shortcut(for: action)
+            appendCandidate(currentShortcut)
+            let defaultShortcut = action.defaultShortcut
+            if currentShortcut != defaultShortcut {
+                appendCandidate(defaultShortcut)
+            }
+        }
+        for action in configuredCmuxShortcutActions(for: context) {
+            appendCandidate(action.shortcut)
+        }
+
+        browserCaptureShortcutCandidateCache = BrowserCaptureShortcutCandidateCache(
+            settingsRevision: settingsRevision,
+            settingsStoreID: settingsStoreID,
+            configStoreID: configStoreID,
+            configRevision: configRevision,
+            strokes: strokes
+        )
+        return strokes.contains { matchShortcutStroke(event: event, stroke: $0) }
+    }
+
     private func browserCaptureIsNonPrintableShortcutKey(_ keyCode: UInt16) -> Bool {
         switch keyCode {
         case 36, 48, 49, 51, 53, 115, 116, 117, 119, 120, 121, 122,
@@ -18080,6 +18172,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         default:
             return false
         }
+    }
+
+    /// Returns whether a standalone browser popup has a browser-scoped
+    /// shortcut that should be offered to WebKit instead of the app router.
+    /// Popups intentionally have no ``BrowserPanel`` action owner, so claiming
+    /// one here would either beep or run the action against the opener.
+    func shouldYieldStandaloneBrowserShortcut(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown,
+              shortcutResolvedEventWindow(event) is BrowserPopupPanel else {
+            return false
+        }
+
+        let focusContext = shortcutEventFocusContext(event)
+        guard focusContext.browserWebViewFocused,
+              focusContext.browserPanel == nil else {
+            return false
+        }
+
+        for action in KeyboardShortcutSettings.Action.allCases {
+            guard !action.isBrowserContentShortcut,
+                  action.shortcutContext == .browserPanel
+                    || action.shortcutContext == .browserOrFilePreviewTextEditor else {
+                continue
+            }
+
+            let currentShortcut = KeyboardShortcutSettings.shortcut(for: action)
+            if !currentShortcut.isUnbound,
+               KeyboardShortcutSettings.effectiveWhenClause(for: action)
+                   .evaluate(focusContext.shortcutContext),
+               browserCaptureMatchesShortcut(event: event, shortcut: currentShortcut) {
+                return true
+            }
+
+            // Keep the same stale-menu protection used by browser capture. A
+            // remapped action can leave its old AppKit key equivalent alive for
+            // one menu refresh, and that old equivalent must not hit the popup.
+            let defaultShortcut = action.defaultShortcut
+            guard currentShortcut != defaultShortcut,
+                  !defaultShortcut.isUnbound else {
+                continue
+            }
+            if browserCaptureMatchesShortcut(event: event, shortcut: defaultShortcut) {
+                return true
+            }
+        }
+        return false
     }
 
     /// Delivers a remapped-away menu shortcut to the focused browser page.
