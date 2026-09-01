@@ -15,6 +15,37 @@ public struct SentryNoiseFilter: Sendable {
         normalizedCLIErrorCode(code) == "unavailable"
     }
 
+    /// Returns `true` for protocol outcomes that reflect routine caller or
+    /// resource state rather than a server-side failure worth sending to Sentry.
+    ///
+    /// The list is deliberately conservative. Unknown codes remain reportable
+    /// so a newly introduced server failure cannot disappear silently.
+    public func isExpectedCLIProtocolOutcomeCode(_ code: String?) -> Bool {
+        guard let normalized = normalizedCLIErrorCode(code) else {
+            return false
+        }
+        switch normalized {
+        case "already_exists",
+             "browser_disabled",
+             "busy",
+             "invalid_params",
+             "invalid_request",
+             "invalid_state",
+             "method_not_found",
+             "not_created",
+             "not_found",
+             "not_supported",
+             "protected",
+             "unavailable",
+             "unrecognized_method",
+             "unsupported",
+             "validation_failed":
+            return true
+        default:
+            return false
+        }
+    }
+
     /// Returns `true` for the legacy app-lifecycle text emitted by agent hooks.
     ///
     /// Agent-hook failures intentionally report a privacy-reduced wrapper, so

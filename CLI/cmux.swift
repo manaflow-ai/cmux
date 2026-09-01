@@ -4470,7 +4470,11 @@ struct CMUXCLI {
 
     private func hasStructuredCLIError(_ error: Error) -> Bool {
         guard let cliError = error as? CLIError else { return false }
-        return cliError.isStructuredProtocolResponse || cliError.socketFailureKind != nil
+        if cliError.socketFailureKind != nil {
+            return true
+        }
+        guard cliError.isStructuredProtocolResponse else { return false }
+        return !SentryNoiseFilter().isExpectedCLIProtocolOutcomeCode(cliError.v2Code)
     }
 
     private struct VMCreateIdempotencyStore: Codable {

@@ -40,6 +40,19 @@ final class CLISocketSentryTelemetry {
         let data: [String: Any]
     }
 
+    private struct CLIErrorMetadata {
+        let code: String?
+        let socketPathMissing: Bool
+        let legacyMessage: String?
+        let isStructuredProtocolResponse: Bool
+    }
+
+    private struct ErrorClassification {
+        let errorDescription: String
+        let metadata: CLIErrorMetadata
+        let isExpected: Bool
+    }
+
     private let command: String
     private let subcommand: String
     private let socketPath: String
@@ -149,44 +162,17 @@ final class CLISocketSentryTelemetry {
         data: [String: Any] = [:],
         classificationError: Error? = nil
     ) {
-        guard shouldEmit else { return }
-        let errorDescription = String(describing: error)
-        let classificationCandidate = classificationError ?? error
-        let cliErrorMetadata = metadata(for: classificationCandidate)
-        let dataKeys = Set(data.keys)
-        let isAgentHookStage = stage.hasPrefix("agent-hook-")
-        let isExpectedAgentHookCLIError =
-            isAgentHookStage &&
-            (noiseFilter.isExpectedCLIErrorCode(cliErrorMetadata.code) ||
-                cliErrorMetadata.socketPathMissing)
-        let hasStructuredCLIErrorCode = cliErrorMetadata.code?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-        let isExpectedLegacyCLIError: Bool
-        if !hasStructuredCLIErrorCode, let legacyMessage = cliErrorMetadata.legacyMessage {
-            isExpectedLegacyCLIError =
-                noiseFilter.isExpectedCLISocketTransportFailure(
-                    stage: stage,
-                    message: legacyMessage,
-                    dataKeys: dataKeys,
-                    allowSandboxPolicyDenial: sentryPolicy.allowsSandboxPolicyDenial
-                ) ||
-                (isAgentHookStage &&
-                    noiseFilter.isExpectedLegacyCLIAppLifecycleMessage(legacyMessage))
-        } else {
-            isExpectedLegacyCLIError = false
-        }
-        let isExpectedTransportFailure = noiseFilter.isExpectedCLISocketTransportFailure(
+        guard let classification = classify(
             stage: stage,
-            message: errorDescription,
-            dataKeys: dataKeys,
-            allowSandboxPolicyDenial: sentryPolicy.allowsSandboxPolicyDenial,
-            cliErrorCode: cliErrorMetadata.code,
-            socketPathMissing: cliErrorMetadata.socketPathMissing
-        )
-        guard !isExpectedAgentHookCLIError,
-              !isExpectedLegacyCLIError,
-              !isExpectedTransportFailure else {
+            error: error,
+            data: data,
+            classificationError: classificationError
+        ) else {
             return
         }
+        let errorDescription = classification.errorDescription
+        let cliErrorMetadata = classification.metadata
+        guard !classification.isExpected else { return }
         let fingerprintKind = Self.fingerprintKind(for: error, message: errorDescription)
         if let fingerprintKind,
            CLISentryErrorFingerprint.throttledKinds.contains(fingerprintKind),
@@ -203,6 +189,9 @@ final class CLISocketSentryTelemetry {
         context["error"] = errorDescription
         if let code = cliErrorMetadata.code {
             context["cli_error_code"] = code
+        }
+        if cliErrorMetadata.isStructuredProtocolResponse {
+            context["cli_error_protocol_response"] = true
         }
         if cliErrorMetadata.socketPathMissing {
             context["socket_path_missing"] = true
@@ -251,6 +240,78 @@ final class CLISocketSentryTelemetry {
         !disabledByEnv && buildIdentityPolicy.allowsTelemetry
     }
 
+    /// Returns whether a failure is expected and should skip telemetry work.
+    /// This read-only preflight lets agent-hook throttles classify before they
+    /// reserve a durable report slot.
+    func isExpectedFailure(
+        stage: String,
+        error: Error,
+        data: [String: Any] = [:],
+        classificationError: Error? = nil
+    ) -> Bool {
+        guard let classification = classify(
+            stage: stage,
+            error: error,
+            data: data,
+            classificationError: classificationError
+        ) else {
+            return true
+        }
+        return classification.isExpected
+    }
+
+    private func classify(
+        stage: String,
+        error: Error,
+        data: [String: Any],
+        classificationError: Error?
+    ) -> ErrorClassification? {
+        guard shouldEmit else { return nil }
+        let errorDescription = String(describing: error)
+        let classificationCandidate = classificationError ?? error
+        let cliErrorMetadata = metadata(for: classificationCandidate)
+        let dataKeys = Set(data.keys)
+        let isAgentHookStage = stage.hasPrefix("agent-hook-")
+        let isExpectedAgentHookCLIError =
+            isAgentHookStage &&
+            (noiseFilter.isExpectedCLIErrorCode(cliErrorMetadata.code) ||
+                cliErrorMetadata.socketPathMissing)
+        let hasStructuredCLIErrorCode = cliErrorMetadata.code?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        let isExpectedLegacyCLIError: Bool
+        if !hasStructuredCLIErrorCode, let legacyMessage = cliErrorMetadata.legacyMessage {
+            isExpectedLegacyCLIError =
+                noiseFilter.isExpectedCLISocketTransportFailure(
+                    stage: stage,
+                    message: legacyMessage,
+                    dataKeys: dataKeys,
+                    allowSandboxPolicyDenial: sentryPolicy.allowsSandboxPolicyDenial
+                ) ||
+                (isAgentHookStage &&
+                    noiseFilter.isExpectedLegacyCLIAppLifecycleMessage(legacyMessage))
+        } else {
+            isExpectedLegacyCLIError = false
+        }
+        let isExpectedTransportFailure = noiseFilter.isExpectedCLISocketTransportFailure(
+            stage: stage,
+            message: errorDescription,
+            dataKeys: dataKeys,
+            allowSandboxPolicyDenial: sentryPolicy.allowsSandboxPolicyDenial,
+            cliErrorCode: cliErrorMetadata.code,
+            socketPathMissing: cliErrorMetadata.socketPathMissing
+        )
+        let isExpectedProtocolOutcome =
+            cliErrorMetadata.isStructuredProtocolResponse &&
+            noiseFilter.isExpectedCLIProtocolOutcomeCode(cliErrorMetadata.code)
+        return ErrorClassification(
+            errorDescription: errorDescription,
+            metadata: cliErrorMetadata,
+            isExpected: isExpectedAgentHookCLIError ||
+                isExpectedLegacyCLIError ||
+                isExpectedTransportFailure ||
+                isExpectedProtocolOutcome
+        )
+    }
+
     /// Chooses the stable fingerprint kind for a CLI failure: the structured
     /// v2 protocol error code when the app replied with one, else the known
     /// transport failure class of the rendered message, else `nil` so the
@@ -286,16 +347,13 @@ final class CLISocketSentryTelemetry {
     /// Preserves structured CLI error provenance before Sentry bridges the
     /// value to an ``NSError``. The reporting policy must not infer lifecycle
     /// state from localized text when the protocol already supplied a code.
-    private func metadata(for error: Error) -> (
-        code: String?,
-        socketPathMissing: Bool,
-        legacyMessage: String?
-    ) {
+    private func metadata(for error: Error) -> CLIErrorMetadata {
         if let cliError = error as? CLIError {
-            return (
+            return CLIErrorMetadata(
                 code: cliError.v2Code,
                 socketPathMissing: cliError.socketFailureKind == .pathMissing,
-                legacyMessage: String(describing: cliError)
+                legacyMessage: String(describing: cliError),
+                isStructuredProtocolResponse: cliError.isStructuredProtocolResponse
             )
         }
 
@@ -306,16 +364,22 @@ final class CLISocketSentryTelemetry {
         var remaining = 8
         while let candidate = current, remaining > 0 {
             if let underlying = candidate.userInfo[NSUnderlyingErrorKey] as? CLIError {
-                return (
+                return CLIErrorMetadata(
                     code: underlying.v2Code,
                     socketPathMissing: underlying.socketFailureKind == .pathMissing,
-                    legacyMessage: String(describing: underlying)
+                    legacyMessage: String(describing: underlying),
+                    isStructuredProtocolResponse: underlying.isStructuredProtocolResponse
                 )
             }
             current = candidate.userInfo[NSUnderlyingErrorKey] as? NSError
             remaining -= 1
         }
-        return (code: nil, socketPathMissing: false, legacyMessage: nil)
+        return CLIErrorMetadata(
+            code: nil,
+            socketPathMissing: false,
+            legacyMessage: nil,
+            isStructuredProtocolResponse: false
+        )
     }
 
 #if DEBUG
@@ -414,11 +478,17 @@ final class CLISocketSentryTelemetry {
         let stage = socketContext["stage"] as? String ?? ""
         let contextMessage = socketContext["error"] as? String ?? ""
         let cliErrorCode = socketContext["cli_error_code"] as? String
+        let isStructuredProtocolResponse = socketContext["cli_error_protocol_response"] as? Bool ?? false
         let socketPathMissing = socketContext["socket_path_missing"] as? Bool ?? false
         let dataKeys = Set(socketContext.keys)
         let isAgentHookStage = stage.hasPrefix("agent-hook-")
         let hasStructuredCLIErrorCode =
             cliErrorCode?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+
+        if isStructuredProtocolResponse,
+           noiseFilter.isExpectedCLIProtocolOutcomeCode(cliErrorCode) {
+            return true
+        }
 
         if noiseFilter.isExpectedCLISocketTransportFailure(
             stage: stage,

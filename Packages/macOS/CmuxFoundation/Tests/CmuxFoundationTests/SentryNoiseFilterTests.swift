@@ -27,6 +27,11 @@ import Testing
         #expect(filter.isExpectedCLIErrorCode(" unavailable "))
         #expect(!filter.isExpectedCLIErrorCode("internal_error"))
         #expect(!filter.isExpectedCLIErrorCode(nil))
+        #expect(filter.isExpectedCLIProtocolOutcomeCode("invalid_params"))
+        #expect(filter.isExpectedCLIProtocolOutcomeCode(" not_found "))
+        #expect(filter.isExpectedCLIProtocolOutcomeCode("protected"))
+        #expect(!filter.isExpectedCLIProtocolOutcomeCode("internal_error"))
+        #expect(!filter.isExpectedCLIProtocolOutcomeCode("server_failure"))
         #expect(filter.isExpectedCLISocketTransportFailure(
             stage: "socket_command",
             message: "unavailable: TabManager not available (Code: 1)"
