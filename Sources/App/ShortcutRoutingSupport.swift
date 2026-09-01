@@ -186,10 +186,7 @@ func shouldDispatchTerminalDeleteEquivalentViaFirstResponderKeyDown(
         return false
     }
 
-    let normalizedFlags = flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function, .capsLock])
-    return normalizedFlags == [.command]
+    return browserOmnibarNormalizedModifierFlags(flags) == [.command]
 }
 
 struct BrowserAddressBarTrackingContext {

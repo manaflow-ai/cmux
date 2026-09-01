@@ -66,6 +66,13 @@ export function useAttachedTerminal({
       if (!event.metaKey) return true;
       const action = encodeTerminalKey(event);
       if (action?.kind !== "text") return true;
+      // xterm invokes custom handlers even while stdin is disabled. Do not
+      // transmit editing bytes until the attach has published an authoritative
+      // replay, and suppress the browser default during that short interval.
+      if (cancelled || terminal.options.disableStdin) {
+        if (event.type === "keydown") event.preventDefault();
+        return false;
+      }
       if (event.type === "keydown") {
         event.preventDefault();
         void client.send(surface, { text: action.text }).catch(onError);
