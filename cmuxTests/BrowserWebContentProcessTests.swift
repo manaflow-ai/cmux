@@ -15,33 +15,6 @@ import WebKit
 @Suite(.serialized)
 struct BrowserWebContentProcessTests {
     private let recoveryURL = URL(string: "data:text/html,cmux-recovery")!
-    private struct TestTimeout: Error {}
-
-    /// Waits for a test-owned signal and fails if the implementation never
-    /// reaches the state under test.
-    private nonisolated func awaitFirst<T: Sendable>(
-        _ stream: AsyncStream<T>,
-        timeout: Duration = .seconds(2)
-    ) async throws -> T {
-        try await withThrowingTaskGroup(of: T.self) { group in
-            group.addTask {
-                var iterator = stream.makeAsyncIterator()
-                guard let value = await iterator.next() else {
-                    throw TestTimeout()
-                }
-                return value
-            }
-            group.addTask {
-                try await ContinuousClock().sleep(for: timeout)
-                throw TestTimeout()
-            }
-            defer { group.cancelAll() }
-            guard let value = try await group.next() else {
-                throw TestTimeout()
-            }
-            return value
-        }
-    }
 
     @Test
     func authCallbackNavigationPolicyIsPureAndFailClosed() {
@@ -256,7 +229,7 @@ struct BrowserWebContentProcessTests {
             panel.close()
         }
 
-        _ = try await awaitFirst(adopted)
+        _ = try await AsyncTestSupport.awaitFirst(adopted, timeout: .seconds(2))
 
         #expect(requestCount == 1)
         #expect(adoptedStore === websiteDataStore)
