@@ -3891,14 +3891,26 @@ class TerminalController {
                Self.isCloudVMAuthenticationError(vmError) {
                 // Keep the auth boundary explicit for every VM verb. The CLI
                 // can then return a stable non-zero auth-required failure
-                // instead of presenting a generic backend error.
-                return v2Error(
-                    id: id,
-                    code: "auth_required",
-                    message: String(
+                // instead of presenting a generic backend error. A server 401
+                // means the app still holds a session the service rejects, so
+                // `cmux auth login` alone would short-circuit on "already
+                // signed in" — the fix is sign out, then sign in.
+                let message: String
+                if case .httpStatus = vmError {
+                    message = String(
+                        localized: "socket.cloudVM.sessionRejected",
+                        defaultValue: "The cmux Cloud service rejected this session. Run `cmux auth logout`, then `cmux auth login`, and retry."
+                    )
+                } else {
+                    message = String(
                         localized: "socket.cloudVM.authRequired",
                         defaultValue: "Cloud VM access requires sign-in. Run `cmux auth login`, then retry."
                     )
+                }
+                return v2Error(
+                    id: id,
+                    code: "auth_required",
+                    message: message
                 )
             }
             return v2Error(
