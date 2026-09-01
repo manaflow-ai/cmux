@@ -635,6 +635,7 @@ USAGE
   cmux agent plugin list
   cmux agent plugin install <git-url> [--name <value>] [--force]
   cmux agent plugin use|update|remove <name-or-id>
+  cmux agent plugin use --builtin
 ";
 
 const SIDEBAR_HELP: &str = "\

@@ -362,7 +362,9 @@ and build the selected package, validate its `kind = "agent"` manifest, and
 write the selected background command to `agents.plugin`. They do not open a
 protocol connection or send a plugin ID to a session. Run `cmux server
 reload-config` after changing the selection. The running plugin uses the
-generic journal producer and append operations over the server socket.
+generic journal producer and append operations over the server socket. Use
+`agent plugin use --builtin` to disable the selected userland plugin and return
+to no agent detector.
 
 `provider authority install` is a local Linux host-administration action. It
 installs the credential for an already running provider-managed session and is

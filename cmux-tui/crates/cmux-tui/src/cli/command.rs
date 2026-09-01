@@ -3870,6 +3870,25 @@ mod tests {
     }
 
     #[test]
+    fn agent_plugin_management_stays_local_and_can_be_disabled() {
+        let cases = [
+            (vec!["agent", "plugin", "list"], false),
+            (vec!["agent", "plugin", "install", "https://example.com/plugin.git"], false),
+            (vec!["agent", "plugin", "use", "screen-detector"], false),
+            (vec!["agent", "plugin", "update", "screen-detector"], false),
+            (vec!["agent", "plugin", "remove", "screen-detector"], false),
+            (vec!["agent", "plugin", "use", "--builtin"], true),
+        ];
+        for (args, builtin) in cases {
+            let CommandPlan::Plugin(plan) = parse(&strings(&args)).unwrap() else {
+                panic!("agent plugin command did not stay local: {args:?}");
+            };
+            assert_eq!(plan.kind, crate::plugin_manager::PluginKind::Agent);
+            assert_eq!(plan.builtin, builtin);
+        }
+    }
+
+    #[test]
     fn every_safe_transport_operation_has_a_noun_first_path() {
         const MACHINE: &str = "machine_00000000000000000000000000000001";
         const SESSION: &str = "session_00000000000000000000000000000002";
