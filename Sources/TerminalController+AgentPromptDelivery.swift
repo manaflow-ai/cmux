@@ -21,11 +21,14 @@ extension TerminalController {
               let messageID = confirmation.messageID else {
             return nil
         }
-        _ = agentPromptSubmissionService.confirm(
+        let didReleaseBarrier = agentPromptSubmissionService.confirm(
             workspaceID: workspaceID,
             surfaceID: panel.id,
             messageID: messageID
         )
+        if didReleaseBarrier {
+            cancelAgentPromptConfirmationFallback(workspaceID: workspaceID)
+        }
         return (source, messageID)
     }
 

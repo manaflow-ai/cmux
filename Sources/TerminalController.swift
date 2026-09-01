@@ -172,6 +172,9 @@ class TerminalController {
     nonisolated let nativeSSHConnectionBroker: NativeSSHConnectionBroker
     /// Main-actor owner for addressed agent prompt admission and acknowledgments.
     let agentPromptSubmissionService = AgentPromptSubmissionService()
+    /// One replaceable deadline scheduler per workspace for unconfirmed prompt
+    /// barriers. The scheduler owns cancellation; this controller owns scope.
+    var agentPromptConfirmationFallbackSchedulers: [UUID: MainActorDeferredActionScheduler] = [:]
     // Stateless Sendable structs from CmuxControlSocket; injected at construction.
     // `transport` is internal so sibling-file extensions (CmuxEventStream) can write through it.
     nonisolated let transport: SocketTransport
@@ -6363,12 +6366,10 @@ class TerminalController {
                     message: assistantFinalMessage,
                     iMessageModeEnabled: iMessageModeEnabled
                 )
-                // Give the agent TUI a moment to settle after its stop hook:
-                // a paste-plus-submit delivered while it is still finishing
-                // the turn can coalesce into one stdin read that swallows
-                // the submit key.
-                try? await Task.sleep(nanoseconds: 1_200_000_000)
-                self.drainAgentPromptQueue(workspaceID: workspaceId)
+                // The stop hook ends the logical turn, but the terminal's
+                // prompt-idle or scope-rebind callback owns the next drain.
+                // Draining here can race the resumed agent's startup stream
+                // and send a queued prompt before its composer is ready.
             }
         default:
             break

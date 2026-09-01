@@ -3,11 +3,6 @@ import Foundation
 import Testing
 @testable import CmuxAgentPromptCore
 
-@MainActor
-private final class DeliveryGate {
-    var isReady = false
-}
-
 @Suite("Agent prompt submission service")
 struct AgentPromptSubmissionServiceTests {
     @MainActor

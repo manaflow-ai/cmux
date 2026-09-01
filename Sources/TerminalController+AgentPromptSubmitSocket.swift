@@ -2,6 +2,7 @@ import Foundation
 import CmuxControlSocket
 import CmuxTerminalCore
 import CmuxAgentPromptCore
+import CmuxFoundation
 
 extension TerminalController {
     private enum AgentPromptSubmitParse {
@@ -146,13 +147,29 @@ extension TerminalController {
     /// unconfirmed barrier itself, so the fallback is just a delayed drain.
     @MainActor
     private func scheduleAgentPromptConfirmationFallback(workspaceID: UUID) {
-        let timeout = agentPromptSubmissionService.confirmationTimeout
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(
-                nanoseconds: UInt64(max(0, timeout + 0.5) * 1_000_000_000)
+        let timeout = max(
+            0,
+            min(agentPromptSubmissionService.confirmationTimeout + 0.5, 86_400)
+        )
+        let scheduler = agentPromptConfirmationFallbackSchedulers[workspaceID]
+            ?? MainActorDeferredActionScheduler()
+        agentPromptConfirmationFallbackSchedulers[workspaceID] = scheduler
+        scheduler.schedule(after: .seconds(timeout)) { [weak self] in
+            guard let self else { return }
+            self.agentPromptConfirmationFallbackSchedulers.removeValue(
+                forKey: workspaceID
             )
-            self?.drainAgentPromptQueue(workspaceID: workspaceID)
+            self.drainAgentPromptQueue(workspaceID: workspaceID)
         }
+    }
+
+    /// Cancels a workspace's unconfirmed-prompt deadline after its hook or
+    /// teardown has supplied the authoritative state transition.
+    @MainActor
+    func cancelAgentPromptConfirmationFallback(workspaceID: UUID) {
+        agentPromptConfirmationFallbackSchedulers
+            .removeValue(forKey: workspaceID)?
+            .cancel()
     }
 
     /// Retries queued requests after a hook, shell-idle transition, or agent
@@ -211,7 +228,11 @@ extension TerminalController {
     /// Completes queued messages explicitly when their workspace is closed.
     @MainActor
     func discardAgentPromptQueue(workspaceID: UUID) {
-        for receipt in agentPromptSubmissionService.remove(workspaceID: workspaceID) {
+        let receipts = agentPromptSubmissionService.remove(workspaceID: workspaceID)
+        if !receipts.isEmpty {
+            cancelAgentPromptConfirmationFallback(workspaceID: workspaceID)
+        }
+        for receipt in receipts {
             CmuxEventBus.shared.publishAgentPromptDelivery(
                 messageID: receipt.messageID,
                 workspaceId: workspaceID,
@@ -225,7 +246,11 @@ extension TerminalController {
     /// Completes messages explicitly bound to a surface that disappeared.
     @MainActor
     func discardAgentPromptQueue(surfaceID: UUID, workspaceID: UUID) {
-        for receipt in agentPromptSubmissionService.remove(surfaceID: surfaceID) {
+        let receipts = agentPromptSubmissionService.remove(surfaceID: surfaceID)
+        if !receipts.isEmpty {
+            cancelAgentPromptConfirmationFallback(workspaceID: workspaceID)
+        }
+        for receipt in receipts {
             CmuxEventBus.shared.publishAgentPromptDelivery(
                 messageID: receipt.messageID,
                 workspaceId: workspaceID,

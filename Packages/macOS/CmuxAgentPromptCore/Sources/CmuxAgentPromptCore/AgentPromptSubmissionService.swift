@@ -17,43 +17,13 @@ public final class AgentPromptSubmissionService {
     public typealias Delivery =
         @MainActor @Sendable (_ messageID: UUID) -> AgentPromptSubmissionResult
 
-    /// The stable ID and current admission result for one prompt request.
-    public struct Receipt: Equatable, Sendable {
-        /// The ID callers can use to correlate lifecycle events.
-        public let messageID: UUID
-        /// The immediate admission or delivery result.
-        public let result: AgentPromptSubmissionResult
-
-        /// Creates a prompt-delivery receipt.
-        ///
-        /// - Parameters:
-        ///   - messageID: The stable request identifier.
-        ///   - result: The request's admission result.
-        public init(messageID: UUID, result: AgentPromptSubmissionResult) {
-            self.messageID = messageID
-            self.result = result
-        }
-    }
-
-    private struct PendingRequest {
-        let messageID: UUID
-        let workspaceID: UUID
-        let surfaceID: UUID?
-        let text: String
-        let delivery: Delivery
-    }
-
-    /// Delivery ordering state kept separately from prompt attribution state.
-    private struct InFlightRequest {
-        let messageID: UUID
-        let surfaceID: UUID
-        let acceptedAt: Date
-    }
+    /// Backward-compatible nested name for a prompt-delivery receipt.
+    public typealias Receipt = AgentPromptSubmissionReceipt
 
     private let maximumPendingRequests: Int
     private let maximumPendingBytes = 8 * 1_048_576
     private let now: @Sendable () -> Date
-    private var pendingByWorkspace: [UUID: [PendingRequest]] = [:]
+    private var pendingByWorkspace: [UUID: [AgentPromptSubmissionPendingRequest]] = [:]
     private var pendingBytes = 0
 
     /// One accepted request at a time is the workspace FIFO barrier.
@@ -61,7 +31,7 @@ public final class AgentPromptSubmissionService {
     /// This map contains no prompt text, signature, source, or human snapshot;
     /// those values live in the target surface ledger. Keeping only the
     /// ordering barrier here prevents two mutable owners from drifting.
-    private var inFlightByWorkspace: [UUID: InFlightRequest] = [:]
+    private var inFlightByWorkspace: [UUID: AgentPromptSubmissionInFlightRequest] = [:]
 
     /// How long an accepted prompt may block its workspace FIFO without a
     /// matching hook confirmation.
@@ -140,7 +110,7 @@ public final class AgentPromptSubmissionService {
             )
         }
 
-        let request = PendingRequest(
+        let request = AgentPromptSubmissionPendingRequest(
             messageID: messageID,
             workspaceID: workspaceID,
             surfaceID: requestedSurfaceID,
@@ -469,7 +439,7 @@ public final class AgentPromptSubmissionService {
         workspaceID: UUID,
         surfaceID: UUID
     ) {
-        inFlightByWorkspace[workspaceID] = InFlightRequest(
+        inFlightByWorkspace[workspaceID] = AgentPromptSubmissionInFlightRequest(
             messageID: messageID,
             surfaceID: surfaceID,
             acceptedAt: now()
@@ -477,7 +447,7 @@ public final class AgentPromptSubmissionService {
     }
 
     private func enqueue(
-        _ request: PendingRequest,
+        _ request: AgentPromptSubmissionPendingRequest,
         surfaceID: UUID? = nil
     ) -> Bool {
         let requestBytes = request.text.utf8.count
@@ -485,7 +455,7 @@ public final class AgentPromptSubmissionService {
               pendingBytes + requestBytes <= maximumPendingBytes else {
             return false
         }
-        let normalized = PendingRequest(
+        let normalized = AgentPromptSubmissionPendingRequest(
             messageID: request.messageID,
             workspaceID: request.workspaceID,
             surfaceID: surfaceID ?? request.surfaceID,
