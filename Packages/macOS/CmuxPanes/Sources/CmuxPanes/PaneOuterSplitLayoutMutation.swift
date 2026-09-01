@@ -222,13 +222,11 @@ public struct PaneOuterSplitLayoutMutation: PaneOuterSplitLayoutMutating {
         // automatic empty-source collapse cannot remove the preserved source
         // pane identity.
         let desiredLeaves = leaves(of: desiredLayout)
-        var nextInsertionIndexByPane: [PaneID: Int] = [:]
         for layoutPane in desiredLeaves where layoutPane.id != paneId {
             guard let targetPane = generatedPaneByOriginalPane[layoutPane.id] else {
                 return false
             }
-            var insertionIndex = nextInsertionIndexByPane[targetPane]
-                ?? controller.tabs(inPane: targetPane).count
+            var insertionIndex = controller.tabs(inPane: targetPane).count
             for tabId in layoutPane.tabIds {
                 guard controller.moveTab(
                     tabId,
@@ -239,7 +237,6 @@ public struct PaneOuterSplitLayoutMutation: PaneOuterSplitLayoutMutating {
                 }
                 insertionIndex += 1
             }
-            nextInsertionIndexByPane[targetPane] = insertionIndex
         }
 
         // Remove only our scaffolding tabs. Every real pane has at least one
@@ -248,16 +245,13 @@ public struct PaneOuterSplitLayoutMutation: PaneOuterSplitLayoutMutating {
             _ = controller.closeTab(placeholderId)
         }
 
+        // Every generated pane starts with only its placeholder. Moving the
+        // captured IDs in their original order at monotonically increasing
+        // insertion indices therefore constructs each final tab order directly;
+        // a second per-tab reorder pass would only repeat the same scans.
         for layoutPane in desiredLeaves {
             guard let targetPane = generatedPaneByOriginalPane[layoutPane.id] else {
                 continue
-            }
-            if controller.configuration.allowTabReordering {
-                restoreTabOrder(
-                    layoutPane.tabIds,
-                    in: targetPane,
-                    controller: controller
-                )
             }
             _ = controller.setFullWidthTabMode(
                 layoutPane.isFullWidthTabMode,
@@ -427,24 +421,4 @@ public struct PaneOuterSplitLayoutMutation: PaneOuterSplitLayoutMutating {
         )
     }
 
-    private func restoreTabOrder(
-        _ desiredTabIds: [TabID],
-        in pane: PaneID,
-        controller: BonsplitController
-    ) {
-        let currentTabIds = controller.tabs(inPane: pane).map(\.id)
-        guard currentTabIds.count == desiredTabIds.count,
-              Set(currentTabIds) == Set(desiredTabIds),
-              currentTabIds != desiredTabIds else {
-            return
-        }
-
-        // Work from the leading edge: after each iteration, the prefix before
-        // the current index is final, so the desired tab can only be at or
-        // after that index. Bonsplit's pinned-tab clamping preserves the same
-        // valid pinned/unpinned partition captured above.
-        for (desiredIndex, tabId) in desiredTabIds.enumerated() {
-            _ = controller.reorderTab(tabId, toIndex: desiredIndex)
-        }
-    }
 }
