@@ -654,10 +654,10 @@ pub async fn start_tunnel_terminal_listener(
     cancellation: CancellationToken,
     host: &str,
     port: u16,
-) -> std::io::Result<u16> {
+) -> std::io::Result<(u16, tokio::task::JoinHandle<()>)> {
     let listener = TcpListener::bind((host, port)).await?;
     let bound = listener.local_addr()?.port();
-    tokio::spawn(async move {
+    let task = tokio::spawn(async move {
         let mut connections = tokio::task::JoinSet::new();
         loop {
             let accepted = tokio::select! {
@@ -686,7 +686,7 @@ pub async fn start_tunnel_terminal_listener(
             }
         }
     });
-    Ok(bound)
+    Ok((bound, task))
 }
 
 // ---------------------------------------------------------------------------
@@ -831,6 +831,7 @@ mod tests {
         spawned: Arc<StdMutex<Vec<FakePty>>>,
         port: u16,
         cancel: CancellationToken,
+        _listener: tokio::task::JoinHandle<()>,
     }
 
     async fn rig_with_limits(max_ptys: usize) -> Rig {
@@ -855,7 +856,7 @@ mod tests {
             1_048_576,
         ));
         let cancel = CancellationToken::new();
-        let port = start_tunnel_terminal_listener(
+        let (port, listener) = start_tunnel_terminal_listener(
             Arc::clone(&manager),
             cancel.clone(),
             TUNNEL_TERMINAL_HOST,
@@ -863,7 +864,7 @@ mod tests {
         )
         .await
         .expect("bind test listener");
-        Rig { manager, spawned, port, cancel }
+        Rig { manager, spawned, port, cancel, _listener: listener }
     }
 
     async fn rig_with_blocked_spawn()
@@ -887,7 +888,7 @@ mod tests {
         let manager =
             Arc::new(PtyManager::with_limits(deps, std::env::temp_dir(), env, 8, 32, 1_048_576));
         let cancel = CancellationToken::new();
-        let port = start_tunnel_terminal_listener(
+        let (port, listener) = start_tunnel_terminal_listener(
             Arc::clone(&manager),
             cancel.clone(),
             TUNNEL_TERMINAL_HOST,
@@ -895,7 +896,13 @@ mod tests {
         )
         .await
         .expect("bind test listener");
-        (Rig { manager, spawned, port, cancel }, started, gate, dropped, completed)
+        (
+            Rig { manager, spawned, port, cancel, _listener: listener },
+            started,
+            gate,
+            dropped,
+            completed,
+        )
     }
 
     async fn rig() -> Rig {

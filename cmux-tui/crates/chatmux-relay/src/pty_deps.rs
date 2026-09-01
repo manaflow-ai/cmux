@@ -851,19 +851,6 @@ async fn socket_exists(path: &Path) -> bool {
 /// Stop a daemon that was started by `ensure_daemon` but never became ready.
 /// The daemon is placed in its own process group, so cleanup also covers
 /// children it may have spawned before readiness failed.
-async fn cleanup_daemon(mut child: tokio::process::Child) {
-    if let Some(pid) = child.id() {
-        unsafe {
-            let _ = libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
-        }
-    }
-    let _ = child.start_kill();
-    // The kill is issued before this owned handle can be dropped by a
-    // cancelled cleanup future. Await only to reap when the runtime remains
-    // alive; the process cannot continue running after the forceful signal.
-    let _ = tokio::time::timeout(Duration::from_secs(1), child.wait()).await;
-}
-
 /// Own a newly spawned daemon until readiness is proven. Cancellation drops
 /// this guard, which force-kills the process group and schedules a reap.
 struct DaemonChildGuard {
@@ -879,10 +866,17 @@ impl DaemonChildGuard {
         self.child.take().expect("daemon child guard owns a child")
     }
 
-    async fn cleanup(mut self) {
-        if let Some(child) = self.child.take() {
-            cleanup_daemon(child).await;
+    async fn cleanup(&mut self) {
+        let Some(child) = self.child.as_mut() else { return };
+        if let Some(pid) = child.id() {
+            unsafe {
+                let _ = libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
+            }
         }
+        let _ = child.start_kill();
+        // Keep the child in this guard while awaiting. If cancellation cuts
+        // this wait short, Drop still owns the handle and schedules a reap.
+        let _ = tokio::time::timeout(Duration::from_secs(1), child.wait()).await;
     }
 }
 
