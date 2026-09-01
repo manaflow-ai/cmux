@@ -31,16 +31,17 @@ struct AgentFeedView: View {
     }
 
     private var visibleItems: [MobileAgentFeedItem] {
-        // The Feed is a decision surface: routine tool churn stays out even
-        // when an older Mac still sends it; failed tool results are notable
-        // and stay visible.
+        // The Feed is a decision surface: routine tool churn and the user's
+        // own prompts stay out even when an older Mac still sends them (a
+        // prompt shows as the quoted context line under agent rows instead);
+        // failed tool results are notable and stay visible.
         let notable = items.filter { item in
             switch item.kind {
-            case .toolUse:
+            case .toolUse, .userPrompt:
                 return false
             case .toolResult:
                 return item.toolResultIsError
-            case .permissionRequest, .exitPlan, .question, .userPrompt,
+            case .permissionRequest, .exitPlan, .question,
                  .assistantMessage, .stop, .todos, .unsupported:
                 return true
             }

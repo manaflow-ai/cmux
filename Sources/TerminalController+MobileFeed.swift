@@ -27,20 +27,22 @@ extension TerminalController {
         let items = FeedCoordinator.shared.snapshot(pendingOnly: pendingOnly)
 
         // The phone Feed is a decision surface, not a raw event log: session
-        // lifecycle rows carry no renderable content, and routine tool churn
+        // lifecycle rows carry no renderable content, routine tool churn
         // (every PreToolUse/PostToolUse) would crowd the row cap out of the
-        // rows a user can act on. Failed tool results stay — they are the
-        // notable exceptions worth surfacing.
+        // rows a user can act on, and the user's own prompts are not news to
+        // the user — they surface as the quoted context line under agent
+        // rows instead. Failed tool results stay — they are the notable
+        // exceptions worth surfacing.
         let visibleItems = items.filter { item in
             switch item.kind {
-            case .sessionStart, .sessionEnd, .toolUse:
+            case .sessionStart, .sessionEnd, .toolUse, .userPrompt:
                 return false
             case .toolResult:
                 if case .toolResult(_, _, let isError) = item.payload {
                     return isError
                 }
                 return false
-            case .permissionRequest, .exitPlan, .question, .userPrompt,
+            case .permissionRequest, .exitPlan, .question,
                  .assistantMessage, .stop, .todos:
                 return true
             }
