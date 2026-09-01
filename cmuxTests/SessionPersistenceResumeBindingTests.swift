@@ -131,6 +131,55 @@ import Testing
         #expect(snapshot.restoreWorkingDirectorySelection == nil)
     }
 
+    @Test func detachedIdKeyedRetargetRefreshesCwdSelection() throws {
+        let oldDirectory = "/remote/old-project"
+        let liveDirectory = "/remote/live-project"
+        let codexBinding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume detached-session",
+            cwd: oldDirectory,
+            checkpointId: "detached-session",
+            source: "agent-hook",
+            restoreWorkingDirectorySelection: .exact(oldDirectory)
+        )
+        let retargetedCodex = try #require(
+            DockSplitStore.dockResumeBinding(
+                preservedBinding: codexBinding,
+                preservedSessionDirectory: oldDirectory,
+                restoredResumeSessionWorkingDirectory: liveDirectory,
+                detachedDirectoryWasReadFromLiveForegroundProcess: true,
+                agentProvenExited: false
+            )
+        )
+
+        #expect(retargetedCodex.cwd == liveDirectory)
+        #expect(
+            retargetedCodex.restoreWorkingDirectorySelection == .exact(liveDirectory)
+        )
+
+        let directoryKeyedBinding = SurfaceResumeBindingSnapshot(
+            kind: "grok",
+            command: "grok --resume detached-session",
+            cwd: oldDirectory,
+            checkpointId: "detached-session",
+            source: "agent-hook",
+            restoreWorkingDirectorySelection: .exact(oldDirectory)
+        )
+        let retainedDirectoryKeyed = try #require(
+            DockSplitStore.dockResumeBinding(
+                preservedBinding: directoryKeyedBinding,
+                preservedSessionDirectory: oldDirectory,
+                restoredResumeSessionWorkingDirectory: liveDirectory,
+                detachedDirectoryWasReadFromLiveForegroundProcess: true,
+                agentProvenExited: false
+            )
+        )
+        #expect(retainedDirectoryKeyed.cwd == oldDirectory)
+        #expect(
+            retainedDirectoryKeyed.restoreWorkingDirectorySelection == .exact(oldDirectory)
+        )
+    }
+
     @MainActor
     @Test func localHookRefreshDoesNotApplyRetainedRemotePolicy() throws {
         let manager = TabManager(autoWelcomeIfNeeded: false)
