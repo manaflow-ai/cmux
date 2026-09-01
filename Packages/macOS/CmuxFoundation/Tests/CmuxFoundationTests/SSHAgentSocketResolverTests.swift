@@ -34,14 +34,17 @@ struct SSHAgentSocketResolverTests {
     @Test("forces Mosh management connections to stay non-PTY")
     func moshManagementOptionsDisableTTY() {
         let resolver = SSHAgentSocketResolver(environment: [:])
-
-        #expect(resolver.moshManagementOptions(from: [
+        let options = [
             "RequestTTY=yes",
             "ProxyJump=bastion",
             "RequestTTY=force",
-        ]) == [
+        ]
+
+        let expected = [
             "ProxyJump=bastion",
             "RequestTTY=no",
-        ])
+        ]
+        #expect(resolver.nonInteractiveOptions(from: options) == expected)
+        #expect(resolver.moshManagementOptions(from: options) == expected)
     }
 }

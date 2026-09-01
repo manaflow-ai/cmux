@@ -82,13 +82,18 @@ public struct SSHRemoteCommand: Equatable, Sendable {
 
     /// Returns whether the effective OpenSSH configuration explicitly disables a TTY.
     ///
-    /// - Parameter options: OpenSSH `-o` values applied before
-    ///   ``ttyRequestArguments``.
+    /// - Parameters:
+    ///   - options: OpenSSH `-o` values applied before ``ttyRequestArguments``.
+    ///   - hostRequestTTY: The effective `requesttty` value from `ssh -G`,
+    ///     used when `options` has no explicit `RequestTTY` value.
     /// - Returns: `true` when the final `RequestTTY` state is `no`.
-    public func disablesTTY(in options: [String]) -> Bool {
+    public func disablesTTY(
+        in options: [String],
+        hostRequestTTY: String? = nil
+    ) -> Bool {
         effectiveTTYRequest(
             in: options,
-            hostRequestTTY: nil,
+            hostRequestTTY: hostRequestTTY,
             resolver: SSHAgentSocketResolver()
         ) == .disabled
     }

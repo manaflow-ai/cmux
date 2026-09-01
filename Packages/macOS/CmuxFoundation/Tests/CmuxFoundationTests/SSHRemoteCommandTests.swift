@@ -71,6 +71,16 @@ struct SSHRemoteCommandTests {
         ) == ["RequestTTY=yes"])
     }
 
+    @Test("uses the resolved host RequestTTY when checking disabled TTY")
+    func disablesTTYUsesResolvedHostRequestTTY() {
+        let command = SSHRemoteCommand(undelimitedArguments: [])
+        let explicitTTY = SSHRemoteCommand(undelimitedArguments: ["-t"])
+
+        #expect(command.disablesTTY(in: [], hostRequestTTY: "no"))
+        #expect(!command.disablesTTY(in: [], hostRequestTTY: "auto"))
+        #expect(!explicitTTY.disablesTTY(in: [], hostRequestTTY: "no"))
+    }
+
     @Test("treats every argument after the separator as a literal command token")
     func preservesDelimitedLeadingTTYToken() {
         let command = SSHRemoteCommand(
