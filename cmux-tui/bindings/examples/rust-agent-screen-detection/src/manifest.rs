@@ -1528,6 +1528,46 @@ mod tests {
     }
 
     #[test]
+    fn screen_detect_manifest_set_rejects_too_many_sources() {
+        let contents: Vec<String> = (0..=MAX_MANIFESTS)
+            .map(|index| {
+                format!(
+                    "id = \"agent-{index}\"\n[[rules]]\nid = \"idle\"\nstate = \"idle\"\ncontains = [\"ready\"]\n"
+                )
+            })
+            .collect();
+        let sources: Vec<(&str, &str)> =
+            contents.iter().map(|content| ("generated", content.as_str())).collect();
+
+        let error = ManifestSet::from_sources(&sources).unwrap_err();
+        assert!(error.contains("manifest set contains"), "{error}");
+    }
+
+    #[test]
+    fn screen_detect_manifest_directory_rejects_too_many_entries() {
+        let suffix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock is after the Unix epoch")
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "cmux-agent-screen-detection-manifest-limit-{}-{suffix}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&directory).expect("create temporary manifest directory");
+        for index in 0..=MAX_MANIFEST_DIRECTORY_ENTRIES {
+            std::fs::write(directory.join(format!("entry-{index}.txt")), b"")
+                .expect("write temporary directory entry");
+        }
+
+        let mut set = ManifestSet::from_sources(&[]).expect("empty manifest set");
+        let result = set.apply_directory(&directory, |path, _| Ok(ManifestSource::Override(path)));
+        let _ = std::fs::remove_dir_all(&directory);
+
+        let error = result.unwrap_err();
+        assert!(error.contains("manifest directory contains"), "{error}");
+    }
+
+    #[test]
     fn screen_detect_bundled_manifests_all_parse_and_identify() {
         let set = ManifestSet::bundled();
         let ids: Vec<&str> = set.manifests().map(CompiledManifest::id).collect();
