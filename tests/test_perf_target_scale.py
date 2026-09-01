@@ -170,6 +170,54 @@ class TargetScaleCliTests(unittest.TestCase):
         )
 
 
+class TargetScaleFixtureTests(unittest.TestCase):
+    class _Runner(runner.TargetScaleRunner):
+        def __init__(self, create_payload: dict[str, object]) -> None:
+            args = runner._build_parser().parse_args(["--tag", "fixture-test"])
+            super().__init__(args)
+            self.create_payload = create_payload
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def _workspace_ids(self) -> list[str]:
+            return ["old-workspace"]
+
+        def _pane_topology(self, workspace_id: str) -> list[dict[str, object]]:
+            del workspace_id
+            return [{"id": "pane", "surface_ids": ["surface"], "selected": "surface"}]
+
+        def rpc(
+            self,
+            method: str,
+            params: dict[str, object] | None = None,
+            *,
+            timeout: float = 120.0,
+        ) -> dict[str, object]:
+            del timeout
+            self.calls.append((method, dict(params or {})))
+            if method == "workspace.create":
+                return self.create_payload
+            return {}
+
+    def test_fixture_uses_created_workspace_id_response(self) -> None:
+        fixture = self._Runner(
+            {"created_workspace_id": "created-workspace", "workspace_id": "stale-workspace"}
+        )
+
+        workspace_id, panes = fixture._create_fixture(1)
+
+        self.assertEqual(workspace_id, "created-workspace")
+        self.assertEqual(panes[0]["id"], "pane")
+        self.assertIn(("workspace.select", {"workspace_id": "created-workspace"}), fixture.calls)
+        self.assertIn(("workspace.close", {"workspace_id": "old-workspace"}), fixture.calls)
+
+    def test_fixture_accepts_workspace_id_compatibility_response(self) -> None:
+        fixture = self._Runner({"workspace_id": "created-workspace"})
+
+        workspace_id, _panes = fixture._create_fixture(1)
+
+        self.assertEqual(workspace_id, "created-workspace")
+
+
 class TargetScaleArtifactTests(unittest.TestCase):
     def test_junit_emits_one_case_per_budget_failure(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
