@@ -12,6 +12,8 @@ import Testing
 @MainActor
 @Suite("Terminal color-scheme protocol", .serialized)
 struct TerminalColorSchemeProtocolTests {
+    private static let fixtureReadinessTimeout: TimeInterval = 15
+
     private final class ManualWriteCapture: @unchecked Sendable {
         // Ghostty invokes the manual-I/O callback off the main actor; this lock
         // guards every access to the shared values before bypassing Sendable checks.
@@ -87,10 +89,10 @@ struct TerminalColorSchemeProtocolTests {
         defer { tearDown(first) }
         let second = try makeHostedTerminal()
         defer { tearDown(second) }
-        _ = try #require(first.surface.surface)
+        let firstSurface = try #require(first.surface.surface)
         _ = try #require(second.surface.surface)
 
-        ghostty_surface_set_color_scheme(try #require(first.surface.surface), GHOSTTY_COLOR_SCHEME_DARK)
+        ghostty_surface_set_color_scheme(firstSurface, GHOSTTY_COLOR_SCHEME_DARK)
         try sendProbe("first", to: first)
         #expect(try waitForReport("first=1b5b3f3939373b316e", from: first))
         try sendProbe("enable", to: first)
@@ -98,7 +100,7 @@ struct TerminalColorSchemeProtocolTests {
         #expect(try waitForReport("enable-status=ready", from: first))
         try sendProbe("await-transition", to: first)
         #expect(try waitForReport("await-transition=ready", from: first))
-        ghostty_surface_set_color_scheme(try #require(first.surface.surface), GHOSTTY_COLOR_SCHEME_LIGHT)
+        ghostty_surface_set_color_scheme(firstSurface, GHOSTTY_COLOR_SCHEME_LIGHT)
         #expect(try waitForReport("transition=1b5b3f3939373b326e", from: first))
         let secondLines = try String(contentsOf: second.outputURL, encoding: .utf8)
             .split(whereSeparator: \.isNewline)
@@ -296,7 +298,11 @@ struct TerminalColorSchemeProtocolTests {
         )
         hostedTerminal = terminal
         if ioMode == .exec {
-            guard try waitForReport("ready", from: terminal) else {
+            guard try waitForReport(
+                "ready",
+                from: terminal,
+                timeout: Self.fixtureReadinessTimeout
+            ) else {
                 Issue.record("Terminal color-scheme probe did not become ready")
                 throw ProbeError.notReady
             }
@@ -318,8 +324,12 @@ struct TerminalColorSchemeProtocolTests {
         try next.write(to: terminal.commandURL, options: .atomic)
     }
 
-    private func waitForReport(_ report: String, from terminal: HostedTerminal) throws -> Bool {
-        let deadline = Date().addingTimeInterval(3)
+    private func waitForReport(
+        _ report: String,
+        from terminal: HostedTerminal,
+        timeout: TimeInterval = 3
+    ) throws -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
         repeat {
             let output = try String(contentsOf: terminal.outputURL, encoding: .utf8)
             if output.split(whereSeparator: \.isNewline).contains(Substring(report)) {
@@ -330,7 +340,10 @@ struct TerminalColorSchemeProtocolTests {
         return false
     }
 
-    private func waitForLiveSurface(_ surface: TerminalSurface, timeout: TimeInterval = 3) -> Bool {
+    private func waitForLiveSurface(
+        _ surface: TerminalSurface,
+        timeout: TimeInterval = Self.fixtureReadinessTimeout
+    ) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
             if surface.hasLiveSurface { return true }
