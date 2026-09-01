@@ -137,6 +137,21 @@ extension CMUXMobileShellStore {
     /// a global search could resolve a sibling's retained snapshot and route
     /// terminal commands to the wrong build's workspace id.
     func workspaceID(forTerminalID terminalID: String) -> MobileWorkspacePreview.ID? {
+        // Demonstration surfaces resolve to their demo-owned row regardless
+        // of the foreground pairing: the demo Mac is never foreground, and
+        // this resolver gates the terminal view's OUTPUT-START viewport
+        // preparation — a nil here keeps the mounted canvas blank forever.
+        // Surface ids are unique by construction (cmux-demo- prefixed), so
+        // the sibling-build ambiguity this scoping defends against cannot
+        // involve a demo surface.
+        if let demoContentSession, demoContentSession.ownsSurface(terminalID) {
+            return workspaces.first { row in
+                demoContentSession.ownsMac(
+                    deviceID: row.macDeviceID,
+                    instanceTag: row.macInstanceTag
+                ) && row.terminals.contains { $0.id.rawValue == terminalID }
+            }?.id
+        }
         guard let foregroundMacDeviceID else {
             return workspaceID(forTerminalID: terminalID, macDeviceID: nil)
         }

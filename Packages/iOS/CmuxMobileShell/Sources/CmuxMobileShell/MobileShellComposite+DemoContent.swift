@@ -138,10 +138,16 @@ extension MobileShellComposite {
 
     /// Delivers the demo terminal's authoritative full-screen replay through
     /// the same per-surface output stream a live Mac's replay rides.
+    ///
+    /// The replay is prefixed with a screen + scrollback erase so re-delivery
+    /// (view resets, viewport churn, remounts onto a live surface) repaints
+    /// from blank instead of appending a second copy of the transcript.
     func deliverDemonstrationTerminalReplay(surfaceID: String) {
         guard let session = demoContentSession,
               let bytes = session.engine.replayBytes(surfaceID: surfaceID) else { return }
-        _ = deliverTerminalBytes(bytes, surfaceID: surfaceID)
+        var reset = Data("\u{1B}[2J\u{1B}[3J\u{1B}[H".utf8)
+        reset.append(bytes)
+        _ = deliverTerminalBytes(reset, surfaceID: surfaceID)
     }
 
     /// Feeds typed input into the demo terminal engine and echoes its output.
