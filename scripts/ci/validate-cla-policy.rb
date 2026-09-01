@@ -27,7 +27,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "0f347a749f53d2e06f5b39b7a832476d39ab40a71c8634
 # EXPECTED_WORKFLOW_DIGEST is retained as a compatibility marker for the
 # immutable validator in the current base revision. Policy validation now
 # hashes the candidate workflow bytes after lexical YAML validation.
-EXPECTED_GUARD_SCRIPT_DIGEST = "374fa032f0635ee32804f7f1d5936e996565bcef4c8af15731ebc780a877c4b8"
+EXPECTED_GUARD_SCRIPT_DIGEST = "954eb2ab3a6814c4c722cfa3efc1b36d4dd93a4ca6bcc93e4eff9839d7e0e941"
 # Current organization administrators who may approve a trusted control-plane
 # update. IDs are used instead of names, and the review must target the exact
 # PR head. This is the human path for intentional policy maintenance.
@@ -42,6 +42,43 @@ CLA_DOCUMENT_INPUT = "https://github.com/${{ github.repository }}/blob/${{ githu
 CLA_LIFECYCLE_ACTIONS = %w[opened edited reopened synchronize].freeze
 CLA_TRUSTED_ASSOCIATIONS = %w[OWNER MEMBER COLLABORATOR].freeze
 POSITIVE_ID = /\A[1-9][0-9]*\z/
+CLA_WRITER_CONDITION = <<~'EXPRESSION'.gsub(/\s+/, " ").strip.freeze
+  needs.CLACommentGate.result == 'success' &&
+  needs.CLACommentGate.outputs.admitted == 'true' &&
+  (
+    (
+      github.event_name == 'pull_request_target' &&
+      (
+        github.event.action == 'opened' ||
+        github.event.action == 'edited' ||
+        github.event.action == 'reopened' ||
+        github.event.action == 'synchronize'
+      )
+    ) ||
+    (
+      github.event_name == 'issue_comment' &&
+      github.event.issue.state == 'open' &&
+      github.event.issue.pull_request &&
+      github.event.comment.user.type == 'User' &&
+      (
+        (
+          github.event.comment.body == 'recheck' &&
+          (
+            github.event.comment.user.id == github.event.issue.user.id ||
+            github.event.comment.author_association == 'OWNER' ||
+            github.event.comment.author_association == 'MEMBER' ||
+            github.event.comment.author_association == 'COLLABORATOR'
+          )
+        ) ||
+        (
+          github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA' &&
+          needs.CLACommentGate.outputs.signer_authorized == 'true' &&
+          needs.CLACommentGate.outputs.head_sha != ''
+        )
+      )
+    )
+  )
+EXPRESSION
 
 # The guard validates a deliberately closed workflow vocabulary. A policy
 # change may alter messages and implementation details inside the listed
@@ -454,6 +491,9 @@ def validate_workflow(raw, trusted_base_digest)
   generation = env["CLA_GENERATION"]
   fail!("CLA_GENERATION is missing or malformed") unless
     generation.is_a?(String) && generation.match?(/\Av[0-9]+\.[0-9]+-action-[0-9a-f]{40}\z/)
+  action_sha = CLA_ACTION.split("@", 2).last
+  fail!("CLA_GENERATION is not bound to the maintained action") unless
+    generation.match?(/\A v[0-9]+\.[0-9]+-action-#{Regexp.escape(action_sha)} \z/x)
 
   gate = job(document, "CLACommentGate")
   assistant = job(document, "CLAAssistant")
@@ -495,12 +535,9 @@ def validate_workflow(raw, trusted_base_digest)
     }
   fail!("CLA ledger writer must depend on the admission gate") unless dependencies(writer, "CLALedgerWriter").include?("CLACommentGate")
   fail!("CLA ledger writer must not run with always()") if writer["if"].to_s.include?("always()")
-  fail!("CLA ledger writer must run only after successful admission") unless
-    writer["if"].to_s.include?("needs.CLACommentGate.result == 'success'") &&
-    writer["if"].to_s.include?("needs.CLACommentGate.outputs.admitted == 'true'")
-  fail!("CLA ledger writer must require signer authorization and a live head for sign comments") unless
-    writer["if"].to_s.include?("needs.CLACommentGate.outputs.signer_authorized == 'true'") &&
-    writer["if"].to_s.include?("needs.CLACommentGate.outputs.head_sha != ''")
+  writer_condition = writer["if"].to_s.gsub(/\s+/, " ").strip
+  fail!("CLA ledger writer condition is not the reviewed admission contract") unless
+    writer_condition == CLA_WRITER_CONDITION
   fail!("CLA Assistant result must depend on the ledger writer") unless dependencies(assistant, "CLAAssistant").include?("CLALedgerWriter")
   fail!("CLA Assistant result must always report the writer outcome") unless assistant["if"].to_s.include?("always()")
   fail!("CLA compatibility must depend on the v2 result") unless dependencies(compatibility, "CLACompatibility").include?("CLAAssistant")
