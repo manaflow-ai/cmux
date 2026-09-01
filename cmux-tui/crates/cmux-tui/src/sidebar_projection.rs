@@ -65,7 +65,7 @@ pub(crate) struct ProjectionRailState {
 }
 
 /// Reusable ordering for agent rows. The order changes only when the agent
-/// roster's priority fields change, so renders can reuse the index.
+/// roster or terminal topology changes, so renders can reuse the index.
 #[derive(Default)]
 pub(crate) struct AgentOrderCache {
     key: Option<AgentOrderCacheKey>,
@@ -74,34 +74,92 @@ pub(crate) struct AgentOrderCache {
 
 #[derive(Clone, PartialEq, Eq)]
 struct AgentOrderCacheKey {
+    tree_workspace_revision: u64,
+    tree_pane_revision: Option<u64>,
+    tree_surfaces: Vec<SurfaceId>,
     agents: Vec<(SurfaceId, u8, u64)>,
 }
 
 impl AgentOrderCache {
-    fn ordered_surfaces(&mut self, agents: &[AgentInfo]) -> &[SurfaceId] {
-        let key = AgentOrderCacheKey {
-            agents: agents
-                .iter()
-                .map(|agent| (agent.surface, agent_attention(&agent.state), agent.updated_at_ms))
-                .collect(),
-        };
-        if self.key.as_ref() != Some(&key) {
-            let mut indexed = agents
-                .iter()
-                .map(|agent| {
-                    (
-                        u8::MAX - agent_attention(&agent.state),
-                        u64::MAX - agent.updated_at_ms,
-                        agent.surface,
-                    )
-                })
-                .collect::<Vec<_>>();
-            indexed.sort_unstable();
-            self.order = indexed.into_iter().map(|(_, _, surface)| surface).collect();
-            self.key = Some(key);
+    fn ordered_surfaces(&mut self, tree: &TreeView, agents: &[AgentInfo]) -> &[SurfaceId] {
+        let cache_is_valid = self.key.as_ref().is_some_and(|key| {
+            if key.tree_workspace_revision != tree.workspace_revision
+                || key.tree_pane_revision != tree.pane_revision
+                || key.agents.len() != agents.len()
+            {
+                return false;
+            }
+            if !key.agents.iter().zip(agents).all(
+                |(&(surface, attention, updated_at_ms), agent)| {
+                    (surface, attention, updated_at_ms)
+                        == (agent.surface, agent_attention(&agent.state), agent.updated_at_ms)
+                },
+            ) {
+                return false;
+            }
+            tree_surface_sequence_matches(tree, &key.tree_surfaces)
+        });
+        if cache_is_valid {
+            return &self.order;
         }
+
+        let tree_surfaces = tree
+            .workspaces
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .flat_map(|screen| screen.panes.iter())
+            .flat_map(|pane| pane.tabs.iter())
+            .map(|tab| tab.surface)
+            .collect::<Vec<_>>();
+        let agent_metadata = agents
+            .iter()
+            .map(|agent| (agent.surface, agent_attention(&agent.state), agent.updated_at_ms))
+            .collect::<Vec<_>>();
+        let agent_keys = agents
+            .iter()
+            .map(|agent| {
+                (
+                    agent.surface,
+                    (u8::MAX - agent_attention(&agent.state), u64::MAX - agent.updated_at_ms),
+                )
+            })
+            .collect::<HashMap<_, _>>();
+        let mut indexed = tree_surfaces
+            .iter()
+            .enumerate()
+            .filter_map(|(index, surface)| {
+                agent_keys
+                    .get(surface)
+                    .map(|&(attention, recency)| (attention, recency, index, *surface))
+            })
+            .collect::<Vec<_>>();
+        indexed.sort_unstable_by_key(|&(attention, recency, index, _)| (attention, recency, index));
+        self.order = indexed.into_iter().map(|(_, _, _, surface)| surface).collect();
+        self.key = Some(AgentOrderCacheKey {
+            tree_workspace_revision: tree.workspace_revision,
+            tree_pane_revision: tree.pane_revision,
+            tree_surfaces,
+            agents: agent_metadata,
+        });
         &self.order
     }
+}
+
+fn tree_surface_sequence_matches(tree: &TreeView, expected: &[SurfaceId]) -> bool {
+    let mut expected = expected.iter();
+    for surface in tree
+        .workspaces
+        .iter()
+        .flat_map(|workspace| workspace.screens.iter())
+        .flat_map(|screen| screen.panes.iter())
+        .flat_map(|pane| pane.tabs.iter())
+        .map(|tab| tab.surface)
+    {
+        if expected.next() != Some(&surface) {
+            return false;
+        }
+    }
+    expected.next().is_none()
 }
 
 impl Default for ProjectionRailState {
@@ -151,8 +209,8 @@ pub(crate) fn rows_cached(
         agents.iter().map(|agent| (agent.surface, agent)).collect();
     // Tabs and other resource views keep tree order. Do not walk the full
     // topology to prepare an agent index when this view has no agent level.
-    let agent_order = if spec.includes(SidebarResourceKind::Agents) {
-        order_cache.ordered_surfaces(agents)
+    let agent_order = if spec.levels.contains(&SidebarResourceKind::Agents) {
+        order_cache.ordered_surfaces(tree, agents)
     } else {
         &[]
     };

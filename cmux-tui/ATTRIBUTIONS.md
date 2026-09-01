@@ -40,9 +40,10 @@ Derived material and unchanged vendored material:
   the two-line row and header layout follow `src/app/agent_view.rs` and
   herdr's agents-panel design. cmux currently orders rows by blocked,
   working, then idle, with newest transitions first inside each bucket. The
-  herdr idle-unseen seen bit is intentionally not copied because it is
-  client-owned presentation state; the deliberate exclusion is listed in
-  `spec/plugins.md`.
+  cache invalidation against cmux's terminal topology and the stable
+  tree-order tie break are manaflow additions. The herdr idle-unseen seen bit
+  is intentionally not copied because it is client-owned presentation state;
+  the deliberate exclusion is listed in `spec/plugins.md`.
 
 Files that port herdr logic carry a header comment naming the upstream
 file and the modifications.
