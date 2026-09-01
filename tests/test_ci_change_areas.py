@@ -6,10 +6,10 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
-from fnmatch import fnmatch
 from pathlib import Path
 
 import yaml
@@ -42,6 +42,35 @@ def assert_areas(
     assert actual.agent_session_web is agent_session_web, (paths, actual)
 
 
+def github_actions_path_matches(path: str, pattern: str) -> bool:
+    """Match the glob subset used by GitHub Actions path filters.
+
+    GitHub's single-star and question-mark wildcards do not cross a slash,
+    while ``**`` does. The workflow's filters use only these constructs, so a
+    small local compiler keeps this guard dependency-free and aligned with the
+    documented path-filter semantics instead of relying on Python's fnmatch.
+    """
+    pieces: list[str] = []
+    index = 0
+    while index < len(pattern):
+        if pattern.startswith("**/", index):
+            pieces.append("(?:.*/)?")
+            index += 3
+        elif pattern.startswith("**", index):
+            pieces.append(".*")
+            index += 2
+        elif pattern[index] == "*":
+            pieces.append("[^/]*")
+            index += 1
+        elif pattern[index] == "?":
+            pieces.append("[^/]")
+            index += 1
+        else:
+            pieces.append(re.escape(pattern[index]))
+            index += 1
+    return re.fullmatch("".join(pieces), path) is not None
+
+
 def test_ci_trigger_uses_negative_filter_for_future_app_inputs() -> None:
     workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
     trigger = workflow.get("on", workflow.get(True))
@@ -67,7 +96,7 @@ def test_ci_trigger_uses_negative_filter_for_future_app_inputs() -> None:
         "CHANGELOG.md",
     ]
     for path in app_inputs:
-        assert not any(fnmatch(path, pattern) for pattern in ignored), path
+        assert not any(github_actions_path_matches(path, pattern) for pattern in ignored), path
 
     # Clearly non-app paths retain the cheap skip behavior.
     for path in [
@@ -77,7 +106,15 @@ def test_ci_trigger_uses_negative_filter_for_future_app_inputs() -> None:
         "cmux-browser/src/index.ts",
         ".github/workflows/cmux-browser.yml",
     ]:
-        assert any(fnmatch(path, pattern) for pattern in ignored), path
+        assert any(github_actions_path_matches(path, pattern) for pattern in ignored), path
+
+    # Keep the matcher itself honest about the slash-sensitive semantics used
+    # by GitHub's filter engine.
+    assert github_actions_path_matches("ios/a/b.swift", "ios/**")
+    assert not github_actions_path_matches("ios/a/b.swift", "ios/*")
+    assert not github_actions_path_matches("nested/ios/a.swift", "ios/**")
+    assert github_actions_path_matches("README.fr.md", "README*.md")
+    assert not github_actions_path_matches("docs/ci.md", "README*.md")
 
 
 def test_docs_only_skips_expensive_areas() -> None:

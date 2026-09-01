@@ -171,6 +171,11 @@ describe("devbox image template", () => {
     expect(freestyleBuilder).toContain('"blesh-cache"');
   });
 
+  test("all devbox providers pin the same CUA driver", () => {
+    expect(dockerfile).toContain("CUA_DRIVER_RS_VERSION=0.23.2");
+    expect(freestyleBuilder).toContain("CUA_DRIVER_RS_VERSION=0.23.2");
+  });
+
   test("stays within the E2B Dockerfile-parser restrictions", () => {
     // The E2B translation strips backslash escape sequences inside RUN
     // strings (printf '\n' corrupts written files), would turn ENTRYPOINT

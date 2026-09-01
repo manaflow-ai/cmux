@@ -164,7 +164,7 @@ if (( USE_REAL_MACHO_TOOLS )); then
   cp "$X86_64_DYLIB" "$APP_PATH/Contents/Resources/Single Arch/x86_64 payload.dylib"
   chmod 644 "$APP_PATH/Contents/Resources/Single Arch/x86_64 payload.dylib"
   cp "$ARM64_EXECUTABLE" "$APP_PATH/Contents/Resources/malformed macho"
-  truncate -s 64 "$APP_PATH/Contents/Resources/malformed macho"
+  head -c 64 "$ARM64_EXECUTABLE" > "$APP_PATH/Contents/Resources/malformed macho"
   cp "$X86_64_EXECUTABLE" "$APP_PATH/Contents/Resources/Single Arch/stderr arm64 payload"
   chmod 644 "$APP_PATH/Contents/Resources/Single Arch/stderr arm64 payload"
 else
