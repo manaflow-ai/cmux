@@ -1,11 +1,13 @@
 import { describe, expect, test } from "bun:test";
 
+import { locales } from "../i18n/routing";
 import {
   isPaidVmPlan,
   isVmFreeProvisioningAllowed,
   isVmProGateBlocked,
   isVmProGateEnforced,
 } from "../services/vms/entitlements";
+import { vmRequiresProResponse } from "../services/vms/routeHelpers";
 
 const ent = (planId: string) => ({ planId });
 
@@ -60,5 +62,53 @@ describe("Cloud VM Pro gate", () => {
     expect(isVmProGateBlocked(ent("pro"), env)).toBe(false);
     expect(isVmProGateBlocked(ent("team"), env)).toBe(false);
     expect(isVmProGateBlocked(ent("founders"), env)).toBe(false);
+  });
+});
+
+describe("vm_requires_pro response copy", () => {
+  test("defaults to English and keeps the machine-readable upgrade fields", async () => {
+    const response = await vmRequiresProResponse();
+    expect(response.status).toBe(402);
+    const payload = await response.json() as Record<string, unknown>;
+    expect(payload).toMatchObject({
+      error: "vm_requires_pro",
+      message: "Cloud VMs require a cmux Pro plan.",
+      action: "Upgrade to cmux Pro at https://cmux.com/pricing to create Cloud VMs.",
+      upgradeRequired: true,
+      upgradeUrl: "https://cmux.com/pricing",
+    });
+  });
+
+  test("resolves the upgrade instruction from the requested locale", async () => {
+    const payload = await (await vmRequiresProResponse("ja")).json() as Record<string, unknown>;
+    expect(payload.message).toBe("Cloud VM を利用するには cmux Pro プランが必要です。");
+    expect(String(payload.action)).toContain("https://cmux.com/pricing");
+    expect(String(payload.action)).toContain("cmux Pro にアップグレード");
+    // Clients key off these, never the prose.
+    expect(payload).toMatchObject({ error: "vm_requires_pro", upgradeRequired: true });
+  });
+
+  test("ships translated copy with the upgrade URL placeholder in every locale catalog", async () => {
+    for (const locale of locales) {
+      const messages = (await import(`../messages/${locale}.json`)).default as {
+        vmErrors: { requiresPro?: { message?: string; action?: string } };
+      };
+      const copy = messages.vmErrors.requiresPro;
+      const payload = await (await vmRequiresProResponse(locale)).json() as { action: string };
+      // Keyed by locale so a failure names the catalog that is missing or broken.
+      expect({
+        locale,
+        hasMessage: Boolean(copy?.message),
+        actionHasPlaceholder: copy?.action?.includes("{upgradeUrl}") ?? false,
+        renderedHasUrl: payload.action.includes("https://cmux.com/pricing"),
+        renderedHasRawPlaceholder: payload.action.includes("{upgradeUrl}"),
+      }).toEqual({
+        locale,
+        hasMessage: true,
+        actionHasPlaceholder: true,
+        renderedHasUrl: true,
+        renderedHasRawPlaceholder: false,
+      });
+    }
   });
 });

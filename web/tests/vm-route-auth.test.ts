@@ -650,6 +650,26 @@ describe("VM REST auth", () => {
     expect(createVm).not.toHaveBeenCalled();
   });
 
+  test("the paid-plan gate answers in the client's locale", async () => {
+    getUser.mockResolvedValue(freePlanStackUser());
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test", "x-next-intl-locale": "ja" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+      }),
+    );
+
+    expect(response.status).toBe(402);
+    const payload = await response.json() as { error: string; message: string; action: string; upgradeUrl: string };
+    expect(payload.error).toBe("vm_requires_pro");
+    expect(payload.message).toBe("Cloud VM を利用するには cmux Pro プランが必要です。");
+    expect(payload.action).toContain("https://cmux.com/pricing");
+    expect(payload.upgradeUrl).toBe("https://cmux.com/pricing");
+    expect(createVm).not.toHaveBeenCalled();
+  });
+
   test("an explicit free-provisioning switch reopens the configured demo allowance", async () => {
     process.env.CMUX_VM_ALLOW_FREE_PROVISIONING = "1";
     process.env.CMUX_VM_FREE_MAX_ACTIVE_VMS = "5";
