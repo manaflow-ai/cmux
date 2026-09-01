@@ -18,7 +18,8 @@ fail() {
 [[ "${COMMENT_AUTHOR_ID}" =~ ^[1-9][0-9]*$ ]] || fail "Comment author ID is invalid"
 [[ -n "${COMMENT_AUTHOR_LOGIN}" ]] || fail "Comment author is missing"
 [[ "${COMMENT_AUTHOR_TYPE}" == "User" ]] || fail "Comment author is not a human user"
-case "${COMMENT_AUTHOR_LOGIN,,}" in
+comment_author_login_lower="$(printf '%s' "${COMMENT_AUTHOR_LOGIN}" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
+case "${comment_author_login_lower}" in
   *"[bot]") fail "Bot comments cannot trigger a CLA rerun" ;;
 esac
 case "${COMMENT_AUTHOR_ASSOCIATION}" in

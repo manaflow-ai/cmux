@@ -653,6 +653,84 @@ import Testing
         #expect(connection.paneForegroundStates[5] == nil)
     }
 
+    /// A verified rects reply can arrive while another window is still
+    /// quarantined or a close is waiting for its authoritative window list.
+    /// Those transition panes must keep their title metadata until the
+    /// topology settles; unrelated historical panes must still be removed.
+    @Test func rectsPublicationKeepsPendingAndRetainedPaneTitleState() {
+        let (connection, writer, pipe) = attachedConnection()
+        defer { writer.close(); try? pipe.fileHandleForReading.close() }
+
+        let liveNode = RemoteTmuxLayoutNode(
+            width: 80, height: 24, x: 0, y: 0, content: .pane(1)
+        )
+        let pendingNode = RemoteTmuxLayoutNode(
+            width: 80, height: 24, x: 0, y: 0, content: .pane(2)
+        )
+        connection.windowsByID = [
+            1: RemoteTmuxWindow(id: 1, name: "live", width: 80, height: 24, layout: liveNode)
+        ]
+        connection.pendingLayouts[1] = RemoteTmuxPendingLayout(
+            node: liveNode,
+            visibleNode: nil,
+            zoomed: false,
+            name: "live",
+            generation: 1,
+            inFlight: true
+        )
+        connection.pendingLayouts[2] = RemoteTmuxPendingLayout(
+            node: pendingNode,
+            visibleNode: nil,
+            zoomed: false,
+            name: "pending",
+            generation: 1,
+            inFlight: true
+        )
+        connection.paneIDsRetainedUntilWindowList = [3]
+        let metadata = RemoteTmuxPaneTitleMetadata(
+            title: "deliberate", host: "host.example", hostShort: "host"
+        )
+        connection.paneTitleMetadataByPane = [
+            1: metadata, 2: metadata, 3: metadata, 4: metadata
+        ]
+        connection.paneTitleMetadataLiveRevisionByPane = [1: 1, 2: 2, 3: 3, 4: 4]
+
+        connection.handlePaneRectsReply(
+            windowId: 1,
+            generation: 1,
+            lines: ["%1 0 0 80 24 1 off :shell"]
+        )
+
+        #expect(Set(connection.paneTitleMetadataByPane.keys) == [1, 2, 3])
+        #expect(Set(connection.paneTitleMetadataLiveRevisionByPane.keys) == [1, 2, 3])
+    }
+
+    /// A window-close event retains pane identity while tmux resolves whether
+    /// the pane moved to another window. Its title and revision must survive
+    /// that gap instead of being cleared before the destination is published.
+    @Test func windowCloseKeepsRetainedPaneTitleStateUntilWindowSnapshot() {
+        let (connection, writer, pipe) = attachedConnection()
+        defer { writer.close(); try? pipe.fileHandleForReading.close() }
+
+        let node = RemoteTmuxLayoutNode(
+            width: 80, height: 24, x: 0, y: 0, content: .pane(7)
+        )
+        connection.windowsByID = [
+            1: RemoteTmuxWindow(id: 1, name: "source", width: 80, height: 24, layout: node)
+        ]
+        let metadata = RemoteTmuxPaneTitleMetadata(
+            title: "run: build", host: "host.example", hostShort: "host"
+        )
+        connection.paneTitleMetadataByPane = [7: metadata]
+        connection.paneTitleMetadataLiveRevisionByPane = [7: 9]
+
+        connection.handleMessageForTesting(.windowClose(windowId: 1))
+
+        #expect(connection.paneIDsRetainedUntilWindowList == [7])
+        #expect(connection.paneTitleMetadataByPane[7] == metadata)
+        #expect(connection.paneTitleMetadataLiveRevisionByPane[7] == 9)
+    }
+
     /// Layout events that arrive faster than one round trip must not starve
     /// publication. Discarding every generation-stale rects reply livelocks:
     /// under continuous churn each reply is one generation behind by the time

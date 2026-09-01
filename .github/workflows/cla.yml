@@ -108,7 +108,8 @@ jobs:
                -n "${COMMENT_AUTHOR_ASSOCIATION+x}" ]] || fail "The issue-comment metadata is incomplete"
             [[ "${COMMENT_AUTHOR_TYPE}" == "User" && -n "${COMMENT_AUTHOR_LOGIN}" ]] ||
               fail "Bot and malformed comments cannot trigger the CLA action"
-            case "${COMMENT_AUTHOR_LOGIN,,}" in
+            comment_author_login_lower="$(printf '%s' "${COMMENT_AUTHOR_LOGIN}" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
+            case "${comment_author_login_lower}" in
               *"[bot]")
                 fail "Bot comments cannot trigger the CLA action"
                 ;;
