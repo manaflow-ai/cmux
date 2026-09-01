@@ -1,6 +1,6 @@
 import Foundation
 
-struct CmuxConfigValidator: Sendable {
+nonisolated struct CmuxConfigValidator: Sendable {
     typealias Object = [String: Any]
     private let builtInActionCatalog: CmuxConfigBuiltInActionCatalog
 

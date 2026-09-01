@@ -1,11 +1,11 @@
 import Foundation
 
-struct CmuxConfigActionDecodeIssue: Equatable, Sendable {
+nonisolated struct CmuxConfigActionDecodeIssue: Equatable, Sendable {
     let path: String
     let message: String
 }
 
-struct CmuxConfigFileDecodeResult: Sendable {
+nonisolated struct CmuxConfigFileDecodeResult: Sendable {
     let config: CmuxConfigFile
     let actionIssues: [CmuxConfigActionDecodeIssue]
 }

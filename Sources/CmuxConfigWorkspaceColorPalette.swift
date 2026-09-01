@@ -5,8 +5,8 @@ import Foundation
 /// The app renderer and the CLI validator both consume this declaration. It is
 /// deliberately free of AppKit so legacy settings, custom names, and hex
 /// normalization cannot drift between config validation and runtime decoding.
-enum CmuxConfigWorkspaceColorPalette {
-    struct Entry: Equatable, Sendable {
+nonisolated enum CmuxConfigWorkspaceColorPalette {
+    nonisolated struct Entry: Equatable, Sendable {
         let name: String
         let hex: String
     }

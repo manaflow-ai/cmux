@@ -3,7 +3,7 @@ import Foundation
 /// A structural config error that can be reported without importing the app's
 /// AppKit-backed config model. The CLI and the published JSON Schema use the
 /// same shape checks for the sections that contain executable actions.
-struct CmuxConfigValidationIssue: Equatable, Sendable, CustomStringConvertible {
+nonisolated struct CmuxConfigValidationIssue: Equatable, Sendable, CustomStringConvertible {
     /// Keep diagnostic details stable and English: this Foundation-only value is
     /// shared by the CLI and app, while each presentation surface localizes its
     /// surrounding report text without translating paths or schema tokens.
@@ -20,7 +20,7 @@ struct CmuxConfigValidationIssue: Equatable, Sendable, CustomStringConvertible {
 /// The CLI validator and the app's Codable action model both use this table so
 /// adding an alias cannot make doctor and runtime disagree about duplicates or
 /// unknown built-ins.
-struct CmuxConfigBuiltInActionCatalog: Sendable {
+nonisolated struct CmuxConfigBuiltInActionCatalog: Sendable {
     private let canonicalIDs: [String: String]
 
     init(canonicalIDs: [String: String]) {
