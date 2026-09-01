@@ -773,8 +773,8 @@ mod tests {
             ),
         )
         .unwrap();
-        let unknown_terminal_id = TerminalPublicId::parse("term_ffffffffffffffffffffffffffffffff")
-            .unwrap();
+        let unknown_terminal_id =
+            TerminalPublicId::parse("term_ffffffffffffffffffffffffffffffff").unwrap();
         let report_request = |key| {
             request(
                 ResourceOperation::AgentReport,
