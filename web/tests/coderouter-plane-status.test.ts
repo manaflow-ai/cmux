@@ -78,8 +78,12 @@ describe("planeStatusForAccounts", () => {
 });
 
 describe("GET /v1/status", () => {
+  const swept: string[] = [];
   const handler = createPlaneStatusHandler({
     authenticate: async (token) => (token === "crt_good" ? { teamId: "team-1", stackUserId: "u" } : null),
+    sweepLeases: async (teamId) => {
+      swept.push(teamId);
+    },
     accounts: async () => [account("claude"), account("codex")],
   });
 
@@ -94,6 +98,9 @@ describe("GET /v1/status", () => {
     expect(JSON.parse(body).agents.pi).toMatchObject({ kinds: ["codex"], accounts: 1, refreshing: 0 });
     expect(body).not.toContain("person@example.com");
     expect(body).not.toContain("acct-");
+    // A refresh worker that died holding its lease must not keep an account
+    // "refreshing" here any longer than routing would.
+    expect(swept).toEqual(["team-1"]);
   });
 
   test("rejects a missing or unknown token", async () => {

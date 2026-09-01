@@ -6,13 +6,15 @@ let unusableAccounts = new Set<string>();
 const originalFetch = globalThis.fetch;
 let upstreamUrl = "";
 let upstreamHeaders = new Headers();
+let upstreamStatuses: number[] = [];
 let apiKeyAccounts = new Set<string>();
 beforeAll(() => {
   globalThis.fetch = mock(async (...args: unknown[]) => {
     const [input, init] = args as [string | URL | Request, RequestInit | undefined];
     upstreamUrl = String(input);
     upstreamHeaders = new Headers(init?.headers);
-    return Response.json({ models: [{ slug: "gpt-test" }] });
+    const status = upstreamStatuses.shift() ?? 200;
+    return Response.json({ models: [{ slug: "gpt-test" }] }, { status });
   }) as typeof fetch;
 });
 afterAll(() => {
@@ -55,6 +57,17 @@ describe("coderouter models proxy", () => {
     unusableAccounts = new Set();
     apiKeyAccounts = new Set();
     upstreamHeaders = new Headers();
+    upstreamStatuses = [];
+  });
+
+  test("a rate-limited last account answers no_usable_account, not the sibling's 429", async () => {
+    selectedAccounts = ["account-1"];
+    upstreamStatuses = [429];
+    const response = await proxyCodexModels(
+      new Request("https://coderouter.dev/v1/models", { headers: { authorization: "Bearer crt_route" } }),
+    );
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ error: "no_usable_account" });
   });
 
   test("lists the public API's models for an OpenAI API-key account with only its bearer", async () => {

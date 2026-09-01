@@ -472,7 +472,7 @@ const SESSION_BINDING_LOAD_WINDOW = "6 hours";
 /** Bindings idle longer than this are pruned opportunistically. */
 const SESSION_BINDING_RETENTION = "7 days";
 
-async function sweepExpiredRefreshLeases(teamId: string): Promise<void> {
+export async function sweepExpiredRefreshLeases(teamId: string): Promise<void> {
   const now = new Date();
   await cloudDb()
     .update(coderouterAccounts)

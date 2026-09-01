@@ -3,7 +3,7 @@
 // exposes nothing a machine cannot already infer by trying — counts and
 // kinds, never identifiers or credentials. "Ready" means what placement
 // means: an account is active and not cooling down this instant.
-import { listAccounts } from "./repository";
+import { listAccounts, sweepExpiredRefreshLeases } from "./repository";
 import { claimableAccounts } from "./opencodeProxy";
 import { bearerToken } from "./codexProxy";
 import { authenticateRouteToken } from "./repository";
@@ -79,6 +79,8 @@ export function planeStatusForAccounts(
 
 type PlaneStatusDependencies = {
   readonly authenticate: typeof authenticateRouteToken;
+  /** The same expired-lease sweep routing runs, so a dead refresh worker's account counts as ready again here too. */
+  readonly sweepLeases: typeof sweepExpiredRefreshLeases;
   readonly accounts: typeof listAccounts;
 };
 
@@ -94,6 +96,7 @@ export function createPlaneStatusHandler(
         { status: 401, headers: { "cache-control": "no-store" } },
       );
     }
+    await dependencies.sweepLeases(identity.teamId);
     const status = planeStatusForAccounts(await dependencies.accounts(identity.teamId));
     return Response.json(status, { headers: { "cache-control": "no-store" } });
   };
@@ -101,5 +104,6 @@ export function createPlaneStatusHandler(
 
 export const planeStatus = createPlaneStatusHandler({
   authenticate: authenticateRouteToken,
+  sweepLeases: sweepExpiredRefreshLeases,
   accounts: listAccounts,
 });

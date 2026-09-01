@@ -418,6 +418,12 @@ export function createCodexModelsProxy(dependencies: CodexModelsDependencies) {
         continue;
       }
       if (upstream.status === 429) {
+        // Like the responses plane: the rate-limited response is never
+        // handed to the caller, so an exhausted pool answers
+        // no_usable_account rather than a sibling's 429.
+        const limited = upstream;
+        await limited.body?.cancel().catch(() => undefined);
+        upstream = null;
         reportCoderouterFailure(
           "provider_rate_limit",
           new Error("rate limited"),
@@ -428,7 +434,7 @@ export function createCodexModelsProxy(dependencies: CodexModelsDependencies) {
         );
         await dependencies.cooldown(
           account.id,
-          rateLimitDelay(upstream.headers),
+          rateLimitDelay(limited.headers),
         );
         continue;
       }
