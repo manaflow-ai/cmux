@@ -9464,10 +9464,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalInputRPCPipeline.clear()
         resumeRawTerminalInputDrainWaiters()
         let supportedKinds = runtime?.supportedRouteKinds ?? []
-        let connectionTransportMode = transportMode ?? connectionMethod(
+        let selectedTransportMode = transportMode ?? connectionMethod(
             forMacDeviceID: requestedMacDeviceID ?? ticket.macDeviceID,
             instanceTag: instanceTagExpectation.expectedTag
         ).transportMode
+        // An in-app QR/manual code entry is an explicit, route-scoped
+        // compatibility authorization. Its exact numeric Tailscale endpoint
+        // is the transport for this dial even when the stored method is pinned
+        // to another class; capture the actual class so request and path
+        // validators enforce the route being authorized. The stored method is
+        // unchanged and still governs subsequent reconnects.
+        let connectionTransportMode = userTailscalePairingAuthorizations.isEmpty
+            ? selectedTransportMode
+            : .tailscale
         // Per-Computer Direct enforcement: stored-Mac reconnects resolve the
         // allowlist from their freshly loaded row and pass it in; ticket
         // dials resolve it here from the published pairing list, using the
