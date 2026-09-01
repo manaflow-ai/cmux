@@ -62,6 +62,7 @@ fn run(args: Args, started: Instant) -> anyhow::Result<()> {
         native,
     )?;
     let event = serde_json::to_value(ingress)?;
+    let started = (args.source == "codex" && args.native_event == "SessionEnd").then_some(started);
     append(&socket, event, started, timeout)
 }
 
@@ -111,7 +112,12 @@ fn socket_timeout(source: &str, native_event: &str) -> Duration {
     }
 }
 
-fn append(socket: &Path, event: Value, started: Instant, timeout: Duration) -> anyhow::Result<()> {
+fn append(
+    socket: &Path,
+    event: Value,
+    started: Option<Instant>,
+    timeout: Duration,
+) -> anyhow::Result<()> {
     let (request_id, idempotency_key) = random_identifiers()?;
     let request = json!({
         "protocol":"cmux.protocol/2",
@@ -127,9 +133,12 @@ fn append(socket: &Path, event: Value, started: Instant, timeout: Duration) -> a
         bail!("agent hook request exceeds the 4 MiB protocol limit");
     }
 
-    retry_until_deadline(started + timeout, timeout, |deadline| {
-        append_once(socket, &encoded, &request_id, deadline)
-    })
+    match started {
+        Some(started) => retry_until_deadline(started + timeout, timeout, |deadline| {
+            append_once(socket, &encoded, &request_id, deadline)
+        }),
+        None => retry_until(timeout, |deadline| append_once(socket, &encoded, &request_id, deadline)),
+    }
 }
 
 #[derive(Debug)]
