@@ -1698,7 +1698,11 @@ void cmux_ish_session_hangup(int handle) {
     pthread_rwlock_unlock(&cmux_binding_rwlock);
 
     if (tty != NULL) {
-        cmux_hangup_tty(tty);
+        // If natural cleanup detached the binding first, the process and its
+        // foreground group are already retiring. Do not signal a stale PGID
+        // that could have been reused by a later session.
+        if (still_owned)
+            cmux_hangup_tty(tty);
         cmux_release_tty(tty);
     }
 }
