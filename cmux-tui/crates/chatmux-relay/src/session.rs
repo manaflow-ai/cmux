@@ -458,6 +458,7 @@ pub async fn stay_online(
     // branch is the gate; paired human machines never start the listener.
     // Best-effort: a failed bind degrades to the relay-socket terminal path.
     #[cfg(unix)]
+    let mut tunnel_listener = None;
     if state.managed {
         match crate::tunnel_terminal::start_tunnel_terminal_listener(
             Arc::clone(&runtime.pty),
@@ -467,7 +468,10 @@ pub async fn stay_online(
         )
         .await
         {
-            Ok(_) => eprintln!("Tunnel terminal listener is up on loopback."),
+            Ok((_, task)) => {
+                tunnel_listener = Some(task);
+                eprintln!("Tunnel terminal listener is up on loopback.");
+            }
             Err(error) => eprintln!(
                 "Tunnel terminal listener bind failed: {error}. Terminals stay on the relay socket path."
             ),
@@ -476,6 +480,9 @@ pub async fn stay_online(
     let mut attempt: u32 = 0;
     loop {
         if cancellation.is_cancelled() {
+            if let Some(task) = tunnel_listener.take() {
+                let _ = task.await;
+            }
             return Ok(());
         }
         match relay_session(&mut config, config_path, &mut state, &runtime, &cancellation).await {

@@ -885,31 +885,6 @@ async fn socket_exists(path: &Path) -> bool {
 /// Stop a daemon that was started by `ensure_daemon` but never became ready.
 /// The daemon is placed in its own process group, so cleanup also covers
 /// children it may have spawned before readiness failed.
-async fn cleanup_daemon(mut child: tokio::process::Child) {
-    if let Some(pid) = child.id() {
-        unsafe {
-            let _ = libc::kill(-(pid as libc::pid_t), libc::SIGTERM);
-        }
-    }
-    match tokio::time::timeout(Duration::from_millis(250), child.wait()).await {
-        Ok(Ok(_status)) => return,
-        Ok(Err(_)) | Err(_) => {
-            // A timeout completion is not enough. `wait` has its own I/O
-            // result, and a failed reap must still go through escalation.
-        }
-    }
-    if let Some(pid) = child.id() {
-        unsafe {
-            let _ = libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
-        }
-    }
-    // `kill` also waits for the child, so using it here would make the
-    // supposedly bounded cleanup unbounded. Send SIGKILL, then bound the
-    // explicit reap below.
-    let _ = child.start_kill();
-    let _ = tokio::time::timeout(Duration::from_secs(1), child.wait()).await;
-}
-
 /// Own a newly spawned daemon until readiness is proven. Cancellation drops
 /// this guard, which force-kills the process group and schedules a reap.
 struct DaemonChildGuard {
@@ -925,10 +900,31 @@ impl DaemonChildGuard {
         self.child.take().expect("daemon child guard owns a child")
     }
 
-    async fn cleanup(mut self) {
-        if let Some(child) = self.child.take() {
-            cleanup_daemon(child).await;
+    async fn cleanup(&mut self) {
+        let Some(child) = self.child.as_mut() else { return };
+        if let Some(pid) = child.id() {
+            unsafe {
+                let _ = libc::kill(-(pid as libc::pid_t), libc::SIGTERM);
+            }
         }
+        match tokio::time::timeout(Duration::from_millis(250), child.wait()).await {
+            Ok(Ok(_status)) => return,
+            Ok(Err(_)) | Err(_) => {
+                // A timeout completion is not enough. `wait` has its own I/O
+                // result, and a failed reap must still go through escalation.
+            }
+        }
+        if let Some(pid) = child.id() {
+            unsafe {
+                let _ = libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
+            }
+        }
+        // Keep the child in this guard while awaiting. If cancellation cuts
+        // this wait short, Drop still owns the handle and schedules a reap.
+        // `kill` also waits for the child, so use start_kill before bounded
+        // reap to keep cleanup cancellable.
+        let _ = child.start_kill();
+        let _ = tokio::time::timeout(Duration::from_secs(1), child.wait()).await;
     }
 }
 
