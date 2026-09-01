@@ -22,11 +22,12 @@ export type StripeBillingAnalyticsSubject =
       readonly status?: string;
     };
 
-export type TeamSeatSyncAnalyticsInput = {
+export type TeamSeatDriftAnalyticsInput = {
   readonly subscriptionId: string;
   readonly teamId: string;
-  readonly oldQuantity: number;
-  readonly newQuantity: number;
+  readonly memberCount: number;
+  readonly stripeQuantity: number | null;
+  readonly storedSeats: number | null;
 };
 
 /**
@@ -73,28 +74,28 @@ export async function captureBillingCheckoutStarted(
 }
 
 /**
- * Records a best-effort billing-reconcile team seat change. The event is
- * intentionally separate from Stripe webhook lifecycle events because the
- * membership change is observed by Stack rather than delivered by Stripe.
+ * Records a best-effort billing-reconcile team seat drift observation. The
+ * event is intentionally separate from Stripe webhook lifecycle events because
+ * membership is observed by Stack rather than delivered by Stripe.
  */
-export async function captureBillingTeamSeatSync(
-  input: TeamSeatSyncAnalyticsInput,
+export async function captureBillingTeamSeatDrift(
+  input: TeamSeatDriftAnalyticsInput,
   postHogFetch?: typeof fetch,
 ): Promise<void> {
   await captureBillingPayload({
-    name: "cmux_billing_team_seats_synced",
-    // A repeated legitimate transition (1->2->1->2) must not deduplicate the
-    // later event, so each sync gets a unique id; transport retries inside
-    // this call still share it because the payload is built once.
-    insertId: `team-seat-sync:${input.subscriptionId}:${globalThis.crypto.randomUUID()}`,
+    name: "cmux_billing_team_seat_drift_detected",
+    // Each observation gets a unique id so repeated detections are retained;
+    // transport retries inside this call reuse the payload and insert id.
+    insertId: `team-seat-drift:${input.subscriptionId}:${globalThis.crypto.randomUUID()}`,
     subject: { scope: "team", stackTeamId: input.teamId },
     properties: {
       source: "billing_reconcile",
       billing_scope: "team",
       stack_team_id: input.teamId,
-      old_quantity: input.oldQuantity,
-      new_quantity: input.newQuantity,
       stripe_subscription_id: input.subscriptionId,
+      member_count: input.memberCount,
+      stripe_quantity: input.stripeQuantity,
+      stored_seats: input.storedSeats,
     },
   }, postHogFetch);
 }
