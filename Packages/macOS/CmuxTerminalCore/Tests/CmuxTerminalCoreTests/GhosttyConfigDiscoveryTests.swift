@@ -142,12 +142,15 @@ private struct NoFontProbe: GhosttyFontProbing {
         // symbolCodepoints).
         //
         // "Apple Color Emoji" is a system font rather than a repo-controlled
-        // fixture, so guard that it actually resolved (rather than silently
-        // falling back to a substitute) before asserting on its coverage.
+        // fixture, but it ships with every supported macOS. CTFontCreateWithName
+        // substitutes silently when a name does not resolve, so require the
+        // exact family rather than skipping: a substituted font would make the
+        // coverage assertions below meaningless, and skipping would hide that.
         let font = CTFontCreateWithName("Apple Color Emoji" as CFString, 12, nil)
-        guard CTFontCopyFamilyName(font) as String == "Apple Color Emoji" else {
-            return
-        }
+        try #require(
+            CTFontCopyFamilyName(font) as String == "Apple Color Emoji",
+            "Apple Color Emoji did not resolve; CoreText substituted another font"
+        )
         #expect(GhosttyConfigDiscovery.fontContainsGlyph(font, forCodepoint: 0x1F600))
         #expect(!GhosttyConfigDiscovery.fontContainsGlyph(font, forCodepoint: 0x10FFFE))
     }

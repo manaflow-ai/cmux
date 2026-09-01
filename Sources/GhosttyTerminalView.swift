@@ -1338,18 +1338,8 @@ class GhosttyApp {
     /// See: https://github.com/manaflow-ai/cmux/pull/1017
     private func loadCJKFontFallbackIfNeeded(_ config: ghostty_config_t, configPaths: [String]) {
         guard let mappings = Self.autoInjectedCJKFontMappings(configPaths: configPaths) else { return }
-
-        var resolvedFonts: [String: String] = [:]
-        let lines = mappings.map { range, font in
-            let resolvedFont = resolvedFonts[font] ?? {
-                let resolved = Self.resolvedInjectedCJKFontName(named: font)
-                resolvedFonts[font] = resolved
-                return resolved
-            }()
-            return "font-codepoint-map = \(range)=\(resolvedFont)"
-        }.joined(separator: "\n")
-        loadInlineGhosttyConfig(
-            lines,
+        loadInjectedFontCodepointMap(
+            mappings,
             into: config,
             prefix: "cmux-cjk-font-fallback",
             logLabel: "CJK font fallback"
@@ -1370,7 +1360,23 @@ class GhosttyApp {
     /// See: https://github.com/Nanako0129/coralline/issues/47
     private func loadSymbolFontFallbackIfNeeded(_ config: ghostty_config_t, configPaths: [String]) {
         guard let mappings = Self.autoInjectedSymbolFontMappings(configPaths: configPaths) else { return }
+        loadInjectedFontCodepointMap(
+            mappings,
+            into: config,
+            prefix: "cmux-symbol-font-fallback",
+            logLabel: "symbol font fallback"
+        )
+    }
 
+    /// Emits cmux's managed `font-codepoint-map` directives for one fallback
+    /// family. The CJK and symbol loaders share this so the injection format
+    /// and font-name resolution stay identical between them.
+    private func loadInjectedFontCodepointMap(
+        _ mappings: [(String, String)],
+        into config: ghostty_config_t,
+        prefix: String,
+        logLabel: String
+    ) {
         var resolvedFonts: [String: String] = [:]
         let lines = mappings.map { range, font in
             let resolvedFont = resolvedFonts[font] ?? {
@@ -1383,8 +1389,8 @@ class GhosttyApp {
         loadInlineGhosttyConfig(
             lines,
             into: config,
-            prefix: "cmux-symbol-font-fallback",
-            logLabel: "symbol font fallback"
+            prefix: prefix,
+            logLabel: logLabel
         )
     }
 
