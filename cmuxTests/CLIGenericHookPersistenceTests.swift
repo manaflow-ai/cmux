@@ -4402,6 +4402,27 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
             }
             switch method {
+            case "agent.resolve_delivery_target":
+                // The rejected-follow-up scenario supplies a deliberately dead PID. Resolve that
+                // fixture identity so the hook reaches the persistence path instead of spending its
+                // entire timeout probing an unavailable process.
+                let params = payload["params"] as? [String: Any] ?? [:]
+                if let pid = params["pid"] as? NSNumber, pid.intValue == 999999999 {
+                    return self.v2Response(
+                        id: id,
+                        ok: true,
+                        result: [
+                            "workspace_id": workspaceId,
+                            "surface_id": surfaceId,
+                            "source": "pid",
+                        ]
+                    )
+                }
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unrecognized_method", "message": "unexpected resolver probe"]
+                )
             case "surface.list":
                 return self.surfaceListResponse(id: id, surfaceId: surfaceId)
             case "surface.resume.set":
@@ -4454,7 +4475,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let launchCommand = try XCTUnwrap(session["launchCommand"] as? [String: Any])
         XCTAssertEqual(launchCommand["launcher"] as? String, scenario.agent)
-        XCTAssertEqual(launchCommand["executablePath"] as? String, scenario.executable)
+        // A malformed trusted capture has no independently validated executable path. Keeping
+        // that path would make an argv-less rejection look actionable to a later restore.
+        if scenario.expectedRejectionReason == "argvDecodeFailed" {
+            XCTAssertNil(launchCommand["executablePath"])
+        } else {
+            XCTAssertEqual(launchCommand["executablePath"] as? String, scenario.executable)
+        }
         XCTAssertEqual(launchCommand["arguments"] as? [String], scenario.expectedArguments)
         XCTAssertEqual(launchCommand["workingDirectory"] as? String, workspace.path)
         XCTAssertEqual(launchCommand["environment"] as? [String: String], scenario.expectedEnvironment)
