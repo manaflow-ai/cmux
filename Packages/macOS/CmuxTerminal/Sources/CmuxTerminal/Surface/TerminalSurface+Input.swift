@@ -23,12 +23,20 @@ extension TerminalSurface {
     }
 
     /// Queues a name from ``manualInputKeyName(for:)`` behind earlier Ghostty input.
+    ///
+    /// - Parameter recordsPromptInput: Whether the caller also owns prompt
+    ///   ledger attribution. The Ghostty key path records the accepted physical
+    ///   key after this method returns, so it passes `false` to avoid a double
+    ///   boundary.
     @MainActor
-    public func enqueueManualInputNamedKey(_ name: String) -> Bool {
+    public func enqueueManualInputNamedKey(
+        _ name: String,
+        recordsPromptInput: Bool = true
+    ) -> Bool {
         guard ioMode.usesManualIO, manualInputHandler != nil, let surface else { return false }
         let frame = TerminalManualInput.namedKey(name).manualIOData
         let accepted = remoteOutputLane.enqueueTextInput(frame, to: surface)
-        if accepted {
+        if accepted, recordsPromptInput {
             recordAcceptedUnownedPromptKey(name)
         }
         return accepted

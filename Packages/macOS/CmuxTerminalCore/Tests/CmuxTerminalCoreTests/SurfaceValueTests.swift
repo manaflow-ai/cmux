@@ -56,6 +56,17 @@ import GhosttyKit
                 hookConfirmedHumanInputSnapshot: nil
             ).estimatedBytes == 29
         )
+        let nonASCIIText = "é"
+        #expect(
+            PendingSocketInput.promptSubmission(
+                messageID: UUID(),
+                preparationKeys: [],
+                text: Data(nonASCIIText.utf8),
+                submitKey: key,
+                hookRecordingSource: nil,
+                hookConfirmedHumanInputSnapshot: nil
+            ).estimatedBytes == nonASCIIText.utf8.count + key.queuedByteCost
+        )
     }
 
     @Test func queuedPromptCarriesAdmissionTimeHumanSnapshot() {

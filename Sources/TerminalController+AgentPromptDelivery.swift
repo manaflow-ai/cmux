@@ -91,14 +91,23 @@ extension TerminalController {
             )
         }
 
+        guard let agentInputScope = target.agentInputScope else {
+            return .agentScopeUnavailable(
+                workspaceID: workspaceID,
+                surfaceID: target.surfaceID
+            )
+        }
+        let liveAgentContext = String(
+            agentInputScope.prefix(while: { $0 != "|" })
+        )
         let submitKey = TextBoxAgentDetection.composedPromptSubmitKey(
             containsNewline: text.contains("\n") || text.contains("\r"),
-            context: target.agentContext
+            context: liveAgentContext
         )
         let result = target.panel.sendPromptSubmissionResult(
             text,
             submitKey: submitKey,
-            agentInputScope: target.agentInputScope,
+            agentInputScope: agentInputScope,
             rejectIfHumanComposerBusy: true,
             hookRecordingSource: "workspace.agent_submit",
             deferDuringRuntimeClipboardRead: false,
@@ -366,13 +375,20 @@ extension TerminalController {
         guard liveAgent || hibernatedAgent else {
             return nil
         }
+        let agentInputScope = workspace.agentPromptInputScope(
+            forPanelId: panel.id
+        )
+        // Once process identity is available, the scope's key is the
+        // authoritative live agent kind. Do not let restored/initial command
+        // metadata override it after a panel is reused for another agent.
+        let resolvedAgentContext = agentInputScope.map {
+            String($0.prefix(while: { $0 != "|" }))
+        } ?? context
         return AgentPromptTerminalTarget(
             surfaceID: surfaceID,
             panel: panel,
-            agentContext: context,
-            agentInputScope: workspace.agentPromptInputScope(
-                forPanelId: panel.id
-            )
+            agentContext: resolvedAgentContext,
+            agentInputScope: agentInputScope
         )
     }
 

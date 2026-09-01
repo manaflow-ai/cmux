@@ -6352,14 +6352,16 @@ class TerminalController {
                       let workspaceId = self.v2UUIDAny(rawWorkspaceId) else { return }
                 guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) else { return }
                 if let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) {
-                    // A stop hook ends the turn. When it cannot be routed to
-                    // one agent terminal, clear the whole workspace so a
-                    // routing gap cannot wedge addressed delivery.
-                    let panel = self.agentPromptConfirmationPanel(
+                    // A stop hook ends only the routed agent's turn. If the
+                    // session/surface token cannot be resolved, retain every
+                    // active turn and fail closed; clearing the workspace
+                    // would make an unrelated agent look idle.
+                    if let panel = self.agentPromptConfirmationPanel(
                         in: workspace,
                         event: event
-                    )
-                    workspace.recordAgentTurnEnd(panelId: panel?.id)
+                    ) {
+                        workspace.recordAgentTurnEnd(panelId: panel.id)
+                    }
                 }
                 _ = tabManager.handleAssistantFinalMessage(
                     workspaceId: workspaceId,

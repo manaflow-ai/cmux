@@ -6887,7 +6887,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if let keyName = terminalSurface?.manualInputKeyName(for: keyEvent) {
             var bindingFlags = ghostty_binding_flags_e(0)
             if !ghostty_surface_key_is_binding(surface, keyEvent, &bindingFlags) {
-                if terminalSurface?.enqueueManualInputNamedKey(keyName) == true {
+                if terminalSurface?.enqueueManualInputNamedKey(
+                    keyName,
+                    recordsPromptInput: false
+                ) == true {
                     if let keyCode = UInt16(exactly: keyEvent.keycode) {
                         manualNamedKeyConsumedKeyUps.insert(keyCode)
                     }

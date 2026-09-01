@@ -130,7 +130,10 @@ public final class AgentPromptSubmissionService {
         }
 
         if pendingByWorkspace[workspaceID]?.isEmpty == false {
-            guard enqueue(request) else {
+            let fifoSurfaceID = request.surfaceID
+                ?? pendingByWorkspace[workspaceID]?.first?.surfaceID
+                ?? inFlightByWorkspace[workspaceID]?.surfaceID
+            guard enqueue(request, surfaceID: fifoSurfaceID) else {
                 return Receipt(
                     messageID: messageID,
                     result: .submissionQueueFull(
@@ -143,9 +146,7 @@ public final class AgentPromptSubmissionService {
                 messageID: messageID,
                 result: .queued(
                     workspaceID: workspaceID,
-                    surfaceID:
-                        requestedSurfaceID
-                        ?? pendingByWorkspace[workspaceID]?.first?.surfaceID,
+                    surfaceID: fifoSurfaceID,
                     reason: "workspace_fifo"
                 )
             )
@@ -300,6 +301,11 @@ public final class AgentPromptSubmissionService {
                 }
                 pending.removeFirst()
                 pendingBytes = max(0, pendingBytes - first.text.utf8.count)
+                if pending.isEmpty {
+                    pendingByWorkspace.removeValue(forKey: workspaceID)
+                } else {
+                    pendingByWorkspace[workspaceID] = pending
+                }
                 beginInFlight(
                     messageID: first.messageID,
                     workspaceID: workspaceID,
@@ -315,6 +321,10 @@ public final class AgentPromptSubmissionService {
                         )
                     )
                 )
+                // One workspace barrier admits one prompt at a time. The
+                // next FIFO entry must wait for this prompt's hook (or the
+                // explicit confirmation deadline) before delivery.
+                return completed
             default:
                 // A permanently missing workspace or surface is terminal for
                 // the retained request; do not retry it forever.
