@@ -38,7 +38,7 @@ import Testing
         let workspace = Workspace(workingDirectory: workingDirectory.path)
         let panel = try #require(workspace.focusedTerminalPanel)
         let sessionId = "backfill-session"
-        workspace.restoredAgentSnapshotsByPanelId[panel.id] = SessionRestorableAgentSnapshot(
+        workspace.restoredAgentLifecycle.setSnapshot(SessionRestorableAgentSnapshot(
             kind: .claude,
             sessionId: sessionId,
             workingDirectory: workingDirectory.path,
@@ -49,8 +49,8 @@ import Testing
                 workingDirectory: workingDirectory.path,
                 source: "process"
             )
-        )
-        workspace.restoredAgentResumeStatesByPanelId[panel.id] = .observedAgentCommandRunning
+        ), panelId: panel.id)
+        workspace.restoredAgentLifecycle.setResumeState(.observedAgentCommandRunning, panelId: panel.id)
 
         let snapshot = workspace.sessionSnapshot(includeScrollback: false)
         let terminal = try #require(snapshot.panels.first?.terminal)
@@ -69,7 +69,7 @@ import Testing
         let workspace = Workspace(workingDirectory: workingDirectory.path)
         let panel = try #require(workspace.focusedTerminalPanel)
         let sessionId = "backfill-without-index"
-        workspace.restoredAgentSnapshotsByPanelId[panel.id] = SessionRestorableAgentSnapshot(
+        workspace.restoredAgentLifecycle.setSnapshot(SessionRestorableAgentSnapshot(
             kind: .claude,
             sessionId: sessionId,
             workingDirectory: workingDirectory.path,
@@ -80,11 +80,11 @@ import Testing
                 workingDirectory: workingDirectory.path,
                 source: "process"
             )
-        )
+        ), panelId: panel.id)
         // Manual-resume metadata is deliberately not a liveness claim. A save
         // must still retain a durable identity when the process index is empty
         // or has not completed its next scan.
-        workspace.restoredAgentResumeStatesByPanelId[panel.id] = .manualResumeAvailable
+        workspace.restoredAgentLifecycle.setResumeState(.manualResumeAvailable, panelId: panel.id)
 
         let first = workspace.sessionSnapshot(
             includeScrollback: false,
@@ -125,8 +125,8 @@ import Testing
             ),
             resumeEvidenceProvenance: "tui"
         )
-        workspace.restoredAgentSnapshotsByPanelId[panel.id] = agent
-        workspace.restoredAgentResumeStatesByPanelId[panel.id] = .manualResumeAvailable
+        workspace.restoredAgentLifecycle.setSnapshot(agent, panelId: panel.id)
+        workspace.restoredAgentLifecycle.setResumeState(.manualResumeAvailable, panelId: panel.id)
         let binding = try #require(agent.resumeBindingSnapshot())
         #expect(workspace.setSurfaceResumeBinding(binding, panelId: panel.id))
 
@@ -210,8 +210,8 @@ import Testing
             ),
             resumeEvidenceProvenance: "tui"
         )
-        workspace.restoredAgentSnapshotsByPanelId[panel.id] = retained
-        workspace.restoredAgentResumeStatesByPanelId[panel.id] = .observedAgentCommandRunning
+        workspace.restoredAgentLifecycle.setSnapshot(retained, panelId: panel.id)
+        workspace.restoredAgentLifecycle.setResumeState(.observedAgentCommandRunning, panelId: panel.id)
 
         let processID = Int(ProcessInfo.processInfo.processIdentifier)
         let processIdentity = try #require(AgentPIDProcessIdentity(pid: pid_t(processID)))
@@ -297,7 +297,7 @@ import Testing
     func unverifiedCodexSnapshotDoesNotBackfillAtSave() throws {
         let workspace = Workspace()
         let panel = try #require(workspace.focusedTerminalPanel)
-        workspace.restoredAgentSnapshotsByPanelId[panel.id] = SessionRestorableAgentSnapshot(
+        workspace.restoredAgentLifecycle.setSnapshot(SessionRestorableAgentSnapshot(
             kind: .codex,
             sessionId: "unverified-codex-save",
             launchCommand: AgentLaunchCommandSnapshot(
@@ -306,8 +306,8 @@ import Testing
                 arguments: ["/usr/local/bin/codex", "resume", "unverified-codex-save"],
                 source: "process"
             )
-        )
-        workspace.restoredAgentResumeStatesByPanelId[panel.id] = .manualResumeAvailable
+        ), panelId: panel.id)
+        workspace.restoredAgentLifecycle.setResumeState(.manualResumeAvailable, panelId: panel.id)
 
         let snapshot = workspace.sessionSnapshot(
             includeScrollback: false,
@@ -376,12 +376,12 @@ import Testing
     func unrepairableRetainedAgentIsVisibleInsteadOfSilentlyDropped() throws {
         let workspace = Workspace()
         let panel = try #require(workspace.focusedTerminalPanel)
-        workspace.restoredAgentSnapshotsByPanelId[panel.id] = SessionRestorableAgentSnapshot(
+        workspace.restoredAgentLifecycle.setSnapshot(SessionRestorableAgentSnapshot(
             kind: .custom("agent-without-resume-command"),
             sessionId: "unrepairable-agent-session",
             workingDirectory: "/tmp/unrepairable-agent"
-        )
-        workspace.restoredAgentResumeStatesByPanelId[panel.id] = .manualResumeAvailable
+        ), panelId: panel.id)
+        workspace.restoredAgentLifecycle.setResumeState(.manualResumeAvailable, panelId: panel.id)
 
         let snapshot = workspace.sessionSnapshot(includeScrollback: false)
         #expect(snapshot.panels.first?.terminal?.agent?.sessionId == "unrepairable-agent-session")
@@ -397,7 +397,7 @@ import Testing
     @Test @MainActor
     func dockResumeBindingGapPublishesToOwningWorkspaceImmediately() throws {
         let workspace = Workspace()
-        let dock = workspace.dockSplit
+        let dock = try #require(workspace.dockSplit)
         let panelId = UUID()
 
         dock.setResumeBindingGap(true, panelId: panelId)

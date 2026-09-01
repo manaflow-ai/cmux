@@ -14,19 +14,19 @@ struct SessionResumeBindingBackfillRegressionTests {
     func relaunchOnlyOllamaRemainsBindingFreeAcrossRepeatedSaves() throws {
         let workspace = Workspace()
         let panel = try #require(workspace.focusedTerminalPanel)
-        workspace.restoredAgentSnapshotsByPanelId[panel.id] = SessionRestorableAgentSnapshot(
+        workspace.restoredAgentLifecycle.setSnapshot(SessionRestorableAgentSnapshot(
             kind: .ollama,
             sessionId: "",
             workingDirectory: "/tmp/ollama-project",
             launchCommand: AgentLaunchCommandSnapshot(
-                processDetectedLauncher: "ollama",
+                launcher: "ollama",
                 executablePath: "/opt/homebrew/bin/ollama",
                 arguments: ["/opt/homebrew/bin/ollama", "run", "qwen3:8b"],
                 workingDirectory: "/tmp/ollama-project",
                 source: "process"
             )
-        )
-        workspace.restoredAgentResumeStatesByPanelId[panel.id] = .observedAgentCommandRunning
+        ), panelId: panel.id)
+        workspace.restoredAgentLifecycle.setResumeState(.observedAgentCommandRunning, panelId: panel.id)
         workspace.updatePanelShellActivityState(panelId: panel.id, state: .commandRunning)
 
         for _ in 0..<2 {
@@ -83,10 +83,10 @@ struct SessionResumeBindingBackfillRegressionTests {
     func discardingRestoredAgentClearsResumeBindingGap() throws {
         let workspace = Workspace()
         let panel = try #require(workspace.focusedTerminalPanel)
-        workspace.restoredAgentSnapshotsByPanelId[panel.id] = SessionRestorableAgentSnapshot(
+        workspace.restoredAgentLifecycle.setSnapshot(SessionRestorableAgentSnapshot(
             kind: .claude,
             sessionId: "discarded-session"
-        )
+        ), panelId: panel.id)
         workspace.setResumeBindingGap(true, panelId: panel.id)
         #expect(workspace.unresolvedResumeBindingGapCount == 1)
 
