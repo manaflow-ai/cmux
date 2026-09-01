@@ -1960,7 +1960,12 @@ final class BrowserPanel: Panel, ObservableObject {
     var browserViewportHostRestorationTask: Task<Void, Never>?
     var browserViewportHostRestorationPending = false
     var websiteDataStore: WKWebsiteDataStore
-    private let preservesExplicitEphemeralWebsiteDataStore: Bool
+    private var preservesExplicitEphemeralWebsiteDataStore: Bool
+    private var appSessionStoreRequiresNativeBootstrap = false
+    private let appSessionNavigationRequest: (@MainActor (URL) async -> BrowserAppSessionRequestOutcome)?
+    private var pendingAppSessionNavigationTask: Task<Void, Never>?
+    private var pendingAppSessionNavigationCompletion: ((WKNavigation?) -> Void)?
+    private var appSessionNavigationGeneration: UInt64 = 0
     var browserAutomationUserScripts: [WKUserScript] = []
     var browserAutomationInitScriptCount = 0
     var browserAutomationStyleScriptCount = 0
@@ -3392,7 +3397,8 @@ final class BrowserPanel: Panel, ObservableObject {
         bypassRemoteProxy: Bool = false,
         isRemoteWorkspace: Bool = false,
         remoteWebsiteDataStoreIdentifier: UUID? = nil,
-        websiteDataStore explicitWebsiteDataStore: WKWebsiteDataStore? = nil
+        websiteDataStore explicitWebsiteDataStore: WKWebsiteDataStore? = nil,
+        appSessionNavigationRequest: (@MainActor (URL) async -> BrowserAppSessionRequestOutcome)? = nil
     ) {
         // Register fallback defaults and normalize legacy/out-of-range settings once
         // per process, before any setting is read below or by the SwiftUI view.
@@ -3401,6 +3407,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.mobileBrowserDialogBroker = MobileBrowserDialogBroker(panelID: self.id.uuidString)
         self.workspaceId = workspaceId
         self.externalNavigationHandler = BrowserExternalNavigationHandler()
+        self.appSessionNavigationRequest = appSessionNavigationRequest
         let resolvedProfileID = Self.resolvedProfileID(requested: profileID)
         self.profileID = resolvedProfileID
         self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
@@ -4107,7 +4114,14 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     var explicitEphemeralWebsiteDataStoreForSibling: WKWebsiteDataStore? {
-        preservesExplicitEphemeralWebsiteDataStore ? websiteDataStore : nil
+        // A failed or signed-out app handoff owns an empty isolated store. Do
+        // not copy it to a sibling, because the sibling would otherwise skip
+        // the native exchange and render the signed-out app shell.
+        guard preservesExplicitEphemeralWebsiteDataStore,
+              !appSessionStoreRequiresNativeBootstrap else {
+            return nil
+        }
+        return websiteDataStore
     }
 
     func reattachToWorkspace(
@@ -4142,6 +4156,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     @discardableResult
     func switchToProfile(_ requestedProfileID: UUID) -> Bool {
+        cancelPendingNativeAppSessionNavigation()
         guard !preservesExplicitEphemeralWebsiteDataStore else {
             return false
         }
@@ -4186,6 +4201,7 @@ final class BrowserPanel: Panel, ObservableObject {
         if let previousCmuxWebView = previousWebView as? CmuxWebView { previousCmuxWebView.clearBrowserDownloadCallbacks() }
 
         profileID = resolvedProfileID
+        appSessionStoreRequiresNativeBootstrap = false
         historyStore = BrowserProfileStore.shared.historyStore(for: resolvedProfileID)
         BrowserProfileStore.shared.noteUsed(resolvedProfileID)
 
@@ -4304,6 +4320,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func restoreSessionSnapshot(_ snapshot: SessionBrowserPanelSnapshot) {
+        cancelPendingNativeAppSessionNavigation()
         // Diff viewer surfaces navigate via the app-owned custom scheme, so they
         // restore even though the original local HTTP server is gone. Manifest
         // preparation is detached from the main actor; the scheme request also
@@ -4940,8 +4957,9 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func close() {
-        cancelHiddenWebViewDiscard()
         isClosingWebViewLifecycle = true
+        cancelPendingNativeAppSessionNavigation()
+        cancelHiddenWebViewDiscard()
         trustedLocalFileURL = nil
         pendingTrustedLocalFileURL = nil
         automationNavigationCoordinator.invalidate()
@@ -5362,6 +5380,221 @@ final class BrowserPanel: Panel, ObservableObject {
 
     // MARK: - Navigation
 
+    /// Returns true for the signed-in app pages that must receive the native
+    /// Stack session before WebKit starts the document load.
+    static func supportsNativeAppSession(
+        for url: URL,
+        trustedOrigin: URL = AuthEnvironment.appSessionHandoffOrigin
+    ) -> Bool {
+        BrowserAppTheme.supportsAppSurface(
+            url: url,
+            trustedOrigin: trustedOrigin
+        )
+    }
+
+    private func shouldBootstrapNativeAppSession(
+        destinationURL: URL,
+        request: URLRequest
+    ) -> Bool {
+        guard !isClosingWebViewLifecycle,
+              !usesRemoteWorkspaceProxy,
+              Self.supportsNativeAppSession(for: destinationURL),
+              (request.httpMethod ?? "GET").uppercased() == "GET",
+              (!preservesExplicitEphemeralWebsiteDataStore
+                  || appSessionStoreRequiresNativeBootstrap) else {
+            return false
+        }
+        return appSessionNavigationRequest != nil || AppDelegate.shared?.auth != nil
+    }
+
+    private func requestNativeAppSession(
+        for destinationURL: URL
+    ) async -> BrowserAppSessionRequestOutcome {
+        if let appSessionNavigationRequest {
+            return await appSessionNavigationRequest(destinationURL)
+        }
+        guard let auth = AppDelegate.shared?.auth else {
+            return .notAuthenticated
+        }
+        return await auth.browserAppSession.request(destinationURL: destinationURL)
+    }
+
+    private func nativeAppSessionNavigationIsCurrent(
+        _ navigation: BrowserAppSessionNavigation
+    ) -> Bool {
+        // An injected request provider is a deterministic test seam. The
+        // production provider is checked against the controller's auth
+        // generation before its cookies are exposed to this panel.
+        if appSessionNavigationRequest != nil {
+            return true
+        }
+        guard let auth = AppDelegate.shared?.auth else { return false }
+        return auth.browserAppSession.isCurrent(
+            generation: navigation.generation,
+            authSessionGeneration: navigation.authSessionGeneration
+        )
+    }
+
+    private func cancelPendingNativeAppSessionNavigation() {
+        appSessionNavigationGeneration &+= 1
+        let completion = pendingAppSessionNavigationCompletion
+        pendingAppSessionNavigationCompletion = nil
+        pendingAppSessionNavigationTask?.cancel()
+        pendingAppSessionNavigationTask = nil
+        completion?(nil)
+    }
+
+    /// Starts the native-to-web exchange for a trusted app surface. The
+    /// destination is not loaded until the exchange returns, so a persistent
+    /// browser profile can never render the signed-out shell first.
+    private func beginNativeAppSessionNavigationIfNeeded(
+        request: URLRequest,
+        destinationURL: URL,
+        recordTypedNavigation: Bool,
+        preserveRestoredSessionHistory: Bool,
+        onNavigationStarted: ((WKNavigation?) -> Void)?
+    ) -> Bool {
+        guard shouldBootstrapNativeAppSession(
+            destinationURL: destinationURL,
+            request: request
+        ) else {
+            return false
+        }
+
+        cancelPendingNativeAppSessionNavigation()
+        let requestGeneration = appSessionNavigationGeneration
+        currentURL = destinationURL
+        hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
+        navigationDelegate?.recordAttemptedRequest(request, displayURL: destinationURL)
+        refreshBackgroundAppearance()
+        shouldRenderWebView = true
+        shouldPreloadInitialNavigationInBackground = false
+        if recordTypedNavigation {
+            historyStore.recordTypedNavigation(url: destinationURL)
+        }
+        pendingAppSessionNavigationCompletion = onNavigationStarted
+
+        pendingAppSessionNavigationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            var outcome = await self.requestNativeAppSession(for: destinationURL)
+            if !Task.isCancelled, outcome.shouldRetry {
+                outcome = await self.requestNativeAppSession(for: destinationURL)
+            }
+            guard !Task.isCancelled,
+                  self.appSessionNavigationGeneration == requestGeneration else {
+                return
+            }
+            self.pendingAppSessionNavigationTask = nil
+            self.pendingAppSessionNavigationCompletion = nil
+
+            switch outcome {
+            case let .navigation(navigation):
+                guard self.nativeAppSessionNavigationIsCurrent(navigation),
+                      self.adoptAppSessionNavigation(
+                          navigation,
+                          onNavigationStarted: onNavigationStarted
+                      ) else {
+                    self.loadAppSurfaceWithoutNativeSession(
+                        request: request,
+                        destinationURL: destinationURL,
+                        preserveRestoredSessionHistory: preserveRestoredSessionHistory,
+                        requestGeneration: requestGeneration,
+                        onNavigationStarted: onNavigationStarted
+                    )
+                    return
+                }
+            case .cancelled:
+                // A cancelled exchange has no usable credentials. Continue in
+                // a fresh isolated store so the panel cannot retain or render
+                // the previous profile while auth state settles.
+                self.loadAppSurfaceWithoutNativeSession(
+                    request: request,
+                    destinationURL: destinationURL,
+                    preserveRestoredSessionHistory: preserveRestoredSessionHistory,
+                    requestGeneration: requestGeneration,
+                    onNavigationStarted: onNavigationStarted
+                )
+            case .notAuthenticated, .transientFailure, .failed:
+                self.loadAppSurfaceWithoutNativeSession(
+                    request: request,
+                    destinationURL: destinationURL,
+                    preserveRestoredSessionHistory: preserveRestoredSessionHistory,
+                    requestGeneration: requestGeneration,
+                    onNavigationStarted: onNavigationStarted
+                )
+            }
+        }
+        return true
+    }
+
+    private func loadAppSurfaceWithoutNativeSession(
+        request: URLRequest,
+        destinationURL: URL,
+        preserveRestoredSessionHistory: Bool,
+        requestGeneration: UInt64,
+        onNavigationStarted: ((WKNavigation?) -> Void)?
+    ) {
+        guard appSessionNavigationGeneration == requestGeneration else { return }
+        adoptIsolatedAppSessionStore()
+        performNavigation(
+            request: request,
+            originalURL: destinationURL,
+            recordTypedNavigation: false,
+            preserveRestoredSessionHistory: preserveRestoredSessionHistory,
+            onNavigationStarted: onNavigationStarted,
+            skipNativeAppSession: true
+        )
+    }
+
+    /// Installs the isolated store returned by the native session exchange and
+    /// then performs the requested navigation in the replacement web view.
+    @discardableResult
+    func adoptAppSessionNavigation(
+        _ navigation: BrowserAppSessionNavigation,
+        onNavigationStarted: ((WKNavigation?) -> Void)? = nil
+    ) -> Bool {
+        guard let destinationURL = navigation.request.url,
+              Self.supportsNativeAppSession(for: destinationURL),
+              (navigation.request.httpMethod ?? "GET").uppercased() == "GET",
+              navigation.websiteDataStore !== WKWebsiteDataStore.default(),
+              navigation.websiteDataStore.identifier == nil else {
+            return false
+        }
+
+        cancelPendingNativeAppSessionNavigation()
+        closeAllPopupControllers()
+        websiteDataStore = navigation.websiteDataStore
+        preservesExplicitEphemeralWebsiteDataStore = true
+        appSessionStoreRequiresNativeBootstrap = false
+        historyStore = BrowserHistoryStore(fileURL: nil)
+        resetForWorkspaceContextChange(
+            reason: "appSessionNavigation",
+            forceWebViewReplacement: true
+        )
+        AppDelegate.shared?.auth?.browserAppSession.register(self)
+        let startedNavigation = navigateWithoutInsecureHTTPPrompt(
+            request: navigation.request,
+            recordTypedNavigation: false,
+            trustedInternalNavigation: true,
+            skipNativeAppSession: true
+        )
+        onNavigationStarted?(startedNavigation)
+        return true
+    }
+
+    private func adoptIsolatedAppSessionStore() {
+        closeAllPopupControllers()
+        websiteDataStore = WKWebsiteDataStore.nonPersistent()
+        preservesExplicitEphemeralWebsiteDataStore = true
+        appSessionStoreRequiresNativeBootstrap = true
+        historyStore = BrowserHistoryStore(fileURL: nil)
+        resetForWorkspaceContextChange(
+            reason: "appSessionFallback",
+            forceWebViewReplacement: true
+        )
+        AppDelegate.shared?.auth?.browserAppSession.register(self)
+    }
+
     /// Navigate to a URL
     @discardableResult
     func navigate(
@@ -5419,6 +5652,7 @@ final class BrowserPanel: Panel, ObservableObject {
         recordTypedNavigation: Bool,
         preserveRestoredSessionHistory: Bool = false,
         trustedInternalNavigation: Bool = false,
+        skipNativeAppSession: Bool = false,
         onNavigationStarted: ((WKNavigation?) -> Void)? = nil
     ) -> WKNavigation? {
         guard let url = request.url else {
@@ -5462,7 +5696,8 @@ final class BrowserPanel: Panel, ObservableObject {
             originalURL: url,
             recordTypedNavigation: recordTypedNavigation,
             preserveRestoredSessionHistory: preserveRestoredSessionHistory,
-            onNavigationStarted: onNavigationStarted
+            onNavigationStarted: onNavigationStarted,
+            skipNativeAppSession: skipNativeAppSession
         )
     }
 
@@ -5495,12 +5730,27 @@ final class BrowserPanel: Panel, ObservableObject {
         originalURL: URL,
         recordTypedNavigation: Bool,
         preserveRestoredSessionHistory: Bool,
-        onNavigationStarted: ((WKNavigation?) -> Void)? = nil
+        onNavigationStarted: ((WKNavigation?) -> Void)? = nil,
+        skipNativeAppSession: Bool = false
     ) -> WKNavigation? {
+        // Any new navigation supersedes an in-flight native session exchange.
+        // The exchange may finish after the caller has moved to another URL,
+        // so invalidate it before WebKit or the fallback path starts loading.
+        cancelPendingNativeAppSessionNavigation()
         cancelHiddenWebViewDiscard()
         clearWebContentTerminationRecovery()
         if !preserveRestoredSessionHistory {
             abandonRestoredSessionHistoryIfNeeded()
+        }
+        if !skipNativeAppSession,
+           beginNativeAppSessionNavigationIfNeeded(
+               request: request,
+               destinationURL: originalURL,
+               recordTypedNavigation: recordTypedNavigation,
+               preserveRestoredSessionHistory: preserveRestoredSessionHistory,
+               onNavigationStarted: onNavigationStarted
+           ) {
+            return nil
         }
         let effectiveRequest = remoteProxyPreparedRequest(from: request, logScope: "rewrite")
         hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
@@ -6017,8 +6267,10 @@ extension BrowserPanel {
         // Stop exposing the authenticated store before its asynchronous WebKit
         // deletion callback completes. If WebKit drops that callback, the live
         // panel is still isolated from the previous account immediately.
+        cancelPendingNativeAppSessionNavigation()
         closeAllPopupControllers()
         websiteDataStore = WKWebsiteDataStore.nonPersistent()
+        appSessionStoreRequiresNativeBootstrap = true
         resetForWorkspaceContextChange(
             reason: "appSessionSignOut",
             forceWebViewReplacement: true
@@ -6113,6 +6365,7 @@ extension BrowserPanel {
 
     /// Go back in history
     func goBack() {
+        cancelPendingNativeAppSessionNavigation()
         guard canGoBack else { return }
         reactivateDiscardedWebViewWithoutNavigation(reason: "goBack")
         cancelInFlightNavigationBeforeHistoryTraversal()
@@ -6151,6 +6404,7 @@ extension BrowserPanel {
 
     /// Go forward in history
     func goForward() {
+        cancelPendingNativeAppSessionNavigation()
         guard canGoForward else { return }
         reactivateDiscardedWebViewWithoutNavigation(reason: "goForward")
         cancelInFlightNavigationBeforeHistoryTraversal()
@@ -6327,6 +6581,7 @@ extension BrowserPanel {
     /// Reload the current page
     @discardableResult
     func reload() -> WKNavigation? {
+        cancelPendingNativeAppSessionNavigation()
         if prepareForReload(reason: "reload", mode: .soft) {
             return nil
         }
@@ -6336,6 +6591,7 @@ extension BrowserPanel {
 
     /// Reload the current page, bypassing WebKit's cache.
     func hardReload() {
+        cancelPendingNativeAppSessionNavigation()
         if prepareForReload(reason: "hardReload", mode: .hard) {
             return
         }
@@ -6345,6 +6601,7 @@ extension BrowserPanel {
 
     /// Stop loading
     func stopLoading() {
+        cancelPendingNativeAppSessionNavigation()
         // Fail closed: a reveal must never blank-shell-heal over an explicit Stop.
         userStoppedLoadSinceWebViewReplacement = true
         webView.stopLoading()

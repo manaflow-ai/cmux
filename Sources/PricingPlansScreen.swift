@@ -30,8 +30,15 @@ enum ProUpgradePresenter {
            appDelegate.proUpgradeWorkspaceExists(workspaceId: workspaceId) {
             return
         }
+        let url = appPricingURLForCurrentAppearance()
+        guard !BrowserPanel.supportsNativeAppSession(for: url) else {
+            // Pricing must receive the native Stack session before its first
+            // document load. A persistent prewarm would render the signed-out
+            // shell and could later be adopted by an older panel.
+            return
+        }
         BrowserPrewarmedWebViewPool.shared.prewarm(
-            url: appPricingURLForCurrentAppearance(),
+            url: url,
             profileID: BrowserPanel.resolvedProfileID(requested: nil)
         )
     }
