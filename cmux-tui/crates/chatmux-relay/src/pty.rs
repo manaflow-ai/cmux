@@ -1657,22 +1657,22 @@ impl Inner {
         // callback and retire the exact attachment when the capability is no
         // longer current.
         let Some(current_attachment) = self
-            .attachment(pty_id)
+            .attachment(&pty_id)
             .filter(|attachment| Arc::ptr_eq(&attachment.publication_gate, &publication_gate))
         else {
             return;
         };
         let Some(auth) = self.auth_for_transport(context) else {
-            self.retire_if_current(pty_id, &current_attachment);
+            self.retire_if_current(&pty_id, &current_attachment);
             return;
         };
         if context.cancellation.is_cancelled()
             || cancellation.is_cancelled()
             || !self.transport_auth_is_current(context, &auth)
-            || !self.attachment_snapshot_is_current(pty_id, &current_attachment)
+            || !self.attachment_snapshot_is_current(&pty_id, &current_attachment)
             || !Self::try_claim_publication(&current_attachment)
         {
-            self.retire_if_current(pty_id, &current_attachment);
+            self.retire_if_current(&pty_id, &current_attachment);
             return;
         }
         (context.send)(Value::Object(opened_frame));
@@ -1685,10 +1685,10 @@ impl Inner {
                 .auth_for_transport(context)
                 .is_some_and(|auth| self.transport_auth_is_current(context, &auth))
             || !self
-                .attachment(pty_id)
-                .is_some_and(|attachment| self.attachment_snapshot_is_current(pty_id, &attachment))
+                .attachment(&pty_id)
+                .is_some_and(|attachment| self.attachment_snapshot_is_current(&pty_id, &attachment))
         {
-            self.retire_if_current(pty_id, &current_attachment);
+            self.retire_if_current(&pty_id, &current_attachment);
             return;
         }
         start();
@@ -1697,10 +1697,10 @@ impl Inner {
         // cannot leave a quiet attachment running without an owner.
         if cancellation.is_cancelled() {
             if let Some(attachment) = self
-                .attachment(pty_id)
+                .attachment(&pty_id)
                 .filter(|attachment| Arc::ptr_eq(&attachment.publication_gate, &publication_gate))
             {
-                self.retire_if_current(pty_id, &attachment);
+                self.retire_if_current(&pty_id, &attachment);
             }
         }
     }
@@ -2545,7 +2545,7 @@ impl Inner {
         let handle = tokio::select! {
             biased;
             _ = cancellation.token().cancelled() => {
-                return Err((RelayPtyErrorCode::Failed, "terminal open cancelled".to_owned()));
+                return Err("terminal open cancelled".to_owned());
             }
             handle = self.deps.spawn_pty(
                 SpawnSpec {
