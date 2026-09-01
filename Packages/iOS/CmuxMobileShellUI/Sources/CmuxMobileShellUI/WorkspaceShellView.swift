@@ -659,7 +659,10 @@ struct WorkspaceShellView: View {
                 safeAreaContext: splitColumnVisibility == .detailOnly ? .fullWidth : .splitSidebarVisible
             )
             #if os(iOS)
-            .toolbarVisibility(splitColumnVisibility == .detailOnly ? .hidden : .visible, for: .tabBar)
+            // Keep the root tab strip visible when the split collapses to the
+            // terminal. The native iPad Liquid Glass tabs are the primary
+            // destination switcher, not detail-only toolbar chrome.
+            .toolbarVisibility(.visible, for: .tabBar)
             #endif
         }
         .navigationSplitViewStyle(.balanced)
