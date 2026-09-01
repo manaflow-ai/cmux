@@ -81,6 +81,15 @@ final class FileExplorerState: ObservableObject {
         defaults.set(name, forKey: Self.customSidebarNameKey)
     }
 
+    /// Reads the persisted custom-sidebar selection for registry availability checks.
+    ///
+    /// The registry can be evaluated before a window-specific state object exists,
+    /// so this accessor keeps the persistence key owned by ``FileExplorerState``
+    /// without duplicating it in the right-sidebar catalog.
+    static func persistedCustomSidebarName(defaults: UserDefaults = .standard) -> String? {
+        defaults.string(forKey: customSidebarNameKey)?.nilIfEmpty
+    }
+
     func toggle() {
         setVisible(!isVisible)
     }
