@@ -126,7 +126,11 @@ final class MemoryPressureMonitor {
         return nil
     }
 
+#if compiler(>=6.2)
     @concurrent
+#else
+    @Sendable
+#endif
     nonisolated private static func captureAggregateSample(
         using sampler: any MemoryPressureAggregateSampling,
         at sampledAt: Date
