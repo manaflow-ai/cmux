@@ -101,7 +101,7 @@ The inventory assigns each command to one disjoint authority group. Generated SD
 | `local-admin` | `control` plus the `local-admin` group on a trusted Unix-classified transport, including the current stdio relay |
 | `provider-authority` | `control` plus the `provider-authority` group after separate authority authentication |
 | `machine-provider` | Separate provider v0/v1 client and server types |
-| `terminal-renderer` | Separate terminal-host v4 frame types with a minted capability; v1-v3 decoding is retained only for durable host adoption, not minted renderer handshakes |
+| `terminal-renderer` | Separate terminal-host frame types with a minted capability; current hosts use v4, while a grant for an adopted legacy host may carry negotiated v1-v3 |
 
 An SDK must refuse a profile when the selected transport cannot satisfy its trust boundary.
 
