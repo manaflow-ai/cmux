@@ -21,7 +21,7 @@ REPOSITORY = /\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/
 MAX_FILE_BYTES = 300_000
 MAX_YAML_NODES = 10_000
 MAX_YAML_DEPTH = 64
-CLA_ACTION = "manaflow-ai/cla-github-action@5749bd2e5867b7545e66b55ac44acf616595bde3"
+CLA_ACTION = "manaflow-ai/cla-github-action@b4d3c4fab86d21e7775c63522d4b39b3724ea4bf"
 # CLA policy jobs handle repository trust decisions and must stay on an
 # ephemeral GitHub-hosted runner. A repository variable could redirect this
 # privileged work to an untrusted self-hosted machine, so the label is an
@@ -41,7 +41,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "01b3eed13d54db27ed195781dc0f6926a04cb9557de81f
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "21de7d7ed2e0d331bc1c58d003902bfa151a171d325290fdcadb47868f332bf8"
+EXPECTED_GUARD_SCRIPT_DIGEST = "08383f3f38bc56abdefd63e8b922afe60960a7beb2029e0abf76a23243dea330"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -806,6 +806,17 @@ def assert_cla_runner(value, name)
   fail!("#{name} must use the reviewed CLA runner") unless value == CLA_RUNNER
 end
 
+def assert_comment_binding_contract(gate_outputs, writer_inputs)
+  CLA_COMMENT_BINDING_OUTPUTS.each do |name, expected|
+    fail!("CLA gate must expose the signer comment #{name} output") unless
+      gate_outputs.is_a?(Hash) && gate_outputs[name] == expected
+  end
+  CLA_COMMENT_BINDING_INPUTS.each do |name, expected|
+    fail!("CLA writer must bind the signer comment #{name} input") unless
+      writer_inputs.is_a?(Hash) && writer_inputs[name] == expected
+  end
+end
+
 def assert_lifecycle_admission_contract(expressions, admission_run)
   CLA_LIFECYCLE_ACTIONS.each do |action|
     fragment = "github.event.action == '#{action}'"
@@ -816,6 +827,9 @@ def assert_lifecycle_admission_contract(expressions, admission_run)
   end
 
   normalized_run = admission_run.to_s.gsub(/\s+/, " ").strip
+  expected_emit = "emit() { [[ -n \"${GITHUB_OUTPUT+x}\" && -n \"${GITHUB_OUTPUT}\" ]] || fail \"GITHUB_OUTPUT is unavailable\" printf 'admitted=%s\\n' \"$1\" >>\"${GITHUB_OUTPUT}\" }"
+  fail!("CLA admission shell must define the reviewed output helper") unless
+    normalized_run.include?(expected_emit)
   expected_case = "case \"${EVENT_ACTION}\" in #{CLA_LIFECYCLE_ACTIONS.join("|")}) emit true ;;"
   fail!("CLA admission shell is missing the complete pull-request lifecycle case") unless
     normalized_run.include?(expected_case)
@@ -1366,7 +1380,7 @@ def run_lifecycle_regression_matrix!
   end
   checks += 1
   expect_policy_error("missing lifecycle admission output helper") do
-    assert_lifecycle_admission_contract(expressions, admission_run.sub("emit() {", "missing_emit() {"))
+    assert_lifecycle_admission_contract(expressions, admission_run.sub("emit() {", "helper() {"))
   end
   checks += 1
   puts "PASS: CLA lifecycle path regression matrix (#{checks} cases)"
@@ -1594,7 +1608,7 @@ def validate_workflow(raw)
       "signer_authorized" => "${{ steps.signer_preflight.outputs.signer_authorized }}",
       "head_sha" => "${{ steps.signer_preflight.outputs.head_sha }}",
       "base_sha" => "${{ steps.signer_preflight.outputs.base_sha }}"
-    }
+    }.merge(CLA_COMMENT_BINDING_OUTPUTS)
   fail!("CLALedgerWriter outputs are not the reviewed contract") unless
     writer["outputs"] == {
       "signature_recorded" => "${{ steps.cla_action.outputs.signature_recorded }}"
@@ -1742,8 +1756,9 @@ def validate_workflow(raw)
     "lock-pullrequest-aftermerge" => "false",
     "expected-head-sha" => "${{ needs.CLACommentGate.outputs.head_sha }}",
     "expected-base-sha" => "${{ needs.CLACommentGate.outputs.base_sha }}"
-  }
+  }.merge(CLA_COMMENT_BINDING_INPUTS)
   assert_action_inputs(action_step, writer_inputs, "CLALedgerWriter action")
+  assert_comment_binding_contract(gate["outputs"], writer_inputs)
 
   checkout = step_using(rerun, "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", "RerunFailedCLA")
   assert_action_inputs(
@@ -1920,7 +1935,12 @@ def validate_guard_script(raw)
     "assert_safe_expression_fields",
     "assert_cla_runner",
     "CLA_RUNNER",
+    "assert_comment_binding_contract",
+    "CLA_COMMENT_BINDING_OUTPUTS",
+    "CLA_COMMENT_BINDING_INPUTS",
     "assert_lifecycle_admission_contract",
+    "GITHUB_OUTPUT+x",
+    "admitted=%s",
     "CLA_DOCUMENT_PATH",
     "CLA_DOCUMENT_VERSION",
     "CLA_SIGNATURES_PATH",
