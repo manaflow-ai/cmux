@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 public import CmuxIrohTransport
 
 /// Keeps the endpoint's relay credentials perpetually fresh: mints early
@@ -10,35 +10,19 @@ public import CmuxIrohTransport
 public actor IrxRelayCredentialAutopilot {
     private static let maximumHintRetryAttempts = 3
 
-    private enum HintRefreshOutcome: Equatable {
-        case succeeded
-        case exhausted
-        case stopped
-    }
-
-    private struct FailureCounts: Sendable {
-        var transient = 0
-        var unauthorized = 0
-        var missingAuthentication = 0
-    }
+    private typealias HintRefreshOutcome = IrxRelayCredentialAutopilotHintRefreshOutcome
+    private typealias FailureCounts = IrxRelayCredentialAutopilotFailureCounts
 
     /// The disposition the autopilot selected for a classified failure.
     /// Lifecycle owners must not re-derive this decision from a second counter.
-    public enum FailureDisposition: Equatable, Sendable {
-        /// The autopilot will sleep for the supplied delay before retrying.
-        case retry(delay: TimeInterval)
-        /// A non-fatal auxiliary operation failed; the endpoint remains live.
-        case advisory
-        /// The autopilot has stopped and requires lifecycle-owner action.
-        /// The reason is carried so every platform applies the same outcome.
-        case terminal(requiresReauthentication: Bool)
-    }
+    public typealias FailureDisposition = IrxRelayCredentialAutopilotFailureDisposition
 
     private let broker: IrxBrokerService
     private let endpoint: IrxEndpointSupervisor
     private let journal: IrxJournal
     private let clock: any CmxIrohRelayClock
     private let retryPolicy: IrxHostActivationPolicy
+    private let credentialPolicy = IrxRelayCredentialPolicy()
     private var loop: Task<Void, Never>?
     private var loopGeneration: UInt64 = 0
     /// Runs after every successful rotation. Hosts re-register here so their
@@ -49,6 +33,7 @@ public actor IrxRelayCredentialAutopilot {
     /// platform owners do not re-derive retry state with a second counter.
     public var onFailure: (@Sendable (IrxBrokerFailure, FailureDisposition) async -> Void)?
 
+    /// Creates an autopilot with injected broker, endpoint, clock, and retry policy.
     public init(
         broker: IrxBrokerService,
         endpoint: IrxEndpointSupervisor,
@@ -63,6 +48,7 @@ public actor IrxRelayCredentialAutopilot {
         self.retryPolicy = retryPolicy
     }
 
+    /// Installs the callback used to publish a fresh relay hint after rotation.
     public func setOnRotation(_ handler: @escaping @Sendable () async throws -> Void) {
         onRotation = handler
     }
@@ -95,6 +81,7 @@ public actor IrxRelayCredentialAutopilot {
         journal.record("credential-autopilot", "started")
     }
 
+    /// Stops the refresh loop and cancels any in-flight wait.
     public func stop() {
         loopGeneration &+= 1
         loop?.cancel()
@@ -140,7 +127,7 @@ public actor IrxRelayCredentialAutopilot {
             let now = Date()
             let credentials = await broker.cachedRelayCredentials()
             if !bypassRefreshDeadlineOnce, let soonest = credentials.map({
-                IrxRelayCredentialPolicy.refreshDate(
+                credentialPolicy.refreshDate(
                     for: $0, jitter: Double.random(in: 0...10))
             }).min(), soonest > now {
                 let wait = soonest.timeIntervalSince(now)
@@ -293,7 +280,7 @@ public actor IrxRelayCredentialAutopilot {
             await onFailure?(failure, .terminal(requiresReauthentication: false))
             return nil
         case let .retry(policyDelay, retryAfterSeconds):
-            let delaySeconds = IrxRelayCredentialPolicy.boundedRetryDelay(
+            let delaySeconds = credentialPolicy.boundedRetryDelay(
                 expiresAt: credentialExpiry,
                 now: Date(),
                 policyDelay: policyDelay,

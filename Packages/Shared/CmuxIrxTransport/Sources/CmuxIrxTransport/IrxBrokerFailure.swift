@@ -1,61 +1,23 @@
 public import CMUXMobileCore
 import CmuxIrohTransport
 
-/// The authenticated broker operation that produced a failure.
-public enum IrxBrokerOperation: String, Codable, Equatable, Sendable {
-    /// Endpoint binding registration or refresh.
-    case register
-    /// Account binding/trust discovery.
-    case discover
-    /// Relay credential minting.
-    case mint
-    /// Relay path-hint registration.
-    case hintRefresh = "hint_refresh"
-    /// Pair-grant minting.
-    case pairGrant = "pair_grant"
-    /// Binding revocation.
-    case revoke
-    /// Local endpoint binding or rebind work (not a broker HTTP operation).
-    case endpoint
-}
-
-/// A privacy-safe classification of one irx broker failure.
-public enum IrxBrokerFailureKind: String, Codable, Equatable, Sendable {
-    /// The account must be authenticated again.
-    case authenticationRequired = "authentication_required"
-    /// The operation can be retried safely.
-    case transient
-    /// The broker rejected the request for a non-auth reason.
-    case rejected
-    /// The response or local inputs were invalid.
-    case invalid
-}
-
 /// Broker failure context carried from the transport to the host lifecycle.
 ///
 /// The wrapper retains only stable operation, status, and error-code fields;
 /// raw response bodies and token material never cross into the journal or UI.
 public struct IrxBrokerFailure: Error, Codable, Equatable, Sendable {
     /// Selects the counter used for bounded auth-recovery escalation.
-    ///
-    /// This classification is deliberately derived once from the typed
-    /// failure context. A broker response body that happens to use the
-    /// `missing_authentication` code with an HTTP status remains a normal
-    /// transient failure; only a missing, status-less auth snapshot enters
-    /// the dedicated account-transition bucket.
-    public enum EscalationBucket: String, Codable, Equatable, Sendable {
-        /// A post-recovery HTTP 401 that may be a short propagation race.
-        case unauthorized
-        /// A status-less missing session snapshot during account transition.
-        case missingAuthentication = "missing_authentication"
-        /// All other retryable failures use the generic transient ladder.
-        case transient
-    }
+    public typealias EscalationBucket = IrxBrokerFailureEscalationBucket
 
+    /// The broker operation that produced the failure.
     public let operation: IrxBrokerOperation
+    /// The privacy-safe failure category selected by the transport.
     public let kind: IrxBrokerFailureKind
+    /// The HTTP status, when the failure came from an HTTP response.
     public let statusCode: Int?
+    /// A stable, sanitized broker or local error code.
     public let errorCode: String?
+    /// The validated server-provided retry floor, if present.
     public let retryAfterSeconds: Int?
 
     /// Creates a classified failure, using `fallbackKind` only for errors that
@@ -133,9 +95,9 @@ public struct IrxBrokerFailure: Error, Codable, Equatable, Sendable {
                 errorCode = code ?? "rate_limited"
                 retryAfterSeconds = retryAfter
             case let .rejected(status, code):
-                kind = Self.kind(
+                kind = irxBrokerFailureKind(
                     operation: operation,
-                    forStatusCode: status,
+                    statusCode: status,
                     code: code
                 )
                 statusCode = status
@@ -225,49 +187,52 @@ public struct IrxBrokerFailure: Error, Codable, Equatable, Sendable {
         return values
     }
 
-    private static func kind(
-        operation: IrxBrokerOperation,
-        forStatusCode statusCode: Int,
-        code: String?
-    ) -> IrxBrokerFailureKind {
-        switch statusCode {
-        case 401:
-            // The shared client has already attempted exactly one recovery at
-            // this point. A second broker 401 is not evidence that the auth
-            // refresh itself was rejected (that outcome is carried explicitly
-            // by CmxIrohBrokerTokenRecoveryError.authenticationRequired); it
-            // can still be a broker-side propagation race. Keep the first few
-            // occurrences on the bounded activation ladder; the lifecycle
-            // policy escalates a persistent sequence to reauthentication.
+}
+
+/// Classifies an HTTP broker rejection without retaining its response body.
+private func irxBrokerFailureKind(
+    operation: IrxBrokerOperation,
+    statusCode: Int,
+    code: String?
+) -> IrxBrokerFailureKind {
+    switch statusCode {
+    case 401:
+        // The shared client has already attempted exactly one recovery at
+        // this point. A second broker 401 is not evidence that the auth
+        // refresh itself was rejected (that outcome is carried explicitly
+        // by CmxIrohBrokerTokenRecoveryError.authenticationRequired); it
+        // can still be a broker-side propagation race. Keep the first few
+        // occurrences on the bounded activation ladder; the lifecycle
+        // policy escalates a persistent sequence to reauthentication.
+        .transient
+    case 403 where code?.lowercased() == "binding_request_proof_required"
+        || code?.lowercased() == "invalid_binding_request_proof":
+        .transient
+    case 403 where [
+        "unauthorized", "invalid_token", "token_expired", "auth_required",
+        "account_mismatch"
+    ].contains(code?.lowercased() ?? ""):
+        .authenticationRequired
+    case 404:
+        // Activation endpoints can briefly return 404 while a backend route
+        // or CDN deployment rolls out. Keep those operations on the bounded
+        // retry ladder; account-management and peer-targeted 404s remain
+        // terminal because retrying them cannot create the target.
+        switch operation {
+        case .register, .discover, .mint, .hintRefresh:
             .transient
-        case 403 where code?.lowercased() == "binding_request_proof_required"
-            || code?.lowercased() == "invalid_binding_request_proof":
-            .transient
-        case 403 where [
-            "unauthorized", "invalid_token", "token_expired", "auth_required",
-            "account_mismatch"
-        ].contains(code?.lowercased() ?? ""):
-            .authenticationRequired
-        case 404:
-            // Activation endpoints can briefly return 404 while a backend
-            // route or CDN deployment rolls out. Keep those operations on the
-            // bounded retry ladder; account-management and peer-targeted 404s
-            // remain terminal because retrying them cannot create the target.
-            switch operation {
-            case .register, .discover, .mint, .hintRefresh:
-                .transient
-            case .pairGrant, .revoke, .endpoint:
-                .rejected
-            }
-        case 408, 425, 429, 500 ... 599:
-            .transient
-        default:
+        case .pairGrant, .revoke, .endpoint:
             .rejected
         }
+    case 408, 425, 429, 500 ... 599:
+        .transient
+    default:
+        .rejected
     }
 }
 
 extension IrxBrokerFailure: DiagnosticFailureProviding {
+    /// Maps this broker failure to the shared diagnostic taxonomy.
     public var diagnosticFailureKind: DiagnosticFailureKind {
         switch kind {
         case .authenticationRequired:

@@ -11,6 +11,7 @@ public struct CmxIrohBrokerTokenSource: Sendable {
         @Sendable (_ rejected: CmxIrohBrokerCredentials) async throws
             -> CmxIrohBrokerCredentials?
 
+    /// Creates a token source from atomic snapshot and recovery closures.
     public init(
         credentialPair: @escaping @Sendable () async throws -> CmxIrohBrokerCredentials?,
         recoveredCredentialPair: @escaping @Sendable (

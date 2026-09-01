@@ -33,49 +33,47 @@ struct IrohNetworkingAttentionNote: View {
     }
 }
 
-extension IrohNetworkingSection {
-    static func networkingRuntimeStatusText(
-        for snapshot: CmxIrohSettingsSnapshot
-    ) -> String {
-        if snapshot.requiresReauthentication {
-            return String(
-                localized: "settings.networking.status.reauthenticationRequired",
-                defaultValue: "Sign in again to reconnect this Mac"
+private func networkingRuntimeStatusText(
+    for snapshot: CmxIrohSettingsSnapshot
+) -> String {
+    if snapshot.requiresReauthentication {
+        return String(
+            localized: "settings.networking.status.reauthenticationRequired",
+            defaultValue: "Sign in again to reconnect this Mac"
+        )
+    }
+    if !snapshot.supportsRelayConfiguration, snapshot.runtimeStatus == .degraded {
+        return String(
+            localized: "settings.mobile.iroh.status.failed",
+            defaultValue: "Unavailable"
+        )
+    }
+    return switch snapshot.runtimeStatus {
+    case .inactive:
+        String(localized: "settings.networking.status.inactive", defaultValue: "Inactive")
+    case .starting:
+        String(localized: "settings.networking.status.starting", defaultValue: "Starting")
+    case .retrying:
+        String(localized: "settings.mobile.iroh.status.retrying", defaultValue: "Retrying")
+    case .active:
+        String(localized: "settings.networking.status.active", defaultValue: "Iroh endpoint active")
+    case .direct:
+        String(localized: "settings.networking.status.direct", defaultValue: "Connected directly peer-to-peer")
+    case let .relayed(provider, region):
+        String(localized: "settings.networking.status.relayed", defaultValue: "Connected through \(provider), \(region)")
+    case let .privateNetwork(displayName):
+        if displayName.isEmpty {
+            String(
+                localized: "settings.networking.status.private.generic",
+                defaultValue: "Connected through a private network"
+            )
+        } else {
+            String(
+                localized: "settings.networking.status.private",
+                defaultValue: "Connected through \(displayName)"
             )
         }
-        if !snapshot.supportsRelayConfiguration, snapshot.runtimeStatus == .degraded {
-            return String(
-                localized: "settings.mobile.iroh.status.failed",
-                defaultValue: "Unavailable"
-            )
-        }
-        return switch snapshot.runtimeStatus {
-        case .inactive:
-            String(localized: "settings.networking.status.inactive", defaultValue: "Inactive")
-        case .starting:
-            String(localized: "settings.networking.status.starting", defaultValue: "Starting")
-        case .retrying:
-            String(localized: "settings.mobile.iroh.status.retrying", defaultValue: "Retrying")
-        case .active:
-            String(localized: "settings.networking.status.active", defaultValue: "Iroh endpoint active")
-        case .direct:
-            String(localized: "settings.networking.status.direct", defaultValue: "Connected directly peer-to-peer")
-        case let .relayed(provider, region):
-            String(localized: "settings.networking.status.relayed", defaultValue: "Connected through \(provider), \(region)")
-        case let .privateNetwork(displayName):
-            if displayName.isEmpty {
-                String(
-                    localized: "settings.networking.status.private.generic",
-                    defaultValue: "Connected through a private network"
-                )
-            } else {
-                String(
-                    localized: "settings.networking.status.private",
-                    defaultValue: "Connected through \(displayName)"
-                )
-            }
-        case .degraded:
-            String(localized: "settings.networking.status.degraded", defaultValue: "Direct-only until relay settings recover")
-        }
+    case .degraded:
+        String(localized: "settings.networking.status.degraded", defaultValue: "Direct-only until relay settings recover")
     }
 }

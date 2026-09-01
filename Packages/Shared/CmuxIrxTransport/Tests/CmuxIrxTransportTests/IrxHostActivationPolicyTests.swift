@@ -279,10 +279,9 @@ struct IrxHostActivationPolicyTests {
 
     @Test("unclassified local failures fail closed instead of retrying")
     func unclassifiedFailureStops() {
-        struct LocalInputError: Error {}
         let failure = IrxBrokerFailure(
             operation: .register,
-            error: LocalInputError()
+            error: IrxHostActivationPolicyLocalInputError()
         )
 
         #expect(failure.kind == .invalid)
@@ -367,7 +366,7 @@ struct IrxHostActivationPolicyTests {
             Issue.record("rate-limited discovery should remain retryable")
             return
         }
-        let delay = IrxRelayCredentialPolicy.boundedRetryDelay(
+        let delay = IrxRelayCredentialPolicy().boundedRetryDelay(
             expiresAt: nil,
             now: Date(timeIntervalSince1970: 2_000_000),
             policyDelay: policyDelay,

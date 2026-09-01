@@ -4,20 +4,14 @@ import SwiftUI
 
 /// SwiftUI copies environment values across concurrency domains. The wrapped
 /// controller remains main-actor isolated by `CmxIrohSettingsControlling`.
+// SAFETY: the wrapper carries only a reference; all controller methods remain
+// isolated by the @MainActor protocol boundary.
 private struct IrohSettingsControllerReference: @unchecked Sendable {
     let controller: (any CmxIrohSettingsControlling)?
 }
 
-private struct IrxAuthenticationStatusProviderReference: @unchecked Sendable {
-    let provider: (any CmxIrxAuthenticationStatusProviding)?
-}
-
 private struct IrohSettingsControllerEnvironmentKey: EnvironmentKey {
     static let defaultValue = IrohSettingsControllerReference(controller: nil)
-}
-
-private struct IrxAuthenticationStatusProviderEnvironmentKey: EnvironmentKey {
-    static let defaultValue = IrxAuthenticationStatusProviderReference(provider: nil)
 }
 
 extension EnvironmentValues {
@@ -31,14 +25,5 @@ extension EnvironmentValues {
         }
     }
 
-    /// Optional irx authentication status used by the mobile Settings banner.
-    public var irxAuthenticationStatusProvider:
-        (any CmxIrxAuthenticationStatusProviding)? {
-        get { self[IrxAuthenticationStatusProviderEnvironmentKey.self].provider }
-        set {
-            self[IrxAuthenticationStatusProviderEnvironmentKey.self] =
-                IrxAuthenticationStatusProviderReference(provider: newValue)
-        }
-    }
 }
 #endif

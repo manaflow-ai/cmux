@@ -16,6 +16,7 @@ public enum CmxIrohBrokerTokenRecoveryError: Error, Equatable, Sendable {
 }
 
 extension CmxIrohBrokerTokenRecoveryError: DiagnosticFailureProviding {
+    /// Maps the recovery outcome to the shared, privacy-safe diagnostic class.
     public var diagnosticFailureKind: DiagnosticFailureKind {
         switch self {
         case .authenticationRequired:

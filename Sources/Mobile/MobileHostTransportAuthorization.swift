@@ -253,6 +253,8 @@ enum MobileHostPublicStatusCache {
     private static let lock = NSLock()
     private nonisolated(unsafe) static var legacyRoutes: [CmxAttachRoute] = []
     private nonisolated(unsafe) static var irohRoute: CmxAttachRoute?
+    // SAFETY: these cache values are always read and written while `lock` is
+    // held; the unsafe annotation only permits synchronous cross-actor reads.
     private nonisolated(unsafe) static var irxActivationState: IrxHostActivationState = .inactive
     private nonisolated(unsafe) static var irxBrokerFailure: IrxBrokerFailure?
 

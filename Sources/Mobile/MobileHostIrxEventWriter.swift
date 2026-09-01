@@ -3,10 +3,6 @@ import Foundation
 
 /// Lazy server-events lane writer for the irx host connection.
 actor MobileHostIrxEventWriter: MobileHostIndependentEventWriting {
-    private enum WriterOpenError: Error {
-        case superseded
-    }
-
     private let connection: IrxConnection
     private let journal: IrxJournal
     private var writer: IrxStreamWriter?
@@ -33,7 +29,7 @@ actor MobileHostIrxEventWriter: MobileHostIndependentEventWriting {
             let writer: IrxStreamWriter
             do {
                 writer = try await openedWriter()
-            } catch is WriterOpenError {
+            } catch is MobileHostIrxEventWriterOpenError {
                 // reset()/close() can supersede an open after the QUIC lane
                 // has been created. The creator owns finishing that lane; one
                 // sender may immediately establish the replacement lane.
@@ -87,7 +83,7 @@ actor MobileHostIrxEventWriter: MobileHostIndependentEventWriting {
             guard let openingID, openingWriterID == openingID else {
                 // The creator of the open owns cleanup. A follower must not
                 // finish the same writer while the creator is still unwinding.
-                throw WriterOpenError.superseded
+                throw MobileHostIrxEventWriterOpenError.superseded
             }
             openingWriter = nil
             openingWriterID = nil
@@ -114,7 +110,7 @@ actor MobileHostIrxEventWriter: MobileHostIndependentEventWriting {
             if let writer { return writer }
             guard openingWriterID == id else {
                 await opened.finish()
-                throw WriterOpenError.superseded
+                throw MobileHostIrxEventWriterOpenError.superseded
             }
             openingWriter = nil
             openingWriterID = nil

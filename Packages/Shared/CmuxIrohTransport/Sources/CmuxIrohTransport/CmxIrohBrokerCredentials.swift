@@ -5,9 +5,12 @@
 /// lands between two independent token reads.
 public struct CmxIrohBrokerCredentials: Sendable, CustomStringConvertible,
     CustomDebugStringConvertible {
+    /// The bearer token used for the current broker request.
     public let accessToken: String
+    /// The refresh token paired with ``accessToken`` from the same snapshot.
     public let refreshToken: String
 
+    /// Creates a credential pair captured from one authenticated session.
     public init(accessToken: String, refreshToken: String) {
         self.accessToken = accessToken
         self.refreshToken = refreshToken
@@ -19,5 +22,6 @@ public struct CmxIrohBrokerCredentials: Sendable, CustomStringConvertible,
         "CmxIrohBrokerCredentials(accessToken: <redacted>, refreshToken: <redacted>)"
     }
 
+    /// A redacted debug representation that never exposes token material.
     public var debugDescription: String { description }
 }

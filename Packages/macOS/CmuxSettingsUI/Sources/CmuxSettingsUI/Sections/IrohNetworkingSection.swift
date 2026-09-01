@@ -352,7 +352,7 @@ public struct IrohNetworkingSection: View {
     }
 
     private var runtimeStatusText: String {
-        Self.networkingRuntimeStatusText(for: model.snapshot)
+        networkingRuntimeStatusText(for: model.snapshot)
     }
 
     private var policyStatusText: String {

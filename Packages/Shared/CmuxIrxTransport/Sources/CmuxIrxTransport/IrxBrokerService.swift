@@ -3,10 +3,15 @@ public import CmuxIrohTransport
 public import Foundation
 
 public enum IrxBrokerServiceError: Error, Sendable {
+    /// The operation requires a binding that has not been registered yet.
     case notRegistered
+    /// The configured endpoint identity is invalid.
     case invalidIdentity
+    /// The endpoint binding cannot be used for this operation.
     case invalidEndpointBinding
+    /// The broker returned no usable relay credentials.
     case noCredentialsIssued
+    /// A returned relay URL is outside the trusted fleet.
     case unknownRelayURL(String)
 }
 

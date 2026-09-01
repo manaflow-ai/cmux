@@ -88,6 +88,7 @@ final class MobileHostIrxRuntime {
         postRecoveryUnauthorizedFailureLimit: 4,
         missingAuthenticationFailureLimit: 4
     )
+    let credentialPolicy = IrxRelayCredentialPolicy()
     var activationRetryClock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
     /// Changes on every (de)activation; per-connection supervisors compare it.
     var generationToken = UUID()
