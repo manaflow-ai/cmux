@@ -467,6 +467,7 @@ final class TuiManualIOPump {
     private var stderrBox = TuiManualIOStderrBox()
     private var stderrStream: TuiManualIOStderrStream?
     private var retryTask: Task<Void, Never>?
+    private var liveStabilityTask: Task<Void, Never>?
     /// Process termination and stderr EOF race (termination is not EOF);
     /// classification needs the relay's final stderr line, so it runs only
     /// once BOTH have arrived for the current generation.
@@ -484,6 +485,10 @@ final class TuiManualIOPump {
     /// timeout as an ack keeps the pending size flowing on relays that stop
     /// emitting resize diags.
     static let resizeAckTimeout: Duration = .seconds(2)
+    /// A replay proves that attach started, not that the relay is stable. Only
+    /// a generation that stays live through this interval clears a failure
+    /// streak, so replay-then-crash loops remain bounded.
+    static let liveStabilityInterval: Duration = .seconds(2)
 
     init(
         binaryPath: String,
@@ -565,6 +570,8 @@ final class TuiManualIOPump {
         stopped = true
         retryTask?.cancel()
         retryTask = nil
+        liveStabilityTask?.cancel()
+        liveStabilityTask = nil
         resizeAckTimeoutTask?.cancel()
         resizeAckTimeoutTask = nil
         stdoutTask?.cancel()
@@ -719,11 +726,7 @@ final class TuiManualIOPump {
                 self.everRenderedAttach = true
                 if self.state != .live {
                     self.state = .live
-                    // Count a failure streak across relay generations. A
-                    // single replay chunk proves this generation attached,
-                    // so reset once on the transition to live, not for every
-                    // subsequent output chunk from a crash-looping relay.
-                    self.consecutiveUnexplainedFailures = 0
+                    self.scheduleLiveStabilityReset(generation: spawnGeneration)
                 }
             }
         }
@@ -796,6 +799,8 @@ final class TuiManualIOPump {
         // scheduler from its spawn grid.
         resizeAckTimeoutTask?.cancel()
         resizeAckTimeoutTask = nil
+        liveStabilityTask?.cancel()
+        liveStabilityTask = nil
         resizeScheduler.reset()
 #if DEBUG
         let stderrTail = (stderrBox.text() ?? "").suffix(300).replacingOccurrences(of: "\n", with: " | ")
@@ -830,6 +835,22 @@ final class TuiManualIOPump {
             return
         }
         scheduleRetry()
+    }
+
+    private func scheduleLiveStabilityReset(generation liveGeneration: Int) {
+        liveStabilityTask?.cancel()
+        let sleep = sleep
+        liveStabilityTask = Task { @MainActor [weak self] in
+            do {
+                try await sleep(Self.liveStabilityInterval)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, let self,
+                  self.generation == liveGeneration, self.state == .live else { return }
+            self.consecutiveUnexplainedFailures = 0
+            self.liveStabilityTask = nil
+        }
     }
 
     private func scheduleRetry() {
