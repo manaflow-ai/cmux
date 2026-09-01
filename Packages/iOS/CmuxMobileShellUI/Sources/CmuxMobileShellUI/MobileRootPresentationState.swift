@@ -169,7 +169,7 @@ struct MobileRootPresentationState: Equatable {
             case nil, .settings, .autoConnectMigrationIntroduction:
                 presentation = .computers
                 return .none
-            case .computers, .pairing, .child, .dismissingChild:
+            case .computers, .pairing, .pairingFromComputers, .child, .dismissingChild:
                 return .none
             }
 
