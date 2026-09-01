@@ -129,7 +129,7 @@ extension TerminalNotificationSocketActionTests {
             fixture.workspace.detachSurface(panelId: temporaryPanel.id)
         )
         let temporaryTerminal = try XCTUnwrap(temporaryTransfer.panel as? TerminalPanel)
-        let ambiguousTTY = try await waitForControllingTTYName(temporaryTerminal)
+        let ambiguousTTY = try await TerminalControllingTTYWaiter().wait(for: temporaryTerminal)
         fixture.workspace.registerReportedSurfaceTTYName(ambiguousTTY, panelId: focusedSurfaceId)
         fixture.workspace.registerReportedSurfaceTTYName(ambiguousTTY, panelId: siblingPanel.id)
         PortScanner.shared.registerTTY(
@@ -162,21 +162,69 @@ extension TerminalNotificationSocketActionTests {
         XCTAssertFalse(fixture.store.hasUnreadNotification(forTabId: fixture.workspace.id, surfaceId: siblingPanel.id))
     }
 
-    private func waitForControllingTTYName(
-        _ terminal: TerminalPanel,
-        timeout: TimeInterval = 5
-    ) async throws -> String {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if let ttyName = terminal.surface.controllingTTYName() {
-                return ttyName
-            }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        throw NSError(
-            domain: "TerminalNotificationSocketAttributionTests",
-            code: 1,
-            userInfo: [NSLocalizedDescriptionKey: "Terminal surface did not expose a controlling TTY"]
+    func testNotificationCreateForCallerKeepsExplicitWorkspaceWhenPreferredTTYIsForeign() async throws {
+        let fixture = try makeSocketFixture(
+            name: "notify-explicit-tty-scope",
+            eagerLoadTerminal: true
+        )
+        defer { fixture.cleanup() }
+
+        let foreignWorkspace = fixture.manager.addWorkspace(
+            title: "Foreign TTY",
+            select: false,
+            eagerLoadTerminal: true
+        )
+        let foreignSurfaceId = try XCTUnwrap(foreignWorkspace.focusedPanelId)
+        let foreignTerminal = try XCTUnwrap(
+            foreignWorkspace.panels[foreignSurfaceId] as? TerminalPanel
+        )
+        let foreignTTY = try await TerminalControllingTTYWaiter().wait(for: foreignTerminal)
+
+        let response = try await sendV2RequestAsync(
+            method: "notification.create_for_caller",
+            params: [
+                "preferred_workspace_id": fixture.workspace.id.uuidString,
+                "preferred_workspace_is_explicit": true,
+                "caller_tty": foreignTTY,
+                "prefer_tty": true,
+                "title": "Explicit workspace",
+                "subtitle": "TTY scope",
+                "body": "Do not cross the requested workspace"
+            ],
+            to: fixture.socketPath
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "\(response)")
+        let result = try XCTUnwrap(response["result"] as? [String: Any])
+        XCTAssertEqual(result["workspace_id"] as? String, fixture.workspace.id.uuidString)
+        XCTAssertTrue(result["surface_id"] is NSNull)
+        XCTAssertTrue(fixture.store.hasUnreadNotification(forTabId: fixture.workspace.id))
+        XCTAssertFalse(
+            fixture.store.hasUnreadNotification(
+                forTabId: foreignWorkspace.id,
+                surfaceId: foreignSurfaceId
+            )
         )
     }
+
+    #if DEBUG
+    func testDebugNotificationRejectsMalformedCallerSelector() async throws {
+        let fixture = try makeSocketFixture(name: "notify-debug-selector")
+        defer { fixture.cleanup() }
+
+        let response = try await sendV2RequestAsync(
+            method: "debug.notification.emit",
+            params: [
+                "kind": "feed-question",
+                "preferred_surface_id": "not-a-surface-ref"
+            ],
+            to: fixture.socketPath
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, false, "\(response)")
+        let error = try XCTUnwrap(response["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? String, "invalid_params")
+        XCTAssertTrue(fixture.store.notifications.isEmpty)
+    }
+    #endif
 }

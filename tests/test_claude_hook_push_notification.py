@@ -194,6 +194,8 @@ def run_push_notification_hook(
     surface_id = str(uuid.uuid4()).upper()
     with CapturingSocketServer(workspace_id=workspace_id, surface_id=surface_id) as server:
         env = os.environ.copy()
+        env["HOME"] = server.root.name
+        env["CFFIXED_USER_HOME"] = server.root.name
         env["CMUX_SOCKET_PATH"] = server.socket_path
         env["CMUX_WORKSPACE_ID"] = workspace_id
         env["CMUX_SURFACE_ID"] = surface_id
@@ -268,6 +270,8 @@ def run_unresolved_push_notification_hook(
             encoding="utf-8",
         )
         env = os.environ.copy()
+        env["HOME"] = server.root.name
+        env["CFFIXED_USER_HOME"] = server.root.name
         env["CMUX_SOCKET_PATH"] = server.socket_path
         env["CMUX_WORKSPACE_ID"] = workspace_id
         env["CMUX_SURFACE_ID"] = recorded_surface_id

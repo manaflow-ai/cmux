@@ -178,6 +178,10 @@ extension Workspace {
             panelId: transfer.panelId,
             ttyName: ttyName
         )
+        PortScanner.shared.kick(
+            workspaceId: id,
+            panelId: transfer.panelId
+        )
     }
 
     /// Host-local TTY bindings eligible to identify a process running on this

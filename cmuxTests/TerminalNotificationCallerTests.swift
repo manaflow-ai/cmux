@@ -58,7 +58,7 @@ final class TerminalNotificationCallerTests: XCTestCase {
 
         let focusedPanelId = try XCTUnwrap(workspace.focusedPanelId)
         let focusedTerminal = try XCTUnwrap(workspace.panels[focusedPanelId] as? TerminalPanel)
-        let callerTTY = try await waitForControllingTTYName(focusedTerminal)
+        let callerTTY = try await TerminalControllingTTYWaiter().wait(for: focusedTerminal)
         workspace.surfaceTTYNames[focusedPanelId] = callerTTY
 
         TerminalController.shared.start(
@@ -310,21 +310,6 @@ final class TerminalNotificationCallerTests: XCTestCase {
         return URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("tnc-\(name.prefix(4))-\(shortID).sock")
             .path
-    }
-
-    private func waitForControllingTTYName(_ terminal: TerminalPanel) async throws -> String {
-        let deadline = Date().addingTimeInterval(5)
-        while Date() < deadline {
-            if let ttyName = terminal.surface.controllingTTYName() {
-                return ttyName
-            }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        throw NSError(
-            domain: NSPOSIXErrorDomain,
-            code: Int(ENODEV),
-            userInfo: [NSLocalizedDescriptionKey: "Terminal surface did not expose a controlling TTY"]
-        )
     }
 
     private func waitForSocket(at path: String, timeout: TimeInterval = 5.0) throws {

@@ -15,6 +15,9 @@ struct NotificationDebugTarget: Sendable {
 @MainActor
 extension TerminalController {
     func notificationDebugCallerTarget(params: [String: Any]) -> NotificationDebugTarget? {
+        let preferredWorkspaceId = v2UUID(params, "preferred_workspace_id")
+        let preferredSurfaceId = v2UUID(params, "preferred_surface_id")
+        let callerTTY = notificationDebugStringParam(params, "caller_tty")
         let hasCallerSelector = [
             "preferred_workspace_id",
             "preferred_surface_id",
@@ -29,10 +32,17 @@ extension TerminalController {
         guard hasCallerSelector else {
             return NotificationDebugEmitter.shared.defaultTargetForDebugEmission()
         }
+        // A non-null selector is an assertion about caller identity. If it is
+        // malformed (or an unknown handle), reject the request rather than
+        // treating it as selector-free and borrowing the focused surface.
+        guard !v2HasNonNullParam(params, "preferred_workspace_id") || preferredWorkspaceId != nil,
+              !v2HasNonNullParam(params, "preferred_surface_id") || preferredSurfaceId != nil,
+              !v2HasNonNullParam(params, "caller_tty") || callerTTY != nil
+        else { return nil }
         guard let target = resolvedCallerNotificationTarget(
-            preferredWorkspaceId: v2UUID(params, "preferred_workspace_id"),
-            preferredSurfaceId: v2UUID(params, "preferred_surface_id"),
-            callerTTY: notificationDebugStringParam(params, "caller_tty"),
+            preferredWorkspaceId: preferredWorkspaceId,
+            preferredSurfaceId: preferredSurfaceId,
+            callerTTY: callerTTY,
             preferTTY: notificationDebugBoolParam(params, "prefer_tty") ?? false,
             preferredWorkspaceIsExplicit: true
         ) else { return nil }

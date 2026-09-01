@@ -184,7 +184,6 @@ extension GhosttyTerminalView {
             // to resurrect one on the replacement host.
             if hostOwnsPortal || (
                 !coordinator.desiredShowsUnreadNotificationRing
-                    && hasCurrentHostEntry
                     && isCurrentPortalHost
             ) {
                 hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)

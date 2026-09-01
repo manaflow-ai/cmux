@@ -174,11 +174,6 @@ extension TerminalController {
             cachedTTYTarget = callerTTY.flatMap { liveTargetForTTY($0, tabManagers: managers) }
             return cachedTTYTarget
         }
-        // `prefer_tty` is an explicit caller contract used by tmux/PTY
-        // wrappers. Honor it when the caller TTY is proven; otherwise fall
-        // through to the stable preferred surface identity.
-        if preferTTY, let ttyTarget = resolveTTYTarget() { return ttyTarget }
-
         if let preferredWorkspaceId,
            let workspace = workspace(id: preferredWorkspaceId, tabManagers: managers) {
             // An explicit workspace selector is a hard scope. An ambient
@@ -210,6 +205,10 @@ extension TerminalController {
         // after a workspace move.
         if let preferredSurfaceTarget { return preferredSurfaceTarget }
 
+        // `prefer_tty` is an explicit caller contract used by tmux/PTY
+        // wrappers. At this point there is no stronger pane identity or
+        // explicit workspace scope left to protect, so a proven TTY may win.
+        if preferTTY, let ttyTarget = resolveTTYTarget() { return ttyTarget }
         let ttyTarget = resolveTTYTarget()
         if let ttyTarget { return ttyTarget }
 

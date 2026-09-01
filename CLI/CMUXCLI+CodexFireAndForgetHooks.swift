@@ -21,7 +21,7 @@ extension CMUXCLI {
             telemetry.breadcrumb("codex-hook.settled-stop.retry-limit-reached")
             return
         }
-        let retryDelay = [0.25, 0.5, 1.0][min(retryCount, 2)]
+        let retryDelay = [0.0, 0.5, 1.0][min(retryCount, 2)]
         let selfPath: String = {
             if let first = ProcessInfo.processInfo.arguments.first,
                first.hasPrefix("/"),
