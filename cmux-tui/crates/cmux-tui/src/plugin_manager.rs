@@ -1682,6 +1682,26 @@ mod tests {
     }
 
     #[test]
+    fn git_source_rejects_embedded_credentials_and_query_tokens() {
+        for source in [
+            "https://user:secret@example.com/team/plugin.git",
+            "https://user@example.com/team/plugin.git",
+            "https://example.com/team/plugin.git?token=secret",
+            "http://example.com/team/plugin.git#token",
+        ] {
+            assert!(validate_git_source(source).is_err(), "unsafe source must be rejected: {source}");
+        }
+
+        for source in [
+            "ssh://git@example.com/team/plugin.git",
+            "git@example.com:team/plugin.git",
+            "/tmp/plugin.git",
+        ] {
+            assert!(validate_git_source(source).is_ok(), "normal source must remain valid: {source}");
+        }
+    }
+
+    #[test]
     fn selection_matching_uses_id_then_path_or_command_migrations() {
         let root = std::env::temp_dir().join(format!(
             "cmux-plugin-selection-test-{}-{}",
