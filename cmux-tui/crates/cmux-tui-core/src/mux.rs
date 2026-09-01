@@ -1248,7 +1248,34 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
                 AGENT_ROSTER_REDUCER_VERSION,
                 &empty_snapshot,
             )?;
+            // Preserve active durable projections while replaying the
+            // retained tail. This avoids erasing live agents whose original
+            // journal records were pruned before the reducer cursor.
+            let prior_roster = host.roster.clone();
+            let projections = registry.public_agent_projections(None, None)?;
             host.roster = AgentRoster::default();
+            for projection in projections {
+                if projection.state == AgentState::Done.as_str() {
+                    continue;
+                }
+                let agent = prior_roster
+                    .entries
+                    .get(projection.terminal_id.as_str())
+                    .and_then(|entry| entry.agent.clone());
+                if projection.source == AgentSource::Detected.as_str() && agent.is_none() {
+                    continue;
+                }
+                host.roster.entries.insert(
+                    projection.terminal_id.to_string(),
+                    crate::journal_reducers::RosterEntry {
+                        state: projection.state,
+                        source: projection.source,
+                        session: projection.source_session,
+                        agent,
+                        updated_at_ms: projection.updated_at_ms,
+                    },
+                );
+            }
             host.cursor = anchor;
             host.ordering_token = ordering_token;
             host.needs_projection_rebuild = true;
@@ -6060,14 +6087,23 @@ impl Mux {
             }
             let mut registry = self.workspace_registry.lock().unwrap();
             let host = self.agent_roster.lock().unwrap();
-            if let Err(error) = registry.put_journal_reducer_state_ordered(
+            let cursor = host.cursor;
+            let ordering_token = host.ordering_token;
+            let snapshot = host.roster.snapshot().to_string();
+            let persist_result = registry.put_journal_reducer_state_ordered(
                 AGENT_ROSTER_REDUCER_ID,
                 AGENT_ROSTER_REDUCER_VERSION,
-                host.cursor,
-                host.ordering_token,
-                &host.roster.snapshot().to_string(),
-            ) {
+                cursor,
+                ordering_token,
+                &snapshot,
+            );
+            drop(host);
+            drop(registry);
+            if let Err(error) = persist_result {
                 eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
+                *self.agent_roster.lock().unwrap() = previous_host;
+                self.enqueue_agent_roster_retry(&record);
+                return;
             }
         }
     }
