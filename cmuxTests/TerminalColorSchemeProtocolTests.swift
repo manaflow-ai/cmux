@@ -1,5 +1,5 @@
 import AppKit
-import CmuxTerminal
+@testable import CmuxTerminal
 import Foundation
 import Testing
 
@@ -269,10 +269,15 @@ struct TerminalColorSchemeProtocolTests {
                 ? "/usr/bin/python3 \(shellSingleQuoted(scriptURL.path)) \(shellSingleQuoted(outputURL.path)) \(shellSingleQuoted(commandURL.path))"
                 : nil,
             ioMode: ioMode,
-            manualInputHandler: manualInputHandler,
-            dependencies: protocolTestRuntimeDependencies()
+            manualInputHandler: manualInputHandler
         )
         surfaceForCleanup = surface
+        // The app's normal constructor starts optional command-shim
+        // installation before the pane has a real window.  This protocol
+        // fixture does not exercise that convenience, so close that lifecycle
+        // deterministically and let the real pane attachment create the PTY.
+        surface.cancelAgentCommandShimInstallLifecycle()
+        surface.agentCommandShimInstallCompleted = true
         let hostedView = surface.hostedView
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
@@ -285,6 +290,10 @@ struct TerminalColorSchemeProtocolTests {
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)
+        // TerminalSurface's construction-time attachment happened while its
+        // bootstrap window was being adopted. Re-attach once the test host is
+        // in the real window so the native surface is created on this PTY.
+        hostedView.attachSurface(surface)
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
         contentView.layoutSubtreeIfNeeded()
@@ -377,36 +386,5 @@ struct TerminalColorSchemeProtocolTests {
 
     private func shellSingleQuoted(_ value: String) -> String {
         "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
-    }
-
-    private func protocolTestRuntimeDependencies() -> TerminalSurfaceRuntimeDependencies {
-        let live = GhosttyApp.terminalSurfaceRuntimeDependencies
-        let filesystem = TerminalSurfaceRuntimeFilesystem(
-            agentCommandShimTemporaryDirectory:
-                live.runtimeFilesystem.agentCommandShimTemporaryDirectory,
-            installAgentCommandShims: { _, _, _ in nil },
-            isExecutableFile: live.runtimeFilesystem.isExecutableFile
-        )
-        return TerminalSurfaceRuntimeDependencies(
-            registry: live.registry,
-            engine: live.engine,
-            viewProvider: live.viewProvider,
-            spawnPolicy: live.spawnPolicy,
-            byteTee: live.byteTee,
-            rendererRealization: live.rendererRealization,
-            hibernationRecorder: live.hibernationRecorder,
-            runtimeTeardown: live.runtimeTeardown,
-            restoreSpawnScheduler: live.restoreSpawnScheduler,
-            runtimeFilesystem: filesystem,
-            agentCommandShimInstallDeadline: .zero,
-            agentCommandShimInstallDeadlineClock:
-                live.agentCommandShimInstallDeadlineClock,
-            sessionPortBase: live.sessionPortBase,
-            sessionPortRangeSize: live.sessionPortRangeSize,
-            scrollbackReplayEnvironmentKey:
-                live.scrollbackReplayEnvironmentKey,
-            globalFontMagnificationPercent:
-                live.globalFontMagnificationPercent
-        )
     }
 }
