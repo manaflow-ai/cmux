@@ -39,6 +39,7 @@ struct TerminalColorSchemeProtocolTests {
         let window: NSWindow
         let outputURL: URL
         let scriptURL: URL
+        let commandURL: URL
     }
 
     @Test("CSI 996 reports the effective dark and light schemes")
@@ -83,11 +84,9 @@ struct TerminalColorSchemeProtocolTests {
     @Test("Protocol responses stay on the requesting terminal PTY")
     func responsesDoNotLeakToSiblingTerminal() throws {
         let first = try makeHostedTerminal()
+        defer { tearDown(first) }
         let second = try makeHostedTerminal()
-        defer {
-            tearDown(first)
-            tearDown(second)
-        }
+        defer { tearDown(second) }
         _ = try #require(first.surface.surface)
         _ = try #require(second.surface.surface)
 
@@ -108,20 +107,34 @@ struct TerminalColorSchemeProtocolTests {
 
     @Test("Manual-mirror surfaces suppress parser protocol responses")
     func manualMirrorSuppressesParserResponses() throws {
-        let writes = ManualWriteCapture()
-        let terminal = try makeHostedTerminal(
-            ioMode: .manualMirror,
-            manualInputHandler: { input in writes.append(input) }
+        let normalWrites = ManualWriteCapture()
+        let normal = try makeHostedTerminal(
+            ioMode: .manual,
+            manualInputHandler: { input in normalWrites.append(input) }
         )
-        defer { tearDown(terminal) }
-        let runtimeSurface = try #require(terminal.surface.surface)
+        defer { tearDown(normal) }
 
-        processOutput("\u{1b}[?996n\u{1b}[?2031h", on: runtimeSurface)
-        ghostty_surface_set_color_scheme(runtimeSurface, GHOSTTY_COLOR_SCHEME_LIGHT)
-        processOutput("\u{1b}[?2031l", on: runtimeSurface)
+        let mirrorWrites = ManualWriteCapture()
+        let mirror = try makeHostedTerminal(
+            ioMode: .manualMirror,
+            manualInputHandler: { input in mirrorWrites.append(input) }
+        )
+        defer { tearDown(mirror) }
+        let normalSurface = try #require(normal.surface.surface)
+        let mirrorSurface = try #require(mirror.surface.surface)
+
+        ghostty_surface_set_color_scheme(normalSurface, GHOSTTY_COLOR_SCHEME_LIGHT)
+        ghostty_surface_set_color_scheme(mirrorSurface, GHOSTTY_COLOR_SCHEME_LIGHT)
+        let protocolInput = "\u{1b}[?996n\u{1b}[?2031h"
+        processOutput(protocolInput, on: normalSurface)
+        processOutput(protocolInput, on: mirrorSurface)
 
         #expect(
-            writes.snapshot.isEmpty,
+            normalWrites.snapshot.contains { $0 == Data("\u{1b}[?997;2n".utf8) },
+            "A normal manual surface must emit parser replies through its embedder callback"
+        )
+        #expect(
+            mirrorWrites.snapshot.isEmpty,
             "A manual-mirror surface must not duplicate parser replies owned by its remote terminal core"
         )
     }
@@ -135,6 +148,8 @@ struct TerminalColorSchemeProtocolTests {
             .appendingPathComponent("cmux-color-scheme-protocol-\(UUID().uuidString).txt")
         let scriptURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-color-scheme-protocol-\(UUID().uuidString).py")
+        let commandURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-color-scheme-protocol-\(UUID().uuidString).commands")
         let script = """
         import os
         import select
@@ -144,6 +159,7 @@ struct TerminalColorSchemeProtocolTests {
         import tty
 
         output_path = sys.argv[1]
+        command_path = sys.argv[2]
         fd = 0
         old = termios.tcgetattr(fd)
         tty.setraw(fd)
@@ -152,10 +168,14 @@ struct TerminalColorSchemeProtocolTests {
             data = bytearray()
             deadline = time.monotonic() + timeout
             while time.monotonic() < deadline:
-                if select.select([fd], [], [], 0.02)[0]:
-                    data.extend(os.read(fd, 64))
-                    if data.endswith(b'n'):
-                        break
+                if not select.select([fd], [], [], 0.02)[0]:
+                    continue
+                chunk = os.read(fd, 64)
+                if not chunk:
+                    return data.hex() if data else 'none'
+                data.extend(chunk)
+                if data.endswith(b'n'):
+                    break
             return data.hex() if data else 'none'
 
         def read_until(expected, timeout):
@@ -165,11 +185,27 @@ struct TerminalColorSchemeProtocolTests {
                 if select.select([fd], [], [], 0.02)[0]:
                     chunk = os.read(fd, 64)
                     if not chunk:
-                        break
+                        return False
                     data.extend(chunk)
                     if expected in data:
                         return True
             return False
+
+        command_index = 0
+
+        def read_command():
+            global command_index
+            while True:
+                try:
+                    with open(command_path, 'r', encoding='utf-8') as handle:
+                        commands = handle.readlines()
+                except FileNotFoundError:
+                    commands = []
+                if command_index < len(commands):
+                    command = commands[command_index].strip()
+                    command_index += 1
+                    return command
+                time.sleep(0.02)
 
         def record(value):
             with open(output_path, 'a', encoding='utf-8') as handle:
@@ -178,8 +214,8 @@ struct TerminalColorSchemeProtocolTests {
         record('ready')
 
         try:
-            for command in sys.stdin:
-                command = command.strip()
+            while True:
+                command = read_command()
                 if command.startswith('query-') or command == 'first':
                     os.write(fd, b'\\x1b[?996n')
                     record(command + '=' + read_report(1.0))
@@ -210,18 +246,20 @@ struct TerminalColorSchemeProtocolTests {
             } else {
                 try? FileManager.default.removeItem(at: outputURL)
                 try? FileManager.default.removeItem(at: scriptURL)
+                try? FileManager.default.removeItem(at: commandURL)
             }
         }
 
         try script.write(to: scriptURL, atomically: true, encoding: .utf8)
         try Data().write(to: outputURL)
+        try Data().write(to: commandURL)
 
         let surface = TerminalSurface(
             tabId: UUID(),
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
             initialCommand: ioMode == .exec
-                ? "/usr/bin/python3 \(shellSingleQuoted(scriptURL.path)) \(shellSingleQuoted(outputURL.path))"
+                ? "/usr/bin/python3 \(shellSingleQuoted(scriptURL.path)) \(shellSingleQuoted(outputURL.path)) \(shellSingleQuoted(commandURL.path))"
                 : nil,
             ioMode: ioMode,
             manualInputHandler: manualInputHandler
@@ -246,7 +284,8 @@ struct TerminalColorSchemeProtocolTests {
             surface: surface,
             window: window,
             outputURL: outputURL,
-            scriptURL: scriptURL
+            scriptURL: scriptURL,
+            commandURL: commandURL
         )
         hostedTerminal = terminal
         if ioMode == .exec {
@@ -265,10 +304,9 @@ struct TerminalColorSchemeProtocolTests {
     }
 
     private func sendProbe(_ command: String, to terminal: HostedTerminal) throws {
-        let runtimeSurface = try #require(terminal.surface.surface)
-        "\(command)\n".withCString { bytes in
-            ghostty_surface_text(runtimeSurface, bytes, UInt(strlen(bytes)))
-        }
+        let existing = (try? Data(contentsOf: terminal.commandURL)) ?? Data()
+        let next = existing + Data("\(command)\n".utf8)
+        try next.write(to: terminal.commandURL, options: .atomic)
     }
 
     private func waitForReport(_ report: String, from terminal: HostedTerminal) throws -> Bool {
@@ -307,6 +345,7 @@ struct TerminalColorSchemeProtocolTests {
         terminal.surface.releaseSurfaceForTesting()
         try? FileManager.default.removeItem(at: terminal.outputURL)
         try? FileManager.default.removeItem(at: terminal.scriptURL)
+        try? FileManager.default.removeItem(at: terminal.commandURL)
     }
 
     private enum ProbeError: Error {
