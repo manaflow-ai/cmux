@@ -843,20 +843,33 @@ impl PtyManager {
                 .is_some_and(|current| !auth_snapshot_matches(current, &snapshot));
             changed
         };
-        if changed {
-            self.detach_matching(|candidate| candidate == &owner).retire();
-        }
-        let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
-        if context.cancellation.is_cancelled()
-            || !self.inner.tunnel_authority_generation_current(context)
+        // `detach_matching` acquires `transport_auth_updates` itself. We
+        // already hold that lock here, so call the locked variant to avoid a
+        // non-reentrant mutex deadlock when a transport refresh changes its
+        // authority. Retire controls after publishing the replacement and
+        // releasing the update lock, so platform cleanup cannot block a
+        // concurrent authority refresh.
+        let retired = if changed {
+            Some(self.detach_matching_locked(|candidate| candidate == &owner))
+        } else {
+            None
+        };
         {
-            return;
+            let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
+            if !context.cancellation.is_cancelled()
+                && self.inner.tunnel_authority_generation_current(context)
+            {
+                self.inner
+                    .transport_auth
+                    .lock()
+                    .expect("transport auth lock")
+                    .insert(owner.clone(), snapshot);
+            }
         }
-        self.inner
-            .transport_auth
-            .lock()
-            .expect("transport auth lock")
-            .insert(owner.clone(), snapshot);
+        drop(_update);
+        if let Some(retired) = retired {
+            retired.retire();
+        }
     }
 
     /// Advance the managed tunnel authority floor before publishing the
