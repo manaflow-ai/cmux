@@ -910,6 +910,47 @@ async fn cleanup_daemon(mut child: tokio::process::Child) {
     let _ = tokio::time::timeout(Duration::from_secs(1), child.wait()).await;
 }
 
+/// Own a newly spawned daemon until readiness is proven. Cancellation drops
+/// this guard, which force-kills the process group and schedules a reap.
+struct DaemonChildGuard {
+    child: Option<tokio::process::Child>,
+}
+
+impl DaemonChildGuard {
+    fn new(child: tokio::process::Child) -> Self {
+        Self { child: Some(child) }
+    }
+
+    fn disarm(&mut self) -> tokio::process::Child {
+        self.child.take().expect("daemon child guard owns a child")
+    }
+
+    async fn cleanup(mut self) {
+        if let Some(child) = self.child.take() {
+            cleanup_daemon(child).await;
+        }
+    }
+}
+
+impl Drop for DaemonChildGuard {
+    fn drop(&mut self) {
+        let Some(mut child) = self.child.take() else { return };
+        if let Some(pid) = child.id() {
+            // The child is a dedicated process group. Signal the group before
+            // dropping the handle so descendants do not survive cancellation.
+            unsafe {
+                let _ = libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
+            }
+        }
+        let _ = child.start_kill();
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            handle.spawn(async move {
+                let _ = child.wait().await;
+            });
+        }
+    }
+}
+
 #[async_trait]
 impl PtyDeps for RealPtyDeps {
     async fn spawn_pty(&self, spec: SpawnSpec) -> PtyHandle {
@@ -1049,6 +1090,7 @@ impl PtyDeps for RealPtyDeps {
         }
         let child =
             command.spawn().map_err(|error| format!("cmux-tui daemon spawn failed: {error}"))?;
+        let mut child_guard = DaemonChildGuard::new(child);
 
         let deadline = Instant::now() + Duration::from_millis(DAEMON_SOCKET_WAIT_MS);
         while Instant::now() < deadline {
@@ -1057,6 +1099,10 @@ impl PtyDeps for RealPtyDeps {
                 while Instant::now() < deadline {
                     match connect_control(&socket_path, CONTROL_TIMEOUT_MS).await {
                         Ok(control) if control_ready(&control, session).await => {
+                            let mut child = child_guard.disarm();
+                            tokio::spawn(async move {
+                                let _ = child.wait().await;
+                            });
                             return Ok(EnsureDaemon { created: true, socket_path });
                         }
                         _ => tokio::time::sleep(Duration::from_millis(50)).await,
@@ -1065,14 +1111,14 @@ impl PtyDeps for RealPtyDeps {
                 // Do not unlink the path here. Another daemon may have won
                 // the socket race after our initial absence check; ownership
                 // of a pathname cannot be proven after the fact.
-                cleanup_daemon(child).await;
+                child_guard.cleanup().await;
                 return Err(format!(
                     "cmux-tui daemon for \"{session}\" did not become control-ready"
                 ));
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
-        cleanup_daemon(child).await;
+        child_guard.cleanup().await;
         Err(format!("cmux-tui daemon for \"{session}\" never created {}", socket_path.display()))
     }
 

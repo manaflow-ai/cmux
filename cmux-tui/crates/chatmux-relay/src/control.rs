@@ -397,6 +397,16 @@ mod unix {
             }
         }
     }
+
+    // A cancelled request can drop its last Arc<dyn ControlHandle> while the
+    // reader and writer tasks still own their socket halves. End the protocol
+    // explicitly so those tasks wake, close, and release any daemon-side
+    // attachment instead of surviving the request future.
+    impl Drop for UnixControl {
+        fn drop(&mut self) {
+            self.end();
+        }
+    }
 }
 
 #[cfg(all(test, unix))]
