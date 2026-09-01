@@ -467,7 +467,7 @@ extension TerminalController {
             return v2Error(id: id, code: "invalid_params", message: "vm.terminal_wait requires a non-empty `pattern` (a regex matched against the screen text).")
         }
         let timeoutMs = (params["timeout_ms"] as? Int) ?? Int(Self.surfaceString(params["timeout_ms"]) ?? "") ?? 30_000
-        let socketTimeout = max(60, timeoutMs / 1000 + 15)
+        let socketTimeout = TimeInterval(max(60, timeoutMs / 1000 + 15))
         return v2VmCall(id: id, timeoutSeconds: socketTimeout) {
             let provider = try await Self.cloudTuiProvider(machineID: vmId, catalog: await SurfaceCatalog.shared)
             var result = try await provider.waitForScreen(terminalID: terminalID, pattern: pattern, timeoutMs: timeoutMs)
