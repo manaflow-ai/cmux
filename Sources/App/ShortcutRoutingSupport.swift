@@ -187,7 +187,8 @@ nonisolated func shouldDispatchTerminalDeleteEquivalentViaFirstResponderKeyDown(
         keyCode: keyCode,
         firstResponderIsTerminal: firstResponderIsTerminal,
         firstResponderHasMarkedText: firstResponderHasMarkedText,
-        modifiers: TerminalKeyboardCopyModeModifiers(modifierFlags: normalizedFlags)
+        modifiers: TerminalKeyboardCopyModeModifiers(modifierFlags: normalizedFlags),
+        optionModifier: normalizedFlags.contains(.option)
     )
 }
 
