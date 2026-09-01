@@ -3036,7 +3036,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
 
         var firstCandidateNeedingMacUpdate: MobilePairedMac?
-        var attemptedAutomaticIroh = false
+        // True once any automatic candidate dial actually ran, so the
+        // pass-level transient backoff records only when something was tried.
+        // (Pre-relay this tracked iroh dials specifically; the relay is the
+        // automatic transport now, so every automatic dial counts.)
+        var attemptedAutomaticDial = false
         var lastDialOutcome: StoredMacReconnectOutcome = .failed(.noRoute)
         // Try each candidate until one connects, so a single offline Mac never
         // blocks the others.
@@ -3081,7 +3085,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // grandfathered during the v7-to-v8 migration. Every fresh, changed,
             // restored, or registry route remains a hint for discovering Iroh.
             if localCanConnectSecurely {
-                attemptedAutomaticIroh = attemptedAutomaticIroh || localHasIroh
+                attemptedAutomaticDial = true
                 lastDialOutcome = await connectStoredMacOutcome(
                     name: mac.displayName ?? mac.macDeviceID,
                     routes: localRoutes,
@@ -3103,8 +3107,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     snapshot: await loadRefreshSnapshotIfNeeded()
                 ) {
                 case .refreshedRoutes(let refreshedRoutes):
-                    attemptedAutomaticIroh = attemptedAutomaticIroh
-                        || refreshedRoutes.contains { $0.kind == .iroh }
+                    attemptedAutomaticDial = true
                     lastDialOutcome = await connectStoredMacOutcome(
                         name: mac.displayName ?? mac.macDeviceID,
                         routes: refreshedRoutes,
@@ -3171,7 +3174,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         if connectionState != .connected,
            !connectionRequiresReauth,
-           attemptedAutomaticIroh {
+           attemptedAutomaticDial {
             recordTransientAutomaticReconnectBackoff(accountID: scope.userID)
         }
         return connectionState == .connected ? .connected : lastDialOutcome
