@@ -122,6 +122,7 @@ actor LivenessHostRouter {
         heldSyncFetchRequestNumbers.insert(number)
     }
 
+    /// Records one RPC request and wakes count waiters satisfied by its arrival.
     func record(
         method: String?,
         topics: [String]?,
@@ -1058,6 +1059,7 @@ func waitForReplayResponsesServed(
     #expect(settled, "\(message)")
 }
 
+/// Builds a connected preview shell against the scripted liveness transport.
 @MainActor
 func makeConnectedStore(
     router: LivenessHostRouter,

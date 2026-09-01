@@ -243,6 +243,7 @@ extension MobileShellComposite {
         )
     }
 
+    /// Schedules one owner-managed retry for the exact failing client.
     private func scheduleDeadTerminalEventStreamRedial(
         after delay: Duration,
         trigger: RecoveryTrigger,

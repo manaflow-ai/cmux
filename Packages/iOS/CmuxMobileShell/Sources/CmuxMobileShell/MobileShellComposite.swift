@@ -11080,6 +11080,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         cancelAllTerminalReplayTasks()
     }
 
+    /// Resets client-scoped terminal delivery state while retaining mounted
+    /// mirror metadata long enough to validate a same-session reconnect.
     private func resetTerminalOutputTracking() {
         cancelAllTerminalReplayTasks()
         // A connection swap clears each surface's delivery cursor below, but a
@@ -11124,9 +11126,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         diagnosedTerminalOutputSurfaceIDs = []
         terminalRenderGridHistoryContinuityBySurfaceID = [:]
         terminalRenderGridRevisionContinuityBySurfaceID = [:]
-        terminalMirrorStatesBySurfaceID = terminalMirrorStatesBySurfaceID.filter {
-            terminalByteContinuationsBySurfaceID.keys.contains($0.key)
-        }
         terminalReplaySurfaceIDsInFlight = []
         terminalReplayRequestIDsInFlightBySurfaceID = [:]
         cancelAllTerminalReplayBarrierWatchdogs()
@@ -14106,6 +14105,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return bytes
     }
 
+    /// Installs a fresh output consumer and resets its per-mount delivery state.
     @discardableResult
     private func registerTerminalOutput(
         surfaceID: String,
@@ -14162,6 +14162,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return streamToken
     }
 
+    /// Removes the exact output consumer generation and all per-mount state.
     private func unregisterTerminalOutput(surfaceID: String, streamToken: UUID) {
         guard terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken else { return }
         terminalLaneOutputReadySurfaceIDs.remove(surfaceID)

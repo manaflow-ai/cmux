@@ -6,6 +6,7 @@ import Testing
 // Review-found lifecycle regressions around issue #10482: stale asynchronous
 // workspace summaries and public terminal surface-ID reuse.
 
+/// Verifies a superseded workspace summary cannot publish stale chips.
 @MainActor
 @Test func canceledWorkspaceSummaryCannotPublishStaleChips() async throws {
     let router = LivenessHostRouter()
@@ -72,6 +73,7 @@ import Testing
     )
 }
 
+/// Verifies a same-ID replacement mount starts with fresh hydration state.
 @MainActor
 @Test func terminalSurfaceIDReuseStartsFreshHydration() async throws {
     let router = LivenessHostRouter()

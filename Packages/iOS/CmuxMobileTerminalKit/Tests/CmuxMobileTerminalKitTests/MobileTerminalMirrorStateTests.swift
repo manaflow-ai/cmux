@@ -2,6 +2,7 @@ import CMUXMobileCore
 import Testing
 @testable import CmuxMobileTerminalKit
 
+/// Verifies producer or history changes force retained mirrors to hydrate.
 @Test func retainedMirrorFreshnessFailsClosed() throws {
     var state = MobileTerminalMirrorState()
     let delivered = try MobileTerminalRenderGridFrame(

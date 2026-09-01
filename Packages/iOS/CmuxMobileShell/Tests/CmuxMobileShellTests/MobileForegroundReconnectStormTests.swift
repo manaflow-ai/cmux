@@ -29,6 +29,7 @@ import Testing
 
 // MARK: - B. Dead event-stream redials are rate-limited (single-flight + backoff)
 
+/// Verifies repeated barren subscriptions park on bounded backoff.
 @MainActor
 @Test func foregroundDeadEventStreamRedialLoopIsRateLimited() async throws {
     let router = LivenessHostRouter()
@@ -89,6 +90,7 @@ import Testing
 
 // MARK: - B. Backoff streak resets at a session boundary (does not carry over)
 
+/// Verifies a session reset clears both the scheduled flag and retry streak.
 @Test func deadStreamRedialBackoffResetClearsStreak() {
     var backoff = MobileDeadStreamRedialBackoff()
     // The first barren stream recovers immediately; each subsequent one backs
@@ -111,6 +113,7 @@ import Testing
 
 // MARK: - A. Files-changed chips survive a transient reconnect
 
+/// Verifies transient disconnect and client replacement preserve change chips.
 @MainActor
 @Test func workspaceChangesChipsSurviveTransientReconnect() async throws {
     let router = LivenessHostRouter()
@@ -155,6 +158,7 @@ import Testing
 
 // MARK: - C. A reconnect with a live mirror resumes (no full scrollback replay)
 
+/// Verifies a fresh retained mirror resumes without re-downloading scrollback.
 @MainActor
 @Test func reconnectWithLiveMirrorResumesWithoutFullScrollbackReplay() async throws {
     let router = LivenessHostRouter()
@@ -269,6 +273,7 @@ import Testing
 
 // MARK: - D. The storm does not repeatedly replay; viewport geometry survives
 
+/// Verifies storm suppression preserves replay bounds and viewport geometry.
 @MainActor
 @Test func deadStreamStormDoesNotRepeatedlyReplayAndKeepsViewport() async throws {
     let router = LivenessHostRouter()
@@ -340,6 +345,7 @@ import Testing
 
 // MARK: - Support
 
+/// Builds a paired, connected shell using the scripted storm-recovery host.
 @MainActor
 private func makeStormRecoveryStore(
     router: LivenessHostRouter,

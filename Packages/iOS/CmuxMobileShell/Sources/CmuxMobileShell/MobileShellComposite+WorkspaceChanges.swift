@@ -414,6 +414,7 @@ extension MobileShellComposite {
         return remoteClient
     }
 
+    /// Starts one generation-owned summary pass and drains any trailing request.
     private func startWorkspaceChangesSummaryFetch(
         scope initialScope: WorkspaceChangesSummaryRefreshScope,
         force initialForce: Bool

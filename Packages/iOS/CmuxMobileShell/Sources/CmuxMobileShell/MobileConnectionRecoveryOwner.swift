@@ -79,6 +79,7 @@ final class MobileConnectionRecoveryOwner {
         }
     }
 
+    /// Claims a new probe or redial attempt when no recovery is active.
     func begin(
         trigger: String,
         sourceConnectionGeneration: UUID,
