@@ -97,10 +97,14 @@ extension CMUXCLI {
         guard let codexDef = Self.agentDef(named: "codex") else {
             throw CLIError(message: "Codex hook integration is unavailable.")
         }
-        let usesPersistentChannel = reconcileCodexPersistentHooksForWrapper()
-        let eventsToInject = usesPersistentChannel ? [] : CodexHookInjectionSchema.current.events
-        // A persistent channel needs no one-shot wrapper scripts. Avoid the
-        // per-event generated-script read/write path after reconciliation.
+        let persistentEvents = codexPersistentHookEventNamesForWrapper()
+        let eventsToInject = CodexHookInjectionSchema.current.events.filter {
+            !persistentEvents.contains($0.agentEvent)
+        }
+        // A complete persistent channel is already the user's selected Codex
+        // configuration. Do not even pass an activation override in that case;
+        // this preserves an intentional `features.hooks = false` choice. A
+        // partial or legacy channel still gets only its missing events below.
         guard !eventsToInject.isEmpty else { return }
         // Prefer a #!/bin/sh SCRIPT FILE as the hook command over an inline shell
         // snippet. Some codex-compatible runtimes (subrouters, proxies) exec the
@@ -112,7 +116,7 @@ extension CMUXCLI {
         // invocations, so they are written once into a cmux-owned dir (~/.cmux/
         // hooks), not the user's ~/.codex. Any write failure falls back to the
         // inline snippet so the working path can never regress.
-        let hooksDir = Self.codexHookScriptsDirectory()
+        let hooksDir = eventsToInject.isEmpty ? nil : Self.codexHookScriptsDirectory()
         var args: [String] = ["--enable", "hooks", "--dangerously-bypass-hook-trust"]
         for event in eventsToInject {
             let hookBody = Self.codexWrapperHookBody(event: event, for: codexDef)

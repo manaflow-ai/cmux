@@ -33049,23 +33049,6 @@ export default CMUXSessionRestore;
         })
     }
 
-    /// Repairs an opted-in persistent Codex channel before wrapper launch.
-    func reconcileCodexPersistentHooksForWrapper() -> Bool {
-        guard let def = Self.agentDef(named: "codex") else { return false }
-        let hooksURL = URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
-            .appendingPathComponent(def.configFile, isDirectory: false)
-        try? installAgentHooks(def, automaticReconciliation: true)
-
-        guard let data = try? Data(contentsOf: hooksURL),
-              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let hooks = root["hooks"] as? [String: Any] else {
-            return false
-        }
-        return hooks.values.contains {
-            Self.jsonHookValueContainsCmuxOwnedCommand($0, for: def)
-        }
-    }
-
     private func pruneLegacyGrokHookFileIfNeeded(
         def: AgentHookDef,
         configDir: String,
