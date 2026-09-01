@@ -50,13 +50,20 @@ final class HiveViewerWindowController: NSObject, NSWindowDelegate {
             guard let session = await HiveComputersService.shared.makeViewerSession(deviceID: deviceID) else {
                 return
             }
-            presentWindow(deviceID: deviceID, session: session)
+            await presentWindow(deviceID: deviceID, session: session)
         }
     }
 
-    private func presentWindow(deviceID: String, session: HiveRemoteMacSession) {
+    private func presentWindow(deviceID: String, session: HiveRemoteMacSession) async {
         if let existing = viewersByDeviceID[deviceID] {
             existing.window.makeKeyAndOrderFront(nil)
+            // Two show requests can race while the first session is being
+            // created. The losing session was never mounted in a window, so
+            // explicitly tear it down instead of leaving its transport/tasks
+            // alive after returning to the existing viewer.
+            if existing.session !== session {
+                await session.disconnect()
+            }
             return
         }
         let appearanceMode = UserDefaults.standard.string(forKey: AppearanceSettings.appearanceModeKey)
