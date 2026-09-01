@@ -147,6 +147,7 @@ pub(crate) fn scan(
             // Screen text alone must not promote a stale or unknown process.
             continue;
         }
+        let stale_rearm = tracker.rearm_stale_emission(terminal_id, now);
         let manifest =
             tracker.foreground_agent(terminal_id).and_then(|agent| manifests.identify(&agent));
         let emission = if exited {
@@ -160,7 +161,7 @@ pub(crate) fn scan(
                     // entry; a terminal that never emitted stays silent.
                     tracker.record_detection(terminal_id, None)
                 }
-                Some(manifest) if quiesced || identity_edge => {
+                Some(manifest) if quiesced || identity_edge || stale_rearm => {
                     let Ok(Ok(screen)) =
                         surface.try_with_terminal(|terminal| terminal.viewport_text())
                     else {

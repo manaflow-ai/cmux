@@ -35,6 +35,9 @@ pub(crate) const MAX_EVAL_INTERVAL_MS: u64 = 1_000;
 /// revision changes still drive screen evaluation, while identity refreshes
 /// are bounded to avoid a process syscall on every 100 ms scan tick.
 pub(crate) const PROCESS_LOOKUP_INTERVAL_MS: u64 = 500;
+/// Re-emit an unchanged screen state so it can claim a terminal after the
+/// hook owner's freshness window expires.
+const SCREEN_REEMIT_INTERVAL_MS: u64 = 30_000;
 
 /// Failed viewport reads are retried at a bounded cadence until output
 /// changes, instead of retrying on every scanner tick.
@@ -134,12 +137,12 @@ impl ScreenDetectTracker {
     /// appears the moment `codex` starts, not after its first quiet screen.
     pub(crate) fn note_foreground_agent(&mut self, terminal_id: &str, agent: Option<&str>) -> bool {
         let entry = self.terminals.entry(terminal_id.to_string()).or_default();
+        entry.foreground_identity_known = true;
         if entry.foreground_agent.as_deref() == agent {
             return false;
         }
         let previous = entry.foreground_agent.as_deref();
         entry.foreground_agent = agent.map(str::to_string);
-        entry.foreground_identity_known = true;
         // A supported-agent swap must not retain the old agent's last emitted
         // state. A transition to None keeps it so the caller can emit Done.
         if agent.is_some() && previous.is_some() && previous != agent {
@@ -178,6 +181,19 @@ impl ScreenDetectTracker {
         if let Some(entry) = self.terminals.get_mut(terminal_id) {
             entry.foreground_identity_known = false;
         }
+    }
+
+    pub(crate) fn rearm_stale_emission(&mut self, terminal_id: &str, now: Instant) -> bool {
+        let Some(entry) = self.terminals.get_mut(terminal_id) else { return false };
+        let Some(last_evaluated_at) = entry.last_evaluated_at else { return false };
+        if entry.emitted.is_none()
+            || (now.duration_since(last_evaluated_at).as_millis() as u64)
+                < SCREEN_REEMIT_INTERVAL_MS
+        {
+            return false;
+        }
+        entry.emitted = None;
+        true
     }
 
     /// Re-arm the current revision after a transient viewport read failure.
