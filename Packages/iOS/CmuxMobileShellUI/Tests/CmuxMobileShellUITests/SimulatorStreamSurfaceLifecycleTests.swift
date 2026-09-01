@@ -32,7 +32,6 @@ import Testing
             simulatorStreamStore: simulatorStore
         )
         let detail = WorkspaceDetailView(
-            host: "Mac",
             connectionStatus: .connected,
             workspace: workspace,
             store: shell,
