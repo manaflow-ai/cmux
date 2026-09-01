@@ -1008,7 +1008,12 @@ final class BonsplitTabDragUITests: XCTestCase {
         if alwaysShowShortcutHints {
             app.launchEnvironment["CMUX_UI_TEST_SHORTCUT_HINTS_ALWAYS_SHOW"] = "1"
         }
-        app.launchArguments += ["-workspacePresentationMode", presentationMode.rawValue]
+        // Keep this UI fixture deterministic even when a prior run persisted the
+        // optional titlebar control as hidden in the shared test account.
+        app.launchArguments += [
+            "-rightSidebar.showTitlebarToggle", "YES",
+            "-workspacePresentationMode", presentationMode.rawValue,
+        ]
         if let rightSidebarMode {
             app.launchArguments += [
                 "-rightSidebar.mode", rightSidebarMode,
