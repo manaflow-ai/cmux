@@ -861,8 +861,7 @@ struct WorkspaceGroupTests {
         })
     }
 
-    /// A retained sidebar header action must still select the live anchor after
-    /// another entry point closes the old anchor and promotes a member.
+    /// Retained group actions select the promoted anchor without creating a workspace.
     @Test func groupHeaderSelectionSurvivesAnchorPromotion() throws {
         let manager = makeTabManager()
         manager.addWorkspace(autoWelcomeIfNeeded: false)
@@ -874,20 +873,15 @@ struct WorkspaceGroupTests {
         let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
         let staleAnchorId = group.anchorWorkspaceId
 
-        // The rendered header retains the stable group id while a separate
-        // close path promotes the first remaining member.
-        let liveHeaderSelection = {
-            guard let liveAnchor = manager.workspaceGroupAnchor(for: groupId) else {
-                return
-            }
-            manager.selectWorkspace(liveAnchor)
-        }
         manager.selectWorkspace(try #require(manager.tabs.first { $0.id == outsiderId }))
         manager.closeWorkspace(try #require(manager.tabs.first { $0.id == staleAnchorId }))
 
         let promotedAnchorId = try #require(manager.workspaceGroups.first { $0.id == groupId }?.anchorWorkspaceId)
-        liveHeaderSelection()
+        let countBeforeSelection = manager.tabs.count
+        let selectedAnchor = try #require(manager.selectWorkspaceGroupAnchor(for: groupId))
 
+        #expect(selectedAnchor.id == promotedAnchorId)
+        #expect(manager.tabs.count == countBeforeSelection)
         #expect(manager.selectedTabId == promotedAnchorId)
     }
 

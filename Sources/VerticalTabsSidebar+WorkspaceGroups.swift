@@ -32,6 +32,10 @@ extension VerticalTabsSidebar {
         )
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
         let newWorkspacePlacement = resolvedConfig?.newWorkspacePlacement
+        let liveGroupContext: () -> (TabManager, UUID)? = { [weak tabManager, groupId = group.id] in
+            guard let tabManager, let anchorId = tabManager.workspaceGroupAnchor(for: groupId)?.id else { return nil }
+            return (tabManager, anchorId)
+        }
         // The AppKit controller applies the current unread snapshot after row
         // construction, keeping this root projection outside Observation.
         let unreadSnapshot = SidebarUnreadSnapshot()
@@ -109,26 +113,13 @@ extension VerticalTabsSidebar {
             },
             onFocusAnchor: { [weak tabManager, groupId = group.id, selectedTabIds = $selectedTabIds, lastSidebarSelectionIndex = $lastSidebarSelectionIndex] modifiers in
                 guard let tabManager else { return }
-                guard let anchorTab = tabManager.workspaceGroupAnchor(for: groupId) else { return }
-                let anchorId = anchorTab.id
-                if modifiers.contains(.command) || modifiers.contains(.shift) {
-                    let anchorIds = Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
-                    let toggledSelection = SidebarSelectionKindPolicy().anchorCmdClickSelection(
-                        current: selectedTabIds.wrappedValue,
-                        clickedAnchorId: anchorId,
-                        anchorIds: anchorIds
-                    )
-                    selectedTabIds.wrappedValue = toggledSelection
-                    tabManager.selectWorkspace(anchorTab)
-                } else {
-                    tabManager.selectWorkspace(anchorTab)
-                    if selectedTabIds.wrappedValue != [anchorId] {
-                        selectedTabIds.wrappedValue = [anchorId]
-                    }
-                }
-                if let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == anchorId }) {
-                    lastSidebarSelectionIndex.wrappedValue = anchorIndex
-                }
+                focusWorkspaceGroupAnchor(
+                    groupId: groupId,
+                    modifiers: modifiers,
+                    tabManager: tabManager,
+                    selectedTabIds: selectedTabIds,
+                    lastSidebarSelectionIndex: lastSidebarSelectionIndex
+                )
             },
             onTapPlus: { [weak tabManager, groupId = group.id, placement = newWorkspacePlacement] in
                 guard let tabManager else { return }
@@ -155,17 +146,20 @@ extension VerticalTabsSidebar {
             onTogglePinned: { [weak tabManager, groupId = group.id] in
                 tabManager?.toggleWorkspaceGroupPinned(groupId: groupId)
             },
-            onMarkRead: { [weak notificationStore, anchorId = group.anchorWorkspaceId] in
-                notificationStore?.markRead(forTabId: anchorId)
+            onMarkRead: { [liveGroupContext, weak notificationStore] in
+                guard let (_, anchorId) = liveGroupContext(), let notificationStore else { return }
+                notificationStore.markRead(forTabId: anchorId)
             },
-            onMarkUnread: { [weak notificationStore, anchorId = group.anchorWorkspaceId] in
-                notificationStore?.markUnread(forTabId: anchorId)
+            onMarkUnread: { [liveGroupContext, weak notificationStore] in
+                guard let (_, anchorId) = liveGroupContext(), let notificationStore else { return }
+                notificationStore.markUnread(forTabId: anchorId)
             },
-            onClearLatestNotifications: { [weak notificationStore, anchorId = group.anchorWorkspaceId] in
-                notificationStore?.clearLatestNotification(forTabId: anchorId)
+            onClearLatestNotifications: { [liveGroupContext, weak notificationStore] in
+                guard let (_, anchorId) = liveGroupContext(), let notificationStore else { return }
+                notificationStore.clearLatestNotification(forTabId: anchorId)
             },
-            onMarkAllRead: { [weak tabManager, weak notificationStore, groupId = group.id, anchorId = group.anchorWorkspaceId] in
-                guard let tabManager, let notificationStore else { return }
+            onMarkAllRead: { [liveGroupContext, weak notificationStore, groupId = group.id] in
+                guard let (tabManager, anchorId) = liveGroupContext(), let notificationStore else { return }
                 // Resolve members live at action time: closures are excluded
                 // from model equality, so a captured ID list could go stale
                 // across a same-count membership swap.
@@ -176,8 +170,8 @@ extension VerticalTabsSidebar {
                     notificationStore.markRead(forTabId: id)
                 }
             },
-            onMarkAllUnread: { [weak tabManager, weak notificationStore, groupId = group.id, anchorId = group.anchorWorkspaceId] in
-                guard let tabManager, let notificationStore else { return }
+            onMarkAllUnread: { [liveGroupContext, weak notificationStore, groupId = group.id] in
+                guard let (tabManager, anchorId) = liveGroupContext(), let notificationStore else { return }
                 let ids = tabManager.tabs.compactMap { $0.groupId == groupId && $0.id != anchorId ? $0.id : nil }
                 // Only mark members that are not already unread. Calling
                 // markUnread on an already-unread member would set its manual
@@ -366,7 +360,15 @@ extension VerticalTabsSidebar {
         snapshot: SidebarWorkspaceGroupRowSnapshot
     ) -> SidebarWorkspaceGroupRowView {
         let rowId = SidebarWorkspaceRenderItemID.group(snapshot.groupId)
-        let onDragStart: () -> NSItemProvider = { [anchorId = snapshot.anchorWorkspaceId] in
+        let liveGroupContext: () -> (TabManager, UUID)? = { [weak tabManager, groupId = snapshot.groupId] in
+            guard let tabManager, let anchorId = tabManager.workspaceGroupAnchor(for: groupId)?.id else { return nil }
+            return (tabManager, anchorId)
+        }
+        let onDragStart: () -> NSItemProvider = { [weak tabManager, groupId = snapshot.groupId] in
+            guard let tabManager,
+                  let anchorId = tabManager.workspaceGroupAnchor(for: groupId)?.id else {
+                return NSItemProvider()
+            }
 #if DEBUG
             cmuxDebugLog("sidebar.onDrag groupAnchor=\(anchorId.uuidString.prefix(5))")
 #endif
@@ -411,26 +413,13 @@ extension VerticalTabsSidebar {
             },
             onFocusAnchor: { [weak tabManager, groupId = snapshot.groupId, selectedTabIds = $selectedTabIds, lastSidebarSelectionIndex = $lastSidebarSelectionIndex] modifiers in
                 guard let tabManager else { return }
-                guard let anchorTab = tabManager.workspaceGroupAnchor(for: groupId) else { return }
-                let anchorId = anchorTab.id
-                if modifiers.contains(.command) || modifiers.contains(.shift) {
-                    let anchorIds = Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
-                    let toggledSelection = SidebarSelectionKindPolicy().anchorCmdClickSelection(
-                        current: selectedTabIds.wrappedValue,
-                        clickedAnchorId: anchorId,
-                        anchorIds: anchorIds
-                    )
-                    selectedTabIds.wrappedValue = toggledSelection
-                    tabManager.selectWorkspace(anchorTab)
-                } else {
-                    tabManager.selectWorkspace(anchorTab)
-                    if selectedTabIds.wrappedValue != [anchorId] {
-                        selectedTabIds.wrappedValue = [anchorId]
-                    }
-                }
-                if let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == anchorId }) {
-                    lastSidebarSelectionIndex.wrappedValue = anchorIndex
-                }
+                focusWorkspaceGroupAnchor(
+                    groupId: groupId,
+                    modifiers: modifiers,
+                    tabManager: tabManager,
+                    selectedTabIds: selectedTabIds,
+                    lastSidebarSelectionIndex: lastSidebarSelectionIndex
+                )
             },
             onTapPlus: { [weak tabManager, groupId = snapshot.groupId, placement = snapshot.newWorkspacePlacement] in
                 guard let tabManager else { return }
@@ -457,25 +446,24 @@ extension VerticalTabsSidebar {
             onTogglePinned: { [weak tabManager, groupId = snapshot.groupId] in
                 tabManager?.toggleWorkspaceGroupPinned(groupId: groupId)
             },
-            onMarkRead: { [weak notificationStore, anchorId = snapshot.anchorWorkspaceId] in
-                guard let notificationStore,
-                      notificationStore.canMarkWorkspaceRead(forTabIds: [anchorId]) else {
-                    return
-                }
+            onMarkRead: { [liveGroupContext, weak notificationStore] in
+                guard let (_, anchorId) = liveGroupContext(),
+                      let notificationStore,
+                      notificationStore.canMarkWorkspaceRead(forTabIds: [anchorId]) else { return }
                 notificationStore.markRead(forTabId: anchorId)
             },
-            onMarkUnread: { [weak notificationStore, anchorId = snapshot.anchorWorkspaceId] in
-                guard let notificationStore,
-                      notificationStore.canMarkWorkspaceUnread(forTabIds: [anchorId]) else {
-                    return
-                }
+            onMarkUnread: { [liveGroupContext, weak notificationStore] in
+                guard let (_, anchorId) = liveGroupContext(),
+                      let notificationStore,
+                      notificationStore.canMarkWorkspaceUnread(forTabIds: [anchorId]) else { return }
                 notificationStore.markUnread(forTabId: anchorId)
             },
-            onClearLatestNotifications: { [weak notificationStore, anchorId = snapshot.anchorWorkspaceId] in
-                notificationStore?.clearLatestNotification(forTabId: anchorId)
+            onClearLatestNotifications: { [liveGroupContext, weak notificationStore] in
+                guard let (_, anchorId) = liveGroupContext(), let notificationStore else { return }
+                notificationStore.clearLatestNotification(forTabId: anchorId)
             },
-            onMarkAllRead: { [weak tabManager, weak notificationStore, groupId = snapshot.groupId, anchorId = snapshot.anchorWorkspaceId] in
-                guard let tabManager, let notificationStore else { return }
+            onMarkAllRead: { [liveGroupContext, weak notificationStore, groupId = snapshot.groupId] in
+                guard let (tabManager, anchorId) = liveGroupContext(), let notificationStore else { return }
                 // Resolve members live at action time: the header is .equatable()
                 // and closures are excluded from ==, so a captured ID list could
                 // go stale across a same-count membership swap.
@@ -486,8 +474,8 @@ extension VerticalTabsSidebar {
                     notificationStore.markRead(forTabId: id)
                 }
             },
-            onMarkAllUnread: { [weak tabManager, weak notificationStore, groupId = snapshot.groupId, anchorId = snapshot.anchorWorkspaceId] in
-                guard let tabManager, let notificationStore else { return }
+            onMarkAllUnread: { [liveGroupContext, weak notificationStore, groupId = snapshot.groupId] in
+                guard let (tabManager, anchorId) = liveGroupContext(), let notificationStore else { return }
                 let ids = tabManager.tabs.compactMap { $0.groupId == groupId && $0.id != anchorId ? $0.id : nil }
                 // Only mark members that are not already unread. Calling
                 // markUnread on an already-unread member would set its manual
@@ -530,12 +518,46 @@ extension VerticalTabsSidebar {
             groupId: snapshot.groupId,
             anchorWorkspaceId: snapshot.anchorWorkspaceId,
             shouldCollectWorkspaceDropTargets: snapshot.shouldCollectWorkspaceDropTargets,
-            onPointerFrameChange: { [pointerInteractionMonitor, workspaceId = snapshot.anchorWorkspaceId] frame in
+            onPointerFrameChange: { [pointerInteractionMonitor, weak tabManager, groupId = snapshot.groupId] frame in
+                guard let workspaceId = tabManager?.workspaceGroupAnchor(for: groupId)?.id else {
+                    pointerInteractionMonitor.removeFrame(for: rowId)
+                    return
+                }
                 pointerInteractionMonitor.updateFrame(frame, for: rowId, workspaceId: workspaceId)
             },
             onPointerFrameDisappear: { [pointerInteractionMonitor] in
                 pointerInteractionMonitor.removeFrame(for: rowId)
             }
         )
+    }
+
+    /// Applies one shared group-header selection action to the live anchor.
+    @MainActor
+    private func focusWorkspaceGroupAnchor(
+        groupId: UUID,
+        modifiers: NSEvent.ModifierFlags,
+        tabManager: TabManager,
+        selectedTabIds: Binding<[UUID]>,
+        lastSidebarSelectionIndex: Binding<Int?>
+    ) {
+        let anchorId: UUID
+        if modifiers.contains(.command) || modifiers.contains(.shift) {
+            guard let anchor = tabManager.workspaceGroupAnchor(for: groupId) else { return }
+            let selection = SidebarSelectionKindPolicy().anchorCmdClickSelection(
+                current: selectedTabIds.wrappedValue,
+                clickedAnchorId: anchor.id,
+                anchorIds: Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
+            )
+            selectedTabIds.wrappedValue = selection
+            guard let selectedAnchor = tabManager.selectWorkspaceGroupAnchor(for: groupId) else { return }
+            anchorId = selectedAnchor.id
+        } else {
+            guard let selectedAnchor = tabManager.selectWorkspaceGroupAnchor(for: groupId) else { return }
+            anchorId = selectedAnchor.id
+            if selectedTabIds.wrappedValue != [anchorId] {
+                selectedTabIds.wrappedValue = [anchorId]
+            }
+        }
+        lastSidebarSelectionIndex.wrappedValue = tabManager.tabs.firstIndex { $0.id == anchorId }
     }
 }
