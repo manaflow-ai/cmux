@@ -24,6 +24,11 @@
         "fork": "Do not retry. Create a new VM with `cmux vm new`.",
         "default": "Do not retry. Run `cmux vm ls` to see your machines, or contact support if you believe this is wrong."
       }
+    },
+    "requiresPro": {
+      "title": "cmux Pro required",
+      "message": "Cloud VMs require a cmux Pro plan.",
+      "action": "Upgrade to cmux Pro at {upgradeUrl} to create Cloud VMs."
     }
   },
   "ios": {
@@ -179,7 +184,8 @@
         "cancelled": "Your plan will cancel at the end of the current billing period.",
         "resumed": "Your plan has been resumed and will renew normally.",
         "nosub": "No active Stripe subscription was found for this account.",
-        "error": "Billing could not be updated. Try again shortly."
+        "error": "Billing could not be updated. Try again shortly.",
+        "pastDue": "Your latest payment failed. Update your payment method to keep your plan active."
       },
       "free": {
         "name": "Free",

@@ -15,6 +15,11 @@
         "fork": "Tekrar denemeyin. `cmux vm new` ile yeni bir VM oluşturun.",
         "default": "Tekrar denemeyin. `cmux vm ls` komutunu çalıştırın veya bunun yanlış olduğunu düşünüyorsanız destek ekibine başvurun."
       }
+    },
+    "requiresPro": {
+      "title": "cmux Pro gerekli",
+      "message": "Cloud VM'ler için cmux Pro planı gerekir.",
+      "action": "Cloud VM oluşturmak için {upgradeUrl} adresinden cmux Pro'ya yükseltin."
     }
   },
   "billingRecovery": {

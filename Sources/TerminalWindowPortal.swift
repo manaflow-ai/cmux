@@ -780,8 +780,17 @@ final class WindowTerminalPortal: NSObject {
         geometryObservers.append(center.addObserver(
             forName: NSWindow.didResizeNotification,
             object: window,
-            queue: .main
+            queue: nil
         ) { [weak self] notification in
+            // queue nil on purpose: NSWindow posts didResize synchronously
+            // from inside setFrame on the main thread, so this handler runs
+            // while the resize tick's transaction is still open — the only
+            // point where hosted frames can land in the SAME commit as the
+            // window's new size. A .main operation queue defers the handler
+            // by a runloop turn, and during a live resize that turn is the
+            // visible difference between the terminal tracking the window
+            // edge and trailing it by a frame for the whole drag.
+            guard Thread.isMainThread else { return }
             MainActor.assumeIsolated {
 #if DEBUG
                 // Standing tripwire for PROGRAMMATIC window growth — the
@@ -805,7 +814,21 @@ final class WindowTerminalPortal: NSObject {
                 }
 #endif
                 guard let self, self.selfFrameWriteDepth == 0 else { return }
-                self.scheduleExternalGeometrySynchronize()
+                if self.isWindowLiveResizeActive {
+                    // Live resize: run the pass INSIDE this tick so hosted
+                    // frames commit together with the window's new size. The
+                    // pass forces subtree layout first (fresh anchor frames)
+                    // and every synchronous-redraw path is already gated off
+                    // while live resize is active (see synchronizeHostedView
+                    // and reconcileVisibleHostedViewsAfterGeometrySync), so
+                    // it cannot reach the open-transaction Metal wedge that
+                    // displayIfNeeded would risk here. Re-entrant echoes die
+                    // in currentlySynchronizingPortalId and the geometry
+                    // signature check.
+                    self.synchronizeAllEntriesFromExternalGeometryChange()
+                } else {
+                    self.scheduleExternalGeometrySynchronize()
+                }
             }
         })
         geometryObservers.append(center.addObserver(
@@ -2207,7 +2230,14 @@ final class WindowTerminalPortal: NSObject {
             // normal frame-change refresh path won't run. Nudge geometry + redraw so newly
             // revealed terminals don't sit on a stale/blank IOSurface until later focus churn.
             hostedView.reconcileGeometryNow()
-            if syncLayout {
+            // Mid window live-resize the pass runs synchronously inside the
+            // resize tick's still-open transaction (see the didResize
+            // observer), where refreshSurfaceNow's displayIfNeeded reaches
+            // ghostty's Metal drawFrame and wedges on a present only that
+            // transaction can commit. Unlike the frame-change branch above,
+            // a reveal cannot skip its redraw outright — the surface would
+            // sit blank until later churn — so defer it one main-queue turn.
+            if syncLayout, !isWindowLiveResizeActive {
                 hostedView.refreshSurfaceNow(reason: "portal.reveal")
             } else {
                 deferSurfaceRefresh(forHostedId: hostedId, reason: "portal.reveal.deferred")

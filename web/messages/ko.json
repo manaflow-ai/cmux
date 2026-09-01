@@ -15,6 +15,11 @@
         "fork": "다시 시도하지 마세요. `cmux vm new`로 새 VM을 만드세요.",
         "default": "다시 시도하지 마세요. `cmux vm ls`로 머신을 확인하거나 문제가 계속되면 지원팀에 문의하세요."
       }
+    },
+    "requiresPro": {
+      "title": "cmux Pro 필요",
+      "message": "Cloud VM을 사용하려면 cmux Pro 플랜이 필요합니다.",
+      "action": "{upgradeUrl}에서 cmux Pro로 업그레이드하면 Cloud VM을 만들 수 있습니다."
     }
   },
   "billingRecovery": {
