@@ -2564,7 +2564,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
     /// Canonical editor text cached when the environment changes, so autosave
     /// fingerprinting does not sort the dictionary on every timer tick.
-    private var serializedWorkspaceEnvironment = ""
+    private(set) var serializedWorkspaceEnvironment = ""
     // Legacy in-memory state for old helpers/tests. Product UI, rendering, and
     // session persistence no longer honor per-workspace scrollbar overrides.
     @Published private(set) var terminalScrollBarHidden: Bool = false
