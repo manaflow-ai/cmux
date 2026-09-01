@@ -18117,15 +18117,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         shortcut: StoredShortcut,
         usesNumberedDigitMatching: Bool = false
     ) -> Bool {
-        if usesNumberedDigitMatching {
-            return numberedShortcutDigit(event: event, shortcut: shortcut) != nil
-        }
         if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
+            // Numbered selection actions are single-stroke families, not chord
+            // suffixes. If another action has armed a prefix, leave this event
+            // to the normal chord router rather than consuming the suffix as a
+            // numbered digit.
+            guard !usesNumberedDigitMatching else { return false }
             guard shortcut.firstStroke == prefix,
                   let secondStroke = shortcut.secondStroke else {
                 return false
             }
             return matchShortcutStroke(event: event, stroke: secondStroke)
+        }
+        if usesNumberedDigitMatching {
+            return numberedShortcutDigit(event: event, shortcut: shortcut) != nil
         }
         if shortcut.hasChord {
             // Yield the prefix itself to the page. If it is captured, cmux
