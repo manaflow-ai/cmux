@@ -473,10 +473,9 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
     private var lastGrid: TerminalGridSize?
     private var pendingInput = Data()
     /// Bytes waiting for a non-blocking iSH pty write. Keeping whole queue
-    /// elements and updating the head after every accepted prefix prevents a
-    /// short write from duplicating bytes on the next retry.
-    private var inputQueue: [Data] = []
-    private var inputQueueByteCount = 0
+    /// elements and advancing a logical head after every accepted prefix
+    /// prevents a short write from duplicating bytes on the next retry.
+    private var inputQueue = InputFIFO()
     private var isWindowAttached = false
     /// Set when SwiftUI permanently dismantles this coordinator. UIKit can
     /// deliver one last attachment callback while the old surface is being
@@ -500,6 +499,121 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
     private nonisolated static let pendingInputLimit = 64 * 1024
     /// iSH reports a full non-blocking tty input buffer as negative EAGAIN.
     private nonisolated static let wouldBlockErrno: Int32 = -11
+
+    /// A bounded FIFO for bytes waiting on the non-blocking local pty.
+    ///
+    /// Ghostty can deliver one callback per byte, so shifting an array on
+    /// every dequeue makes a long paste quadratic. This ring keeps logical
+    /// head and tail positions separate from the backing storage. Partial
+    /// writes advance `headOffset` instead of rebuilding the remaining
+    /// `Data`, so repeated EAGAIN retries do not copy the same bytes.
+    private struct InputFIFO {
+        private static let initialCapacity = 16
+
+        private var storage: [Data?] = []
+        private var headIndex = 0
+        private var elementCount = 0
+        private var headOffset = 0
+
+        private(set) var byteCount = 0
+
+        var isEmpty: Bool {
+            elementCount == 0
+        }
+
+        /// Number of bytes remaining in the current logical head element.
+        var headByteCount: Int {
+            guard elementCount > 0,
+                  let head = storage[headIndex] else { return 0 }
+            return head.count - headOffset
+        }
+
+        /// A zero-copy `Data` slice for the current head remainder.
+        /// `Data.SubSequence` is `Data`, so this shares the backing bytes until
+        /// either value is mutated.
+        var headRemainder: Data {
+            guard elementCount > 0,
+                  let head = storage[headIndex] else { return Data() }
+            guard headOffset > 0 else { return head }
+            let start = head.index(head.startIndex, offsetBy: headOffset)
+            return head[start..<head.endIndex]
+        }
+
+        mutating func append(_ data: Data) {
+            guard !data.isEmpty else { return }
+            ensureCapacity()
+            let tailIndex = (headIndex + elementCount) % storage.count
+            storage[tailIndex] = data
+            elementCount += 1
+            byteCount += data.count
+        }
+
+        /// Consumes bytes from the current head without moving later entries.
+        /// The worker only consumes from one head element at a time.
+        mutating func consume(_ count: Int) {
+            guard count > 0 else { return }
+            guard elementCount > 0,
+                  let head = storage[headIndex] else {
+                assertionFailure("cannot consume from an empty input FIFO")
+                return
+            }
+            let available = head.count - headOffset
+            guard count <= available else {
+                assertionFailure("input FIFO consume exceeds head remainder")
+                return
+            }
+
+            headOffset += count
+            byteCount -= count
+            guard headOffset == head.count else { return }
+
+            storage[headIndex] = nil
+            elementCount -= 1
+            headOffset = 0
+            if elementCount == 0 {
+                headIndex = 0
+                // A burst of one-byte callbacks can grow the ring to many
+                // slots. Release that capacity after the burst is drained;
+                // retaining a small baseline avoids a reallocation per key.
+                if storage.count > Self.initialCapacity {
+                    storage = Array(repeating: nil, count: Self.initialCapacity)
+                }
+            } else {
+                headIndex = (headIndex + 1) % storage.count
+            }
+        }
+
+        mutating func removeAll(keepingCapacity: Bool = false) {
+            if keepingCapacity {
+                for index in storage.indices {
+                    storage[index] = nil
+                }
+            } else {
+                storage.removeAll(keepingCapacity: false)
+            }
+            headIndex = 0
+            elementCount = 0
+            headOffset = 0
+            byteCount = 0
+        }
+
+        private mutating func ensureCapacity() {
+            if storage.isEmpty {
+                storage = Array(repeating: nil, count: Self.initialCapacity)
+                return
+            }
+            guard elementCount == storage.count else { return }
+
+            let oldStorage = storage
+            let newCapacity = max(Self.initialCapacity, oldStorage.count * 2)
+            var expanded = Array<Data?>(repeating: nil, count: newCapacity)
+            for offset in 0..<elementCount {
+                expanded[offset] = oldStorage[(headIndex + offset) % oldStorage.count]
+            }
+            storage = expanded
+            headIndex = 0
+        }
+    }
 
     init(
         runtime: LocalLinuxRuntime,
@@ -846,7 +960,6 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
         scrollbackRing = nil
         session = nil
         inputQueue.removeAll(keepingCapacity: false)
-        inputQueueByteCount = 0
         pendingInput.removeAll(keepingCapacity: false)
         if publish {
             report(.ended)
@@ -954,7 +1067,6 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
             self.inputTask = nil
             self.inputWorkerID = nil
             self.inputQueue.removeAll(keepingCapacity: false)
-            self.inputQueueByteCount = 0
             self.resizeTask?.cancel()
             self.resizeTask = nil
             self.report(.ended)
@@ -1052,7 +1164,7 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
         }
 
         if session != nil {
-            let remaining = Self.pendingInputLimit - inputQueueByteCount
+            let remaining = Self.pendingInputLimit - inputQueue.byteCount
             guard remaining > 0 else {
                 localLinuxLog.error(
                     "local Linux input queue is full; dropping \(data.count, privacy: .public) bytes"
@@ -1061,7 +1173,6 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
             }
             let bytes = Data(data.prefix(remaining))
             inputQueue.append(bytes)
-            inputQueueByteCount += bytes.count
             if bytes.count != data.count {
                 localLinuxLog.error(
                     "local Linux input queue limit dropped \(data.count - bytes.count, privacy: .public) bytes"
@@ -1117,15 +1228,17 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
                   self.inputWorkerID == workerID,
                   self.session === session,
                   !self.inputQueue.isEmpty {
-                let bytes = self.inputQueue[0]
-                var offset = 0
+                let headByteCount = self.inputQueue.headByteCount
+                var consumedByteCount = 0
                 var waitForReadiness = false
 
                 do {
-                    while offset < bytes.count, !Task.isCancelled {
+                    while consumedByteCount < headByteCount, !Task.isCancelled {
                         guard self.inputWorkerID == workerID,
                               self.session === session else { return }
-                        let remainder = Data(bytes.dropFirst(offset))
+                        // The FIFO returns a shared `Data` slice. Avoid
+                        // rebuilding the remainder on every short write.
+                        let remainder = self.inputQueue.headRemainder
                         let accepted = try await session.send(remainder)
                         guard self.inputWorkerID == workerID,
                               self.session === session else { return }
@@ -1145,9 +1258,8 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
                             break
                         }
 
-                        offset += accepted
-                        self.inputQueueByteCount -= accepted
-                        self.inputQueue[0] = Data(bytes.dropFirst(offset))
+                        consumedByteCount += accepted
+                        self.inputQueue.consume(accepted)
                     }
                 } catch {
                     // The session can close while a write is suspended. Its
@@ -1174,9 +1286,6 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
 
                 guard self.inputWorkerID == workerID,
                       self.session === session else { return }
-                if offset == bytes.count {
-                    self.inputQueue.removeFirst()
-                }
                 if waitForReadiness {
                     guard await readinessIterator.next() != nil else { return }
                     guard !Task.isCancelled,
