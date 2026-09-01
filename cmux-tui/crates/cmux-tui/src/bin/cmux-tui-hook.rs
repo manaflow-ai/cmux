@@ -681,7 +681,7 @@ mod detach {
     }
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
 mod detach {
     use std::io::{Read, Write};
     use std::path::Path;
