@@ -549,6 +549,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 correlationID: foregroundMacDeviceID,
                 count: supportedHostCapabilities.count
             )
+            guard !isResettingTerminalOutputTracking else { return }
             if workspaceChangesCapable {
                 scheduleWorkspaceChangesSummaryRefresh()
             } else {
@@ -556,6 +557,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
     }
+    /// Suppresses capability-driven workspace-chip eviction while a transient
+    /// client swap clears terminal transport state.
+    @ObservationIgnored private var isResettingTerminalOutputTracking = false
     /// Authenticated phone-forwarding readiness from the focused Mac. `nil`
     /// means no attached Mac has proved same-account ownership and exposed the
     /// independent Mac privacy gate.
@@ -1172,13 +1176,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// across re-subscribes) so events arriving during the round-trip are
     /// consumed, not buffered invisibly behind the await.
     private var terminalSubscriptionStartTask: Task<Void, Never>?
-    /// Backoff gate for the dead-terminal-event-stream redial edge. A
-    /// subscription that keeps ending — or being rejected — before delivering
-    /// any event must not redial in a tight loop (issue #10482). See
-    /// ``recoverDeadTerminalEventStream(trigger:expectedClient:streamDeliveredEvent:)``.
-    var deadTerminalEventStreamRedialBackoff = MobileDeadStreamRedialBackoff()
-    var deadTerminalEventStreamRedialTask: Task<Void, Never>?
-    @ObservationIgnored var deadTerminalEventStreamRedialTaskGeneration = UUID()
     /// Subscription success is the final validation edge for a replacement
     /// connection or listener. This snapshot closes the race where an old
     /// acknowledgement arrives after a newer listener has taken ownership.
@@ -1522,20 +1519,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// repaints invisible to the history chain) and delivery requests a full
     /// replay instead of patching.
     var terminalRenderGridRevisionContinuityBySurfaceID: [String: MobileTerminalRenderGridRevisionContinuity]
-    /// Surfaces whose local mirror lost (or never had) its deep scrollback:
-    /// cold attach and post-rebuild resets. Only these replays request the
-    /// full hydration window; steady-state replays (barrier follow-ups, theme
-    /// resets) request none and replay as history-preserving repaints.
-    var terminalMirrorHydrationNeededSurfaceIDs: Set<String>
-    /// Mounted surfaces that still hold a populated on-screen mirror across a
-    /// connection swap (reconnect/handoff). Their delivery cursor is cleared
-    /// with the old client, but the rendered scrollback survives on screen, so
-    /// their first replay after the swap should repaint the visible screen
-    /// (history-preserving) rather than re-download the entire scrollback again
-    /// — the ~20MB cellular burst per reconnect in issue #10482. A genuinely
-    /// rebuilt-blank surface still forces hydration through
-    /// ``terminalMirrorHydrationNeededSurfaceIDs``.
-    var terminalSurfacesRetainingMirrorAcrossReconnect: Set<String> = []
+    /// Per-mounted-surface mirror lifecycle. Keeping hydration, reconnect
+    /// retention, and producer freshness metadata together prevents a stale
+    /// surface ID from borrowing another terminal's scrollback.
+    @ObservationIgnored var terminalMirrorStatesBySurfaceID: [String: MobileTerminalMirrorState]
     var terminalReplaySurfaceIDsInFlight: Set<String>
     var terminalReplayRequestIDsInFlightBySurfaceID: [String: UUID]
     var terminalReplayTasksBySurfaceID: [String: Task<Void, Never>]
@@ -1932,7 +1919,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalActiveScreenBySurfaceID = [:]
         self.terminalRenderGridHistoryContinuityBySurfaceID = [:]
         self.terminalRenderGridRevisionContinuityBySurfaceID = [:]
-        self.terminalMirrorHydrationNeededSurfaceIDs = []
+        self.terminalMirrorStatesBySurfaceID = [:]
         self.terminalReplaySurfaceIDsInFlight = []
         self.terminalReplayRequestIDsInFlightBySurfaceID = [:]
         self.terminalReplayTasksBySurfaceID = [:]
@@ -2001,7 +1988,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionMethodObservationTask?.cancel()
         terminalEventListenerTask?.cancel()
         terminalSubscriptionStartTask?.cancel()
-        deadTerminalEventStreamRedialTask?.cancel()
         renderGridLivenessTimer?.cancel()
         renderGridLivenessProbeTask?.cancel()
         terminalInputAckResubscribeRetryTask?.cancel()
@@ -2031,6 +2017,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    /// Creates a lightweight shell composition for previews and unit tests.
+    /// - Parameters:
+    ///   - runtime: Optional injected transport/runtime implementation.
+    ///   - terminalInputAckResubscribeClock: Clock for terminal ACK retries.
+    ///   - controlPlaneSchedulingClock: Clock for recovery and control retries.
+    ///   - workspaceChangesSchedulingClock: Clock for workspace-summary debouncing.
+    /// - Returns: A shell store backed by the preview workspace fixture.
     public static func preview(
         runtime: (any MobileSyncRuntime)? = nil,
         // In-memory so previews and package tests never share persisted
@@ -2040,13 +2033,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         browserStreamEvents: (any BrowserStreamEventReceiving)? = nil,
         simulatorStreamStore: MobileSimulatorStreamStore? = nil,
         terminalInputAckResubscribeClock: any Clock<Duration> = ContinuousClock(),
-        controlPlaneSchedulingClock: any Clock<Duration> = ContinuousClock()
+        controlPlaneSchedulingClock: any Clock<Duration> = ContinuousClock(),
+        workspaceChangesSchedulingClock: any Clock<Duration> = ContinuousClock()
     ) -> CMUXMobileShellStore {
         CMUXMobileShellStore(
             runtime: runtime,
             workspaces: PreviewMobileHost.workspaces,
             deliveredNotificationClearer: NoopDeliveredNotificationClearer(),
             lastTabStore: lastTabStore,
+            workspaceChangesSchedulingClock: workspaceChangesSchedulingClock,
             controlPlaneSchedulingClock: controlPlaneSchedulingClock,
             terminalInputAckResubscribeClock: terminalInputAckResubscribeClock,
             browserStreamEvents: browserStreamEvents,
@@ -2103,6 +2098,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // barren-stream streak, not just the pending redial, so the next
         // session does not inherit the previous one's backoff (issue #10482).
         resetDeadTerminalEventStreamBackoff()
+        invalidateMountedTerminalMirrors()
+        resetWorkspaceChangesState()
         applyConnectionRecoveryOwnerState()
         invalidatePairingAttempt()
         clearMacSwitchAttemptState()
@@ -4784,6 +4781,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if connectionState != .connected {
             clearActiveConnectionContext()
             macConnectionStatus = .unavailable
+            invalidateMountedTerminalMirrors()
+            resetWorkspaceChangesState()
             replaceRemoteClient(with: nil)
         }
         clearPairingError()
@@ -10631,7 +10630,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectedHostName = ""
     }
 
-    func clearRemoteConnectionContext(preservingOtherMacWorkspaceState: Bool = false) {
+    /// Clears the active remote connection while optionally retaining state for
+    /// a same-session transient reconnect.
+    /// - Parameters:
+    ///   - preservingOtherMacWorkspaceState: Keep secondary-Mac workspace rows.
+    ///   - preservingTerminalMirror: Keep mounted mirror metadata for validation.
+    ///   - preservingWorkspaceChanges: Keep last-known files-changed chips.
+    func clearRemoteConnectionContext(
+        preservingOtherMacWorkspaceState: Bool = false,
+        preservingTerminalMirror: Bool = false,
+        preservingWorkspaceChanges: Bool = false
+    ) {
         connectionGeneration = UUID()
         connectionAttemptGeneration = UUID()
         // Capture the tagged foreground key BEFORE the identity clears below:
@@ -10656,7 +10665,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             removeControlCapability(ifMatching: focused)
             macConnectionRegistry.setFocusedConnection(nil, for: focused.ownerKey)
         }
+        if !preservingTerminalMirror {
+            invalidateMountedTerminalMirrors()
+        }
         replaceRemoteClient(with: nil)
+        if !preservingWorkspaceChanges {
+            resetWorkspaceChangesState()
+        }
         foregroundMacDeviceID = nil
         if !preservingOtherMacWorkspaceState {
             // Cancel the live secondary subscriptions (slice 3) and keep only the
@@ -11020,6 +11035,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         macConnectionStatus = .unavailable
         foregroundMacDeviceID = nil
         clearActiveConnectionContext()
+        invalidateMountedTerminalMirrors()
+        resetWorkspaceChangesState()
         replaceRemoteClient(with: nil)
     }
 
@@ -11065,17 +11082,25 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func resetTerminalOutputTracking() {
         cancelAllTerminalReplayTasks()
         // A connection swap clears each surface's delivery cursor below, but a
-        // mounted surface's rendered scrollback survives on screen. Remember
-        // which ones so their first post-swap replay resumes (repaints the
-        // visible screen) instead of re-downloading the whole scrollback
-        // (issue #10482). Genuinely rebuilt-blank surfaces are excluded because
-        // they carry no delivery cursor here (their mirror was wiped).
-        terminalSurfacesRetainingMirrorAcrossReconnect = Set(
-            terminalByteContinuationsBySurfaceID.keys.filter {
-                deliveredTerminalByteEndSeqBySurfaceID[$0] != nil
-                    && !terminalMirrorHydrationNeededSurfaceIDs.contains($0)
-            }
-        )
+        // mounted surface's rendered scrollback survives on screen. Carry that
+        // fact in the same per-surface lifecycle record used by replay
+        // hydration, and retain the producer metadata needed to validate the
+        // first post-swap frame before trusting a zero-row replay.
+        let mountedSurfaceIDs = Set(terminalByteContinuationsBySurfaceID.keys)
+        terminalMirrorStatesBySurfaceID = terminalMirrorStatesBySurfaceID.filter {
+            mountedSurfaceIDs.contains($0.key)
+        }
+        for surfaceID in mountedSurfaceIDs {
+            var mirrorState = terminalMirrorStatesBySurfaceID[surfaceID]
+                ?? MobileTerminalMirrorState()
+            mirrorState.prepareForReconnect(
+                hasDeliveredFrame:
+                    deliveredTerminalByteEndSeqBySurfaceID[surfaceID] != nil
+                        || terminalPreBarrierDeliveredEndSeqBySurfaceID[surfaceID] != nil
+                        || !mirrorState.hydrationNeeded
+            )
+            terminalMirrorStatesBySurfaceID[surfaceID] = mirrorState
+        }
         effectiveViewportSizesBySurfaceID = [:]; reportedTerminalViewportSizesBySurfaceID = [:]
         // Keep viewport sequences for the account lifetime. A warm peer keeps
         // its Mac-side tombstone, while a reconnected peer safely accepts a
@@ -11098,7 +11123,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         diagnosedTerminalOutputSurfaceIDs = []
         terminalRenderGridHistoryContinuityBySurfaceID = [:]
         terminalRenderGridRevisionContinuityBySurfaceID = [:]
-        terminalMirrorHydrationNeededSurfaceIDs = []
+        terminalMirrorStatesBySurfaceID = terminalMirrorStatesBySurfaceID.filter {
+            terminalByteContinuationsBySurfaceID.keys.contains($0.key)
+        }
         terminalReplaySurfaceIDsInFlight = []
         terminalReplayRequestIDsInFlightBySurfaceID = [:]
         cancelAllTerminalReplayBarrierWatchdogs()
@@ -11123,7 +11150,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalScrollbackPrefetchStatesBySurfaceID = [:]
         terminalOutputTransport = .rawBytes
         deactivateAllTerminalLanes()
+        isResettingTerminalOutputTracking = true
         supportedHostCapabilities = []
+        isResettingTerminalOutputTracking = false
         phonePushMacStatus = nil
         caffeineStatus = nil
         isCaffeineMutationInFlight = false
@@ -11156,6 +11185,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // barren-stream streak, not just the pending redial, so the next
         // session does not inherit the previous one's backoff (issue #10482).
         resetDeadTerminalEventStreamBackoff()
+        invalidateMountedTerminalMirrors()
+        resetWorkspaceChangesState()
         applyConnectionRecoveryOwnerState()
         invalidateStoredMacReconnectAttempt()
         connectionGeneration = UUID()
@@ -14100,6 +14131,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalByteContinuationsBySurfaceID[surfaceID] = continuation
         terminalOutputStreamTokensBySurfaceID[surfaceID] = streamToken
         terminalOutputConsumerOwnerIDsBySurfaceID[surfaceID] = ownerID
+        // A new consumer owns a new mirror lifecycle, even when the public
+        // surface identifier is reused after an older stream terminated.
+        terminalMirrorStatesBySurfaceID[surfaceID] = MobileTerminalMirrorState()
         terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalPreBarrierDeliveredEndSeqBySurfaceID.removeValue(forKey: surfaceID)
@@ -14165,7 +14199,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalActiveScreenBySurfaceID.removeValue(forKey: surfaceID)
         terminalRenderGridHistoryContinuityBySurfaceID.removeValue(forKey: surfaceID)
         terminalRenderGridRevisionContinuityBySurfaceID.removeValue(forKey: surfaceID)
-        terminalMirrorHydrationNeededSurfaceIDs.remove(surfaceID)
+        terminalMirrorStatesBySurfaceID.removeValue(forKey: surfaceID)
         diagnosedTerminalOutputSurfaceIDs.remove(surfaceID)
         recordAppEvent(
             .terminalUnmounted,
@@ -14399,6 +14433,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     generation: terminalViewportGeneration(for: surfaceID)) }
         let replayTask = Task { @MainActor [weak self] in
             let replayResult: Result<Data, any Error>
+            var requestedMirrorReuse = false
             do {
                 var params: [String: Any] = [
                     "workspace_id": remoteWorkspaceID.rawValue,
@@ -14413,24 +14448,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                 }
                 // Screen-anchored replays hydrate this device's deep local
-                // scrollback only when the mirror has none (cold attach, a
-                // rebuilt-blank surface). Steady-state replays request no
-                // scrollback and replay as history-preserving repaints, so
-                // replay-barrier churn during streaming stays cheap and never
-                // destroys locally accumulated history.
+                // scrollback only when the per-surface mirror lifecycle says
+                // it is missing or stale. A retained mirror starts with a
+                // provisional zero-row replay; the response is validated
+                // against its producer epoch/history before that optimization
+                // is accepted.
                 if let self, self.usesScreenAnchoredRenderGrid {
                     params["anchor"] = MobileTerminalRenderGridFrame.Anchor.screen.rawValue
-                    // A surface whose mirror survived a connection swap keeps
-                    // its rendered scrollback on screen, so its cleared cursor
-                    // alone must not force a full re-hydration (~20MB per
-                    // reconnect on cellular, issue #10482); repaint the visible
-                    // screen instead. A rebuilt-blank surface still hydrates.
-                    let mirrorSurvivedReconnect =
-                        self.terminalSurfacesRetainingMirrorAcrossReconnect.contains(surfaceID)
-                    let needsHydration =
-                        (self.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == nil
-                            && !mirrorSurvivedReconnect)
-                        || self.terminalMirrorHydrationNeededSurfaceIDs.contains(surfaceID)
+                    let needsHydration = self.terminalMirrorStatesBySurfaceID[surfaceID]?.hydrationNeeded
+                        ?? true
+                    requestedMirrorReuse = !needsHydration
                     params["max_scrollback_rows"] = needsHydration
                         ? MobileTerminalScrollbackPreference.resolve()
                         : 0
@@ -14498,6 +14525,43 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         MobileDebugLog.anchormux("CMUX_REPLAY barrier_stale surface=\(surfaceID)")
                         return
                     }
+                }
+                let retainedMirrorIsStale = requestedMirrorReuse && (
+                    renderGrid == nil
+                        || (renderGrid.map {
+                            self.terminalMirrorRequiresHydration(
+                                surfaceID: surfaceID,
+                                frame: $0
+                            )
+                        } ?? false)
+                )
+                if retainedMirrorIsStale {
+                    // The producer changed epoch/history while the phone was
+                    // disconnected. Do not paint a zero-row frame onto a
+                    // mirror whose deep scrollback is no longer aligned; turn
+                    // the same replay generation into one full hydration.
+                    self.markTerminalMirrorHydrationNeeded(surfaceID: surfaceID)
+                    self.clearTerminalReplayInFlightIfCurrent(
+                        surfaceID: surfaceID,
+                        requestID: replayRequestID
+                    )
+                    guard let retryToken = self.prepareTerminalReplayFailureRetry(
+                        surfaceID: surfaceID,
+                        replayBarrierToken: replayBarrierTokenForRequest
+                    ) else {
+                        self.clearTerminalReplayBarrierIfCurrent(
+                            surfaceID: surfaceID,
+                            token: replayBarrierTokenForRequest,
+                            reason: "mirror_freshness"
+                        )
+                        return
+                    }
+                    transferredInFlightToRetry = true
+                    self.requestTerminalReplay(
+                        surfaceID: surfaceID,
+                        replayBarrierToken: retryToken
+                    )
+                    return
                 }
                 #if DEBUG
                 let seq = replaySeq ?? 0

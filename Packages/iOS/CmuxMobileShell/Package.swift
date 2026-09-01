@@ -78,6 +78,7 @@ let package = Package(
                 "CmuxMobilePairedMac",
                 "CmuxMobileRPC",
                 "CmuxMobileShellModel",
+                "CmuxMobileSupport",
                 "CmuxMobileTransport",
             ],
             swiftSettings: [

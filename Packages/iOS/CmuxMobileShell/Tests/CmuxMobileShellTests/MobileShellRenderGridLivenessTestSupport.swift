@@ -50,6 +50,9 @@ actor LivenessHostRouter {
     private var workspaceListRequestCount = 0
     private var heldWorkspaceListRequestNumbers: Set<Int> = []
     private var workspaceListErrorCodesByRequestNumber: [Int: String] = [:]
+    private var workspaceChangesSummaryRequestCount = 0
+    private var heldWorkspaceChangesSummaryRequestNumbers: Set<Int> = []
+    private var workspaceChangesSummaryResponses: [[String: Any]] = []
     private var subscribeRequestCount = 0
     private var probeRequestCount = 0
     private var heldSubscribeRequestNumbers: Set<Int> = []
@@ -375,6 +378,32 @@ actor LivenessHostRouter {
         heldWorkspaceListRequestNumbers.insert(number)
     }
 
+    /// Hold one workspace-changes summary response so a test can invalidate
+    /// the owning fetch generation before the response publishes.
+    func holdWorkspaceChangesSummaryRequest(number: Int) {
+        heldWorkspaceChangesSummaryRequestNumbers.insert(number)
+    }
+
+    /// Hold the next workspace-changes summary response relative to requests
+    /// already observed by the scripted host.
+    func holdNextWorkspaceChangesSummaryRequests(count: Int = 1) {
+        guard count > 0 else { return }
+        for offset in 1 ... count {
+            heldWorkspaceChangesSummaryRequestNumbers.insert(
+                workspaceChangesSummaryRequestCount + offset
+            )
+        }
+    }
+
+    /// Queue a JSON result for the next workspace-changes summary request.
+    func enqueueWorkspaceChangesSummaryResponse(jsonData: Data) {
+        guard let object = (try? JSONSerialization.jsonObject(with: jsonData))
+            as? [String: Any] else {
+            return
+        }
+        workspaceChangesSummaryResponses.append(object)
+    }
+
     func failWorkspaceListRequest(
         number: Int,
         code: String = "workspace_list_failed"
@@ -494,6 +523,7 @@ actor LivenessHostRouter {
         heldHostStatusRequestNumbers = []
         delayedHostStatusRequestNumbers = []
         heldWorkspaceListRequestNumbers = []
+        heldWorkspaceChangesSummaryRequestNumbers = []
         heldSubscribeRequestNumbers = []
         heldProbeRequestNumbers = []
         delayedSubscribeRequestNumbers = []
@@ -571,6 +601,17 @@ actor LivenessHostRouter {
             return try? Self.resultFrame(id: id, result: [
                 "workspaces": workspaces,
             ])
+        case "mobile.workspace.changes.summary":
+            workspaceChangesSummaryRequestCount += 1
+            if heldWorkspaceChangesSummaryRequestNumbers.contains(
+                workspaceChangesSummaryRequestCount
+            ) {
+                await park()
+            }
+            let result: [String: Any] = workspaceChangesSummaryResponses.isEmpty
+                ? ["summaries": []]
+                : workspaceChangesSummaryResponses.removeFirst()
+            return try? Self.resultFrame(id: id, result: result)
         case "mobile.host.status":
             hostStatusRequestCount += 1
             if heldHostStatusRequestNumbers.contains(hostStatusRequestCount) {
@@ -1024,7 +1065,8 @@ func makeConnectedStore(
     clock: TestClock,
     probeTimeoutNanoseconds: UInt64 = 200_000_000,
     inputAckRetryClock: any Clock<Duration> = ContinuousClock(),
-    controlPlaneSchedulingClock: any Clock<Duration> = ContinuousClock()
+    controlPlaneSchedulingClock: any Clock<Duration> = ContinuousClock(),
+    workspaceChangesSchedulingClock: any Clock<Duration> = ContinuousClock()
 ) async throws -> MobileShellComposite {
     let runtime = LivenessTestRuntime(
         transportFactory: LivenessTransportFactory(router: router, box: box),
@@ -1034,7 +1076,8 @@ func makeConnectedStore(
     let store = MobileShellComposite.preview(
         runtime: runtime,
         terminalInputAckResubscribeClock: inputAckRetryClock,
-        controlPlaneSchedulingClock: controlPlaneSchedulingClock
+        controlPlaneSchedulingClock: controlPlaneSchedulingClock,
+        workspaceChangesSchedulingClock: workspaceChangesSchedulingClock
     )
     store.signIn()
     let ticket = try makeTicket(clock: clock)

@@ -1,4 +1,5 @@
 import CMUXMobileCore
+internal import CmuxMobileSupport
 import Foundation
 
 /// Main-actor authority for one foreground Mac recovery attempt.
@@ -30,6 +31,20 @@ final class MobileConnectionRecoveryOwner {
 
     private(set) var phase: Phase = .idle
     private(set) var task: Task<Void, Never>?
+
+    /// Backoff and one-shot task for a terminal event stream that ended before
+    /// delivering an event. Keeping this beside the connection-recovery task
+    /// makes owner cancellation invalidate every recovery continuation.
+    private(set) var deadTerminalEventStreamRedialBackoff =
+        MobileDeadStreamRedialBackoff()
+    private var deadTerminalEventStreamRedialTask: Task<Void, Never>?
+    private var deadTerminalEventStreamRedialGeneration = UUID()
+
+    /// Number of barren streams in the current session, used by recovery
+    /// diagnostics without exposing the mutable backoff itself.
+    var deadTerminalEventStreamBarrenCount: Int {
+        deadTerminalEventStreamRedialBackoff.consecutiveBarrenRedials
+    }
 
     var activeAttempt: Attempt? {
         switch phase {
@@ -72,6 +87,7 @@ final class MobileConnectionRecoveryOwner {
         guard !isActive else { return nil }
         task?.cancel()
         task = nil
+        cancelDeadTerminalEventStreamRedial()
         let attempt = Attempt(
             id: UUID(),
             trigger: trigger,
@@ -90,6 +106,7 @@ final class MobileConnectionRecoveryOwner {
         guard case .probing = phase else { return nil }
         task?.cancel()
         task = nil
+        cancelDeadTerminalEventStreamRedial()
         let attempt = Attempt(
             id: UUID(),
             trigger: trigger,
@@ -190,9 +207,64 @@ final class MobileConnectionRecoveryOwner {
         }
     }
 
+    /// Cancels the active connection attempt and any owned dead-stream retry.
     func cancel() {
         task?.cancel()
         task = nil
+        cancelDeadTerminalEventStreamRedial()
         phase = .idle
+    }
+
+    /// Claims the next barren-stream redial delay, coalescing while a delayed
+    /// redial is already pending.
+    func nextDeadTerminalEventStreamRedialDelay() -> Duration? {
+        deadTerminalEventStreamRedialBackoff.nextRedialDelay()
+    }
+
+    /// Schedules one cancellable barren-stream retry under this recovery owner.
+    /// The callback runs only if the owner generation is still current.
+    /// - Parameters:
+    ///   - delay: The injected-clock delay before retrying.
+    ///   - clock: Clock used for the genuine retry deadline.
+    ///   - operation: Main-actor recovery callback to invoke after the delay.
+    func scheduleDeadTerminalEventStreamRedial(
+        after delay: Duration,
+        clock: any Clock<Duration>,
+        operation: @escaping @MainActor () -> Void
+    ) {
+        let generation = UUID()
+        deadTerminalEventStreamRedialGeneration = generation
+        deadTerminalEventStreamRedialTask?.cancel()
+        deadTerminalEventStreamRedialTask = Task { @MainActor [weak self] in
+            do {
+                try await clock.sleep(for: delay)
+            } catch {
+                return
+            }
+            guard let self,
+                  !Task.isCancelled,
+                  self.deadTerminalEventStreamRedialGeneration == generation else {
+                return
+            }
+            self.deadTerminalEventStreamRedialTask = nil
+            self.deadTerminalEventStreamRedialBackoff.redialFired()
+            operation()
+        }
+    }
+
+    /// Cancels a pending barren-stream retry while preserving the accumulated
+    /// session streak. Background suspension uses this form so a resumed
+    /// session cannot immediately return to a tight redial loop.
+    func cancelDeadTerminalEventStreamRedial() {
+        deadTerminalEventStreamRedialGeneration = UUID()
+        deadTerminalEventStreamRedialTask?.cancel()
+        deadTerminalEventStreamRedialTask = nil
+        deadTerminalEventStreamRedialBackoff.redialFired()
+    }
+
+    /// Resets the barren-stream retry state at a fresh account/session boundary.
+    func resetDeadTerminalEventStreamBackoff() {
+        deadTerminalEventStreamRedialBackoff.reset()
+        cancelDeadTerminalEventStreamRedial()
     }
 }

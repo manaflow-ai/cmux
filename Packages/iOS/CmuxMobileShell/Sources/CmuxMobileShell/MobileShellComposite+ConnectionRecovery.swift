@@ -175,7 +175,10 @@ extension MobileShellComposite {
             guard failConnectionRecoveryReplacement(failure: .connectionClosed) else { return }
             connectionState = .disconnected
             macConnectionStatus = .unavailable
-            clearRemoteConnectionContext()
+            clearRemoteConnectionContext(
+                preservingTerminalMirror: true,
+                preservingWorkspaceChanges: true
+            )
             applyConnectionRecoveryOwnerState()
             armAutomaticReconnectRetryAfterFailedAttempt(
                 failure: .connectionClosed,
@@ -212,13 +215,19 @@ extension MobileShellComposite {
         expectedClient: MobileCoreRPCClient,
         streamDeliveredEvent: Bool
     ) {
+        // Listener tasks from an older client can finish after a replacement
+        // has already become current. Reject that callback before it can
+        // consume or cancel the current session's retry budget.
+        guard remoteClient === expectedClient, connectionState == .connected else {
+            return
+        }
         if streamDeliveredEvent {
-            deadTerminalEventStreamRedialBackoff.reset()
-            cancelDeadTerminalEventStreamRedial()
+            connectionRecoveryOwner.resetDeadTerminalEventStreamBackoff()
             recoverDeadConnection(trigger: trigger, expectedClient: expectedClient)
             return
         }
-        guard let delay = deadTerminalEventStreamRedialBackoff.nextRedialDelay() else {
+        guard let delay = connectionRecoveryOwner
+            .nextDeadTerminalEventStreamRedialDelay() else {
             // A delayed redial is already pending; coalesce into it instead of
             // stacking another dial.
             return
@@ -244,26 +253,14 @@ extension MobileShellComposite {
         if connectionState == .connected { markMacConnectionReconnecting() }
         MobileDebugLog.anchormux(
             "connection.recovery dead-stream backoff trigger=\(trigger.description) "
-                + "delay=\(delay) barren=\(deadTerminalEventStreamRedialBackoff.consecutiveBarrenRedials)"
+                + "delay=\(delay) barren=\(connectionRecoveryOwner.deadTerminalEventStreamBarrenCount)"
         )
-        let clock = controlPlaneSchedulingClock
-        let generation = UUID()
-        deadTerminalEventStreamRedialTaskGeneration = generation
-        deadTerminalEventStreamRedialTask?.cancel()
-        deadTerminalEventStreamRedialTask = Task { @MainActor [weak self] in
-            do {
-                try await clock.sleep(for: delay)
-            } catch {
-                return
-            }
+        connectionRecoveryOwner.scheduleDeadTerminalEventStreamRedial(
+            after: delay,
+            clock: controlPlaneSchedulingClock
+        ) { [weak self] in
             guard let self,
-                  !Task.isCancelled,
-                  self.deadTerminalEventStreamRedialTaskGeneration == generation else {
-                return
-            }
-            self.deadTerminalEventStreamRedialTask = nil
-            self.deadTerminalEventStreamRedialBackoff.redialFired()
-            guard self.remoteClient === expectedClient,
+                  self.remoteClient === expectedClient,
                   self.connectionState == .connected else {
                 return
             }
@@ -281,18 +278,14 @@ extension MobileShellComposite {
     /// coalescing into a dead timer. It keeps the barren-stream streak, so a
     /// suspend/resume of the same session preserves the accrued backoff.
     func cancelDeadTerminalEventStreamRedial() {
-        deadTerminalEventStreamRedialTaskGeneration = UUID()
-        deadTerminalEventStreamRedialTask?.cancel()
-        deadTerminalEventStreamRedialTask = nil
-        deadTerminalEventStreamRedialBackoff.redialFired()
+        connectionRecoveryOwner.cancelDeadTerminalEventStreamRedial()
     }
 
     /// Clear the dead-stream backoff streak and cancel any pending backoff
     /// redial. A delivered event or a fresh foreground return proves the path
     /// can carry traffic, so the next failure should recover fast.
     func resetDeadTerminalEventStreamBackoff() {
-        deadTerminalEventStreamRedialBackoff.reset()
-        cancelDeadTerminalEventStreamRedial()
+        connectionRecoveryOwner.resetDeadTerminalEventStreamBackoff()
     }
 
     /// Replays the most recent recovery trigger that was parked while the
@@ -423,7 +416,10 @@ extension MobileShellComposite {
                     // while the fresh stored-Mac dial starts.
                     self.connectionState = .disconnected
                     self.macConnectionStatus = .unavailable
-                    self.clearRemoteConnectionContext()
+                    self.clearRemoteConnectionContext(
+                        preservingTerminalMirror: true,
+                        preservingWorkspaceChanges: true
+                    )
                     self.applyConnectionRecoveryOwnerState()
                     MobileDebugLog.anchormux(
                         "connection.recovery waiting for physical transport drain "
@@ -454,7 +450,10 @@ extension MobileShellComposite {
                 if self.connectionState == .connected {
                     self.connectionState = .disconnected
                     self.macConnectionStatus = .unavailable
-                    self.clearRemoteConnectionContext()
+                    self.clearRemoteConnectionContext(
+                        preservingTerminalMirror: true,
+                        preservingWorkspaceChanges: true
+                    )
                 }
                 self.applyConnectionRecoveryOwnerState()
 

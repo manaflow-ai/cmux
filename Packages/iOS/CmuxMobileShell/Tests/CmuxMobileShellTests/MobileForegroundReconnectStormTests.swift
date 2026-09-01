@@ -3,6 +3,7 @@ import CmuxMobileChanges
 import CmuxMobilePairedMac
 import CmuxMobileRPC
 import CmuxMobileShellModel
+import CmuxMobileSupport
 import Foundation
 import Testing
 @testable import CmuxMobileShell
@@ -99,7 +100,6 @@ import Testing
     #expect(backoff.nextRedialDelay() == .seconds(2))
     backoff.redialFired()
     #expect(backoff.nextRedialDelay() == .seconds(4))
-    backoff.redialFired()
 
     // A new-session boundary (sign-out, new pairing, method change) resets the
     // streak, so the next session's first barren stream recovers immediately
@@ -143,6 +143,14 @@ import Testing
         store.workspaceChangeChipsByWorkspaceID["live-workspace"]?.filesChanged == 51,
         "reconnecting must not churn the files-changed chip content"
     )
+
+    // Capability reset is part of replacing the client. It must not evict the
+    // last-known chip snapshot while a transient reconnect is in progress.
+    store.remoteClient = nil
+    #expect(
+        store.workspaceChangeChipsByWorkspaceID["live-workspace"]?.filesChanged == 51,
+        "client replacement must preserve files-changed chips"
+    )
 }
 
 // MARK: - C. A reconnect with a live mirror resumes (no full scrollback replay)
@@ -164,9 +172,29 @@ import Testing
     let surfaceID = "live-terminal"
     #expect(try await pollUntil { store.usesScreenAnchoredRenderGrid })
 
-    await router.enqueueReplayTexts(["cold-replay"])
-    let iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
-    _ = iterator
+    let coldFrame = try MobileTerminalRenderGridFrame(
+        surfaceID: surfaceID,
+        stateSeq: 100,
+        renderEpoch: "epoch-1",
+        renderRevision: 1,
+        columns: 80,
+        rows: 4,
+        full: true,
+        rowSpans: [
+            MobileTerminalRenderGridFrame.RowSpan(
+                row: 0,
+                column: 0,
+                styleID: 0,
+                text: "cold-replay"
+            ),
+        ],
+        anchor: .screen,
+        scrollbackRows: 20,
+        historyRows: 20,
+        rowSpaceRevision: 1
+    )
+    await router.enqueueReplayRenderGrid(coldFrame)
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
 
     // Cold attach hydrates this device's deep scrollback (the mirror was blank).
@@ -176,10 +204,14 @@ import Testing
         "a cold attach must hydrate scrollback"
     )
 
-    // The surface now has a populated on-screen mirror with a delivery cursor,
-    // exactly as a steady-state terminal does.
-    store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] = 100
-    #expect(store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] != nil)
+    // The surface now has a populated on-screen mirror with a delivery cursor
+    // and producer history identity, exactly as a steady-state terminal does.
+    let coldChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(
+        surfaceID: surfaceID,
+        streamToken: coldChunk.streamToken
+    )
+    #expect(store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == 100)
 
     // Simulate a reconnect: the recovery path clears the live client, which
     // resets terminal output tracking (dropping the delivery cursor), then
@@ -187,6 +219,28 @@ import Testing
     // still mounted — so the reconnect should repaint the visible screen, not
     // re-download the entire scrollback again.
     let replayCountBeforeReconnect = await router.count(of: "mobile.terminal.replay")
+    let warmFrame = try MobileTerminalRenderGridFrame(
+        surfaceID: surfaceID,
+        stateSeq: 101,
+        renderEpoch: "epoch-1",
+        renderRevision: 2,
+        columns: 80,
+        rows: 4,
+        full: true,
+        rowSpans: [
+            MobileTerminalRenderGridFrame.RowSpan(
+                row: 0,
+                column: 0,
+                styleID: 0,
+                text: "warm-replay"
+            ),
+        ],
+        anchor: .screen,
+        scrollbackRows: 0,
+        historyRows: 20,
+        rowSpaceRevision: 1
+    )
+    await router.enqueueReplayRenderGrid(warmFrame)
     store.remoteClient = nil
     try installFreshLivenessRemoteClient(on: store, router: router, box: box, clock: clock)
     // A real reconnect re-resolves the host capabilities and transport during

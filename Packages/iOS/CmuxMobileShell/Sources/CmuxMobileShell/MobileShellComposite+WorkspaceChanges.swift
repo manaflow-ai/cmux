@@ -61,6 +61,23 @@ extension MobileShellComposite {
         workspaceIDs: [String],
         force: Bool = false
     ) async {
+        await fetchWorkspaceChangesSummaries(
+            workspaceIDs: workspaceIDs,
+            force: force,
+            taskID: nil
+        )
+    }
+
+    /// Fetches one orchestrated summary pass while holding its task-generation
+    /// ownership across every suspension point.
+    func fetchWorkspaceChangesSummaries(
+        workspaceIDs: [String],
+        force: Bool,
+        taskID: UUID?
+    ) async {
+        guard taskID == nil || workspaceChangesSummaryFetchTaskID == taskID else {
+            return
+        }
         let startedAt = appDiagnosticNow()
         recordAppEvent(
             .changesSummaryLoadStarted,
@@ -101,7 +118,10 @@ extension MobileShellComposite {
         for batch in plan.batches {
             guard !Task.isCancelled,
                   remoteClient === client,
-                  connectionState == .connected else { return }
+                  connectionState == .connected,
+                  taskID == nil || workspaceChangesSummaryFetchTaskID == taskID else {
+                return
+            }
             do {
                 guard let summaryRequest = MobileWorkspaceChangesSummaryRequest(
                     workspaceIDs: batch,
@@ -119,7 +139,11 @@ extension MobileShellComposite {
                 )
                 let data = try await client.sendRequest(request)
                 let response = try MobileWorkspaceChangesSummariesResponse.decode(data)
-                guard remoteClient === client, connectionState == .connected else { return }
+                guard remoteClient === client,
+                      connectionState == .connected,
+                      taskID == nil || workspaceChangesSummaryFetchTaskID == taskID else {
+                    return
+                }
                 let batchFetchedAt = runtime?.now() ?? Date()
                 let currentWorkspaceSet = pruneWorkspaceChangesSummaryStateToForeground()
                 let retainedBatch = currentWorkspaceSet.workspaceIDs(retaining: batch)
@@ -136,6 +160,9 @@ extension MobileShellComposite {
                     } else {
                         chips.removeValue(forKey: summary.workspaceID)
                     }
+                }
+                guard taskID == nil || workspaceChangesSummaryFetchTaskID == taskID else {
+                    return
                 }
                 setWorkspaceChangeChipsByWorkspaceID(chips)
                 loadedSummaryCount += response.summaries.count
@@ -157,10 +184,17 @@ extension MobileShellComposite {
                 )
             } catch {
                 MobileDebugLog.anchormux("changes.summary error \(error)")
-                guard !Task.isCancelled, remoteClient === client else { return }
+                guard !Task.isCancelled,
+                      remoteClient === client,
+                      taskID == nil || workspaceChangesSummaryFetchTaskID == taskID else {
+                    return
+                }
                 lastFailure = DiagnosticFailureKind.classify(error)
                 _ = disconnectForAuthorizationFailureIfNeeded(error)
             }
+        }
+        guard taskID == nil || workspaceChangesSummaryFetchTaskID == taskID else {
+            return
         }
         rescheduleWorkspaceChangesSummaryTrailingTask()
         if let lastFailure {
@@ -398,7 +432,8 @@ extension MobileShellComposite {
                 if !workspaceIDs.isEmpty {
                     await self.fetchWorkspaceChangesSummaries(
                         workspaceIDs: workspaceIDs,
-                        force: force
+                        force: force,
+                        taskID: taskID
                     )
                 }
                 guard self.workspaceChangesSummaryFetchTaskID == taskID else { return }
