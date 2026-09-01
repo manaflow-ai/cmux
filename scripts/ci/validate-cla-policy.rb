@@ -27,7 +27,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "0f347a749f53d2e06f5b39b7a832476d39ab40a71c8634
 # EXPECTED_WORKFLOW_DIGEST is retained as a compatibility marker for the
 # immutable validator in the current base revision. Policy validation now
 # hashes the candidate workflow bytes after lexical YAML validation.
-EXPECTED_GUARD_SCRIPT_DIGEST = "b128b29f5d4868065142d6f111db7c88cba8d20173a55a12373f90c2e6f81027"
+EXPECTED_GUARD_SCRIPT_DIGEST = "374fa032f0635ee32804f7f1d5936e996565bcef4c8af15731ebc780a877c4b8"
 # Current organization administrators who may approve a trusted control-plane
 # update. IDs are used instead of names, and the review must target the exact
 # PR head. This is the human path for intentional policy maintenance.
@@ -498,6 +498,9 @@ def validate_workflow(raw, trusted_base_digest)
   fail!("CLA ledger writer must run only after successful admission") unless
     writer["if"].to_s.include?("needs.CLACommentGate.result == 'success'") &&
     writer["if"].to_s.include?("needs.CLACommentGate.outputs.admitted == 'true'")
+  fail!("CLA ledger writer must require signer authorization and a live head for sign comments") unless
+    writer["if"].to_s.include?("needs.CLACommentGate.outputs.signer_authorized == 'true'") &&
+    writer["if"].to_s.include?("needs.CLACommentGate.outputs.head_sha != ''")
   fail!("CLA Assistant result must depend on the ledger writer") unless dependencies(assistant, "CLAAssistant").include?("CLALedgerWriter")
   fail!("CLA Assistant result must always report the writer outcome") unless assistant["if"].to_s.include?("always()")
   fail!("CLA compatibility must depend on the v2 result") unless dependencies(compatibility, "CLACompatibility").include?("CLAAssistant")
