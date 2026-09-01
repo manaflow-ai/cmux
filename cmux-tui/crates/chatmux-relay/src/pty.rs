@@ -1667,25 +1667,46 @@ impl Inner {
     }
 
     /// Build the per-attachment emit closures (output + exit framing).
-    fn sinks(self: &Arc<Self>, pty_id: &str, context: &FrameContext) -> (DataSink, ExitSink) {
+    fn sinks(
+        self: &Arc<Self>,
+        pty_id: &str,
+        context: &FrameContext,
+        generation: Arc<AtomicBool>,
+    ) -> (DataSink, ExitSink) {
         let on_data = {
             let inner = Arc::clone(self);
             let context = context.clone();
             let pty_id = pty_id.to_owned();
-            Arc::new(move |chunk: Bytes| inner.emit_output(&pty_id, &chunk, &context))
-                as Arc<dyn Fn(Bytes) + Send + Sync>
+            let generation = Arc::clone(&generation);
+            Arc::new(move |chunk: Bytes| {
+                inner.emit_output_for_generation(&pty_id, &chunk, &context, &generation)
+            }) as Arc<dyn Fn(Bytes) + Send + Sync>
         };
         let on_exit = {
             let inner = Arc::clone(self);
             let context = context.clone();
             let pty_id = pty_id.to_owned();
-            Arc::new(move |code: i64| inner.emit_exit(&pty_id, code, &context))
-                as Arc<dyn Fn(i64) + Send + Sync>
+            Arc::new(move |code: i64| {
+                inner.emit_exit_for_generation(&pty_id, code, &context, &generation)
+            }) as Arc<dyn Fn(i64) + Send + Sync>
         };
         (on_data, on_exit)
     }
 
     fn emit_output(&self, pty_id: &str, chunk: &Bytes, context: &FrameContext) {
+        let generation = self.attachment(pty_id).map(|attachment| attachment.closing);
+        if let Some(generation) = generation {
+            self.emit_output_for_generation(pty_id, chunk, context, &generation);
+        }
+    }
+
+    fn emit_output_for_generation(
+        &self,
+        pty_id: &str,
+        chunk: &Bytes,
+        context: &FrameContext,
+        generation: &Arc<AtomicBool>,
+    ) {
         if !self.tunnel_authority_generation_current(context) {
             self.retire_stale_transport_attachment(pty_id, context);
             return;
@@ -1697,6 +1718,9 @@ impl Inner {
         let Some(attachment) = self.attachment(pty_id) else {
             return;
         };
+        if !Arc::ptr_eq(&attachment.closing, generation) {
+            return;
+        }
         // Serialize only the authorization snapshot. Never hold the gate
         // across the transport callback: a stalled consumer must not block a
         // disconnect or trust revocation from retiring this attachment.
@@ -1748,6 +1772,19 @@ impl Inner {
     }
 
     fn emit_exit(&self, pty_id: &str, code: i64, context: &FrameContext) {
+        let generation = self.attachment(pty_id).map(|attachment| attachment.closing);
+        if let Some(generation) = generation {
+            self.emit_exit_for_generation(pty_id, code, context, &generation);
+        }
+    }
+
+    fn emit_exit_for_generation(
+        &self,
+        pty_id: &str,
+        code: i64,
+        context: &FrameContext,
+        generation: &Arc<AtomicBool>,
+    ) {
         if !self.tunnel_authority_generation_current(context) {
             self.retire_stale_transport_attachment(pty_id, context);
             return;
@@ -1759,6 +1796,9 @@ impl Inner {
         let Some(attachment) = self.attachment(pty_id) else {
             return;
         };
+        if !Arc::ptr_eq(&attachment.closing, generation) {
+            return;
+        }
         let _publication = attachment.publication_gate.lock().expect("attachment publication lock");
         let _operation = attachment.operation_gate.lock().expect("attachment operation lock");
         let authorized = {
@@ -2465,12 +2505,13 @@ impl Inner {
         let control = Arc::clone(&handle.control);
         let output = Arc::clone(&handle.output);
         let banner = handle.banner.clone();
-        let (on_data, on_exit) = self.sinks(pty_id, context);
+        let closing = Arc::new(AtomicBool::new(false));
+        let (on_data, on_exit) = self.sinks(pty_id, context, Arc::clone(&closing));
         Ok(Opened {
             created: ensured.created,
             surface: None,
             control: Some(control),
-            closing: Some(Arc::new(AtomicBool::new(false))),
+            closing: Some(closing),
             start: Some(Box::new(move || drive_handle(output, banner, on_data, on_exit))),
             cleanup_on_drop: true,
         })
@@ -2696,7 +2737,7 @@ impl Inner {
         let released = Arc::new(AtomicBool::new(false));
         let cleanup_if_empty = Arc::new(AtomicBool::new(created));
         let closing = Arc::new(AtomicBool::new(false));
-        let (on_data, on_exit) = self.sinks(pty_id, context);
+        let (on_data, on_exit) = self.sinks(pty_id, context, Arc::clone(&closing));
 
         // The per-attachment control proxies onto the session pty but its
         // kill() only unhooks this viewer (release), never the session.
@@ -2821,9 +2862,11 @@ impl ShellViewerControl {
             inner.draining_viewers.remove(&self.viewer_id);
             inner.paused_viewers.remove(&self.viewer_id);
         }
-        if self.cleanup_if_empty.load(Ordering::Acquire)
+        let no_viewers = self.session.inner.lock().expect("shell inner lock").viewers.is_empty();
+        let cleanup = self.cleanup_if_empty.load(Ordering::Acquire)
             && self.session.pending_viewers.load(Ordering::Acquire) == 0
-            && self.session.inner.lock().expect("shell inner lock").viewers.is_empty()
+            && no_viewers;
+        if cleanup
             && remove_cached_shell_if_same_without_viewers(
                 &self.manager,
                 &self.session_name,
@@ -3477,11 +3520,13 @@ impl Inner {
 
         let proxy = Arc::new(ControlTerminalControl { control, surface_id });
         control_guard.disarm();
-        let (on_data, _) = self.sinks(pty_id, context);
+        let closing = Arc::new(AtomicBool::new(false));
+        let (on_data, _) = self.sinks(pty_id, context, Arc::clone(&closing));
         let relay = Arc::clone(&self);
         let context_for_exit = context.clone();
         let pty_id_for_exit = pty_id.to_owned();
         let stream_for_exit = Arc::clone(&stream);
+        let exit_generation = Arc::clone(&closing);
         let on_exit: ExitSink = Arc::new(move |code| {
             if stream_for_exit.overflowed() {
                 relay.close(&pty_id_for_exit);
@@ -3492,7 +3537,12 @@ impl Inner {
                     "pty output backlog overflowed; reattach to continue receiving output",
                 );
             } else {
-                relay.emit_exit(&pty_id_for_exit, code, &context_for_exit);
+                relay.emit_exit_for_generation(
+                    &pty_id_for_exit,
+                    code,
+                    &context_for_exit,
+                    &exit_generation,
+                );
             }
         });
         let start_stream = Arc::clone(&stream);
@@ -3500,7 +3550,7 @@ impl Inner {
             created: ensured.created,
             surface: Some(surface_ref.to_owned()),
             control: Some(proxy),
-            closing: Some(Arc::new(AtomicBool::new(false))),
+            closing: Some(closing),
             start: Some(Box::new(move || start_stream.go_live(on_data, on_exit))),
             cleanup_on_drop: true,
         }))
