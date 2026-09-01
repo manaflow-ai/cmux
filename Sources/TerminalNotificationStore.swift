@@ -321,7 +321,8 @@ final class TerminalNotificationStore: ObservableObject {
             emitNotificationsDismissed(ids: ids)
             return
         }
-        let extra = drainedSuperseded.filter { !ids.contains($0) }
+        let idSet = Set(ids)
+        let extra = drainedSuperseded.filter { !idSet.contains($0) }
         emitNotificationsDismissed(ids: ids + extra)
     }
 
