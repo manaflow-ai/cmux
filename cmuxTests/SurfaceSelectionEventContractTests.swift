@@ -1,5 +1,10 @@
 import Foundation
-import XCTest
+import class XCTest.XCTestCase
+import func XCTest.XCTAssertEqual
+import func XCTest.XCTAssertFalse
+import func XCTest.XCTAssertNil
+import func XCTest.XCTAssertTrue
+import func XCTest.XCTUnwrap
 import CmuxSurfaceSelection
 
 #if canImport(cmux_DEV)
