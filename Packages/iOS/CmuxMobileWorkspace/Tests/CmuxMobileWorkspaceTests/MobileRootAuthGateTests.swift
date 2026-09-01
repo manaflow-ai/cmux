@@ -50,6 +50,29 @@ import Testing
         ))
     }
 
+    @Test func keepsSignInVisibleWhileCachedSessionRestores() {
+        #expect(MobileRootAuthGate.shouldShowSignIn(
+            stackAuthenticated: true,
+            attachTicketAuthenticated: false,
+            isRestoringSession: true
+        ))
+        #expect(MobileRootAuthGate.shouldShowSignIn(
+            stackAuthenticated: false,
+            attachTicketAuthenticated: false,
+            isRestoringSession: false
+        ))
+        #expect(!MobileRootAuthGate.shouldShowSignIn(
+            stackAuthenticated: true,
+            attachTicketAuthenticated: false,
+            isRestoringSession: false
+        ))
+        #expect(!MobileRootAuthGate.shouldShowSignIn(
+            stackAuthenticated: false,
+            attachTicketAuthenticated: true,
+            isRestoringSession: true
+        ))
+    }
+
     @Test func clearsOnlyStaleTemporaryAttachAuthentication() {
         #expect(MobileRootAuthGate.shouldClearAttachTicketAuthentication(
             pairingResult: .failed,

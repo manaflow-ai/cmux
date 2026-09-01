@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { __test } from "../services/coderouter/opencodeProxy";
 
 describe("coderouter OpenCode Go proxy", () => {
-  test("rewrites provider traffic through coderouter.dev without upstream secrets", () => {
+  test("rewrites provider traffic through the serving origin without upstream secrets", () => {
     const rewritten = __test.rewriteProviders({
       go: {
         name: "OpenCode Go",
@@ -22,14 +22,20 @@ describe("coderouter OpenCode Go proxy", () => {
           },
         },
       },
-    }, "route-token") as {
-      go: { options: Record<string, unknown> };
+    }, "route-token", "https://cmux.example") as {
+      go: { options: Record<string, unknown>; models: Record<string, { provider?: { api?: string } }> };
     };
     expect(rewritten.go.options).toEqual({
       mode: "go",
-      baseURL: "https://coderouter.dev/api/coderouter/opencode/proxy/go",
+      baseURL: "https://cmux.example/api/coderouter/opencode/proxy/go",
       apiKey: "route-token",
     });
+    // Nested per-model provider endpoints route through the same origin, so
+    // a Cloud VM minted against any deployment stays on that deployment.
+    expect(rewritten.go.models["model-1"].provider?.api).toBe(
+      "https://cmux.example/api/coderouter/opencode/proxy/go",
+    );
+    expect(JSON.stringify(rewritten)).not.toContain("coderouter.dev");
     expect(JSON.stringify(rewritten)).not.toContain("upstream-secret");
     expect(JSON.stringify(rewritten)).not.toContain("nested-secret");
     expect(JSON.stringify(rewritten)).not.toContain("models.example.test");
