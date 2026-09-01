@@ -2421,11 +2421,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         AIAccountsClient.bootstrap(auth: auth.coordinator)
         PhonePushClient.shared.configure(auth: auth.coordinator)
         MobileHostService.shared.configure(auth: auth.coordinator)
+        caffeineController.lockScreenPresenter = SleepyModeController.shared
+        caffeineController.lockScreenPreference = {
+            SleepyModeController.shared.store.showWhenKeepingAwake
+        }
         caffeineController.onStateChange = { [weak self] enabled in
             self?.menuBarExtraController?.refreshForDebugControls()
             MobileHostService.emitEvent(
                 topic: "caffeine.status.changed",
-                payload: ["enabled": enabled]
+                payload: [
+                    "enabled": enabled,
+                    "lock_screen_active": self?.caffeineController.isLockScreenPresented ?? false
+                ]
             )
         }
         DeviceRegistryClient.shared.configure(auth: auth.coordinator)
@@ -10289,6 +10296,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         menuBarExtraController = makeMenuBarExtraController()
         SleepyModeController.shared.onStateChange = { [weak self] in
             self?.menuBarExtraController?.refreshForDebugControls()
+            if !SleepyModeController.shared.isActive {
+                // Covers every exit path (any key/click, palette), including
+                // the caffeinate action's own dismiss, which is idempotent.
+                self?.caffeineController.noteLockScreenDismissed()
+            }
         }
     }
 

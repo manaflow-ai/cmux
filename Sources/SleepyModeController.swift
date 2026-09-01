@@ -197,3 +197,11 @@ final class SleepyModeController {
         }
     }
 }
+
+/// Sleepy Mode doubles as the lock screen the caffeinate action can show
+/// while it keeps the Mac awake.
+extension SleepyModeController: CaffeineLockScreenPresenting {
+    var isPresented: Bool { isActive }
+    func present() { activate() }
+    func dismiss() { deactivate() }
+}

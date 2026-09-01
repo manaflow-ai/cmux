@@ -108,6 +108,16 @@ public struct SleepyModeSection: View {
             SettingsCard {
                 SettingsCardRow(
                     configurationReview: .settingsOnly,
+                    String(localized: "sleepyMode.settings.showWhenKeepingAwake", defaultValue: "Show while Keep Mac Awake is on"),
+                    subtitle: String(localized: "sleepyMode.settings.showWhenKeepingAwake.subtitle", defaultValue: "Covers the screen with Sleepy Mode whenever cmux keeps this Mac awake, including from the menu bar, the cmux CLI, or your iPhone.")
+                ) {
+                    Toggle("", isOn: $store.showWhenKeepingAwake).labelsHidden().controlSize(.small)
+                }
+            }
+
+            SettingsCard {
+                SettingsCardRow(
+                    configurationReview: .settingsOnly,
                     String(localized: "sleepyMode.settings.securityNote", defaultValue: "About security"),
                     subtitle: String(localized: "sleepyMode.settings.securityNote.subtitle", defaultValue: "Sleepy Mode is a screensaver, not a lock — any key or click wakes it. For real security, use the \u{201C}Lock Mac\u{201D} button in the scene, which engages the actual macOS login lock.")
                 ) {

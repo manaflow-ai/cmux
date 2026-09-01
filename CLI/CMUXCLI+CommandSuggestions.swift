@@ -65,6 +65,7 @@ extension CMUXCLI {
         "browser-forward",
         "browser-reload",
         "browser-status",
+        "caffeinate",
         "capabilities",
         "capture-pane",
         "claude-hook",

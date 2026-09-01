@@ -13,7 +13,7 @@ extension TerminalController {
                 data: nil
             )
         }
-        return .ok(["enabled": caffeineController.isEnabled])
+        return .ok(Self.caffeineStatusPayload(caffeineController))
     }
 
     @MainActor
@@ -29,10 +29,32 @@ extension TerminalController {
                 data: nil
             )
         }
+        var lockScreen: Bool?
+        if v2HasNonNullParam(params, "lock_screen") {
+            guard let value = v2Bool(params, "lock_screen") else {
+                return .err(
+                    code: "invalid_params",
+                    message: String(
+                        localized: "caffeine.error.invalidLockScreen",
+                        defaultValue: "lock_screen must be true or false."
+                    ),
+                    data: nil
+                )
+            }
+            lockScreen = value
+        }
         guard let caffeineController else {
             return v2CaffeineStatus()
         }
-        caffeineController.setEnabled(enabled)
-        return .ok(["enabled": caffeineController.isEnabled])
+        caffeineController.setEnabled(enabled, lockScreen: lockScreen)
+        return .ok(Self.caffeineStatusPayload(caffeineController))
+    }
+
+    @MainActor
+    private static func caffeineStatusPayload(_ controller: CaffeineController) -> [String: Any] {
+        [
+            "enabled": controller.isEnabled,
+            "lock_screen_active": controller.isLockScreenPresented
+        ]
     }
 }
