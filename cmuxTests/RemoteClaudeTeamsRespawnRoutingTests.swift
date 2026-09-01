@@ -79,7 +79,12 @@ struct RemoteClaudeTeamsRespawnRoutingTests {
         // belongs to the daemon-owned PTY on the remote host.
         #expect(launchCommand.contains("ssh-pty-attach"))
         #expect(!launchCommand.contains(rawTeammateCommand))
-        #expect(replacement.surface.debugTmuxStartCommand() == rawTeammateCommand)
+        // The respawn carried an explicit working_directory, so the stored
+        // replay command is the cd-prefixed variant of the raw command.
+        #expect(
+            replacement.surface.debugTmuxStartCommand() ==
+                "cd '\(remoteWorkingDirectory)' && \(rawTeammateCommand)"
+        )
         #expect(replacement.surface.requestedWorkingDirectory != remoteWorkingDirectory)
         #expect(
             replacement.surface.requestedWorkingDirectory.map {
@@ -315,6 +320,30 @@ struct RemoteClaudeTeamsRespawnRoutingTests {
             rawCommand: "claude --agent-id t1@team"
         ))
         #expect(bare.remoteCommand == "claude --agent-id t1@team")
+
+        // A full respawn with an explicit directory persists the prefixed
+        // command, so a command-less respawn-pane replay keeps the directory.
+        let result = TerminalController.shared.controlSurfaceRespawn(
+            routing: fixture.routing(surfaceID: fixture.panelID),
+            inputs: ControlSurfaceRespawnInputs(
+                command: "claude --agent-id t1@team",
+                tmuxStartCommand: "claude --agent-id t1@team",
+                workingDirectory: "/data00/replay me",
+                hasSurfaceIDParam: true,
+                requestedSurfaceID: fixture.panelID,
+                hasFocusParam: false,
+                requestedFocus: false
+            )
+        )
+        guard case .respawned = result else {
+            Issue.record("Expected directory-carrying respawn to succeed: \(result)")
+            return
+        }
+        let replacement = try #require(fixture.workspace.terminalPanel(for: fixture.panelID))
+        #expect(
+            replacement.surface.debugTmuxStartCommand() ==
+                "cd '/data00/replay me' && claude --agent-id t1@team"
+        )
     }
 
     @MainActor

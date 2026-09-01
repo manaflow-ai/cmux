@@ -97,11 +97,23 @@ extension Workspace {
         focus: Bool?,
         allowTextBoxFocusDefault: Bool
     ) -> TerminalPanel? {
+        // A command-less `respawn-pane -k` replays the stored start command
+        // verbatim, so when the respawn carried an explicit remote working
+        // directory the persisted command must be the cd-prefixed variant or
+        // the directory would be lost on replay.
+        let persistedStartCommand: String
+        if plan.remoteCommand != plan.rawCommand {
+            persistedStartCommand = plan.remoteCommand
+        } else if rawStartCommand.isEmpty {
+            persistedStartCommand = plan.rawCommand
+        } else {
+            persistedStartCommand = rawStartCommand
+        }
         guard let replacement = respawnTerminalSurface(
             panelId: panelId,
             command: plan.bridgeCommand,
             workingDirectory: plan.viewerWorkingDirectory,
-            tmuxStartCommand: rawStartCommand.isEmpty ? plan.rawCommand : rawStartCommand,
+            tmuxStartCommand: persistedStartCommand,
             focus: focus,
             waitAfterCommand: true,
             allowTextBoxFocusDefault: allowTextBoxFocusDefault
