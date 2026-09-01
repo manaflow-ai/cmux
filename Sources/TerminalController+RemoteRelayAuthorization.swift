@@ -16,7 +16,7 @@ extension TerminalController {
         let errorResponse: String?
     }
 
-    private nonisolated static let remoteRelayAllowedMethods: Set<String> = [
+    private nonisolated static let remoteRelayAllowedMethods: Set<String> = Set([
         "system.ping",
         "system.capabilities",
         "workspace.current",
@@ -41,9 +41,30 @@ extension TerminalController {
         "agent.resolve_delivery_target",
         "notification.create",
         "notification.create_for_target",
+    ]).union(remoteRelayTmuxCompatMethods)
+
+    /// Workspace-scoped pane mutations issued by the remote tmux shim
+    /// (`cmux claude-teams` / `cmux omo` on the SSH host). Every method here
+    /// requires an explicit owner-workspace selector, and the surface
+    /// selectors must resolve inside that workspace, so a relay peer can only
+    /// rearrange panes in the workspace it already owns. Cross-workspace
+    /// methods (`workspace.create`, `workspace.close`, `workspace.list`, …)
+    /// stay denied, which is why `new-window` / `new-session` are unsupported
+    /// through the relay.
+    private nonisolated static let remoteRelayTmuxCompatMethods: Set<String> = [
+        "surface.split",
+        "surface.respawn",
+        "surface.close",
+        "surface.send_text",
+        "workspace.equalize_splits",
+        "pane.list",
+        "pane.surfaces",
+        "pane.focus",
+        "pane.last",
+        "pane.resize",
     ]
 
-    private nonisolated static let remoteRelayWorkspaceRequiredMethods: Set<String> = [
+    private nonisolated static let remoteRelayWorkspaceRequiredMethods: Set<String> = Set([
         "workspace.current",
         "workspace.remote.status",
         "workspace.remote.reconnect",
@@ -63,7 +84,7 @@ extension TerminalController {
         "surface.ports_kick",
         "notification.create",
         "notification.create_for_target",
-    ]
+    ]).union(remoteRelayTmuxCompatMethods)
 
     private nonisolated static let remoteRelaySurfaceRequiredMethods: Set<String> = [
         "workspace.remote.terminal_session_launching",
@@ -75,6 +96,10 @@ extension TerminalController {
         "surface.read_text",
         "surface.read_selection",
         "notification.create_for_target",
+        "surface.split",
+        "surface.respawn",
+        "surface.close",
+        "surface.send_text",
     ]
 
     private nonisolated static let remoteRelayWorkspaceSelectorKeys: Set<String> = [
