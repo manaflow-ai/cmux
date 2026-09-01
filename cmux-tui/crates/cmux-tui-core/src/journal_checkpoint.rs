@@ -871,7 +871,7 @@ mod tests {
             schema_version: 1,
             kind: "unknown".into(),
             class: JournalClass::State,
-            replay: JournalReplayPolicy::Ignored,
+            replay: JournalReplayPolicy::Never,
             occurred_at_ms: 1,
             committed_at_ms: 1,
             producer: JournalProducer { kind: "test".into(), id: "test".into() },
