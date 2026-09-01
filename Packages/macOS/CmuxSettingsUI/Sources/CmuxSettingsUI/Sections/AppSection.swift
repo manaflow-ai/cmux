@@ -28,6 +28,7 @@ public struct AppSection: View {
     @State private var appearance: DefaultsValueModel<AppearanceMode>
     @State private var appIcon: DefaultsValueModel<AppIconMode>
     @State private var appIconImagePath: DefaultsValueModel<String>
+    @State private var customAppIconIsValid = false
     @State private var placement: DefaultsValueModel<WorkspacePlacement>
     @State private var inheritDir: DefaultsValueModel<Bool>
     @State private var minimalMode: DefaultsValueModel<WorkspacePresentationMode>
@@ -146,6 +147,21 @@ public struct AppSection: View {
             startSettingsObservation([language, appearance, appIcon, appIconImagePath, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
             if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
         }
+        .task(id: appIconImagePath.current) {
+            let path = appIconImagePath.current
+            customAppIconIsValid = Self.customImageIsActive(
+                path: path,
+                isValid: !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    && hostActions.isCustomAppIconValid(path)
+            )
+        }
+    }
+
+    /// Keeps the built-in picker selected when a configured custom path cannot
+    /// be resolved by the host, while preserving the custom override indicator
+    /// for a successfully decoded image.
+    nonisolated static func customImageIsActive(path: String, isValid: Bool) -> Bool {
+        !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && isValid
     }
 
     private var globalFontMagnificationSubtitle: String {
@@ -203,7 +219,10 @@ public struct AppSection: View {
                     appIconImagePath.reset()
                     appIcon.set($0)
                 },
-                hasCustomImage: !appIconImagePath.current.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                hasCustomImage: Self.customImageIsActive(
+                    path: appIconImagePath.current,
+                    isValid: customAppIconIsValid
+                )
             )
             .settingsSearchAnchors(["setting:app:app-icon"])
             SettingsCardDivider()

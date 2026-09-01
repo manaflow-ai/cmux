@@ -102,6 +102,7 @@ describe("docs search index", () => {
           configuration: {
             schemaDescriptions: {
               sidebar: { notificationMessageLineLimit?: string };
+              app: { appIconImagePath?: string };
             };
           };
         };
@@ -110,6 +111,9 @@ describe("docs search index", () => {
       expect(
         messages.docs.configuration.schemaDescriptions.sidebar
           .notificationMessageLineLimit,
+      ).toBeTruthy();
+      expect(
+        messages.docs.configuration.schemaDescriptions.app.appIconImagePath,
       ).toBeTruthy();
     }
   });

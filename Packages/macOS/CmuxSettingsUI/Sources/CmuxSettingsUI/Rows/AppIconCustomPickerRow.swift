@@ -59,7 +59,7 @@ struct AppIconCustomPickerRow: View {
         Self.displayName(for: selectedPath)
     }
 
-    static func displayName(for selectedPath: String) -> String {
+    nonisolated static func displayName(for selectedPath: String) -> String {
         let normalizedPath = selectedPath.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedPath.isEmpty else {
             return String(

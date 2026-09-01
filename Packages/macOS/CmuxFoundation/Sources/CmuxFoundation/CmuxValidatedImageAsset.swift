@@ -1,5 +1,5 @@
 import CryptoKit
-import Foundation
+public import Foundation
 
 /// Shared, bounded validation for image files referenced by cmux settings.
 ///
@@ -8,20 +8,31 @@ import Foundation
 /// remain confined to their project root. Remote URLs, oversized files, and
 /// SVGs with executable or external content are rejected before image data is
 /// handed to AppKit.
-struct CmuxValidatedImageAsset {
-    static let maxImageBytes = 1_000_000
+public struct CmuxValidatedImageAsset {
+    /// Maximum number of bytes accepted for one image payload.
+    public static let maxImageBytes = 1_000_000
 
-    enum Failure: Error, Equatable, CustomStringConvertible {
+    /// Reasons a configured image cannot be prepared for AppKit.
+    public enum Failure: Error, Equatable, CustomStringConvertible {
+        /// The supplied path is empty after trimming whitespace.
         case emptyPath
+        /// The supplied path uses an HTTP or HTTPS URL.
         case remotePath
+        /// A project-local path escapes its permitted project root.
         case projectPathNotAllowed
+        /// No file exists at the resolved path.
         case missingFile
+        /// The resolved path is not a regular file.
         case notRegularFile
+        /// The file exists but its contents could not be read.
         case unreadableFile
+        /// The file exceeds ``maxImageBytes``.
         case tooLarge
+        /// The SVG contains executable or externally loaded content.
         case unsafeSVG
 
-        var description: String {
+        /// A concise, path-free diagnostic suitable for user-facing logs.
+        public var description: String {
             switch self {
             case .emptyPath: return "empty path"
             case .remotePath: return "remote URL"
@@ -35,15 +46,36 @@ struct CmuxValidatedImageAsset {
         }
     }
 
-    struct Prepared: Equatable {
-        let data: Data
-        let resolvedPath: String
-        let fingerprint: String
+    /// Validated image bytes together with their canonical path and fingerprint.
+    public struct Prepared: Equatable {
+        /// The bounded image payload.
+        public let data: Data
+        /// The normalized path that was validated.
+        public let resolvedPath: String
+        /// SHA-256 fingerprint of ``data``.
+        public let fingerprint: String
+
+        /// Creates a prepared image value from validated data.
+        ///
+        /// - Parameters:
+        ///   - data: Bounded image bytes.
+        ///   - resolvedPath: Canonical path associated with `data`.
+        ///   - fingerprint: SHA-256 fingerprint of `data`.
+        public init(data: Data, resolvedPath: String, fingerprint: String) {
+            self.data = data
+            self.resolvedPath = resolvedPath
+            self.fingerprint = fingerprint
+        }
     }
 
-    /// Resolves a user path without reading the file. Relative paths are
-    /// resolved beside the settings file when one is supplied.
-    static func normalizedPath(_ path: String, relativeToConfig configPath: String?) -> String? {
+    /// Resolves a user path without reading the file.
+    ///
+    /// - Parameters:
+    ///   - path: Absolute or config-relative local path.
+    ///   - configPath: Config file used to resolve a relative path.
+    /// - Returns: A standardized local path, or `nil` for an empty, NUL-filled,
+    ///   or remote path.
+    public static func normalizedPath(_ path: String, relativeToConfig configPath: String?) -> String? {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty,
               !trimmed.contains("\0") else {
@@ -67,7 +99,16 @@ struct CmuxValidatedImageAsset {
         return (resolved as NSString).standardizingPath
     }
 
-    static func prepare(
+    /// Validates and reads one configured image path.
+    ///
+    /// - Parameters:
+    ///   - path: Absolute or config-relative local path.
+    ///   - configSourcePath: Config file used to resolve relative paths.
+    ///   - globalConfigPath: Canonical global config path used to distinguish
+    ///     project-local confinement from global settings.
+    ///   - readContents: Bounded read seam; the default reads from disk.
+    /// - Returns: Prepared image data, or a path-free validation failure.
+    public static func prepare(
         _ path: String,
         relativeToConfig configSourcePath: String?,
         globalConfigPath: String,
@@ -123,7 +164,10 @@ struct CmuxValidatedImageAsset {
         )
     }
 
-    static func projectRoot(forConfigPath configPath: String) -> String {
+    /// Returns the project root associated with a config path.
+    ///
+    /// - Parameter configPath: The project or `.cmux` config file path.
+    public static func projectRoot(forConfigPath configPath: String) -> String {
         let configDir = (configPath as NSString).deletingLastPathComponent
         if (configDir as NSString).lastPathComponent == ".cmux" {
             return (configDir as NSString).deletingLastPathComponent

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import CoreServices
 
 private let cmuxAppIconDidChangeNotification = Notification.Name("com.cmuxterm.appIconDidChange")

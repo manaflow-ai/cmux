@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import Foundation
 import Testing
 
@@ -177,7 +178,10 @@ struct AppIconAppearanceObserverTests {
             return
         }
         #expect(asset.resolvedPath == imageURL.standardizedFileURL.path)
-        #expect(AppIconImageResolver.image(for: imageURL.path) != nil)
+        #expect(AppIconImageResolver.image(
+            for: imageURL.path,
+            relativeToConfig: configURL.path
+        ) != nil)
 
         let validSVGURL = directory.appendingPathComponent("valid.svg")
         try "<svg xmlns=\"http://www.w3.org/2000/svg\"><text>Hello</text></svg>"

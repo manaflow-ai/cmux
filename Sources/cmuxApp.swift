@@ -14,6 +14,12 @@ import Darwin
 import Bonsplit
 import UniformTypeIdentifiers
 import CmuxTerminal
+import OSLog
+
+nonisolated private let appIconRuntimeLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "AppIcon"
+)
 
 /// The process entry point. When the binary is launched with a worker flag
 /// (the app re-executes its own binary so a crash or hang in paste preparation,
@@ -5400,7 +5406,12 @@ enum AppIconSettings {
                     return NSImage(named: imageName)
                 },
                 imageForPath: { path in
-                    AppIconImageResolver.image(for: path)
+                    AppIconImageResolver.image(
+                        for: path,
+                        log: { message in
+                            appIconRuntimeLogger.warning("\(message, privacy: .public)")
+                        }
+                    )
                 },
                 setApplicationIconImage: { icon in
                     NSApplication.shared.applicationIconImage = icon

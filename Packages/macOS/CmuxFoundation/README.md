@@ -32,6 +32,8 @@ so call sites read naturally (`value.javaScriptStringLiteral`, not `f(value)`).
   lifecycle-bound repeating main-actor action.
 - `MainActorTaskStore` — keyed replaceable task ownership that keeps task
   handles out of captured SwiftUI value snapshots.
+- `CmuxValidatedImageAsset` — bounded, path-safe local image validation shared
+  by the app icon, Dock plug-in, and configurable button icons.
 
 ## Usage
 
@@ -40,6 +42,17 @@ import CmuxFoundation
 
 let literal = userText?.javaScriptStringLiteral ?? "null"
 webView.evaluateJavaScript("setValue(\(literal))")
+```
+
+Image validation is independent of AppKit, so hosts can decode the bounded
+payload only after the path and SVG policy pass:
+
+```swift
+let result = CmuxValidatedImageAsset.prepare(
+    "icon.png",
+    relativeToConfig: configURL.path,
+    globalConfigPath: globalConfigURL.path
+)
 ```
 
 Callers supply complete SSH argv prefixes and localized diagnostics to the Mosh builder, which

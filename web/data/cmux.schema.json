@@ -431,6 +431,7 @@
         "appIconImagePath": {
           "type": "string",
           "default": "",
+          "descriptionKey": "schemaDescriptions.app.appIconImagePath",
           "description": "Optional local image path for the Dock and app switcher icon. Invalid or unsupported images fall back to appIcon."
         },
         "windowTitleTemplate": {

@@ -137,6 +137,16 @@ final class HostSettingsActions: SettingsHostActions {
         LanguageSettingsStore(defaults: .standard).applyLanguageOverride(language)
     }
 
+    func isCustomAppIconValid(_ path: String) -> Bool {
+        AppIconImageResolver.image(
+            for: path,
+            relativeToConfig: configFileURL.path,
+            log: { message in
+                hostSettingsLogger.warning("\(message, privacy: .public)")
+            }
+        ) != nil
+    }
+
     func refreshComputerUsePermissions() async {
         _ = await computerUseRuntimeService.refreshHelperStatus()
     }

@@ -1,5 +1,12 @@
 import AppKit
+import CmuxFoundation
 import Foundation
+import OSLog
+
+nonisolated private let appIconImageResolverLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "AppIcon"
+)
 
 /// Resolves a validated image path for the running app or its Dock tile.
 struct AppIconImageResolver {
@@ -11,7 +18,9 @@ struct AppIconImageResolver {
     static func image(
         for path: String,
         relativeToConfig configPath: String? = defaultConfigPath,
-        log: (String) -> Void = { NSLog("%@", $0) }
+        log: (String) -> Void = { message in
+            appIconImageResolverLogger.warning("\(message, privacy: .public)")
+        }
     ) -> NSImage? {
         let result = CmuxValidatedImageAsset.prepare(
             path,
