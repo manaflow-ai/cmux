@@ -388,6 +388,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// resolve the restoring-gate flags, so a superseded older attempt can't clear
     /// the gate while a newer reconnect is still in progress.
     var storedMacReconnectGeneration = 0
+    /// Timeline of the most recent reconnect preamble, one entry per stage in
+    /// the order it was reached. Reset at every generation claim.
+    public private(set) var storedMacReconnectPreambleStages: [StoredMacReconnectPreambleStage] = []
     /// Set when a connection-method change arrives during a reconnect. The
     /// latest forced retry starts as soon as the current attempt settles.
     var pendingForcedStoredMacReconnect = false
@@ -2809,6 +2812,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // gate (or clobber the hint) while a newer reconnect is still running.
         storedMacReconnectGeneration &+= 1
         let generation = storedMacReconnectGeneration
+        // Preamble time attribution: on a cold launch the claim lands at
+        // ~0.1s but the first relay dial starts only at ~1.4s, and no
+        // existing mark explains the middle. Every preamble stage below logs
+        // its offset from this claim instant so ONE device launch names the
+        // culprit stage instead of a rebuild-per-guess bisection.
+        let preambleClaimedAt = ContinuousClock.now
+        storedMacReconnectPreambleStages.removeAll(keepingCapacity: true)
+        markReconnectPreambleStage(
+            "claim", claimedAt: preambleClaimedAt, generation: generation
+        )
         isReconnectingStoredMac = true
         let restoringDeadlineSeconds = storedMacReconnectRestoringDeadlineSeconds
         // Bound the complete visible retry window, including scope resolution,
@@ -2847,7 +2860,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             await self?.performReconnectActiveMacAttempt(
                 stackUserID: stackUserID,
                 refreshBackupBeforeDial: refreshBackupBeforeDial,
-                generation: generation
+                generation: generation,
+                claimedAt: preambleClaimedAt
             ) ?? .superseded
         }
         registerAbandonedReconnectDial(race.abandoned)
@@ -2884,11 +2898,41 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return .failed(.timedOut)
     }
 
+    /// Records one reconnect-preamble stage with its offset from the
+    /// generation claim into `storedMacReconnectPreambleStages` and mirrors it
+    /// to the retrievable device debug log (debug builds only). Two
+    /// distinct failure shapes become distinguishable from one launch: a
+    /// single stage whose offset jumps names a slow awaited operation, while
+    /// uniformly stretched small offsets across stages whose own work is
+    /// milliseconds names main-actor starvation (resumptions parked behind
+    /// first-frame composition), which no per-operation timer would show.
+    private func markReconnectPreambleStage(
+        _ stage: String,
+        claimedAt: ContinuousClock.Instant,
+        generation: Int
+    ) {
+        let record = StoredMacReconnectPreambleStage(
+            name: stage,
+            offset: ContinuousClock.now - claimedAt,
+            generation: generation
+        )
+        storedMacReconnectPreambleStages.append(record)
+        MobileDebugLog.anchormux(
+            "storedMacReconnect preamble stage=\(stage) +\(String(format: "%.1f", record.offsetMilliseconds))ms generation=\(generation)"
+        )
+    }
+
     private func performReconnectActiveMacAttempt(
         stackUserID: String?,
         refreshBackupBeforeDial: Bool,
-        generation: Int
+        generation: Int,
+        claimedAt: ContinuousClock.Instant
     ) async -> StoredMacReconnectOutcome {
+        // The claim→entry offset isolates the deadline-race task spawn and
+        // executor scheduling, which no in-function timer could see.
+        markReconnectPreambleStage(
+            "attempt-entry", claimedAt: claimedAt, generation: generation
+        )
         // No store / not signed in: can't determine a stored Mac here. Resolve the
         // restoring gate (so a returning user doesn't spin on RestoringSessionView)
         // but leave the persisted hint intact for a future attempt.
@@ -2906,6 +2950,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             finishStoredMacReconnectAttempt(generation: generation)
             return .failed(.authorizationFailed)
         }
+        markReconnectPreambleStage(
+            "scope-snapshot", claimedAt: claimedAt, generation: generation
+        )
         if let result = storedMacReconnectInterruptionResult(generation: generation) {
             return result ? .connected : .superseded
         }
@@ -2932,6 +2979,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 await refresher.refreshFromBackup(stackUserID: scope.userID)
             }
         }
+        markReconnectPreambleStage(
+            "backup-refresh-spawned", claimedAt: claimedAt, generation: generation
+        )
         if let result = storedMacReconnectInterruptionResult(generation: generation) {
             return result ? .connected : .superseded
         }
@@ -2956,6 +3006,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return result ? .connected : .superseded
             }
             loadedMacs = try await pairedMacStore.loadAll(stackUserID: scope.userID, teamID: scope.teamID)
+            markReconnectPreambleStage(
+                "store-reads", claimedAt: claimedAt, generation: generation
+            )
         } catch {
             mobileShellLog.error("paired mac store read failed: \(String(describing: error), privacy: .public)")
             // A read failure means "couldn't determine," not "no mac": keep the
@@ -2978,7 +3031,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // the pipelined-subscribe snapshot must be seeded from the same rows
         // the dial uses.
         seedPersistedHostCapabilities(from: loadedMacs)
+        markReconnectPreambleStage(
+            "capabilities-seeded", claimedAt: claimedAt, generation: generation
+        )
         let hiddenIDs = await hiddenMacDeviceIDs(scope: scope)
+        markReconnectPreambleStage(
+            "hidden-ids", claimedAt: claimedAt, generation: generation
+        )
         if let result = storedMacReconnectInterruptionResult(generation: generation) {
             return result ? .connected : .superseded
         }
@@ -3004,6 +3063,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             candidates.append(activeMac)
         }
         candidates.append(contentsOf: allMacs.filter { $0.id != activeMac?.id })
+        markReconnectPreambleStage(
+            "candidates-ready n=\(candidates.count)",
+            claimedAt: claimedAt,
+            generation: generation
+        )
         // A newer attempt may have started while we awaited the store read; if so,
         // let it own the flags rather than marking ourselves the active reconnect.
         guard generation == storedMacReconnectGeneration else { return .superseded }
@@ -3086,6 +3150,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // restored, or registry route remains a hint for discovering Iroh.
             if localCanConnectSecurely {
                 attemptedAutomaticDial = true
+                // A gap between this mark and the transport journal's own
+                // dial event lives inside connect(ticket:) — transport-queue
+                // cleanup ahead of the dial, not the preamble.
+                markReconnectPreambleStage(
+                    "dial-start c\(candidateIndex)",
+                    claimedAt: claimedAt,
+                    generation: generation
+                )
                 lastDialOutcome = await connectStoredMacOutcome(
                     name: mac.displayName ?? mac.macDeviceID,
                     routes: localRoutes,
@@ -3108,6 +3180,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 ) {
                 case .refreshedRoutes(let refreshedRoutes):
                     attemptedAutomaticDial = true
+                    markReconnectPreambleStage(
+                        "dial-start-refreshed c\(candidateIndex)",
+                        claimedAt: claimedAt,
+                        generation: generation
+                    )
                     lastDialOutcome = await connectStoredMacOutcome(
                         name: mac.displayName ?? mac.macDeviceID,
                         routes: refreshedRoutes,
