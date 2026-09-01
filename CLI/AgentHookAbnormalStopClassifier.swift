@@ -171,6 +171,9 @@ struct AgentHookAbnormalStopClassifier {
             return .capacity
         }
         let normalizedMessageTrimmed = normalizedMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        let reasonOnlyMessage = normalizedMessageTrimmed.hasPrefix("stop ")
+            ? String(normalizedMessageTrimmed.dropFirst("stop ".count))
+            : normalizedMessageTrimmed
         let quotaCue = normalized.contains("usage limit")
             || normalized.contains("hit your limit")
             || normalized.contains("limit reached")
@@ -189,19 +192,19 @@ struct AgentHookAbnormalStopClassifier {
                     || normalized.contains("remaining")
                     || normalized.contains("reset")
             ))
-        let explicitQuotaReason = normalizedMessageTrimmed == "quota exceeded"
-            || normalizedMessageTrimmed == "quota exhausted"
-            || normalizedMessageTrimmed == "usage limit"
-            || normalizedMessageTrimmed == "usage exhausted"
-            || normalizedMessageTrimmed == "limit reached"
-            || normalizedMessageTrimmed == "quota limit"
-            || normalizedMessageTrimmed == "credit limit"
-            || normalizedMessageTrimmed == "credits exhausted"
-            || normalizedMessageTrimmed == "no remaining credits"
-            || normalizedMessageTrimmed == "out of credits"
-            || normalizedMessageTrimmed == "insufficient credits"
-            || normalizedMessageTrimmed.hasPrefix("you've hit your usage limit")
-            || normalizedMessageTrimmed.hasPrefix("you have hit your usage limit")
+        let explicitQuotaReason = reasonOnlyMessage == "quota exceeded"
+            || reasonOnlyMessage == "quota exhausted"
+            || reasonOnlyMessage == "usage limit"
+            || reasonOnlyMessage == "usage exhausted"
+            || reasonOnlyMessage == "limit reached"
+            || reasonOnlyMessage == "quota limit"
+            || reasonOnlyMessage == "credit limit"
+            || reasonOnlyMessage == "credits exhausted"
+            || reasonOnlyMessage == "no remaining credits"
+            || reasonOnlyMessage == "out of credits"
+            || reasonOnlyMessage == "insufficient credits"
+            || reasonOnlyMessage.hasPrefix("you've hit your usage limit")
+            || reasonOnlyMessage.hasPrefix("you have hit your usage limit")
         let quotaTokens = AgentHookNotificationClassifier.notificationCueTokens(normalizedMessage)
         let quotaProviderQualifiers: Set<Substring> = [
             "api", "model", "provider", "service", "server", "llm", "endpoint",
@@ -387,7 +390,10 @@ struct AgentHookAbnormalStopClassifier {
         normalizedMessage: String
     ) -> Bool {
         let messageTrimmed = normalizedMessage.trimmingCharacters(in: .whitespacesAndNewlines)
-        if messageTrimmed == code { return true }
+        let reasonOnlyMessage = messageTrimmed.hasPrefix("stop ")
+            ? String(messageTrimmed.dropFirst("stop ".count))
+            : messageTrimmed
+        if reasonOnlyMessage == code { return true }
 
         let tokens = AgentHookNotificationClassifier.notificationCueTokens(normalized)
         guard let index = tokens.firstIndex(where: { String($0) == code }) else { return false }
