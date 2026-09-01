@@ -2637,7 +2637,13 @@ impl Inner {
                         inner.draining_viewers.clear();
                         std::mem::take(&mut inner.viewers)
                     };
-                    manager.shell_sessions.lock().expect("shell lock").remove(&session_name);
+                    let mut shells = manager.shell_sessions.lock().expect("shell lock");
+                    if shells
+                        .get(&session_name)
+                        .is_some_and(|cached| Arc::ptr_eq(cached, &exit_session))
+                    {
+                        shells.remove(&session_name);
+                    }
                     for viewer in viewers {
                         let _delivery = viewer.delivery_lock.lock().expect("viewer delivery lock");
                         (viewer.on_exit)(code);
@@ -2657,6 +2663,9 @@ impl Inner {
                 // identity is cached, and remove only this exact session so a
                 // replacement cannot be disturbed.
                 if cancellation.is_cancelled() {
+                    if pending_viewer.swap(false, Ordering::AcqRel) {
+                        shell_session.pending_viewers.fetch_sub(1, Ordering::AcqRel);
+                    }
                     let removed =
                         remove_cached_shell_if_same_without_viewers(&self, session, &shell_session);
                     if removed {
