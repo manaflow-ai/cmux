@@ -2314,6 +2314,48 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn insecure_journal_quarantine_directory_rejects_invalid_journal() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = std::env::temp_dir().join(format!(
+            "cmux-plugin-journal-quarantine-mode-{}-{}",
+            std::process::id(),
+            now_nanos()
+        ));
+        let registry = root.join(".registry");
+        fs::create_dir_all(&registry).unwrap();
+        let quarantine = root.join(INVALID_INSTALL_JOURNAL_DIR);
+        fs::create_dir(&quarantine).unwrap();
+        fs::set_permissions(&quarantine, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let journal_path = install_journal_path(&root, "demo");
+        write_install_journal(
+            &journal_path,
+            &InstallJournal {
+                owner_token: None,
+                name: "demo".into(),
+                target_backup: root.join("outside.plugin-backup"),
+                metadata_backup: registry.join(".demo.recovery.metadata-backup.json"),
+                temp_dir: root.join(".install-1-2"),
+                metadata_temp: registry.join(".demo.1-2.tmp"),
+                target_existed: false,
+                metadata_existed: false,
+                config_snapshot: None,
+                expected_sidebar_plugin: None,
+                phase: InstallJournalPhase::Committed,
+            },
+        )
+        .unwrap();
+
+        let error = reconcile_install_transactions(&root).unwrap_err();
+        assert!(error.to_string().contains("accessible by another user"));
+        assert!(journal_path.exists());
+        assert_eq!(fs::read_dir(&quarantine).unwrap().count(), 0);
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn invalid_journal_temp_paths_are_quarantined_without_recursive_delete() {
         for (label, temp_name, make_directory) in
