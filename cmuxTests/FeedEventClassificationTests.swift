@@ -443,7 +443,7 @@ struct FeedEventClassificationTests {
             #"{"type":"turn_context","payload":{"turn_id":"another-turn","approvals_reviewer":"auto_review"}}"#,
         ]
         #expect(CodexApprovalNotificationPolicy().reviewRoute(
-            rawObject: ["session_id": "codex-session"],
+            rawObject: ["session_id": "codex-session", "turn_id": "requested-turn"],
             rolloutLines: rolloutLines
         ) == nil)
     }
