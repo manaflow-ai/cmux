@@ -30,7 +30,8 @@ concurrency:
 
 jobs:
   browser-skill:
-    runs-on: ubuntu-24.04
+    # Skill-contract checks execute pull-request content and must stay on a fixed GitHub-hosted runner.
+    runs-on: ubuntu-24.04 # github-hosted-required: untrusted skill contract code
     timeout-minutes: 5
     steps:
       - name: Checkout
