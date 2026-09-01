@@ -4998,8 +4998,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             XCTFail("Expected an unvisited terminal")
             return
         }
-        weak var weakRemovablePanel: TerminalPanel?
-        weakRemovablePanel = removablePanel
+        weak var weakRemovablePanel = removablePanel
         workspace.panels.removeValue(forKey: removablePanelId)
         removablePanel = nil
 
