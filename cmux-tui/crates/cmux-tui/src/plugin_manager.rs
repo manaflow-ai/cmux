@@ -609,7 +609,7 @@ fn read_manifest(dir: &Path, kind: PluginKind) -> anyhow::Result<PluginManifest>
     let mut file = fs::File::open(&path)
         .map_err(|err| anyhow::anyhow!("failed to read {}: {err}", path.display()))?;
     let mut text = String::new();
-    file.by_ref()
+    Read::by_ref(&mut file)
         .take(u64::try_from(MAX_PLUGIN_MANIFEST_BYTES).unwrap_or(u64::MAX).saturating_add(1))
         .read_to_string(&mut text)
         .map_err(|err| anyhow::anyhow!("failed to read {}: {err}", path.display()))?;
