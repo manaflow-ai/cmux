@@ -544,7 +544,10 @@ final class ClaudeHookSessionStore {
         }
 
         /// Switches the lease to a newly resolved task-list scope.
-        fileprivate func switchScope(to nextScope: String?) throws {
+        ///
+        /// This is internal because the task-hook extension retargets the
+        /// lease after its filesystem scan resolves the authoritative list.
+        func switchScope(to nextScope: String?) throws {
             let normalizedNextScope = nextScope?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let normalizedCurrentScope = scope?
