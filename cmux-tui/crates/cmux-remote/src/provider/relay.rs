@@ -1213,9 +1213,7 @@ pub async fn register_relay_daemon_with_credentials(
         }
         Err(_) => {
             registration.shutdown().await;
-            Err(ProviderError::Transport(
-                "relay registration stopped before ready".into(),
-            ))
+            Err(ProviderError::Transport("relay registration stopped before ready".into()))
         }
     }
 }
