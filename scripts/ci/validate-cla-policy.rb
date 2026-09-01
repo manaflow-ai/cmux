@@ -29,7 +29,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "01b3eed13d54db27ed195781dc0f6926a04cb9557de81f
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "579790b38d6e34a08354cee77be1504749fbd9185e871ca4754081bad8347a82"
+EXPECTED_GUARD_SCRIPT_DIGEST = "82dfd92af42120fc8b32781d8d8352deaa7c247635f30a10efdc300b24826150"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -104,6 +104,17 @@ RERUN_ENV = {
 # that a token-specific regular expression cannot parse safely.
 GITHUB_CONTEXT_IN_RUN = /\$\{\{/m
 TOKEN_ENV_IN_RUN = /(?:\A|[^A-Za-z0-9_])(?:GITHUB_TOKEN|GH_TOKEN|ACTIONS_RUNTIME_TOKEN|ACTIONS_ID_TOKEN_REQUEST_TOKEN|RUNNER_TOKEN)(?:\z|[^A-Za-z0-9_])/i
+EXPRESSION_MARKER = /\$\{\{/m
+GITHUB_CONTEXT_EXPRESSION = /\bgithub\b/i
+GITHUB_TOKEN_EXPRESSION_PATTERN = /\bgithub\b.*\btoken\b|\btoJSON\s*\(\s*github\b/i
+ALLOWED_EXPRESSION_PATHS = [
+  /\Aenv\.[^.]+\z/,
+  /\Ajobs\.[^.]+\.if\z/,
+  /\Ajobs\.[^.]+\.concurrency\.group\z/,
+  /\Ajobs\.[^.]+\.outputs\.[^.]+\z/,
+  /\Ajobs\.[^.]+\.steps\.\d+\.env\.[^.]+\z/,
+  /\Ajobs\.[^.]+\.steps\.\d+\.with\.[^.]+\z/
+].freeze
 
 # The guard workflow is itself a privileged control-plane input. Keep its
 # checkout, environment, and shell contracts as immutable data. Whitespace is
@@ -735,11 +746,30 @@ def assert_exact_secret_paths(document, allowed_paths: ALLOWED_SECRET_PATHS)
   allowed_paths.each { |path| expected[path] = GITHUB_TOKEN_EXPRESSION }
   actual = {}
   walk_paths(document) do |path, value|
-    next unless value.is_a?(String) && value.match?(/\bsecrets\b|\bgithub\.token\b/i)
+    next unless value.is_a?(String) && value.match?(
+      /\bsecrets\b|\bgithub\b.*\btoken\b|\btoJSON\s*\(\s*github\b/i
+    )
 
     actual[path] = value
   end
   fail!("workflow token references are not the reviewed contract") unless actual == expected
+end
+
+def assert_safe_expression_fields(document, name, allowed_secret_paths: ALLOWED_SECRET_PATHS)
+  walk_paths(document) do |path, value|
+    next unless value.is_a?(String) && value.match?(EXPRESSION_MARKER)
+
+    joined_path = path.map(&:to_s).join(".")
+    fail!("#{name} has an expression in an unreviewed field") unless
+      ALLOWED_EXPRESSION_PATHS.any? { |pattern| joined_path.match?(pattern) }
+    if value.match?(GITHUB_CONTEXT_EXPRESSION) && value.match?(GITHUB_TOKEN_EXPRESSION_PATTERN)
+      fail!("#{name} may not reference the GitHub token or serialized context")
+    end
+    if value.match?(/\bsecrets\b/i)
+      fail!("#{name} has an unapproved secret expression") unless
+        allowed_secret_paths.include?(path) && value == GITHUB_TOKEN_EXPRESSION
+    end
+  end
 end
 
 def assert_safe_run_text(run, name)
@@ -1076,6 +1106,39 @@ def run_environment_regression_matrix!
     assert_safe_run_text("echo \"$ACTIONS_RUNTIME_TOKEN\"", "regression run")
   end
 
+  safe_expression_document = {
+    "jobs" => {
+      "example" => {
+        "if" => "${{ github.event_name == 'issue_comment' }}",
+        "concurrency" => { "group" => "cla-${{ github.run_id }}" },
+        "outputs" => { "result" => "${{ steps.result.outputs.value }}" },
+        "steps" => [
+          {
+            "env" => { "EVENT" => "${{ github.event_name }}" },
+            "with" => { "repository" => "${{ github.repository }}" }
+          }
+        ]
+      }
+    }
+  }
+  assert_safe_expression_fields(safe_expression_document, "regression expressions")
+  checks += 1
+  expect_failure.call("expression in metadata") do
+    changed = Marshal.load(Marshal.dump(safe_expression_document))
+    changed["jobs"]["example"]["name"] = "${{ github['token'] }}"
+    assert_safe_expression_fields(changed, "regression expressions")
+  end
+  expect_failure.call("serialized context in metadata") do
+    changed = Marshal.load(Marshal.dump(safe_expression_document))
+    changed["jobs"]["example"]["name"] = "${{ toJSON(github) }}"
+    assert_safe_expression_fields(changed, "regression expressions")
+  end
+  expect_failure.call("indexed secret expression") do
+    changed = Marshal.load(Marshal.dump(safe_expression_document))
+    changed["jobs"]["example"]["steps"][0]["env"]["EVENT"] = "${{ secrets['OTHER_TOKEN'] }}"
+    assert_safe_expression_fields(changed, "regression expressions")
+  end
+
   puts "PASS: CLA environment regression matrix (#{checks} cases)"
 end
 
@@ -1400,6 +1463,7 @@ def validate_workflow(raw)
     assert_action_reference(reference, "CLA workflow action")
   end
   assert_exact_secret_paths(document)
+  assert_safe_expression_fields(document, "CLA workflow")
   assert_safe_run_values(document)
 
   raw
@@ -1474,6 +1538,7 @@ def validate_guard_workflow(raw, authorize: true)
     "guard validation step run"
   )
   assert_exact_secret_paths(document, allowed_paths: GUARD_ALLOWED_SECRET_PATHS)
+  assert_safe_expression_fields(document, "guard workflow", allowed_secret_paths: GUARD_ALLOWED_SECRET_PATHS)
   assert_safe_run_values(document)
   uses = []
   walk(document) { |key, value| uses << value if key == "uses" && value.is_a?(String) }
@@ -1514,6 +1579,7 @@ def validate_guard_script(raw)
     "assert_exact_environment",
     "assert_exact_typed_inputs",
     "assert_exact_secret_paths",
+    "assert_safe_expression_fields",
     "assert_safe_run_text",
     "assert_exact_normalized_run",
     "run_guard_contract_regression_matrix!",
