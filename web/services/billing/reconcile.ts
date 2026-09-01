@@ -261,6 +261,22 @@ async function reconcileTeamSeatQuantity(
   const teamId = snapshot.stackTeamId;
   if (!teamId) return { drifted: false, repaired: false };
 
+  // The database snapshot can be stale. When the remote subscription carries
+  // its own identity metadata, it must agree with the snapshot; otherwise we
+  // could bill one team for another team's membership. Fail closed.
+  const remoteTeamId = typeof remote.metadata?.stackTeamId === "string"
+    ? remote.metadata.stackTeamId
+    : null;
+  if (remoteTeamId && remoteTeamId !== teamId) {
+    throw new Error(
+      `Stripe subscription team metadata disagrees with the local row: remote=${remoteTeamId} local=${teamId}`,
+    );
+  }
+  const remotePlan = typeof remote.metadata?.plan === "string" ? remote.metadata.plan : null;
+  if (remotePlan && remotePlan !== "team") {
+    throw new Error(`Stripe subscription plan metadata is not a team plan: ${remotePlan}`);
+  }
+
   const team = await getTeam(teamId);
   if (!team) throw new Error(`Stack team not found for seat reconciliation: ${teamId}`);
   if (typeof team.listUsers !== "function") {
@@ -281,7 +297,6 @@ async function reconcileTeamSeatQuantity(
   }
   if (dryRun) return { drifted: true, repaired: false };
 
-  const oldQuantity = stripeQuantity ?? storedQuantity ?? 1;
   if (stripeNeedsUpdate) {
     const item = remote.items?.data?.[0];
     if (!item?.id) {
@@ -295,12 +310,17 @@ async function reconcileTeamSeatQuantity(
   if (localNeedsUpdate) {
     await updateSeats(snapshot.id, desiredQuantity);
   }
-  await captureTeamSeatSync({
-    subscriptionId: snapshot.id,
-    teamId,
-    oldQuantity,
-    newQuantity: desiredQuantity,
-  });
+  // Only a real Stripe quantity change is a seat change. A local-only repair
+  // (Stripe already at the desired count) is bookkeeping and emits nothing,
+  // so a partially-failed earlier run cannot report desired-to-desired.
+  if (stripeNeedsUpdate) {
+    await captureTeamSeatSync({
+      subscriptionId: snapshot.id,
+      teamId,
+      oldQuantity: stripeQuantity ?? storedQuantity ?? 1,
+      newQuantity: desiredQuantity,
+    });
+  }
   return { drifted: true, repaired: true };
 }
 

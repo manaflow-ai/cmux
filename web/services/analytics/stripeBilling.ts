@@ -83,7 +83,10 @@ export async function captureBillingTeamSeatSync(
 ): Promise<void> {
   await captureBillingPayload({
     name: "cmux_billing_team_seats_synced",
-    insertId: `team-seat-sync:${input.subscriptionId}:${input.oldQuantity}:${input.newQuantity}`,
+    // A repeated legitimate transition (1->2->1->2) must not deduplicate the
+    // later event, so each sync gets a unique id; transport retries inside
+    // this call still share it because the payload is built once.
+    insertId: `team-seat-sync:${input.subscriptionId}:${globalThis.crypto.randomUUID()}`,
     subject: { scope: "team", stackTeamId: input.teamId },
     properties: {
       source: "billing_reconcile",

@@ -24,13 +24,18 @@ describe("Stripe billing analytics", () => {
       event: "cmux_billing_team_seats_synced",
       properties: {
         distinct_id: "stack-team:team_sync",
-        $insert_id: "team-seat-sync:sub_team_sync:1:4",
         stack_team_id: "team_sync",
         old_quantity: 1,
         new_quantity: 4,
         stripe_subscription_id: "sub_team_sync",
       },
     });
+    // The insert id is unique per sync so PostHog never deduplicates a
+    // repeated legitimate transition; only the prefix and shape are stable.
+    const properties = payload.properties as Record<string, unknown>;
+    expect(String(properties.$insert_id)).toMatch(
+      /^team-seat-sync:sub_team_sync:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
   });
 
   test("does not use the real transport in a test process", async () => {
