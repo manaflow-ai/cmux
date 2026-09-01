@@ -1,6 +1,7 @@
 import AppKit
 import CmuxTerminal
 import Foundation
+import GhosttyKit
 import Testing
 import XCTest
 
@@ -11,7 +12,7 @@ import XCTest
 #endif
 
 @MainActor
-@Suite
+@Suite(.serialized)
 struct GhosttyDECCKMArrowKeyTests {
     private struct HostedTerminalWindow {
         let surface: TerminalSurface
@@ -70,6 +71,7 @@ struct GhosttyDECCKMArrowKeyTests {
             throw XCTSkip("Ghostty surface failed to initialize on this host; byte-level arrow routing is unavailable.")
         }
 
+        try installIsolatedEditingKeybinds(on: hostedTerminal.surface)
         #expect(window.makeFirstResponder(surfaceView), "Expected terminal surface to own first responder")
 
         let readyText = try waitForTerminalText(from: hostedTerminal) {
@@ -169,6 +171,7 @@ struct GhosttyDECCKMArrowKeyTests {
         guard hostedTerminal.surface.hasLiveSurface else {
             throw XCTSkip("Ghostty surface failed to initialize on this host; byte-level editing routing is unavailable.")
         }
+        try installIsolatedEditingKeybinds(on: hostedTerminal.surface)
         #expect(window.makeFirstResponder(surfaceView), "Expected terminal surface to own first responder")
 
         let readyText = try waitForTerminalText(from: hostedTerminal) {
@@ -347,6 +350,36 @@ struct GhosttyDECCKMArrowKeyTests {
             hostedView: hostedView,
             surfaceView: try #require(findGhosttyNSView(in: hostedView))
         )
+    }
+
+    /// Replace only this test surface's Ghostty configuration with a small,
+    /// deterministic key map. The app owns one process-wide configuration, so
+    /// `configTemplate` cannot isolate key bindings from a developer's
+    /// `~/.config/ghostty` file. Updating the surface after creation keeps the
+    /// production app configuration untouched while making the byte-level
+    /// assertion independent of the host's user settings.
+    private func installIsolatedEditingKeybinds(on surface: TerminalSurface) throws {
+        let runtimeSurface = try #require(surface.surface)
+        let config = try #require(ghostty_config_new())
+        defer { ghostty_config_free(config) }
+
+        let contents = #"""
+        keybind = clear
+        keybind = super+backspace=text:\x15
+        keybind = super+delete=text:\x0b
+        keybind = alt+backspace=text:\x1b\x7f
+        keybind = alt+delete=text:\x1b\x64
+        """#
+        contents.withCString { pointer in
+            ghostty_config_load_string(
+                config,
+                pointer,
+                UInt(contents.utf8.count),
+                "/__cmux_test__/mac-editing.conf"
+            )
+        }
+        ghostty_config_finalize(config)
+        ghostty_surface_update_config(runtimeSurface, config)
     }
 
     private func readTerminalText(from terminal: HostedTerminalWindow) throws -> String {
