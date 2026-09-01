@@ -365,7 +365,10 @@ fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), (UsageErr
 }
 
 fn global_value(args: &[String], index: usize, flag: &str) -> Result<String, UsageError> {
-    args.get(index + 1).cloned().ok_or_else(|| UsageError::new(format!("{flag} needs a value")))
+    match args.get(index + 1) {
+        Some(value) if !value.starts_with("--") => Ok(value.clone()),
+        _ => Err(UsageError::new(format!("{flag} needs a value"))),
+    }
 }
 
 fn set_output_mode(
@@ -733,6 +736,22 @@ mod tests {
     fn global_value_options_reject_empty_inline_values() {
         let error = parse_globals(&strings(&["--socket=", "workspace", "list"])).unwrap_err();
         assert!(error.0.0.contains("--socket needs a value"));
+    }
+
+    #[test]
+    fn global_value_options_reject_following_option() {
+        let error =
+            parse_globals(&strings(&["--session", "--json", "workspace", "list"])).unwrap_err();
+        assert!(error.0.0.contains("--session needs a value"));
+    }
+
+    #[test]
+    fn global_value_options_accept_hyphen_prefixed_values() {
+        let (global, command) =
+            parse_globals(&strings(&["--session", "-1", "--socket", "-tmp/socket"])).unwrap();
+        assert_eq!(global.session.as_deref(), Some("-1"));
+        assert_eq!(global.socket, Some(PathBuf::from("-tmp/socket")));
+        assert!(command.is_empty());
     }
 
     #[test]
