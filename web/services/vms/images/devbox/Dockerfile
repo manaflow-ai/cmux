@@ -138,11 +138,11 @@ RUN curl -fsSL https://cua.ai/driver/install.sh -o /tmp/cua-install.sh \
 # Coding agents, pinned at bake time (bump with the image epoch; keep in
 # lockstep with ../blaxel/Dockerfile). Installed on the mise node so they
 # ride the same toolchain users get.
-ARG CMUX_IMAGE_CLAUDE_CODE_VERSION=2.1.246
-ARG CMUX_IMAGE_CODEX_VERSION=0.150.0
-ARG CMUX_IMAGE_OPENCODE_VERSION=1.18.23
-ARG CMUX_IMAGE_PI_VERSION=0.84.3
-ARG CMUX_IMAGE_AGENT_BROWSER_VERSION=0.35.1
+ARG CMUX_IMAGE_CLAUDE_CODE_VERSION=2.1.252
+ARG CMUX_IMAGE_CODEX_VERSION=0.151.0
+ARG CMUX_IMAGE_OPENCODE_VERSION=1.18.25
+ARG CMUX_IMAGE_PI_VERSION=0.84.4
+ARG CMUX_IMAGE_AGENT_BROWSER_VERSION=0.35.2
 RUN npm install -g --foreground-scripts \
     "@anthropic-ai/claude-code@${CMUX_IMAGE_CLAUDE_CODE_VERSION}" \
     "@openai/codex@${CMUX_IMAGE_CODEX_VERSION}" \
