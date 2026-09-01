@@ -139,10 +139,11 @@ object{event:"client-attached",client:uint64,transport:"unix"|"ws",name:string|n
 ```
 
 Meaning: The server emits this once when the control connection commits its
-first attach stream. A connection that never completes `attach-surface` does
-not emit it, and later streams or surfaces on the same connection do not emit
-it again. Use `list-clients` for the authoritative attached-surface set and
-reported sizes.
+first attach stream, whether it comes from the legacy `attach-surface` command
+or a resource `terminal.attach` or `browser.attach` operation. A connection
+with no committed attachment does not emit it, and later streams or surfaces
+on the same connection do not emit it again. Use `list-clients` for the
+authoritative attached-surface set and reported sizes.
 
 Example:
 
