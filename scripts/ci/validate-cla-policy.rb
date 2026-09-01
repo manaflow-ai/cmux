@@ -27,7 +27,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "0f347a749f53d2e06f5b39b7a832476d39ab40a71c8634
 # EXPECTED_WORKFLOW_DIGEST is retained as a compatibility marker for the
 # immutable validator in the current base revision. Policy validation now
 # hashes the candidate workflow bytes after lexical YAML validation.
-EXPECTED_GUARD_SCRIPT_DIGEST = "936d334455c3e3e91b9ea9936e1e7b436796a8c2d0b6f0ac1675f698b2c19751"
+EXPECTED_GUARD_SCRIPT_DIGEST = "ffb481c630a5f2e1e601b61c855ffbb49a9f6a1d5d9397d1e0276ab0dd4dcc1c"
 # Current organization administrators who may approve a trusted control-plane
 # update. IDs are used instead of names, and the review must target the exact
 # PR head. This is the human path for intentional policy maintenance.
@@ -466,7 +466,7 @@ def validate_workflow(raw, trusted_base_digest)
   job_keys = {
     "CLACommentGate" => %w[name if runs-on timeout-minutes concurrency permissions outputs steps],
     "CLAAssistant" => %w[name needs if runs-on timeout-minutes permissions steps],
-    "CLALedgerWriter" => %w[name needs if runs-on timeout-minutes concurrency permissions steps],
+    "CLALedgerWriter" => %w[name needs if runs-on timeout-minutes concurrency permissions outputs steps],
     "CLACompatibility" => %w[name needs if runs-on timeout-minutes permissions steps],
     "RerunFailedCLA" => %w[name needs if runs-on timeout-minutes permissions steps],
     "LockMergedPullRequest" => %w[name if runs-on timeout-minutes concurrency permissions steps]
@@ -489,6 +489,10 @@ def validate_workflow(raw, trusted_base_digest)
       "signer_authorized" => "${{ steps.signer_preflight.outputs.signer_authorized }}",
       "head_sha" => "${{ steps.signer_preflight.outputs.head_sha }}"
     }
+  fail!("CLALedgerWriter outputs are not the reviewed contract") unless
+    writer["outputs"] == {
+      "signature_recorded" => "${{ steps.cla_action.outputs.signature_recorded }}"
+    }
   fail!("CLA ledger writer must depend on the admission gate") unless dependencies(writer, "CLALedgerWriter").include?("CLACommentGate")
   fail!("CLA ledger writer must not run with always()") if writer["if"].to_s.include?("always()")
   fail!("CLA ledger writer must run only after successful admission") unless
@@ -506,7 +510,8 @@ def validate_workflow(raw, trusted_base_digest)
   writer_steps = steps(writer, "CLALedgerWriter")
   fail!("CLALedgerWriter must contain exactly one step") unless writer_steps.length == 1
   writer_step = writer_steps.first
-  assert_step_keys(writer_step, "CLALedgerWriter step", %w[name uses env with])
+  assert_step_keys(writer_step, "CLALedgerWriter step", %w[name id uses env with])
+  fail!("CLALedgerWriter step must have id cla_action") unless writer_step["id"] == "cla_action"
   assert_action_reference(writer_step["uses"], "CLALedgerWriter step uses")
   fail!("CLALedgerWriter must invoke only the maintained CLA action") unless writer_step["uses"] == CLA_ACTION
   fail!("CLALedgerWriter action must receive the GitHub token explicitly") unless
@@ -649,9 +654,9 @@ def validate_workflow(raw, trusted_base_digest)
     "github.event.action == 'created'",
     "id: admission",
     "admitted: ${{ steps.admission.outputs.admitted }}",
-    "if: success()",
     "issues: write"
   ].each { |fragment| assert_text(raw, fragment) }
+  fail!("CLA workflow is missing a successful-step guard") unless raw.match?(/if:\s*(?:[>|]-?\s*)?(?:\$\{\{\s*)?success\(\)/)
   [gate["if"], assistant["if"]].each do |expression|
     fail!("CLA signing trigger is missing from a signer job") unless expression.is_a?(String) && expression.include?(CLA_SIGN_PHRASE)
   end
