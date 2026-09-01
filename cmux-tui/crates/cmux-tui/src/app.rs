@@ -27504,6 +27504,51 @@ mod tests {
     }
 
     #[test]
+    fn profile_switch_does_not_reuse_a_sort_override_for_a_reused_view_id() {
+        let mux = Mux::new("sidebar-profile-sort-override-test", SurfaceOptions::default());
+        let first_view = SidebarViewSpec {
+            id: "shared-view".into(),
+            levels: vec![SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 30,
+            max_width: 0,
+            collapse_priority: 30,
+            row_lines: 1,
+            scope: crate::config::SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::Priority,
+            filter: crate::config::AgentRowFilter::default(),
+        };
+        let second_view = SidebarViewSpec {
+            sort: crate::config::AgentSortMode::Recency,
+            ..first_view.clone()
+        };
+        let first_profile = SidebarProfileSpec {
+            id: "first".into(),
+            name: "First".into(),
+            layout: crate::config::sidebar_layout_of_columns(std::slice::from_ref(&first_view)),
+            views: vec![first_view.clone()],
+        };
+        let second_profile = SidebarProfileSpec {
+            id: "second".into(),
+            name: "Second".into(),
+            layout: crate::config::sidebar_layout_of_columns(std::slice::from_ref(&second_view)),
+            views: vec![second_view.clone()],
+        };
+        let mut app = test_app(Session::Local(mux));
+        app.config.sidebar.profiles = vec![first_profile, second_profile];
+        app.config.sidebar.active_profile = "first".into();
+        app.config.sidebar.views = vec![first_view];
+        app.config.sidebar.layout = crate::config::sidebar_layout_of_columns(&app.config.sidebar.views);
+        app.agent_sort_overrides
+            .insert("shared-view".into(), crate::config::AgentSortMode::State);
+
+        app.activate_sidebar_profile(1);
+
+        assert_eq!(app.effective_agent_sort(&second_view), crate::config::AgentSortMode::Recency);
+    }
+
+    #[test]
     fn profile_switch_does_not_reuse_split_fractions_for_a_reused_group() {
         let mux = Mux::new("sidebar-profile-split-fractions-test", SurfaceOptions::default());
         let mut first = split_sidebar_config();

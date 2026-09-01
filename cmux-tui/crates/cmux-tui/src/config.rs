@@ -8836,6 +8836,54 @@ mod tests {
     }
 
     #[test]
+    fn malformed_agents_sort_and_filter_values_keep_the_sidebar_view() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir()
+            .join(format!("mux-config-sortfilter-types-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("mux.json");
+        std::fs::write(
+            &path,
+            r##"{
+                "sidebar": {
+                    "views": [
+                        {
+                            "id": "bad-types",
+                            "levels": ["agents"],
+                            "sort": 7,
+                            "filter": "working"
+                        },
+                        {
+                            "id": "bad-criteria",
+                            "levels": ["agents"],
+                            "sort": "recency",
+                            "filter": {
+                                "agent": ["claude", 3],
+                                "state": "working",
+                                "seen": "yes"
+                            }
+                        }
+                    ]
+                }
+            }"##,
+        )
+        .unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("CMUX_MUX_CONFIG", &path) };
+        let config = load();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::remove_var("CMUX_MUX_CONFIG") };
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(config.sidebar.views.len(), 2);
+        assert_eq!(config.sidebar.views[0].sort, AgentSortMode::Priority);
+        assert!(!config.sidebar.views[0].filter.is_active());
+        assert_eq!(config.sidebar.views[1].sort, AgentSortMode::Recency);
+        assert_eq!(config.sidebar.views[1].filter.agents, vec!["claude".to_string()]);
+        assert!(!config.sidebar.views[1].filter.is_active());
+    }
+
+    #[test]
     fn config_overrides_defaults() {
         let _guard = CONFIG_ENV_LOCK.lock().unwrap();
         let dir = std::env::temp_dir().join(format!("mux-config-test-{}", std::process::id()));
