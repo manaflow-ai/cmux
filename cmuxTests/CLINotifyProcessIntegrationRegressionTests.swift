@@ -4215,6 +4215,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_TERMINAL_LIFECYCLE_ID"] = surfaceId
+        // The readiness report is scoped to the launch attempt. Supplying the
+        // synthetic attempt id lets the fixture observe that report before the
+        // bridge is reset and the lifecycle reconciliation runs.
+        environment["CMUX_SSH_ATTEMPT_ID"] = "44444444-4444-4444-4444-444444444444"
 
         let result = runProcess(
             executablePath: cliPath,

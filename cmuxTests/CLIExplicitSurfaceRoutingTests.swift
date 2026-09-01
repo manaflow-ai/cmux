@@ -46,7 +46,6 @@ struct CLIExplicitSurfaceRoutingTests {
             Darwin.close(listenerFD)
             unlink(socketPath)
         }
-
         let state = ServerState()
         let handled = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
             guard let payload = Self.jsonObject(line),
@@ -94,6 +93,57 @@ struct CLIExplicitSurfaceRoutingTests {
         let readParams = try #require(requests.last?["params"] as? [String: Any])
         #expect(readParams["workspace_id"] as? String == Self.callerWorkspaceId)
         #expect(readParams["surface_id"] as? String == Self.numericSurfaceId)
+    }
+
+    @Test func refusedTerminalReadsAndWritesExitNonzero() throws {
+        let cases: [([String], String)] = [
+            (["read-screen", "--surface", Self.targetSurfaceRef], "surface.read_text"),
+            (["capture-pane", "--surface", Self.targetSurfaceRef], "surface.read_text"),
+            (["send", "--surface", Self.targetSurfaceRef, "hello"], "surface.send_text"),
+            (["send-key", "--surface", Self.targetSurfaceRef, "enter"], "surface.send_key"),
+        ]
+
+        for (arguments, expectedMethod) in cases {
+            try assertRefusedTerminalCommand(arguments: arguments, expectedMethod: expectedMethod)
+        }
+    }
+
+    private func assertRefusedTerminalCommand(
+        arguments: [String],
+        expectedMethod: String
+    ) throws {
+        let temporaryHome = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cli-refused-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryHome) }
+
+        let execution = try runMockCommand(
+            arguments: arguments,
+            socketName: "refused",
+            environmentOverrides: [
+                "CFFIXED_USER_HOME": temporaryHome.path,
+                "HOME": temporaryHome.path,
+            ]
+        ) { line in
+            guard let payload = Self.jsonObject(line),
+                  let id = payload["id"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            return Self.v2Response(
+                id: id,
+                ok: false,
+                error: ["code": "invalid_params", "message": "Surface is not a terminal"]
+            )
+        }
+
+        let methods = try execution.state.requestObjects().compactMap { $0["method"] as? String }
+        #expect(methods == [expectedMethod])
+        #expect(!execution.result.timedOut, Comment(rawValue: execution.result.stderr))
+        #expect(
+            execution.result.status != 0,
+            Comment(rawValue: execution.result.stderr + execution.result.stdout)
+        )
+        #expect(execution.result.stderr.contains("invalid_params: Surface is not a terminal"))
     }
 
     @Test func closeSurfaceRejectsMissingExplicitRefWithoutMutation() throws {
@@ -326,15 +376,10 @@ struct CLIExplicitSurfaceRoutingTests {
         expectedText: String? = nil,
         expectedKey: String? = nil
     ) throws {
-        let socketPath = Self.makeSocketPath(expectedMethod)
-        let listenerFD = try Self.bindUnixSocket(at: socketPath)
-        defer {
-            Darwin.close(listenerFD)
-            unlink(socketPath)
-        }
-
-        let state = ServerState()
-        let handled = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
+        let execution = try runMockCommand(
+            arguments: arguments,
+            socketName: expectedMethod
+        ) { line in
             guard let payload = Self.jsonObject(line),
                   let id = payload["id"] as? String,
                   let method = payload["method"] as? String else {
@@ -354,19 +399,13 @@ struct CLIExplicitSurfaceRoutingTests {
             }
         }
 
-        let result = Self.runProcess(
-            executablePath: try Self.bundledCLIPath(),
-            arguments: arguments,
-            environment: cliEnvironment(socketPath: socketPath),
-            timeout: 5
+        #expect(!execution.result.timedOut, Comment(rawValue: execution.result.stderr))
+        #expect(
+            execution.result.status == 0,
+            Comment(rawValue: execution.result.stderr + execution.result.stdout)
         )
 
-        #expect(handled.wait(timeout: .now() + 5) == .success)
-        #expect(state.errorsSnapshot().isEmpty, Comment(rawValue: state.errorsSnapshot().joined(separator: "\n")))
-        #expect(!result.timedOut, Comment(rawValue: result.stderr))
-        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
-
-        let requests = try state.requestObjects()
+        let requests = try execution.state.requestObjects()
         #expect(requests.compactMap { $0["method"] as? String } == [expectedMethod])
         let request = try #require(requests.first)
         let params = try #require(request["params"] as? [String: Any])
@@ -379,6 +418,40 @@ struct CLIExplicitSurfaceRoutingTests {
         if let expectedKey {
             #expect(params["key"] as? String == expectedKey)
         }
+    }
+
+    private func runMockCommand(
+        arguments: [String],
+        socketName: String,
+        environmentOverrides: [String: String] = [:],
+        handler: @escaping @Sendable (String) -> String
+    ) throws -> (result: ProcessRunResult, state: ServerState) {
+        let socketPath = Self.makeSocketPath(socketName)
+        let listenerFD = try Self.bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let state = ServerState()
+        let handled = Self.startMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            handler: handler
+        )
+        var environment = cliEnvironment(socketPath: socketPath)
+        environment.merge(environmentOverrides) { _, replacement in replacement }
+        let result = Self.runProcess(
+            executablePath: try Self.bundledCLIPath(),
+            arguments: arguments,
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        let errors = state.errorsSnapshot()
+        #expect(errors.isEmpty, Comment(rawValue: errors.joined(separator: "\n")))
+        return (result, state)
     }
 
     private func cliEnvironment(socketPath: String) -> [String: String] {

@@ -41,6 +41,7 @@ import {
   createVm,
   destroyVm,
   execVm,
+  homeVolumeNameForUser,
   listUserVms,
   openBaseVm,
   openAttachEndpoint,
@@ -54,7 +55,12 @@ import {
 } from "../services/vms/workflows";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
-const dbTest = runDbTests ? test : test.skip;
+// These cases share one Postgres database and several exercise paths read or
+// temporarily override process-wide VM plan limits. Keep the DB-backed group
+// explicitly serial even if a Bun config or command-line flag enables
+// concurrent tests for this file.
+const serialTest = (test as typeof test & { serial: typeof test }).serial;
+const dbTest = runDbTests ? serialTest : test.skip;
 
 let sql: Sql | null = null;
 
@@ -69,6 +75,26 @@ function databaseURL() {
     throw new Error("DATABASE_URL is required when CMUX_DB_TEST=1");
   }
   return url;
+}
+
+async function withEnvironment<T>(
+  values: Record<string, string | undefined>,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const previous = new Map<string, string | undefined>();
+  for (const [key, value] of Object.entries(values)) {
+    previous.set(key, process.env[key]);
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  try {
+    return await operation();
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
 }
 
 function providerLayer(
@@ -2679,14 +2705,17 @@ describe("VM Effect workflows", () => {
       revokeSSHIdentity: () => Effect.void,
     };
 
-    const endpoint = await Effect.runPromise(
-      openSshEndpoint({
-        userId: "user-workflow-resume-ssh",
-        billingTeamId: "team-workflow-resume-ssh",
-        teamIds: ["team-workflow-resume-ssh"],
-        providerVmId: "provider-vm-resume-ssh",
-      }).pipe(
-        Effect.provide(providerLayer(provider)),
+    const endpoint = await withEnvironment(
+      { CMUX_VM_PLAN_FREE_MAX_ACTIVE_VMS: "1" },
+      () => Effect.runPromise(
+        openSshEndpoint({
+          userId: "user-workflow-resume-ssh",
+          billingTeamId: "team-workflow-resume-ssh",
+          teamIds: ["team-workflow-resume-ssh"],
+          providerVmId: "provider-vm-resume-ssh",
+        }).pipe(
+          Effect.provide(providerLayer(provider)),
+        ),
       ),
     );
 
@@ -2935,15 +2964,18 @@ describe("VM Effect workflows", () => {
       getStatus: () => Effect.succeed("paused" as const),
     };
 
-    const error = await Effect.runPromise(
-      openAttachEndpoint({
-        userId: "user-workflow-resume-fail",
-        billingTeamId: "team-workflow-resume-fail",
-        teamIds: ["team-workflow-resume-fail"],
-        providerVmId: "provider-vm-resume-fail",
-      }).pipe(
-        Effect.flip,
-        Effect.provide(providerLayer(provider)),
+    const error = await withEnvironment(
+      { CMUX_VM_PLAN_FREE_MAX_ACTIVE_VMS: "1" },
+      () => Effect.runPromise(
+        openAttachEndpoint({
+          userId: "user-workflow-resume-fail",
+          billingTeamId: "team-workflow-resume-fail",
+          teamIds: ["team-workflow-resume-fail"],
+          providerVmId: "provider-vm-resume-fail",
+        }).pipe(
+          Effect.flip,
+          Effect.provide(providerLayer(provider)),
+        ),
       ),
     );
 
@@ -4776,6 +4808,8 @@ function testWorkflowRepo(input: {
   readonly markProviderObservedStatus?: (
     update: ObservedStatusUpdate,
   ) => Effect.Effect<boolean, VmDatabaseError>;
+  readonly markDestroyed?: VmRepositoryShape["markDestroyed"];
+  readonly destroyedIds?: string[];
 }): VmRepositoryShape {
   return {
     listUserVms: () => Effect.succeed([]),
@@ -4811,7 +4845,10 @@ function testWorkflowRepo(input: {
         : null,
       ),
     hasOwnedSnapshot: () => Effect.succeed(false),
-    markDestroyed: () => Effect.void,
+    markDestroyed: input.markDestroyed ?? ((id) =>
+      Effect.sync(() => {
+        input.destroyedIds?.push(id);
+      })),
     recordLease: (lease) =>
       Effect.sync(() => {
         input.leases?.push(lease);
@@ -4976,3 +5013,198 @@ async function waitForBlockedAdvisoryLock(sql: Sql, billingTeamId: string): Prom
   }
   throw new Error("timed out waiting for blocked advisory lock");
 }
+
+describe("destroyVm home volume cleanup", () => {
+  function destroyGateway(input: {
+    readonly deletedVolumes?: string[];
+    readonly deleteHomeVolume?: NonNullable<VmProviderGatewayShape["deleteHomeVolume"]>;
+  } = {}): VmProviderGatewayShape & { readonly destroyedVmIds: string[] } {
+    const destroyedVmIds: string[] = [];
+    return {
+      ...unusedProviderGateway(),
+      destroy: (_provider, vmId) =>
+        Effect.sync(() => {
+          destroyedVmIds.push(vmId);
+        }),
+      deleteHomeVolume:
+        input.deleteHomeVolume ??
+        ((_provider, volumeName) =>
+          Effect.sync(() => {
+            input.deletedVolumes?.push(volumeName);
+          })),
+      destroyedVmIds,
+    };
+  }
+
+  test("deletes the per-machine home volume marked in providerMetadata", async () => {
+    const userId = "user-volume-marker";
+    const volume = "cmux-home-abcdef123456-noble-wren";
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000140",
+      userId,
+      provider: "blaxel",
+      providerVmId: "noble-wren",
+      status: "running",
+      providerMetadata: { homeVolume: volume, homeVolumePerMachine: true },
+    });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const destroyedIds: string[] = [];
+    const repo = testWorkflowRepo({ vm, usageEvents, destroyedIds });
+    const deletedVolumes: string[] = [];
+    const provider = destroyGateway({ deletedVolumes });
+
+    await Effect.runPromise(
+      destroyVm({ userId, providerVmId: "noble-wren" }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(provider.destroyedVmIds).toEqual(["noble-wren"]);
+    expect(deletedVolumes).toEqual([volume]);
+    expect(destroyedIds).toEqual([vm.id]);
+    const destroyedEvent = usageEvents.find((event) => event.eventType === "vm.destroyed");
+    expect(destroyedEvent?.metadata).toEqual({ homeVolume: volume, homeVolumeDeleted: true });
+  });
+
+  test("deletes a pre-marker per-machine volume recognized by its derived name", async () => {
+    const userId = "user-volume-legacy";
+    const volume = `${homeVolumeNameForUser(userId)}-noble-wren`;
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000141",
+      userId,
+      provider: "blaxel",
+      providerVmId: "noble-wren",
+      status: "running",
+      providerMetadata: { homeVolume: volume },
+    });
+    const deletedVolumes: string[] = [];
+    const repo = testWorkflowRepo({ vm });
+    const provider = destroyGateway({ deletedVolumes });
+
+    await Effect.runPromise(
+      destroyVm({ userId, providerVmId: "noble-wren" }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(deletedVolumes).toEqual([volume]);
+  });
+
+  test("never deletes the shared per-user home volume", async () => {
+    const userId = "user-volume-shared";
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000142",
+      userId,
+      provider: "blaxel",
+      providerVmId: "noble-wren",
+      status: "running",
+      providerMetadata: { homeVolume: homeVolumeNameForUser(userId) },
+    });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const deletedVolumes: string[] = [];
+    const repo = testWorkflowRepo({ vm, usageEvents });
+    const provider = destroyGateway({ deletedVolumes });
+
+    await Effect.runPromise(
+      destroyVm({ userId, providerVmId: "noble-wren" }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(provider.destroyedVmIds).toEqual(["noble-wren"]);
+    expect(deletedVolumes).toEqual([]);
+    const destroyedEvent = usageEvents.find((event) => event.eventType === "vm.destroyed");
+    expect(destroyedEvent?.metadata).toBeUndefined();
+  });
+
+  test("records the leak and still destroys the row when the volume delete fails", async () => {
+    const userId = "user-volume-leak";
+    const volume = "cmux-home-abcdef123456-noble-wren";
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000143",
+      userId,
+      provider: "blaxel",
+      providerVmId: "noble-wren",
+      status: "running",
+      providerMetadata: { homeVolume: volume, homeVolumePerMachine: true },
+    });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const destroyedIds: string[] = [];
+    const repo = testWorkflowRepo({ vm, usageEvents, destroyedIds });
+    const provider = destroyGateway({
+      deleteHomeVolume: () =>
+        Effect.fail(providerOperationError("deleteHomeVolume", "volume still attached")),
+    });
+
+    await Effect.runPromise(
+      destroyVm({ userId, providerVmId: "noble-wren" }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(destroyedIds).toEqual([vm.id]);
+    const leakEvent = usageEvents.find((event) => event.eventType === "vm.home_volume.delete_failed");
+    expect(leakEvent?.metadata).toEqual({ homeVolume: volume, message: "volume still attached" });
+    const destroyedEvent = usageEvents.find((event) => event.eventType === "vm.destroyed");
+    expect(destroyedEvent?.metadata).toEqual({ homeVolume: volume, homeVolumeDeleted: false });
+  });
+
+  test("still deletes the volume and finalizes the row when afterProviderDestroy throws", async () => {
+    const userId = "user-volume-hook-failure";
+    const volume = "cmux-home-abcdef123456-noble-wren";
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000145",
+      userId,
+      provider: "blaxel",
+      providerVmId: "noble-wren",
+      status: "running",
+      providerMetadata: { homeVolume: volume, homeVolumePerMachine: true },
+    });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const destroyedIds: string[] = [];
+    const deletedVolumes: string[] = [];
+    const repo = testWorkflowRepo({ vm, usageEvents, destroyedIds });
+    const provider = destroyGateway({ deletedVolumes });
+    const hookError = new Error("tombstone refresh failed");
+
+    await Effect.runPromise(
+      destroyVm({
+        userId,
+        providerVmId: "noble-wren",
+        afterProviderDestroy: () => {
+          throw hookError;
+        },
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(provider.destroyedVmIds).toEqual(["noble-wren"]);
+    expect(deletedVolumes).toEqual([volume]);
+    expect(destroyedIds).toEqual([vm.id]);
+    const hookEvent = usageEvents.find(
+      (event) => event.eventType === "vm.destroy.after_provider_destroy_failed",
+    );
+    expect(hookEvent?.metadata).toEqual({ message: hookError.message });
+  });
+
+  test("retries a transiently failing markDestroyed write", async () => {
+    const userId = "user-volume-retry";
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000144",
+      userId,
+      provider: "blaxel",
+      providerVmId: "noble-wren",
+      status: "running",
+      providerMetadata: {},
+    });
+    let markCalls = 0;
+    const repo = testWorkflowRepo({
+      vm,
+      markDestroyed: () =>
+        Effect.suspend(() => {
+          markCalls += 1;
+          return markCalls === 1
+            ? Effect.fail(new VmDatabaseError({ operation: "markDestroyed", cause: new Error("transient") }))
+            : Effect.void;
+        }),
+    });
+    const provider = destroyGateway();
+
+    await Effect.runPromise(
+      destroyVm({ userId, providerVmId: "noble-wren" }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(markCalls).toBe(2);
+  });
+});
