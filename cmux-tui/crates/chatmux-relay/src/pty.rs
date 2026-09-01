@@ -237,13 +237,14 @@ fn open_pinned_directory(path: &Path) -> Result<(File, Vec<DirectoryIdentity>), 
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
     use std::os::unix::io::FromRawFd;
 
-    // Linux O_PATH avoids requiring read permission. Darwin's O_EXEC value is
-    // not exposed by every libc release, so keep the documented Darwin value
-    // local and retain execute-only cwd support.
+    // Linux O_PATH avoids requiring read permission. Darwin does not expose a
+    // supported O_EXEC or O_SEARCH flag, so use O_RDONLY there. This keeps the
+    // descriptor walk portable and fail-closed, at the cost of requiring read
+    // permission on macOS directories used as a PTY cwd.
     #[cfg(target_os = "linux")]
     const ACCESS_MODE: libc::c_int = libc::O_PATH;
     #[cfg(target_os = "macos")]
-    const ACCESS_MODE: libc::c_int = 0x4000_0000;
+    const ACCESS_MODE: libc::c_int = libc::O_RDONLY;
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     const ACCESS_MODE: libc::c_int = libc::O_RDONLY;
     let flags = ACCESS_MODE | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
