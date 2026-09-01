@@ -582,6 +582,11 @@ for sdk in "${SLICES[@]}"; do
     [[ -f "$packaged_framework/IshKernel" ]] || die "xcframework is missing the $identifier binary"
     [[ -f "$packaged_framework/Headers/cmux_ish.h" ]] || die "xcframework is missing headers for $identifier"
     [[ -f "$packaged_framework/Modules/module.modulemap" ]] || die "xcframework is missing the module map for $identifier"
+    # `xcodebuild -create-xcframework` rewrites the archive index with the
+    # current clock, even when the input archive was built with `ranlib -D`.
+    # Restore the reproducible index after packaging and before validation.
+    xcrun ranlib -D "$packaged_framework/IshKernel" \
+        || die "could not normalize the packaged archive index for $identifier"
     archive_for "$packaged_framework/IshKernel"
 done
 
